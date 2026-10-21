@@ -180,7 +180,11 @@ let main = Task {
     let mcpLine = mcpServer.withLockedValue { $0 }.map { "MCP server: http://\($0.options.host):\($0.port ?? $0.options.port)\($0.options.path)   (homeswift mcp --snippets for client configs)\n" } ?? ""
     let uiLine = uiServer.withLockedValue { $0 }.map { server -> String in
         let host = server.configuration.host == "0.0.0.0" ? "<this machine>" : server.configuration.host
-        return "Web UI:     http://\(host):\(server.port ?? server.configuration.port)/\n"
+        var line = "Web UI:     http://\(host):\(server.port ?? server.configuration.port)/\n"
+        if let code = server.setupCode, server.users.isEmpty {
+            line += "            Set-up code: \(code)   (asked once, on the visit that creates the administrator account)\n"
+        }
+        return line
     } ?? ""
     say("""
 

@@ -69,8 +69,11 @@ and `set_accessories` refuse them.
 `set_security_accessory`, `update_config`, `patch_config` and `restore_config` ask the user before
 running. When the client supports MCP elicitation, the server asks through it, with the arguments shown
 (secrets redacted), and a declined question means the tool does not run. When the client cannot ask, the
-tool refuses until the call carries `"confirmed": true`, which the client sets once the user agreed.
-`dryRun` previews skip the question. `HOMESWIFT_ELICITATION=false` turns elicitation off.
+tool refuses and the bridge writes a six-digit confirmation code to its log (the terminal and the web UI's
+Logs page; the MCP log tools and notifications hide it). The user passes the code to the assistant, which
+calls again with `confirmationCode`. A code is for that tool and those arguments, lasts five minutes and
+works once; three wrong codes lock the call until it expires. `dryRun` previews skip the question for the
+tools that offer one. `HOMESWIFT_ELICITATION=false` turns elicitation off.
 
 ## Resources and prompts
 

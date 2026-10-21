@@ -170,7 +170,8 @@ configuration changes, and an audit log. `homeswift mcp --snippets` prints the c
 
 A `HomeswiftUI` block adds a web interface on port 8581: status and pairing codes, accessories with live
 control, each plugin's settings as a form from its `config.schema.json`, the raw config.json, and the
-live log, behind a login created on the first visit. See [docs/ui.md](docs/ui.md).
+live log, behind a login created on the first visit with a set-up code from the bridge's output. See
+[docs/ui.md](docs/ui.md).
 
 ```json
 { "platform": "HomeswiftUI" }

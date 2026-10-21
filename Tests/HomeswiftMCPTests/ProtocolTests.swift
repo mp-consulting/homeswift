@@ -192,6 +192,23 @@ struct ProtocolTests {
         // Once.
         #expect(try await client.tool("set_security_accessory", .object(right))["isError"] == true)
         #expect(environment.auditEntries.filter { $0["notConfirmed"] == true }.count == 4)
+
+        // What the MCP log tools return hides the code, so a client cannot read its own code back.
+        #expect(!HomeswiftCatalog.safe("Confirmation needed: tell the assistant the confirmation code \(code) to allow it").contains(code))
+
+        // Three wrong guesses lock a call until its code expires; even the right code is refused then.
+        let second: JSONValue = ["id": "Devices:lock", "characteristic": "Lock Target State", "value": 1]
+        #expect(try await client.tool("set_security_accessory", second)["isError"] == true)
+        let secondCode = try #require(environment.server.confirmationCodes.current(tool: "set_security_accessory", arguments: second))
+        var guess = second.objectValue!
+        guess["confirmationCode"] = .string(secondCode == "000000" ? "000001" : "000000")
+        for _ in 0..<3 { #expect(try await client.tool("set_security_accessory", .object(guess))["isError"] == true) }
+        let locked = try await client.tool("set_security_accessory", second)
+        #expect(locked["content"]?[0]?["text"]?.stringValue?.contains("too many wrong") == true)
+        guess["confirmationCode"] = .string(secondCode)
+        #expect(try await client.tool("set_security_accessory", .object(guess))["isError"] == true)
+        #expect(environment.written.count == 1)
+        #expect(environment.auditEntries.filter { $0["notConfirmed"] == true }.count == 10)
     }
 
     @Test func revealsSecretsOnlyToAdminsWhenAllowed() async throws {

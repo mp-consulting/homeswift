@@ -22,6 +22,9 @@ public struct UIConfiguration: Sendable, Equatable {
     public var auth = AuthMode.form
     /// How long a login lasts without activity.
     public var sessionDays = 7
+    /// Names the UI answers to besides IP addresses, localhost and this machine's name: a DNS name, a reverse
+    /// proxy's host. Lower-cased. `*` allows every name.
+    public var allowedHosts: [String] = []
 
     public init() {}
 
@@ -40,6 +43,12 @@ public struct UIConfiguration: Sendable, Equatable {
         if let days = block["sessionDays"], !days.isNull {
             guard let value = days.intValue, value > 0 else { throw UIConfigurationError.invalid(key: "sessionDays", expected: "a positive number") }
             sessionDays = value
+        }
+        if let hosts = block["allowedHosts"], !hosts.isNull {
+            guard let list = hosts.arrayValue, list.allSatisfy({ $0.stringValue != nil }) else {
+                throw UIConfigurationError.invalid(key: "allowedHosts", expected: "a list of host names")
+            }
+            allowedHosts = list.compactMap(\.stringValue).map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty }
         }
     }
 }
