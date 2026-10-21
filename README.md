@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/icon.svg" width="128" height="128" alt="Homeswift icon: a white house with a swift flying inside, on an orange square">
+  <img src="docs/images/icon.svg" width="128" height="128" alt="Homeswift icon: the Swift bird inside a white house, on an orange square">
 </p>
 
 <h1 align="center">Homeswift</h1>
@@ -164,4 +164,4 @@ metadata), build outside the repository with `--scratch-path ~/Library/Caches/ho
 
 MIT, see [LICENSE](LICENSE). The service and characteristic definitions come from HAP-NodeJS (Apache-2.0).
 
-Homeswift is not made or endorsed by Apple. HomeKit is a trademark of Apple Inc.
+Homeswift is not made or endorsed by Apple. HomeKit, Swift and the Swift logo are trademarks of Apple Inc.
