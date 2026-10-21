@@ -21,6 +21,12 @@ All notable changes to this project are documented here. The format follows
 - `BonjourBrowser.browse(type:)`: service discovery through dns_sd on macOS and Avahi on Linux, with host,
   port, TXT record and addresses.
 - `HAPServer.Options.deviceID` overrides the stored device ID (Homebridge's `username`).
+- **The Assistant** (`HomeswiftAI`), a port of `homebridge-ai-kit`'s core: Claude, OpenAI (Responses and
+  Chat Completions), Gemini and OpenAI-compatible providers over plain HTTP with retries and streaming,
+  Apple's on-device model on macOS 26, secret redaction, prompts, schema-checked JSON with one repair,
+  usage and Claude cost tracking. A `HomeswiftAiKit` block in config.json (the keys of homebridge-ai-kit)
+  turns it on; plugins get it as `context.assistant`; `homeswift ask`, `explain` and `diagnose` use it from
+  the command line, on the on-device model when there is no block. `docs/ai.md`.
 
 ### Changed
 

@@ -13,13 +13,16 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `Sources/Homeswift/Pairing` | Setup code and URI, pair setup, pair verify, pairings |
 | `Sources/Homeswift/Server` | `HAPServer`, `HAPConnection` (one task per connection), HTTP, sessions, endpoints, storage, Bonjour advertiser and `BonjourBrowser` |
 | `Sources/HomeswiftPlugin` | `HomeswiftPlugin` protocol, `PluginContext`, `PluginRegistry`, `HomeswiftConfiguration` (Homebridge-shaped config.json), `AccessoryCache`, `PluginHost` (bridges, child bridges, plugin lifecycle) |
-| `Sources/HomeswiftCLI` | The `homeswift` binary: arguments, log format, `Plugins.swift` lists the plugins compiled in |
+| `Sources/HomeswiftCLI` | The `homeswift` binary: arguments, log format, `Plugins.swift` lists the plugins compiled in, `AssistantCommands.swift` the `ask`/`explain`/`diagnose` commands |
+| `Sources/HomeswiftAI` | The Assistant: `Provider` adapters (`Providers/`), `AIConfiguration` (the `HomeswiftAiKit` block), `Redaction`, `Prompts`, `JSONGeneration`, `Pricing`/`UsageTracker`, `AssistantService` |
 | `Plugins/<Name>` | One plugin: `Sources` (target `Homeswift<Name>`), `Tests`, `README.md`, `config.schema.json`. `ElgatoKeyLights` is the reference |
 | `Sources/CHAPMath` | C Montgomery multiplication for SRP |
 | `Sources/CDNSSD` | Avahi's dns_sd on Linux (macOS imports `dnssd`) |
 | `Tests/HomeswiftTests` | Primitives (SRP vectors from fast-srp-hap) and a real controller (`TestController`) against the server |
 | `Tests/HomeswiftPluginTests` | Config decoding, `PluginHost` with a recording plugin: cache, child bridges, id conflicts |
 | `docs/plugins.md` | How to write a plugin, the runtime's files, porting from Homebridge, where plugins live |
+| `docs/ai.md` | The Assistant: configuration, providers, command line, use from a plugin, what reaches a provider |
+| `Tests/HomeswiftAITests` | Providers against a fake transport (request shapes, parsing, streaming, retries), redaction, schema checks, the Assistant on a fake provider |
 
 ## Commands
 
@@ -58,6 +61,10 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
   Plugins depend on `Homeswift` and `HomeswiftPlugin` only; shared transports become targets of this package.
 - The executable target is `HomeswiftCLI`, not `homeswift`: that name is `Homeswift` on a case-insensitive
   file system.
+- The Assistant: providers talk to the APIs over plain HTTP (no SDKs), through `HTTPTransport` so tests use
+  canned replies; every input goes through `Redaction` before a request; prompts live in `Prompts.swift`;
+  plugins never depend on a provider (`context.assistant` is optional). Claude requests send no `thinking`
+  settings, prefills or forced tool choices. Darwin-only `FoundationModels` stays behind `#if canImport`.
 
 ## Releases
 

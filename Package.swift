@@ -8,6 +8,7 @@ let package = Package(
     products: [
         .library(name: "Homeswift", targets: ["Homeswift"]),
         .library(name: "HomeswiftPlugin", targets: ["HomeswiftPlugin"]),
+        .library(name: "HomeswiftAI", targets: ["HomeswiftAI"]),
         .library(name: "HomeswiftElgatoKeyLights", targets: ["HomeswiftElgatoKeyLights"]),
         .executable(name: "homeswift", targets: ["HomeswiftCLI"]),
         .executable(name: "homeswift-demo", targets: ["homeswift-demo"]),
@@ -35,11 +36,17 @@ let package = Package(
                 .target(name: "CDNSSD", condition: .when(platforms: [.linux])),
             ]
         ),
+        // The Assistant: chat providers over plain HTTP (Claude, OpenAI, Gemini, OpenAI-compatible) and Apple's
+        // on-device model, redaction, prompts, schema-checked JSON. No dependency beyond Foundation and swift-log.
+        .target(
+            name: "HomeswiftAI",
+            dependencies: [.product(name: "Logging", package: "swift-log")]
+        ),
         // The plugin API and the runtime that hosts plugins: config.json, cached accessories, child bridges.
         .target(
             name: "HomeswiftPlugin",
             dependencies: [
-                "Homeswift",
+                "Homeswift", "HomeswiftAI",
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
             ]
@@ -56,7 +63,7 @@ let package = Package(
         .executableTarget(
             name: "HomeswiftCLI",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftElgatoKeyLights",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftElgatoKeyLights",
                 .product(name: "Logging", package: "swift-log"),
             ]
         ),
@@ -64,6 +71,10 @@ let package = Package(
         .testTarget(
             name: "HomeswiftTests",
             dependencies: ["Homeswift", .product(name: "Logging", package: "swift-log")]
+        ),
+        .testTarget(
+            name: "HomeswiftAITests",
+            dependencies: ["HomeswiftAI", .product(name: "Logging", package: "swift-log")]
         ),
         .testTarget(
             name: "HomeswiftPluginTests",

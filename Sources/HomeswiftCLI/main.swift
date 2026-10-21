@@ -18,6 +18,9 @@ func fail(_ text: String) -> Never {
 let usage = """
     usage: homeswift [-U <path>] [-D]
            homeswift plugins
+           homeswift ask <question>
+           homeswift explain <error message>
+           homeswift diagnose [<log file>]
 
     Runs a HomeKit bridge with the plugins listed in <path>/config.json and prints its setup code.
     The file has Homebridge's shape: a "bridge" block and "platforms" blocks (see docs/plugins.md).
@@ -31,14 +34,19 @@ let usage = """
 
     Commands:
       plugins                         list the plugins compiled into this binary
+      ask                             ask the Assistant a question (docs/ai.md)
+      explain                         have the Assistant explain a device error
+      diagnose                        have the Assistant diagnose a log file, or the log piped in
 
     Environment:
       HAP_DEBUG                       log every request (trace level)
+      ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY   API keys when the HomeswiftAiKit block has none
     """
 
 var storagePath = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".homeswift")
 var debug = false
 var command = "run"
+var commandArguments: [String] = []
 var arguments = CommandLine.arguments.dropFirst().makeIterator()
 while let argument = arguments.next() {
     switch argument {
@@ -55,6 +63,10 @@ while let argument = arguments.next() {
         exit(0)
     case "plugins":
         command = "plugins"
+    case "ask", "explain", "diagnose":
+        command = argument
+        // Everything after the command is the question, the error or the file.
+        while let rest = arguments.next() { commandArguments.append(rest) }
     default:
         fail("unknown argument \(argument); see --help")
     }
@@ -94,6 +106,23 @@ do {
     configuration = try HomeswiftConfiguration.load(from: configURL)
 } catch {
     fail("\(configURL.path): \(error)")
+}
+
+if ["ask", "explain", "diagnose"].contains(command) {
+    // Top-level code runs on the main actor, so the command runs detached and the main thread serves Dispatch.
+    let selectedCommand = command
+    let selectedArguments = commandArguments
+    let selectedConfiguration = configuration
+    Task.detached {
+        do {
+            try await AssistantCommands.run(selectedCommand, arguments: selectedArguments, configuration: selectedConfiguration, logger: logger)
+            exit(0)
+        } catch {
+            FileHandle.standardError.write(Data("homeswift: \(error)\n".utf8))
+            exit(1)
+        }
+    }
+    dispatchMain()
 }
 
 let host: PluginHost

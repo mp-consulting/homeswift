@@ -148,6 +148,19 @@ are back in the Home app at the next launch before the plugin has reached its de
 |---|---|---|
 | [Elgato Key Lights](Plugins/ElgatoKeyLights) | `ElgatoKeyLights` | Key Light, Key Light Air, Key Light Mini, Ring Light |
 
+## The Assistant
+
+Add a `HomeswiftAiKit` block and the bridge gets an AI assistant: it explains device errors, diagnoses
+logs, answers questions and writes configuration blocks, on Claude, OpenAI, Gemini, a local
+OpenAI-compatible server, or Apple's on-device model (macOS 26 with Apple Intelligence; no key, nothing
+leaves the Mac). Plugins reach it through `context.assistant`; the command line through
+`homeswift ask`, `homeswift explain` and `homeswift diagnose`. Secrets are redacted before anything is
+sent. See [docs/ai.md](docs/ai.md).
+
+```json
+{ "platform": "HomeswiftAiKit", "provider": "apple" }
+```
+
 ## Demo
 
 `homeswift-demo` is a bridge with a lamp, a switch and a temperature sensor that drifts. Install it with
@@ -178,6 +191,7 @@ request. Its state lives in `~/.homeswift/homeswift-demo.json`.
 | Server: SwiftNIO listener, HTTP and EVENT messages, encrypted sessions, endpoints, storage, Bonjour advertising and browsing | `Sources/Homeswift/Server` |
 | Plugin API and runtime: `HomeswiftPlugin`, `PluginContext`, `PluginHost`, config.json, the accessory cache, child bridges | `Sources/HomeswiftPlugin` |
 | The `homeswift` bridge: command line, logging, the plugins compiled in | `Sources/HomeswiftCLI` |
+| The Assistant: chat providers over plain HTTP, Apple's on-device model, redaction, prompts, schema-checked JSON | `Sources/HomeswiftAI` |
 | Plugins, one directory each with sources, tests, README and config schema | `Plugins/` |
 
 Each connection handles its requests in order on one task; handlers are `async`, so a slow device never blocks
