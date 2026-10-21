@@ -20,7 +20,7 @@ public final class OpenAIProvider: Provider {
         let kind = configuration.provider == .openai ? AIConfiguration.ProviderKind.openai : .openaiCompatible
         name = kind.rawValue
         if kind == .openai, configuration.apiKey == nil {
-            throw AIConfigurationError.missingAPIKey(provider: "openai", environmentVariable: "OPENAI_API_KEY")
+            throw AIConfigurationError.missingAPIKey(provider: "openai", environmentVariable: AIConfiguration.ProviderKind.openai.apiKeyEnvironmentVariable)
         }
         model = configuration.model
         apiKey = configuration.apiKey
@@ -34,10 +34,8 @@ public final class OpenAIProvider: Provider {
         effort = configuration.effort
         retry = RetryOptions(maxRetries: configuration.maxRetries)
         self.transport = transport
-        capabilities = ProviderCapabilities(
-            tools: true, streaming: true,
-            contextTokens: configuration.contextTokens ?? (kind == .openai ? 128_000 : 8192),
-            jsonMode: kind == .openai)
+        capabilities = ProviderCapabilities(streaming: true,
+            contextTokens: configuration.contextTokens ?? (kind == .openai ? 128_000 : 8192))
     }
 
     // MARK: Messages

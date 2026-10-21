@@ -8,8 +8,8 @@ enum AssistantCommands {
     /// The Assistant of config.json's `HomeswiftAiKit` block, or Apple's on-device model when there is no
     /// block and the Mac has Apple Intelligence.
     static func makeAssistant(configuration: HomeswiftConfiguration, logger: Logger) throws -> AssistantService {
-        if let block = configuration.platforms.first(where: { $0.platform == AIConfiguration.platform }) {
-            let ai = try AIConfiguration(block: try JSONValue(data: block.json))
+        if let block = try configuration.block(for: AIConfiguration.platform) {
+            let ai = try AIConfiguration(block: block)
             guard ai.enabled else { throw CommandError("the HomeswiftAiKit block in config.json is disabled") }
             return try AssistantService(configuration: ai, logger: logger)
         }

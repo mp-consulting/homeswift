@@ -26,17 +26,9 @@ struct ModularField {
         for _ in 0..<6 { inverse = inverse &* (2 &- modulus[0] &* inverse) }
         n0inv = 0 &- inverse
 
-        // R mod N, then doubled (64 * count) times gives R^2 mod N.
-        var r = Number(repeating: 0, count: count)
-        var borrow = false
-        for i in 0..<count {
-            let (d1, b1) = (0 as UInt64).subtractingReportingOverflow(modulus[i])
-            let (d2, b2) = d1.subtractingReportingOverflow(borrow ? 1 : 0)
-            r[i] = d2
-            borrow = b1 || b2
-        }
-        let field = (modulus, count)
-        for _ in 0..<(64 * count) { r = Self.add(r, r, modulus: field.0) }
+        // R mod N is R - N, the two's complement of N; doubled (64 * count) times it gives R^2 mod N.
+        var r = Self.rawSubtract(Number(repeating: 0, count: count), modulus).result
+        for _ in 0..<(64 * count) { r = Self.add(r, r, modulus: modulus) }
         r2 = r
     }
 
@@ -81,15 +73,8 @@ struct ModularField {
     func add(_ a: Number, _ b: Number) -> Number { Self.add(a, b, modulus: modulus) }
 
     func subtract(_ a: Number, _ b: Number) -> Number {
-        var out = Number(repeating: 0, count: count)
-        var borrow = false
-        for i in 0..<count {
-            let (d1, b1) = a[i].subtractingReportingOverflow(b[i])
-            let (d2, b2) = d1.subtractingReportingOverflow(borrow ? 1 : 0)
-            out[i] = d2
-            borrow = b1 || b2
-        }
-        return borrow ? Self.addIgnoringCarry(out, modulus) : out
+        let (out, borrow) = Self.rawSubtract(a, b)
+        return borrow ? Self.rawAdd(out, modulus).result : out
     }
 
     func multiply(_ a: Number, _ b: Number) -> Number {
@@ -170,6 +155,12 @@ struct ModularField {
     // MARK: Helpers
 
     private static func add(_ a: Number, _ b: Number, modulus: Number) -> Number {
+        let (out, carry) = rawAdd(a, b)
+        return carry || compare(out, modulus) >= 0 ? rawSubtract(out, modulus).result : out
+    }
+
+    /// Limb-wise `a + b`, with the carry out of the top limb.
+    private static func rawAdd(_ a: Number, _ b: Number) -> (result: Number, carry: Bool) {
         var out = Number(repeating: 0, count: a.count)
         var carry = false
         for i in 0..<a.count {
@@ -178,23 +169,11 @@ struct ModularField {
             out[i] = s2
             carry = c1 || c2
         }
-        if carry || compare(out, modulus) >= 0 { out = subtractIgnoringBorrow(out, modulus) }
-        return out
+        return (out, carry)
     }
 
-    private static func addIgnoringCarry(_ a: Number, _ b: Number) -> Number {
-        var out = Number(repeating: 0, count: a.count)
-        var carry = false
-        for i in 0..<a.count {
-            let (s1, c1) = a[i].addingReportingOverflow(b[i])
-            let (s2, c2) = s1.addingReportingOverflow(carry ? 1 : 0)
-            out[i] = s2
-            carry = c1 || c2
-        }
-        return out
-    }
-
-    private static func subtractIgnoringBorrow(_ a: Number, _ b: Number) -> Number {
+    /// Limb-wise `a - b`, with the borrow out of the top limb.
+    private static func rawSubtract(_ a: Number, _ b: Number) -> (result: Number, borrow: Bool) {
         var out = Number(repeating: 0, count: a.count)
         var borrow = false
         for i in 0..<a.count {
@@ -203,7 +182,7 @@ struct ModularField {
             out[i] = d2
             borrow = b1 || b2
         }
-        return out
+        return (out, borrow)
     }
 
     static func compare(_ a: Number, _ b: Number) -> Int {

@@ -7,8 +7,7 @@ import Logging
 /// `homeswift mcp`: the stdio proxy to the bridge's MCP server, token generation and client snippets.
 enum MCPCommands {
     static func mcpBlock(_ configuration: HomeswiftConfiguration) -> JSONValue? {
-        guard let block = configuration.platforms.first(where: { $0.platform == AIConfiguration.platform }) else { return nil }
-        return try? JSONValue(data: block.json)
+        try? configuration.block(for: AIConfiguration.platform)
     }
 
     static func run(arguments: [String], configuration: HomeswiftConfiguration, logger: Logger) async throws {
@@ -55,18 +54,17 @@ enum MCPCommands {
     }
 
     /// The bridge's MCP server, when the HomeswiftAiKit block enables it.
-    static func startServer(host: PluginHost, configuration: HomeswiftConfiguration, logs: LogBuffer, configURL: URL, logger: Logger, restart: (@Sendable () -> Void)? = nil) async -> MCPHTTPServer? {
+    static func startServer(catalog: HomeswiftCatalog, configuration: HomeswiftConfiguration, logger: Logger) async -> MCPHTTPServer? {
         guard let block = mcpBlock(configuration) else { return nil }
         do {
             let mcp = try MCPConfiguration(block: block)
             guard mcp.enabled else { return nil }
             let environment = ProcessInfo.processInfo.environment
-            let catalog = HomeswiftCatalog(host: host, logs: logs, configURL: configURL, allowSecrets: environment["HOMESWIFT_ALLOW_SECRETS"] == "true", restart: restart, logger: logger)
             var options = MCPServer.Options(version: PluginHost.version, instructions: HomeswiftCatalog.instructions)
             options.elicitation = environment["HOMESWIFT_ELICITATION"] != "false"
             options.logger = logger
             let auditURL = mcp.auditLogPath.map { URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath) }
-                ?? configURL.deletingLastPathComponent().appendingPathComponent("homeswift-mcp-audit.jsonl")
+                ?? catalog.configURL.deletingLastPathComponent().appendingPathComponent("homeswift-mcp-audit.jsonl")
             let server = MCPServer(
                 options: options, tools: catalog.tools, resources: catalog.resources, templates: catalog.templates, prompts: catalog.prompts,
                 audit: mcp.auditLog ? AuditLog(url: auditURL, logger: logger) : nil)

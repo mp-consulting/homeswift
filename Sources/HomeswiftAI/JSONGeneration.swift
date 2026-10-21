@@ -43,7 +43,8 @@ public enum JSONGeneration {
         maxOutputTokens: Int? = nil, onChunk: (@Sendable (String) -> Void)? = nil
     ) async throws -> JSONGenerationResult {
         let system = "\(system ?? Prompts.base)\nReply with JSON only (no prose, no code fences) matching this JSON Schema:\n\(schema.text())"
-        var messages: [ChatMessage] = [.user(prompt)]
+        // Redacted here, whatever the caller did: the rule is the mechanism's, not each feature's.
+        var messages: [ChatMessage] = [.user(Redaction.redactText(prompt))]
         var usage = TokenUsage.zero
         var errors: [String] = []
         var text = ""

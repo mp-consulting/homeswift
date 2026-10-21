@@ -1,33 +1,26 @@
-// The Elgato Key Lights page: the lights the plugin instance knows, refreshed every two seconds.
+// The Elgato Key Lights page: the lights the plugin instance knows, refreshed every two seconds while the
+// page is visible, and redrawn only when something changed.
 (() => {
   "use strict";
+  const { $, el, request, name } = homeswift;
 
-  const el = (tag, attrs = {}, ...children) => {
-    const node = document.createElement(tag);
-    for (const [key, value] of Object.entries(attrs)) {
-      if (key === "class") node.className = value;
-      else if (key === "text") node.textContent = value;
-      else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
-      else if (value !== undefined && value !== null && value !== false) node[key] = value;
-    }
-    for (const child of children.flat()) if (child != null) node.append(child.nodeType ? child : document.createTextNode(String(child)));
-    return node;
-  };
-
-  document.getElementById("instance").textContent = homeswift.name;
-  const list = document.getElementById("lights");
-
+  $("#instance").textContent = name;
+  const list = $("#lights");
   const kelvin = (mirek) => (mirek ? `${Math.round(1000000 / mirek)} K` : "?");
 
   async function identify(light, button) {
     button.disabled = true;
-    try { await homeswift.request(`identify?mac=${encodeURIComponent(light.mac)}`, { method: "POST" }); } catch (e) { alert(e.message); }
+    try { await request(`identify?mac=${encodeURIComponent(light.mac)}`, { method: "POST" }); } catch (e) { alert(e.message); }
     button.disabled = false;
   }
 
+  let shown = null;
   async function refresh() {
     try {
-      const { lights } = await homeswift.request("lights");
+      const { lights } = await request("lights");
+      const answer = JSON.stringify(lights);
+      if (answer === shown) return;
+      shown = answer;
       if (lights.length === 0) {
         list.replaceChildren(el("p", { class: "muted", text: "No light found yet. Lights announce themselves over Bonjour; lights with an address in config.json are polled directly." }));
         return;
@@ -43,10 +36,14 @@
           el("dt", { text: "State" }), el("dd", { text: light.on ? `on, ${light.brightness}%, ${kelvin(light.temperature)}` : "off" })),
         el("div", { class: "actions" }, el("button", { text: "Identify", onclick: (event) => identify(light, event.target) })))));
     } catch (e) {
+      shown = null;
       list.replaceChildren(el("p", { class: "error", text: e.message }));
     }
   }
 
-  refresh();
-  setInterval(refresh, 2000);
+  let timer = null;
+  function start() { if (timer) return; refresh(); timer = setInterval(refresh, 2000); }
+  function stop() { clearInterval(timer); timer = null; }
+  document.addEventListener("visibilitychange", () => (document.hidden ? stop() : start()));
+  start();
 })();

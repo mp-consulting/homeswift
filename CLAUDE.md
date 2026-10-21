@@ -9,13 +9,13 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | Path | What it is |
 |---|---|
 | `Sources/Homeswift/Model` | `Accessory`, `Service`, `Characteristic`, `HAPValue`, `CharacteristicType`; `Definitions.swift` is generated |
-| `Sources/Homeswift/Crypto` | TLV8, `ModularField` (Montgomery arithmetic), SRP-6a, HKDF/ChaCha20 helpers |
+| `Sources/Homeswift/Crypto` | TLV8, `ModularField` (Montgomery arithmetic), SRP-6a, HKDF/ChaCha20 helpers, `Secrets` (random tokens, constant-time compares) |
 | `Sources/Homeswift/Pairing` | Setup code and URI, pair setup, pair verify, pairings |
 | `Sources/Homeswift/Server` | `HAPServer`, `HAPConnection` (one task per connection), HTTP, sessions, endpoints, storage, Bonjour advertiser and `BonjourBrowser` |
 | `Sources/HomeswiftPlugin` | `HomeswiftPlugin` protocol, `PluginContext`, `PluginRegistry`, `HomeswiftConfiguration` (Homebridge-shaped config.json), `AccessoryCache`, `PluginHost` (bridges, child bridges, plugin lifecycle) |
 | `Sources/HomeswiftCLI` | The `homeswift` binary: arguments, log format, `Plugins.swift` lists the plugins compiled in, `AssistantCommands.swift` the `ask`/`explain`/`diagnose` commands |
 | `Sources/HomeswiftAI` | The Assistant: `Provider` adapters (`Providers/`), `AIConfiguration` (the `HomeswiftAiKit` block), `Redaction`, `Prompts`, `JSONGeneration`, `Pricing`/`UsageTracker`, `AssistantService` |
-| `Sources/HomeswiftMCP` | The MCP server: `JSONRPC`, `MCPServer`/`MCPSession` (methods, elicitation), `Scopes` (`MCPConfiguration`, tokens), `AuditLog`, `HomeswiftCatalog` (the tools, resources and prompts over a `PluginHost`; also the web UI's control surface), `HTTPServer` (Streamable HTTP on NIO), `StdioProxy` (`homeswift mcp`) |
+| `Sources/HomeswiftMCP` | The MCP server: `JSONRPC`, `MCPServer`/`MCPSession` (methods, elicitation), `Scopes` (`MCPConfiguration`, tokens), `AuditLog`, `HomeswiftCatalog` (the tools, resources and prompts over a `PluginHost`; also the web UI's control surface), `HTTPServer` (Streamable HTTP on NIO), `StdioProxy` (`homeswift mcp`), `HostName` and `FailureThrottle` (shared with the web UI) |
 | `Sources/HomeswiftUI` | The web UI: `UIConfiguration` (the `HomeswiftUI` block), `Auth` (users, PBKDF2, sessions, login throttle), `UIServer` (NIO HTTP, the JSON API, the event stream), `Web/` (the pages; `WebAssets.swift` is generated from it) |
 | `Scripts/embed-assets.swift` | Embeds a plugin's `config.schema.json` or the `Web/` directory into Swift source; tests fail when the generated files are stale |
 | `Plugins/<Name>` | One plugin: `Sources` (target `Homeswift<Name>`), `Tests`, `README.md`, `config.schema.json`, optionally `Web/` (its own UI page; `Sources/WebFiles.swift` is generated). `ElgatoKeyLights` is the reference |
@@ -88,8 +88,9 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
   needs the set-up code the banner prints (`UIServer.setupCode`), never logged; requests are answered only
   for the server's own `Host` names (`allowedHosts`). Plugin pages are served at `/plugins/<platform>/`
   and talk to their instance through `/api/plugins/<platform>/<name>/…` (`HomeswiftPlugin.webFiles`,
-  `handleWebRequest`). A restart goes through `HomeswiftCatalog.restart`, which the CLI sets to stop
-  everything and `execv` itself (`Restart.swift`); libraries and tests have none.
+  `handleWebRequest`). A restart goes through `HomeswiftCatalog.scheduleRestart`, whose hook the CLI sets to
+  stop everything and `execv` itself (`Restart.swift`); libraries and tests have none. Files the bridge
+  keeps are written with `OwnerOnlyFile.write`.
 
 ## Releases
 

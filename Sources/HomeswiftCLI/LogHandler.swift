@@ -30,12 +30,7 @@ struct HomeswiftLogHandler: LogHandler {
     private func write(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?) {
         let time = Date().formatted(date: .numeric, time: .standard)
         var text = "[\(time)] [\(label)] "
-        switch level {
-        case .trace, .debug: text += "[\(level.rawValue.uppercased())] "
-        case .warning: text += "[WARNING] "
-        case .error, .critical: text += "[ERROR] "
-        case .info, .notice: break
-        }
+        if let tag = level.tag { text += tag + " " }
         var line = message.description
         let merged = self.metadata.merging(metadata ?? [:]) { $1 }
         if !merged.isEmpty {

@@ -102,11 +102,7 @@ let configURL = storagePath.appendingPathComponent("config.json")
 if !FileManager.default.fileExists(atPath: configURL.path) {
     do {
         // Owner-only, like the bridge's state file: config.json holds the setup code and plugin secrets.
-        try FileManager.default.createDirectory(at: storagePath, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        try HomeswiftConfiguration.makeDefault().write(to: configURL, options: .atomic)
-        #if !os(Windows)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
-        #endif
+        try OwnerOnlyFile.write(HomeswiftConfiguration.makeDefault(), to: configURL)
         logger.info("Created \(configURL.path); add platform blocks to it to run plugins")
     } catch {
         fail("could not create \(configURL.path): \(error)")
@@ -134,8 +130,7 @@ if ["ask", "explain", "diagnose", "mcp"].contains(command) {
             }
             exit(0)
         } catch {
-            FileHandle.standardError.write(Data("homeswift: \(error)\n".utf8))
-            exit(1)
+            fail("\(error)")
         }
     }
     dispatchMain()
@@ -152,25 +147,26 @@ do {
 
 let mcpServer = NIOLockedValueBox<MCPHTTPServer?>(nil)
 let uiServer = NIOLockedValueBox<UIServer?>(nil)
+/// Stops the servers, then the plugins and bridges: the signal handler exits afterwards, a restart execs.
+let shutdown: @Sendable () async -> Void = { [host, mcpServer, uiServer] in
+    await uiServer.withLockedValue { $0 }?.stop()
+    await mcpServer.withLockedValue { $0 }?.stop()
+    await host.stop()
+}
 let main = Task {
     do {
         try await host.start()
     } catch {
         fail("could not start: \(error)")
     }
-    // The web UI's Restart button and the restart_bridge tool: stop everything, then exec a fresh copy.
-    let restart: @Sendable () -> Void = {
-        Task.detached {
-            await uiServer.withLockedValue { $0 }?.stop()
-            await mcpServer.withLockedValue { $0 }?.stop()
-            await host.stop()
-            Restart.exec()
-        }
-    }
-    if let started = await MCPCommands.startServer(host: host, configuration: configuration, logs: logBuffer, configURL: configURL, logger: logger, restart: restart) {
+    // The control surface the MCP server and the web UI share; its restart hook execs a fresh copy of this process.
+    let catalog = HomeswiftCatalog(
+        host: host, logs: logBuffer, configURL: configURL, allowSecrets: ProcessInfo.processInfo.environment["HOMESWIFT_ALLOW_SECRETS"] == "true",
+        restart: { Task.detached { await shutdown(); Restart.exec() } }, logger: logger)
+    if let started = await MCPCommands.startServer(catalog: catalog, configuration: configuration, logger: logger) {
         mcpServer.withLockedValue { $0 = started }
     }
-    if let started = await UICommands.startServer(host: host, configuration: configuration, logs: logBuffer, configURL: configURL, logger: logger, restart: restart) {
+    if let started = await UICommands.startServer(catalog: catalog, configuration: configuration, logger: logger) {
         uiServer.withLockedValue { $0 = started }
     }
     for bridge in host.bridges {
@@ -211,12 +207,10 @@ let signals = [SIGINT, SIGTERM].map { number in
     let source = DispatchSource.makeSignalSource(signal: number, queue: .main)
     signal(number, SIG_IGN)
     // Not main-actor code: Dispatch runs the handler on its own terms, so it only uses what it captures.
-    source.setEventHandler { @Sendable [main, host, mcpServer, uiServer] in
+    source.setEventHandler { @Sendable [main, shutdown] in
         main.cancel()
         Task {
-            await uiServer.withLockedValue { $0 }?.stop()
-            await mcpServer.withLockedValue { $0 }?.stop()
-            await host.stop()
+            await shutdown()
             exit(0)
         }
     }

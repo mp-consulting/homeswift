@@ -126,7 +126,7 @@ struct ConfigurationTests {
     @Test func defaultConfigIsValid() throws {
         let configuration = try HomeswiftConfiguration.decode(HomeswiftConfiguration.makeDefault())
         #expect(configuration.bridge.name == "Homeswift")
-        #expect(PluginHost.isDeviceID(try #require(configuration.bridge.username)))
+        #expect(HomeswiftConfiguration.isDeviceID(try #require(configuration.bridge.username)))
         #expect(SetupCode(try #require(configuration.bridge.pin)) != nil)
         #expect(configuration.platforms.isEmpty)
     }
@@ -154,9 +154,9 @@ struct ConfigurationTests {
         #expect(PluginHost.slug("Elgato Key Lights") == "Elgato-Key-Lights")
         #expect(PluginHost.slug("a/b  c.d_e") == "a-b-c.d_e")
         #expect(PluginHost.slug("  ") == "platform")
-        #expect(PluginHost.isDeviceID("0E:1A:2B:3C:4D:5E"))
-        #expect(!PluginHost.isDeviceID("0E:1A:2B:3C:4D"))
-        #expect(!PluginHost.isDeviceID("0E:1A:2B:3C:4D:ZZ"))
+        #expect(HomeswiftConfiguration.isDeviceID("0E:1A:2B:3C:4D:5E"))
+        #expect(!HomeswiftConfiguration.isDeviceID("0E:1A:2B:3C:4D"))
+        #expect(!HomeswiftConfiguration.isDeviceID("0E:1A:2B:3C:4D:ZZ"))
     }
 }
 

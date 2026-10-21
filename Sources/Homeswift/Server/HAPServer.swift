@@ -254,7 +254,7 @@ public final class HAPServer: @unchecked Sendable {
             let serviceKey = "\(service.type.uuid.uuidString)/\(service.subtype ?? "")"
             service.iidBox.withLockedValue { $0 = iid(for: serviceKey) }
             for characteristic in service.characteristics {
-                characteristic.attach(aid: aid, iid: iid(for: serviceKey + "/" + characteristic.type.uuid.uuidString), observer: self)
+                characteristic.attach(aid: aid, iid: iid(for: serviceKey + "/" + characteristic.type.uuid.uuidString), server: self)
             }
         }
         state.accessories[aid] = accessory
@@ -351,7 +351,7 @@ public final class HAPServer: @unchecked Sendable {
     }
 }
 
-extension HAPServer: CharacteristicObserver {
+extension HAPServer {
     func characteristicDidChange(_ characteristic: Characteristic, value: HAPValue, origin: ObjectIdentifier?) {
         let key = CharacteristicKey(aid: characteristic.aid, iid: characteristic.iid)
         let (connections, observers, accessory) = state.withLockedValue { (Array($0.connections.values), $0.changeObservers, $0.accessories[key.aid]) }

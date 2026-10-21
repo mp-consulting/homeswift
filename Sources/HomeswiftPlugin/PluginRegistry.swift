@@ -19,7 +19,9 @@ public struct PluginRegistry: Sendable {
         /// The plugin's config.schema.json as text, when it has one.
         public let configurationSchemaJSON: String?
         /// The plugin's web pages, when it has any.
-        public let webFiles: [String: PluginWebFile]
+        public let webFiles: [String: WebFile]
+        /// Whether the web UI can offer a page for it.
+        public var hasPages: Bool { webFiles["index.html"] != nil }
         let make: @Sendable (_ configuration: Data, _ context: PluginContext) async throws -> any HomeswiftPlugin
     }
 
@@ -47,7 +49,7 @@ public struct PluginRegistry: Sendable {
     }
 
     public mutating func register(
-        platform: String, name: String, configurationSchemaJSON: String? = nil, webFiles: [String: PluginWebFile] = [:],
+        platform: String, name: String, configurationSchemaJSON: String? = nil, webFiles: [String: WebFile] = [:],
         make: @escaping @Sendable (_ configuration: Data, _ context: PluginContext) async throws -> any HomeswiftPlugin
     ) {
         if byPlatform[platform] == nil { order.append(platform) }

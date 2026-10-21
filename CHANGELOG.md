@@ -61,6 +61,9 @@ All notable changes to this project are documented here. The format follows
   and notifications hide confirmation codes; three wrong codes lock a call until its code expires, and
   ten wrong codes in five minutes lock every call for that long.
 
+- The config tools and the web UI refuse to edit a config.json they cannot read, instead of writing a new
+  file over it; the bridge's state directory is created owner-only like every other file it keeps.
+
 - swift-log 1.11 or later.
 
 - JSON responses (the accessory database, reads, writes, events) are written directly instead of through

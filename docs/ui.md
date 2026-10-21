@@ -83,8 +83,9 @@ helper. The content security policy allows scripts and styles from files only, n
 
 The page talks to its instance through `homeswift.request(path, { method, body })`, which sends
 `/api/plugins/<platform>/<name>/<path>` with the session cookie and parses the JSON answer; the plugin
-answers in `handleWebRequest(_:)` with a `PluginWebResponse` (JSON and a status). `homeswift.platform`,
-`homeswift.name` and `homeswift.home` (the Plugins page) are there too. Mutations must be JSON, like the
+answers in `handleWebRequest(_:)` with a `PluginWebResponse` (JSON and a status). `homeswift.el(tag,
+attributes, ...children)` and `homeswift.$(selector)` build and find elements the way the UI's own pages
+do; `homeswift.platform`, `homeswift.name` and `homeswift.home` (the Plugins page) are there too. Mutations must be JSON, like the
 rest of the API. `Plugins/ElgatoKeyLights/Web` is the example: the lights the instance knows, their state,
 and an Identify button.
 

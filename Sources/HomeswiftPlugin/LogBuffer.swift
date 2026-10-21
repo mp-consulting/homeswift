@@ -49,13 +49,22 @@ public final class LogBuffer: Sendable {
 extension LogBuffer.Line {
     /// `[2026-10-21 10:00:00Z] [Elgato Key Lights] [WARNING] message`.
     public var formatted: String {
-        var text = "[\(date.formatted(.iso8601.dateTimeSeparator(.space)))] [\(label)] "
-        switch level {
-        case .trace, .debug: text += "[\(level.rawValue.uppercased())] "
-        case .warning: text += "[WARNING] "
-        case .error, .critical: text += "[ERROR] "
-        case .info, .notice: break
-        }
-        return text + self.text
+        "[\(date.formatted(.iso8601.dateTimeSeparator(.space)))] [\(label)] " + level.tag.map { $0 + " " }.orEmpty + text
     }
+}
+
+extension Logger.Level {
+    /// `[WARNING]`, `[ERROR]`, `[DEBUG]` or `[TRACE]` in a log line; nothing for info and notice.
+    public var tag: String? {
+        switch self {
+        case .trace, .debug: "[\(rawValue.uppercased())]"
+        case .warning: "[WARNING]"
+        case .error, .critical: "[ERROR]"
+        case .info, .notice: nil
+        }
+    }
+}
+
+extension Optional where Wrapped == String {
+    var orEmpty: String { self ?? "" }
 }

@@ -46,8 +46,8 @@ actor LampPlugin: HomeswiftPlugin {
         try context.add(Accessory(id: "Lamps:lock", name: "Front Door", category: .doorLock, services: [lock]))
     }
 
-    static let webFiles: [String: PluginWebFile] = [
-        "index.html": PluginWebFile(contentType: "text/html; charset=utf-8", body: "<!doctype html><title>Lamps</title><script src=\"/plugin.js\"></script>"),
+    static let webFiles: [String: WebFile] = [
+        "index.html": WebFile(contentType: "text/html; charset=utf-8", body: "<!doctype html><title>Lamps</title><script src=\"/plugin.js\"></script>"),
     ]
 
     func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
@@ -137,8 +137,7 @@ final class Browser: @unchecked Sendable {
     }
 
     func send(_ method: String, _ path: String, body: String? = nil) async throws -> Response {
-        let url = path.contains("?") ? URL(string: path, relativeTo: base)!.absoluteURL : base.appendingPathComponent(path)
-        var request = URLRequest(url: url, timeoutInterval: 30)
+        var request = URLRequest(url: URL(string: path, relativeTo: base)!.absoluteURL, timeoutInterval: 30)
         request.httpMethod = method
         if let body {
             request.httpBody = Data(body.utf8)
@@ -192,14 +191,15 @@ final class Browser: @unchecked Sendable {
         sessions.revoke(token)
         #expect(sessions.username(for: token) == nil)
         #expect(SessionStore(lifetime: 60, url: sessionsURL).username(for: token) == nil)
-        #expect(SessionStore(lifetime: -1, url: sessionsURL).count == 0)
-        let kept = SessionStore(lifetime: 60, url: sessionsURL)
-        _ = kept.create(username: "rosaly")
-        _ = kept.create(username: "gone")
-        kept.retain(usernames: ["Rosaly"])
-        #expect(kept.count == 1)
-        #expect(SessionStore(lifetime: 60, url: sessionsURL).count == 1)
-        #expect(SessionStore(lifetime: 0.001, url: sessionsURL).username(for: "x") == nil)   // a loaded expiry is capped at the lifetime
+        // A session whose user is gone ends at use, and is not loaded; a loaded expiry is capped at the lifetime.
+        let only = SessionStore(lifetime: 60, url: sessionsURL, isKnownUser: { $0 == "rosaly" })
+        let kept = only.create(username: "rosaly")
+        let gone = only.create(username: "gone")
+        #expect(only.username(for: gone) == nil)
+        #expect(only.username(for: kept) == "rosaly")
+        #expect(only.count == 1)
+        #expect(SessionStore(lifetime: 60, url: sessionsURL, isKnownUser: { _ in false }).count == 0)
+        #expect(SessionStore(lifetime: 0, url: sessionsURL).count == 0)
     }
 
     @Test func readsTheBlock() throws {
@@ -222,13 +222,17 @@ final class Browser: @unchecked Sendable {
         var bound = UIConfiguration()
         bound.host = "bridge.home"
         #expect(UIServer.allowedHosts(for: bound).contains("bridge.home"))
-        #expect(UIServer.hostName(of: "[::1]:8581") == "::1")
-        #expect(UIServer.hostName(of: "Mac-Mini.local.:8581") == "mac-mini.local")
-        #expect(UIServer.hostName(of: "192.168.1.10") == "192.168.1.10")
-        #expect(UIServer.isIPAddress("192.168.1.10"))
-        #expect(UIServer.isIPAddress("fe80::1%en0"))
-        #expect(!UIServer.isIPAddress("evil.example"))
-        #expect(!UIServer.isIPAddress("300.1.1.1"))
+        #expect(HostName.of("[::1]:8581") == "::1")
+        #expect(HostName.of("Mac-Mini.local.:8581") == "mac-mini.local")
+        #expect(HostName.of("192.168.1.10") == "192.168.1.10")
+        #expect(HostName.port(of: "[::1]:8581") == 8581)
+        #expect(HostName.port(of: "mac-mini.local:8581") == 8581)
+        #expect(HostName.port(of: "::1") == nil)
+        #expect(HostName.port(of: "mac-mini.local") == nil)
+        #expect(HostName.isIPAddress("192.168.1.10"))
+        #expect(HostName.isIPAddress("fe80::1%en0"))
+        #expect(!HostName.isIPAddress("evil.example"))
+        #expect(!HostName.isIPAddress("300.1.1.1"))
         #expect(UIServer.makeSetupCode().count == 9)
         #expect(UIServer.setupCodeMatches("ab cd-efgh", "ABCD-EFGH"))
         #expect(!UIServer.setupCodeMatches("ABCD-EFGJ", "ABCD-EFGH"))
@@ -244,22 +248,19 @@ final class Browser: @unchecked Sendable {
         #expect(try JSONValue(string: ElgatoKeyLightsPlugin.configurationSchemaJSON!)["pluginAlias"] == "ElgatoKeyLights")
     }
 
-    @Test func pluginWebFilesAreCurrent() throws {
-        let web = Self.root.appendingPathComponent("Plugins/ElgatoKeyLights/Web")
-        for name in try FileManager.default.contentsOfDirectory(atPath: web.path) where !name.hasPrefix(".") {
-            let file = try String(contentsOf: web.appendingPathComponent(name), encoding: .utf8)
-            #expect(ElgatoKeyLightsPlugin.webFiles[name]?.body == file, "run: swift Scripts/embed-assets.swift web Plugins/ElgatoKeyLights/Web Plugins/ElgatoKeyLights/Sources/WebFiles.swift ElgatoKeyLightsPlugin (\(name))")
-        }
-        #expect(ElgatoKeyLightsPlugin.webFiles["index.html"]?.contentType == "text/html; charset=utf-8")
+    @Test func webFilesAreCurrent() throws {
+        try Self.expectCurrent(WebAssets.files, from: "Sources/HomeswiftUI/Web", command: "web Sources/HomeswiftUI/Web Sources/HomeswiftUI/WebAssets.swift")
+        try Self.expectCurrent(ElgatoKeyLightsPlugin.webFiles, from: "Plugins/ElgatoKeyLights/Web", command: "web Plugins/ElgatoKeyLights/Web Plugins/ElgatoKeyLights/Sources/WebFiles.swift ElgatoKeyLightsPlugin")
     }
 
-    @Test func webAssetsAreCurrent() throws {
-        let web = Self.root.appendingPathComponent("Sources/HomeswiftUI/Web")
+    /// Every file of the directory is embedded as written, with its media type.
+    static func expectCurrent(_ files: [String: WebFile], from directory: String, command: String) throws {
+        let web = root.appendingPathComponent(directory)
         for name in try FileManager.default.contentsOfDirectory(atPath: web.path) where !name.hasPrefix(".") {
             let file = try String(contentsOf: web.appendingPathComponent(name), encoding: .utf8)
-            #expect(WebAssets.files[name]?.body == file, "run: swift Scripts/embed-assets.swift web Sources/HomeswiftUI/Web Sources/HomeswiftUI/WebAssets.swift (\(name))")
+            #expect(files[name]?.body == file, "run: swift Scripts/embed-assets.swift \(command) (\(name))")
         }
-        #expect(WebAssets.files["index.html"]?.contentType == "text/html; charset=utf-8")
+        #expect(files["index.html"]?.contentType == "text/html; charset=utf-8")
     }
 }
 
@@ -310,7 +311,7 @@ struct UIServerTests {
         #expect(environment.server.isAllowedHost("127.0.0.1:\(port)"))
         #expect(environment.server.isAllowedHost("[::1]:\(port)"))
         #expect(environment.server.isAllowedHost("localhost:\(port)"))
-        if !UIServer.machineName().isEmpty { #expect(environment.server.isAllowedHost(UIServer.machineName())) }
+        if !HomeswiftCatalog.machineName().isEmpty { #expect(environment.server.isAllowedHost(HomeswiftCatalog.machineName())) }
         #expect(!environment.server.isAllowedHost("evil.example:\(port)"))
         #expect(!environment.server.isAllowedHost(nil))
 

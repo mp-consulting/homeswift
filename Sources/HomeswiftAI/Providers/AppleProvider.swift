@@ -49,7 +49,7 @@ final class FoundationModelsProvider: Provider, Sendable {
 
     init(configuration: AIConfiguration) {
         maxOutputTokens = configuration.maxOutputTokens
-        capabilities = ProviderCapabilities(tools: false, streaming: true, contextTokens: configuration.contextTokens ?? 4096, jsonMode: false)
+        capabilities = ProviderCapabilities(streaming: true, contextTokens: configuration.contextTokens ?? 4096)
     }
 
     /// One prompt from the conversation: the last user message alone, or a transcript when there is history.

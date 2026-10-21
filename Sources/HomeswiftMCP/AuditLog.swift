@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftAI
 import Logging
 import NIOConcurrencyHelpers
@@ -74,10 +75,7 @@ public final class AuditLog: Sendable {
                     try handle.seekToEnd()
                     try handle.write(contentsOf: line)
                 } else {
-                    try line.write(to: url, options: .atomic)
-                    #if !os(Windows)
-                    try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-                    #endif
+                    try OwnerOnlyFile.write(line, to: url)
                 }
             } catch {
                 logger.warning("Could not write the audit log", metadata: ["path": "\(url.path)", "error": "\(error)"])

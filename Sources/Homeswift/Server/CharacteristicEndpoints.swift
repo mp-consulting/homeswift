@@ -84,25 +84,20 @@ extension HAPConnection {
             }
 
             if status == .success, let value = item.value {
-                if !permissions.contains(.pairedWrite) {
-                    status = .readOnlyCharacteristic
-                } else if permissions.contains(.timedWrite), !timedWriteValid {
+                if permissions.contains(.timedWrite), !timedWriteValid {
                     status = .invalidValueInRequest
-                } else if let coerced = characteristic.type.coerce(value) {
+                } else {
                     do {
                         if characteristic.type.uuid == CharacteristicType.identify.uuid {
                             server.logger.info("Identify requested", metadata: ["aid": "\(item.aid)", "accessory": "\(server.accessory(aid: item.aid)?.name ?? "?")"])
                         }
-                        try await characteristic.writeHandler(for: coerced)?(coerced)
-                        characteristic.update(coerced, origin: id, force: false)
+                        try await characteristic.write(value, origin: id)
                         if item.r == true, permissions.contains(.writeResponse) {
                             readBack = characteristic.value
                         }
                     } catch {
                         status = self.status(for: error)
                     }
-                } else {
-                    status = .invalidValueInRequest
                 }
             }
 

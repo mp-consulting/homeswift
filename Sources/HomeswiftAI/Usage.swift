@@ -58,22 +58,23 @@ public actor UsageTracker {
         public var cost: Double?
     }
 
-    private var requests: [String: Int] = [:]
-    private var usage: [String: TokenUsage] = [:]
+    private var totals: [String: (requests: Int, usage: TokenUsage)] = [:]
 
     public init() {}
 
     public func record(model: String, usage used: TokenUsage) {
-        requests[model, default: 0] += 1
-        usage[model, default: .zero] += used
+        var entry = totals[model] ?? (0, .zero)
+        entry.requests += 1
+        entry.usage += used
+        totals[model] = entry
     }
 
     public var total: Summary {
         var summary = Summary(requests: 0, usage: .zero, cost: 0)
-        for (model, used) in usage {
-            summary.requests += requests[model] ?? 0
-            summary.usage += used
-            if let cost = summary.cost, let modelCost = Pricing.cost(of: model, usage: used) {
+        for (model, entry) in totals {
+            summary.requests += entry.requests
+            summary.usage += entry.usage
+            if let cost = summary.cost, let modelCost = Pricing.cost(of: model, usage: entry.usage) {
                 summary.cost = cost + modelCost
             } else {
                 summary.cost = nil
@@ -83,8 +84,8 @@ public actor UsageTracker {
     }
 
     public var byModel: [String: Summary] {
-        usage.reduce(into: [:]) { result, entry in
-            result[entry.key] = Summary(requests: requests[entry.key] ?? 0, usage: entry.value, cost: Pricing.cost(of: entry.key, usage: entry.value))
+        totals.reduce(into: [:]) { result, entry in
+            result[entry.key] = Summary(requests: entry.value.requests, usage: entry.value.usage, cost: Pricing.cost(of: entry.key, usage: entry.value.usage))
         }
     }
 }

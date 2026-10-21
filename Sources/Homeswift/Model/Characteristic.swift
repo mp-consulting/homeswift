@@ -22,10 +22,6 @@ public enum HAPStatus: Int, Sendable, Codable {
     case insufficientAuthorization = -70411
 }
 
-protocol CharacteristicObserver: AnyObject, Sendable {
-    func characteristicDidChange(_ characteristic: Characteristic, value: HAPValue, origin: ObjectIdentifier?)
-}
-
 /// One value of a service, such as a lightbulb's On or Brightness.
 ///
 /// Set `value` from your device code to update HomeKit; controllers that subscribed get an event.
@@ -40,15 +36,12 @@ public final class Characteristic: @unchecked Sendable {
 
     public let type: CharacteristicType
 
-    struct Weak: @unchecked Sendable {
-        weak var value: (any CharacteristicObserver)?
-    }
-
     struct State {
         var value: HAPValue
         var aid = 0
         var iid = 0
-        var observer = Weak()
+        /// The server the characteristic is attached to, told of every change.
+        weak var server: HAPServer?
         var onRead: ReadHandler?
         var onWrite: WriteHandler?
         var writesChangesOnly = false
@@ -102,10 +95,15 @@ public final class Characteristic: @unchecked Sendable {
     /// handler, stores the value and notifies subscribed controllers. For writes that come from outside
     /// HomeKit, such as an automation or an MCP tool. Timed writes are not enforced.
     public func write(_ value: HAPValue) async throws {
+        try await write(value, origin: nil)
+    }
+
+    /// The write path, for controllers too: `origin` is the connection whose own event is skipped.
+    func write(_ value: HAPValue, origin: ObjectIdentifier?) async throws {
         guard type.permissions.contains(.pairedWrite) else { throw HAPStatusError(.readOnlyCharacteristic) }
         guard let coerced = type.coerce(value) else { throw HAPStatusError(.invalidValueInRequest) }
         try await writeHandler(for: coerced)?(coerced)
-        update(coerced, origin: nil, force: false)
+        update(coerced, origin: origin, force: false)
     }
 
     /// The handler to call for a write of `value`, or nil when there is none or the write changes nothing.
@@ -117,23 +115,23 @@ public final class Characteristic: @unchecked Sendable {
         }
     }
 
-    func attach(aid: Int, iid: Int, observer: any CharacteristicObserver) {
+    func attach(aid: Int, iid: Int, server: HAPServer) {
         state.withLockedValue {
             $0.aid = aid
             $0.iid = iid
-            $0.observer = Weak(value: observer)
+            $0.server = server
         }
     }
 
     func update(_ newValue: HAPValue, origin: ObjectIdentifier?, force: Bool) {
         let coerced = type.coerce(newValue) ?? newValue
-        let (changed, observer) = state.withLockedValue { state -> (Bool, (any CharacteristicObserver)?) in
+        let (changed, server) = state.withLockedValue { state -> (Bool, HAPServer?) in
             let changed = state.value != coerced
             state.value = coerced
-            return (changed, state.observer.value)
+            return (changed, state.server)
         }
         if changed || force, type.permissions.contains(.events) {
-            observer?.characteristicDidChange(self, value: coerced, origin: origin)
+            server?.characteristicDidChange(self, value: coerced, origin: origin)
         }
     }
 }

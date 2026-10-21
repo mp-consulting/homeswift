@@ -13,7 +13,7 @@ public final class GeminiProvider: Provider {
 
     public init(configuration: AIConfiguration, transport: any HTTPTransport = URLSessionTransport()) throws {
         guard let apiKey = configuration.apiKey else {
-            throw AIConfigurationError.missingAPIKey(provider: "gemini", environmentVariable: "GEMINI_API_KEY")
+            throw AIConfigurationError.missingAPIKey(provider: "gemini", environmentVariable: AIConfiguration.ProviderKind.gemini.apiKeyEnvironmentVariable)
         }
         model = configuration.model
         self.apiKey = apiKey
@@ -21,7 +21,7 @@ public final class GeminiProvider: Provider {
         maxOutputTokens = configuration.maxOutputTokens
         retry = RetryOptions(maxRetries: configuration.maxRetries)
         self.transport = transport
-        capabilities = ProviderCapabilities(tools: true, streaming: true, contextTokens: configuration.contextTokens ?? 1_048_576, jsonMode: true)
+        capabilities = ProviderCapabilities(streaming: true, contextTokens: configuration.contextTokens ?? 1_048_576)
     }
 
     static let stopReasons: [String: StopReason] = [

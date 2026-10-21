@@ -60,10 +60,11 @@ public final class StdioProxy: Sendable {
         let writer = Output(write: output)
         await withTaskGroup(of: Void.self) { group in
             for await line in input {
-                if case .request(_, "initialize", _)? = try? JSONRPCMessage.parse(data: line).first {
-                    await forward(line, to: writer)
+                let message = try? JSONRPCMessage.parse(data: line).first
+                if case .request(_, "initialize", _)? = message {
+                    await forward(line, message, to: writer)
                 } else {
-                    group.addTask { await self.forward(line, to: writer) }
+                    group.addTask { await self.forward(line, message, to: writer) }
                 }
             }
         }
@@ -77,8 +78,8 @@ public final class StdioProxy: Sendable {
         return headers
     }
 
-    private func forward(_ line: Data, to writer: Output) async {
-        let message = try? JSONRPCMessage.parse(data: line).first
+    /// `message` is the line parsed, once, by the caller: for the initialize handling and the error's id.
+    private func forward(_ line: Data, _ message: JSONRPCMessage?, to writer: Output) async {
         var isInitialize = false
         if case .request(_, "initialize", _)? = message { isInitialize = true }
         do {

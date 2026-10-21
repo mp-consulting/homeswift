@@ -28,9 +28,9 @@ enum KeyLightAccessory {
                 try await device.apply(LightState(brightness: value.intValue ?? 0))
             }
         lightbulb.characteristic(.colorTemperature)
-            .onRead { .int(LightState.clamp(temperature: try await device.currentState().temperature ?? 143)) }
+            .onRead { .int(LightState.clamp(temperature: try await device.currentState().temperature ?? LightState.temperatureRange.lowerBound)) }
             .onWrite(changesOnly: true) { value in
-                try await device.apply(LightState(temperature: LightState.clamp(temperature: value.intValue ?? 143)))
+                try await device.apply(LightState(temperature: LightState.clamp(temperature: value.intValue ?? LightState.temperatureRange.lowerBound)))
             }
 
         // Changes made elsewhere (the Control Center app, the light's buttons) reach HomeKit as events.

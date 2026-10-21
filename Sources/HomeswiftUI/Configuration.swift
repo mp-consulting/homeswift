@@ -31,9 +31,7 @@ public struct UIConfiguration: Sendable, Equatable {
     public init(block: JSONValue) throws {
         if let host = block["host"]?.stringValue?.trimmingCharacters(in: .whitespaces), !host.isEmpty { self.host = host }
         if let port = block["port"], !port.isNull {
-            guard let value = port.intValue ?? port.stringValue.flatMap(Int.init), (1...65535).contains(value) else {
-                throw UIConfigurationError.invalid(key: "port", expected: "a port number")
-            }
+            guard let value = port.portValue else { throw UIConfigurationError.invalid(key: "port", expected: "a port number") }
             self.port = value
         }
         if let auth = block["auth"]?.stringValue {
