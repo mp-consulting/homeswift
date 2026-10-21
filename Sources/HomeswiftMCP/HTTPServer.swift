@@ -34,7 +34,7 @@ public final class MCPHTTPServer: Sendable {
     public let options: Options
     private let channel = NIOLockedValueBox<(any Channel)?>(nil)
     private let expiry = NIOLockedValueBox<Task<Void, Never>?>(nil)
-    private let failures = NIOLockedValueBox<[String: (count: Int, last: Date)]>([:])
+    private let throttle = FailureThrottle(window: 600, threshold: 3, maxDelay: 5)
     private let attached = NIOLockedValueBox<Set<String>>([])
     var logger: Logger { options.logger }
 
@@ -119,10 +119,9 @@ public final class MCPHTTPServer: Sendable {
     }
 
     private func originAllowed(_ origin: String) -> Bool {
-        guard let url = URL(string: origin), let host = url.host?.lowercased() else { return false }
-        if ["localhost", "127.0.0.1", "::1", "[::1]"].contains(host) { return true }
-        if host == options.host.lowercased() { return true }
-        return options.allowedOrigins.contains { $0 == "*" || $0.lowercased() == origin.lowercased() || URL(string: $0)?.host?.lowercased() == host }
+        guard let url = URL(string: origin), let host = url.host.map(HostName.of) else { return false }
+        if HostName.isLoopback(host) || host == HostName.of(options.host) { return true }
+        return options.allowedOrigins.contains { $0 == "*" || $0.lowercased() == origin.lowercased() || URL(string: $0)?.host.map(HostName.of) == host }
     }
 
     /// The principal of the bearer token. Repeated failures from an address are slowed down.
@@ -130,16 +129,12 @@ public final class MCPHTTPServer: Sendable {
         let header = request.headers["authorization"] ?? ""
         let token = header.hasPrefix("Bearer ") ? String(header.dropFirst(7)).trimmingCharacters(in: .whitespaces) : ""
         if !token.isEmpty, let principal = configuration.principal(for: token) {
-            failures.withLockedValue { $0[request.remote] = nil }
+            throttle.succeeded(request.remote)
             return principal
         }
-        let count = failures.withLockedValue { failures -> Int in
-            let previous = failures[request.remote].map { Date().timeIntervalSince($0.last) < 600 ? $0.count : 0 } ?? 0
-            failures[request.remote] = (previous + 1, Date())
-            return previous + 1
-        }
-        logger.warning("MCP request with a bad token", metadata: ["remote": "\(request.remote)", "failures": "\(count)"])
-        if count >= 3 { try? await Task.sleep(for: .seconds(min(count - 2, 5))) }
+        let penalty = throttle.failed(request.remote)
+        logger.warning("MCP request with a bad token", metadata: ["remote": "\(request.remote)"])
+        if penalty > .zero { try? await Task.sleep(for: penalty) }
         return nil
     }
 
@@ -256,7 +251,7 @@ public final class MCPHTTPServer: Sendable {
     }
 
     static func event(_ message: JSONRPCMessage) -> Data {
-        Data("event: message\ndata: \(message.json.text())\n\n".utf8)
+        SSE.frame(event: "message", data: message.json.text())
     }
 }
 

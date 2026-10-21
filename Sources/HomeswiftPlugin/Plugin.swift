@@ -52,7 +52,7 @@ public protocol HomeswiftPlugin: Sendable {
     /// the Plugins page. Keep them in the plugin's `Web/` directory and embed them with
     /// `Scripts/embed-assets.swift web Plugins/<Name>/Web Plugins/<Name>/Sources/WebFiles.swift <Type>`.
     /// Defaults to none. `docs/ui.md` describes what a page can do.
-    static var webFiles: [String: PluginWebFile] { get }
+    static var webFiles: [String: WebFile] { get }
 
     /// Creates the instance. Throw for settings the plugin cannot work with; the runtime logs the error
     /// and leaves this block out, the other plugins keep running.
@@ -75,13 +75,13 @@ public protocol HomeswiftPlugin: Sendable {
 extension HomeswiftPlugin {
     public static var name: String { platform }
     public static var configurationSchemaJSON: String? { nil }
-    public static var webFiles: [String: PluginWebFile] { [:] }
+    public static var webFiles: [String: WebFile] { [:] }
     public func stop() async {}
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse { .error(404, "\(Self.name) has no web API") }
 }
 
-/// A file of a plugin's web pages.
-public struct PluginWebFile: Sendable, Equatable {
+/// A file of a web page: the UI's own, or a plugin's.
+public struct WebFile: Sendable, Equatable {
     public let contentType: String
     public let body: String
 

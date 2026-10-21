@@ -81,7 +81,7 @@ final class FakeProvider: Provider, @unchecked Sendable {
 
     init(replies: [String], streaming: Bool = true, contextTokens: Int = 100_000) {
         self.replies = replies
-        capabilities = ProviderCapabilities(tools: true, streaming: streaming, contextTokens: contextTokens, jsonMode: false)
+        capabilities = ProviderCapabilities(streaming: streaming, contextTokens: contextTokens)
     }
 
     private func next(_ request: ChatRequest) -> String {

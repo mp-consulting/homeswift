@@ -166,5 +166,13 @@ public enum AIConfigurationError: Error, CustomStringConvertible, Equatable, Sen
 }
 
 extension String {
-    var nonEmpty: String? { isEmpty ? nil : self }
+    public var nonEmpty: String? { isEmpty ? nil : self }
+}
+
+extension JSONValue {
+    /// A port from a number or a numeric string, 1 to 65535.
+    public var portValue: Int? {
+        guard let value = intValue ?? stringValue.flatMap(Int.init), (1...65535).contains(value) else { return nil }
+        return value
+    }
 }

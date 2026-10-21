@@ -1,5 +1,12 @@
 import Foundation
 import Homeswift
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(Darwin)
+import Darwin
+#endif
 import HomeswiftAI
 import HomeswiftPlugin
 import Logging
@@ -13,7 +20,9 @@ public struct HomeswiftCatalog: Sendable {
     /// `get_config` may return secrets (`HOMESWIFT_ALLOW_SECRETS=true`).
     public let allowSecrets: Bool
     /// Restarts the process, when it can (the `homeswift` binary execs itself). nil in a library or a test.
-    public let restart: (@Sendable () -> Void)?
+    let restart: (@Sendable () -> Void)?
+    /// config.json was changed by a tool or the web UI since the process started.
+    public let restartNeeded = NIOLockedValueBox(false)
     public let startedAt = Date()
     let logger: Logger
 
@@ -29,9 +38,10 @@ public struct HomeswiftCatalog: Sendable {
         self.logger = logger
     }
 
-    /// Runs the restart hook once the current reply has left.
-    public func scheduleRestart() -> Bool {
+    /// Runs the restart hook once the current reply has left. False when this process cannot restart itself.
+    public func scheduleRestart(requestedBy who: String) -> Bool {
         guard let restart else { return false }
+        logger.warning("Restart requested", metadata: ["by": "\(who)"])
         Task {
             try? await Task.sleep(for: .milliseconds(400))
             restart()
@@ -73,6 +83,17 @@ public struct HomeswiftCatalog: Sendable {
 
     public func find(id: String) -> Located? {
         located().first { $0.accessory.id == id }
+    }
+
+    /// The accessory a tool call names by `id`.
+    func accessory(in call: ToolCall) throws -> Located {
+        guard let found = find(id: try call.string("id")) else { throw CatalogError("No accessory with that id") }
+        return found
+    }
+
+    /// Makes the accessory identify itself (a light blinks, a speaker chimes).
+    public func identify(_ located: Located) async throws {
+        try await located.accessory.information.characteristic(.identify).write(.bool(true))
     }
 
     public static func json(_ value: HAPValue) -> JSONValue {
@@ -175,19 +196,28 @@ public struct HomeswiftCatalog: Sendable {
 
     // MARK: Status, plugins, system
 
-    public func statusJSON() -> JSONValue {
-        [
+    /// `includePairing` adds the setup code and URI of a bridge that is not paired yet: for the web UI's
+    /// signed-in user, never for an MCP client.
+    public func statusJSON(includePairing: Bool = false) -> JSONValue {
+        let platforms = host.platforms
+        return [
             "version": .string(PluginHost.version),
             "uptimeSeconds": .number(Date().timeIntervalSince(startedAt).rounded()),
             "configPath": .string(configURL.path),
+            "restartNeeded": .bool(restartNeeded.withLockedValue { $0 }),
             "bridges": .array(host.bridges.map { bridge in
                 let server = bridge.server
-                return [
+                var entry: [String: JSONValue] = [
                     "name": .string(bridge.name), "deviceId": .string(server.deviceID), "port": server.port.map { .number(Double($0)) } ?? .null,
                     "paired": .bool(server.isPaired), "controllers": .number(Double(server.pairings.count)), "childBridge": .bool(bridge.isChild),
                     "accessories": .number(Double(max(0, server.accessories.count - 1))),
-                    "platforms": .array(host.platforms.filter { $0.bridge === bridge }.map { .string($0.name) }),
+                    "platforms": .array(platforms.filter { $0.bridge === bridge }.map { .string($0.name) }),
                 ]
+                if includePairing, !server.isPaired {
+                    entry["setupCode"] = .string(server.setupCode.description)
+                    entry["setupUri"] = .string(server.setupURI)
+                }
+                return .object(entry)
             }),
             "assistant": host.assistant.map { ["provider": .string($0.providerName), "model": .string($0.model)] } ?? .null,
         ]
@@ -202,12 +232,13 @@ public struct HomeswiftCatalog: Sendable {
             }),
             "unknownPlatforms": .array(configured.subtracting(running.map(\.platform)).subtracting(Self.systemPlatforms).sorted().map(JSONValue.string)),
             "plugins": .array(host.registry.entries.map {
-                ["platform": .string($0.platform), "name": .string($0.name), "hasSchema": .bool($0.configurationSchemaJSON != nil), "hasPages": .bool($0.webFiles["index.html"] != nil)]
+                ["platform": .string($0.platform), "name": .string($0.name), "hasSchema": .bool($0.configurationSchemaJSON != nil), "hasPages": .bool($0.hasPages)]
             }),
         ]
     }
 
-    public static func systemJSON() -> JSONValue {
+    /// What does not change while the process runs, read once: `ProcessInfo.hostName` can block on a DNS lookup.
+    private static let machine: [String: JSONValue] = {
         let process = ProcessInfo.processInfo
         #if os(macOS)
         let platform = "macOS"
@@ -217,10 +248,22 @@ public struct HomeswiftCatalog: Sendable {
         let platform = "other"
         #endif
         return [
-            "platform": .string(platform), "os": .string(process.operatingSystemVersionString), "hostname": .string(process.hostName),
-            "cpus": .number(Double(process.processorCount)), "memoryBytes": .number(Double(process.physicalMemory)),
-            "systemUptimeSeconds": .number(process.systemUptime.rounded()), "homeswift": .string(PluginHost.version),
+            "platform": .string(platform), "os": .string(process.operatingSystemVersionString), "hostname": .string(machineName()),
+            "cpus": .number(Double(process.processorCount)), "memoryBytes": .number(Double(process.physicalMemory)), "homeswift": .string(PluginHost.version),
         ]
+    }()
+
+    public static func systemJSON() -> JSONValue {
+        var info = machine
+        info["systemUptimeSeconds"] = .number(ProcessInfo.processInfo.systemUptime.rounded())
+        return .object(info)
+    }
+
+    /// `gethostname`, no DNS lookup: on a Mac the `.local` name.
+    public static func machineName() -> String {
+        var buffer = [CChar](repeating: 0, count: 256)
+        guard gethostname(&buffer, buffer.count) == 0 else { return "" }
+        return buffer.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }.lowercased()
     }
 
     // MARK: Configuration
@@ -264,10 +307,7 @@ public struct HomeswiftCatalog: Sendable {
             try manager.copyItem(at: configURL, to: backupsDirectory.appendingPathComponent(backup))
         }
         for old in backups().dropLast(20) { try? manager.removeItem(at: backupsDirectory.appendingPathComponent(old)) }
-        try config.encoded(pretty: true).write(to: configURL, options: .atomic)
-        #if !os(Windows)
-        try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
-        #endif
+        try OwnerOnlyFile.write(config.encoded(pretty: true), to: configURL)
         return backup
     }
 
@@ -281,7 +321,18 @@ public struct HomeswiftCatalog: Sendable {
             return ["dryRun": true, "changes": .array(changed.map(JSONValue.string)), "config": Redaction.redactSecrets(restored)]
         }
         let backup = try writeConfig(restored)
+        restartNeeded.withLockedValue { $0 = true }
         return ["written": .string(configURL.path), "backup": .string(backup), "changes": .array(changed.map(JSONValue.string)), "note": "Restart homeswift to apply."]
+    }
+
+    /// Reads config.json, lets `edit` change its platform blocks, and applies the result: validation, a
+    /// backup, the restart flag. An unreadable file is an error, never an empty one to write over.
+    public func editPlatforms(dryRun: Bool, _ edit: (inout [JSONValue]) throws -> Void) throws -> JSONValue {
+        var root = try readConfig().objectValue ?? [:]
+        var platforms = root["platforms"]?.arrayValue ?? []
+        try edit(&platforms)
+        root["platforms"] = .array(platforms)
+        return try applyConfig(.object(root), dryRun: dryRun)
     }
 
     static func changedKeys(from a: JSONValue, to b: JSONValue, path: String = "") -> [String] {
@@ -305,10 +356,12 @@ public struct HomeswiftCatalog: Sendable {
     /// Log text as data: secrets masked, confirmation codes hidden (a client must not read its own code back),
     /// and `<untrusted-data>` tags inside it defused so a line cannot end the wrapper.
     public static func safe(_ line: String) -> String {
-        Redaction.redactText(line)
-            .replacingOccurrences(of: #"(?i)(confirmation code )\d{6}"#, with: "$1••••••", options: .regularExpression)
-            .replacingOccurrences(of: "untrusted-data", with: "untrusted\u{2011}data", options: [.caseInsensitive])
+        let redacted = Redaction.redactText(line)
+        let hidden = confirmationCodes.stringByReplacingMatches(in: redacted, range: NSRange(redacted.startIndex..., in: redacted), withTemplate: "$1••••••")
+        return hidden.replacingOccurrences(of: "untrusted-data", with: "untrusted\u{2011}data", options: [.caseInsensitive])
     }
+
+    private static let confirmationCodes = try! NSRegularExpression(pattern: #"(?i)(confirmation code )\d{6}"#)
 
     // MARK: The catalog
 
@@ -343,7 +396,7 @@ public struct HomeswiftCatalog: Sendable {
                 inputSchema: ["type": "object", "required": ["id"], "properties": ["id": idSchema]],
                 scope: .read, idempotent: true
             ) { call in
-                guard let found = catalog.find(id: try call.string("id")) else { return .error("No accessory with that id") }
+                let found = try catalog.accessory(in: call)
                 return .json(Self.accessoryJSON(found, detailed: true))
             },
             MCPTool(
@@ -412,9 +465,9 @@ public struct HomeswiftCatalog: Sendable {
                 description: "Restarts homeswift so configuration changes apply. Every connection, this one included, drops for a few seconds; pairings and accessories are unaffected.",
                 scope: .admin, destructive: true, idempotent: true
             ) { call in
-                guard catalog.restart != nil else { return .error("This process cannot restart itself; restart homeswift by hand.") }
-                catalog.logger.warning("Restart requested through MCP", metadata: ["principal": "\(call.session.principal.name)"])
-                _ = catalog.scheduleRestart()
+                guard catalog.scheduleRestart(requestedBy: "MCP principal \(call.session.principal.name)") else {
+                    return .error("This process cannot restart itself; restart homeswift by hand.")
+                }
                 return .text("Restarting homeswift; reconnect in a few seconds.")
             },
             MCPTool(
@@ -428,7 +481,7 @@ public struct HomeswiftCatalog: Sendable {
                 inputSchema: ["type": "object", "required": ["id", "characteristic", "value"], "properties": writeProperties],
                 scope: .control
             ) { call in
-                guard let found = catalog.find(id: try call.string("id")) else { return .error("No accessory with that id") }
+                let found = try catalog.accessory(in: call)
                 return .json(try await catalog.write(found, service: call.optionalString("service"), characteristic: try call.string("characteristic"), value: call.arguments["value"] ?? .null, allowSecurity: false))
             },
             MCPTool(
@@ -467,7 +520,7 @@ public struct HomeswiftCatalog: Sendable {
                 inputSchema: ["type": "object", "required": ["id", "characteristic", "value"], "properties": writeProperties],
                 scope: .control, destructive: true
             ) { call in
-                guard let found = catalog.find(id: try call.string("id")) else { return .error("No accessory with that id") }
+                let found = try catalog.accessory(in: call)
                 return .json(try await catalog.write(found, service: call.optionalString("service"), characteristic: try call.string("characteristic"), value: call.arguments["value"] ?? .null, allowSecurity: true))
             },
             MCPTool(
@@ -476,8 +529,8 @@ public struct HomeswiftCatalog: Sendable {
                 inputSchema: ["type": "object", "required": ["id"], "properties": ["id": idSchema]],
                 scope: .control
             ) { call in
-                guard let found = catalog.find(id: try call.string("id")) else { return .error("No accessory with that id") }
-                try await found.accessory.information.characteristic(.identify).write(.bool(true))
+                let found = try catalog.accessory(in: call)
+                try await catalog.identify(found)
                 return .text("Identify sent to \(found.accessory.name)")
             },
             MCPTool(
@@ -499,19 +552,16 @@ public struct HomeswiftCatalog: Sendable {
             ) { call in
                 let platform = try call.string("platform")
                 let name = call.optionalString("name")
-                var config = (try? catalog.readConfig()) ?? [:]
-                var platforms = config["platforms"]?.arrayValue ?? []
-                let matching = platforms.indices.filter { platforms[$0]["platform"]?.stringValue == platform && (name == nil || platforms[$0]["name"]?.stringValue == name) }
-                guard matching.count <= 1 else { return .error("\(matching.count) blocks have platform \(platform); give the name") }
-                var block = matching.first.map { platforms[$0].objectValue ?? [:] } ?? ["platform": .string(platform), "name": .string(name ?? platform)]
-                for (key, value) in call.arguments["settings"]?.objectValue ?? [:] where key != "platform" {
-                    if value.isNull { block.removeValue(forKey: key) } else { block[key] = value }
-                }
-                if let index = matching.first { platforms[index] = .object(block) } else { platforms.append(.object(block)) }
-                var root = config.objectValue ?? [:]
-                root["platforms"] = .array(platforms)
-                config = .object(root)
-                return .json(try catalog.applyConfig(config, dryRun: call.isDryRun))
+                let settings = call.arguments["settings"]?.objectValue ?? [:]
+                return .json(try catalog.editPlatforms(dryRun: call.isDryRun) { platforms in
+                    let matching = platforms.indices.filter { platforms[$0]["platform"]?.stringValue == platform && (name == nil || platforms[$0]["name"]?.stringValue == name) }
+                    guard matching.count <= 1 else { throw CatalogError("\(matching.count) blocks have platform \(platform); give the name") }
+                    var block = matching.first.map { platforms[$0].objectValue ?? [:] } ?? ["platform": .string(platform), "name": .string(name ?? platform)]
+                    for (key, value) in settings where key != "platform" {
+                        if value.isNull { block.removeValue(forKey: key) } else { block[key] = value }
+                    }
+                    if let index = matching.first { platforms[index] = .object(block) } else { platforms.append(.object(block)) }
+                })
             },
             MCPTool(
                 name: "restore_config", title: "Restore a config backup",

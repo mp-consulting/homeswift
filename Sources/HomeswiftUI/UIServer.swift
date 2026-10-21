@@ -8,13 +8,6 @@ import NIOConcurrencyHelpers
 import NIOCore
 import NIOHTTP1
 import NIOPosix
-#if canImport(Glibc)
-import Glibc
-#elseif canImport(Musl)
-import Musl
-#elseif canImport(Darwin)
-import Darwin
-#endif
 
 /// The web UI: a NIO HTTP server inside the bridge serving the embedded pages and a JSON API over the
 /// same control surface the MCP server uses (`HomeswiftCatalog`).
@@ -39,10 +32,11 @@ public final class UIServer: Sendable {
     /// prints it; it is never logged, so a client of the MCP log tools cannot claim the UI.
     public let setupCode: String?
     let allowedHosts: Set<String>
+    /// The pairing QR codes, by bridge index: the setup URI does not change while the process runs.
+    private let qrCodes = NIOLockedValueBox<[Int: String]>([:])
     let options: Options
-    let throttle = LoginThrottle()
+    let throttle = FailureThrottle()
     let events = EventHub()
-    private let restartNeeded = NIOLockedValueBox(false)
     private let channel = NIOLockedValueBox<(any Channel)?>(nil)
     var logger: Logger { options.logger }
 
@@ -52,11 +46,13 @@ public final class UIServer: Sendable {
         self.configuration = configuration
         self.catalog = catalog
         self.options = options
-        users = UserStore(url: usersURL, iterations: options.hashIterations)
-        sessions = SessionStore(lifetime: TimeInterval(configuration.sessionDays) * 86_400, url: usersURL.deletingLastPathComponent().appendingPathComponent("ui-sessions.json"))
+        let users = UserStore(url: usersURL, iterations: options.hashIterations)
+        self.users = users
+        sessions = SessionStore(
+            lifetime: TimeInterval(configuration.sessionDays) * 86_400, url: usersURL.deletingLastPathComponent().appendingPathComponent("ui-sessions.json"),
+            isKnownUser: { users.contains($0) })
         setupCode = configuration.auth == .form && users.isEmpty ? Self.makeSetupCode() : nil
         allowedHosts = Self.allowedHosts(for: configuration)
-        sessions.retain(usernames: users.usernames)
     }
 
     /// The bound port, once started.
@@ -113,8 +109,9 @@ public final class UIServer: Sendable {
             .data(status: status, contentType: "application/json", body: value.encoded(), headers: headers)
         }
 
+        /// An error for the page, secrets masked whatever the text came from.
         static func error(_ status: Int, _ message: String) -> Reply {
-            .json(["error": .string(message)], status: status)
+            .json(["error": .string(Redaction.redactText(message))], status: status)
         }
 
         static func text(_ text: String, status: Int = 200, contentType: String) -> Reply {
@@ -141,35 +138,34 @@ public final class UIServer: Sendable {
         } catch let error as JSONRPCError {
             return .error(400, error.message)
         } catch {
-            return .error(400, Redaction.redactText("\(error)"))
+            return .error(400, "\(error)")
         }
     }
 
     // MARK: Pages
 
     private func page(for parts: [String], _ request: Request) -> Reply {
+        let files: [String: WebFile]
+        let name: String
         if parts.first == "plugins", parts.count >= 2 {
             // A plugin's own pages, for a signed-in user; anyone else lands on the login page.
             guard authenticatedUser(request) != nil else { return .redirect(to: "/") }
-            let name = parts.count == 2 ? "index.html" : parts.dropFirst(2).joined(separator: "/")
-            guard let file = catalog.host.registry.entry(for: parts[1])?.webFiles[name] else { return .text("Not found", status: 404, contentType: "text/plain") }
-            return .data(status: 200, contentType: file.contentType, body: Data(file.body.utf8))
+            files = catalog.host.registry.entry(for: parts[1])?.webFiles ?? [:]
+            name = parts.count == 2 ? "index.html" : parts.dropFirst(2).joined(separator: "/")
+        } else {
+            files = WebAssets.files
+            name = parts.isEmpty ? "index.html" : parts.joined(separator: "/")
         }
-        let name = parts.isEmpty ? "index.html" : parts.joined(separator: "/")
-        guard let asset = WebAssets.files[name] else { return .text("Not found", status: 404, contentType: "text/plain") }
-        return .data(status: 200, contentType: asset.contentType, body: Data(asset.body.utf8))
+        guard let file = files[name] else { return .text("Not found", status: 404, contentType: "text/plain") }
+        return .data(status: 200, contentType: file.contentType, body: Data(file.body.utf8))
     }
 
     // MARK: Authentication
 
     func authenticatedUser(_ request: Request) -> String? {
         if configuration.auth == .none { return "local" }
-        guard let token = request.cookies[Self.cookieName], let username = sessions.username(for: token) else { return nil }
-        guard users.contains(username) else {
-            sessions.revoke(token)
-            return nil
-        }
-        return username
+        guard let token = request.cookies[Self.cookieName] else { return nil }
+        return sessions.username(for: token)
     }
 
     private func cookie(_ token: String?) -> String {
@@ -184,8 +180,9 @@ public final class UIServer: Sendable {
             return .error(403, "cross-site request refused")
         }
         if let origin = request.headers["origin"], let host = request.headers["host"] {
-            let originHost = URL(string: origin).map { ($0.host ?? "") + ($0.port.map { ":\($0)" } ?? "") } ?? ""
-            if originHost.lowercased() != host.lowercased() { return .error(403, "origin \(origin) does not match the host") }
+            let url = URL(string: origin)
+            let same = url?.host.map(HostName.of) == HostName.of(host) && url?.port == HostName.port(of: host)
+            if !same { return .error(403, "origin \(origin) does not match the host") }
         }
         if !request.body.isEmpty, !(request.headers["content-type"] ?? "").lowercased().hasPrefix("application/json") {
             return .error(415, "send JSON")
@@ -288,7 +285,13 @@ public final class UIServer: Sendable {
                 if route.count == 2, route[0] == "qr", route[1].hasSuffix(".svg") {
                     // The pairing QR code of a bridge, for the Home app's camera: the setup URI, which the status page shows anyway.
                     guard let index = Int(route[1].dropLast(4)), catalog.host.bridges.indices.contains(index) else { return .error(404, "no such bridge") }
-                    return .text(try QRCode(catalog.host.bridges[index].server.setupURI).svg(), contentType: "image/svg+xml")
+                    let svg = try qrCodes.withLockedValue { codes -> String in
+                        if let cached = codes[index] { return cached }
+                        let svg = try QRCode(catalog.host.bridges[index].server.setupURI).svg()
+                        codes[index] = svg
+                        return svg
+                    }
+                    return .text(svg, contentType: "image/svg+xml")
                 }
                 if route.count == 3, route[0] == "plugins", route[2] == "schema" {
                     guard let text = catalog.host.registry.entry(for: route[1])?.configurationSchemaJSON else { return .error(404, "no schema for \(route[1])") }
@@ -314,14 +317,12 @@ public final class UIServer: Sendable {
             }
         case .POST:
             if route == ["restart"] {
-                guard catalog.restart != nil else { return .error(501, "this process cannot restart itself; restart homeswift by hand") }
-                logger.warning("Restart requested from the web UI", metadata: ["user": "\(username)"])
-                _ = catalog.scheduleRestart()
+                guard catalog.scheduleRestart(requestedBy: "web UI user \(username)") else { return .error(501, "this process cannot restart itself; restart homeswift by hand") }
                 return .json(["restarting": true])
             }
             if route.count == 3, route[0] == "accessories", route[2] == "identify" {
                 guard let found = catalog.find(id: route[1]) else { return .error(404, "no accessory \(route[1])") }
-                try await found.accessory.information.characteristic(.identify).write(.bool(true))
+                try await catalog.identify(found)
                 return .json(JSONValue.object([:]))
             }
         case .DELETE:
@@ -335,48 +336,38 @@ public final class UIServer: Sendable {
     }
 
     private func status(username: String) -> JSONValue {
-        var status = catalog.statusJSON().objectValue ?? [:]
-        status["bridges"] = .array(catalog.host.bridges.map { bridge in
-            var entry: [String: JSONValue] = [
-                "name": .string(bridge.name), "deviceId": .string(bridge.server.deviceID), "port": bridge.server.port.map { .number(Double($0)) } ?? .null,
-                "paired": .bool(bridge.server.isPaired), "controllers": .number(Double(bridge.server.pairings.count)), "childBridge": .bool(bridge.isChild),
-                "accessories": .number(Double(max(0, bridge.server.accessories.count - 1))),
-                "platforms": .array(catalog.host.platforms.filter { $0.bridge === bridge }.map { .string($0.name) }),
-            ]
-            if !bridge.server.isPaired {
-                entry["setupCode"] = .string(bridge.server.setupCode.description)
-                entry["setupUri"] = .string(bridge.server.setupURI)
-            }
-            return .object(entry)
-        })
-        status["restartNeeded"] = .bool(restartNeeded.withLockedValue { $0 })
+        var status = catalog.statusJSON(includePairing: true).objectValue ?? [:]
         status["username"] = .string(username)
         status["system"] = HomeswiftCatalog.systemJSON()
         return .object(status)
     }
 
     /// Replaces (or appends, at the next index) a platform block; nil removes it.
+    private struct NoSuchBlock: Error { let index: Int }
+
     private func replacePlatformBlock(at indexText: String, with block: JSONValue?, username: String) throws -> Reply {
         guard let index = Int(indexText) else { return .error(400, "bad index") }
-        var root = ((try? catalog.readConfig()) ?? [:]).objectValue ?? [:]
-        var platforms = root["platforms"]?.arrayValue ?? []
-        if let block {
-            guard let object = block.objectValue, object["platform"]?.stringValue?.isEmpty == false else { return .error(400, "a platform block needs a platform") }
-            if platforms.indices.contains(index) {
-                platforms[index] = .object(object)
-            } else if index == platforms.count {
-                platforms.append(.object(object))
-            } else {
-                return .error(404, "no block \(index)")
+        do {
+            let result = try catalog.editPlatforms(dryRun: false) { platforms in
+                if let block {
+                    guard let object = block.objectValue, object["platform"]?.stringValue?.isEmpty == false else { throw JSONRPCError.invalidParams("a platform block needs a platform") }
+                    if platforms.indices.contains(index) {
+                        platforms[index] = .object(object)
+                    } else if index == platforms.count {
+                        platforms.append(.object(object))
+                    } else {
+                        throw NoSuchBlock(index: index)
+                    }
+                } else {
+                    guard platforms.indices.contains(index) else { throw NoSuchBlock(index: index) }
+                    platforms.remove(at: index)
+                }
             }
-        } else {
-            guard platforms.indices.contains(index) else { return .error(404, "no block \(index)") }
-            platforms.remove(at: index)
+            noteConfigChange(by: username)
+            return .json(result)
+        } catch let missing as NoSuchBlock {
+            return .error(404, "no block \(missing.index)")
         }
-        root["platforms"] = .array(platforms)
-        let result = try catalog.applyConfig(.object(root), dryRun: false)
-        noteConfigChange(by: username)
-        return .json(result)
     }
 
     static func logJSON(_ line: LogBuffer.Line) -> JSONValue {
@@ -384,7 +375,6 @@ public final class UIServer: Sendable {
     }
 
     private func noteConfigChange(by username: String) {
-        restartNeeded.withLockedValue { $0 = true }
         logger.info("config.json changed from the web UI; restart to apply", metadata: ["user": "\(username)"])
     }
 }
@@ -419,14 +409,17 @@ final class EventHub: Sendable {
         let id = UUID()
         return AsyncStream(bufferingPolicy: .bufferingNewest(500)) { continuation in
             listeners.withLockedValue { $0[id] = continuation }
-            continuation.yield(Data("event: hello\ndata: {}\n\n".utf8))
+            continuation.yield(SSE.frame(event: "hello", data: "{}"))
             continuation.onTermination = { _ in _ = self.listeners.withLockedValue { $0.removeValue(forKey: id) } }
         }
     }
 
-    func broadcast(event: String, payload: JSONValue) {
-        let data = Data("event: \(event)\ndata: \(payload.text())\n\n".utf8)
-        for continuation in listeners.withLockedValue({ Array($0.values) }) { continuation.yield(data) }
+    /// Nothing is encoded while no page listens: this runs inside every log call.
+    func broadcast(event: String, payload: @autoclosure () -> JSONValue) {
+        let targets = listeners.withLockedValue { Array($0.values) }
+        guard !targets.isEmpty else { return }
+        let data = SSE.frame(event: event, data: payload().text())
+        for continuation in targets { continuation.yield(data) }
     }
 
     func close() {
@@ -457,17 +450,10 @@ final class UIRequestHandler: ChannelInboundHandler {
             guard let head else { return }
             var headers: [String: String] = [:]
             for (name, value) in head.headers { headers[name.lowercased()] = value }
-            let uri = head.uri.split(separator: "?", maxSplits: 1)
-            var query: [String: String] = [:]
-            if uri.count == 2 {
-                for pair in uri[1].split(separator: "&") {
-                    let parts = pair.split(separator: "=", maxSplits: 1).map { String($0).replacingOccurrences(of: "+", with: " ") }
-                    guard let key = parts.first?.removingPercentEncoding, !key.isEmpty else { continue }
-                    query[key] = parts.count == 2 ? (parts[1].removingPercentEncoding ?? parts[1]) : ""
-                }
-            }
+            let components = URLComponents(string: head.uri)
+            let query = Dictionary((components?.queryItems ?? []).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { _, last in last })
             let request = UIServer.Request(
-                method: head.method, path: String(uri.first ?? "/"), query: query, headers: headers, body: body,
+                method: head.method, path: components?.percentEncodedPath ?? String(head.uri.prefix { $0 != "?" }), query: query, headers: headers, body: body,
                 remote: context.remoteAddress?.ipAddress ?? "?")
             self.head = nil
             Self.respond(to: request, keepAlive: head.isKeepAlive, channel: context.channel, server: server)
@@ -534,14 +520,14 @@ extension UIServer {
     /// host or an `allowedHosts` entry. A page from another site whose name is rebound to this address fails here.
     func isAllowedHost(_ header: String?) -> Bool {
         guard let header else { return false }
-        let host = Self.hostName(of: header)
+        let host = HostName.of(header)
         if allowedHosts.contains("*") || allowedHosts.contains(host) { return true }
-        return host.hasSuffix(".localhost") || Self.isIPAddress(host)
+        return HostName.isLoopback(host) || HostName.isIPAddress(host)
     }
 
     static func allowedHosts(for configuration: UIConfiguration) -> Set<String> {
         var hosts: Set<String> = ["localhost"]
-        let machine = machineName()
+        let machine = HomeswiftCatalog.machineName()
         if !machine.isEmpty {
             hosts.insert(machine)
             let first = machine.split(separator: ".").first.map(String.init) ?? machine
@@ -549,39 +535,9 @@ extension UIServer {
             hosts.insert(first + ".local")
         }
         let bound = configuration.host.lowercased()
-        if !["", "0.0.0.0", "::", "[::]"].contains(bound) { hosts.insert(hostName(of: bound)) }
-        for entry in configuration.allowedHosts { hosts.insert(hostName(of: entry)) }
+        if !["", "0.0.0.0", "::", "[::]"].contains(bound) { hosts.insert(HostName.of(bound)) }
+        for entry in configuration.allowedHosts { hosts.insert(HostName.of(entry)) }
         return hosts
-    }
-
-    /// The host part of a `Host` header, lower-cased, without the port, brackets or a trailing dot.
-    static func hostName(of header: String) -> String {
-        var host = header.trimmingCharacters(in: .whitespaces).lowercased()
-        if host.hasPrefix("[") {
-            host = String(host.dropFirst().prefix { $0 != "]" })
-        } else if let colon = host.lastIndex(of: ":"), !host[..<colon].contains(":") {
-            host = String(host[..<colon])
-        }
-        while host.hasSuffix(".") { host.removeLast() }
-        return host
-    }
-
-    static func isIPAddress(_ host: String) -> Bool {
-        if host.contains(":") {   // IPv6, maybe with a zone (`fe80::1%en0`, or `%25en0` from a browser)
-            let address = host.prefix { $0 != "%" }
-            return !address.isEmpty && address.allSatisfy { $0.isHexDigit || $0 == ":" || $0 == "." }
-        }
-        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
-        return parts.count == 4 && parts.allSatisfy { part in
-            !part.isEmpty && part.allSatisfy(\.isNumber) && Int(part).map { $0 <= 255 } == true
-        }
-    }
-
-    /// `gethostname`: no DNS lookup. On a Mac this is the `.local` name.
-    static func machineName() -> String {
-        var buffer = [CChar](repeating: 0, count: 256)
-        guard gethostname(&buffer, buffer.count) == 0 else { return "" }
-        return buffer.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }.lowercased()
     }
 
     /// Eight characters from an alphabet without look-alikes, as `XXXX-XXXX`.
@@ -594,6 +550,6 @@ extension UIServer {
     /// Case, spaces and dashes do not matter; compared in constant time.
     static func setupCodeMatches(_ presented: String, _ expected: String) -> Bool {
         func bare(_ code: String) -> Data { Data(code.uppercased().filter { $0.isLetter || $0.isNumber }.utf8) }
-        return constantTimeEqual(bare(presented), bare(expected))
+        return Secrets.constantTimeEqual(bare(presented), bare(expected))
     }
 }

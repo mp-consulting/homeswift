@@ -45,7 +45,7 @@ function uuidLiteral(uuid) {
 }
 
 const permMap = { pr: ".pairedRead", pw: ".pairedWrite", ev: ".events", aa: ".additionalAuthorization", tw: ".timedWrite", hd: ".hidden", wr: ".writeResponse" };
-const num = (v) => (Number.isInteger(v) ? String(v) : String(v));
+const num = (v) => String(v);
 
 const charKeys = Object.keys(hap.Characteristic)
   .filter((k) => hap.Characteristic[k] && typeof hap.Characteristic[k] === "function" && hap.Characteristic[k].UUID)

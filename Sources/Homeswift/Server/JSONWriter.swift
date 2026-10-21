@@ -180,6 +180,12 @@ struct JSONWriter {
 
     private mutating func quoted(_ string: String) {
         bytes.append(UInt8(ascii: "\""))
+        // Nearly every string has nothing to escape: one copy instead of a switch per byte.
+        if string.utf8.allSatisfy({ $0 >= 0x20 && $0 != UInt8(ascii: "\"") && $0 != UInt8(ascii: "\\") }) {
+            bytes.append(contentsOf: string.utf8)
+            bytes.append(UInt8(ascii: "\""))
+            return
+        }
         for byte in string.utf8 {
             switch byte {
             case UInt8(ascii: "\""): bytes.append(contentsOf: [UInt8(ascii: "\\"), UInt8(ascii: "\"")])

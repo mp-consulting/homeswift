@@ -119,12 +119,7 @@ public final class PluginHost: @unchecked Sendable {
         self.options = options
         logger = options.logger
 
-        let bridgeConfiguration = configuration.bridge
-        let main = try Self.makeBridge(
-            name: bridgeConfiguration.name, username: bridgeConfiguration.username, pin: bridgeConfiguration.pin,
-            port: bridgeConfiguration.port, manufacturer: bridgeConfiguration.manufacturer, model: bridgeConfiguration.model,
-            firmwareRevision: bridgeConfiguration.firmwareRevision, storageName: "homeswift", isChild: false,
-            storageDirectory: storageDirectory, options: options)
+        let main = try Self.makeBridge(configuration.bridge, storageName: "homeswift", isChild: false, storageDirectory: storageDirectory, options: options)
         var bridges = [main]
         var instances: [Instance] = []
         var keys = Set<String>()
@@ -166,10 +161,7 @@ public final class PluginHost: @unchecked Sendable {
 
             let bridge: Bridge
             if let child = block.childBridge {
-                bridge = try Self.makeBridge(
-                    name: child.name ?? block.name, username: child.username, pin: child.pin, port: child.port,
-                    manufacturer: child.manufacturer, model: child.model, firmwareRevision: child.firmwareRevision,
-                    storageName: "child-bridges/\(key)", isChild: true, storageDirectory: storageDirectory, options: options)
+                bridge = try Self.makeBridge(child.bridge(named: block.name), storageName: "child-bridges/\(key)", isChild: true, storageDirectory: storageDirectory, options: options)
                 bridges.append(bridge)
             } else {
                 bridge = main
@@ -249,43 +241,40 @@ public final class PluginHost: @unchecked Sendable {
     }
 
     private static func makeBridge(
-        name: String, username: String?, pin: String?, port: Int?, manufacturer: String?, model: String?,
-        firmwareRevision: String?, storageName: String, isChild: Bool, storageDirectory: URL, options: Options
+        _ settings: HomeswiftConfiguration.Bridge, storageName: String, isChild: Bool, storageDirectory: URL, options: Options
     ) throws -> Bridge {
-        var serverLogger = Logger(label: name)
+        var serverLogger = Logger(label: settings.name)
         serverLogger.logLevel = options.logger.logLevel
-        var serverOptions = HAPServer.Options(port: port, advertise: options.advertise, logger: serverLogger)
-        if let pin {
+        var serverOptions = HAPServer.Options(port: settings.port, advertise: options.advertise, logger: serverLogger)
+        if let pin = settings.pin {
             guard let code = SetupCode(pin) else { throw ConfigurationError.invalidSetupCode(pin) }
             serverOptions.setupCode = code
         }
-        if let username {
-            guard Self.isDeviceID(username) else { throw ConfigurationError.invalidUsername(username) }
+        if let username = settings.username {
+            guard HomeswiftConfiguration.isDeviceID(username) else { throw ConfigurationError.invalidUsername(username) }
             serverOptions.deviceID = username.uppercased()
         }
         let accessory = Accessory(
-            id: "bridge", name: name, manufacturer: manufacturer ?? "Homeswift", model: model ?? "Homeswift",
-            serialNumber: username?.uppercased(), firmwareRevision: firmwareRevision ?? version, category: .bridge,
+            id: "bridge", name: settings.name, manufacturer: settings.manufacturer ?? "Homeswift", model: settings.model ?? "Homeswift",
+            serialNumber: settings.username?.uppercased(), firmwareRevision: settings.firmwareRevision ?? version, category: .bridge,
             services: [Service(.protocolInformation, extra: [Characteristic(.version, value: "1.1.0")])])
         let storage = options.makeStorage?(storageName)
             ?? FileStorage(url: storageDirectory.appendingPathComponent("\(storageName).json"))
         let server = try HAPServer(bridge: accessory, accessories: [], storage: storage, options: serverOptions)
         accessory.information.characteristic(.serialNumber).value = .string(server.deviceID)
-        return Bridge(name: name, server: server, isChild: isChild)
+        return Bridge(name: settings.name, server: server, isChild: isChild)
     }
 
     /// The first `HomeswiftAiKit` block, decoded; a malformed one is logged and ignored.
     static func loadAIConfiguration(_ configuration: HomeswiftConfiguration, logger: Logger) -> AIConfiguration? {
-        guard let block = configuration.platforms.first(where: { $0.platform == AIConfiguration.platform }) else { return nil }
         do {
-            return try AIConfiguration(block: try JSONValue(data: block.json))
+            guard let block = try configuration.block(for: AIConfiguration.platform) else { return nil }
+            return try AIConfiguration(block: block)
         } catch {
             logger.error("Assistant unavailable: \(error)")
             return nil
         }
     }
-
-    static func isDeviceID(_ string: String) -> Bool { HomeswiftConfiguration.isDeviceID(string) }
 
     /// A file-name-safe form of a platform instance name.
     static func slug(_ string: String) -> String {

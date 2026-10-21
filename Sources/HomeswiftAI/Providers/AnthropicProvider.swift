@@ -20,7 +20,7 @@ public final class AnthropicProvider: Provider {
 
     public init(configuration: AIConfiguration, transport: any HTTPTransport = URLSessionTransport()) throws {
         guard let apiKey = configuration.apiKey else {
-            throw AIConfigurationError.missingAPIKey(provider: "anthropic", environmentVariable: "ANTHROPIC_API_KEY")
+            throw AIConfigurationError.missingAPIKey(provider: "anthropic", environmentVariable: AIConfiguration.ProviderKind.anthropic.apiKeyEnvironmentVariable)
         }
         guard let url = URL(string: "\(configuration.baseURL ?? AIConfiguration.ProviderKind.anthropic.defaultBaseURL!)/v1/messages") else {
             throw AIConfigurationError.invalid(key: "baseUrl", expected: "a URL")
@@ -34,9 +34,8 @@ public final class AnthropicProvider: Provider {
         fallbacks = configuration.fallbacks ?? Self.supportsFallbacks(model: configuration.model)
         retry = RetryOptions(maxRetries: configuration.maxRetries)
         self.transport = transport
-        capabilities = ProviderCapabilities(
-            tools: true, streaming: true,
-            contextTokens: configuration.contextTokens ?? Self.contextTokens(model: configuration.model), jsonMode: false)
+        capabilities = ProviderCapabilities(streaming: true,
+            contextTokens: configuration.contextTokens ?? Self.contextTokens(model: configuration.model))
     }
 
     /// 200K for Haiku 4.5, 1M for the current generations.

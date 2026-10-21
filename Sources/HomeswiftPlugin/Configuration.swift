@@ -1,4 +1,5 @@
 import Foundation
+import HomeswiftAI
 import Homeswift
 
 /// config.json, in Homebridge's shape so a platform block written for a Homebridge plugin can be pasted in:
@@ -39,10 +40,6 @@ public struct HomeswiftConfiguration: Sendable {
             self.firmwareRevision = firmwareRevision
         }
 
-        enum CodingKeys: String, CodingKey {
-            case name, username, port, pin, manufacturer, model, firmwareRevision
-        }
-
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Homeswift"
@@ -65,11 +62,9 @@ public struct HomeswiftConfiguration: Sendable {
         public var model: String?
         public var firmwareRevision: String?
 
-        public init(name: String? = nil, username: String? = nil, port: Int? = nil, pin: String? = nil) {
-            self.name = name
-            self.username = username
-            self.port = port
-            self.pin = pin
+        /// As a bridge of its own, named after the block when it has no name.
+        public func bridge(named fallback: String) -> Bridge {
+            Bridge(name: name ?? fallback, username: username, port: port, pin: pin, manufacturer: manufacturer, model: model, firmwareRevision: firmwareRevision)
         }
     }
 
@@ -86,7 +81,7 @@ public struct HomeswiftConfiguration: Sendable {
             self.platform = platform
             self.name = name ?? platform
             self.childBridge = childBridge
-            self.json = json ?? Data("{\"platform\":\(Self.quote(platform)),\"name\":\(Self.quote(name ?? platform))}".utf8)
+            self.json = json ?? Data("{\"platform\":\(jsonQuoted(platform)),\"name\":\(jsonQuoted(name ?? platform))}".utf8)
         }
 
         /// A block from a dictionary, for building configurations in code and tests.
@@ -98,9 +93,6 @@ public struct HomeswiftConfiguration: Sendable {
             self.init(platform: platform, name: name, childBridge: childBridge, json: json)
         }
 
-        private static func quote(_ string: String) -> String {
-            String(decoding: try! JSONSerialization.data(withJSONObject: [string]).dropFirst().dropLast(), as: UTF8.self)
-        }
     }
 
     public var bridge: Bridge
@@ -119,6 +111,11 @@ public struct HomeswiftConfiguration: Sendable {
 
     public static func load(from url: URL) throws -> HomeswiftConfiguration {
         try decode(Data(contentsOf: url))
+    }
+
+    /// The first block of a platform, decoded: for the blocks the runtime reads itself (the Assistant, the web UI).
+    public func block(for platform: String) throws -> JSONValue? {
+        try platforms.first { $0.platform == platform }.map { try JSONValue(data: $0.json) }
     }
 
     /// The checks the runtime makes before starting: setup codes and device IDs of the bridge and of every
@@ -183,7 +180,7 @@ public struct HomeswiftConfiguration: Sendable {
         let text = """
             {
               "bridge": {
-                "name": \(Platform.quoteForDefault(name)),
+                "name": \(jsonQuoted(name)),
                 "username": "\(username)",
                 "pin": "\(SetupCode.random().rawValue)"
               },
@@ -196,8 +193,9 @@ public struct HomeswiftConfiguration: Sendable {
     }
 }
 
-extension HomeswiftConfiguration.Platform {
-    fileprivate static func quoteForDefault(_ string: String) -> String { quote(string) }
+/// `string` as a JSON string literal, quotes included.
+private func jsonQuoted(_ string: String) -> String {
+    String(decoding: try! JSONSerialization.data(withJSONObject: [string]).dropFirst().dropLast(), as: UTF8.self)
 }
 
 public enum ConfigurationError: Error, CustomStringConvertible, Equatable, Sendable {

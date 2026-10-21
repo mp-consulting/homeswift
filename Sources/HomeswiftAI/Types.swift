@@ -170,16 +170,12 @@ public enum ChatChunk: Sendable {
 }
 
 public struct ProviderCapabilities: Sendable, Hashable {
-    public var tools: Bool
     public var streaming: Bool
     public var contextTokens: Int
-    public var jsonMode: Bool
 
-    public init(tools: Bool, streaming: Bool, contextTokens: Int, jsonMode: Bool) {
-        self.tools = tools
+    public init(streaming: Bool, contextTokens: Int) {
         self.streaming = streaming
         self.contextTokens = contextTokens
-        self.jsonMode = jsonMode
     }
 }
 

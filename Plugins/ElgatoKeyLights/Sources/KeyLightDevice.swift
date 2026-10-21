@@ -38,6 +38,17 @@ actor KeyLightDevice {
     var host: String { client.host }
     var port: Int { client.port }
 
+    /// What a page shows about the light, read in one hop.
+    struct Snapshot: Sendable {
+        var name: String, model: String, serial: String, firmware: String, host: String, port: Int
+        var isReachable: Bool
+        var state: LightState
+    }
+
+    var snapshot: Snapshot {
+        Snapshot(name: displayName, model: model, serial: serialNumber, firmware: firmwareVersion, host: host, port: port, isReachable: isReachable, state: state)
+    }
+
     var serialNumber: String { info?.serialNumber.flatMap { $0.isEmpty ? nil : $0 } ?? mac }
     var model: String { info?.productName ?? "Elgato Light" }
     var manufacturer: String {

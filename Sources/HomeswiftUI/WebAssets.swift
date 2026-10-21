@@ -1,14 +1,12 @@
 // THIS FILE IS GENERATED from Web/ by Scripts/embed-assets.swift - DO NOT EDIT.
 // swiftlint:disable all
 
-struct WebAsset: Sendable {
-    let contentType: String
-    let body: String
-}
+import HomeswiftPlugin
 
 enum WebAssets {
-    static let files: [String: WebAsset] = [
-        "app.js": WebAsset(contentType: "text/javascript; charset=utf-8", body: #"""
+    /// The UI's pages, as written.
+    static let files: [String: WebFile] = [
+        "app.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // Homeswift web UI: one page, plain JavaScript, no dependencies. Talks to /api/* with the session cookie.
 (() => {
   "use strict";
@@ -93,13 +91,13 @@ enum WebAssets {
 
   async function restartBridge(event) {
     if (!confirm("Restart homeswift now? Every connection drops for a few seconds.")) return;
-    const button = event && event.target;
-    if (button) button.disabled = true;
+    const button = event.target;
+    button.disabled = true;
     try {
       await api("/api/restart", { method: "POST" });
     } catch (e) {
       alert(e.message);
-      if (button) button.disabled = false;
+      button.disabled = false;
       return;
     }
     closeEvents();
@@ -205,6 +203,11 @@ enum WebAssets {
   };
 
   function serviceKey(service) { return service.subtype || service.type; }
+  /// The text for an enumerated value, or the value itself.
+  function labelFor(type, value) {
+    const labels = enumLabels[type];
+    return labels && labels[value] !== undefined ? labels[value] : String(value);
+  }
 
   function controlFor(accessory, service, characteristic) {
     const writable = characteristic.permissions.includes("pw");
@@ -224,7 +227,7 @@ enum WebAssets {
     }
     if (writable && (characteristic.validValues || labels) && characteristic.format !== "bool") {
       const values = characteristic.validValues || labels.map((_, index) => index);
-      const select = el("select", attrs, ...values.map((value) => el("option", { value, text: labels && labels[value] !== undefined ? labels[value] : String(value), selected: value === characteristic.value })));
+      const select = el("select", attrs, ...values.map((value) => el("option", { value, text: labelFor(characteristic.type, value), selected: value === characteristic.value })));
       select.addEventListener("change", () => write(Number(select.value), () => {}));
       return select;
     }
@@ -233,7 +236,7 @@ enum WebAssets {
       const value = el("span", { class: "value", text: formatValue(characteristic) });
       let timer;
       input.addEventListener("input", () => { value.textContent = `${input.value}${unit(characteristic)}`; clearTimeout(timer); timer = setTimeout(() => write(Number(input.value), () => {}), 250); });
-      return el("span", { class: "range", ...attrs }, input, value);
+      return el("span", { class: "range", "data-unit": unit(characteristic), ...attrs }, input, value);
     }
     if (writable && characteristic.format === "string") {
       const input = el("input", { type: "text", value: characteristic.value ?? "", ...attrs });
@@ -241,7 +244,7 @@ enum WebAssets {
       return input;
     }
     if (!readable) return el("span", { class: "muted", text: "write-only" });
-    const text = labels && labels[characteristic.value] !== undefined ? labels[characteristic.value] : formatValue(characteristic);
+    const text = labels ? labelFor(characteristic.type, characteristic.value) : formatValue(characteristic);
     return el("span", { class: "value", text, ...attrs });
   }
 
@@ -287,16 +290,12 @@ enum WebAssets {
     for (const node of document.querySelectorAll(selector)) {
       if (event.subtype && node.dataset.service !== event.subtype) continue;
       if (node.classList.contains("switch")) $("input", node).checked = event.value === true;
-      else if (node.classList.contains("range")) { $("input", node).value = event.value; $(".value", node).textContent = `${event.value}${unitOf(node)}`; }
+      else if (node.classList.contains("range")) { $("input", node).value = event.value; $(".value", node).textContent = `${event.value}${node.dataset.unit || ""}`; }
       else if (node.tagName === "SELECT") node.value = String(event.value);
       else if (node.tagName === "INPUT") node.value = event.value;
-      else {
-        const labels = enumLabels[event.characteristic];
-        node.textContent = typeof event.value === "boolean" ? (event.value ? "On" : "Off") : (labels && labels[event.value] !== undefined ? labels[event.value] : String(event.value));
-      }
+      else node.textContent = typeof event.value === "boolean" ? (event.value ? "On" : "Off") : labelFor(event.characteristic, event.value);
     }
   }
-  function unitOf(node) { const value = $(".value", node); const match = value && value.textContent.match(/[^\d.-]+$/); return match ? match[0] : ""; }
 
   // ---- Plugins and settings forms -----------------------------------------
 
@@ -414,17 +413,17 @@ enum WebAssets {
         const rows = [];
         const addRow = (itemValue) => {
           const row = el("div", { class: "item" });
-          let get;
+          const entry = {};
+          const remove = el("button", { class: "link", text: "Remove", onclick: () => { row.remove(); rows.splice(rows.indexOf(entry), 1); } });
           if (items.type === "object" && items.properties) {
             const nested = buildObject(items, itemValue || {});
-            row.append(el("div", { class: "item-head" }, el("span", { class: "muted", text: `${title} ${rows.length + 1}` }), el("button", { class: "link", text: "Remove", onclick: () => { row.remove(); rows.splice(rows.indexOf(entry), 1); } })), nested.element);
-            get = nested.getValue;
+            row.append(el("div", { class: "item-head" }, el("span", { class: "muted", text: `${title} ${rows.length + 1}` }), remove), nested.element);
+            entry.get = nested.getValue;
           } else {
             const f = field("", items, itemValue, false);
-            row.append(el("div", { class: "item-head" }, f.element, el("button", { class: "link", text: "Remove", onclick: () => { row.remove(); rows.splice(rows.indexOf(entry), 1); } })));
-            get = f.get;
+            row.append(el("div", { class: "item-head" }, f.element, remove));
+            entry.get = f.get;
           }
-          const entry = { get };
           rows.push(entry);
           list.append(row);
         };
@@ -549,14 +548,26 @@ enum WebAssets {
     if (!logState || !document.body.contains(logState.output)) return;
     logState.lines.push(line);
     if (logState.lines.length > 2000) logState.lines.shift();
-    if (visible(line)) { logState.output.append(lineNode(line)); if (logState.follow.checked) logState.output.scrollTop = logState.output.scrollHeight; }
+    if (!visible(line)) return;
+    const output = logState.output;
+    output.append(lineNode(line));
+    while (output.childElementCount > 2000) output.firstElementChild.remove();   // the page stays the size of the buffer
+    if (logState.follow.checked) output.scrollTop = output.scrollHeight;
   }
+
+  // A hidden tab keeps no stream open; back in view, the live pages reload their values.
+  document.addEventListener("visibilitychange", () => {
+    if (!(auth && auth.authenticated)) return;
+    if (document.hidden) { closeEvents(); return; }
+    openEvents();
+    if (["#status", "#accessories"].includes(location.hash || "#status")) route();
+  });
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();
 
 """#),
-        "icon.svg": WebAsset(contentType: "image/svg+xml", body: #"""
+        "icon.svg": WebFile(contentType: "image/svg+xml", body: #"""
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <title>Homeswift</title>
   <defs>
@@ -574,7 +585,7 @@ enum WebAssets {
 </svg>
 
 """#),
-        "index.html": WebAsset(contentType: "text/html; charset=utf-8", body: #"""
+        "index.html": WebFile(contentType: "text/html; charset=utf-8", body: #"""
 <!doctype html>
 <html lang="en">
 <head>
@@ -611,7 +622,7 @@ enum WebAssets {
     <span id="user"></span>
     <button id="logout" class="link">Sign out</button>
   </header>
-  <div id="banner" class="banner hidden"><span id="banner-text">Configuration changed. Restart homeswift to apply it.</span> <button id="restart" class="link">Restart now</button></div>
+  <div id="banner" class="banner hidden">Configuration changed. Restart homeswift to apply it. <button id="restart" class="link">Restart now</button></div>
   <main id="view"></main>
 </div>
 <script src="/app.js"></script>
@@ -619,14 +630,29 @@ enum WebAssets {
 </html>
 
 """#),
-        "plugin.js": WebAsset(contentType: "text/javascript; charset=utf-8", body: #"""
+        "plugin.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // For a plugin's own pages, served at /plugins/<platform>/: homeswift.request() talks to the plugin instance
-// named in the page's URL (?name=), with the session cookie. A signed-out visitor is sent to the login page.
+// named in the page's URL (?name=), with the session cookie; homeswift.el() and homeswift.$() build and find
+// elements the way the UI's own pages do. A signed-out visitor is sent to the login page.
 (() => {
   "use strict";
   const platform = decodeURIComponent(location.pathname.split("/")[2] || "");
   const name = new URLSearchParams(location.search).get("name") || platform;
   const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
+
+  const $ = (selector, root = document) => root.querySelector(selector);
+  const el = (tag, attrs = {}, ...children) => {
+    const node = document.createElement(tag);
+    for (const [key, value] of Object.entries(attrs)) {
+      if (key === "class") node.className = value;
+      else if (key === "text") node.textContent = value;
+      else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
+      else if (key.startsWith("data-")) node.setAttribute(key, value);
+      else if (value !== undefined && value !== null && value !== false) node[key] = value;
+    }
+    for (const child of children.flat()) if (child != null) node.append(child.nodeType ? child : document.createTextNode(String(child)));
+    return node;
+  };
 
   async function request(path, { method = "GET", body } = {}) {
     const options = { method, credentials: "same-origin", headers: {} };
@@ -640,11 +666,11 @@ enum WebAssets {
     return json;
   }
 
-  window.homeswift = { platform, name, request, home: "/#plugins" };
+  window.homeswift = { platform, name, request, home: "/#plugins", $, el };
 })();
 
 """#),
-        "style.css": WebAsset(contentType: "text/css; charset=utf-8", body: #"""
+        "style.css": WebFile(contentType: "text/css; charset=utf-8", body: #"""
 /* Liquid glass over a soft, colourful backdrop, after Apple's fluid-interface guidance: materials of three
    weights (thick chrome, regular cards, thin chips) with solid controls on top, feedback on the press, type
    sized and tracked per size, and quieter variants for reduced motion, reduced transparency and more contrast. */

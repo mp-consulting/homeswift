@@ -1,5 +1,6 @@
 import Crypto
 import Foundation
+import Homeswift
 import HomeswiftAI
 import NIOConcurrencyHelpers
 
@@ -30,9 +31,12 @@ public final class UserStore: Sendable {
     public var isEmpty: Bool { state.withLockedValue { $0.isEmpty } }
     public var usernames: [String] { state.withLockedValue { $0.map(\.username) } }
 
-    public func contains(_ username: String) -> Bool {
-        let name = username.lowercased()
-        return state.withLockedValue { $0.contains { $0.username.lowercased() == name } }
+    public func contains(_ username: String) -> Bool { user(named: username) != nil }
+
+    /// Usernames are matched without regard to case or surrounding spaces.
+    private func user(named username: String) -> User? {
+        let name = username.trimmingCharacters(in: .whitespaces).lowercased()
+        return state.withLockedValue { $0.first { $0.username.lowercased() == name } }
     }
 
     /// Adds a user. The username must be new; the password at least eight characters.
@@ -50,8 +54,7 @@ public final class UserStore: Sendable {
         let name = username.trimmingCharacters(in: .whitespaces)
         guard (1...64).contains(name.count), !name.contains(where: { $0.isWhitespace || $0 == ":" }) else { throw AuthError.invalidUsername }
         guard password.count >= 8, password.utf8.count <= 1024 else { throw AuthError.weakPassword }
-        var salt = Data(count: 16)
-        for index in salt.indices { salt[index] = UInt8.random(in: 0...255) }
+        let salt = Secrets.randomBytes(16)
         let user = User(username: name, salt: salt, hash: Self.pbkdf2(password: password, salt: salt, iterations: iterations), iterations: iterations, created: Date())
         try state.withLockedValue { users in
             guard !onlyWhenEmpty || users.isEmpty else { throw AuthError.setupDone }
@@ -63,20 +66,15 @@ public final class UserStore: Sendable {
 
     /// Whether the password is the user's. Every call does the full hash, so timing says nothing about users.
     public func verify(username: String, password: String) -> Bool {
-        let users = state.withLockedValue { $0 }
-        let user = users.first { $0.username.lowercased() == username.trimmingCharacters(in: .whitespaces).lowercased() }
+        let user = user(named: username)
         let salt = user?.salt ?? Data(count: 16)
         let expected = user?.hash ?? Data(count: 32)
         let computed = Self.pbkdf2(password: password, salt: salt, iterations: user?.iterations ?? iterations)
-        return constantTimeEqual(computed, expected) && user != nil
+        return Secrets.constantTimeEqual(computed, expected) && user != nil
     }
 
     private func save(_ users: [User]) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        try JSONEncoder().encode(users).write(to: url, options: .atomic)
-        #if !os(Windows)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        #endif
+        try OwnerOnlyFile.write(JSONEncoder().encode(users), to: url)
     }
 
     /// PBKDF2 with HMAC-SHA256 (RFC 8018), 32 bytes.
@@ -100,16 +98,6 @@ public final class UserStore: Sendable {
     }
 }
 
-func constantTimeEqual(_ a: Data, _ b: Data) -> Bool {
-    var difference = a.count == b.count ? 0 : 1
-    for index in 0..<max(a.count, b.count) {
-        let left = index < a.count ? a[a.startIndex + index] : 0
-        let right = index < b.count ? b[b.startIndex + index] : 0
-        difference |= Int(left ^ right)
-    }
-    return difference == 0
-}
-
 public enum AuthError: Error, CustomStringConvertible, Sendable, Equatable {
     case invalidUsername
     case weakPassword
@@ -130,11 +118,11 @@ public enum AuthError: Error, CustomStringConvertible, Sendable, Equatable {
     }
 }
 
-/// Logged-in sessions: a random token in a cookie, gone after `lifetime` without a request. With a `url`
-/// they are kept in a file (owner-only) and survive a restart of the bridge; the file is written when a
-/// session starts or ends, so a session's expiry in the file is from its start. Sessions are keyed by the
-/// SHA-256 of the token, so neither the file nor memory holds a usable cookie. A loaded session never
-/// outlives the configured lifetime, and `retain(usernames:)` drops the sessions of users that are gone.
+/// Logged-in sessions: a random token in a cookie, gone after `lifetime` without a request, and gone when
+/// `isKnownUser` no longer knows its user (the user file was reset). With a `url` they are kept in a file
+/// (owner-only) and survive a restart of the bridge; the file is written when a session starts or ends, so
+/// a session's expiry in the file is from its start, and a loaded expiry never exceeds the lifetime.
+/// Sessions are keyed by the SHA-256 of the token, so neither the file nor memory holds a usable cookie.
 public final class SessionStore: Sendable {
     struct Session: Codable {
         var username: String
@@ -143,107 +131,74 @@ public final class SessionStore: Sendable {
 
     public let lifetime: TimeInterval
     let url: URL?
+    private let isKnownUser: @Sendable (String) -> Bool
     private let sessions: NIOLockedValueBox<[String: Session]>
 
-    public init(lifetime: TimeInterval, url: URL? = nil) {
+    public init(lifetime: TimeInterval, url: URL? = nil, isKnownUser: @escaping @Sendable (String) -> Bool = { _ in true }) {
         self.lifetime = lifetime
         self.url = url
+        self.isKnownUser = isKnownUser
         let saved = url.flatMap { try? Data(contentsOf: $0) }.flatMap { try? JSONDecoder().decode([String: Session].self, from: $0) } ?? [:]
         let latest = Date().addingTimeInterval(lifetime)
         sessions = NIOLockedValueBox(saved.compactMapValues { session in
             let capped = Session(username: session.username, expires: min(session.expires, latest))
-            return capped.expires > Date() ? capped : nil
+            return capped.expires > Date() && isKnownUser(session.username) ? capped : nil
         })
     }
 
-    /// Keeps only the sessions of these users: after the user file was reset, a kept cookie is worthless.
-    public func retain(usernames: [String]) {
-        let known = Set(usernames.map { $0.lowercased() })
-        sessions.withLockedValue { sessions in
-            let kept = sessions.filter { known.contains($0.value.username.lowercased()) }
-            if kept.count != sessions.count {
-                sessions = kept
-                save(sessions)
-            }
-        }
-    }
-
     public func create(username: String) -> String {
-        var bytes = Data(count: 32)
-        for index in bytes.indices { bytes[index] = UInt8.random(in: 0...255) }
-        let token = bytes.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
-        sessions.withLockedValue { sessions in
+        let token = Secrets.randomToken()
+        update { sessions in
             sessions = sessions.filter { $0.value.expires > Date() }
             sessions[Self.key(for: token)] = Session(username: username, expires: Date().addingTimeInterval(lifetime))
-            save(sessions)
         }
         return token
     }
 
-    static func key(for token: String) -> String {
-        SHA256.hash(data: Data(token.utf8)).map { String(format: "%02x", $0) }.joined()
-    }
-
-    private func save(_ sessions: [String: Session]) {
-        guard let url else { return }
-        do {
-            let directory = url.deletingLastPathComponent()
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            #if !os(Windows)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
-            #endif
-            try JSONEncoder().encode(sessions).write(to: url, options: .atomic)
-            #if !os(Windows)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-            #endif
-        } catch {}
-    }
-
-    /// The user of a live session, refreshing its expiry.
+    /// The user of a live session, refreshing its expiry. A session whose user is gone ends here.
     public func username(for token: String) -> String? {
         let key = Self.key(for: token)
-        return sessions.withLockedValue { sessions in
+        let found: Session? = sessions.withLockedValue { sessions in
             guard let session = sessions[key], session.expires > Date() else {
                 sessions.removeValue(forKey: key)
                 return nil
             }
             sessions[key]?.expires = Date().addingTimeInterval(lifetime)
-            return session.username
+            return session
         }
+        guard let found else { return nil }
+        guard isKnownUser(found.username) else {
+            revoke(token)
+            return nil
+        }
+        return found.username
     }
 
     public func revoke(_ token: String) {
         let key = Self.key(for: token)
-        sessions.withLockedValue { sessions in
-            sessions.removeValue(forKey: key)
-            save(sessions)
-        }
+        update { $0.removeValue(forKey: key) }
     }
 
     public var count: Int { sessions.withLockedValue { $0.count } }
-}
 
-/// Slows down repeated failed logins from one address.
-final class LoginThrottle: Sendable {
-    private let failures = NIOLockedValueBox<[String: (count: Int, last: Date)]>([:])
-
-    /// The delay to impose before answering this attempt.
-    func delay(for remote: String) -> Duration {
-        let count = failures.withLockedValue { failures -> Int in
-            guard let entry = failures[remote], Date().timeIntervalSince(entry.last) < 900 else { return 0 }
-            return entry.count
+    /// Changes the sessions under the lock and writes the file after it, so requests never wait on the disk.
+    private func update(_ change: (inout [String: Session]) -> Void) {
+        let snapshot = sessions.withLockedValue { sessions -> [String: Session] in
+            change(&sessions)
+            return sessions
         }
-        return count >= 5 ? .seconds(min(count - 4, 10)) : .zero
+        guard let url else { return }
+        try? OwnerOnlyFile.write(JSONEncoder().encode(snapshot), to: url)
     }
 
-    func failed(_ remote: String) {
-        failures.withLockedValue { failures in
-            let previous = failures[remote].map { Date().timeIntervalSince($0.last) < 900 ? $0.count : 0 } ?? 0
-            failures[remote] = (previous + 1, Date())
+    static func key(for token: String) -> String {
+        let digits = Array("0123456789abcdef".utf8)
+        var hex: [UInt8] = []
+        hex.reserveCapacity(64)
+        for byte in SHA256.hash(data: Data(token.utf8)) {
+            hex.append(digits[Int(byte >> 4)])
+            hex.append(digits[Int(byte & 0x0F)])
         }
-    }
-
-    func succeeded(_ remote: String) {
-        failures.withLockedValue { $0[remote] = nil }
+        return String(decoding: hex, as: UTF8.self)
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftAI
 
 /// What a client token may do: `read` < `control` (device control) < `admin` (everything).
@@ -75,9 +76,7 @@ public struct MCPConfiguration: Sendable, Equatable {
         enabled = http["enabled"] == .bool(true)
         host = string("host") ?? Self.defaultHost
         if let port = http["port"], !port.isNull {
-            guard let value = port.intValue ?? port.stringValue.flatMap(Int.init), (1...65535).contains(value) else {
-                throw MCPConfigurationError.invalid(key: "mcp.http.port", expected: "a port number")
-            }
+            guard let value = port.portValue else { throw MCPConfigurationError.invalid(key: "mcp.http.port", expected: "a port number") }
             self.port = value
         }
         token = string("token")
@@ -107,11 +106,11 @@ public struct MCPConfiguration: Sendable, Equatable {
     /// time, and all of them are compared whatever matches, so timing says nothing about the tokens.
     public func principal(for presented: String) -> Principal? {
         var found: Principal?
-        if let token, Self.constantTimeEqual(token, presented) {
+        if let token, Secrets.constantTimeEqual(token.utf8, presented.utf8) {
             found = Principal(name: "default", scope: readOnly ? .read : .admin)
         }
         for client in clients {
-            let matches = Self.constantTimeEqual(client.token, presented)
+            let matches = Secrets.constantTimeEqual(client.token.utf8, presented.utf8)
             if matches, found == nil {
                 found = Principal(name: client.name ?? "client", scope: readOnly ? .read : client.scope)
             }
@@ -119,24 +118,8 @@ public struct MCPConfiguration: Sendable, Equatable {
         return found
     }
 
-    static func constantTimeEqual(_ a: String, _ b: String) -> Bool {
-        let x = Array(a.utf8)
-        let y = Array(b.utf8)
-        var difference = x.count == y.count ? 0 : 1
-        for index in 0..<max(x.count, y.count) {
-            let left = index < x.count ? x[index] : 0
-            let right = index < y.count ? y[index] : 0
-            difference |= Int(left ^ right)
-        }
-        return difference == 0
-    }
-
     /// A random token for a client: 32 bytes, URL-safe base64.
-    public static func generateToken() -> String {
-        var bytes = [UInt8](repeating: 0, count: 32)
-        for index in bytes.indices { bytes[index] = UInt8.random(in: 0...255) }
-        return Data(bytes).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
-    }
+    public static func generateToken() -> String { Secrets.randomToken() }
 }
 
 public enum MCPConfigurationError: Error, CustomStringConvertible, Equatable, Sendable {
@@ -149,6 +132,3 @@ public enum MCPConfigurationError: Error, CustomStringConvertible, Equatable, Se
     }
 }
 
-extension String {
-    var nonEmpty: String? { isEmpty ? nil : self }
-}

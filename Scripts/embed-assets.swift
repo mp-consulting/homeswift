@@ -46,44 +46,25 @@ case "web":
     let directory = arguments[arguments.startIndex + 1]
     let outputPath = arguments[arguments.startIndex + 2]
     let pluginType = arguments.count == 4 ? arguments[arguments.startIndex + 3] : nil
-    let fileType = pluginType == nil ? "WebAsset" : "PluginWebFile"
     let types = ["html": "text/html; charset=utf-8", "js": "text/javascript; charset=utf-8", "css": "text/css; charset=utf-8", "svg": "image/svg+xml", "json": "application/json"]
     let names = try FileManager.default.contentsOfDirectory(atPath: directory).filter { !$0.hasPrefix(".") }.sorted()
     var entries: [String] = []
     for name in names {
         let content = try String(contentsOfFile: "\(directory)/\(name)", encoding: .utf8)
         let type = types[(name as NSString).pathExtension] ?? "application/octet-stream"
-        entries.append("        \"\(name)\": \(fileType)(contentType: \"\(type)\", body: \(literal(content))),")
+        entries.append("        \"\(name)\": WebFile(contentType: \"\(type)\", body: \(literal(content))),")
     }
-    if let pluginType {
-        let output = """
-            // THIS FILE IS GENERATED from ../Web/ by Scripts/embed-assets.swift - DO NOT EDIT.
-            // swiftlint:disable all
-
-            import HomeswiftPlugin
-
-            extension \(pluginType) {
-                /// The plugin's web pages, as written, served by the web UI under /plugins/<platform>/.
-                public static let webFiles: [String: PluginWebFile] = [
-            \(entries.joined(separator: "\n"))
-                ]
-            }
-
-            """
-        try output.write(toFile: outputPath, atomically: true, encoding: .utf8)
-        exit(0)
-    }
+    // The UI's own assets are an enum; a plugin's are its `webFiles`. Both are the same type, served the same way.
+    let declaration = pluginType.map {
+        "extension \($0) {\n    /// The plugin's web pages, as written, served by the web UI under /plugins/<platform>/.\n    public static let webFiles: [String: WebFile] = ["
+    } ?? "enum WebAssets {\n    /// The UI's pages, as written.\n    static let files: [String: WebFile] = ["
     let output = """
-        // THIS FILE IS GENERATED from Web/ by Scripts/embed-assets.swift - DO NOT EDIT.
+        // THIS FILE IS GENERATED from \(pluginType == nil ? "Web/" : "../Web/") by Scripts/embed-assets.swift - DO NOT EDIT.
         // swiftlint:disable all
 
-        struct WebAsset: Sendable {
-            let contentType: String
-            let body: String
-        }
+        import HomeswiftPlugin
 
-        enum WebAssets {
-            static let files: [String: WebAsset] = [
+        \(declaration)
         \(entries.joined(separator: "\n"))
             ]
         }

@@ -12,18 +12,15 @@ public struct QRCode: Sendable, Equatable {
     /// `modules[row][column]`, true for dark.
     public let modules: [[Bool]]
 
-    /// The error-correction table for level M: total codewords, EC codewords per block, and the blocks as
-    /// (count, data codewords) pairs.
-    private static let table: [(total: Int, ec: Int, blocks: [(Int, Int)])] = [
-        (26, 10, [(1, 16)]), (44, 16, [(1, 28)]), (70, 26, [(1, 44)]),
-        (100, 18, [(2, 32)]), (134, 24, [(2, 43)]), (172, 16, [(4, 27)]),
+    /// Level M, versions 1 to 6: data codewords, EC codewords per block, and the number of equal blocks.
+    private static let table: [(data: Int, ec: Int, blocks: Int)] = [
+        (16, 10, 1), (28, 16, 1), (44, 26, 1), (64, 18, 2), (86, 24, 2), (108, 16, 4),
     ]
     private static let alignment: [[Int]] = [[], [6, 18], [6, 22], [6, 26], [6, 30], [6, 34]]
 
     /// The most bytes a version can carry in byte mode.
     static func capacity(version: Int) -> Int {
-        let data = table[version - 1].blocks.reduce(0) { $0 + $1.0 * $1.1 }
-        return (data * 8 - 12) / 8
+        (table[version - 1].data * 8 - 12) / 8
     }
 
     public init(_ text: String) throws {
@@ -38,16 +35,14 @@ public struct QRCode: Sendable, Equatable {
         var template = Matrix(size: size)
         template.drawFunctionPatterns(version: version)
         template.placeData(codewords)
-        var best: (penalty: Int, matrix: Matrix, mask: Int)?
-        for mask in 0..<8 {
+        let best = (0..<8).map { mask -> (penalty: Int, matrix: Matrix, mask: Int) in
             var candidate = template
             candidate.applyMask(mask)
             candidate.drawFormat(mask: mask)
-            let penalty = candidate.penalty()
-            if best == nil || penalty < best!.penalty { best = (penalty, candidate, mask) }
-        }
-        self.mask = best!.mask
-        modules = best!.matrix.modules
+            return (candidate.penalty(), candidate, mask)
+        }.min { $0.penalty < $1.penalty }!
+        self.mask = best.mask
+        modules = best.matrix.modules
     }
 
     /// The code as an SVG image: dark modules on white, with a quiet zone, crisp at any size.
@@ -67,37 +62,32 @@ public struct QRCode: Sendable, Equatable {
 
     /// Byte mode: mode, count, the bytes, a terminator, then padding to the version's data capacity.
     static func encode(_ bytes: [UInt8], version: Int) -> [UInt8] {
-        let dataCodewords = table[version - 1].blocks.reduce(0) { $0 + $1.0 * $1.1 }
+        let dataCodewords = table[version - 1].data
         var bits = BitWriter()
         bits.append(0b0100, count: 4)
         bits.append(bytes.count, count: 8)
         for byte in bytes { bits.append(Int(byte), count: 8) }
         bits.append(0, count: min(4, dataCodewords * 8 - bits.count))
         while bits.count % 8 != 0 { bits.append(0, count: 1) }
-        var padding = [0xEC, 0x11].makeIterator()
+        var pad = 0xEC
         while bits.count < dataCodewords * 8 {
-            let pad = padding.next() ?? { padding = [0xEC, 0x11].makeIterator(); return padding.next()! }()
             bits.append(pad, count: 8)
+            pad ^= 0xEC ^ 0x11
         }
         return bits.bytes
     }
 
-    /// Splits the data into blocks, appends each block's Reed-Solomon codewords, and interleaves them.
+    /// Splits the data into equal blocks, appends each block's Reed-Solomon codewords, and interleaves them.
     static func interleave(_ data: [UInt8], version: Int) -> [UInt8] {
         let entry = table[version - 1]
-        var blocks: [[UInt8]] = []
-        var offset = 0
-        for (count, length) in entry.blocks {
-            for _ in 0..<count {
-                blocks.append(Array(data[offset..<offset + length]))
-                offset += length
-            }
-        }
+        let length = entry.data / entry.blocks
+        let blocks = (0..<entry.blocks).map { Array(data[$0 * length..<($0 + 1) * length]) }
         let divisor = ReedSolomon.divisor(degree: entry.ec)
         let ecs = blocks.map { ReedSolomon.remainder(of: $0, divisor: divisor) }
         var result: [UInt8] = []
-        for index in 0..<(blocks.map(\.count).max() ?? 0) {
-            for block in blocks where index < block.count { result.append(block[index]) }
+        result.reserveCapacity(entry.data + entry.blocks * entry.ec)
+        for index in 0..<length {
+            for block in blocks { result.append(block[index]) }
         }
         for index in 0..<entry.ec {
             for ec in ecs { result.append(ec[index]) }
@@ -282,8 +272,8 @@ public struct QRCode: Sendable, Equatable {
                 }
                 if size >= 11 {
                     for start in 0...(size - 11) {
-                        let window = Array(line[start..<start + 11])
-                        if window == finderA || window == finderB { result += 40 }
+                        let window = line[start..<start + 11]
+                        if window.elementsEqual(finderA) || window.elementsEqual(finderB) { result += 40 }
                     }
                 }
             }
@@ -293,7 +283,7 @@ public struct QRCode: Sendable, Equatable {
                     if modules[row][column + 1] == value, modules[row + 1][column] == value, modules[row + 1][column + 1] == value { result += 3 }
                 }
             }
-            let dark = modules.reduce(0) { $0 + $1.filter { $0 }.count }
+            let dark = modules.reduce(0) { $0 + $1.reduce(0) { $0 + ($1 ? 1 : 0) } }
             let total = size * size
             let k = (abs(dark * 20 - total * 10) + total - 1) / total - 1
             return result + k * 10

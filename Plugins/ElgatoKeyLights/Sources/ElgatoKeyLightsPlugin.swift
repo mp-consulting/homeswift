@@ -51,6 +51,19 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
         var mac: String
         var host: String
         var port: Int
+
+        /// The light's entry in config.json, when it gives an address.
+        init?(configured device: Configuration.Device, mac: String) {
+            guard let host = device.ip ?? device.host, !host.isEmpty else { return nil }
+            self.init(name: device.name ?? mac, mac: mac, host: host, port: device.port ?? KeyLightClient.defaultPort)
+        }
+
+        init(name: String, mac: String, host: String, port: Int) {
+            self.name = name
+            self.mac = mac
+            self.host = host
+            self.port = port
+        }
     }
 
     /// What the plugin uses to reach and find lights; tests swap them for fakes.
@@ -71,7 +84,7 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
     let dependencies: Dependencies
     private var logger: Logger { context.logger }
 
-    private enum Status { case initializing, ready, failed }
+    private enum Status: String { case initializing, ready, failed }
     private var devices: [String: KeyLightDevice] = [:]
     private var status: [String: Status] = [:]
     /// Lights with an `ip` or `host` in config.json: announcements never move them.
@@ -125,28 +138,20 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
         case ("GET", "lights"):
             var lights: [JSONValue] = []
             for (mac, device) in devices.sorted(by: { $0.key < $1.key }) {
-                let state = await device.state
-                let statusText: String = switch status[mac] {
-                case .ready: "ready"
-                case .failed: "failed"
-                default: "initializing"
-                }
+                let light = await device.snapshot
                 lights.append([
-                    "mac": .string(mac), "name": .string(await device.displayName), "model": .string(await device.model),
-                    "serial": .string(await device.serialNumber), "firmware": .string(await device.firmwareVersion),
-                    "host": .string(await device.host), "port": .number(Double(await device.port)),
-                    "reachable": .bool(await device.isReachable), "status": .string(statusText), "pinned": .bool(pinned.contains(mac)),
-                    "on": .bool(state.on == 1), "brightness": state.brightness.map { .number(Double($0)) } ?? .null,
-                    "temperature": state.temperature.map { .number(Double($0)) } ?? .null,
+                    "mac": .string(mac), "name": .string(light.name), "model": .string(light.model), "serial": .string(light.serial),
+                    "firmware": .string(light.firmware), "host": .string(light.host), "port": .number(Double(light.port)),
+                    "reachable": .bool(light.isReachable), "status": .string((status[mac] ?? .initializing).rawValue), "pinned": .bool(pinned.contains(mac)),
+                    "on": .bool(light.state.on == 1), "brightness": light.state.brightness.map { .number(Double($0)) } ?? .null,
+                    "temperature": light.state.temperature.map { .number(Double($0)) } ?? .null,
                 ])
             }
             return PluginWebResponse(["lights": .array(lights)])
         case ("POST", "identify"):
-            guard let mac = request.query["mac"] ?? request.body["mac"]?.stringValue, let device = devices[Self.canonicalMAC(mac)] else {
-                return .error(404, "no light with that MAC")
-            }
+            guard let mac = request.query["mac"].map(Self.canonicalMAC), let device = devices[mac] else { return .error(404, "no light with that MAC") }
             await device.identify()
-            return PluginWebResponse(["identified": .string(Self.canonicalMAC(mac))])
+            return PluginWebResponse(["identified": .string(mac)])
         default:
             return .error(404, "nothing at \(request.method) \(request.path)")
         }
@@ -168,17 +173,15 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
                 logger.info("Skipping disabled light", metadata: ["light": "\(device.name ?? mac)"])
                 continue
             }
-            guard let host = device.ip ?? device.host, !host.isEmpty else {
+            guard let light = DiscoveredLight(configured: device, mac: mac) else {
                 // Without an address the entry only names and tunes the light once Bonjour finds it.
                 continue
             }
-            let port = device.port ?? KeyLightClient.defaultPort
-            guard KeyLightClient.isValidHost(host), KeyLightClient.isValidPort(port) else {
-                logger.warning("Skipping light with an invalid address in config.json", metadata: ["light": "\(device.name ?? mac)", "host": "\(host)", "port": "\(port)"])
+            guard KeyLightClient.isValidHost(light.host), KeyLightClient.isValidPort(light.port) else {
+                logger.warning("Skipping light with an invalid address in config.json", metadata: ["light": "\(light.name)", "host": "\(light.host)", "port": "\(light.port)"])
                 continue
             }
-            let light = DiscoveredLight(name: device.name ?? mac, mac: mac, host: host, port: port)
-            logger.info("Registering configured light", metadata: ["light": "\(light.name)", "host": "\(host)"])
+            logger.info("Registering configured light", metadata: ["light": "\(light.name)", "host": "\(light.host)"])
             pinned.insert(mac)
             initialize(light)
         }
@@ -186,8 +189,7 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
 
     /// The address config.json gives a light, for the ones registered from it.
     private func configuredLight(mac: String) -> DiscoveredLight? {
-        guard let device = deviceConfiguration(mac: mac), let host = device.ip ?? device.host, !host.isEmpty else { return nil }
-        return DiscoveredLight(name: device.name ?? mac, mac: mac, host: host, port: device.port ?? KeyLightClient.defaultPort)
+        deviceConfiguration(mac: mac).flatMap { DiscoveredLight(configured: $0, mac: mac) }
     }
 
     private func handleDiscovered(_ light: DiscoveredLight) {

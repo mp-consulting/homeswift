@@ -43,10 +43,7 @@ enum SRP {
         field.power(g, x(salt: salt, password: password))
     }
 
-    static func randomBytes(_ count: Int) -> Data {
-        var generator = SystemRandomNumberGenerator()
-        return Data((0..<count).map { _ in UInt8.random(in: 0...255, using: &generator) })
-    }
+    static func randomBytes(_ count: Int) -> Data { Secrets.randomBytes(count) }
 
     /// M1 = H(H(N) xor H(g), H(I), s, A, B, K)
     static func clientProof(salt: Data, A: Data, B: Data, K: Data) -> Data {
@@ -108,9 +105,4 @@ enum SRP {
     }
 }
 
-func constantTimeEqual(_ lhs: Data, _ rhs: Data) -> Bool {
-    guard lhs.count == rhs.count else { return false }
-    var diff: UInt8 = 0
-    for (a, b) in zip(lhs, rhs) { diff |= a ^ b }
-    return diff == 0
-}
+func constantTimeEqual(_ lhs: Data, _ rhs: Data) -> Bool { Secrets.constantTimeEqual(lhs, rhs) }

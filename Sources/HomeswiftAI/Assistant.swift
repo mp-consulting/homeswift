@@ -98,7 +98,8 @@ public final class AssistantService: Assistant, Sendable {
     }
 
     private func reply(system: String, messages: [ChatMessage], onChunk: (@Sendable (String) -> Void)?) async throws -> AssistantReply {
-        let result = try await complete(provider, ChatRequest(system: self.system(system), messages: messages, maxOutputTokens: maxOutputTokens), onChunk: onChunk)
+        // Redacted here, whatever the feature did before: idempotent, and the rule then has one home.
+        let result = try await complete(provider, ChatRequest(system: self.system(system), messages: Redaction.redactMessages(messages), maxOutputTokens: maxOutputTokens), onChunk: onChunk)
         await usage.record(model: result.model, usage: result.usage)
         logger.debug("Assistant reply", metadata: ["model": "\(result.model)", "input": "\(result.usage.inputTokens)", "output": "\(result.usage.outputTokens)", "stop": "\(result.stopReason)"])
         return AssistantReply(text: result.text, usage: result.usage, model: result.model)

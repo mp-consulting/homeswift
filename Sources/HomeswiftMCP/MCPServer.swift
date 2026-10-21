@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftAI
 import Logging
 import NIOConcurrencyHelpers
@@ -15,7 +16,6 @@ public struct ClientInfo: Sendable, Equatable {
 public final class MCPSession: Sendable, Identifiable {
     public let id: String
     public let principal: Principal
-    public let createdAt = Date()
 
     struct State {
         var initialized = false
@@ -28,7 +28,6 @@ public final class MCPSession: Sendable, Identifiable {
         var pending: [String: CheckedContinuation<JSONValue, any Error>] = [:]
         var nextRequestID = 1
         var lastActivity = Date()
-        var closed = false
         var hasStandingStream = false
     }
 
@@ -110,7 +109,6 @@ public final class MCPSession: Sendable, Identifiable {
 
     func close() {
         let pending = state.withLockedValue { state -> [CheckedContinuation<JSONValue, any Error>] in
-            state.closed = true
             defer { state.pending = [:] }
             return Array(state.pending.values)
         }
@@ -197,7 +195,8 @@ public struct ToolResult: Sendable {
     }
 
     public static func text(_ text: String) -> ToolResult { ToolResult(text: text) }
-    public static func error(_ text: String) -> ToolResult { ToolResult(text: text, isError: true) }
+    /// An error for the model, secrets masked whatever the text came from.
+    public static func error(_ text: String) -> ToolResult { ToolResult(text: Redaction.redactText(text), isError: true) }
     /// A JSON value as both the text and the structured content.
     public static func json(_ value: JSONValue) -> ToolResult { ToolResult(text: value.text(pretty: true), structured: value) }
 
@@ -437,11 +436,14 @@ public final class MCPServer: Sendable {
         }
     }
 
-    /// A log line for the sessions whose level allows it.
-    public func log(level: Logger.Level, logger name: String, message: String) {
-        for session in activeSessions where session.isInitialized && level >= session.logLevel {
+    /// A log line for the sessions whose level allows it; the text is only built when one wants it.
+    public func log(level: Logger.Level, logger name: String, message: @autoclosure () -> String) {
+        let targets = activeSessions.filter { $0.isInitialized && level >= $0.logLevel }
+        guard !targets.isEmpty else { return }
+        let text = message()
+        for session in targets {
             session.send(.notification(method: "notifications/message", params: [
-                "level": .string(Self.mcpLevel(level)), "logger": .string(name), "data": .string(message),
+                "level": .string(Self.mcpLevel(level)), "logger": .string(name), "data": .string(text),
             ]))
         }
     }
@@ -676,7 +678,7 @@ public final class MCPServer: Sendable {
             throw error
         } catch {
             audit(ok: false, error: "\(error)")
-            return ToolResult.error(Redaction.redactText("\(error)")).json
+            return ToolResult.error("\(error)").json
         }
     }
 
@@ -781,7 +783,7 @@ final class ConfirmationCodes: Sendable {
         return state.withLockedValue { state in
             state.prune()
             guard state.lockedUntil == nil, var entry = state.entries[key] else { return false }
-            guard !entry.isLocked, MCPConfiguration.constantTimeEqual(entry.code, code) else {
+            guard !entry.isLocked, Secrets.constantTimeEqual(entry.code.utf8, code.utf8) else {
                 entry.wrongGuesses += 1
                 state.entries[key] = entry
                 state.wrongGuesses.append(Date())

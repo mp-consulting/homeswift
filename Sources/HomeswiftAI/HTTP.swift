@@ -87,8 +87,8 @@ public struct URLSessionTransport: HTTPTransport {
         return HTTPResponse(status: status, headers: headers, body: data)
     }
 
-    #if canImport(FoundationNetworking)
-    /// Linux's Foundation has no `URLSession.bytes(for:)`: a delegate hands the body over as it arrives.
+    /// A delegate hands the body over as it arrives, chunk by chunk, the same way on macOS and Linux
+    /// (whose Foundation has no `URLSession.bytes(for:)`).
     public func stream(_ request: HTTPRequest) async throws -> HTTPStream {
         let delegate = StreamingDelegate()
         let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
@@ -98,38 +98,12 @@ public struct URLSessionTransport: HTTPTransport {
             continuation.onTermination = { _ in task.cancel() }
         }
         task.resume()
+        session.finishTasksAndInvalidate()
         let (status, headers) = try await delegate.response()
         return HTTPStream(status: status, headers: headers, body: body)
     }
-    #else
-    public func stream(_ request: HTTPRequest) async throws -> HTTPStream {
-        let (bytes, response) = try await URLSession.shared.bytes(for: urlRequest(request))
-        let (status, headers) = Self.headers(of: response)
-        let body = AsyncThrowingStream<Data, any Error> { continuation in
-            let task = Task {
-                var line = Data()
-                do {
-                    for try await byte in bytes {
-                        line.append(byte)
-                        if byte == UInt8(ascii: "\n") {
-                            continuation.yield(line)
-                            line = Data()
-                        }
-                    }
-                    if !line.isEmpty { continuation.yield(line) }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
-        return HTTPStream(status: status, headers: headers, body: body)
-    }
-    #endif
 }
 
-#if canImport(FoundationNetworking)
 /// Resolves `response()` with the status and headers, then feeds the body to the attached stream.
 final class StreamingDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private let lock = NSLock()
@@ -187,7 +161,6 @@ final class StreamingDelegate: NSObject, URLSessionDataDelegate, @unchecked Send
         session.finishTasksAndInvalidate()
     }
 }
-#endif
 
 /// How `postJSON` retries transient failures: network errors and 408, 429, 5xx (Anthropic's 529 too).
 public struct RetryOptions: Sendable {
@@ -307,8 +280,13 @@ public struct SSEEvent: Sendable, Equatable {
     public var data: String
 }
 
-/// Parses a `text/event-stream` body into events.
+/// Parses a `text/event-stream` body into events, and writes one.
 public enum SSE {
+    /// One event as the wire carries it.
+    public static func frame(event: String, data: String) -> Data {
+        Data("event: \(event)\ndata: \(data)\n\n".utf8)
+    }
+
     public static func events(_ body: AsyncThrowingStream<Data, any Error>) -> AsyncThrowingStream<SSEEvent, any Error> {
         AsyncThrowingStream { continuation in
             let task = Task {

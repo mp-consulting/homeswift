@@ -56,11 +56,7 @@ public struct FileStorage: HAPStorage {
     }
 
     public func save(_ data: Data) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.write(to: url, options: .atomic)
-        #if !os(Windows)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        #endif
+        try OwnerOnlyFile.write(data, to: url)
     }
 }
 
@@ -73,4 +69,17 @@ public final class MemoryStorage: HAPStorage, @unchecked Sendable {
 
     public func load() throws -> Data? { lock.withLock { data } }
     public func save(_ data: Data) throws { lock.withLock { self.data = data } }
+}
+
+/// A file the owner alone can read: the directory 0700, an atomic write, the file 0600. Every file the
+/// bridge keeps (state, config.json, caches, users, sessions, the audit log) is written through here.
+public enum OwnerOnlyFile {
+    public static func write(_ data: Data, to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try data.write(to: url, options: .atomic)
+        #if !os(Windows)
+        // Best effort: a file system without POSIX permissions must not stop the bridge from saving.
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        #endif
+    }
 }
