@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Generates Sources/HAP/Model/Definitions.swift from HAP-NodeJS's service and
+// Generates Sources/HomeSwift/Model/Definitions.swift from HAP-NodeJS's service and
 // characteristic definitions (Apache-2.0).
 //
-//   node Scripts/generate-definitions.js <path to hap-nodejs> > Sources/HAP/Model/Definitions.swift
+//   node Scripts/generate-definitions.js <path to hap-nodejs> > Sources/HomeSwift/Model/Definitions.swift
 
 const path = require("path");
 const root = process.argv[2];
