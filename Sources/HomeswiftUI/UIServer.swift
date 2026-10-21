@@ -56,6 +56,7 @@ public final class UIServer: Sendable {
         sessions = SessionStore(lifetime: TimeInterval(configuration.sessionDays) * 86_400, url: usersURL.deletingLastPathComponent().appendingPathComponent("ui-sessions.json"))
         setupCode = configuration.auth == .form && users.isEmpty ? Self.makeSetupCode() : nil
         allowedHosts = Self.allowedHosts(for: configuration)
+        sessions.retain(usernames: users.usernames)
     }
 
     /// The bound port, once started.
@@ -163,8 +164,12 @@ public final class UIServer: Sendable {
 
     func authenticatedUser(_ request: Request) -> String? {
         if configuration.auth == .none { return "local" }
-        guard let token = request.cookies[Self.cookieName] else { return nil }
-        return sessions.username(for: token)
+        guard let token = request.cookies[Self.cookieName], let username = sessions.username(for: token) else { return nil }
+        guard users.contains(username) else {
+            sessions.revoke(token)
+            return nil
+        }
+        return username
     }
 
     private func cookie(_ token: String?) -> String {

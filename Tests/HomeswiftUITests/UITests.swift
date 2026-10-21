@@ -193,6 +193,13 @@ final class Browser: @unchecked Sendable {
         #expect(sessions.username(for: token) == nil)
         #expect(SessionStore(lifetime: 60, url: sessionsURL).username(for: token) == nil)
         #expect(SessionStore(lifetime: -1, url: sessionsURL).count == 0)
+        let kept = SessionStore(lifetime: 60, url: sessionsURL)
+        _ = kept.create(username: "rosaly")
+        _ = kept.create(username: "gone")
+        kept.retain(usernames: ["Rosaly"])
+        #expect(kept.count == 1)
+        #expect(SessionStore(lifetime: 60, url: sessionsURL).count == 1)
+        #expect(SessionStore(lifetime: 0.001, url: sessionsURL).username(for: "x") == nil)   // a loaded expiry is capped at the lifetime
     }
 
     @Test func readsTheBlock() throws {
@@ -365,6 +372,12 @@ struct UIServerTests {
         #expect(try await browser.post("/api/restart", [:]).status == 200)
         try await Task.sleep(for: .milliseconds(800))
         #expect(environment.restarts.withLockedValue { $0 } == 1)
+
+        // A kept session of a user that no longer exists is worthless.
+        let ghost = Browser(base: base)
+        ghost.cookie = "homeswift_session=\(environment.server.sessions.create(username: "ghost"))"
+        #expect(try await ghost.get("/api/status").status == 401)
+        #expect(environment.server.sessions.count == 1)
         #expect(schema.json?["pluginAlias"] == "ElgatoKeyLights")
         #expect(try await browser.get("/api/plugins/Lamps/schema").status == 404)
         let config = try await browser.get("/api/config")
