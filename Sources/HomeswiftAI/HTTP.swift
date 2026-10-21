@@ -204,14 +204,21 @@ public struct RetryOptions: Sendable {
         status == 408 || status == 429 || status >= 500
     }
 
+    /// The longest wait a header can ask for; anything beyond is capped (and then exceeds `maxRetryAfter`).
+    static let longestRetryAfter: Double = 86_400_000
+
     /// The wait a `retry-after` (seconds or an HTTP date) or `retry-after-ms` header asks for.
     public static func retryAfter(_ headers: [String: String], now: Date = Date()) -> Duration? {
-        if let ms = headers["retry-after-ms"].flatMap(Double.init), ms >= 0 {
-            return .milliseconds(Int(ms))
+        func milliseconds(_ value: Double) -> Duration? {
+            guard value.isFinite, value >= 0 else { return nil }
+            return .milliseconds(Int(min(value, longestRetryAfter)))
+        }
+        if let ms = headers["retry-after-ms"].flatMap(Double.init) {
+            return milliseconds(ms)
         }
         guard let value = headers["retry-after"]?.trimmingCharacters(in: .whitespaces), !value.isEmpty else { return nil }
-        if let seconds = Double(value), seconds >= 0 {
-            return .milliseconds(Int(seconds * 1000))
+        if let seconds = Double(value) {
+            return milliseconds(seconds * 1000)
         }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
