@@ -107,7 +107,7 @@ public final class AssistantService: Assistant, Sendable {
     public func ask(_ prompt: String, context: String?, history: [ChatMessage], onChunk: (@Sendable (String) -> Void)?) async throws -> AssistantReply {
         let cap = budget(16_000)
         let user = Prompts.Ask.user(prompt: Redaction.redactText(prompt), context: context.map { Tokens.trim(Redaction.redactText($0), to: cap) })
-        return try await reply(system: Prompts.Ask.system, messages: history + [.user(user)], onChunk: onChunk)
+        return try await reply(system: Prompts.Ask.system, messages: Redaction.redactMessages(history) + [.user(user)], onChunk: onChunk)
     }
 
     public func explain(error: String, context: String?, device: JSONValue?, pluginName: String?, onChunk: (@Sendable (String) -> Void)?) async throws -> AssistantReply {
@@ -116,13 +116,13 @@ public final class AssistantService: Assistant, Sendable {
             error: Tokens.trim(Redaction.redactText(error), to: cap / 2),
             context: context.map { Tokens.trim(Redaction.redactText($0), to: cap / 4) },
             device: device.map { boundedJSON($0, cap / 4) },
-            pluginName: pluginName)
+            pluginName: pluginName.map(Redaction.redactText))
         return try await reply(system: Prompts.ExplainDeviceError.system, messages: [.user(user)], onChunk: onChunk)
     }
 
     public func diagnose(logs: String, focus: String?, onChunk: (@Sendable (String) -> Void)?) async throws -> AssistantReply {
         let trimmed = Tokens.trim(Redaction.redactText(ANSI.strip(logs)), to: budget(24_000))
-        return try await reply(system: Prompts.DiagnoseLogs.system, messages: [.user(Prompts.DiagnoseLogs.user(logs: trimmed, focus: focus))], onChunk: onChunk)
+        return try await reply(system: Prompts.DiagnoseLogs.system, messages: [.user(Prompts.DiagnoseLogs.user(logs: trimmed, focus: focus.map(Redaction.redactText)))], onChunk: onChunk)
     }
 
     public func generateConfiguration(request: String, schema: JSONValue, current: JSONValue?, pluginName: String?, onChunk: (@Sendable (String) -> Void)?) async throws -> ConfigurationSuggestion {
@@ -137,7 +137,7 @@ public final class AssistantService: Assistant, Sendable {
         let redactedCurrent = current.map { Redaction.redactSecrets($0) }
         let generated = try await JSONGeneration.generate(
             provider: provider, schema: replySchema,
-            prompt: Prompts.GeneratePluginConfig.user(request: Redaction.redactText(request), schema: pluginSchema, current: redactedCurrent, pluginName: pluginName),
+            prompt: Prompts.GeneratePluginConfig.user(request: Redaction.redactText(request), schema: pluginSchema, current: redactedCurrent, pluginName: pluginName.map(Redaction.redactText)),
             system: system(Prompts.GeneratePluginConfig.system), maxOutputTokens: maxOutputTokens, onChunk: onChunk)
         await usage.record(model: provider.model, usage: generated.usage)
         var config = generated.data["config"] ?? .object([:])

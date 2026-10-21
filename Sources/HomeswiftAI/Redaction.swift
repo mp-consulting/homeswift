@@ -12,17 +12,22 @@ public enum Redaction {
     private static let secretKey = try! NSRegularExpression(pattern: #"pass(word|wd|phrase)?$|secret|token|api[-_]?key|private[-_]?key|credential|^pin$"#, options: [.caseInsensitive])
     /// Keys that look secret but hold token counts: maxOutputTokens, contextTokens.
     private static let notSecretKey = try! NSRegularExpression(pattern: #"(max|min|context|input|output|total)\w*tokens$"#, options: [.caseInsensitive])
-    /// `key: value`, `key=value` and `"key": "value"` pairs whose key names a secret.
+    /// `key: value`, `key=value` and `"key": "value"` pairs whose key names a secret (including HomeKit's
+    /// pin and setup code).
     private static let secretPair = try! NSRegularExpression(
-        pattern: #"(["']?)([\w.-]*(?:password|passwd|passphrase|secret|token|api[-_]?key|private[-_]?key|credential)[\w-]*)\1(\s*[:=]\s*)(["']?)([^\s"',;}&]+)\4"#,
+        pattern: #"(["']?)([\w.-]*(?:password|passwd|passphrase|pass|pin|setup[-_ ]?code|secret|token|api[-_]?key|private[-_]?key|credential)[\w-]*)\1(\s*[:=]\s*)(["']?)([^\s"',;}&]+)\4"#,
         options: [.caseInsensitive])
-    /// Well-known credential shapes that can appear anywhere in free text.
+    /// Well-known credential shapes that can appear anywhere in free text: API keys, JWTs, and HomeKit
+    /// setup codes (`031-45-154`, `0314-5154`) and setup URIs, which the bridge prints at launch.
     private static let secretShapes: [NSRegularExpression] = [
         #"\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}"#,
         #"\bsk-[A-Za-z0-9_-]{16,}"#,
         #"\bhbg_[A-Za-z0-9_-]{8,}"#,
         #"\bAIza[0-9A-Za-z_-]{30,}"#,
         #"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"#,
+        #"\bX-HM://[0-9A-Z]+"#,
+        #"\b\d{3}-\d{2}-\d{3}\b"#,
+        #"\b\d{4}-\d{4}\b"#,
     ].map { try! NSRegularExpression(pattern: $0) }
 
     /// Fields that identify an entry in an array such as `platforms`.
@@ -161,11 +166,27 @@ public enum Redaction {
     /// HomeKit pairing fields: whoever holds them can add an unpaired bridge to their own Home.
     public static let pairingKeys: Set<String> = ["pin", "setupUri", "setupCode", "setupId", "setupURI", "qrCode", "manualPairingCode"]
 
+    /// A conversation with every user text, tool result and tool argument redacted; assistant turns and
+    /// provider content are left as they came from the model.
+    public static func redactMessages(_ messages: [ChatMessage]) -> [ChatMessage] {
+        messages.map { message in
+            var copy = message
+            copy.content = message.content.map { part in
+                switch part {
+                case .text(let text): message.role == .user ? .text(redactText(text)) : part
+                case .toolCall(let call): .toolCall(ToolCall(id: call.id, name: call.name, arguments: redactSecrets(call.arguments)))
+                case .toolResult(let id, let name, let content, let isError): .toolResult(toolCallID: id, name: name, content: redactText(content), isError: isError)
+                }
+            }
+            return copy
+        }
+    }
+
     /// A copy of a status object (or an array of them) without its pairing codes.
     public static func redactPairing(_ value: JSONValue) -> JSONValue {
         switch value {
         case .array(let items): .array(items.map(redactPairing))
-        case .object(let object): .object(object.filter { !pairingKeys.contains($0.key) }.mapValues { $0.objectValue == nil ? $0 : redactPairing($0) })
+        case .object(let object): .object(object.filter { !pairingKeys.contains($0.key) }.mapValues(redactPairing))
         default: value
         }
     }

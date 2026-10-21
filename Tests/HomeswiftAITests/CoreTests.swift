@@ -67,14 +67,36 @@ import Testing
         #expect(redacted.contains("maxOutputTokens=2048"))
         #expect(!redacted.contains("AIzaSyA1234567890"))
         #expect(redacted.contains("token=__REDACTED__"))
+
+        let banner = "Setup code: 8518-2617\nSetup URI:  X-HM://0024VNBFDNEMH\npin=031-45-154 pass: hunter3 on 2026-10-21"
+        let masked = Redaction.redactText(banner)
+        #expect(!masked.contains("8518-2617"))
+        #expect(!masked.contains("X-HM://0024VNBFDNEMH"))
+        #expect(!masked.contains("031-45-154"))
+        #expect(!masked.contains("hunter3"))
+        #expect(masked.contains("2026-10-21"))
+    }
+
+    @Test func redactsConversationHistory() {
+        let history: [ChatMessage] = [
+            .user("my apiKey=abc"), .assistant("noted apiKey=abc"),
+            ChatMessage(role: .assistant, content: [.toolCall(ToolCall(id: "1", name: "f", arguments: ["token": "t"]))]),
+            ChatMessage(role: .user, content: [.toolResult(toolCallID: "1", name: "f", content: "password=p", isError: false)]),
+        ]
+        let redacted = Redaction.redactMessages(history)
+        #expect(redacted[0].text == "my apiKey=__REDACTED__")
+        #expect(redacted[1].text == "noted apiKey=abc")
+        #expect(redacted[2].toolCalls[0].arguments == ["token": "__REDACTED__"])
+        #expect(redacted[3].content == [.toolResult(toolCallID: "1", name: "f", content: "password=__REDACTED__", isError: false)])
     }
 
     @Test func redactsPairing() {
-        let status: JSONValue = ["name": "Homeswift", "pin": "031-45-154", "setupUri": "X-HM://1", "port": 51826]
+        let status: JSONValue = ["name": "Homeswift", "pin": "031-45-154", "setupUri": "X-HM://1", "port": 51826, "bridges": [["name": "Child", "pin": "1"]]]
         let redacted = Redaction.redactPairing(status)
         #expect(redacted["pin"] == nil)
         #expect(redacted["setupUri"] == nil)
         #expect(redacted["port"] == 51826)
+        #expect(redacted["bridges"]?[0] == ["name": "Child"])
     }
 }
 
@@ -122,6 +144,9 @@ import Testing
         #expect(RetryOptions.retryAfter(["retry-after-ms": "250"]) == .milliseconds(250))
         #expect(RetryOptions.retryAfter([:]) == nil)
         #expect(RetryOptions.retryAfter(["retry-after": "soon"]) == nil)
+        #expect(RetryOptions.retryAfter(["retry-after-ms": "1e400"]) == nil)
+        #expect(RetryOptions.retryAfter(["retry-after": "99999999999"]) == .milliseconds(86_400_000))
+        #expect(RetryOptions.retryAfter(["retry-after": "-5"]) == nil)
         #expect(RetryOptions.isRetryable(status: 529))
         #expect(!RetryOptions.isRetryable(status: 400))
     }
