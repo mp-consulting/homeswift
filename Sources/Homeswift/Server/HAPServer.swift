@@ -97,10 +97,11 @@ public final class HAPServer: @unchecked Sendable {
         signingKey = try Curve25519.Signing.PrivateKey(rawRepresentation: persisted.signingKey)
         state = NIOLockedValueBox(State(persisted: persisted))
 
+        // The configuration number is not touched here: accessories may still be added before `start()`,
+        // which hashes the database once. Hashing it now, bridge alone, bumped the number at every launch.
         state.withLockedValue { state in
             assign(primary, aid: 1, in: &state)
             for accessory in bridged { assign(accessory, aid: nil, in: &state) }
-            refreshConfigurationNumber(in: &state)
         }
         try persist()
     }
@@ -129,24 +130,35 @@ public final class HAPServer: @unchecked Sendable {
         state.withLockedValue { $0.accessories.sorted { $0.key < $1.key }.map(\.value) }
     }
 
-    /// Adds a bridged accessory while running. HomeKit picks it up from the new configuration number.
+    /// Adds a bridged accessory, before or while running. Once running, HomeKit picks it up from the new
+    /// configuration number; before, `start()` hashes the whole database once.
     public func add(_ accessory: Accessory) throws {
-        state.withLockedValue { state in
+        let running = state.withLockedValue { state in
             assign(accessory, aid: nil, in: &state)
-            refreshConfigurationNumber(in: &state)
+            return refreshIfRunning(&state)
         }
+        guard running else { return }
         try persist()
         updateAdvertisement()
     }
 
-    /// Removes a bridged accessory while running.
+    /// Removes a bridged accessory, before or while running.
     public func remove(_ accessory: Accessory) throws {
-        state.withLockedValue { state in
+        let running = state.withLockedValue { state in
             state.accessories[accessory.aid] = nil
-            refreshConfigurationNumber(in: &state)
+            return refreshIfRunning(&state)
         }
+        guard running else { return }
         try persist()
         updateAdvertisement()
+    }
+
+    /// Refreshes the configuration number while the server runs; before `start()` the database is still
+    /// being assembled. Returns whether it runs.
+    private func refreshIfRunning(_ state: inout State) -> Bool {
+        guard state.serverChannel != nil else { return false }
+        refreshConfigurationNumber(in: &state)
+        return true
     }
 
     /// Registers an observer of characteristic changes on every accessory of this server.
@@ -185,6 +197,8 @@ public final class HAPServer: @unchecked Sendable {
         let channel = try await bind(bootstrap, port: preferred)
         let port = channel.localAddress?.port ?? preferred
         state.withLockedValue {
+            // The database is complete now: one hash, one bump when it changed since the last run.
+            refreshConfigurationNumber(in: &$0)
             $0.serverChannel = channel
             $0.persisted.port = port
         }
