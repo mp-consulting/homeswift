@@ -15,7 +15,7 @@ import NIOConcurrencyHelpers
 /// | `accessories/<platform>-<name>.json` | The accessory cache of each platform instance |
 /// | `plugins/<platform>-<name>/` | Each plugin's own files |
 public final class PluginHost: @unchecked Sendable {
-    public static let version = "0.2.0"
+    public static let version = "0.3.0"
 
     public struct Options: Sendable {
         /// Advertise the bridges over Bonjour. Turn off in tests.
