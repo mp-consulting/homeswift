@@ -67,12 +67,20 @@ actor KeyLightDevice {
         consecutiveFailures = 0
     }
 
-    /// The light was announced again, maybe on a new address: moves there once the light at that address
-    /// reports the same serial number, so a spoofed announcement cannot redirect the plugin.
+    /// The light was announced again on another address (a new DHCP lease, usually after a reboot).
+    ///
+    /// The plugin moves only when the light has stopped answering at its current address, and the light
+    /// at the new address reports the same serial number. An announcement cannot move a light that still
+    /// answers; the serial check keeps two lights apart but is no defence against a LAN attacker, who can
+    /// read any light's serial and impersonate it directly.
     func follow(host: String, port: Int) async {
         guard host != client.host || port != client.port else { return }
         guard KeyLightClient.isValidHost(host), KeyLightClient.isValidPort(port) else {
             logger.warning("Ignoring an announcement for \(displayName) with an invalid address \(host):\(port)")
+            return
+        }
+        if (try? await client.info()) != nil {
+            logger.debug("Ignoring an announcement for \(displayName) from \(host):\(port): it still answers at \(client.host):\(client.port)")
             return
         }
         var probe = client
