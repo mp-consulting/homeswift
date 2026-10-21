@@ -218,7 +218,8 @@ public final class HAPServer: @unchecked Sendable {
 
     private func bind(_ bootstrap: ServerBootstrap, port: Int) async throws -> any Channel {
         for host in ["::", "0.0.0.0"] {
-            for candidate in Set([port, 0]) {
+            // The configured port first; a Set would try them in a random order and land on a random port.
+            for candidate in (port == 0 ? [0] : [port, 0]) {
                 if let channel = try? await bootstrap.bind(host: host, port: candidate).get() {
                     return channel
                 }

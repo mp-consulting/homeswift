@@ -61,6 +61,8 @@ All notable changes to this project are documented here. The format follows
 ### Fixed
 
 - Decrypting a large message copied the rest of the buffer after every 1 KB frame, which made it quadratic.
+- `HAPServer` tried the configured port and port 0 in the order of a `Set`, so about every other launch the
+  bridge listened on a random port instead of the configured one.
 
 ## [0.1.0] - 2026-10-21
 
