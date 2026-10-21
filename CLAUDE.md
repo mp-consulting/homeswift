@@ -46,4 +46,5 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
 
 A release is a tag: SwiftPM resolves versions from `vX.Y.Z` tags. Move the `[Unreleased]` section of
 CHANGELOG.md under the new version, commit, then `gh release create vX.Y.Z --notes-file <section>` and push the
-tag. There are no binaries to sign yet.
+tag. There are no binaries to sign yet. The Homebrew formula (`mp-consulting/homebrew-tap`, `Formula/homeswift.rb`)
+builds `homeswift-demo` from the release tarball; the tap's workflow moves it to the latest release within 6 hours.

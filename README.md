@@ -119,11 +119,19 @@ A few things to know:
 
 ## Demo
 
-`homeswift-demo` is a bridge with a lamp, a switch and a temperature sensor that drifts:
+`homeswift-demo` is a bridge with a lamp, a switch and a temperature sensor that drifts. Install it with
+Homebrew (macOS 15 or later; it builds from source with Swift 6.1 or later):
 
 ```bash
-swift run homeswift-demo
+brew install mp-consulting/tap/homeswift
 ```
+
+```bash
+homeswift-demo
+```
+
+Or run it in the background, at login, with `brew services start homeswift`; the setup code is then in
+`$(brew --prefix)/var/log/homeswift.log`. From a checkout, `swift run homeswift-demo` does the same.
 
 It prints the setup code. In the Home app choose **Add Accessory**, then **More options**, pick **Homeswift
 Bridge** and enter the code. Set `HAP_SETUP_CODE=031-45-154` for a fixed code and `HAP_DEBUG=1` to log every

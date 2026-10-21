@@ -4,6 +4,23 @@ import Logging
 
 // A bridge with a lamp, a switch and a temperature sensor that drifts, for pairing with the Home app.
 
+if CommandLine.arguments.dropFirst().contains(where: { $0 == "--help" || $0 == "-h" }) {
+    print("""
+        usage: homeswift-demo
+
+        Runs a demo HomeKit bridge (a lamp, a switch, a temperature sensor) and prints its setup code.
+        State is kept in ~/.homeswift/homeswift-demo.json.
+
+        Environment:
+          HAP_SETUP_CODE  setup code to use, e.g. 031-45-154 (default: random on first launch)
+          HAP_DEBUG       log every request
+        """)
+    exit(0)
+}
+
+// Line-buffered even when not a terminal, so the setup code reaches log files (brew services).
+setvbuf(stdout, nil, _IOLBF, 0)
+
 LoggingSystem.bootstrap { label in
     var handler = StreamLogHandler.standardOutput(label: label)
     handler.logLevel = ProcessInfo.processInfo.environment["HAP_DEBUG"] != nil ? .trace : .info
@@ -60,15 +77,19 @@ let main = Task {
     }
 }
 
-let interrupt = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
-signal(SIGINT, SIG_IGN)
-// Not main-actor code: Dispatch runs the handler on its own terms, so it only uses what it captures.
-interrupt.setEventHandler { @Sendable [main, server] in
-    main.cancel()
-    Task {
-        await server.stop()
-        exit(0)
+// Ctrl-C, or SIGTERM from `brew services stop` and launchd.
+let signals = [SIGINT, SIGTERM].map { number in
+    let source = DispatchSource.makeSignalSource(signal: number, queue: .main)
+    signal(number, SIG_IGN)
+    // Not main-actor code: Dispatch runs the handler on its own terms, so it only uses what it captures.
+    source.setEventHandler { @Sendable [main, server] in
+        main.cancel()
+        Task {
+            await server.stop()
+            exit(0)
+        }
     }
+    source.resume()
+    return source
 }
-interrupt.resume()
 dispatchMain()

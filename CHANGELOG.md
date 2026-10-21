@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-21
+
 ### Added
 
 - **HAP server over IP** (`HAPServer`): a single accessory, or a bridge with bridged accessories; SwiftNIO
@@ -25,5 +27,9 @@ All notable changes to this project are documented here. The format follows
   `~/.homeswift/<name>.json` (`FileStorage`) or in memory (`MemoryStorage`).
 - **Bonjour**: `_hap._tcp` advertising through dns_sd on macOS and Avahi on Linux.
 - **Setup code** (shown as the Home app shows it, `XXXX-XXXX`) and the `X-HM://` setup URI.
-- `homeswift-demo`: a bridge with a lamp, a switch and a temperature sensor.
+- `homeswift-demo`: a bridge with a lamp, a switch and a temperature sensor; `--help`; stops cleanly on
+  SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
+
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/mp-consulting/homeswift/releases/tag/v0.1.0
