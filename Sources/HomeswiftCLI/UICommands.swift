@@ -17,7 +17,8 @@ enum UICommands {
             let server = UIServer(configuration: ui, catalog: catalog, usersURL: configURL.deletingLastPathComponent().appendingPathComponent("ui-users.json"), options: options)
             try await server.start()
             if ui.auth == .form, server.users.isEmpty {
-                logger.info("Web UI: open it to create the administrator account")
+                // The set-up code itself goes to the banner (stdout), never to the log the MCP tools can read.
+                logger.info("Web UI: no account yet; the set-up code printed at startup creates the first one")
             }
             return server
         } catch {

@@ -32,6 +32,16 @@ public final class UserStore: Sendable {
 
     /// Adds a user. The username must be new; the password at least eight characters.
     public func create(username: String, password: String) throws {
+        try add(username: username, password: password, onlyWhenEmpty: false)
+    }
+
+    /// Adds the first user, refusing when one exists: the check and the write happen under one lock, so two
+    /// first visits cannot both create an account.
+    public func createFirst(username: String, password: String) throws {
+        try add(username: username, password: password, onlyWhenEmpty: true)
+    }
+
+    private func add(username: String, password: String, onlyWhenEmpty: Bool) throws {
         let name = username.trimmingCharacters(in: .whitespaces)
         guard (1...64).contains(name.count), !name.contains(where: { $0.isWhitespace || $0 == ":" }) else { throw AuthError.invalidUsername }
         guard password.count >= 8, password.utf8.count <= 1024 else { throw AuthError.weakPassword }
@@ -39,6 +49,7 @@ public final class UserStore: Sendable {
         for index in salt.indices { salt[index] = UInt8.random(in: 0...255) }
         let user = User(username: name, salt: salt, hash: Self.pbkdf2(password: password, salt: salt, iterations: iterations), iterations: iterations, created: Date())
         try state.withLockedValue { users in
+            guard !onlyWhenEmpty || users.isEmpty else { throw AuthError.setupDone }
             guard !users.contains(where: { $0.username.lowercased() == name.lowercased() }) else { throw AuthError.userExists }
             users.append(user)
             try save(users)
@@ -99,6 +110,7 @@ public enum AuthError: Error, CustomStringConvertible, Sendable, Equatable {
     case weakPassword
     case userExists
     case setupDone
+    case wrongSetupCode
     case badCredentials
 
     public var description: String {
@@ -107,6 +119,7 @@ public enum AuthError: Error, CustomStringConvertible, Sendable, Equatable {
         case .weakPassword: "the password must be at least 8 characters"
         case .userExists: "that user already exists"
         case .setupDone: "the first user already exists; sign in"
+        case .wrongSetupCode: "wrong set-up code: it is in the bridge's output, next to the web UI address"
         case .badCredentials: "wrong username or password"
         }
     }

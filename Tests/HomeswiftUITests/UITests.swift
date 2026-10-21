@@ -144,7 +144,8 @@ final class Browser: @unchecked Sendable {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-ui-users-\(UUID().uuidString).json")
         let store = UserStore(url: url, iterations: 1000)
         #expect(store.isEmpty)
-        try store.create(username: "rosaly", password: "correct horse")
+        try store.createFirst(username: "rosaly", password: "correct horse")
+        #expect(throws: AuthError.setupDone) { try store.createFirst(username: "other", password: "another one") }
         #expect(throws: AuthError.weakPassword) { try store.create(username: "x", password: "short") }
         #expect(throws: AuthError.userExists) { try store.create(username: "Rosaly", password: "another one") }
         #expect(throws: AuthError.invalidUsername) { try store.create(username: "a b", password: "another one") }
@@ -175,6 +176,26 @@ final class Browser: @unchecked Sendable {
         #expect(UIConfiguration().auth == .form)
         #expect(throws: UIConfigurationError.self) { try UIConfiguration(block: ["auth": "magic"]) }
         #expect(throws: UIConfigurationError.self) { try UIConfiguration(block: ["port": 0]) }
+        #expect(throws: UIConfigurationError.self) { try UIConfiguration(block: ["allowedHosts": "bridge.example.com"]) }
+    }
+
+    @Test func answersOnlyToItsOwnNames() throws {
+        let named = try UIConfiguration(block: ["allowedHosts": ["Bridge.Example.com", " proxy.lan "]])
+        #expect(named.allowedHosts == ["bridge.example.com", "proxy.lan"])
+        #expect(UIServer.allowedHosts(for: named).isSuperset(of: ["localhost", "bridge.example.com", "proxy.lan"]))
+        var bound = UIConfiguration()
+        bound.host = "bridge.home"
+        #expect(UIServer.allowedHosts(for: bound).contains("bridge.home"))
+        #expect(UIServer.hostName(of: "[::1]:8581") == "::1")
+        #expect(UIServer.hostName(of: "Mac-Mini.local.:8581") == "mac-mini.local")
+        #expect(UIServer.hostName(of: "192.168.1.10") == "192.168.1.10")
+        #expect(UIServer.isIPAddress("192.168.1.10"))
+        #expect(UIServer.isIPAddress("fe80::1%en0"))
+        #expect(!UIServer.isIPAddress("evil.example"))
+        #expect(!UIServer.isIPAddress("300.1.1.1"))
+        #expect(UIServer.makeSetupCode().count == 9)
+        #expect(UIServer.setupCodeMatches("ab cd-efgh", "ABCD-EFGH"))
+        #expect(!UIServer.setupCodeMatches("ABCD-EFGJ", "ABCD-EFGH"))
     }
 }
 
@@ -218,19 +239,35 @@ struct UIServerTests {
         let state = try await browser.get("/api/auth/state").json
         #expect(state?["setupNeeded"] == true)
         #expect(state?["authenticated"] == false)
+        let code = try #require(environment.server.setupCode)
+        #expect(code.count == 9)
         browser.origin = "http://evil.example"
-        #expect(try await browser.post("/api/auth/setup", ["username": "rosaly", "password": "correct horse"]).status == 403)
+        #expect(try await browser.post("/api/auth/setup", ["username": "rosaly", "password": "correct horse", "setupCode": .string(code)]).status == 403)
         browser.origin = "http://127.0.0.1:\(environment.server.port!)"
         browser.contentType = "text/plain"
-        #expect(try await browser.post("/api/auth/setup", ["username": "rosaly", "password": "correct horse"]).status == 415)
+        #expect(try await browser.post("/api/auth/setup", ["username": "rosaly", "password": "correct horse", "setupCode": .string(code)]).status == 415)
         browser.contentType = "application/json"
-        #expect(try await browser.post("/api/auth/setup", ["username": "rosaly", "password": "short"]).status == 400)
-        let created = try await browser.post("/api/auth/setup", ["username": "rosaly", "password": "correct horse"])
+        // The set-up code from the bridge's output is required; its case and dashes are not.
+        #expect(try await browser.post("/api/auth/setup", ["username": "rosaly", "password": "correct horse"]).status == 403)
+        #expect(try await browser.post("/api/auth/setup", ["username": "rosaly", "password": "correct horse", "setupCode": "NOPE-NOPE"]).status == 403)
+        #expect(try await browser.post("/api/auth/setup", ["username": "rosaly", "password": "short", "setupCode": .string(code)]).status == 400)
+        #expect(environment.server.users.isEmpty)
+        let typed = code.lowercased().replacingOccurrences(of: "-", with: " ")
+        let created = try await browser.post("/api/auth/setup", ["username": "rosaly", "password": "correct horse", "setupCode": .string(typed)])
         #expect(created.status == 200)
         #expect(browser.cookie?.hasPrefix("homeswift_session=") == true)
         #expect(created.headers["set-cookie"]?.contains("HttpOnly") == true)
         #expect(created.headers["set-cookie"]?.contains("SameSite=Strict") == true)
-        #expect(try await browser.post("/api/auth/setup", ["username": "again", "password": "correct horse"]).status == 409)
+        #expect(try await browser.post("/api/auth/setup", ["username": "again", "password": "correct horse", "setupCode": .string(code)]).status == 409)
+
+        // Only the server's own names are answered: a page whose name is rebound to this address gets nothing.
+        let port = environment.server.port!
+        #expect(environment.server.isAllowedHost("127.0.0.1:\(port)"))
+        #expect(environment.server.isAllowedHost("[::1]:\(port)"))
+        #expect(environment.server.isAllowedHost("localhost:\(port)"))
+        if !UIServer.machineName().isEmpty { #expect(environment.server.isAllowedHost(UIServer.machineName())) }
+        #expect(!environment.server.isAllowedHost("evil.example:\(port)"))
+        #expect(!environment.server.isAllowedHost(nil))
 
         // Status, accessories, control.
         let status = try await browser.get("/api/status").json

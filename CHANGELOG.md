@@ -41,8 +41,9 @@ All notable changes to this project are documented here. The format follows
   process. Status with pairing codes, accessories with live control (switches, sliders, menus), plugin
   settings as forms built from each plugin's `config.schema.json` (embedded by
   `Scripts/embed-assets.swift`; `HomeswiftPlugin.configurationSchemaJSON`), the raw config.json with
-  backups, and the live log. A login created on the first visit (PBKDF2 hashes in `ui-users.json`,
-  session cookies, origin checks, slowed-down failed logins), or `auth: none`. `docs/ui.md`.
+  backups, and the live log. A login created on the first visit with the set-up code the bridge prints
+  (PBKDF2 hashes in `ui-users.json`, session cookies, origin and host checks with `allowedHosts`,
+  slowed-down failed logins), or `auth: none`. `docs/ui.md`.
 - `get_plugin_config_schema` MCP tool; `list_plugins` says which plugins have a schema.
 
 ### Changed
@@ -50,7 +51,8 @@ All notable changes to this project are documented here. The format follows
 - MCP: a destructive tool with a client that cannot ask the user needs a one-time code from the bridge's
   log instead of a self-declared `confirmed: true`; `dryRun` skips the question only for tools that honour
   it; `get_config` returns secrets only to an admin token and never the MCP tokens; log tools mask secrets
-  and defuse data tags; `search_logs` matches plain text unless an admin asks for a regex.
+  and defuse data tags; `search_logs` matches plain text unless an admin asks for a regex. The log tools
+  and notifications hide confirmation codes, and three wrong codes lock a call until its code expires.
 
 - swift-log 1.11 or later.
 

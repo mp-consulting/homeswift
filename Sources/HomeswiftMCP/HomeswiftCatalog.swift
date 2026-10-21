@@ -286,9 +286,12 @@ public struct HomeswiftCatalog: Sendable {
         logs.recent(min(max(lines, 1), 1000), level: level).map { Self.safe($0.formatted) }.joined(separator: "\n")
     }
 
-    /// Log text as data: secrets masked, and `<untrusted-data>` tags inside it defused so a line cannot end the wrapper.
+    /// Log text as data: secrets masked, confirmation codes hidden (a client must not read its own code back),
+    /// and `<untrusted-data>` tags inside it defused so a line cannot end the wrapper.
     public static func safe(_ line: String) -> String {
-        Redaction.redactText(line).replacingOccurrences(of: "untrusted-data", with: "untrusted\u{2011}data", options: [.caseInsensitive])
+        Redaction.redactText(line)
+            .replacingOccurrences(of: #"(?i)(confirmation code )\d{6}"#, with: "$1••••••", options: .regularExpression)
+            .replacingOccurrences(of: "untrusted-data", with: "untrusted\u{2011}data", options: [.caseInsensitive])
     }
 
     // MARK: The catalog

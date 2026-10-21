@@ -8,13 +8,21 @@ import NIOConcurrencyHelpers
 import NIOCore
 import NIOHTTP1
 import NIOPosix
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(Darwin)
+import Darwin
+#endif
 
 /// The web UI: a NIO HTTP server inside the bridge serving the embedded pages and a JSON API over the
 /// same control surface the MCP server uses (`HomeswiftCatalog`).
 ///
-/// With `auth: form` the first visit creates the admin account; every API request then needs the session
-/// cookie. Mutations must come from the page itself: JSON bodies only, and an `Origin` that matches the
-/// `Host`. Pages and API answers carry no-store and content-security headers.
+/// With `auth: form` the first visit creates the admin account, with the set-up code the bridge printed;
+/// every API request then needs the session cookie. Requests are answered only for the server's own names
+/// (`isAllowedHost`). Mutations must come from the page itself: JSON bodies only, and an `Origin` that
+/// matches the `Host`. Pages and API answers carry no-store and content-security headers.
 public final class UIServer: Sendable {
     public struct Options: Sendable {
         public var logger = Logger(label: "homeswift.ui")
@@ -27,6 +35,10 @@ public final class UIServer: Sendable {
     public let catalog: HomeswiftCatalog
     public let users: UserStore
     public let sessions: SessionStore
+    /// With `auth: form` and no account yet: what the first visitor must type to create one. The bridge's banner
+    /// prints it; it is never logged, so a client of the MCP log tools cannot claim the UI.
+    public let setupCode: String?
+    let allowedHosts: Set<String>
     let options: Options
     let throttle = LoginThrottle()
     let events = EventHub()
@@ -42,6 +54,8 @@ public final class UIServer: Sendable {
         self.options = options
         users = UserStore(url: usersURL, iterations: options.hashIterations)
         sessions = SessionStore(lifetime: TimeInterval(configuration.sessionDays) * 86_400)
+        setupCode = configuration.auth == .form && users.isEmpty ? Self.makeSetupCode() : nil
+        allowedHosts = Self.allowedHosts(for: configuration)
     }
 
     /// The bound port, once started.
@@ -107,6 +121,9 @@ public final class UIServer: Sendable {
     }
 
     func reply(to request: Request) async -> Reply {
+        guard isAllowedHost(request.headers["host"]) else {
+            return .error(421, "this is not a name the web UI answers to; add it to allowedHosts in the HomeswiftUI block")
+        }
         let parts = request.path.split(separator: "/").map { String($0).removingPercentEncoding ?? String($0) }
         guard parts.first == "api" else { return page(for: parts) }
         let route = Array(parts.dropFirst())
@@ -176,13 +193,24 @@ public final class UIServer: Sendable {
         case (.POST, "setup"):
             if let refused = refuseCrossSite(request) { return refused }
             guard configuration.auth == .form else { return .error(400, "no login is needed") }
-            guard users.isEmpty else { return .error(409, AuthError.setupDone.description) }
+            guard let setupCode, users.isEmpty else { return .error(409, AuthError.setupDone.description) }
             guard let (username, password) = credentials(request) else { return .error(400, "username and password are required") }
+            let presented = (try? JSONValue(data: request.body))?["setupCode"]?.stringValue ?? ""
+            let delay = throttle.delay(for: request.remote)
+            if delay > .zero { try? await Task.sleep(for: delay) }
+            guard Self.setupCodeMatches(presented, setupCode) else {
+                throttle.failed(request.remote)
+                logger.warning("Web UI setup refused: wrong set-up code", metadata: ["remote": "\(request.remote)"])
+                return .error(403, AuthError.wrongSetupCode.description)
+            }
             do {
-                try users.create(username: username, password: password)
+                try users.createFirst(username: username, password: password)
+            } catch AuthError.setupDone {
+                return .error(409, AuthError.setupDone.description)
             } catch {
                 return .error(400, "\(error)")
             }
+            throttle.succeeded(request.remote)
             logger.info("Web UI account created", metadata: ["username": "\(username)"])
             return .json(["username": .string(username)], headers: ["Set-Cookie": cookie(sessions.create(username: username))])
         case (.POST, "login"):
@@ -451,5 +479,76 @@ final class UIRequestHandler: ChannelInboundHandler {
 
     func errorCaught(context: ChannelHandlerContext, error: any Error) {
         context.close(promise: nil)
+    }
+}
+
+// MARK: The server's names and the set-up code
+
+extension UIServer {
+    /// Whether a `Host` header names this server: an IP address, localhost, this machine's name, the configured
+    /// host or an `allowedHosts` entry. A page from another site whose name is rebound to this address fails here.
+    func isAllowedHost(_ header: String?) -> Bool {
+        guard let header else { return false }
+        let host = Self.hostName(of: header)
+        if allowedHosts.contains("*") || allowedHosts.contains(host) { return true }
+        return host.hasSuffix(".localhost") || Self.isIPAddress(host)
+    }
+
+    static func allowedHosts(for configuration: UIConfiguration) -> Set<String> {
+        var hosts: Set<String> = ["localhost"]
+        let machine = machineName()
+        if !machine.isEmpty {
+            hosts.insert(machine)
+            let first = machine.split(separator: ".").first.map(String.init) ?? machine
+            hosts.insert(first)
+            hosts.insert(first + ".local")
+        }
+        let bound = configuration.host.lowercased()
+        if !["", "0.0.0.0", "::", "[::]"].contains(bound) { hosts.insert(hostName(of: bound)) }
+        for entry in configuration.allowedHosts { hosts.insert(hostName(of: entry)) }
+        return hosts
+    }
+
+    /// The host part of a `Host` header, lower-cased, without the port, brackets or a trailing dot.
+    static func hostName(of header: String) -> String {
+        var host = header.trimmingCharacters(in: .whitespaces).lowercased()
+        if host.hasPrefix("[") {
+            host = String(host.dropFirst().prefix { $0 != "]" })
+        } else if let colon = host.lastIndex(of: ":"), !host[..<colon].contains(":") {
+            host = String(host[..<colon])
+        }
+        while host.hasSuffix(".") { host.removeLast() }
+        return host
+    }
+
+    static func isIPAddress(_ host: String) -> Bool {
+        if host.contains(":") {   // IPv6, maybe with a zone (`fe80::1%en0`, or `%25en0` from a browser)
+            let address = host.prefix { $0 != "%" }
+            return !address.isEmpty && address.allSatisfy { $0.isHexDigit || $0 == ":" || $0 == "." }
+        }
+        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
+        return parts.count == 4 && parts.allSatisfy { part in
+            !part.isEmpty && part.allSatisfy(\.isNumber) && Int(part).map { $0 <= 255 } == true
+        }
+    }
+
+    /// `gethostname`: no DNS lookup. On a Mac this is the `.local` name.
+    static func machineName() -> String {
+        var buffer = [CChar](repeating: 0, count: 256)
+        guard gethostname(&buffer, buffer.count) == 0 else { return "" }
+        return buffer.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }.lowercased()
+    }
+
+    /// Eight characters from an alphabet without look-alikes, as `XXXX-XXXX`.
+    static func makeSetupCode() -> String {
+        let alphabet = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
+        let characters = (0..<8).map { _ in alphabet[Int.random(in: 0..<alphabet.count)] }
+        return String(characters[0..<4]) + "-" + String(characters[4..<8])
+    }
+
+    /// Case, spaces and dashes do not matter; compared in constant time.
+    static func setupCodeMatches(_ presented: String, _ expected: String) -> Bool {
+        func bare(_ code: String) -> Data { Data(code.uppercased().filter { $0.isLetter || $0.isNumber }.utf8) }
+        return constantTimeEqual(bare(presented), bare(expected))
     }
 }

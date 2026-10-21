@@ -48,9 +48,13 @@
     $("#auth").classList.remove("hidden");
     closeEvents();
     const setup = auth && auth.setupNeeded;
-    $("#auth-text").textContent = setup ? "Create the administrator account for this bridge." : "Sign in to manage the bridge.";
+    $("#auth-text").textContent = setup
+      ? "Create the administrator account for this bridge. The set-up code is in the bridge's output, next to the web UI address."
+      : "Sign in to manage the bridge.";
     $("#auth-submit").textContent = setup ? "Create account" : "Sign in";
     $("input[name=password]", $("#auth-form")).autocomplete = setup ? "new-password" : "current-password";
+    $("#auth-setup-code").classList.toggle("hidden", !setup);
+    $("input[name=setupCode]", $("#auth-form")).required = !!setup;
   }
 
   $("#auth-form").addEventListener("submit", async (event) => {
@@ -60,7 +64,9 @@
     error.textContent = "";
     $("#auth-submit").disabled = true;
     try {
-      await api(auth && auth.setupNeeded ? "/api/auth/setup" : "/api/auth/login", { method: "POST", body: { username: form.username.value, password: form.password.value } });
+      const body = { username: form.username.value, password: form.password.value };
+      if (auth && auth.setupNeeded) body.setupCode = form.setupCode.value;
+      await api(auth && auth.setupNeeded ? "/api/auth/setup" : "/api/auth/login", { method: "POST", body });
       form.password.value = "";
       await loadAuth();
     } catch (e) {

@@ -76,14 +76,16 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
   plugins never depend on a provider (`context.assistant` is optional). Claude requests send no `thinking`
   settings, prefills or forced tool choices. Darwin-only `FoundationModels` stays behind `#if canImport`.
 - The MCP server: every tool declares its scope and whether it is destructive; destructive tools go through
-  `ToolCall.confirm` (elicitation, else `confirmed: true`) and every write is audited; locks, garage doors
+  `ToolCall.confirm` (elicitation, else a one-time code from the bridge's log that `HomeswiftCatalog.safe` hides) and every write is audited; locks, garage doors
   and alarms are written only by `set_security_accessory`; tool text from logs or devices is wrapped in
   `<untrusted-data>`. The protocol is implemented directly (no SDK): `MCPServer.protocolVersion` is the
   version to bump. `homeswift mcp` logs to stderr because stdout carries the protocol.
 - The web UI: pages are plain HTML, CSS and JavaScript without dependencies or a build step; they are
   embedded, so edit `Web/` and rerun the embed script (the tests say when it is stale). The API is the
   `HomeswiftCatalog` surface; mutations need JSON bodies and a same-origin `Origin`. `HomeswiftUI` and
-  `HomeswiftAiKit` are system platforms: the CLI starts them, `PluginHost` skips them.
+  `HomeswiftAiKit` are system platforms: the CLI starts them, `PluginHost` skips them. The first account
+  needs the set-up code the banner prints (`UIServer.setupCode`), never logged; requests are answered only
+  for the server's own `Host` names (`allowedHosts`).
 
 ## Releases
 

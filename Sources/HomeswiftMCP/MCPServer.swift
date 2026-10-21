@@ -632,6 +632,7 @@ public final class MCPServer: Sendable {
             let summary = Redaction.redactSecrets(.object(bare)).text()
             if let presentedCode {
                 guard confirmationCodes.redeem(presentedCode, tool: name, arguments: .object(bare)) else {
+                    logger.warning("A wrong, expired or mismatched confirmation code was presented for \(name) \(summary)")
                     audit(ok: false, notConfirmed: true)
                     return ToolResult.error("Not run: the confirmation code is wrong, expired or for other arguments.").json
                 }
@@ -648,14 +649,22 @@ public final class MCPServer: Sendable {
                     return ToolResult.error("Not run: the user did not confirm.").json
                 }
             } else {
-                // The client cannot ask: the user reads a code in the bridge's log and passes it on.
-                let code = confirmationCodes.issue(tool: name, arguments: .object(bare))
-                logger.warning("Confirmation needed for \(name) \(summary): tell the assistant the code \(code) to allow it (valid 5 minutes, once)")
-                audit(ok: false, notConfirmed: true)
-                return ToolResult.error(
-                    "Not run: this changes something that cannot be undone and this client cannot ask the user. "
-                        + "A one-time confirmation code was written to the homeswift log (and terminal); ask the user for it and call again with \"confirmationCode\"."
-                ).json
+                // The client cannot ask: the user reads a code in the bridge's output and passes it on. The MCP
+                // log tools and notifications hide it (HomeswiftCatalog.safe), so the client cannot read it back.
+                switch confirmationCodes.issue(tool: name, arguments: .object(bare)) {
+                case .code(let code):
+                    logger.warning("Confirmation needed for \(name) \(summary): tell the assistant the confirmation code \(code) to allow it (valid 5 minutes, once)")
+                    audit(ok: false, notConfirmed: true)
+                    return ToolResult.error(
+                        "Not run: this changes something that cannot be undone and this client cannot ask the user. "
+                            + "A one-time confirmation code was written to the homeswift log (the terminal and the web UI; not readable through MCP); "
+                            + "ask the user for it and call again with \"confirmationCode\"."
+                    ).json
+                case .locked(let until):
+                    let minutes = max(1, Int(until.timeIntervalSinceNow / 60) + 1)
+                    audit(ok: false, notConfirmed: true)
+                    return ToolResult.error("Not run: too many wrong confirmation codes for this call; it can be tried again in \(minutes) minute(s).").json
+                }
             }
         }
         do {
@@ -711,35 +720,50 @@ public final class MCPServer: Sendable {
 }
 
 /// One-time codes for destructive calls from clients that cannot ask the user: the bridge logs the code,
-/// the user reads it, the client repeats it. A code is bound to one tool call's arguments.
+/// the user reads it, the client repeats it. A code is bound to one tool call's arguments, lasts five
+/// minutes and works once; three wrong guesses lock that call until the code expires.
 final class ConfirmationCodes: Sendable {
     struct Entry {
         var code: String
         var expires: Date
+        var wrongGuesses = 0
+        var isLocked: Bool { wrongGuesses >= ConfirmationCodes.maxWrongGuesses }
+    }
+
+    enum Issued: Equatable {
+        case code(String)
+        /// Too many wrong guesses: nothing until the entry expires.
+        case locked(until: Date)
     }
 
     private let entries = NIOLockedValueBox<[String: Entry]>([:])
     static let lifetime: TimeInterval = 300
+    static let maxWrongGuesses = 3
 
     static func key(tool: String, arguments: JSONValue) -> String { "\(tool)\n\(arguments.text())" }
 
     /// The code for this call, issuing a new one when there is none or it expired.
-    func issue(tool: String, arguments: JSONValue) -> String {
+    func issue(tool: String, arguments: JSONValue) -> Issued {
         let key = Self.key(tool: tool, arguments: arguments)
         return entries.withLockedValue { entries in
             entries = entries.filter { $0.value.expires > Date() }
-            if let existing = entries[key] { return existing.code }
+            if let existing = entries[key] { return existing.isLocked ? .locked(until: existing.expires) : .code(existing.code) }
             let code = String(format: "%06d", Int.random(in: 0...999_999))
             entries[key] = Entry(code: code, expires: Date().addingTimeInterval(Self.lifetime))
-            return code
+            return .code(code)
         }
     }
 
-    /// Consumes the code when it matches this call. Compared in constant time.
+    /// Consumes the code when it matches this call. Compared in constant time; a wrong code counts towards the lock.
     func redeem(_ code: String, tool: String, arguments: JSONValue) -> Bool {
         let key = Self.key(tool: tool, arguments: arguments)
         return entries.withLockedValue { entries in
-            guard let entry = entries[key], entry.expires > Date(), MCPConfiguration.constantTimeEqual(entry.code, code) else { return false }
+            guard var entry = entries[key], entry.expires > Date() else { return false }
+            guard !entry.isLocked, MCPConfiguration.constantTimeEqual(entry.code, code) else {
+                entry.wrongGuesses += 1
+                entries[key] = entry
+                return false
+            }
             entries.removeValue(forKey: key)
             return true
         }
