@@ -303,6 +303,38 @@ struct PluginHostTests {
         await host.stop()
     }
 
+    @Test func offersTheAssistantFromTheAiKitBlock() async throws {
+        let host = try environment.host("""
+            {
+              "bridge": { "port": 0 },
+              "platforms": [
+                { "platform": "HomeswiftAiKit", "provider": "openai-compatible", "model": "llama3.1", "baseUrl": "http://127.0.0.1:9/v1" },
+                { "platform": "Recording", "name": "Lamps" }
+              ]
+            }
+            """)
+        #expect(host.platforms.map(\.platform) == ["Recording"])
+        #expect(host.aiConfiguration?.provider == .openaiCompatible)
+        #expect(host.assistant?.providerName == "openai-compatible")
+        try await host.start()
+        let plugin = try #require(environment.createdPlugins.first)
+        let assistant = try #require(plugin.context.assistant)
+        #expect(assistant.model == "llama3.1")
+        await host.stop()
+
+        // A block that cannot be set up leaves the bridge running without an Assistant.
+        let broken = try environment.host("""
+            { "bridge": { "port": 0 }, "platforms": [{ "platform": "HomeswiftAiKit", "provider": "anthropic" }, { "platform": "Recording", "name": "Lamps" }] }
+            """)
+        #expect(broken.aiConfiguration != nil)
+        // (Unless the shell running the tests has ANTHROPIC_API_KEY, which the block then picks up.)
+        let keyInEnvironment = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"] != nil
+        #expect(broken.assistant == nil || keyInEnvironment)
+        try await broken.start()
+        #expect(environment.createdPlugins.last?.context.assistant == nil || keyInEnvironment)
+        await broken.stop()
+    }
+
     @Test func refusesDuplicateIDsAcrossPlugins() async throws {
         let host = try environment.host("""
             {

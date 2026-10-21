@@ -1,5 +1,6 @@
 import Foundation
 import Homeswift
+import HomeswiftAI
 import Logging
 import NIOConcurrencyHelpers
 
@@ -93,14 +94,25 @@ public final class PluginContext: @unchecked Sendable {
         return storageURL
     }
 
+    /// The Assistant, when config.json has a `HomeswiftAiKit` block: explain an error, answer a question,
+    /// write a configuration block. nil otherwise, so plugins must work without it. Requests carry the
+    /// plugin's name so answers can refer to it; inputs are redacted before they reach the provider.
+    public var assistant: (any Assistant)? {
+        assistantBox.withLockedValue { $0 }?.withContext("The requests come from the Homeswift plugin \"\(name)\" (platform \(platform)).")
+    }
+
     let key: String
     let bridge: PluginHost.Bridge
     let cache: AccessoryCache
     private let storageURL: URL
+    private let assistantBox: NIOLockedValueBox<AssistantService?>
     // Mutable state is behind the lock; the class is otherwise immutable.
     private let list = NIOLockedValueBox<[Accessory]>([])
 
-    init(platform: String, name: String, key: String, logger: Logger, bridge: PluginHost.Bridge, cache: AccessoryCache, storageURL: URL) {
+    init(
+        platform: String, name: String, key: String, logger: Logger, bridge: PluginHost.Bridge, cache: AccessoryCache, storageURL: URL,
+        assistant: NIOLockedValueBox<AssistantService?>
+    ) {
         self.platform = platform
         self.name = name
         self.key = key
@@ -108,6 +120,7 @@ public final class PluginContext: @unchecked Sendable {
         self.bridge = bridge
         self.cache = cache
         self.storageURL = storageURL
+        assistantBox = assistant
     }
 
     /// The accessories this instance has on the bridge, including those restored from the cache at

@@ -1,5 +1,6 @@
 import Foundation
 import Homeswift
+import HomeswiftAI
 import Logging
 import NIOConcurrencyHelpers
 
@@ -89,9 +90,15 @@ public final class PluginHost: @unchecked Sendable {
         instances.map { PlatformInstance(name: $0.context.name, platform: $0.context.platform, pluginName: $0.entry.name, bridge: $0.context.bridge) }
     }
 
+    /// The Assistant of the `HomeswiftAiKit` block, when there is one that works.
+    public var assistant: AssistantService? { assistantBox.withLockedValue { $0 } }
+    /// The `HomeswiftAiKit` block as read, whether or not its provider could be set up.
+    public let aiConfiguration: AIConfiguration?
+
     let instances: [Instance]
     let options: Options
     let logger: Logger
+    private let assistantBox = NIOLockedValueBox<AssistantService?>(nil)
 
     /// Prepares the bridges and the plugins' contexts and restores the accessory caches. Nothing listens
     /// until `start()`.
@@ -115,7 +122,19 @@ public final class PluginHost: @unchecked Sendable {
             logger.warning("config.json has \(configuration.accessoryBlockCount) \"accessories\" block(s); Homeswift only runs platforms, they are ignored")
         }
 
-        for block in configuration.platforms {
+        // The Assistant's block is the runtime's, not a plugin's. A bad one never stops the bridge.
+        aiConfiguration = Self.loadAIConfiguration(configuration, logger: logger)
+        if let aiConfiguration, aiConfiguration.enabled {
+            do {
+                let service = try AssistantService(configuration: aiConfiguration, logger: logger)
+                assistantBox.withLockedValue { $0 = service }
+                logger.info("Assistant ready", metadata: ["provider": "\(service.providerName)", "model": "\(service.model)"])
+            } catch {
+                logger.error("Assistant unavailable: \(error)")
+            }
+        }
+
+        for block in configuration.platforms where block.platform != AIConfiguration.platform {
             if configuration.disabledPlugins.contains(block.platform) {
                 logger.info("Skipping disabled platform", metadata: ["platform": "\(block.platform)", "name": "\(block.name)"])
                 continue
@@ -148,7 +167,8 @@ public final class PluginHost: @unchecked Sendable {
             let context = PluginContext(
                 platform: block.platform, name: block.name, key: key, logger: pluginLogger, bridge: bridge,
                 cache: AccessoryCache(url: storageDirectory.appendingPathComponent("accessories").appendingPathComponent("\(key).json")),
-                storageURL: storageDirectory.appendingPathComponent("plugins").appendingPathComponent(key))
+                storageURL: storageDirectory.appendingPathComponent("plugins").appendingPathComponent(key),
+                assistant: assistantBox)
             context.restoreCache()
             instances.append(Instance(entry: entry, block: block, context: context))
         }
@@ -232,6 +252,17 @@ public final class PluginHost: @unchecked Sendable {
         let server = try HAPServer(bridge: accessory, accessories: [], storage: storage, options: serverOptions)
         accessory.information.characteristic(.serialNumber).value = .string(server.deviceID)
         return Bridge(name: name, server: server, isChild: isChild)
+    }
+
+    /// The first `HomeswiftAiKit` block, decoded; a malformed one is logged and ignored.
+    static func loadAIConfiguration(_ configuration: HomeswiftConfiguration, logger: Logger) -> AIConfiguration? {
+        guard let block = configuration.platforms.first(where: { $0.platform == AIConfiguration.platform }) else { return nil }
+        do {
+            return try AIConfiguration(block: try JSONValue(data: block.json))
+        } catch {
+            logger.error("Assistant unavailable: \(error)")
+            return nil
+        }
     }
 
     static func isDeviceID(_ string: String) -> Bool {
