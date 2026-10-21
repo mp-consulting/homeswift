@@ -1,23 +1,55 @@
 /// `GET /accessories` body.
-struct AccessoryDatabase: Encodable {
-    struct AccessoryJSON: Encodable {
+struct AccessoryDatabase: JSONWritable {
+    struct AccessoryJSON: JSONWritable {
         var aid: Int
         var services: [ServiceJSON]
+
+        func write(to json: inout JSONWriter) {
+            json.object { json in
+                json.field("aid", aid)
+                json.key("services")
+                json.array { json in
+                    for service in services { json.value(service) }
+                }
+            }
+        }
     }
 
-    struct ServiceJSON: Encodable {
+    struct ServiceJSON: JSONWritable {
         var iid: Int
         var type: String
         var characteristics: [CharacteristicJSON]
         var primary: Bool?
         var hidden: Bool?
+
+        func write(to json: inout JSONWriter) {
+            json.object { json in
+                json.field("iid", iid)
+                json.field("type", type)
+                json.key("characteristics")
+                json.array { json in
+                    for characteristic in characteristics { json.value(characteristic) }
+                }
+                json.field("primary", primary)
+                json.field("hidden", hidden)
+            }
+        }
     }
 
     var accessories: [AccessoryJSON]
+
+    func write(to json: inout JSONWriter) {
+        json.object { json in
+            json.key("accessories")
+            json.array { json in
+                for accessory in accessories { json.value(accessory) }
+            }
+        }
+    }
 }
 
 /// One characteristic as it appears in the database, read responses, write responses and events.
-struct CharacteristicJSON: Encodable {
+struct CharacteristicJSON: JSONWritable {
     var aid: Int?
     var iid: Int
     var type: String?
@@ -35,10 +67,25 @@ struct CharacteristicJSON: Encodable {
     var ev: Bool?
     var status: Int?
 
-    enum CodingKeys: String, CodingKey {
-        case aid, iid, type, perms, format, value, description, unit, minValue, maxValue, minStep, maxLen, ev, status
-        case validValues = "valid-values"
-        case validValuesRange = "valid-values-range"
+    func write(to json: inout JSONWriter) {
+        json.object { json in
+            json.field("aid", aid)
+            json.field("iid", iid)
+            json.field("type", type)
+            json.field("perms", perms)
+            json.field("format", format)
+            json.field("value", value)
+            json.field("description", description)
+            json.field("unit", unit)
+            json.field("minValue", minValue)
+            json.field("maxValue", maxValue)
+            json.field("minStep", minStep)
+            json.field("maxLen", maxLen)
+            json.field("valid-values", validValues)
+            json.field("valid-values-range", validValuesRange)
+            json.field("ev", ev)
+            json.field("status", status)
+        }
     }
 
     init(aid: Int? = nil, iid: Int, value: HAPValue? = nil, status: HAPStatus? = nil) {
@@ -72,8 +119,26 @@ struct CharacteristicJSON: Encodable {
     }
 }
 
-struct CharacteristicsJSON: Encodable {
+struct CharacteristicsJSON: JSONWritable {
     var characteristics: [CharacteristicJSON]
+
+    func write(to json: inout JSONWriter) {
+        json.object { json in
+            json.key("characteristics")
+            json.array { json in
+                for characteristic in characteristics { json.value(characteristic) }
+            }
+        }
+    }
+}
+
+/// `{"status": n}`, the body of errors and of `PUT /prepare`.
+struct StatusJSON: JSONWritable {
+    var status: Int
+
+    func write(to json: inout JSONWriter) {
+        json.object { json in json.field("status", status) }
+    }
 }
 
 /// `PUT /characteristics` body.

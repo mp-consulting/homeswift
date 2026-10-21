@@ -23,14 +23,14 @@ struct SecureSession {
     }
 
     mutating func encrypt(_ plaintext: Data) throws -> Data {
-        var out = Data()
+        let frames = max(1, (plaintext.count + Self.maxFrame - 1) / Self.maxFrame)
+        var out = Data(capacity: plaintext.count + frames * 18)
         var offset = plaintext.startIndex
         repeat {
             let end = plaintext.index(offset, offsetBy: Self.maxFrame, limitedBy: plaintext.endIndex) ?? plaintext.endIndex
-            let chunk = plaintext[offset..<end]
-            let length = UInt16(chunk.count)
+            let length = UInt16(end - offset)
             let aad = Data([UInt8(length & 0xFF), UInt8(length >> 8)])
-            let sealed = try HAPCrypto.seal(Data(chunk), key: writeKey, nonce: HAPCrypto.nonce(counter: writeCounter), aad: aad)
+            let sealed = try HAPCrypto.seal(plaintext[offset..<end], key: writeKey, nonce: HAPCrypto.nonce(counter: writeCounter), aad: aad)
             writeCounter += 1
             out.append(aad)
             out.append(sealed)
@@ -42,18 +42,20 @@ struct SecureSession {
     /// Decrypts every complete frame at the front of `buffer` and leaves any partial frame in place.
     mutating func decrypt(_ buffer: inout Data) throws -> Data {
         var out = Data()
-        while buffer.count >= 2 {
-            let start = buffer.startIndex
+        var start = buffer.startIndex
+        // Frames are read in place; the consumed bytes are dropped once at the end, not after every
+        // frame (that copy made large responses quadratic).
+        while buffer.endIndex - start >= 2 {
             let length = Int(buffer[start]) | Int(buffer[start + 1]) << 8
             guard length <= Self.maxFrame else { throw TLVError.authentication }
             let total = 2 + length + 16
-            guard buffer.count >= total else { break }
+            guard buffer.endIndex - start >= total else { break }
             let aad = Data(buffer[start..<start + 2])
-            let sealed = Data(buffer[start + 2..<start + total])
-            out.append(try HAPCrypto.open(sealed, key: readKey, nonce: HAPCrypto.nonce(counter: readCounter), aad: aad))
+            out.append(try HAPCrypto.open(buffer[start + 2..<start + total], key: readKey, nonce: HAPCrypto.nonce(counter: readCounter), aad: aad))
             readCounter += 1
-            buffer = Data(buffer[(start + total)...])
+            start += total
         }
+        if start != buffer.startIndex { buffer = Data(buffer[start...]) }
         return out
     }
 }

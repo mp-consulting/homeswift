@@ -236,8 +236,9 @@ public final class HAPServer: @unchecked Sendable {
 
     private func refreshConfigurationNumber(in state: inout State) {
         let structure = database(accessories: state.accessories, includeValues: false)
-        let data = (try? HAPJSON.encoder.encode(structure)) ?? Data()
-        let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        var json = JSONWriter(capacity: 64 * 1024)
+        structure.write(to: &json)
+        let hash = SHA256.hash(data: json.bytes).map { String(format: "%02x", $0) }.joined()
         if !state.persisted.databaseHash.isEmpty, state.persisted.databaseHash != hash {
             state.persisted.configurationNumber = state.persisted.configurationNumber % 65535 + 1
         }

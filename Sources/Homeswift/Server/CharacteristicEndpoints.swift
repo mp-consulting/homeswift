@@ -119,7 +119,7 @@ extension HAPConnection {
             return .hapStatus(400, .invalidValueInRequest)
         }
         timedWrite = (request.pid, ContinuousClock.now + .milliseconds(request.ttl))
-        return .json(200, ["status": HAPStatus.success.rawValue])
+        return .json(200, StatusJSON(status: HAPStatus.success.rawValue))
     }
 
     /// `POST /identify`: only allowed before the accessory is paired.

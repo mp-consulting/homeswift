@@ -100,6 +100,46 @@ struct SecureSessionTests {
     }
 }
 
+struct JSONWriterTests {
+    @Test func writesWhatJSONSerializationReads() throws {
+        var entry = CharacteristicJSON(aid: 2, iid: 9, value: .string("a \"quoted\"\\ line\n\u{1}/é"))
+        entry.perms = ["pr", "ev"]
+        entry.minValue = 0
+        entry.minStep = 0.1
+        entry.validValues = [0, 1, 3]
+        entry.ev = false
+        let response = HTTPResponse.json(207, CharacteristicsJSON(characteristics: [
+            entry, CharacteristicJSON(aid: 3, iid: 4, value: .double(-21.25), status: .resourceBusy),
+            CharacteristicJSON(iid: 5, value: .null),
+        ]))
+        let text = String(decoding: response.body, as: UTF8.self)
+        #expect(text.hasPrefix(#"{"characteristics":[{"aid":2,"iid":9,"perms":["pr","ev"],"value":"a \"quoted\"\\ line\n\u0001/é","minValue":0,"minStep":0.1,"#))
+
+        let parsed = try #require(try JSONSerialization.jsonObject(with: response.body) as? [String: Any])
+        let items = try #require(parsed["characteristics"] as? [[String: Any]])
+        #expect(items.count == 3)
+        #expect(items[0]["value"] as? String == "a \"quoted\"\\ line\n\u{1}/é")
+        #expect(items[0]["valid-values"] as? [Int] == [0, 1, 3])
+        #expect(items[0]["ev"] as? Bool == false)
+        #expect(items[1]["value"] as? Double == -21.25)
+        #expect(items[1]["status"] as? Int == HAPStatus.resourceBusy.rawValue)
+        #expect(items[2]["value"] is NSNull)
+        #expect(items[2]["aid"] == nil)
+    }
+
+    @Test func writesStatusAndIntegers() {
+        let body = HTTPResponse.hapStatus(470, .insufficientPrivileges).body
+        #expect(String(decoding: body, as: UTF8.self) == #"{"status":-70401}"#)
+        var json = JSONWriter()
+        json.array { json in
+            for value in [0, 7, -3, Int.max, Int.min] { json.value(value) }
+            json.value(1e20)
+            json.value(Double.nan)
+        }
+        #expect(String(decoding: json.bytes, as: UTF8.self) == "[0,7,-3,\(Int.max),\(Int.min),1e+20,null]")
+    }
+}
+
 extension Data {
     var hex: String { map { String(format: "%02x", $0) }.joined() }
 }

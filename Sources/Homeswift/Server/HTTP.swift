@@ -73,12 +73,14 @@ struct HTTPResponse {
         HTTPResponse(status: 200, contentType: pairingTLV, body: tlv.encoded())
     }
 
-    static func json(_ status: Int, _ value: some Encodable) -> HTTPResponse {
-        HTTPResponse(status: status, contentType: hapJSON, body: (try? HAPJSON.encoder.encode(value)) ?? Data())
+    static func json(_ status: Int, _ value: some JSONWritable) -> HTTPResponse {
+        var json = JSONWriter()
+        value.write(to: &json)
+        return HTTPResponse(status: status, contentType: hapJSON, body: Data(json.bytes))
     }
 
     static func hapStatus(_ status: Int, _ code: HAPStatus) -> HTTPResponse {
-        json(status, ["status": code.rawValue])
+        json(status, StatusJSON(status: code.rawValue))
     }
 
     static let noContent = HTTPResponse(status: 204)
@@ -108,11 +110,5 @@ struct HTTPResponse {
 }
 
 enum HAPJSON {
-    static let encoder: JSONEncoder = {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.withoutEscapingSlashes]
-        return encoder
-    }()
-
     static let decoder = JSONDecoder()
 }

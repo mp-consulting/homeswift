@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- JSON responses (the accessory database, reads, writes, events) are written directly instead of through
+  `JSONEncoder`: `GET /accessories` for 100 accessories dropped from about 13 ms to 2.5 ms of server time. The
+  configuration number may go up once after updating, and the Home app then reloads the accessories.
+
+### Fixed
+
+- Decrypting a large message copied the rest of the buffer after every 1 KB frame, which made it quadratic.
+
 ## [0.1.0] - 2026-10-21
 
 ### Added
