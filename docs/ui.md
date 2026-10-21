@@ -3,7 +3,8 @@
 A `HomeswiftUI` block gives the bridge a web interface, inside the same process: status and pairing
 codes, accessories with live control, each plugin's settings as a form made from its `config.schema.json`,
 the raw `config.json`, and the log as it happens. It is the Config UI of a Homebridge, in Swift, with a
-liquid glass look.
+liquid glass look that follows the system's light or dark appearance and its reduced-motion,
+reduced-transparency and increased-contrast settings.
 
 ```json
 { "platform": "HomeswiftUI", "port": 8581, "host": "0.0.0.0", "auth": "form" }

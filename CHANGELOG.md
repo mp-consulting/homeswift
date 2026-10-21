@@ -43,7 +43,8 @@ All notable changes to this project are documented here. The format follows
   `Scripts/embed-assets.swift`; `HomeswiftPlugin.configurationSchemaJSON`), the raw config.json with
   backups, and the live log. A login created on the first visit with the set-up code the bridge prints
   (PBKDF2 hashes in `ui-users.json`, session cookies, origin and host checks with `allowedHosts`,
-  slowed-down failed logins), or `auth: none`. `docs/ui.md`.
+  slowed-down failed logins), or `auth: none`. The pages follow the system's light or dark appearance and
+  its reduced-motion, reduced-transparency and increased-contrast settings. `docs/ui.md`.
 - `get_plugin_config_schema` MCP tool; `list_plugins` says which plugins have a schema.
 
 ### Changed
