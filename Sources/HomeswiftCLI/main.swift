@@ -77,8 +77,12 @@ if command == "plugins" {
 let configURL = storagePath.appendingPathComponent("config.json")
 if !FileManager.default.fileExists(atPath: configURL.path) {
     do {
-        try FileManager.default.createDirectory(at: storagePath, withIntermediateDirectories: true)
+        // Owner-only, like the bridge's state file: config.json holds the setup code and plugin secrets.
+        try FileManager.default.createDirectory(at: storagePath, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try HomeswiftConfiguration.makeDefault().write(to: configURL, options: .atomic)
+        #if !os(Windows)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
+        #endif
         logger.info("Created \(configURL.path); add platform blocks to it to run plugins")
     } catch {
         fail("could not create \(configURL.path): \(error)")

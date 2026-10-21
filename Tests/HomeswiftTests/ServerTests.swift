@@ -173,6 +173,32 @@ struct ServerTests {
         await server.stop()
     }
 
+    @Test func aDifferentDeviceIDIsANewAccessory() async throws {
+        let controller = try await pairedController()
+        await controller.close()
+        await server.stop()
+        let publicKey = server.signingKey.publicKey.rawRepresentation
+        let bridge = { Accessory(id: "bridge", name: "Test Bridge", category: .bridge, services: []) }
+
+        // The same ID, spelled differently, keeps the pairings and the key.
+        let same = try HAPServer(
+            bridge: bridge(), accessories: [], storage: storage,
+            options: .init(deviceID: server.deviceID.lowercased(), port: 0, advertise: false, logger: testLogger))
+        #expect(same.deviceID == server.deviceID)
+        #expect(same.isPaired)
+        #expect(same.signingKey.publicKey.rawRepresentation == publicKey)
+
+        // A new ID drops them: controllers know the old accessory, not this one.
+        let renamed = try HAPServer(
+            bridge: bridge(), accessories: [], storage: storage,
+            options: .init(deviceID: "0e:aa:bb:cc:dd:ee", port: 0, advertise: false, logger: testLogger))
+        #expect(renamed.deviceID == "0E:AA:BB:CC:DD:EE")
+        #expect(!renamed.isPaired)
+        #expect(renamed.signingKey.publicKey.rawRepresentation != publicKey)
+        #expect(renamed.setupCode == server.setupCode)
+        #expect(renamed.txtRecord().first { $0.0 == "sf" }?.1 == "1")
+    }
+
     @Test func keepsIdentityAndIDsAcrossRestarts() async throws {
         let controller = try await pairedController()
         let iid = lightbulb.characteristic(.brightness).iid

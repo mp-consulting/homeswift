@@ -108,10 +108,20 @@ struct KeyLightClient: Sendable {
     let transport: any KeyLightTransport
 
     var baseURL: URL? {
+        guard Self.isValidHost(host), Self.isValidPort(port) else { return nil }
         // IPv6 literals must be bracketed inside a URL.
-        let hostPart = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+        let hostPart = host.contains(":") ? "[\(host)]" : host
         return URL(string: "http://\(hostPart):\(port)/elgato/")
     }
+
+    /// An IP literal or a DNS host name: nothing that could smuggle a path or query into the URL.
+    static func isValidHost(_ host: String) -> Bool {
+        !host.isEmpty && host.count <= 253 && host.unicodeScalars.allSatisfy {
+            CharacterSet.alphanumerics.contains($0) || $0 == "." || $0 == "-" || $0 == ":"
+        }
+    }
+
+    static func isValidPort(_ port: Int) -> Bool { (1...65535).contains(port) }
 
     func info() async throws -> KeyLightInfo {
         try await get("accessory-info", timeout: Self.requestTimeout)
