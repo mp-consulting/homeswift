@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/icon.svg" width="128" height="128" alt="Homeswift icon: the Swift bird inside a white house, on an orange square">
+  <img src="docs/images/icon.svg" width="176" height="176" alt="Homeswift icon: the Swift bird inside a white house, on an orange square">
 </p>
 
 <h1 align="center">Homeswift</h1>
