@@ -66,6 +66,8 @@ public final class PluginHost: @unchecked Sendable {
         public let platform: String
         public let pluginName: String
         public let bridge: Bridge
+        /// The ids of the accessories this instance has on its bridge right now.
+        public let accessoryIDs: [String]
     }
 
     final class Instance: @unchecked Sendable {
@@ -87,7 +89,11 @@ public final class PluginHost: @unchecked Sendable {
     public let bridges: [Bridge]
     public var mainBridge: Bridge { bridges[0] }
     public var platforms: [PlatformInstance] {
-        instances.map { PlatformInstance(name: $0.context.name, platform: $0.context.platform, pluginName: $0.entry.name, bridge: $0.context.bridge) }
+        instances.map {
+            PlatformInstance(
+                name: $0.context.name, platform: $0.context.platform, pluginName: $0.entry.name, bridge: $0.context.bridge,
+                accessoryIDs: $0.context.accessories.map(\.id))
+        }
     }
 
     /// The Assistant of the `HomeswiftAiKit` block, when there is one that works.
@@ -124,7 +130,9 @@ public final class PluginHost: @unchecked Sendable {
 
         // The Assistant's block is the runtime's, not a plugin's. A bad one never stops the bridge.
         aiConfiguration = Self.loadAIConfiguration(configuration, logger: logger)
-        if let aiConfiguration, aiConfiguration.enabled {
+        if let aiConfiguration, aiConfiguration.enabled, !aiConfiguration.hasProviderSettings {
+            logger.info("Assistant off: the HomeswiftAiKit block names no provider")
+        } else if let aiConfiguration, aiConfiguration.enabled {
             do {
                 let service = try AssistantService(configuration: aiConfiguration, logger: logger)
                 assistantBox.withLockedValue { $0 = service }
@@ -265,10 +273,7 @@ public final class PluginHost: @unchecked Sendable {
         }
     }
 
-    static func isDeviceID(_ string: String) -> Bool {
-        let octets = string.split(separator: ":", omittingEmptySubsequences: false)
-        return octets.count == 6 && octets.allSatisfy { $0.count == 2 && $0.allSatisfy(\.isHexDigit) }
-    }
+    static func isDeviceID(_ string: String) -> Bool { HomeswiftConfiguration.isDeviceID(string) }
 
     /// A file-name-safe form of a platform instance name.
     static func slug(_ string: String) -> String {

@@ -161,6 +161,11 @@ sent. See [docs/ai.md](docs/ai.md).
 { "platform": "HomeswiftAiKit", "provider": "apple" }
 ```
 
+The same block can turn on an **MCP server**, so Claude Desktop, Claude Code or Cursor control the
+bridge: accessories, config.json and the log, with scoped tokens, confirmations for locks and
+configuration changes, and an audit log. `homeswift mcp --snippets` prints the client configs. See
+[docs/mcp.md](docs/mcp.md).
+
 ## Demo
 
 `homeswift-demo` is a bridge with a lamp, a switch and a temperature sensor that drifts. Install it with
@@ -192,6 +197,7 @@ request. Its state lives in `~/.homeswift/homeswift-demo.json`.
 | Plugin API and runtime: `HomeswiftPlugin`, `PluginContext`, `PluginHost`, config.json, the accessory cache, child bridges | `Sources/HomeswiftPlugin` |
 | The `homeswift` bridge: command line, logging, the plugins compiled in | `Sources/HomeswiftCLI` |
 | The Assistant: chat providers over plain HTTP, Apple's on-device model, redaction, prompts, schema-checked JSON | `Sources/HomeswiftAI` |
+| The MCP server: JSON-RPC, sessions, scopes, elicitation, the audit log, tools over the bridge, Streamable HTTP on NIO, the stdio proxy | `Sources/HomeswiftMCP` |
 | Plugins, one directory each with sources, tests, README and config schema | `Plugins/` |
 
 Each connection handles its requests in order on one task; handlers are `async`, so a slow device never blocks

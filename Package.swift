@@ -9,6 +9,7 @@ let package = Package(
         .library(name: "Homeswift", targets: ["Homeswift"]),
         .library(name: "HomeswiftPlugin", targets: ["HomeswiftPlugin"]),
         .library(name: "HomeswiftAI", targets: ["HomeswiftAI"]),
+        .library(name: "HomeswiftMCP", targets: ["HomeswiftMCP"]),
         .library(name: "HomeswiftElgatoKeyLights", targets: ["HomeswiftElgatoKeyLights"]),
         .executable(name: "homeswift", targets: ["HomeswiftCLI"]),
         .executable(name: "homeswift-demo", targets: ["homeswift-demo"]),
@@ -51,6 +52,19 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
             ]
         ),
+        // The MCP server: Streamable HTTP inside the bridge, tools over its accessories, plugins, config and logs,
+        // scopes, confirmations and an audit log; `homeswift mcp` proxies stdio to it.
+        .target(
+            name: "HomeswiftMCP",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftAI",
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOHTTP1", package: "swift-nio"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ]
+        ),
         // Plugins live under Plugins/<Name>/ with their own Sources and Tests, the layout of a standalone
         // package, so moving one into its own repository is a directory move plus a Package.swift.
         .target(
@@ -63,7 +77,8 @@ let package = Package(
         .executableTarget(
             name: "HomeswiftCLI",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftElgatoKeyLights",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftElgatoKeyLights",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
             ]
         ),
@@ -75,6 +90,14 @@ let package = Package(
         .testTarget(
             name: "HomeswiftAITests",
             dependencies: ["HomeswiftAI", .product(name: "Logging", package: "swift-log")]
+        ),
+        .testTarget(
+            name: "HomeswiftMCPTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ]
         ),
         .testTarget(
             name: "HomeswiftPluginTests",

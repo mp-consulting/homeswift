@@ -27,6 +27,16 @@ All notable changes to this project are documented here. The format follows
   usage and Claude cost tracking. A `HomeswiftAiKit` block in config.json (the keys of homebridge-ai-kit)
   turns it on; plugins get it as `context.assistant`; `homeswift ask`, `explain` and `diagnose` use it from
   the command line, on the on-device model when there is no block. `docs/ai.md`.
+- **The MCP server** (`HomeswiftMCP`): Model Context Protocol 2025-06-18 over Streamable HTTP inside the
+  bridge, with tools over its accessories (list, get, set, set several with `dryRun`, locks and alarms
+  behind a confirmation, identify), plugins, config.json (read with secrets redacted, replace, patch one
+  block, backups and restore) and the log (recent, search), resources with subscriptions, prompts and
+  completions. Bearer tokens with `read`, `control` and `admin` scopes, confirmations through elicitation
+  or `confirmed: true`, an audit log, origin checks, slowed-down bad tokens, idle session expiry.
+  `homeswift mcp` is the stdio front for Claude Desktop, Claude Code and Cursor; `--generate-token` and
+  `--snippets` set a client up. `docs/mcp.md`.
+- `Characteristic.write(_:)` writes a value the way a controller does; `HAPServer.observeChanges(_:)`
+  reports every characteristic change; `LogBuffer` keeps the last log lines in memory.
 
 ### Changed
 

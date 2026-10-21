@@ -74,6 +74,9 @@ public struct AIConfiguration: Sendable, Equatable {
     /// Claude Opus 5.5, Opus 5, Sonnet 5.5 and Fable: let the API re-run a declined request on a fallback
     /// model (default true for those models).
     public var fallbacks: Bool?
+    /// Whether the block (or the environment) names a provider or a key at all. A block that only turns
+    /// on the MCP server has neither, and then no Assistant is set up.
+    public var hasProviderSettings = true
 
     public init(provider: ProviderKind, model: String? = nil, apiKey: String? = nil, name: String = "AI Kit", enabled: Bool = true) {
         self.name = name
@@ -129,6 +132,7 @@ public struct AIConfiguration: Sendable, Equatable {
         }
         promptCaching = object["promptCaching"] != .bool(false)
         fallbacks = object["fallbacks"]?.boolValue
+        hasProviderSettings = object["provider"] != nil || object["model"] != nil || apiKey != nil
     }
 
     /// The provider adapter this configuration selects.

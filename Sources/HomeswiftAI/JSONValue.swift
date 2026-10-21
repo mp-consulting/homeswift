@@ -79,7 +79,7 @@ public enum JSONValue: Sendable, Hashable, Codable, CustomStringConvertible {
     /// Compact JSON text.
     public func encoded(pretty: Bool = false) -> Data {
         let encoder = JSONEncoder()
-        encoder.outputFormatting = pretty ? [.prettyPrinted, .sortedKeys] : [.sortedKeys]
+        encoder.outputFormatting = pretty ? [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes] : [.sortedKeys, .withoutEscapingSlashes]
         return (try? encoder.encode(self)) ?? Data("null".utf8)
     }
 

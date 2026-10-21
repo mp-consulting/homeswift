@@ -6,11 +6,13 @@ import FoundationNetworking
 // HTTP plumbing shared by the provider adapters: POST JSON with retries, and Server-Sent Events.
 
 public struct HTTPRequest: Sendable {
+    public var method: String
     public var url: URL
     public var headers: [String: String]
     public var body: Data
 
-    public init(url: URL, headers: [String: String] = [:], body: Data) {
+    public init(method: String = "POST", url: URL, headers: [String: String] = [:], body: Data = Data()) {
+        self.method = method
         self.url = url
         self.headers = headers
         self.body = body
@@ -58,9 +60,11 @@ public struct URLSessionTransport: HTTPTransport {
 
     private func urlRequest(_ request: HTTPRequest) -> URLRequest {
         var urlRequest = URLRequest(url: request.url, timeoutInterval: timeout)
-        urlRequest.httpMethod = "POST"
-        urlRequest.httpBody = request.body
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpMethod = request.method
+        if !request.body.isEmpty {
+            urlRequest.httpBody = request.body
+            urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
         urlRequest.setValue("application/json, text/event-stream", forHTTPHeaderField: "Accept")
         for (name, value) in request.headers {
             urlRequest.setValue(value, forHTTPHeaderField: name)

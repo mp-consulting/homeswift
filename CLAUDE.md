@@ -15,6 +15,7 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `Sources/HomeswiftPlugin` | `HomeswiftPlugin` protocol, `PluginContext`, `PluginRegistry`, `HomeswiftConfiguration` (Homebridge-shaped config.json), `AccessoryCache`, `PluginHost` (bridges, child bridges, plugin lifecycle) |
 | `Sources/HomeswiftCLI` | The `homeswift` binary: arguments, log format, `Plugins.swift` lists the plugins compiled in, `AssistantCommands.swift` the `ask`/`explain`/`diagnose` commands |
 | `Sources/HomeswiftAI` | The Assistant: `Provider` adapters (`Providers/`), `AIConfiguration` (the `HomeswiftAiKit` block), `Redaction`, `Prompts`, `JSONGeneration`, `Pricing`/`UsageTracker`, `AssistantService` |
+| `Sources/HomeswiftMCP` | The MCP server: `JSONRPC`, `MCPServer`/`MCPSession` (methods, elicitation), `Scopes` (`MCPConfiguration`, tokens), `AuditLog`, `HomeswiftCatalog` (the tools, resources and prompts over a `PluginHost`), `HTTPServer` (Streamable HTTP on NIO), `StdioProxy` (`homeswift mcp`) |
 | `Plugins/<Name>` | One plugin: `Sources` (target `Homeswift<Name>`), `Tests`, `README.md`, `config.schema.json`. `ElgatoKeyLights` is the reference |
 | `Sources/CHAPMath` | C Montgomery multiplication for SRP |
 | `Sources/CDNSSD` | Avahi's dns_sd on Linux (macOS imports `dnssd`) |
@@ -22,6 +23,8 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `Tests/HomeswiftPluginTests` | Config decoding, `PluginHost` with a recording plugin: cache, child bridges, id conflicts |
 | `docs/plugins.md` | How to write a plugin, the runtime's files, porting from Homebridge, where plugins live |
 | `docs/ai.md` | The Assistant: configuration, providers, command line, use from a plugin, what reaches a provider |
+| `docs/mcp.md` | The MCP server: configuration, scopes, confirmations, resources, prompts, security |
+| `Tests/HomeswiftMCPTests` | The protocol on a direct session (scopes, elicitation, config tools, resources), the HTTP transport and the stdio proxy against a real server on port 0 |
 | `Tests/HomeswiftAITests` | Providers against a fake transport (request shapes, parsing, streaming, retries), redaction, schema checks, the Assistant on a fake provider |
 
 ## Commands
@@ -65,6 +68,11 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
   canned replies; every input goes through `Redaction` before a request; prompts live in `Prompts.swift`;
   plugins never depend on a provider (`context.assistant` is optional). Claude requests send no `thinking`
   settings, prefills or forced tool choices. Darwin-only `FoundationModels` stays behind `#if canImport`.
+- The MCP server: every tool declares its scope and whether it is destructive; destructive tools go through
+  `ToolCall.confirm` (elicitation, else `confirmed: true`) and every write is audited; locks, garage doors
+  and alarms are written only by `set_security_accessory`; tool text from logs or devices is wrapped in
+  `<untrusted-data>`. The protocol is implemented directly (no SDK): `MCPServer.protocolVersion` is the
+  version to bump. `homeswift mcp` logs to stderr because stdout carries the protocol.
 
 ## Releases
 
