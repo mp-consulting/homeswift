@@ -11,14 +11,14 @@ LoggingSystem.bootstrap { label in
 }
 
 let lightbulb = Service(.lightbulb, name: "Demo Lamp", optional: [.brightness], isPrimary: true)
-lightbulb.characteristic(.on).onWrite { print("Lamp on: \($0.boolValue ?? false)") }
-lightbulb.characteristic(.brightness).onWrite { print("Lamp brightness: \($0.intValue ?? 0)%") }
+lightbulb.characteristic(.on).onWrite(changesOnly: true) { print("Lamp on: \($0.boolValue ?? false)") }
+lightbulb.characteristic(.brightness).onWrite(changesOnly: true) { print("Lamp brightness: \($0.intValue ?? 0)%") }
 let lamp = Accessory(
     id: "demo-lamp", name: "Demo Lamp", model: "Lamp", category: .lightbulb, services: [lightbulb],
     onIdentify: { print("Identify: Demo Lamp") })
 
 let switchService = Service(.switch, name: "Demo Switch")
-switchService.characteristic(.on).onWrite { print("Switch on: \($0.boolValue ?? false)") }
+switchService.characteristic(.on).onWrite(changesOnly: true) { print("Switch on: \($0.boolValue ?? false)") }
 let demoSwitch = Accessory(
     id: "demo-switch", name: "Demo Switch", model: "Switch", category: .switch, services: [switchService],
     onIdentify: { print("Identify: Demo Switch") })

@@ -61,6 +61,26 @@ struct ServerTests {
         await server.stop()
     }
 
+    @Test func skipsUnchangedWritesWhenAsked() async throws {
+        let writes = WriteLog()
+        let brightness = lightbulb.characteristic(.brightness)
+        brightness.onWrite(changesOnly: true) { await writes.append($0) }
+        let controller = try await pairedController()
+
+        for value in [40, 40, 60] {
+            let write = try await controller.json("PUT", "/characteristics", ["characteristics": [["aid": 2, "iid": brightness.iid, "value": value]]])
+            #expect(write.status == 204)
+        }
+        #expect(await writes.values == [.int(40), .int(60)])
+
+        // Without changesOnly every write reaches the handler.
+        brightness.onWrite { await writes.append($0) }
+        _ = try await controller.json("PUT", "/characteristics", ["characteristics": [["aid": 2, "iid": brightness.iid, "value": 60]]])
+        #expect(await writes.values == [.int(40), .int(60), .int(60)])
+        await controller.close()
+        await server.stop()
+    }
+
     @Test func readsWritesAndNotifies() async throws {
         let writes = WriteLog()
         let brightness = lightbulb.characteristic(.brightness)

@@ -16,11 +16,8 @@ let package = Package(
     ],
     targets: [
         // Bonjour on Linux goes through Avahi's dns_sd compatibility layer; macOS has dns_sd built in.
-        .systemLibrary(
-            name: "CDNSSD",
-            pkgConfig: "avahi-compat-libdns_sd",
-            providers: [.apt(["libavahi-compat-libdnssd-dev"])]
-        ),
+        // No pkgConfig: SwiftPM looks it up on every platform and warns on macOS. shim.h finds the header.
+        .systemLibrary(name: "CDNSSD", providers: [.apt(["libavahi-compat-libdnssd-dev"])]),
         // Montgomery multiplication for SRP; C keeps it fast even in debug builds.
         .target(name: "CHAPMath"),
         .target(

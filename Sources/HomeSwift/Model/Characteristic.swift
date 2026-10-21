@@ -31,6 +31,9 @@ protocol CharacteristicObserver: AnyObject, Sendable {
 /// Set `value` from your device code to update HomeKit; controllers that subscribed get an event.
 /// Register `onRead` to fetch a fresh value whenever a controller reads, and `onWrite` to act on
 /// writes from HomeKit. Throw `HAPStatusError` from either to report a failure.
+///
+/// The Home app often writes a value the characteristic already has (On while already on, the
+/// same brightness twice). Pass `changesOnly: true` to `onWrite` to skip those writes.
 public final class Characteristic: @unchecked Sendable {
     public typealias ReadHandler = @Sendable () async throws -> HAPValue
     public typealias WriteHandler = @Sendable (HAPValue) async throws -> Void
@@ -48,6 +51,7 @@ public final class Characteristic: @unchecked Sendable {
         var observer = Weak()
         var onRead: ReadHandler?
         var onWrite: WriteHandler?
+        var writesChangesOnly = false
     }
 
     let state: NIOLockedValueBox<State>
@@ -78,14 +82,30 @@ public final class Characteristic: @unchecked Sendable {
         return self
     }
 
+    /// Registers the handler for writes from HomeKit.
+    ///
+    /// With `changesOnly`, a write of the current value is accepted without calling the handler.
+    /// Leave it off when the stored value can drift from the device, so a repeated write can
+    /// still correct it. Write-only characteristics such as Identify always call the handler.
     @discardableResult
-    public func onWrite(_ handler: WriteHandler?) -> Self {
-        state.withLockedValue { $0.onWrite = handler }
+    public func onWrite(changesOnly: Bool = false, _ handler: WriteHandler?) -> Self {
+        state.withLockedValue {
+            $0.onWrite = handler
+            $0.writesChangesOnly = changesOnly
+        }
         return self
     }
 
     var readHandler: ReadHandler? { state.withLockedValue { $0.onRead } }
-    var writeHandler: WriteHandler? { state.withLockedValue { $0.onWrite } }
+
+    /// The handler to call for a write of `value`, or nil when there is none or the write changes nothing.
+    func writeHandler(for value: HAPValue) -> WriteHandler? {
+        let readable = type.permissions.contains(.pairedRead)
+        return state.withLockedValue { state in
+            if state.writesChangesOnly, readable, state.value == value { return nil }
+            return state.onWrite
+        }
+    }
 
     func attach(aid: Int, iid: Int, observer: any CharacteristicObserver) {
         state.withLockedValue {

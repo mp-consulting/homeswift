@@ -93,7 +93,7 @@ extension HAPConnection {
                         if characteristic.type.uuid == CharacteristicType.identify.uuid {
                             server.logger.info("Identify requested", metadata: ["aid": "\(item.aid)", "accessory": "\(server.accessory(aid: item.aid)?.name ?? "?")"])
                         }
-                        try await characteristic.writeHandler?(coerced)
+                        try await characteristic.writeHandler(for: coerced)?(coerced)
                         characteristic.update(coerced, origin: id, force: false)
                         if item.r == true, permissions.contains(.writeResponse) {
                             readBack = characteristic.value

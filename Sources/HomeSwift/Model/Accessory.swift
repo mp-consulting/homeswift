@@ -55,6 +55,6 @@ public final class Accessory: @unchecked Sendable {
     }
 
     func identify() async {
-        try? await information.characteristic(.identify).writeHandler?(.bool(true))
+        try? await information.characteristic(.identify).writeHandler(for: .bool(true))?(.bool(true))
     }
 }
