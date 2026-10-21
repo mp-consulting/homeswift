@@ -7,12 +7,15 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "Homeswift", targets: ["Homeswift"]),
+        .library(name: "HomeswiftPlugin", targets: ["HomeswiftPlugin"]),
+        .library(name: "HomeswiftElgatoKeyLights", targets: ["HomeswiftElgatoKeyLights"]),
+        .executable(name: "homeswift", targets: ["HomeswiftCLI"]),
         .executable(name: "homeswift-demo", targets: ["homeswift-demo"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.65.0"),
         .package(url: "https://github.com/apple/swift-crypto.git", "3.0.0"..<"5.0.0"),
-        .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
+        .package(url: "https://github.com/apple/swift-log.git", from: "1.11.0"),
     ],
     targets: [
         // Bonjour on Linux goes through Avahi's dns_sd compatibility layer; macOS has dns_sd built in.
@@ -32,10 +35,52 @@ let package = Package(
                 .target(name: "CDNSSD", condition: .when(platforms: [.linux])),
             ]
         ),
+        // The plugin API and the runtime that hosts plugins: config.json, cached accessories, child bridges.
+        .target(
+            name: "HomeswiftPlugin",
+            dependencies: [
+                "Homeswift",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ]
+        ),
+        // Plugins live under Plugins/<Name>/ with their own Sources and Tests, the layout of a standalone
+        // package, so moving one into its own repository is a directory move plus a Package.swift.
+        .target(
+            name: "HomeswiftElgatoKeyLights",
+            dependencies: ["Homeswift", "HomeswiftPlugin", .product(name: "Logging", package: "swift-log")],
+            path: "Plugins/ElgatoKeyLights/Sources"
+        ),
+        // The `homeswift` bridge: reads config.json and runs the plugins compiled in (Plugins.swift lists them).
+        // The target is not named "homeswift": that is "Homeswift" on a case-insensitive file system.
+        .executableTarget(
+            name: "HomeswiftCLI",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftElgatoKeyLights",
+                .product(name: "Logging", package: "swift-log"),
+            ]
+        ),
         .executableTarget(name: "homeswift-demo", dependencies: ["Homeswift"]),
         .testTarget(
             name: "HomeswiftTests",
             dependencies: ["Homeswift", .product(name: "Logging", package: "swift-log")]
+        ),
+        .testTarget(
+            name: "HomeswiftPluginTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ]
+        ),
+        .testTarget(
+            name: "ElgatoKeyLightsTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftElgatoKeyLights",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/ElgatoKeyLights/Tests"
         ),
     ]
 )
