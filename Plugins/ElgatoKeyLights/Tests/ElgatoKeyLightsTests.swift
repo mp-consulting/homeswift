@@ -28,15 +28,18 @@ actor FakeLight: KeyLightTransport {
     var reachable = true
     /// Hosts where a different light answers (another serial number).
     var impostorHosts: Set<String> = []
+    /// Hosts where nothing answers.
+    var unreachableHosts: Set<String> = []
     private(set) var identifyCount = 0
     private(set) var lightWrites: [LightState] = []
 
     func set(state: LightState) { self.state = self.state.merging(state) }
     func set(reachable: Bool) { self.reachable = reachable }
     func set(impostorHosts: Set<String>) { self.impostorHosts = impostorHosts }
+    func set(unreachableHosts: Set<String>) { self.unreachableHosts = unreachableHosts }
 
     func send(_ request: KeyLightRequest) async throws -> KeyLightResponse {
-        guard reachable else { throw FakeError.unreachable }
+        guard reachable, !unreachableHosts.contains(request.url.host ?? "") else { throw FakeError.unreachable }
         let path = request.url.path.replacingOccurrences(of: "/elgato/", with: "")
         let encoder = JSONEncoder()
         switch (request.method, path) {
@@ -152,8 +155,23 @@ struct ElgatoKeyLightsTests {
     @Test func pinnedLightsIgnoreAnnouncements() async throws {
         let host = try await environment.start(settings: ["devices": [configuredLight]])
         let device = try #require(await environment.plugin?.device(mac: "3C:6A:9D:04:0A:0B"))
+        await environment.light.set(unreachableHosts: ["192.168.1.50"])
         environment.discover.yield(.init(name: "Elgato Key Light", mac: "3C:6A:9D:04:0A:0B", host: "10.0.0.9", port: 9123))
         try await Task.sleep(for: .milliseconds(300))
+        #expect(await device.host == "192.168.1.50")
+        await host.stop()
+    }
+
+    @Test func pinnedLightsRetryAtTheirConfiguredAddress() async throws {
+        await environment.light.set(unreachableHosts: ["192.168.1.50"])
+        let host = try await environment.start(settings: ["devices": [configuredLight]])
+        #expect(host.mainBridge.server.accessories.count == 1)
+
+        // The configured address answers again; the announcement names another one, which is ignored.
+        await environment.light.set(unreachableHosts: [])
+        environment.discover.yield(.init(name: "Elgato Key Light", mac: "3C:6A:9D:04:0A:0B", host: "10.0.0.9", port: 9123))
+        #expect(await eventually { host.mainBridge.server.accessories.count == 2 })
+        let device = try #require(await environment.plugin?.device(mac: "3C:6A:9D:04:0A:0B"))
         #expect(await device.host == "192.168.1.50")
         await host.stop()
     }
@@ -164,6 +182,7 @@ struct ElgatoKeyLightsTests {
         #expect(await eventually { host.mainBridge.server.accessories.count == 2 })
         let device = try #require(await environment.plugin?.device(mac: "aa:bb:cc:dd:ee:ff"))
 
+        await environment.light.set(unreachableHosts: ["10.0.0.5"])
         await environment.light.set(impostorHosts: ["10.0.0.9"])
         environment.discover.yield(.init(name: "Elgato Key Light 1234", mac: "aa:bb:cc:dd:ee:ff", host: "10.0.0.9", port: 9123))
         try await Task.sleep(for: .milliseconds(300))
@@ -273,9 +292,15 @@ struct ElgatoKeyLightsTests {
         #expect(accessory.name == "Studio Light")
         #expect(host.mainBridge.server.accessories.count == 2)
 
-        // Announced again on a new address: the device follows.
-        environment.discover.yield(.init(name: "Elgato Key Light Air 1234", mac: "AA:BB:CC:DD:EE:FF", host: "10.0.0.7", port: 9124))
+        // Announced again on a new address while the old one still answers: nothing moves.
         let device = try #require(await environment.plugin?.device(mac: "aa:bb:cc:dd:ee:ff"))
+        environment.discover.yield(.init(name: "Elgato Key Light Air 1234", mac: "AA:BB:CC:DD:EE:FF", host: "10.0.0.7", port: 9124))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(await device.host == "10.0.0.5")
+
+        // Once the old address is dead, the device follows.
+        await environment.light.set(unreachableHosts: ["10.0.0.5"])
+        environment.discover.yield(.init(name: "Elgato Key Light Air 1234", mac: "AA:BB:CC:DD:EE:FF", host: "10.0.0.7", port: 9124))
         #expect(await eventually {
             let host = await device.host
             let port = await device.port

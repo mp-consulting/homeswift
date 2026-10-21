@@ -148,6 +148,12 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
         }
     }
 
+    /// The address config.json gives a light, for the ones registered from it.
+    private func configuredLight(mac: String) -> DiscoveredLight? {
+        guard let device = deviceConfiguration(mac: mac), let host = device.ip ?? device.host, !host.isEmpty else { return nil }
+        return DiscoveredLight(name: device.name ?? mac, mac: mac, host: host, port: device.port ?? KeyLightClient.defaultPort)
+    }
+
     private func handleDiscovered(_ light: DiscoveredLight) {
         let mac = Self.canonicalMAC(light.mac)
         let light = DiscoveredLight(name: light.name, mac: mac, host: light.host, port: light.port)
@@ -161,8 +167,14 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
         case .initializing:
             break
         case .failed:
-            logger.info("Retrying light with its announced address", metadata: ["light": "\(light.name)"])
-            initialize(light)
+            if pinned.contains(mac), let configured = configuredLight(mac: mac) {
+                // A pinned light retries at its configured address, never at an announced one.
+                logger.info("Retrying light at its configured address", metadata: ["light": "\(configured.name)", "host": "\(configured.host)"])
+                initialize(configured)
+            } else {
+                logger.info("Retrying light with its announced address", metadata: ["light": "\(light.name)"])
+                initialize(light)
+            }
         case nil:
             logger.info("Discovered light", metadata: ["light": "\(light.name)", "host": "\(light.host)"])
             initialize(light)
