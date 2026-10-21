@@ -583,60 +583,93 @@ enum WebAssets {
 
 """#),
         "style.css": WebAsset(contentType: "text/css; charset=utf-8", body: #"""
-/* Liquid glass: translucent panels with blur and edge light over a soft, colourful backdrop. */
+/* Liquid glass over a soft, colourful backdrop, after Apple's fluid-interface guidance: materials of three
+   weights (thick chrome, regular cards, thin chips) with solid controls on top, feedback on the press, type
+   sized and tracked per size, and quieter variants for reduced motion, reduced transparency and more contrast. */
 :root {
+  color-scheme: light dark;
   --bg: #e9edf6; --bg-warm: #ffe9d6; --bg-cool: #dcefff; --bg-mint: #e2f7ee;
-  --glass: rgba(255, 255, 255, 0.52); --glass-strong: rgba(255, 255, 255, 0.72); --glass-edge: rgba(255, 255, 255, 0.85);
-  --glass-shadow: 0 12px 36px rgba(25, 34, 56, 0.14); --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0) 45%);
-  --text: #15171c; --muted: #5d6572; --line: rgba(20, 30, 50, 0.09);
-  --accent: #ff7a1a; --accent-2: #ffb15c; --accent-text: #ffffff; --ok: #1f9d55; --warn: #d9821f; --error: #d0383b;
+  --material-thick: rgba(255, 255, 255, 0.7); --material: rgba(255, 255, 255, 0.52); --material-thin: rgba(255, 255, 255, 0.38);
+  --material-solid: #f7f8fb;
+  --control: rgba(255, 255, 255, 0.82); --field: rgba(255, 255, 255, 0.6);
+  --edge: rgba(255, 255, 255, 0.85); --edge-light: rgba(255, 255, 255, 0.6);
+  --shadow-thick: 0 10px 30px rgba(25, 34, 56, 0.16); --shadow: 0 12px 36px rgba(25, 34, 56, 0.12); --shadow-control: 0 2px 8px rgba(25, 34, 56, 0.08);
+  --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0) 45%);
+  --text: #15171c; --muted: #596170; --line: rgba(20, 30, 50, 0.1);
+  --accent: #ff7a1a; --accent-2: #ffb15c; --accent-text: #ffffff; --ok: #1f9d55; --warn: #c9731a; --error: #d0383b;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-  --radius: 22px;
+  --radius: 22px; --blur-thick: 32px; --blur: 20px;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1); --fast: 120ms; --normal: 200ms;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #0f1218; --bg-warm: #3a2a1e; --bg-cool: #15243a; --bg-mint: #14302a;
-    --glass: rgba(34, 38, 48, 0.52); --glass-strong: rgba(40, 44, 56, 0.7); --glass-edge: rgba(255, 255, 255, 0.16);
-    --glass-shadow: 0 14px 40px rgba(0, 0, 0, 0.45); --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0) 45%);
-    --text: #f3f4f7; --muted: #9ba2ae; --line: rgba(255, 255, 255, 0.09);
+    --material-thick: rgba(28, 31, 40, 0.74); --material: rgba(34, 38, 48, 0.54); --material-thin: rgba(255, 255, 255, 0.06);
+    --material-solid: #1d2129;
+    --control: rgba(70, 76, 92, 0.75); --field: rgba(0, 0, 0, 0.28);
+    --edge: rgba(255, 255, 255, 0.16); --edge-light: rgba(255, 255, 255, 0.14);
+    --shadow-thick: 0 10px 30px rgba(0, 0, 0, 0.5); --shadow: 0 14px 40px rgba(0, 0, 0, 0.42); --shadow-control: 0 2px 8px rgba(0, 0, 0, 0.3);
+    --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0) 45%);
+    --text: #f3f4f7; --muted: #a2a9b5; --line: rgba(255, 255, 255, 0.1);
+    --warn: #e9a04a;
   }
 }
 * { box-sizing: border-box; }
-html { min-height: 100%; }
+html { min-height: 100%; background: var(--bg); }
 body {
-  margin: 0; font: 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--text);
+  margin: 0; font: 400 0.9375rem/1.45 var(--font); font-optical-sizing: auto; color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+}
+/* The backdrop is a fixed layer of its own: `background-attachment: fixed` repaints the page on every scroll
+   frame under the blurred surfaces. */
+body::before {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
   background:
     radial-gradient(55% 45% at 8% 6%, var(--bg-warm) 0%, transparent 62%),
     radial-gradient(50% 42% at 92% 16%, var(--bg-cool) 0%, transparent 60%),
     radial-gradient(60% 55% at 50% 100%, var(--bg-mint) 0%, transparent 65%),
     var(--bg);
-  background-attachment: fixed;
 }
 .hidden { display: none !important; }
 
-/* Glass surfaces */
-.card, header, .banner, .log, .toolbar, .auth .card {
-  background-color: var(--glass); background-image: var(--sheen);
-  -webkit-backdrop-filter: blur(28px) saturate(180%); backdrop-filter: blur(28px) saturate(180%);
-  border: 1px solid var(--glass-edge); box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+/* Materials. Content scrolls under the floating header (thick); cards hold content (regular); chips and
+   groups are tinted only (thin); controls are solid, since a blur on a blur loses contrast and frames. */
+.card, .log, .toolbar, .banner {
+  background-color: var(--material); background-image: var(--sheen);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(180%); backdrop-filter: blur(var(--blur)) saturate(180%);
+  border: 1px solid var(--edge); box-shadow: var(--shadow), inset 0 1px 0 var(--edge-light);
   border-radius: var(--radius);
 }
 header {
   position: sticky; top: 12px; z-index: 2; margin: 12px auto 0; max-width: 1100px; width: calc(100% - 24px);
   display: flex; align-items: center; gap: 14px; padding: 8px 10px 8px 20px; border-radius: 999px;
+  background-color: var(--material-thick); background-image: var(--sheen);
+  -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+  border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
 }
+.card .toolbar { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--material-thin); box-shadow: none; }
 .brand { display: inline-flex; align-items: center; gap: 9px; font-weight: 700; letter-spacing: -0.01em; color: var(--text); text-decoration: none; }
 .logo { width: 28px; height: 28px; border-radius: 8px; box-shadow: 0 2px 8px rgba(255, 122, 26, 0.35); }
 .logo.large { width: 56px; height: 56px; border-radius: 14px; margin-bottom: 4px; }
 nav { display: flex; gap: 2px; }
-nav a { color: var(--text); text-decoration: none; padding: 7px 14px; border-radius: 999px; transition: background .15s; }
-nav a:hover { background: rgba(255, 255, 255, 0.35); }
+nav a {
+  color: var(--text); text-decoration: none; padding: 7px 14px; border-radius: 999px; touch-action: manipulation;
+  transition: background-color var(--fast) var(--ease-out), transform var(--fast) var(--ease-out);
+}
+nav a:hover { background-color: var(--material-thin); }
+nav a:active { transform: scale(0.96); }
 nav a.active { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); box-shadow: 0 6px 16px rgba(255, 122, 26, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
 .spacer { flex: 1; }
 #user { color: var(--muted); }
 main { max-width: 1100px; margin: 0 auto; padding: 22px 12px 40px; }
-h1 { font-size: 26px; letter-spacing: -0.02em; margin: 6px 0 16px; }
-h2 { font-size: 17px; margin: 24px 0 10px; }
+
+/* Type: the system font with its optical sizes, sizes in rem so the reader's text size applies, tracking
+   and leading per size (tight and negative when large, a little wider when small), hierarchy by weight. */
+h1 { font-size: 1.625rem; line-height: 1.15; letter-spacing: -0.02em; font-weight: 700; margin: 6px 0 16px; }
+h2 { font-size: 1.0625rem; line-height: 1.25; letter-spacing: -0.01em; font-weight: 600; margin: 24px 0 10px; }
+strong { font-weight: 600; }
+.help, .pill, dt, legend, .log { letter-spacing: 0.01em; }
 .card { padding: 18px 20px; margin-bottom: 14px; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
 .cards .card { margin: 0; }
@@ -646,51 +679,72 @@ h2 { font-size: 17px; margin: 24px 0 10px; }
 .row .name { flex: 1; }
 .value { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 52px; text-align: right; }
 
-/* Controls */
+/* Controls: feedback on the press, at once, and a focus ring for the keyboard. */
 button {
-  font: inherit; padding: 8px 16px; border-radius: 999px; cursor: pointer; color: var(--text);
-  background: var(--glass-strong); border: 1px solid var(--glass-edge); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 2px 8px rgba(25, 34, 56, 0.08);
-  -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); transition: transform .1s, box-shadow .15s;
+  font: inherit; font-weight: 500; padding: 8px 16px; border-radius: 999px; cursor: pointer; color: var(--text); touch-action: manipulation;
+  background: var(--control); border: 1px solid var(--edge); box-shadow: inset 0 1px 0 var(--edge-light), var(--shadow-control);
+  transition: transform var(--fast) var(--ease-out), box-shadow var(--fast) var(--ease-out), opacity var(--fast) var(--ease-out);
 }
 button:hover { transform: translateY(-1px); }
-button:active { transform: translateY(0); }
+button:active:not(:disabled) { transform: scale(0.97); transition-duration: 80ms; }
 button.primary { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); border-color: rgba(255, 255, 255, 0.4); box-shadow: 0 8px 20px rgba(255, 122, 26, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
-button.link { border: 0; background: none; box-shadow: none; backdrop-filter: none; color: var(--accent); padding: 4px 6px; }
+button.link { border: 0; background: none; box-shadow: none; color: var(--accent); padding: 4px 6px; }
+button.link:hover { transform: none; }
+button.link:active:not(:disabled) { transform: none; opacity: 0.6; }
 button:disabled { opacity: .5; cursor: default; transform: none; }
+button:focus-visible, nav a:focus-visible, summary:focus-visible, .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
 input, select, textarea {
   font: inherit; color: var(--text); width: 100%; padding: 8px 12px; border-radius: 14px;
-  background: rgba(255, 255, 255, 0.45); border: 1px solid var(--glass-edge); box-shadow: inset 0 1px 2px rgba(25, 34, 56, 0.08);
+  background: var(--field); border: 1px solid var(--edge); box-shadow: inset 0 1px 2px rgba(25, 34, 56, 0.08);
+  transition: border-color var(--fast) var(--ease-out), box-shadow var(--fast) var(--ease-out);
 }
-@media (prefers-color-scheme: dark) { input, select, textarea { background: rgba(0, 0, 0, 0.25); } }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px rgba(255, 122, 26, 0.18); }
-input[type=checkbox] { width: auto; box-shadow: none; }
+input[type=checkbox] { width: auto; box-shadow: none; accent-color: var(--accent); }
 input[type=range] { padding: 0; width: 160px; background: none; border: 0; box-shadow: none; accent-color: var(--accent); }
-textarea { font-family: var(--mono); font-size: 13px; min-height: 420px; white-space: pre; border-radius: var(--radius); }
+select { touch-action: manipulation; }
+textarea { font-family: var(--mono); font-size: 0.8125rem; min-height: 420px; white-space: pre; border-radius: var(--radius); }
 label { display: block; margin: 10px 0 6px; }
 label > input, label > select { margin-top: 5px; }
-.help { font-size: 13px; color: var(--muted); margin: 3px 0 0; }
+.help { font-size: 0.8125rem; color: var(--muted); margin: 3px 0 0; }
 .error { color: var(--error); min-height: 1.2em; }
 .ok { color: var(--ok); }
-.pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; border: 1px solid var(--glass-edge); background: rgba(255, 255, 255, 0.35); color: var(--muted); vertical-align: middle; }
+.pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 500; border: 1px solid var(--edge); background: var(--material-thin); color: var(--muted); vertical-align: middle; }
 .pill.on { color: var(--ok); border-color: rgba(31, 157, 85, 0.4); }
-.banner { margin: 14px auto 0; max-width: 1100px; width: calc(100% - 24px); padding: 10px 20px; text-align: center; color: var(--warn); font-weight: 600; }
-.auth { min-height: 100vh; display: grid; place-items: center; padding: 20px; }
-.auth .card { width: min(400px, 100%); padding: 26px 26px 22px; }
+.banner { margin: 14px auto 0; max-width: 1100px; width: calc(100% - 24px); padding: 10px 20px; text-align: center; color: var(--warn); font-weight: 600; animation: materialize var(--normal) var(--ease-out); }
+.auth { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: 20px; }
+.auth .card { width: min(400px, 100%); padding: 26px 26px 22px; animation: materialize 320ms var(--ease-out); }
 .auth h1 { margin-top: 6px; }
 .auth button { width: 100%; margin-top: 10px; }
-.code { font-family: var(--mono); font-size: 30px; letter-spacing: 3px; margin: 10px 0; padding: 10px 16px; border-radius: 16px; display: inline-block; background: rgba(255, 255, 255, 0.4); border: 1px solid var(--glass-edge); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6); }
+.code { font-family: var(--mono); font-size: 1.875rem; letter-spacing: 0.1em; font-variant-numeric: tabular-nums; margin: 10px 0; padding: 10px 16px; border-radius: 16px; display: inline-block; background: var(--material-thin); border: 1px solid var(--edge); box-shadow: inset 0 1px 0 var(--edge-light); }
 
-/* Switch */
-.switch { position: relative; width: 48px; height: 28px; margin: 0; flex: none; }
+/* A glass surface arrives as a material: blur and scale settle together, not a plain fade. */
+@keyframes materialize {
+  from { opacity: 0; transform: scale(0.97); filter: blur(8px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+@keyframes fade { from { opacity: 0; } }
+
+/* Switch: the knob slides with a strong ease-out and no overshoot (a tap carries no momentum) and widens
+   while pressed, the way a real one gives under the finger. */
+.switch { position: relative; width: 48px; height: 28px; margin: 0; flex: none; touch-action: manipulation; }
 .switch input { opacity: 0; width: 0; height: 0; }
-.switch span { position: absolute; inset: 0; border-radius: 14px; background: rgba(120, 128, 142, 0.35); border: 1px solid var(--glass-edge); transition: .18s; box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15); }
-.switch span::before { content: ""; position: absolute; width: 22px; height: 22px; left: 2px; top: 2px; border-radius: 50%; background: linear-gradient(180deg, #fff, #eef0f4); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25); transition: .18s; }
-.switch input:checked + span { background: linear-gradient(180deg, var(--accent-2), var(--accent)); box-shadow: 0 4px 12px rgba(255, 122, 26, 0.4); }
+.switch span {
+  position: absolute; inset: 0; border-radius: 14px; background-color: rgba(120, 128, 142, 0.35); border: 1px solid var(--edge);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15); transition: background-color var(--normal) var(--ease-out), box-shadow var(--normal) var(--ease-out);
+}
+.switch span::before {
+  content: ""; position: absolute; width: 22px; height: 22px; left: 2px; top: 2px; border-radius: 50%;
+  background: linear-gradient(180deg, #fff, #eef0f4); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  transition: transform var(--normal) var(--ease-out), width var(--fast) var(--ease-out);
+}
+.switch input:checked + span { background-color: var(--accent); box-shadow: 0 4px 12px rgba(255, 122, 26, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
 .switch input:checked + span::before { transform: translateX(20px); }
+.switch input:active + span::before { width: 26px; }
+.switch input:checked:active + span::before { transform: translateX(16px); }
 .range { display: inline-flex; align-items: center; gap: 10px; }
 
 /* Log */
-.log { font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; word-break: break-all; padding: 14px 16px; max-height: 70vh; overflow: auto; }
+.log { font-family: var(--mono); font-size: 0.78rem; white-space: pre-wrap; word-break: break-all; padding: 14px 16px; max-height: 70vh; overflow: auto; overscroll-behavior: contain; }
 .log .warning { color: var(--warn); }
 .log .error, .log .critical { color: var(--error); }
 .log .debug, .log .trace { color: var(--muted); }
@@ -699,16 +753,38 @@ label > input, label > select { margin-top: 5px; }
 .toolbar label { margin: 0; display: inline-flex; align-items: center; gap: 6px; }
 
 /* Forms */
-fieldset { border: 1px solid var(--line); border-radius: 18px; padding: 8px 16px 14px; margin: 14px 0; background: rgba(255, 255, 255, 0.18); }
-legend { color: var(--muted); padding: 0 8px; }
-.item { border: 1px solid var(--line); border-radius: 16px; padding: 6px 14px 12px; margin: 10px 0; background: rgba(255, 255, 255, 0.2); }
+fieldset { border: 1px solid var(--line); border-radius: 18px; padding: 8px 16px 14px; margin: 14px 0; background: var(--material-thin); }
+legend { color: var(--muted); padding: 0 8px; font-weight: 500; }
+.item { border: 1px solid var(--line); border-radius: 16px; padding: 6px 14px 12px; margin: 10px 0; background: var(--material-thin); }
 .item-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .actions { display: flex; gap: 10px; margin-top: 16px; align-items: center; }
-details > summary { cursor: pointer; color: var(--muted); padding: 8px 0; }
+details > summary { cursor: pointer; color: var(--muted); padding: 8px 0; touch-action: manipulation; }
 dl { display: grid; grid-template-columns: max-content 1fr; gap: 5px 16px; margin: 0; }
-dt { color: var(--muted); }
+dt { color: var(--muted); font-weight: 500; }
 dd { margin: 0; }
-@media (prefers-reduced-transparency: reduce) { .card, header, .banner, .log, .toolbar, button { backdrop-filter: none; -webkit-backdrop-filter: none; background-image: none; background-color: var(--glass-strong); } }
+
+/* Preferences. Reduced motion keeps fades and colour changes, which aid comprehension, and drops what
+   moves, scales or blurs in. Reduced transparency makes the frosted surfaces solid. More contrast gives
+   them a defined edge and lifts the secondary text. */
+@media (prefers-reduced-motion: reduce) {
+  .banner, .auth .card { animation: fade var(--normal) ease; }
+  button, nav a { transition-property: background-color, box-shadow, opacity; }
+  button:hover, button:active:not(:disabled), nav a:active { transform: none; }
+  button:active:not(:disabled) { opacity: 0.7; }
+  .switch span::before { transition: none; }
+  .switch input:active + span::before { width: 22px; }
+  .switch input:checked:active + span::before { transform: translateX(20px); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root { --material: var(--material-solid); --material-thick: var(--material-solid); --material-thin: var(--field); --sheen: none; }
+  .card, header, .log, .toolbar, .banner { -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (prefers-contrast: more) {
+  :root { --material: var(--material-solid); --material-thick: var(--material-solid); --sheen: none; --edge: rgba(20, 30, 50, 0.55); --line: rgba(20, 30, 50, 0.3); --muted: #3a4150; }
+  @media (prefers-color-scheme: dark) { :root { --edge: rgba(255, 255, 255, 0.6); --line: rgba(255, 255, 255, 0.3); --muted: #cfd4dc; } }
+  .card, header, .log, .toolbar, .banner { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  button, input, select, textarea, .pill { border-color: var(--edge); }
+}
 @media (max-width: 640px) { header { gap: 8px; padding: 8px 10px; flex-wrap: wrap; border-radius: 24px; } nav a { padding: 6px 10px; } main { padding: 14px 10px 30px; } input[type=range] { width: 110px; } }
 
 """#),
