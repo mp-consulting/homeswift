@@ -88,7 +88,8 @@ public final class PluginContext: @unchecked Sendable {
     /// A directory for the plugin's own files (tokens, device caches), created on first use. Its contents
     /// are the plugin's; the runtime keeps the accessory cache elsewhere.
     public var storageDirectory: URL {
-        try? FileManager.default.createDirectory(at: storageURL, withIntermediateDirectories: true)
+        // Owner-only: plugins keep tokens here.
+        try? FileManager.default.createDirectory(at: storageURL, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         return storageURL
     }
 

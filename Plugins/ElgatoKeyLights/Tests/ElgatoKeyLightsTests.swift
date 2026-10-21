@@ -26,11 +26,14 @@ actor FakeLight: KeyLightTransport {
         powerOnBehavior: 1, powerOnBrightness: 20, powerOnTemperature: 213,
         switchOnDurationMs: 300, switchOffDurationMs: 300, colorChangeDurationMs: 100)
     var reachable = true
+    /// Hosts where a different light answers (another serial number).
+    var impostorHosts: Set<String> = []
     private(set) var identifyCount = 0
     private(set) var lightWrites: [LightState] = []
 
     func set(state: LightState) { self.state = self.state.merging(state) }
     func set(reachable: Bool) { self.reachable = reachable }
+    func set(impostorHosts: Set<String>) { self.impostorHosts = impostorHosts }
 
     func send(_ request: KeyLightRequest) async throws -> KeyLightResponse {
         guard reachable else { throw FakeError.unreachable }
@@ -38,6 +41,8 @@ actor FakeLight: KeyLightTransport {
         let encoder = JSONEncoder()
         switch (request.method, path) {
         case ("GET", "accessory-info"):
+            var info = info
+            if let host = request.url.host, impostorHosts.contains(host) { info.serialNumber = "IMPOSTOR" }
             return KeyLightResponse(status: 200, body: try encoder.encode(info))
         case ("GET", "lights"):
             return KeyLightResponse(status: 200, body: try encoder.encode(LightsPayload(numberOfLights: 1, lights: [state])))
@@ -137,6 +142,37 @@ struct ElgatoKeyLightsTests {
         #expect(ElgatoKeyLightsPlugin.mirek(kelvin: 0) == 143)
         #expect(LightState(on: 1, brightness: 5, temperature: 200).merging(LightState(brightness: 9)) == LightState(on: 1, brightness: 9, temperature: 200))
         #expect(KeyLightClient(host: "fe80::1", port: 9123, transport: environment.light).baseURL?.absoluteString == "http://[fe80::1]:9123/elgato/")
+        #expect(KeyLightClient(host: "light.local/../x?y", port: 9123, transport: environment.light).baseURL == nil)
+        #expect(KeyLightClient(host: "10.0.0.5", port: 0, transport: environment.light).baseURL == nil)
+        #expect(KeyLightClient.isValidHost("elgato-key-light-1234.local"))
+        #expect(!KeyLightClient.isValidHost(""))
+        #expect(!KeyLightClient.isValidHost("a b"))
+    }
+
+    @Test func pinnedLightsIgnoreAnnouncements() async throws {
+        let host = try await environment.start(settings: ["devices": [configuredLight]])
+        let device = try #require(await environment.plugin?.device(mac: "3C:6A:9D:04:0A:0B"))
+        environment.discover.yield(.init(name: "Elgato Key Light", mac: "3C:6A:9D:04:0A:0B", host: "10.0.0.9", port: 9123))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(await device.host == "192.168.1.50")
+        await host.stop()
+    }
+
+    @Test func announcementsFromADifferentLightAreIgnored() async throws {
+        let host = try await environment.start(settings: [:])
+        environment.discover.yield(.init(name: "Elgato Key Light 1234", mac: "aa:bb:cc:dd:ee:ff", host: "10.0.0.5", port: 9123))
+        #expect(await eventually { host.mainBridge.server.accessories.count == 2 })
+        let device = try #require(await environment.plugin?.device(mac: "aa:bb:cc:dd:ee:ff"))
+
+        await environment.light.set(impostorHosts: ["10.0.0.9"])
+        environment.discover.yield(.init(name: "Elgato Key Light 1234", mac: "aa:bb:cc:dd:ee:ff", host: "10.0.0.9", port: 9123))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(await device.host == "10.0.0.5")
+
+        environment.discover.yield(.init(name: "Elgato Key Light 1234", mac: "aa:bb:cc:dd:ee:ff", host: "bad host", port: 9123))
+        environment.discover.yield(.init(name: "Elgato Key Light 1234", mac: "aa:bb:cc:dd:ee:ff", host: "10.0.0.6", port: 9123))
+        #expect(await eventually { await device.host == "10.0.0.6" })
+        await host.stop()
     }
 
     @Test func configuredLightBecomesAnAccessory() async throws {

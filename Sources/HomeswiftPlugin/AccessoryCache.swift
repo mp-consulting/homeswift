@@ -27,8 +27,11 @@ final class AccessoryCache: Sendable {
         let file = CacheFile(accessories: accessories.map(CachedAccessory.init))
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try encoder.encode(file).write(to: url, options: .atomic)
+        #if !os(Windows)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        #endif
     }
 }
 

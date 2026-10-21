@@ -73,6 +73,8 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
     private enum Status { case initializing, ready, failed }
     private var devices: [String: KeyLightDevice] = [:]
     private var status: [String: Status] = [:]
+    /// Lights with an `ip` or `host` in config.json: announcements never move them.
+    private var pinned: Set<String> = []
     private var discoveryTask: Task<Void, Never>?
     private var initializations: [Task<Void, Never>] = []
 
@@ -134,8 +136,14 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
                 // Without an address the entry only names and tunes the light once Bonjour finds it.
                 continue
             }
-            let light = DiscoveredLight(name: device.name ?? mac, mac: mac, host: host, port: device.port ?? KeyLightClient.defaultPort)
+            let port = device.port ?? KeyLightClient.defaultPort
+            guard KeyLightClient.isValidHost(host), KeyLightClient.isValidPort(port) else {
+                logger.warning("Skipping light with an invalid address in config.json", metadata: ["light": "\(device.name ?? mac)", "host": "\(host)", "port": "\(port)"])
+                continue
+            }
+            let light = DiscoveredLight(name: device.name ?? mac, mac: mac, host: host, port: port)
             logger.info("Registering configured light", metadata: ["light": "\(light.name)", "host": "\(host)"])
+            pinned.insert(mac)
             initialize(light)
         }
     }
@@ -146,8 +154,9 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
         switch status[mac] {
         case .ready:
             logger.debug("Light announced again", metadata: ["light": "\(light.name)", "host": "\(light.host)"])
+            if pinned.contains(mac) { return }
             if let device = devices[mac] {
-                Task { await device.update(host: light.host, port: light.port) }
+                Task { await device.follow(host: light.host, port: light.port) }
             }
         case .initializing:
             break
@@ -161,6 +170,10 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
     }
 
     private func initialize(_ light: DiscoveredLight) {
+        guard KeyLightClient.isValidHost(light.host), KeyLightClient.isValidPort(light.port) else {
+            logger.warning("Ignoring light with an invalid address", metadata: ["light": "\(light.name)", "host": "\(light.host)", "port": "\(light.port)"])
+            return
+        }
         if deviceConfiguration(mac: light.mac)?.enabled == false {
             logger.debug("Ignoring disabled light", metadata: ["light": "\(light.name)"])
             return

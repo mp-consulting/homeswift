@@ -21,7 +21,8 @@ public final class HAPServer: @unchecked Sendable {
         /// Overrides the stored setup code. Defaults to the stored one, or a random code on first launch.
         public var setupCode: SetupCode?
         /// Overrides the stored device ID, six hex octets such as `0E:1A:2B:3C:4D:5E` (Homebridge's
-        /// `username`). Defaults to the stored one, or a random ID on first launch. Changing it unpairs.
+        /// `username`). Defaults to the stored one, or a random ID on first launch. A different ID is a
+        /// new accessory: the pairings are dropped and a new signing key made, so controllers add it again.
         public var deviceID: String?
         /// The TCP port. Defaults to the port used last time, or one the system picks.
         public var port: Int?
@@ -81,7 +82,14 @@ public final class HAPServer: @unchecked Sendable {
             persisted = PersistedState.new(setupCode: options.setupCode)
         }
         if let code = options.setupCode { persisted.setupCode = code.rawValue }
-        if let deviceID = options.deviceID { persisted.deviceID = deviceID.uppercased() }
+        if let deviceID = options.deviceID?.uppercased(), deviceID != persisted.deviceID {
+            if !persisted.pairings.isEmpty {
+                options.logger.warning("Device ID changed: the bridge is a new accessory and must be paired again", metadata: ["from": "\(persisted.deviceID)", "to": "\(deviceID)"])
+            }
+            persisted.deviceID = deviceID
+            persisted.signingKey = Curve25519.Signing.PrivateKey().rawRepresentation
+            persisted.pairings.removeAll()
+        }
         signingKey = try Curve25519.Signing.PrivateKey(rawRepresentation: persisted.signingKey)
         state = NIOLockedValueBox(State(persisted: persisted))
 

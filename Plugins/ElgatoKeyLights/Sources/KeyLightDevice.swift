@@ -67,10 +67,30 @@ actor KeyLightDevice {
         consecutiveFailures = 0
     }
 
-    /// The light was announced again, maybe on a new address.
-    func update(host: String, port: Int) {
+    /// The light was announced again, maybe on a new address: moves there once the light at that address
+    /// reports the same serial number, so a spoofed announcement cannot redirect the plugin.
+    func follow(host: String, port: Int) async {
+        guard host != client.host || port != client.port else { return }
+        guard KeyLightClient.isValidHost(host), KeyLightClient.isValidPort(port) else {
+            logger.warning("Ignoring an announcement for \(displayName) with an invalid address \(host):\(port)")
+            return
+        }
+        var probe = client
+        probe.host = host
+        probe.port = port
+        do {
+            let reported = try await probe.info()
+            guard let serial = info?.serialNumber, !serial.isEmpty, reported.serialNumber == serial else {
+                logger.warning("Ignoring an announcement for \(displayName) from \(host):\(port): a different light answers there")
+                return
+            }
+        } catch {
+            logger.debug("Ignoring an announcement for \(displayName) from \(host):\(port): \(error)")
+            return
+        }
         client.host = host
         client.port = port
+        logger.info("\(displayName) is now at \(host):\(port)")
     }
 
     /// The last known state, or a communication failure while the light is unreachable.
