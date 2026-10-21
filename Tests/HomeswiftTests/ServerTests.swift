@@ -1,7 +1,15 @@
 import Foundation
+import Logging
 import Testing
 
 @testable import Homeswift
+
+/// The server's log in tests: set HOMESWIFT_TEST_LOG to a level (trace, debug, ...) to see it.
+let testLogger: Logger = {
+    var logger = Logger(label: "homeswift")
+    logger.logLevel = ProcessInfo.processInfo.environment["HOMESWIFT_TEST_LOG"].flatMap(Logger.Level.init(rawValue:)) ?? .info
+    return logger
+}()
 
 @Suite(.timeLimit(.minutes(1)))
 struct ServerTests {
@@ -18,7 +26,7 @@ struct ServerTests {
             services: [Service(.protocolInformation, extra: [Characteristic(.version, value: "1.1.0")])])
         server = try HAPServer(
             bridge: bridge, accessories: [lamp], storage: storage,
-            options: .init(setupCode: SetupCode("031-45-154"), port: 0, advertise: false))
+            options: .init(setupCode: SetupCode("031-45-154"), port: 0, advertise: false, logger: testLogger))
     }
 
     private func pairedController() async throws -> TestController {
@@ -175,7 +183,7 @@ struct ServerTests {
         let restarted = try HAPServer(
             bridge: Accessory(id: "bridge", name: "Test Bridge", category: .bridge, services: []),
             accessories: [Accessory(id: "lamp-1", name: "Lamp", category: .lightbulb, services: [restartedBulb])],
-            storage: storage, options: .init(port: 0, advertise: false))
+            storage: storage, options: .init(port: 0, advertise: false, logger: testLogger))
         #expect(restarted.deviceID == server.deviceID)
         #expect(restarted.isPaired)
         #expect(restartedBulb.characteristic(.brightness).iid == iid)

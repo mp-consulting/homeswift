@@ -33,6 +33,9 @@ let package = Package(
             ]
         ),
         .executableTarget(name: "homeswift-demo", dependencies: ["Homeswift"]),
-        .testTarget(name: "HomeswiftTests", dependencies: ["Homeswift"]),
+        .testTarget(
+            name: "HomeswiftTests",
+            dependencies: ["Homeswift", .product(name: "Logging", package: "swift-log")]
+        ),
     ]
 )
