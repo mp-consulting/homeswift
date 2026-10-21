@@ -1,7 +1,9 @@
 import Foundation
 import Homeswift
+import HomeswiftMCP
 import HomeswiftPlugin
 import Logging
+import NIOConcurrencyHelpers
 
 // The bridge: reads config.json, runs the plugins compiled in, and prints the setup codes.
 
@@ -21,6 +23,7 @@ let usage = """
            homeswift ask <question>
            homeswift explain <error message>
            homeswift diagnose [<log file>]
+           homeswift mcp [--url <url>] [--token <token>] | --generate-token | --snippets
 
     Runs a HomeKit bridge with the plugins listed in <path>/config.json and prints its setup code.
     The file has Homebridge's shape: a "bridge" block and "platforms" blocks (see docs/plugins.md).
@@ -37,10 +40,14 @@ let usage = """
       ask                             ask the Assistant a question (docs/ai.md)
       explain                         have the Assistant explain a device error
       diagnose                        have the Assistant diagnose a log file, or the log piped in
+      mcp                             stdio MCP server for Claude Desktop, Claude Code or Cursor, proxied to the
+                                      bridge's HTTP MCP server (docs/mcp.md); --generate-token, --snippets
 
     Environment:
       HAP_DEBUG                       log every request (trace level)
       ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY   API keys when the HomeswiftAiKit block has none
+      HOMESWIFT_MCP_URL, HOMESWIFT_MCP_TOKEN              where homeswift mcp connects, and with which token
+      HOMESWIFT_ALLOW_SECRETS=true    let get_config return secrets; HOMESWIFT_ELICITATION=false turns off questions
     """
 
 var storagePath = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".homeswift")
@@ -63,7 +70,7 @@ while let argument = arguments.next() {
         exit(0)
     case "plugins":
         command = "plugins"
-    case "ask", "explain", "diagnose":
+    case "ask", "explain", "diagnose", "mcp":
         command = argument
         // Everything after the command is the question, the error or the file.
         while let rest = arguments.next() { commandArguments.append(rest) }
@@ -73,7 +80,10 @@ while let argument = arguments.next() {
 }
 
 let level: Logger.Level = ProcessInfo.processInfo.environment["HAP_DEBUG"] != nil ? .trace : (debug ? .debug : .info)
-LoggingSystem.bootstrap { label in HomeswiftLogHandler(label: label, logLevel: level) }
+let logBuffer = LogBuffer()
+// `homeswift mcp` owns stdout for the protocol: its log goes to stderr.
+let logToStandardError = command == "mcp"
+LoggingSystem.bootstrap { label in HomeswiftLogHandler(label: label, logLevel: level, buffer: logBuffer, standardError: logToStandardError) }
 let logger = Logger(label: "homeswift")
 let registry = builtInPlugins()
 
@@ -108,14 +118,18 @@ do {
     fail("\(configURL.path): \(error)")
 }
 
-if ["ask", "explain", "diagnose"].contains(command) {
+if ["ask", "explain", "diagnose", "mcp"].contains(command) {
     // Top-level code runs on the main actor, so the command runs detached and the main thread serves Dispatch.
     let selectedCommand = command
     let selectedArguments = commandArguments
     let selectedConfiguration = configuration
     Task.detached {
         do {
-            try await AssistantCommands.run(selectedCommand, arguments: selectedArguments, configuration: selectedConfiguration, logger: logger)
+            if selectedCommand == "mcp" {
+                try await MCPCommands.run(arguments: selectedArguments, configuration: selectedConfiguration, logger: logger)
+            } else {
+                try await AssistantCommands.run(selectedCommand, arguments: selectedArguments, configuration: selectedConfiguration, logger: logger)
+            }
             exit(0)
         } catch {
             FileHandle.standardError.write(Data("homeswift: \(error)\n".utf8))
@@ -132,11 +146,16 @@ do {
     fail("\(error)")
 }
 
+let mcpServer = NIOLockedValueBox<MCPHTTPServer?>(nil)
 let main = Task {
     do {
         try await host.start()
     } catch {
         fail("could not start: \(error)")
+    }
+    mcpServer.withLockedValue { $0 = nil }
+    if let started = await MCPCommands.startServer(host: host, configuration: configuration, logs: logBuffer, configURL: configURL, logger: logger) {
+        mcpServer.withLockedValue { $0 = started }
     }
     for bridge in host.bridges {
         let server = bridge.server
@@ -151,11 +170,12 @@ let main = Task {
               Plugins:    \(platforms.isEmpty ? "none" : platforms.joined(separator: ", "))
             """)
     }
+    let mcpLine = mcpServer.withLockedValue { $0 }.map { "MCP server: http://\($0.options.host):\($0.port ?? $0.options.port)\($0.options.path)   (homeswift mcp --snippets for client configs)\n" } ?? ""
     say("""
 
         In the Home app: Add Accessory > More options > \(host.mainBridge.name), then enter the code.
         Config: \(configURL.path)
-
+        \(mcpLine)
         """)
     while !Task.isCancelled {
         try? await Task.sleep(for: .seconds(3600))
@@ -167,9 +187,10 @@ let signals = [SIGINT, SIGTERM].map { number in
     let source = DispatchSource.makeSignalSource(signal: number, queue: .main)
     signal(number, SIG_IGN)
     // Not main-actor code: Dispatch runs the handler on its own terms, so it only uses what it captures.
-    source.setEventHandler { @Sendable [main, host] in
+    source.setEventHandler { @Sendable [main, host, mcpServer] in
         main.cancel()
         Task {
+            await mcpServer.withLockedValue { $0 }?.stop()
             await host.stop()
             exit(0)
         }

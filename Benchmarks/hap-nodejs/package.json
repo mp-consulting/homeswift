@@ -1,0 +1,8 @@
+{
+  "name": "hap-nodejs-bench",
+  "private": true,
+  "description": "A HAP-NodeJS bridge with N lightbulbs, the counterpart of hap-bench-server",
+  "dependencies": {
+    "@homebridge/hap-nodejs": "2.2.2"
+  }
+}

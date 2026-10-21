@@ -42,10 +42,14 @@ public final class HAPServer: @unchecked Sendable {
         }
     }
 
+    /// Called when a characteristic's value changes, from HomeKit or from the accessory's own code.
+    public typealias ChangeObserver = @Sendable (_ accessory: Accessory, _ characteristic: Characteristic, _ value: HAPValue) -> Void
+
     struct State {
         var persisted: PersistedState
         var accessories: [Int: Accessory] = [:]
         var connections: [ObjectIdentifier: HAPConnection] = [:]
+        var changeObservers: [ChangeObserver] = []
         var pairSetupOwner: ObjectIdentifier?
         var failedPairSetupAttempts = 0
         var serverChannel: (any Channel)?
@@ -143,6 +147,11 @@ public final class HAPServer: @unchecked Sendable {
         }
         try persist()
         updateAdvertisement()
+    }
+
+    /// Registers an observer of characteristic changes on every accessory of this server.
+    public func observeChanges(_ observer: @escaping ChangeObserver) {
+        state.withLockedValue { $0.changeObservers.append(observer) }
     }
 
     /// Forgets every pairing and disconnects all controllers, so the accessory can be added again.
@@ -344,7 +353,10 @@ public final class HAPServer: @unchecked Sendable {
 extension HAPServer: CharacteristicObserver {
     func characteristicDidChange(_ characteristic: Characteristic, value: HAPValue, origin: ObjectIdentifier?) {
         let key = CharacteristicKey(aid: characteristic.aid, iid: characteristic.iid)
-        let connections = state.withLockedValue { Array($0.connections.values) }
+        let (connections, observers, accessory) = state.withLockedValue { (Array($0.connections.values), $0.changeObservers, $0.accessories[key.aid]) }
+        if let accessory {
+            for observer in observers { observer(accessory, characteristic, value) }
+        }
         let targets = connections.filter { $0.id != origin && $0.isSubscribed(to: key) }
         guard !targets.isEmpty else { return }
         let event = CharacteristicsJSON(characteristics: [CharacteristicJSON(aid: key.aid, iid: key.iid, value: value)])

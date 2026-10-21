@@ -98,6 +98,16 @@ public final class Characteristic: @unchecked Sendable {
 
     var readHandler: ReadHandler? { state.withLockedValue { $0.onRead } }
 
+    /// Writes a value the way a controller does: checks the permissions and the format, calls the write
+    /// handler, stores the value and notifies subscribed controllers. For writes that come from outside
+    /// HomeKit, such as an automation or an MCP tool. Timed writes are not enforced.
+    public func write(_ value: HAPValue) async throws {
+        guard type.permissions.contains(.pairedWrite) else { throw HAPStatusError(.readOnlyCharacteristic) }
+        guard let coerced = type.coerce(value) else { throw HAPStatusError(.invalidValueInRequest) }
+        try await writeHandler(for: coerced)?(coerced)
+        update(coerced, origin: nil, force: false)
+    }
+
     /// The handler to call for a write of `value`, or nil when there is none or the write changes nothing.
     func writeHandler(for value: HAPValue) -> WriteHandler? {
         let readable = type.permissions.contains(.pairedRead)

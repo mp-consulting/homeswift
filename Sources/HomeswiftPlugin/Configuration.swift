@@ -121,6 +121,25 @@ public struct HomeswiftConfiguration: Sendable {
         try decode(Data(contentsOf: url))
     }
 
+    /// The checks the runtime makes before starting: setup codes and device IDs of the bridge and of every
+    /// child bridge are well formed. Throws a `ConfigurationError` naming the first bad value.
+    public func validate() throws {
+        func check(pin: String?, username: String?) throws {
+            if let pin, SetupCode(pin) == nil { throw ConfigurationError.invalidSetupCode(pin) }
+            if let username, !Self.isDeviceID(username) { throw ConfigurationError.invalidUsername(username) }
+        }
+        try check(pin: bridge.pin, username: bridge.username)
+        for platform in platforms {
+            if let child = platform.childBridge { try check(pin: child.pin, username: child.username) }
+        }
+    }
+
+    /// Six hex octets, `0E:1A:2B:3C:4D:5E`.
+    public static func isDeviceID(_ string: String) -> Bool {
+        let octets = string.split(separator: ":", omittingEmptySubsequences: false)
+        return octets.count == 6 && octets.allSatisfy { $0.count == 2 && $0.allSatisfy(\.isHexDigit) }
+    }
+
     public static func decode(_ data: Data) throws -> HomeswiftConfiguration {
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ConfigurationError.notAnObject

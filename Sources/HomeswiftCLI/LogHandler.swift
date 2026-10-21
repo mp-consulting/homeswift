@@ -1,13 +1,18 @@
 import Foundation
+import HomeswiftPlugin
 import Logging
 
 /// Homebridge-style lines: `[10/21/2026, 10:00:00 AM] [Elgato Key Lights] Discovered Key Light Air`.
 ///
-/// Writes straight to the file descriptor so lines reach log files (`brew services`) at once.
+/// Writes straight to the file descriptor so lines reach log files (`brew services`) at once, and keeps
+/// the line in the buffer the MCP tools read.
 struct HomeswiftLogHandler: LogHandler {
     let label: String
     var logLevel: Logger.Level
     var metadata: Logger.Metadata = [:]
+    let buffer: LogBuffer?
+    /// Log to standard error instead, when standard output carries a protocol (`homeswift mcp`).
+    var standardError = false
 
     subscript(metadataKey key: String) -> Logger.Metadata.Value? {
         get { metadata[key] }
@@ -31,11 +36,13 @@ struct HomeswiftLogHandler: LogHandler {
         case .error, .critical: text += "[ERROR] "
         case .info, .notice: break
         }
-        text += message.description
+        var line = message.description
         let merged = self.metadata.merging(metadata ?? [:]) { $1 }
         if !merged.isEmpty {
-            text += " " + merged.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
+            line += " " + merged.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
         }
-        FileHandle.standardOutput.write(Data((text + "\n").utf8))
+        text += line
+        (standardError ? FileHandle.standardError : FileHandle.standardOutput).write(Data((text + "\n").utf8))
+        buffer?.append(LogBuffer.Line(level: level, label: label, text: line))
     }
 }
