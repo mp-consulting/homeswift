@@ -53,7 +53,7 @@ public final class UIServer: Sendable {
         self.catalog = catalog
         self.options = options
         users = UserStore(url: usersURL, iterations: options.hashIterations)
-        sessions = SessionStore(lifetime: TimeInterval(configuration.sessionDays) * 86_400)
+        sessions = SessionStore(lifetime: TimeInterval(configuration.sessionDays) * 86_400, url: usersURL.deletingLastPathComponent().appendingPathComponent("ui-sessions.json"))
         setupCode = configuration.auth == .form && users.isEmpty ? Self.makeSetupCode() : nil
         allowedHosts = Self.allowedHosts(for: configuration)
     }
@@ -91,6 +91,7 @@ public final class UIServer: Sendable {
     struct Request: Sendable {
         var method: HTTPMethod
         var path: String
+        var query: [String: String] = [:]
         var headers: [String: String]
         var body: Data
         var remote: String
@@ -118,6 +119,10 @@ public final class UIServer: Sendable {
         static func text(_ text: String, status: Int = 200, contentType: String) -> Reply {
             .data(status: status, contentType: contentType, body: Data(text.utf8))
         }
+
+        static func redirect(to location: String) -> Reply {
+            .data(status: 302, contentType: "text/plain", body: Data(), headers: ["Location": location])
+        }
     }
 
     func reply(to request: Request) async -> Reply {
@@ -125,7 +130,7 @@ public final class UIServer: Sendable {
             return .error(421, "this is not a name the web UI answers to; add it to allowedHosts in the HomeswiftUI block")
         }
         let parts = request.path.split(separator: "/").map { String($0).removingPercentEncoding ?? String($0) }
-        guard parts.first == "api" else { return page(for: parts) }
+        guard parts.first == "api" else { return page(for: parts, request) }
         let route = Array(parts.dropFirst())
         if route.first == "auth" { return await auth(route.dropFirst().first ?? "", request) }
         guard let username = authenticatedUser(request) else { return .error(401, "sign in first") }
@@ -141,7 +146,14 @@ public final class UIServer: Sendable {
 
     // MARK: Pages
 
-    private func page(for parts: [String]) -> Reply {
+    private func page(for parts: [String], _ request: Request) -> Reply {
+        if parts.first == "plugins", parts.count >= 2 {
+            // A plugin's own pages, for a signed-in user; anyone else lands on the login page.
+            guard authenticatedUser(request) != nil else { return .redirect(to: "/") }
+            let name = parts.count == 2 ? "index.html" : parts.dropFirst(2).joined(separator: "/")
+            guard let file = catalog.host.registry.entry(for: parts[1])?.webFiles[name] else { return .text("Not found", status: 404, contentType: "text/plain") }
+            return .data(status: 200, contentType: file.contentType, body: Data(file.body.utf8))
+        }
         let name = parts.isEmpty ? "index.html" : parts.joined(separator: "/")
         guard let asset = WebAssets.files[name] else { return .text("Not found", status: 404, contentType: "text/plain") }
         return .data(status: 200, contentType: asset.contentType, body: Data(asset.body.utf8))
@@ -238,6 +250,14 @@ public final class UIServer: Sendable {
 
     private func api(_ route: [String], _ request: Request, username: String) async throws -> Reply {
         let body = request.body.isEmpty ? JSONValue.null : try JSONValue(data: request.body)
+        if route.count >= 4, route[0] == "plugins" {
+            // A plugin page talking to its instance: /api/plugins/<platform>/<name>/<path>.
+            let pluginRequest = PluginWebRequest(method: request.method.rawValue, path: route.dropFirst(3).joined(separator: "/"), query: request.query, body: body, user: username)
+            guard let response = try await catalog.host.handleWebRequest(platform: route[1], name: route[2], pluginRequest) else {
+                return .error(404, "no running instance \"\(route[2])\" of \(route[1])")
+            }
+            return .json(response.json, status: response.status)
+        }
         switch request.method {
         case .GET:
             switch route {
@@ -260,6 +280,11 @@ public final class UIServer: Sendable {
             case ["events"]:
                 return .events(events.stream())
             default:
+                if route.count == 2, route[0] == "qr", route[1].hasSuffix(".svg") {
+                    // The pairing QR code of a bridge, for the Home app's camera: the setup URI, which the status page shows anyway.
+                    guard let index = Int(route[1].dropLast(4)), catalog.host.bridges.indices.contains(index) else { return .error(404, "no such bridge") }
+                    return .text(try QRCode(catalog.host.bridges[index].server.setupURI).svg(), contentType: "image/svg+xml")
+                }
                 if route.count == 3, route[0] == "plugins", route[2] == "schema" {
                     guard let text = catalog.host.registry.entry(for: route[1])?.configurationSchemaJSON else { return .error(404, "no schema for \(route[1])") }
                     return .text(text, contentType: "application/json")
@@ -283,6 +308,12 @@ public final class UIServer: Sendable {
                 return try replacePlatformBlock(at: route[2], with: body, username: username)
             }
         case .POST:
+            if route == ["restart"] {
+                guard catalog.restart != nil else { return .error(501, "this process cannot restart itself; restart homeswift by hand") }
+                logger.warning("Restart requested from the web UI", metadata: ["user": "\(username)"])
+                _ = catalog.scheduleRestart()
+                return .json(["restarting": true])
+            }
             if route.count == 3, route[0] == "accessories", route[2] == "identify" {
                 guard let found = catalog.find(id: route[1]) else { return .error(404, "no accessory \(route[1])") }
                 try await found.accessory.information.characteristic(.identify).write(.bool(true))
@@ -421,8 +452,17 @@ final class UIRequestHandler: ChannelInboundHandler {
             guard let head else { return }
             var headers: [String: String] = [:]
             for (name, value) in head.headers { headers[name.lowercased()] = value }
+            let uri = head.uri.split(separator: "?", maxSplits: 1)
+            var query: [String: String] = [:]
+            if uri.count == 2 {
+                for pair in uri[1].split(separator: "&") {
+                    let parts = pair.split(separator: "=", maxSplits: 1).map { String($0).replacingOccurrences(of: "+", with: " ") }
+                    guard let key = parts.first?.removingPercentEncoding, !key.isEmpty else { continue }
+                    query[key] = parts.count == 2 ? (parts[1].removingPercentEncoding ?? parts[1]) : ""
+                }
+            }
             let request = UIServer.Request(
-                method: head.method, path: String(head.uri.split(separator: "?", maxSplits: 1).first ?? "/"), headers: headers, body: body,
+                method: head.method, path: String(uri.first ?? "/"), query: query, headers: headers, body: body,
                 remote: context.remoteAddress?.ipAddress ?? "?")
             self.head = nil
             Self.respond(to: request, keepAlive: head.isKeepAlive, channel: context.channel, server: server)

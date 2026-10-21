@@ -158,10 +158,19 @@ let main = Task {
     } catch {
         fail("could not start: \(error)")
     }
-    if let started = await MCPCommands.startServer(host: host, configuration: configuration, logs: logBuffer, configURL: configURL, logger: logger) {
+    // The web UI's Restart button and the restart_bridge tool: stop everything, then exec a fresh copy.
+    let restart: @Sendable () -> Void = {
+        Task.detached {
+            await uiServer.withLockedValue { $0 }?.stop()
+            await mcpServer.withLockedValue { $0 }?.stop()
+            await host.stop()
+            Restart.exec()
+        }
+    }
+    if let started = await MCPCommands.startServer(host: host, configuration: configuration, logs: logBuffer, configURL: configURL, logger: logger, restart: restart) {
         mcpServer.withLockedValue { $0 = started }
     }
-    if let started = await UICommands.startServer(host: host, configuration: configuration, logs: logBuffer, configURL: configURL, logger: logger) {
+    if let started = await UICommands.startServer(host: host, configuration: configuration, logs: logBuffer, configURL: configURL, logger: logger, restart: restart) {
         uiServer.withLockedValue { $0 = started }
     }
     for bridge in host.bridges {

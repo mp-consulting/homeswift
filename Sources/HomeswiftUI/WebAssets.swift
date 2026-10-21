@@ -89,6 +89,40 @@ enum WebAssets {
 
   $("#logout").addEventListener("click", async () => { try { await api("/api/auth/logout", { method: "POST" }); } catch {} await loadAuth(); });
 
+  // ---- Restart -------------------------------------------------------------
+
+  async function restartBridge(event) {
+    if (!confirm("Restart homeswift now? Every connection drops for a few seconds.")) return;
+    const button = event && event.target;
+    if (button) button.disabled = true;
+    try {
+      await api("/api/restart", { method: "POST" });
+    } catch (e) {
+      alert(e.message);
+      if (button) button.disabled = false;
+      return;
+    }
+    closeEvents();
+    const banner = $("#banner");
+    banner.classList.remove("hidden");
+    banner.replaceChildren("Restarting homeswift…");
+    const started = Date.now();
+    // Back when a status answers from a process younger than this restart; the login survives it.
+    const poll = async () => {
+      try {
+        const response = await fetch("/api/status", { credentials: "same-origin" });
+        if (response.ok) {
+          const status = await response.json();
+          if (status.uptimeSeconds < (Date.now() - started) / 1000 + 5) { location.reload(); return; }
+        } else if (response.status === 401) { location.reload(); return; }
+      } catch {}
+      if (Date.now() - started < 90000) setTimeout(poll, 1000);
+      else banner.replaceChildren("homeswift did not come back; check its log.");
+    };
+    setTimeout(poll, 1500);
+  }
+  $("#restart").addEventListener("click", restartBridge);
+
   function showApp() {
     $("#auth").classList.add("hidden");
     $("#app").classList.remove("hidden");
@@ -127,7 +161,7 @@ enum WebAssets {
   views.status = async (main) => {
     const status = await api("/api/status");
     $("#banner").classList.toggle("hidden", !status.restartNeeded);
-    const bridges = status.bridges.map((bridge) => el("div", { class: "card" },
+    const bridges = status.bridges.map((bridge, index) => el("div", { class: "card" },
       el("h2", { text: bridge.name }, " ", el("span", { class: `pill ${bridge.paired ? "on" : ""}`, text: bridge.paired ? `paired, ${bridge.controllers} controller(s)` : "not paired" }),
         bridge.childBridge ? el("span", { class: "pill", text: "child bridge" }) : null),
       el("dl", {},
@@ -135,8 +169,9 @@ enum WebAssets {
         el("dt", { text: "Port" }), el("dd", { text: bridge.port ?? "?" }),
         el("dt", { text: "Accessories" }), el("dd", { text: bridge.accessories }),
         el("dt", { text: "Platforms" }), el("dd", { text: bridge.platforms.join(", ") || "none" })),
-      bridge.setupCode ? el("div", {}, el("p", { class: "muted", text: "In the Home app: Add Accessory, More options, then enter this code." }),
-        el("div", { class: "code", text: bridge.setupCode }), el("p", { class: "muted", text: bridge.setupUri })) : null));
+      bridge.setupCode ? el("div", {}, el("p", { class: "muted", text: "In the Home app: Add Accessory, then scan this code with the camera, or choose More options and enter it." }),
+        el("div", { class: "pairing" }, el("img", { class: "qr", src: `/api/qr/${index}.svg`, alt: "Pairing QR code", width: 148, height: 148 }),
+          el("div", {}, el("div", { class: "code", text: bridge.setupCode }), el("p", { class: "muted", text: bridge.setupUri })))) : null));
     show(main,
       el("h1", { text: "Status" }),
       el("div", { class: "cards" }, ...bridges),
@@ -145,7 +180,8 @@ enum WebAssets {
         el("dt", { text: "Uptime" }), el("dd", { text: formatDuration(status.uptimeSeconds) }),
         el("dt", { text: "Config" }), el("dd", { text: status.configPath }),
         el("dt", { text: "Assistant" }), el("dd", { text: status.assistant ? `${status.assistant.provider} (${status.assistant.model})` : "off" }),
-        el("dt", { text: "System" }), el("dd", { text: `${status.system.hostname}, ${status.system.platform} ${status.system.os}, ${status.system.cpus} CPUs` }))));
+        el("dt", { text: "System" }), el("dd", { text: `${status.system.hostname}, ${status.system.platform} ${status.system.os}, ${status.system.cpus} CPUs` })),
+        el("div", { class: "actions" }, el("button", { text: "Restart homeswift", onclick: restartBridge }))));
   };
 
   function formatDuration(seconds) {
@@ -275,7 +311,8 @@ enum WebAssets {
       const card = el("div", { class: "card" });
       const show = () => card.replaceChildren(
         el("div", { class: "item-head" }, el("div", {}, el("strong", { text: block.name }), el("div", { class: "muted", text: `${block.platform}${block.childBridge ? " · child bridge" : ""} · ${status}` })),
-          el("span", {}, el("button", { text: "Settings", onclick: () => openEditor(card, block, plugin, show) }), " ",
+          el("span", {}, plugin && plugin.hasPages && instance ? el("a", { class: "button", href: `/plugins/${encodeURIComponent(block.platform)}/index.html?name=${encodeURIComponent(block.name)}`, text: "Open" }) : null, " ",
+            el("button", { text: "Settings", onclick: () => openEditor(card, block, plugin, show) }), " ",
             el("button", { class: "link", text: "Remove", onclick: async () => {
               if (!confirm(`Remove the block "${block.name}" from config.json?`)) return;
               try { await api(`/api/config/platforms/${block.index}`, { method: "DELETE" }); $("#banner").classList.remove("hidden"); route(); } catch (e) { alert(e.message); }
@@ -574,12 +611,37 @@ enum WebAssets {
     <span id="user"></span>
     <button id="logout" class="link">Sign out</button>
   </header>
-  <div id="banner" class="banner hidden">Configuration changed. Restart homeswift to apply it.</div>
+  <div id="banner" class="banner hidden"><span id="banner-text">Configuration changed. Restart homeswift to apply it.</span> <button id="restart" class="link">Restart now</button></div>
   <main id="view"></main>
 </div>
 <script src="/app.js"></script>
 </body>
 </html>
+
+"""#),
+        "plugin.js": WebAsset(contentType: "text/javascript; charset=utf-8", body: #"""
+// For a plugin's own pages, served at /plugins/<platform>/: homeswift.request() talks to the plugin instance
+// named in the page's URL (?name=), with the session cookie. A signed-out visitor is sent to the login page.
+(() => {
+  "use strict";
+  const platform = decodeURIComponent(location.pathname.split("/")[2] || "");
+  const name = new URLSearchParams(location.search).get("name") || platform;
+  const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
+
+  async function request(path, { method = "GET", body } = {}) {
+    const options = { method, credentials: "same-origin", headers: {} };
+    if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
+    const response = await fetch(prefix + String(path).replace(/^\//, ""), options);
+    if (response.status === 401) { location.href = "/"; throw new Error("signed out"); }
+    const text = await response.text();
+    let json = null;
+    try { json = text ? JSON.parse(text) : null; } catch { json = { error: text }; }
+    if (!response.ok) throw new Error((json && json.error) || `HTTP ${response.status}`);
+    return json;
+  }
+
+  window.homeswift = { platform, name, request, home: "/#plugins" };
+})();
 
 """#),
         "style.css": WebAsset(contentType: "text/css; charset=utf-8", body: #"""
@@ -680,13 +742,14 @@ strong { font-weight: 600; }
 .value { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 52px; text-align: right; }
 
 /* Controls: feedback on the press, at once, and a focus ring for the keyboard. */
-button {
+button, a.button {
   font: inherit; font-weight: 500; padding: 8px 16px; border-radius: 999px; cursor: pointer; color: var(--text); touch-action: manipulation;
   background: var(--control); border: 1px solid var(--edge); box-shadow: inset 0 1px 0 var(--edge-light), var(--shadow-control);
   transition: transform var(--fast) var(--ease-out), box-shadow var(--fast) var(--ease-out), opacity var(--fast) var(--ease-out);
 }
-button:hover { transform: translateY(-1px); }
-button:active:not(:disabled) { transform: scale(0.97); transition-duration: 80ms; }
+a.button { display: inline-block; text-decoration: none; line-height: normal; }
+button:hover, a.button:hover { transform: translateY(-1px); }
+button:active:not(:disabled), a.button:active { transform: scale(0.97); transition-duration: 80ms; }
 button.primary { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); border-color: rgba(255, 255, 255, 0.4); box-shadow: 0 8px 20px rgba(255, 122, 26, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
 button.link { border: 0; background: none; box-shadow: none; color: var(--accent); padding: 4px 6px; }
 button.link:hover { transform: none; }
@@ -715,6 +778,9 @@ label > input, label > select { margin-top: 5px; }
 .auth .card { width: min(400px, 100%); padding: 26px 26px 22px; animation: materialize 320ms var(--ease-out); }
 .auth h1 { margin-top: 6px; }
 .auth button { width: 100%; margin-top: 10px; }
+.pairing { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+.qr { width: 148px; height: 148px; border-radius: 14px; background: #fff; padding: 6px; box-shadow: var(--shadow-control); }
+.pairing .code { margin-top: 0; }
 .code { font-family: var(--mono); font-size: 1.875rem; letter-spacing: 0.1em; font-variant-numeric: tabular-nums; margin: 10px 0; padding: 10px 16px; border-radius: 16px; display: inline-block; background: var(--material-thin); border: 1px solid var(--edge); box-shadow: inset 0 1px 0 var(--edge-light); }
 
 /* A glass surface arrives as a material: blur and scale settle together, not a plain fade. */
@@ -769,7 +835,7 @@ dd { margin: 0; }
 @media (prefers-reduced-motion: reduce) {
   .banner, .auth .card { animation: fade var(--normal) ease; }
   button, nav a { transition-property: background-color, box-shadow, opacity; }
-  button:hover, button:active:not(:disabled), nav a:active { transform: none; }
+  button:hover, button:active:not(:disabled), a.button:hover, a.button:active, nav a:active { transform: none; }
   button:active:not(:disabled) { opacity: 0.7; }
   .switch span::before { transition: none; }
   .switch input:active + span::before { width: 22px; }

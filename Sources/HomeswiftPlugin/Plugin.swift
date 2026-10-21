@@ -3,6 +3,7 @@ import Homeswift
 import HomeswiftAI
 import Logging
 import NIOConcurrencyHelpers
+@_exported import enum HomeswiftAI.JSONValue
 
 /// A Homeswift plugin. Each `platform` block in config.json becomes one instance.
 ///
@@ -47,6 +48,12 @@ public protocol HomeswiftPlugin: Sendable {
     /// Defaults to nil: no form, only the raw block.
     static var configurationSchemaJSON: String? { get }
 
+    /// The plugin's own web pages, served by the web UI at `/plugins/<platform>/`; `index.html` opens from
+    /// the Plugins page. Keep them in the plugin's `Web/` directory and embed them with
+    /// `Scripts/embed-assets.swift web Plugins/<Name>/Web Plugins/<Name>/Sources/WebFiles.swift <Type>`.
+    /// Defaults to none. `docs/ui.md` describes what a page can do.
+    static var webFiles: [String: PluginWebFile] { get }
+
     /// Creates the instance. Throw for settings the plugin cannot work with; the runtime logs the error
     /// and leaves this block out, the other plugins keep running.
     init(configuration: Configuration, context: PluginContext) async throws
@@ -59,12 +66,65 @@ public protocol HomeswiftPlugin: Sendable {
     /// Called at shutdown: cancel tasks and close connections. The runtime saves the accessory cache
     /// afterwards. Defaults to doing nothing.
     func stop() async
+
+    /// Answers a request from the plugin's own pages (`homeswift.request()` in their script), which the
+    /// web UI sends to `/api/plugins/<platform>/<name>/<path>` for a signed-in user. Defaults to 404.
+    func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse
 }
 
 extension HomeswiftPlugin {
     public static var name: String { platform }
     public static var configurationSchemaJSON: String? { nil }
+    public static var webFiles: [String: PluginWebFile] { [:] }
     public func stop() async {}
+    public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse { .error(404, "\(Self.name) has no web API") }
+}
+
+/// A file of a plugin's web pages.
+public struct PluginWebFile: Sendable, Equatable {
+    public let contentType: String
+    public let body: String
+
+    public init(contentType: String, body: String) {
+        self.contentType = contentType
+        self.body = body
+    }
+}
+
+/// A request from a plugin's web page to the instance that serves it.
+public struct PluginWebRequest: Sendable {
+    /// GET, POST, PUT or DELETE.
+    public let method: String
+    /// What follows `/api/plugins/<platform>/<name>/`, without a leading slash.
+    public let path: String
+    public let query: [String: String]
+    /// The JSON body, or `.null`.
+    public let body: JSONValue
+    /// The signed-in user.
+    public let user: String
+
+    public init(method: String, path: String, query: [String: String] = [:], body: JSONValue = .null, user: String) {
+        self.method = method
+        self.path = path
+        self.query = query
+        self.body = body
+        self.user = user
+    }
+}
+
+/// A plugin's answer to its page: JSON and a status.
+public struct PluginWebResponse: Sendable, Equatable {
+    public var status: Int
+    public var json: JSONValue
+
+    public init(_ json: JSONValue, status: Int = 200) {
+        self.json = json
+        self.status = status
+    }
+
+    public static func error(_ status: Int, _ message: String) -> PluginWebResponse {
+        PluginWebResponse(["error": .string(message)], status: status)
+    }
 }
 
 /// Errors the runtime reports to a plugin.

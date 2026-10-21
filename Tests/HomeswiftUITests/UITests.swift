@@ -45,11 +45,24 @@ actor LampPlugin: HomeswiftPlugin {
         lock.characteristic(.lockTargetState).onWrite { value in writes.withLockedValue { $0.append(("lock", value)) } }
         try context.add(Accessory(id: "Lamps:lock", name: "Front Door", category: .doorLock, services: [lock]))
     }
+
+    static let webFiles: [String: PluginWebFile] = [
+        "index.html": PluginWebFile(contentType: "text/html; charset=utf-8", body: "<!doctype html><title>Lamps</title><script src=\"/plugin.js\"></script>"),
+    ]
+
+    func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
+        switch (request.method, request.path) {
+        case ("GET", "hello"): return PluginWebResponse(["hello": .string(request.user), "name": .string(context.name), "q": .string(request.query["q"] ?? "")])
+        case ("POST", "echo"): return PluginWebResponse(request.body, status: 201)
+        default: return .error(404, "nothing at \(request.path)")
+        }
+    }
 }
 
 final class UITestEnvironment: @unchecked Sendable {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-ui-tests-\(UUID().uuidString)")
     let writes = NIOLockedValueBox<[(String, HAPValue)]>([])
+    let restarts = NIOLockedValueBox(0)
     let logs = LogBuffer()
     let host: PluginHost
     let server: UIServer
@@ -69,12 +82,13 @@ final class UITestEnvironment: @unchecked Sendable {
         try Data(config.utf8).write(to: directory.appendingPathComponent("config.json"))
         var registry = PluginRegistry()
         let writes = self.writes
-        registry.register(platform: LampPlugin.platform, name: LampPlugin.name) { _, context in LampPlugin(context: context, writes: writes) }
+        registry.register(platform: LampPlugin.platform, name: LampPlugin.name, webFiles: LampPlugin.webFiles) { _, context in LampPlugin(context: context, writes: writes) }
         registry.register(ElgatoKeyLightsPlugin.self)
         var options = PluginHost.Options(advertise: false, logger: testLogger) { _ in MemoryStorage() }
         options.systemPlatforms.insert(UIConfiguration.platform)
         host = try PluginHost(configuration: try HomeswiftConfiguration.decode(Data(config.utf8)), registry: registry, storageDirectory: directory, options: options)
-        let catalog = HomeswiftCatalog(host: host, logs: logs, configURL: directory.appendingPathComponent("config.json"), logger: testLogger)
+        let restarts = self.restarts
+        let catalog = HomeswiftCatalog(host: host, logs: logs, configURL: directory.appendingPathComponent("config.json"), restart: { restarts.withLockedValue { $0 += 1 } }, logger: testLogger)
         var configuration = UIConfiguration()
         configuration.host = "127.0.0.1"
         configuration.port = 0
@@ -97,8 +111,17 @@ final class UITestEnvironment: @unchecked Sendable {
     }
 }
 
-/// An HTTP client for the tests that keeps the session cookie.
+/// An HTTP client for the tests that keeps the session cookie itself: its URLSession stores none, so a
+/// second client is anonymous on Linux too, where the shared session keeps cookies whatever the request says.
 final class Browser: @unchecked Sendable {
+    static let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieAcceptPolicy = .never
+        return URLSession(configuration: configuration)
+    }()
+
     let base: URL
     var cookie: String?
     var origin: String?
@@ -114,7 +137,8 @@ final class Browser: @unchecked Sendable {
     }
 
     func send(_ method: String, _ path: String, body: String? = nil) async throws -> Response {
-        var request = URLRequest(url: base.appendingPathComponent(path), timeoutInterval: 30)
+        let url = path.contains("?") ? URL(string: path, relativeTo: base)!.absoluteURL : base.appendingPathComponent(path)
+        var request = URLRequest(url: url, timeoutInterval: 30)
         request.httpMethod = method
         if let body {
             request.httpBody = Data(body.utf8)
@@ -123,7 +147,7 @@ final class Browser: @unchecked Sendable {
         if let cookie { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
         if let origin { request.setValue(origin, forHTTPHeaderField: "Origin") }
         request.httpShouldHandleCookies = false
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.session.data(for: request)
         let http = response as! HTTPURLResponse
         var headers: [String: String] = [:]
         for (name, value) in http.allHeaderFields { headers[String(describing: name).lowercased()] = String(describing: value) }
@@ -158,12 +182,17 @@ final class Browser: @unchecked Sendable {
         #expect(reloaded.verify(username: "rosaly", password: "correct horse"))
         #expect(UserStore.pbkdf2(password: "password", salt: Data("salt".utf8), iterations: 1).map { String(format: "%02x", $0) }.joined().hasPrefix("120fb6cffcf8b32c"))
 
-        let sessions = SessionStore(lifetime: 60)
+        let sessionsURL = url.deletingLastPathComponent().appendingPathComponent("homeswift-ui-sessions-\(UUID().uuidString).json")
+        let sessions = SessionStore(lifetime: 60, url: sessionsURL)
         let token = sessions.create(username: "rosaly")
         #expect(sessions.username(for: token) == "rosaly")
         #expect(sessions.username(for: "nope") == nil)
+        #expect(SessionStore(lifetime: 60, url: sessionsURL).username(for: token) == "rosaly")   // survives a restart
+        #expect(try !String(contentsOf: sessionsURL, encoding: .utf8).contains(token))   // as a hash, not the cookie
         sessions.revoke(token)
         #expect(sessions.username(for: token) == nil)
+        #expect(SessionStore(lifetime: 60, url: sessionsURL).username(for: token) == nil)
+        #expect(SessionStore(lifetime: -1, url: sessionsURL).count == 0)
     }
 
     @Test func readsTheBlock() throws {
@@ -206,6 +235,15 @@ final class Browser: @unchecked Sendable {
         let file = try String(contentsOf: Self.root.appendingPathComponent("Plugins/ElgatoKeyLights/config.schema.json"), encoding: .utf8)
         #expect(ElgatoKeyLightsPlugin.configurationSchemaJSON == file.trimmingCharacters(in: .whitespacesAndNewlines))
         #expect(try JSONValue(string: ElgatoKeyLightsPlugin.configurationSchemaJSON!)["pluginAlias"] == "ElgatoKeyLights")
+    }
+
+    @Test func pluginWebFilesAreCurrent() throws {
+        let web = Self.root.appendingPathComponent("Plugins/ElgatoKeyLights/Web")
+        for name in try FileManager.default.contentsOfDirectory(atPath: web.path) where !name.hasPrefix(".") {
+            let file = try String(contentsOf: web.appendingPathComponent(name), encoding: .utf8)
+            #expect(ElgatoKeyLightsPlugin.webFiles[name]?.body == file, "run: swift Scripts/embed-assets.swift web Plugins/ElgatoKeyLights/Web Plugins/ElgatoKeyLights/Sources/WebFiles.swift ElgatoKeyLightsPlugin (\(name))")
+        }
+        #expect(ElgatoKeyLightsPlugin.webFiles["index.html"]?.contentType == "text/html; charset=utf-8")
     }
 
     @Test func webAssetsAreCurrent() throws {
@@ -295,6 +333,38 @@ struct UIServerTests {
         #expect(plugins?["plugins"]?.arrayValue?.contains { $0["platform"] == "ElgatoKeyLights" && $0["hasSchema"] == true } == true)
         let schema = try await browser.get("/api/plugins/ElgatoKeyLights/schema")
         #expect(schema.status == 200)
+
+        // A plugin's own page and its API, for the signed-in user only.
+        #expect(plugins?["plugins"]?.arrayValue?.contains { $0["platform"] == "Lamps" && $0["hasPages"] == true } == true)
+        let pluginPage = try await browser.get("/plugins/Lamps/index.html")
+        #expect(pluginPage.status == 200)
+        #expect(pluginPage.body.contains("<title>Lamps</title>"))
+        #expect(try await browser.get("/plugins/Lamps/missing.js").status == 404)
+        #expect(try await browser.get("/plugins/Nope/index.html").status == 404)
+        #expect(try await browser.get("/plugin.js").status == 200)
+        let anonymous = Browser(base: base)
+        let landed = try await anonymous.get("/plugins/Lamps/index.html")   // sent to the login page
+        #expect(landed.status == 302 || landed.body.contains("<title>Homeswift</title>"))
+        #expect(try await anonymous.get("/api/plugins/Lamps/Lamps/hello").status == 401)
+        let hello = try await browser.get("/api/plugins/Lamps/Lamps/hello?q=1").json
+        #expect(hello?["hello"] == "rosaly")
+        #expect(hello?["name"] == "Lamps")
+        #expect(hello?["q"] == "1")
+        let echoed = try await browser.post("/api/plugins/Lamps/Lamps/echo", ["a": 1])
+        #expect(echoed.status == 201)
+        #expect(echoed.json?["a"] == 1)
+        #expect(try await browser.get("/api/plugins/Lamps/Lamps/nothing").status == 404)
+        #expect(try await browser.get("/api/plugins/Lamps/Other/hello").status == 404)
+
+        // The pairing QR code, and a restart through the hook.
+        let qr = try await browser.get("/api/qr/0.svg")
+        #expect(qr.status == 200)
+        #expect(qr.headers["content-type"]?.hasPrefix("image/svg+xml") == true)
+        #expect(qr.body.hasPrefix("<svg "))
+        #expect(try await browser.get("/api/qr/9.svg").status == 404)
+        #expect(try await browser.post("/api/restart", [:]).status == 200)
+        try await Task.sleep(for: .milliseconds(800))
+        #expect(environment.restarts.withLockedValue { $0 } == 1)
         #expect(schema.json?["pluginAlias"] == "ElgatoKeyLights")
         #expect(try await browser.get("/api/plugins/Lamps/schema").status == 404)
         let config = try await browser.get("/api/config")

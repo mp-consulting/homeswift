@@ -55,13 +55,13 @@ enum MCPCommands {
     }
 
     /// The bridge's MCP server, when the HomeswiftAiKit block enables it.
-    static func startServer(host: PluginHost, configuration: HomeswiftConfiguration, logs: LogBuffer, configURL: URL, logger: Logger) async -> MCPHTTPServer? {
+    static func startServer(host: PluginHost, configuration: HomeswiftConfiguration, logs: LogBuffer, configURL: URL, logger: Logger, restart: (@Sendable () -> Void)? = nil) async -> MCPHTTPServer? {
         guard let block = mcpBlock(configuration) else { return nil }
         do {
             let mcp = try MCPConfiguration(block: block)
             guard mcp.enabled else { return nil }
             let environment = ProcessInfo.processInfo.environment
-            let catalog = HomeswiftCatalog(host: host, logs: logs, configURL: configURL, allowSecrets: environment["HOMESWIFT_ALLOW_SECRETS"] == "true", logger: logger)
+            let catalog = HomeswiftCatalog(host: host, logs: logs, configURL: configURL, allowSecrets: environment["HOMESWIFT_ALLOW_SECRETS"] == "true", restart: restart, logger: logger)
             var options = MCPServer.Options(version: PluginHost.version, instructions: HomeswiftCatalog.instructions)
             options.elicitation = environment["HOMESWIFT_ELICITATION"] != "false"
             options.logger = logger

@@ -25,13 +25,15 @@ with a new code).
 
 ## Pages
 
-- **Status**: each bridge with its device ID, port, pairing state and platforms, and the setup code of a
-  bridge that is not paired yet; the Assistant's provider; version, uptime, machine.
+- **Status**: each bridge with its device ID, port, pairing state and platforms, and, for a bridge that is
+  not paired yet, the setup code and its QR code for the Home app's camera; the Assistant's provider;
+  version, uptime, machine; a **Restart homeswift** button.
 - **Accessories**: every accessory with its services. Switches for on/off, sliders for brightness, colour
   temperature and the like, menus for lock, door and alarm targets, text for everything else. Values
   update live when a device changes elsewhere. Locks, garage doors and alarms can be operated here, as in
   the Home app, since the user signed in.
-- **Plugins**: every platform block of config.json, with whether it runs and where. **Settings** opens a
+- **Plugins**: every platform block of config.json, with whether it runs and where. **Open** shows a
+  plugin's own page when it has one (see below). **Settings** opens a
   form built from the plugin's schema (the same `config.schema.json` the Homebridge version ships), or a
   JSON editor for plugins without one and for the runtime's own blocks. **Add a platform** lists the
   plugins compiled in. Saving validates, backs up the previous file, and asks for a restart.
@@ -39,8 +41,10 @@ with a new code).
   the keys, and asks for a restart.
 - **Logs**: the last lines and the live log, filtered by level and text.
 
-Configuration changes need a restart of homeswift to apply: the page says so, and launchd or systemd
-owns the process.
+Configuration changes need a restart of homeswift to apply: the page says so, and its **Restart now**
+button does it. The process replaces itself with a fresh copy (same binary, arguments and PID), so
+launchd, systemd and `brew services` see nothing happen, and the page reloads once the bridge is back.
+Logins survive a restart: sessions are kept in `ui-sessions.json` next to config.json.
 
 ## Security
 
@@ -61,13 +65,29 @@ owns the process.
 
 ## For plugin authors
 
-Ship a `config.schema.json` in the plugin's directory and run `swift Scripts/embed-assets.swift plugin
-Plugins/<Name> <Type>` to embed it (a test checks it is current); the Plugins page then shows a form. The
+**A settings form.** Ship a `config.schema.json` in the plugin's directory and run `swift
+Scripts/embed-assets.swift plugin Plugins/<Name> <Type>` to embed it (a test checks it is current); the
+Plugins page then shows a form. The
 form understands the Homebridge dialect: `properties` in order, `required: true` on a property, `oneOf`
 with `enum` and `title` for menus, `placeholder`, `default`, `description`, arrays of objects or of
 values, nested objects, and the top-level `layout` with `fieldset` groups. Keys the schema does not know
 (`_bridge` for one) are kept as they are.
 
-The pages are plain HTML, CSS and JavaScript under `Sources/HomeswiftUI/Web`, embedded into the binary by
-`swift Scripts/embed-assets.swift web Sources/HomeswiftUI/Web Sources/HomeswiftUI/WebAssets.swift`, so a
-Homebrew install carries them and no build step needs Node.
+**A page of its own.** A plugin that has more to show than settings (the devices it sees, a scan, a
+diagnostic) ships a `Web/` directory with an `index.html` and whatever files it needs, embedded by `swift
+Scripts/embed-assets.swift web Plugins/<Name>/Web Plugins/<Name>/Sources/WebFiles.swift <Type>` (a test
+checks it is current). The UI serves them at `/plugins/<platform>/`, to signed-in users only, and the
+Plugins page shows **Open** for every running instance, linking to `index.html?name=<block name>`. The
+page is a full document: link `/style.css` for the look of the rest of the UI, and `/plugin.js` for the
+helper. The content security policy allows scripts and styles from files only, no inline script.
+
+The page talks to its instance through `homeswift.request(path, { method, body })`, which sends
+`/api/plugins/<platform>/<name>/<path>` with the session cookie and parses the JSON answer; the plugin
+answers in `handleWebRequest(_:)` with a `PluginWebResponse` (JSON and a status). `homeswift.platform`,
+`homeswift.name` and `homeswift.home` (the Plugins page) are there too. Mutations must be JSON, like the
+rest of the API. `Plugins/ElgatoKeyLights/Web` is the example: the lights the instance knows, their state,
+and an Identify button.
+
+The UI's own pages are plain HTML, CSS and JavaScript under `Sources/HomeswiftUI/Web`, embedded into the
+binary by `swift Scripts/embed-assets.swift web Sources/HomeswiftUI/Web Sources/HomeswiftUI/WebAssets.swift`,
+so a Homebrew install carries them and no build step needs Node.

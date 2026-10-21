@@ -132,6 +132,12 @@ them while the plugin reaches its devices. A cached accessory serves its last va
 without a handler until the plugin adds the same id and replaces it. A cached accessory the plugin no
 longer adds stays until the plugin calls `context.remove(id:)`; `context.accessories` lists them.
 
+### Web pages
+
+A plugin can give the web UI a page of its own: a `Web/` directory next to `Sources`, embedded as
+`webFiles`, and a `handleWebRequest(_:)` that answers the page's requests. `docs/ui.md` has the details
+and `Plugins/ElgatoKeyLights/Web` is the example.
+
 ### Testing
 
 Run a `PluginHost` with `MemoryStorage` and no Bonjour, and register the plugin with a closure that injects

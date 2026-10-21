@@ -168,10 +168,10 @@ configuration changes, and an audit log. `homeswift mcp --snippets` prints the c
 
 ## The web UI
 
-A `HomeswiftUI` block adds a web interface on port 8581: status and pairing codes, accessories with live
-control, each plugin's settings as a form from its `config.schema.json`, the raw config.json, and the
-live log, behind a login created on the first visit with a set-up code from the bridge's output. See
-[docs/ui.md](docs/ui.md).
+A `HomeswiftUI` block adds a web interface on port 8581: status with the pairing code and its QR code,
+accessories with live control, each plugin's settings as a form from its `config.schema.json` and its own
+page when it has one, the raw config.json, the live log, and a Restart button, behind a login created on
+the first visit with a set-up code from the bridge's output. See [docs/ui.md](docs/ui.md).
 
 ```json
 { "platform": "HomeswiftUI" }

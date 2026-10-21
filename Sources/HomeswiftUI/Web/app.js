@@ -78,6 +78,40 @@
 
   $("#logout").addEventListener("click", async () => { try { await api("/api/auth/logout", { method: "POST" }); } catch {} await loadAuth(); });
 
+  // ---- Restart -------------------------------------------------------------
+
+  async function restartBridge(event) {
+    if (!confirm("Restart homeswift now? Every connection drops for a few seconds.")) return;
+    const button = event && event.target;
+    if (button) button.disabled = true;
+    try {
+      await api("/api/restart", { method: "POST" });
+    } catch (e) {
+      alert(e.message);
+      if (button) button.disabled = false;
+      return;
+    }
+    closeEvents();
+    const banner = $("#banner");
+    banner.classList.remove("hidden");
+    banner.replaceChildren("Restarting homeswift…");
+    const started = Date.now();
+    // Back when a status answers from a process younger than this restart; the login survives it.
+    const poll = async () => {
+      try {
+        const response = await fetch("/api/status", { credentials: "same-origin" });
+        if (response.ok) {
+          const status = await response.json();
+          if (status.uptimeSeconds < (Date.now() - started) / 1000 + 5) { location.reload(); return; }
+        } else if (response.status === 401) { location.reload(); return; }
+      } catch {}
+      if (Date.now() - started < 90000) setTimeout(poll, 1000);
+      else banner.replaceChildren("homeswift did not come back; check its log.");
+    };
+    setTimeout(poll, 1500);
+  }
+  $("#restart").addEventListener("click", restartBridge);
+
   function showApp() {
     $("#auth").classList.add("hidden");
     $("#app").classList.remove("hidden");
@@ -116,7 +150,7 @@
   views.status = async (main) => {
     const status = await api("/api/status");
     $("#banner").classList.toggle("hidden", !status.restartNeeded);
-    const bridges = status.bridges.map((bridge) => el("div", { class: "card" },
+    const bridges = status.bridges.map((bridge, index) => el("div", { class: "card" },
       el("h2", { text: bridge.name }, " ", el("span", { class: `pill ${bridge.paired ? "on" : ""}`, text: bridge.paired ? `paired, ${bridge.controllers} controller(s)` : "not paired" }),
         bridge.childBridge ? el("span", { class: "pill", text: "child bridge" }) : null),
       el("dl", {},
@@ -124,8 +158,9 @@
         el("dt", { text: "Port" }), el("dd", { text: bridge.port ?? "?" }),
         el("dt", { text: "Accessories" }), el("dd", { text: bridge.accessories }),
         el("dt", { text: "Platforms" }), el("dd", { text: bridge.platforms.join(", ") || "none" })),
-      bridge.setupCode ? el("div", {}, el("p", { class: "muted", text: "In the Home app: Add Accessory, More options, then enter this code." }),
-        el("div", { class: "code", text: bridge.setupCode }), el("p", { class: "muted", text: bridge.setupUri })) : null));
+      bridge.setupCode ? el("div", {}, el("p", { class: "muted", text: "In the Home app: Add Accessory, then scan this code with the camera, or choose More options and enter it." }),
+        el("div", { class: "pairing" }, el("img", { class: "qr", src: `/api/qr/${index}.svg`, alt: "Pairing QR code", width: 148, height: 148 }),
+          el("div", {}, el("div", { class: "code", text: bridge.setupCode }), el("p", { class: "muted", text: bridge.setupUri })))) : null));
     show(main,
       el("h1", { text: "Status" }),
       el("div", { class: "cards" }, ...bridges),
@@ -134,7 +169,8 @@
         el("dt", { text: "Uptime" }), el("dd", { text: formatDuration(status.uptimeSeconds) }),
         el("dt", { text: "Config" }), el("dd", { text: status.configPath }),
         el("dt", { text: "Assistant" }), el("dd", { text: status.assistant ? `${status.assistant.provider} (${status.assistant.model})` : "off" }),
-        el("dt", { text: "System" }), el("dd", { text: `${status.system.hostname}, ${status.system.platform} ${status.system.os}, ${status.system.cpus} CPUs` }))));
+        el("dt", { text: "System" }), el("dd", { text: `${status.system.hostname}, ${status.system.platform} ${status.system.os}, ${status.system.cpus} CPUs` })),
+        el("div", { class: "actions" }, el("button", { text: "Restart homeswift", onclick: restartBridge }))));
   };
 
   function formatDuration(seconds) {
@@ -264,7 +300,8 @@
       const card = el("div", { class: "card" });
       const show = () => card.replaceChildren(
         el("div", { class: "item-head" }, el("div", {}, el("strong", { text: block.name }), el("div", { class: "muted", text: `${block.platform}${block.childBridge ? " · child bridge" : ""} · ${status}` })),
-          el("span", {}, el("button", { text: "Settings", onclick: () => openEditor(card, block, plugin, show) }), " ",
+          el("span", {}, plugin && plugin.hasPages && instance ? el("a", { class: "button", href: `/plugins/${encodeURIComponent(block.platform)}/index.html?name=${encodeURIComponent(block.name)}`, text: "Open" }) : null, " ",
+            el("button", { text: "Settings", onclick: () => openEditor(card, block, plugin, show) }), " ",
             el("button", { class: "link", text: "Remove", onclick: async () => {
               if (!confirm(`Remove the block "${block.name}" from config.json?`)) return;
               try { await api(`/api/config/platforms/${block.index}`, { method: "DELETE" }); $("#banner").classList.remove("hidden"); route(); } catch (e) { alert(e.message); }

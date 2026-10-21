@@ -117,6 +117,41 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
     /// The light with this MAC, once it answered.
     func device(mac: String) -> KeyLightDevice? { devices[Self.canonicalMAC(mac)] }
 
+    // MARK: The web page
+
+    /// `GET lights` lists the lights with their state; `POST identify?mac=` flashes one. `Web/` is the page.
+    public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
+        switch (request.method, request.path) {
+        case ("GET", "lights"):
+            var lights: [JSONValue] = []
+            for (mac, device) in devices.sorted(by: { $0.key < $1.key }) {
+                let state = await device.state
+                let statusText: String = switch status[mac] {
+                case .ready: "ready"
+                case .failed: "failed"
+                default: "initializing"
+                }
+                lights.append([
+                    "mac": .string(mac), "name": .string(await device.displayName), "model": .string(await device.model),
+                    "serial": .string(await device.serialNumber), "firmware": .string(await device.firmwareVersion),
+                    "host": .string(await device.host), "port": .number(Double(await device.port)),
+                    "reachable": .bool(await device.isReachable), "status": .string(statusText), "pinned": .bool(pinned.contains(mac)),
+                    "on": .bool(state.on == 1), "brightness": state.brightness.map { .number(Double($0)) } ?? .null,
+                    "temperature": state.temperature.map { .number(Double($0)) } ?? .null,
+                ])
+            }
+            return PluginWebResponse(["lights": .array(lights)])
+        case ("POST", "identify"):
+            guard let mac = request.query["mac"] ?? request.body["mac"]?.stringValue, let device = devices[Self.canonicalMAC(mac)] else {
+                return .error(404, "no light with that MAC")
+            }
+            await device.identify()
+            return PluginWebResponse(["identified": .string(Self.canonicalMAC(mac))])
+        default:
+            return .error(404, "nothing at \(request.method) \(request.path)")
+        }
+    }
+
     /// Waits until every light found so far has been added or given up on. For tests.
     func settle() async {
         let pending = initializations

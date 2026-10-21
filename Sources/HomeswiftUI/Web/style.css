@@ -95,13 +95,14 @@ strong { font-weight: 600; }
 .value { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 52px; text-align: right; }
 
 /* Controls: feedback on the press, at once, and a focus ring for the keyboard. */
-button {
+button, a.button {
   font: inherit; font-weight: 500; padding: 8px 16px; border-radius: 999px; cursor: pointer; color: var(--text); touch-action: manipulation;
   background: var(--control); border: 1px solid var(--edge); box-shadow: inset 0 1px 0 var(--edge-light), var(--shadow-control);
   transition: transform var(--fast) var(--ease-out), box-shadow var(--fast) var(--ease-out), opacity var(--fast) var(--ease-out);
 }
-button:hover { transform: translateY(-1px); }
-button:active:not(:disabled) { transform: scale(0.97); transition-duration: 80ms; }
+a.button { display: inline-block; text-decoration: none; line-height: normal; }
+button:hover, a.button:hover { transform: translateY(-1px); }
+button:active:not(:disabled), a.button:active { transform: scale(0.97); transition-duration: 80ms; }
 button.primary { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); border-color: rgba(255, 255, 255, 0.4); box-shadow: 0 8px 20px rgba(255, 122, 26, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
 button.link { border: 0; background: none; box-shadow: none; color: var(--accent); padding: 4px 6px; }
 button.link:hover { transform: none; }
@@ -130,6 +131,9 @@ label > input, label > select { margin-top: 5px; }
 .auth .card { width: min(400px, 100%); padding: 26px 26px 22px; animation: materialize 320ms var(--ease-out); }
 .auth h1 { margin-top: 6px; }
 .auth button { width: 100%; margin-top: 10px; }
+.pairing { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+.qr { width: 148px; height: 148px; border-radius: 14px; background: #fff; padding: 6px; box-shadow: var(--shadow-control); }
+.pairing .code { margin-top: 0; }
 .code { font-family: var(--mono); font-size: 1.875rem; letter-spacing: 0.1em; font-variant-numeric: tabular-nums; margin: 10px 0; padding: 10px 16px; border-radius: 16px; display: inline-block; background: var(--material-thin); border: 1px solid var(--edge); box-shadow: inset 0 1px 0 var(--edge-light); }
 
 /* A glass surface arrives as a material: blur and scale settle together, not a plain fade. */
@@ -184,7 +188,7 @@ dd { margin: 0; }
 @media (prefers-reduced-motion: reduce) {
   .banner, .auth .card { animation: fade var(--normal) ease; }
   button, nav a { transition-property: background-color, box-shadow, opacity; }
-  button:hover, button:active:not(:disabled), nav a:active { transform: none; }
+  button:hover, button:active:not(:disabled), a.button:hover, a.button:active, nav a:active { transform: none; }
   button:active:not(:disabled) { opacity: 0.7; }
   .switch span::before { transition: none; }
   .switch input:active + span::before { width: 22px; }
