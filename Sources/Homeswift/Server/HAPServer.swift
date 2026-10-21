@@ -145,7 +145,7 @@ public final class HAPServer: @unchecked Sendable {
         let bootstrap = ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton)
             .serverChannelOption(.backlog, value: 16)
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
-            .childChannelOption(.socketOption(.tcp_nodelay), value: 1)
+            .childChannelOption(.tcpOption(.tcp_nodelay), value: 1)
             .childChannelInitializer { [weak self] channel in
                 guard let self else { return channel.close() }
                 let connection = HAPConnection(channel: channel, server: self)

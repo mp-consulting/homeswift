@@ -43,9 +43,7 @@ jobs:
         run: apt-get update && apt-get install -y --no-install-recommends libavahi-compat-libdnssd-dev
 
       - name: Test
-        run: swift test --filter pairsAndServesTheDatabase
-        env:
-          HOMESWIFT_TEST_LOG: trace
+        run: swift test
 
       - name: Build
         run: swift build -c release
