@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Homeswift</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="auth" class="auth hidden">
+  <form id="auth-form" class="card">
+    <img src="/icon.svg" class="logo large" alt="">
+    <h1>Homeswift</h1>
+    <p id="auth-text"></p>
+    <label>Username <input name="username" autocomplete="username" required></label>
+    <label>Password <input name="password" type="password" autocomplete="current-password" required minlength="8"></label>
+    <p class="error" id="auth-error"></p>
+    <button type="submit" id="auth-submit">Sign in</button>
+  </form>
+</div>
+<div id="app" class="hidden">
+  <header>
+    <a class="brand" href="#status"><img src="/icon.svg" class="logo" alt="">Homeswift</a>
+    <nav>
+      <a href="#status">Status</a>
+      <a href="#accessories">Accessories</a>
+      <a href="#plugins">Plugins</a>
+      <a href="#config">Config</a>
+      <a href="#logs">Logs</a>
+    </nav>
+    <span class="spacer"></span>
+    <span id="user"></span>
+    <button id="logout" class="link">Sign out</button>
+  </header>
+  <div id="banner" class="banner hidden">Configuration changed. Restart homeswift to apply it.</div>
+  <main id="view"></main>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>

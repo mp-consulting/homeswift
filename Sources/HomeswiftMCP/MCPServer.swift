@@ -29,6 +29,7 @@ public final class MCPSession: Sendable, Identifiable {
         var nextRequestID = 1
         var lastActivity = Date()
         var closed = false
+        var hasStandingStream = false
     }
 
     let state: NIOLockedValueBox<State>
@@ -53,6 +54,13 @@ public final class MCPSession: Sendable, Identifiable {
     public var supportsElicitation: Bool { state.withLockedValue { $0.clientCapabilities["elicitation"] != nil } }
 
     func touch() { state.withLockedValue { $0.lastActivity = Date() } }
+
+    /// Whether a transport stream for server-initiated messages is open (`GET` over HTTP).
+    public var hasStandingStream: Bool { state.withLockedValue { $0.hasStandingStream } }
+
+    public func setStandingStream(_ attached: Bool) {
+        state.withLockedValue { $0.hasStandingStream = attached }
+    }
 
     /// Queues a server-initiated message for the client's standing stream.
     public func send(_ message: JSONRPCMessage) {
@@ -132,24 +140,38 @@ public struct ToolCall: Sendable {
     public let arguments: JSONValue
     let emit: @Sendable (JSONRPCMessage) -> Void
     let elicitationEnabled: Bool
+    /// The exchange cannot carry a server request (JSON-only HTTP); the standing stream may.
+    let serverRequests: Bool
 
-    public var isDryRun: Bool { arguments["dryRun"] == .bool(true) }
+    /// A dry run of a tool that supports them: previews, changes nothing, needs no confirmation.
+    public var isDryRun: Bool { tool.supportsDryRun && arguments["dryRun"] == .bool(true) }
 
-    /// Asks the user to confirm. Through MCP elicitation when the client supports it; otherwise the call
-    /// must carry `confirmed: true`, which the client sets once the user agreed.
+    /// Whether the user can be asked through MCP elicitation on this exchange or the standing stream.
+    public var canAsk: Bool {
+        elicitationEnabled && session.supportsElicitation && (serverRequests || session.hasStandingStream)
+    }
+
+    /// Asks the user to confirm through MCP elicitation. Check `canAsk` first.
     public func confirm(_ message: String) async throws -> Bool {
-        if elicitationEnabled, session.supportsElicitation {
-            let answer = try await session.request("elicitation/create", params: [
-                "message": .string(message),
-                "requestedSchema": [
-                    "type": "object",
-                    "properties": ["confirm": ["type": "boolean", "title": "Confirm", "description": "Yes to run it"]],
-                    "required": ["confirm"],
-                ],
-            ], emit: emit)
-            return answer["action"] == "accept" && answer["content"]?["confirm"] == .bool(true)
+        let session = session
+        let send: @Sendable (JSONRPCMessage) -> Void
+        if serverRequests {
+            send = emit
+        } else {
+            send = { message in session.send(message) }
         }
-        return arguments["confirmed"] == .bool(true)
+        let params: JSONValue = [
+            "message": .string(message),
+            "requestedSchema": [
+                "type": "object",
+                "properties": ["confirm": ["type": "boolean", "title": "Confirm", "description": "Yes to run it"]],
+                "required": ["confirm"],
+            ],
+        ]
+        let answer = try await session.request("elicitation/create", params: params, emit: send)
+        let accepted = answer["action"] == "accept"
+        let confirmed = answer["content"]?["confirm"] == JSONValue.bool(true)
+        return accepted && confirmed
     }
 
     /// A string argument, or an invalid-params error naming it.
@@ -195,23 +217,36 @@ public struct MCPTool: Sendable {
     /// The lowest scope that may call it.
     public var scope: Scope
     public var readOnly: Bool
-    /// Asks the user before running (elicitation, or `confirmed: true`); logged with `notConfirmed` when declined.
+    /// Asks the user before running: through elicitation, or with a one-time code from the bridge's log
+    /// when the client cannot ask; logged with `notConfirmed` when declined.
     public var destructive: Bool
+    /// Honours `dryRun: true`: previews, changes nothing, and then needs no confirmation.
+    public var supportsDryRun: Bool
     public var idempotent: Bool
     public var handler: @Sendable (ToolCall) async throws -> ToolResult
 
+    /// The schema gets `dryRun` and `confirmationCode` where they apply, and refuses unknown arguments.
     public init(
         name: String, title: String? = nil, description: String, inputSchema: JSONValue = ["type": "object", "properties": [:]],
-        scope: Scope, readOnly: Bool? = nil, destructive: Bool = false, idempotent: Bool = false,
+        scope: Scope, readOnly: Bool? = nil, destructive: Bool = false, supportsDryRun: Bool = false, idempotent: Bool = false,
         handler: @escaping @Sendable (ToolCall) async throws -> ToolResult
     ) {
         self.name = name
         self.title = title
         self.description = description
-        self.inputSchema = inputSchema
+        var schema = inputSchema.objectValue ?? ["type": "object"]
+        var properties = schema["properties"]?.objectValue ?? [:]
+        if supportsDryRun { properties["dryRun"] = ["type": "boolean", "description": "Preview without changing anything"] }
+        if destructive {
+            properties["confirmationCode"] = ["type": "string", "description": "The one-time code from the homeswift log, when the client cannot ask the user"]
+        }
+        schema["properties"] = .object(properties)
+        if schema["additionalProperties"] == nil { schema["additionalProperties"] = false }
+        self.inputSchema = .object(schema)
         self.scope = scope
         self.readOnly = readOnly ?? (scope == .read)
         self.destructive = destructive
+        self.supportsDryRun = supportsDryRun
         self.idempotent = idempotent
         self.handler = handler
     }
@@ -352,6 +387,7 @@ public final class MCPServer: Sendable {
     public let templates: [MCPResourceTemplate]
     public let prompts: [MCPPrompt]
     public let audit: AuditLog?
+    let confirmationCodes = ConfirmationCodes()
     private let sessions = NIOLockedValueBox<[String: MCPSession]>([:])
     var logger: Logger { options.logger }
 
@@ -437,8 +473,8 @@ public final class MCPServer: Sendable {
 
     /// Handles one message. A request yields the messages the server sends while handling it (an
     /// elicitation request, say) and then the response; a notification or a response yields nothing.
-    /// `serverRequests: false` means the transport cannot deliver a server request on this exchange, so
-    /// confirmations fall back to the `confirmed` argument.
+    /// `serverRequests: false` means the transport cannot deliver a server request on this exchange; a
+    /// confirmation then goes through the session's standing stream, or a one-time code.
     public func handle(_ message: JSONRPCMessage, session: MCPSession, serverRequests: Bool = true) -> AsyncStream<JSONRPCMessage> {
         session.touch()
         return AsyncStream { continuation in
@@ -583,7 +619,7 @@ public final class MCPServer: Sendable {
         if !errors.isEmpty {
             return ToolResult.error("Invalid arguments: \(errors.joined(separator: "; "))").json
         }
-        let call = ToolCall(session: session, tool: tool, arguments: arguments, emit: emit, elicitationEnabled: options.elicitation && serverRequests)
+        let call = ToolCall(session: session, tool: tool, arguments: arguments, emit: emit, elicitationEnabled: options.elicitation, serverRequests: serverRequests)
         func audit(ok: Bool, error: String? = nil, notConfirmed: Bool = false) {
             guard tool.scope > .read || tool.destructive else { return }
             self.audit?.record(AuditLog.Entry(
@@ -591,20 +627,35 @@ public final class MCPServer: Sendable {
                 principal: session.principal.name, scope: session.principal.scope, dryRun: call.isDryRun, notConfirmed: notConfirmed))
         }
         if tool.destructive, !call.isDryRun {
-            let summary = Redaction.redactSecrets(arguments).text()
-            let confirmed: Bool
-            do {
-                confirmed = try await call.confirm("Allow \(name)? Arguments: \(summary)")
-            } catch {
-                audit(ok: false, error: "\(error)", notConfirmed: true)
-                return ToolResult.error("Not run: \(error)").json
-            }
-            guard confirmed else {
+            var bare = arguments.objectValue ?? [:]
+            let presentedCode = bare.removeValue(forKey: "confirmationCode")?.stringValue
+            let summary = Redaction.redactSecrets(.object(bare)).text()
+            if let presentedCode {
+                guard confirmationCodes.redeem(presentedCode, tool: name, arguments: .object(bare)) else {
+                    audit(ok: false, notConfirmed: true)
+                    return ToolResult.error("Not run: the confirmation code is wrong, expired or for other arguments.").json
+                }
+            } else if call.canAsk {
+                let confirmed: Bool
+                do {
+                    confirmed = try await call.confirm("Allow \(name)? Arguments: \(summary)")
+                } catch {
+                    audit(ok: false, error: "\(error)", notConfirmed: true)
+                    return ToolResult.error("Not run: \(error)").json
+                }
+                guard confirmed else {
+                    audit(ok: false, notConfirmed: true)
+                    return ToolResult.error("Not run: the user did not confirm.").json
+                }
+            } else {
+                // The client cannot ask: the user reads a code in the bridge's log and passes it on.
+                let code = confirmationCodes.issue(tool: name, arguments: .object(bare))
+                logger.warning("Confirmation needed for \(name) \(summary): tell the assistant the code \(code) to allow it (valid 5 minutes, once)")
                 audit(ok: false, notConfirmed: true)
-                let how = session.supportsElicitation && options.elicitation
-                    ? "the user did not confirm"
-                    : "it changes something that cannot be undone, so ask the user and call it again with \"confirmed\": true once they agreed"
-                return ToolResult.error("Not run: \(how).").json
+                return ToolResult.error(
+                    "Not run: this changes something that cannot be undone and this client cannot ask the user. "
+                        + "A one-time confirmation code was written to the homeswift log (and terminal); ask the user for it and call again with \"confirmationCode\"."
+                ).json
             }
         }
         do {
@@ -656,5 +707,46 @@ public final class MCPServer: Sendable {
         }
         let limited = Array(values.prefix(100))
         return ["completion": ["values": .array(limited.map(JSONValue.string)), "total": .number(Double(values.count)), "hasMore": .bool(values.count > limited.count)]]
+    }
+}
+
+/// One-time codes for destructive calls from clients that cannot ask the user: the bridge logs the code,
+/// the user reads it, the client repeats it. A code is bound to one tool call's arguments.
+final class ConfirmationCodes: Sendable {
+    struct Entry {
+        var code: String
+        var expires: Date
+    }
+
+    private let entries = NIOLockedValueBox<[String: Entry]>([:])
+    static let lifetime: TimeInterval = 300
+
+    static func key(tool: String, arguments: JSONValue) -> String { "\(tool)\n\(arguments.text())" }
+
+    /// The code for this call, issuing a new one when there is none or it expired.
+    func issue(tool: String, arguments: JSONValue) -> String {
+        let key = Self.key(tool: tool, arguments: arguments)
+        return entries.withLockedValue { entries in
+            entries = entries.filter { $0.value.expires > Date() }
+            if let existing = entries[key] { return existing.code }
+            let code = String(format: "%06d", Int.random(in: 0...999_999))
+            entries[key] = Entry(code: code, expires: Date().addingTimeInterval(Self.lifetime))
+            return code
+        }
+    }
+
+    /// Consumes the code when it matches this call. Compared in constant time.
+    func redeem(_ code: String, tool: String, arguments: JSONValue) -> Bool {
+        let key = Self.key(tool: tool, arguments: arguments)
+        return entries.withLockedValue { entries in
+            guard let entry = entries[key], entry.expires > Date(), MCPConfiguration.constantTimeEqual(entry.code, code) else { return false }
+            entries.removeValue(forKey: key)
+            return true
+        }
+    }
+
+    /// For tests.
+    func current(tool: String, arguments: JSONValue) -> String? {
+        entries.withLockedValue { $0[Self.key(tool: tool, arguments: arguments)]?.code }
     }
 }

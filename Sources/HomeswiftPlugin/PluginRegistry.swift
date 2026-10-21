@@ -16,6 +16,8 @@ public struct PluginRegistry: Sendable {
     public struct Entry: Sendable {
         public let platform: String
         public let name: String
+        /// The plugin's config.schema.json as text, when it has one.
+        public let configurationSchemaJSON: String?
         let make: @Sendable (_ configuration: Data, _ context: PluginContext) async throws -> any HomeswiftPlugin
     }
 
@@ -29,7 +31,7 @@ public struct PluginRegistry: Sendable {
     }
 
     public mutating func register<P: HomeswiftPlugin>(_ type: P.Type) {
-        register(platform: P.platform, name: P.name) { json, context in
+        register(platform: P.platform, name: P.name, configurationSchemaJSON: P.configurationSchemaJSON) { json, context in
             let configuration = try JSONDecoder().decode(P.Configuration.self, from: json)
             return try await P(configuration: configuration, context: context)
         }
@@ -43,11 +45,11 @@ public struct PluginRegistry: Sendable {
     }
 
     public mutating func register(
-        platform: String, name: String,
+        platform: String, name: String, configurationSchemaJSON: String? = nil,
         make: @escaping @Sendable (_ configuration: Data, _ context: PluginContext) async throws -> any HomeswiftPlugin
     ) {
         if byPlatform[platform] == nil { order.append(platform) }
-        byPlatform[platform] = Entry(platform: platform, name: name, make: make)
+        byPlatform[platform] = Entry(platform: platform, name: name, configurationSchemaJSON: configurationSchemaJSON, make: make)
     }
 
     /// In registration order.

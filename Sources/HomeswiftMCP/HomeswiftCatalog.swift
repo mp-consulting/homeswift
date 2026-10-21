@@ -32,18 +32,21 @@ public struct HomeswiftCatalog: Sendable {
         Configuration changes need a restart of homeswift to apply.
         """
 
+    /// Platform blocks the runtime handles itself: not plugins, so not "unknown".
+    public static let systemPlatforms: Set<String> = [AIConfiguration.platform, "HomeswiftUI"]
+
     /// Target characteristics that open doors or disarm: only `set_security_accessory` writes them.
     static let securityTargets: Set<String> = [CharacteristicType.lockTargetState.uuid.uuidString, CharacteristicType.targetDoorState.uuid.uuidString, CharacteristicType.securitySystemTargetState.uuid.uuidString]
 
     // MARK: Accessories
 
-    struct Located {
-        var accessory: Accessory
-        var bridge: PluginHost.Bridge
-        var platform: PluginHost.PlatformInstance?
+    public struct Located: Sendable {
+        public var accessory: Accessory
+        public var bridge: PluginHost.Bridge
+        public var platform: PluginHost.PlatformInstance?
     }
 
-    func located() -> [Located] {
+    public func located() -> [Located] {
         let platforms = host.platforms
         return host.bridges.flatMap { bridge in
             bridge.server.accessories.filter { $0.id != "bridge" }.map { accessory in
@@ -52,11 +55,11 @@ public struct HomeswiftCatalog: Sendable {
         }
     }
 
-    func find(id: String) -> Located? {
+    public func find(id: String) -> Located? {
         located().first { $0.accessory.id == id }
     }
 
-    static func json(_ value: HAPValue) -> JSONValue {
+    public static func json(_ value: HAPValue) -> JSONValue {
         switch value {
         case .bool(let bool): .bool(bool)
         case .int(let int): .number(Double(int))
@@ -66,7 +69,7 @@ public struct HomeswiftCatalog: Sendable {
         }
     }
 
-    static func hapValue(_ value: JSONValue) -> HAPValue? {
+    public static func hapValue(_ value: JSONValue) -> HAPValue? {
         switch value {
         case .bool(let bool): .bool(bool)
         case .number(let number): number.rounded() == number ? .int(Int(number)) : .double(number)
@@ -81,7 +84,7 @@ public struct HomeswiftCatalog: Sendable {
         name.lowercased().filter { $0.isLetter || $0.isNumber }
     }
 
-    static func accessoryJSON(_ located: Located, detailed: Bool) -> JSONValue {
+    public static func accessoryJSON(_ located: Located, detailed: Bool) -> JSONValue {
         let accessory = located.accessory
         let information = accessory.information
         var object: [String: JSONValue] = [
@@ -143,7 +146,8 @@ public struct HomeswiftCatalog: Sendable {
         return first
     }
 
-    func write(_ located: Located, service: String?, characteristic name: String, value: JSONValue, allowSecurity: Bool) async throws -> JSONValue {
+    /// Writes one characteristic; locks, garage doors and alarms only with `allowSecurity`.
+    public func write(_ located: Located, service: String?, characteristic name: String, value: JSONValue, allowSecurity: Bool) async throws -> JSONValue {
         let characteristic = try self.characteristic(in: located, service: service, characteristic: name)
         if !allowSecurity, Self.securityTargets.contains(characteristic.type.uuid.uuidString) {
             throw CatalogError("\(characteristic.type.name) unlocks, opens or disarms: use set_security_accessory")
@@ -155,7 +159,7 @@ public struct HomeswiftCatalog: Sendable {
 
     // MARK: Status, plugins, system
 
-    func statusJSON() -> JSONValue {
+    public func statusJSON() -> JSONValue {
         [
             "version": .string(PluginHost.version),
             "uptimeSeconds": .number(Date().timeIntervalSince(startedAt).rounded()),
@@ -173,18 +177,21 @@ public struct HomeswiftCatalog: Sendable {
         ]
     }
 
-    func pluginsJSON() -> JSONValue {
+    public func pluginsJSON() -> JSONValue {
         let configured = Set(host.configuration.platforms.map(\.platform))
         let running = host.platforms
         return [
             "platforms": .array(running.map {
                 ["platform": .string($0.platform), "name": .string($0.name), "plugin": .string($0.pluginName), "bridge": .string($0.bridge.name), "accessories": .number(Double($0.accessoryIDs.count))]
             }),
-            "unknownPlatforms": .array(configured.subtracting(running.map(\.platform)).subtracting([AIConfiguration.platform]).sorted().map(JSONValue.string)),
+            "unknownPlatforms": .array(configured.subtracting(running.map(\.platform)).subtracting(Self.systemPlatforms).sorted().map(JSONValue.string)),
+            "plugins": .array(host.registry.entries.map {
+                ["platform": .string($0.platform), "name": .string($0.name), "hasSchema": .bool($0.configurationSchemaJSON != nil)]
+            }),
         ]
     }
 
-    static func systemJSON() -> JSONValue {
+    public static func systemJSON() -> JSONValue {
         let process = ProcessInfo.processInfo
         #if os(macOS)
         let platform = "macOS"
@@ -202,13 +209,24 @@ public struct HomeswiftCatalog: Sendable {
 
     // MARK: Configuration
 
-    func readConfig() throws -> JSONValue {
+    /// MCP client tokens stay hidden even when secrets are shown: whoever reads them controls the bridge.
+    static func redactingMCPTokens(_ config: JSONValue) -> JSONValue {
+        guard var root = config.objectValue, let platforms = root["platforms"]?.arrayValue else { return config }
+        root["platforms"] = .array(platforms.map { block in
+            guard var object = block.objectValue, let mcp = object["mcp"] else { return block }
+            object["mcp"] = Redaction.redactSecrets(mcp)
+            return .object(object)
+        })
+        return .object(root)
+    }
+
+    public func readConfig() throws -> JSONValue {
         try JSONValue(data: Data(contentsOf: configURL))
     }
 
-    var backupsDirectory: URL { configURL.deletingLastPathComponent().appendingPathComponent("backups") }
+    public var backupsDirectory: URL { configURL.deletingLastPathComponent().appendingPathComponent("backups") }
 
-    func backups() -> [String] {
+    public func backups() -> [String] {
         ((try? FileManager.default.contentsOfDirectory(atPath: backupsDirectory.path)) ?? []).filter { $0.hasPrefix("config-") && $0.hasSuffix(".json") }.sorted()
     }
 
@@ -238,7 +256,7 @@ public struct HomeswiftCatalog: Sendable {
     }
 
     /// Replaces the file with `next`, restoring redacted secrets from the current one.
-    func applyConfig(_ next: JSONValue, dryRun: Bool) throws -> JSONValue {
+    public func applyConfig(_ next: JSONValue, dryRun: Bool) throws -> JSONValue {
         let current = (try? readConfig()) ?? [:]
         let restored = Redaction.containsRedacted(next) ? try Redaction.restoreSecrets(next, from: current) : next
         try HomeswiftConfiguration.decode(restored.encoded()).validate()
@@ -263,8 +281,14 @@ public struct HomeswiftCatalog: Sendable {
 
     // MARK: Logs
 
-    func recentLogs(lines: Int, level: Logger.Level) -> String {
-        logs.recent(min(max(lines, 1), 1000), level: level).map(\.formatted).joined(separator: "\n")
+    /// The last lines, secrets masked and the data boundary defused.
+    public func recentLogs(lines: Int, level: Logger.Level) -> String {
+        logs.recent(min(max(lines, 1), 1000), level: level).map { Self.safe($0.formatted) }.joined(separator: "\n")
+    }
+
+    /// Log text as data: secrets masked, and `<untrusted-data>` tags inside it defused so a line cannot end the wrapper.
+    public static func safe(_ line: String) -> String {
+        Redaction.redactText(line).replacingOccurrences(of: "untrusted-data", with: "untrusted\u{2011}data", options: [.caseInsensitive])
     }
 
     // MARK: The catalog
@@ -309,13 +333,27 @@ public struct HomeswiftCatalog: Sendable {
                 scope: .read, idempotent: true
             ) { _ in .json(catalog.pluginsJSON()) },
             MCPTool(
+                name: "get_plugin_config_schema", title: "A plugin's config schema",
+                description: "The config.schema.json of a plugin compiled into this bridge, for writing or checking its platform block.",
+                inputSchema: ["type": "object", "required": ["platform"], "properties": ["platform": ["type": "string"]]],
+                scope: .read, idempotent: true
+            ) { call in
+                let platform = try call.string("platform")
+                guard let entry = catalog.host.registry.entry(for: platform) else { return .error("No plugin for platform \(platform)") }
+                guard let text = entry.configurationSchemaJSON else { return .error("\(entry.name) has no config schema") }
+                return ToolResult(text: text, structured: try? JSONValue(string: text))
+            },
+            MCPTool(
                 name: "get_config", title: "Read config.json",
-                description: "config.json with secrets replaced by __REDACTED__." + (allowSecrets ? " includeSecrets: true returns them." : ""),
+                description: "config.json with secrets replaced by __REDACTED__." + (allowSecrets ? " includeSecrets: true returns them to an admin token (MCP tokens stay redacted)." : ""),
                 inputSchema: allowSecrets ? ["type": "object", "properties": ["includeSecrets": ["type": "boolean"]]] : ["type": "object", "properties": [:]],
                 scope: .read, idempotent: true
             ) { call in
                 let config = try catalog.readConfig()
-                return .json(catalog.allowSecrets && call.bool("includeSecrets") ? config : Redaction.redactSecrets(config))
+                guard catalog.allowSecrets, call.bool("includeSecrets"), call.session.principal.scope == .admin else {
+                    return .json(Redaction.redactSecrets(config))
+                }
+                return .json(Self.redactingMCPTokens(config))
             },
             MCPTool(
                 name: "list_config_backups", title: "List config backups",
@@ -324,7 +362,7 @@ public struct HomeswiftCatalog: Sendable {
             ) { _ in .json(["backups": .array(catalog.backups().map(JSONValue.string))]) },
             MCPTool(
                 name: "get_recent_logs", title: "Recent log lines",
-                description: "The last lines of the log (default 200, at most 1000), optionally only from a level up (debug, info, warning, error).",
+                description: "The last lines of the log (default 200, at most 1000), optionally only from a level up (debug, info, warning, error). Secrets are masked.",
                 inputSchema: ["type": "object", "properties": ["lines": ["type": "integer", "minimum": 1, "maximum": 1000], "level": ["type": "string", "enum": ["trace", "debug", "info", "notice", "warning", "error"]]]],
                 scope: .read, idempotent: true
             ) { call in
@@ -333,14 +371,21 @@ public struct HomeswiftCatalog: Sendable {
             },
             MCPTool(
                 name: "search_logs", title: "Search the log",
-                description: "Log lines matching a regular expression (case-insensitive), newest last, at most maxMatches (default 100).",
-                inputSchema: ["type": "object", "required": ["pattern"], "properties": ["pattern": ["type": "string", "maxLength": 200], "maxMatches": ["type": "integer", "minimum": 1, "maximum": 1000]]],
+                description: "Log lines containing the text (case-insensitive), newest last, at most maxMatches (default 100). An admin token may pass regex: true for a regular expression. Secrets are masked.",
+                inputSchema: ["type": "object", "required": ["pattern"], "properties": ["pattern": ["type": "string", "maxLength": 200], "regex": ["type": "boolean"], "maxMatches": ["type": "integer", "minimum": 1, "maximum": 1000]]],
                 scope: .read, idempotent: true
             ) { call in
                 let pattern = try call.string("pattern")
-                guard let expression = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return .error("Invalid regular expression") }
                 let limit = call.int("maxMatches", default: 100)
-                let matches = catalog.logs.all.map(\.formatted).filter { expression.firstMatch(in: $0, range: NSRange($0.startIndex..., in: $0)) != nil }
+                let lines = catalog.logs.all.map { Self.safe($0.formatted) }
+                let matches: [String]
+                if call.bool("regex") {
+                    guard call.session.principal.scope == .admin else { return .error("regex needs an admin token; search for plain text instead") }
+                    guard let expression = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return .error("Invalid regular expression") }
+                    matches = lines.filter { expression.firstMatch(in: $0, range: NSRange($0.startIndex..., in: $0)) != nil }
+                } else {
+                    matches = lines.filter { $0.range(of: pattern, options: [.caseInsensitive]) != nil }
+                }
                 return .text("<untrusted-data source=\"log\">\n\(matches.suffix(limit).joined(separator: "\n"))\n</untrusted-data>\n\(matches.count) match(es)")
             },
             MCPTool(
@@ -362,9 +407,9 @@ public struct HomeswiftCatalog: Sendable {
                 description: "Writes several characteristics at once; dryRun lists what would change. Locks, garage doors and alarms are refused.",
                 inputSchema: [
                     "type": "object", "required": ["changes"],
-                    "properties": ["dryRun": ["type": "boolean"], "changes": ["type": "array", "minItems": 1, "maxItems": 50, "items": ["type": "object", "required": ["id", "characteristic", "value"], "properties": writeProperties]]],
+                    "properties": ["changes": ["type": "array", "minItems": 1, "maxItems": 50, "items": ["type": "object", "required": ["id", "characteristic", "value"], "properties": writeProperties]]],
                 ],
-                scope: .control
+                scope: .control, supportsDryRun: true
             ) { call in
                 var results: [JSONValue] = []
                 var failures = 0
@@ -390,7 +435,7 @@ public struct HomeswiftCatalog: Sendable {
             MCPTool(
                 name: "set_security_accessory", title: "Unlock, open or disarm",
                 description: "Writes Lock Target State, Target Door State or Security System Target State. The user is asked to confirm first (or the call carries confirmed: true after they agreed).",
-                inputSchema: ["type": "object", "required": ["id", "characteristic", "value"], "properties": .object(writeProperties.objectValue!.merging(["confirmed": ["type": "boolean"]]) { $1 })],
+                inputSchema: ["type": "object", "required": ["id", "characteristic", "value"], "properties": writeProperties],
                 scope: .control, destructive: true
             ) { call in
                 guard let found = catalog.find(id: try call.string("id")) else { return .error("No accessory with that id") }
@@ -409,8 +454,8 @@ public struct HomeswiftCatalog: Sendable {
             MCPTool(
                 name: "update_config", title: "Replace config.json",
                 description: "Replaces the whole config.json after validating it; __REDACTED__ values are restored from the current file; a backup is made first. dryRun shows the changes without writing. Restart homeswift to apply.",
-                inputSchema: ["type": "object", "required": ["config"], "properties": ["config": ["type": "object"], "dryRun": ["type": "boolean"], "confirmed": ["type": "boolean"]]],
-                scope: .admin, destructive: true
+                inputSchema: ["type": "object", "required": ["config"], "properties": ["config": ["type": "object"]]],
+                scope: .admin, destructive: true, supportsDryRun: true
             ) { call in
                 .json(try catalog.applyConfig(call.arguments["config"] ?? [:], dryRun: call.isDryRun))
             },
@@ -419,9 +464,9 @@ public struct HomeswiftCatalog: Sendable {
                 description: "Merges settings into the platform block with this platform (and name, when there are several), or adds the block. A null value removes a key. dryRun previews. Restart homeswift to apply.",
                 inputSchema: [
                     "type": "object", "required": ["platform", "settings"],
-                    "properties": ["platform": ["type": "string"], "name": ["type": "string"], "settings": ["type": "object"], "dryRun": ["type": "boolean"], "confirmed": ["type": "boolean"]],
+                    "properties": ["platform": ["type": "string"], "name": ["type": "string"], "settings": ["type": "object"]],
                 ],
-                scope: .admin, destructive: true
+                scope: .admin, destructive: true, supportsDryRun: true
             ) { call in
                 let platform = try call.string("platform")
                 let name = call.optionalString("name")
@@ -442,7 +487,7 @@ public struct HomeswiftCatalog: Sendable {
             MCPTool(
                 name: "restore_config", title: "Restore a config backup",
                 description: "Replaces config.json with one of the backups from list_config_backups (the current file is backed up first). Restart homeswift to apply.",
-                inputSchema: ["type": "object", "required": ["backup"], "properties": ["backup": ["type": "string"], "confirmed": ["type": "boolean"]]],
+                inputSchema: ["type": "object", "required": ["backup"], "properties": ["backup": ["type": "string"]]],
                 scope: .admin, destructive: true
             ) { call in
                 let backup = try call.string("backup")
@@ -460,7 +505,7 @@ public struct HomeswiftCatalog: Sendable {
             MCPResource(uri: "homeswift://accessories", name: "Accessories", description: "Every accessory with its current values") {
                 JSONValue.array(catalog.located().map { Self.accessoryJSON($0, detailed: false) }).text(pretty: true)
             },
-            MCPResource(uri: "homeswift://logs/recent", name: "Recent log", description: "The last 200 log lines", mimeType: "text/plain") {
+            MCPResource(uri: "homeswift://logs/recent", name: "Recent log", description: "The last 200 log lines, secrets masked", mimeType: "text/plain") {
                 catalog.recentLogs(lines: 200, level: .trace)
             },
         ]
@@ -525,7 +570,7 @@ public struct HomeswiftCatalog: Sendable {
         }
         logs.observe { line in
             notifier.changed("homeswift://logs/recent")
-            server.log(level: line.level, logger: line.label, message: line.text)
+            server.log(level: line.level, logger: line.label, message: Self.safe(line.text))
         }
     }
 }
