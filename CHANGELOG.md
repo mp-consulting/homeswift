@@ -52,6 +52,12 @@ All notable changes to this project are documented here. The format follows
   `/plugin.js` to talk to the instance), the Elgato Key Lights page being the first. `restart_bridge`
   MCP tool.
 
+### Fixed
+
+- The configuration number no longer moves at every launch: the database was hashed with the bridge alone,
+  then again for each accessory restored from the cache, so every restart made controllers download the
+  accessories again. It is hashed once, when the bridge starts.
+
 ### Changed
 
 - MCP: a destructive tool with a client that cannot ask the user needs a one-time code from the bridge's

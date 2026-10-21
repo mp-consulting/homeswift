@@ -199,6 +199,28 @@ struct ServerTests {
         #expect(renamed.txtRecord().first { $0.0 == "sf" }?.1 == "1")
     }
 
+    @Test func restoredAccessoriesBumpTheConfigurationNumberOnce() async throws {
+        func lamp(_ id: String) -> Accessory {
+            Accessory(id: id, name: id, category: .lightbulb, services: [Service(.lightbulb, name: id, optional: [.brightness], isPrimary: true)])
+        }
+        let storage = MemoryStorage()
+        // As the plugin runtime does: an empty bridge, the cached accessories added one by one, then start.
+        func launch(_ ids: [String]) async throws -> String {
+            let server = try HAPServer(
+                bridge: Accessory(id: "bridge", name: "Test Bridge", category: .bridge, services: []), accessories: [], storage: storage,
+                options: .init(port: 0, advertise: false, logger: testLogger))
+            for id in ids { try server.add(lamp(id)) }
+            try await server.start()
+            let number = server.txtRecord().first { $0.0 == "c#" }?.1 ?? "?"
+            await server.stop()
+            return number
+        }
+        #expect(try await launch(["a", "b", "c"]) == "1")   // the first database is the baseline, not a change
+        #expect(try await launch(["a", "b", "c"]) == "1")   // the same database: controllers keep their copy
+        #expect(try await launch(["a", "b"]) == "2")        // a change: one bump
+        #expect(try await launch(["a", "b"]) == "2")
+    }
+
     @Test func keepsIdentityAndIDsAcrossRestarts() async throws {
         let controller = try await pairedController()
         let iid = lightbulb.characteristic(.brightness).iid
@@ -213,10 +235,10 @@ struct ServerTests {
         #expect(restarted.deviceID == server.deviceID)
         #expect(restarted.isPaired)
         #expect(restartedBulb.characteristic(.brightness).iid == iid)
-        // The bridge lost its protocol information service, so the configuration number moves on.
-        #expect(restarted.txtRecord().first { $0.0 == "c#" }?.1 == "2")
 
         try await restarted.start()
+        // The bridge lost its protocol information service, so the configuration number moved on at start.
+        #expect(restarted.txtRecord().first { $0.0 == "c#" }?.1 == "2")
         let again = TestController(identifier: controller.identifier, signingKey: controller.signingKey)
         again.accessoryLTPK = controller.accessoryLTPK
         try await again.connect(port: restarted.port!)
