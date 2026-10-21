@@ -72,8 +72,8 @@ running. When the client supports MCP elicitation, the server asks through it, w
 tool refuses and the bridge writes a six-digit confirmation code to its log (the terminal and the web UI's
 Logs page; the MCP log tools and notifications hide it). The user passes the code to the assistant, which
 calls again with `confirmationCode`. A code is for that tool and those arguments, lasts five minutes and
-works once; three wrong codes lock the call until it expires. `dryRun` previews skip the question for the
-tools that offer one. `HOMESWIFT_ELICITATION=false` turns elicitation off.
+works once; three wrong codes lock the call until it expires, and ten wrong codes in five minutes, over
+any calls, lock them all for that long. `dryRun` previews skip the question for the tools that offer one. `HOMESWIFT_ELICITATION=false` turns elicitation off.
 
 ## Resources and prompts
 
