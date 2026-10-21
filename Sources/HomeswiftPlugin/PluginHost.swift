@@ -24,6 +24,8 @@ public final class PluginHost: @unchecked Sendable {
         /// The HAP state storage of a bridge, by file name (`homeswift`, `child-bridges/<key>`). Defaults
         /// to a JSON file under `storageDirectory`; tests pass `MemoryStorage`.
         public var makeStorage: (@Sendable (_ name: String) -> any HAPStorage)?
+        /// Platform names the runtime itself handles (the Assistant, the web UI): no plugin, no warning.
+        public var systemPlatforms: Set<String> = [AIConfiguration.platform]
 
         public init(advertise: Bool = true, logger: Logger = Logger(label: "homeswift"), makeStorage: (@Sendable (_ name: String) -> any HAPStorage)? = nil) {
             self.advertise = advertise
@@ -85,6 +87,8 @@ public final class PluginHost: @unchecked Sendable {
 
     public let configuration: HomeswiftConfiguration
     public let storageDirectory: URL
+    /// The plugins this host knows, whether or not config.json uses them.
+    public let registry: PluginRegistry
     /// The main bridge first, then the child bridges in configuration order.
     public let bridges: [Bridge]
     public var mainBridge: Bridge { bridges[0] }
@@ -111,6 +115,7 @@ public final class PluginHost: @unchecked Sendable {
     public init(configuration: HomeswiftConfiguration, registry: PluginRegistry, storageDirectory: URL, options: Options = Options()) throws {
         self.configuration = configuration
         self.storageDirectory = storageDirectory
+        self.registry = registry
         self.options = options
         logger = options.logger
 
@@ -142,7 +147,7 @@ public final class PluginHost: @unchecked Sendable {
             }
         }
 
-        for block in configuration.platforms where block.platform != AIConfiguration.platform {
+        for block in configuration.platforms where !options.systemPlatforms.contains(block.platform) {
             if configuration.disabledPlugins.contains(block.platform) {
                 logger.info("Skipping disabled platform", metadata: ["platform": "\(block.platform)", "name": "\(block.name)"])
                 continue

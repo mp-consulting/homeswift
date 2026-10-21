@@ -227,6 +227,7 @@ public final class MCPHTTPServer: Sendable {
         }
         let first = attached.withLockedValue { $0.insert(session.id).inserted }
         guard first else { return .json(status: 409, body: Self.errorBody("a stream is already open for this session")) }
+        session.setStandingStream(true)
         let attached = self.attached
         let stream = AsyncStream<Data> { continuation in
             let task = Task {
@@ -237,6 +238,7 @@ public final class MCPHTTPServer: Sendable {
             }
             continuation.onTermination = { _ in
                 task.cancel()
+                session.setStandingStream(false)
                 _ = attached.withLockedValue { $0.remove(session.id) }
             }
         }

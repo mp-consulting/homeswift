@@ -61,6 +61,7 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
 
     public static let platform = "ElgatoKeyLights"
     public static let name = "Elgato Key Lights"
+    // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json.
 
     static let defaultPollingRate = 1000
     static let minimumPollingRate = 250

@@ -166,6 +166,16 @@ bridge: accessories, config.json and the log, with scoped tokens, confirmations 
 configuration changes, and an audit log. `homeswift mcp --snippets` prints the client configs. See
 [docs/mcp.md](docs/mcp.md).
 
+## The web UI
+
+A `HomeswiftUI` block adds a web interface on port 8581: status and pairing codes, accessories with live
+control, each plugin's settings as a form from its `config.schema.json`, the raw config.json, and the
+live log, behind a login created on the first visit. See [docs/ui.md](docs/ui.md).
+
+```json
+{ "platform": "HomeswiftUI" }
+```
+
 ## Demo
 
 `homeswift-demo` is a bridge with a lamp, a switch and a temperature sensor that drifts. Install it with
@@ -198,6 +208,7 @@ request. Its state lives in `~/.homeswift/homeswift-demo.json`.
 | The `homeswift` bridge: command line, logging, the plugins compiled in | `Sources/HomeswiftCLI` |
 | The Assistant: chat providers over plain HTTP, Apple's on-device model, redaction, prompts, schema-checked JSON | `Sources/HomeswiftAI` |
 | The MCP server: JSON-RPC, sessions, scopes, elicitation, the audit log, tools over the bridge, Streamable HTTP on NIO, the stdio proxy | `Sources/HomeswiftMCP` |
+| The web UI: login and sessions, the JSON API over the same control surface, the pages (`Web/`, embedded) | `Sources/HomeswiftUI` |
 | Plugins, one directory each with sources, tests, README and config schema | `Plugins/` |
 
 Each connection handles its requests in order on one task; handlers are `async`, so a slow device never blocks

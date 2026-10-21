@@ -74,7 +74,8 @@ final class MCPTestEnvironment: @unchecked Sendable {
               "bridge": { "name": "Test Bridge", "username": "0E:11:22:33:44:55", "pin": "031-45-154", "port": 0 },
               "platforms": [
                 { "platform": "Devices", "name": "Devices", "token": "secret-token" },
-                { "platform": "Ghost", "name": "Nobody" }
+                { "platform": "Ghost", "name": "Nobody" },
+                { "platform": "HomeswiftAiKit", "mcp": { "http": { "enabled": false, "token": "mcp-token" } } }
               ]
             }
             """

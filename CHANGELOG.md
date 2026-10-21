@@ -37,8 +37,20 @@ All notable changes to this project are documented here. The format follows
   `--snippets` set a client up. `docs/mcp.md`.
 - `Characteristic.write(_:)` writes a value the way a controller does; `HAPServer.observeChanges(_:)`
   reports every characteristic change; `LogBuffer` keeps the last log lines in memory.
+- **The web UI** (`HomeswiftUI`): a `HomeswiftUI` block adds a web interface on port 8581, in the bridge's
+  process. Status with pairing codes, accessories with live control (switches, sliders, menus), plugin
+  settings as forms built from each plugin's `config.schema.json` (embedded by
+  `Scripts/embed-assets.swift`; `HomeswiftPlugin.configurationSchemaJSON`), the raw config.json with
+  backups, and the live log. A login created on the first visit (PBKDF2 hashes in `ui-users.json`,
+  session cookies, origin checks, slowed-down failed logins), or `auth: none`. `docs/ui.md`.
+- `get_plugin_config_schema` MCP tool; `list_plugins` says which plugins have a schema.
 
 ### Changed
+
+- MCP: a destructive tool with a client that cannot ask the user needs a one-time code from the bridge's
+  log instead of a self-declared `confirmed: true`; `dryRun` skips the question only for tools that honour
+  it; `get_config` returns secrets only to an admin token and never the MCP tokens; log tools mask secrets
+  and defuse data tags; `search_logs` matches plain text unless an admin asks for a regex.
 
 - swift-log 1.11 or later.
 

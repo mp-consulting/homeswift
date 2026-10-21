@@ -10,6 +10,7 @@ let package = Package(
         .library(name: "HomeswiftPlugin", targets: ["HomeswiftPlugin"]),
         .library(name: "HomeswiftAI", targets: ["HomeswiftAI"]),
         .library(name: "HomeswiftMCP", targets: ["HomeswiftMCP"]),
+        .library(name: "HomeswiftUI", targets: ["HomeswiftUI"]),
         .library(name: "HomeswiftElgatoKeyLights", targets: ["HomeswiftElgatoKeyLights"]),
         .executable(name: "homeswift", targets: ["HomeswiftCLI"]),
         .executable(name: "homeswift-demo", targets: ["homeswift-demo"]),
@@ -65,6 +66,22 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
             ]
         ),
+        // The web UI: a NIO HTTP server inside the bridge with a form login, pages for status, accessories, plugin
+        // settings (forms from each plugin's config.schema.json), config.json and the log. Web/ is embedded into
+        // WebAssets.swift by Scripts/embed-assets.swift.
+        .target(
+            name: "HomeswiftUI",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP",
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOHTTP1", package: "swift-nio"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            exclude: ["Web"]
+        ),
         // Plugins live under Plugins/<Name>/ with their own Sources and Tests, the layout of a standalone
         // package, so moving one into its own repository is a directory move plus a Package.swift.
         .target(
@@ -77,7 +94,7 @@ let package = Package(
         .executableTarget(
             name: "HomeswiftCLI",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftElgatoKeyLights",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftElgatoKeyLights",
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
             ]
@@ -90,6 +107,14 @@ let package = Package(
         .testTarget(
             name: "HomeswiftAITests",
             dependencies: ["HomeswiftAI", .product(name: "Logging", package: "swift-log")]
+        ),
+        .testTarget(
+            name: "HomeswiftUITests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftElgatoKeyLights",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ]
         ),
         .testTarget(
             name: "HomeswiftMCPTests",

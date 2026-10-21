@@ -2,6 +2,7 @@ import Foundation
 import Homeswift
 import HomeswiftMCP
 import HomeswiftPlugin
+import HomeswiftUI
 import Logging
 import NIOConcurrencyHelpers
 
@@ -27,7 +28,8 @@ let usage = """
 
     Runs a HomeKit bridge with the plugins listed in <path>/config.json and prints its setup code.
     The file has Homebridge's shape: a "bridge" block and "platforms" blocks (see docs/plugins.md).
-    A default config.json is created on the first run.
+    A default config.json is created on the first run. A { "platform": "HomeswiftUI" } block adds the
+    web UI on port 8581 (docs/ui.md).
 
     Options:
       -U, --user-storage-path <path>  where config.json and the state live (default: ~/.homeswift)
@@ -141,21 +143,26 @@ if ["ask", "explain", "diagnose", "mcp"].contains(command) {
 
 let host: PluginHost
 do {
-    host = try PluginHost(configuration: configuration, registry: registry, storageDirectory: storagePath, options: .init(logger: logger))
+    var hostOptions = PluginHost.Options(logger: logger)
+    hostOptions.systemPlatforms.insert(UIConfiguration.platform)
+    host = try PluginHost(configuration: configuration, registry: registry, storageDirectory: storagePath, options: hostOptions)
 } catch {
     fail("\(error)")
 }
 
 let mcpServer = NIOLockedValueBox<MCPHTTPServer?>(nil)
+let uiServer = NIOLockedValueBox<UIServer?>(nil)
 let main = Task {
     do {
         try await host.start()
     } catch {
         fail("could not start: \(error)")
     }
-    mcpServer.withLockedValue { $0 = nil }
     if let started = await MCPCommands.startServer(host: host, configuration: configuration, logs: logBuffer, configURL: configURL, logger: logger) {
         mcpServer.withLockedValue { $0 = started }
+    }
+    if let started = await UICommands.startServer(host: host, configuration: configuration, logs: logBuffer, configURL: configURL, logger: logger) {
+        uiServer.withLockedValue { $0 = started }
     }
     for bridge in host.bridges {
         let server = bridge.server
@@ -171,11 +178,15 @@ let main = Task {
             """)
     }
     let mcpLine = mcpServer.withLockedValue { $0 }.map { "MCP server: http://\($0.options.host):\($0.port ?? $0.options.port)\($0.options.path)   (homeswift mcp --snippets for client configs)\n" } ?? ""
+    let uiLine = uiServer.withLockedValue { $0 }.map { server -> String in
+        let host = server.configuration.host == "0.0.0.0" ? "<this machine>" : server.configuration.host
+        return "Web UI:     http://\(host):\(server.port ?? server.configuration.port)/\n"
+    } ?? ""
     say("""
 
         In the Home app: Add Accessory > More options > \(host.mainBridge.name), then enter the code.
         Config: \(configURL.path)
-        \(mcpLine)
+        \(uiLine)\(mcpLine)
         """)
     while !Task.isCancelled {
         try? await Task.sleep(for: .seconds(3600))
@@ -187,9 +198,10 @@ let signals = [SIGINT, SIGTERM].map { number in
     let source = DispatchSource.makeSignalSource(signal: number, queue: .main)
     signal(number, SIG_IGN)
     // Not main-actor code: Dispatch runs the handler on its own terms, so it only uses what it captures.
-    source.setEventHandler { @Sendable [main, host, mcpServer] in
+    source.setEventHandler { @Sendable [main, host, mcpServer, uiServer] in
         main.cancel()
         Task {
+            await uiServer.withLockedValue { $0 }?.stop()
             await mcpServer.withLockedValue { $0 }?.stop()
             await host.stop()
             exit(0)

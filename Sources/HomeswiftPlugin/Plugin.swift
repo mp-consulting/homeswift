@@ -42,6 +42,11 @@ public protocol HomeswiftPlugin: Sendable {
     /// Shown by `homeswift plugins`, e.g. `"Elgato Key Lights"`. Defaults to `platform`.
     static var name: String { get }
 
+    /// The plugin's `config.schema.json` as text (key order kept), for the settings form of the web UI and
+    /// the Assistant's config copilot. `Scripts/embed-assets.swift plugin` generates it from the file.
+    /// Defaults to nil: no form, only the raw block.
+    static var configurationSchemaJSON: String? { get }
+
     /// Creates the instance. Throw for settings the plugin cannot work with; the runtime logs the error
     /// and leaves this block out, the other plugins keep running.
     init(configuration: Configuration, context: PluginContext) async throws
@@ -58,6 +63,7 @@ public protocol HomeswiftPlugin: Sendable {
 
 extension HomeswiftPlugin {
     public static var name: String { platform }
+    public static var configurationSchemaJSON: String? { nil }
     public func stop() async {}
 }
 

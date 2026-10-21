@@ -15,7 +15,9 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `Sources/HomeswiftPlugin` | `HomeswiftPlugin` protocol, `PluginContext`, `PluginRegistry`, `HomeswiftConfiguration` (Homebridge-shaped config.json), `AccessoryCache`, `PluginHost` (bridges, child bridges, plugin lifecycle) |
 | `Sources/HomeswiftCLI` | The `homeswift` binary: arguments, log format, `Plugins.swift` lists the plugins compiled in, `AssistantCommands.swift` the `ask`/`explain`/`diagnose` commands |
 | `Sources/HomeswiftAI` | The Assistant: `Provider` adapters (`Providers/`), `AIConfiguration` (the `HomeswiftAiKit` block), `Redaction`, `Prompts`, `JSONGeneration`, `Pricing`/`UsageTracker`, `AssistantService` |
-| `Sources/HomeswiftMCP` | The MCP server: `JSONRPC`, `MCPServer`/`MCPSession` (methods, elicitation), `Scopes` (`MCPConfiguration`, tokens), `AuditLog`, `HomeswiftCatalog` (the tools, resources and prompts over a `PluginHost`), `HTTPServer` (Streamable HTTP on NIO), `StdioProxy` (`homeswift mcp`) |
+| `Sources/HomeswiftMCP` | The MCP server: `JSONRPC`, `MCPServer`/`MCPSession` (methods, elicitation), `Scopes` (`MCPConfiguration`, tokens), `AuditLog`, `HomeswiftCatalog` (the tools, resources and prompts over a `PluginHost`; also the web UI's control surface), `HTTPServer` (Streamable HTTP on NIO), `StdioProxy` (`homeswift mcp`) |
+| `Sources/HomeswiftUI` | The web UI: `UIConfiguration` (the `HomeswiftUI` block), `Auth` (users, PBKDF2, sessions, login throttle), `UIServer` (NIO HTTP, the JSON API, the event stream), `Web/` (the pages; `WebAssets.swift` is generated from it) |
+| `Scripts/embed-assets.swift` | Embeds a plugin's `config.schema.json` or the `Web/` directory into Swift source; tests fail when the generated files are stale |
 | `Plugins/<Name>` | One plugin: `Sources` (target `Homeswift<Name>`), `Tests`, `README.md`, `config.schema.json`. `ElgatoKeyLights` is the reference |
 | `Sources/CHAPMath` | C Montgomery multiplication for SRP |
 | `Sources/CDNSSD` | Avahi's dns_sd on Linux (macOS imports `dnssd`) |
@@ -24,6 +26,8 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `docs/plugins.md` | How to write a plugin, the runtime's files, porting from Homebridge, where plugins live |
 | `docs/ai.md` | The Assistant: configuration, providers, command line, use from a plugin, what reaches a provider |
 | `docs/mcp.md` | The MCP server: configuration, scopes, confirmations, resources, prompts, security |
+| `docs/ui.md` | The web UI: configuration, pages, security, what plugin authors ship |
+| `Tests/HomeswiftUITests` | Users and sessions, embedded assets are current, the server end to end with a cookie-keeping client |
 | `Tests/HomeswiftMCPTests` | The protocol on a direct session (scopes, elicitation, config tools, resources), the HTTP transport and the stdio proxy against a real server on port 0 |
 | `Tests/HomeswiftAITests` | Providers against a fake transport (request shapes, parsing, streaming, retries), redaction, schema checks, the Assistant on a fake provider |
 
@@ -35,6 +39,8 @@ swift build --scratch-path ~/Library/Caches/homeswift-build
 swift test  --scratch-path ~/Library/Caches/homeswift-build
 swift run   --scratch-path ~/Library/Caches/homeswift-build homeswift -U /tmp/homeswift-dev   # a throwaway config dir
 swift run   --scratch-path ~/Library/Caches/homeswift-build homeswift plugins
+swift Scripts/embed-assets.swift web Sources/HomeswiftUI/Web Sources/HomeswiftUI/WebAssets.swift   # after editing a page
+swift Scripts/embed-assets.swift plugin Plugins/ElgatoKeyLights ElgatoKeyLightsPlugin          # after editing a schema
 swift run   --scratch-path ~/Library/Caches/homeswift-build homeswift-demo   # HAP_DEBUG=1 logs every request
 
 # After a HAP-NodeJS update (needs a built checkout of homebridge/HAP-NodeJS):
@@ -73,6 +79,10 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
   and alarms are written only by `set_security_accessory`; tool text from logs or devices is wrapped in
   `<untrusted-data>`. The protocol is implemented directly (no SDK): `MCPServer.protocolVersion` is the
   version to bump. `homeswift mcp` logs to stderr because stdout carries the protocol.
+- The web UI: pages are plain HTML, CSS and JavaScript without dependencies or a build step; they are
+  embedded, so edit `Web/` and rerun the embed script (the tests say when it is stale). The API is the
+  `HomeswiftCatalog` surface; mutations need JSON bodies and a same-origin `Origin`. `HomeswiftUI` and
+  `HomeswiftAiKit` are system platforms: the CLI starts them, `PluginHost` skips them.
 
 ## Releases
 
