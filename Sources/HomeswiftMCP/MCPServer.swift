@@ -721,7 +721,8 @@ public final class MCPServer: Sendable {
 
 /// One-time codes for destructive calls from clients that cannot ask the user: the bridge logs the code,
 /// the user reads it, the client repeats it. A code is bound to one tool call's arguments, lasts five
-/// minutes and works once; three wrong guesses lock that call until the code expires.
+/// minutes and works once; three wrong guesses lock that call until the code expires, and ten wrong guesses
+/// in five minutes, over any calls, lock every call until they age out (varying the arguments buys nothing).
 final class ConfirmationCodes: Sendable {
     struct Entry {
         var code: String
@@ -736,41 +737,63 @@ final class ConfirmationCodes: Sendable {
         case locked(until: Date)
     }
 
-    private let entries = NIOLockedValueBox<[String: Entry]>([:])
+    struct State {
+        var entries: [String: Entry] = [:]
+        /// When each wrong guess happened, over every call, within the last `lifetime`.
+        var wrongGuesses: [Date] = []
+
+        mutating func prune() {
+            let now = Date()
+            entries = entries.filter { $0.value.expires > now }
+            wrongGuesses.removeAll { now.timeIntervalSince($0) > ConfirmationCodes.lifetime }
+        }
+
+        /// The moment the overall lock lifts, when there is one.
+        var lockedUntil: Date? {
+            guard wrongGuesses.count >= ConfirmationCodes.maxWrongGuessesOverall, let oldest = wrongGuesses.first else { return nil }
+            return oldest.addingTimeInterval(ConfirmationCodes.lifetime)
+        }
+    }
+
+    private let state = NIOLockedValueBox(State())
     static let lifetime: TimeInterval = 300
     static let maxWrongGuesses = 3
+    static let maxWrongGuessesOverall = 10
 
     static func key(tool: String, arguments: JSONValue) -> String { "\(tool)\n\(arguments.text())" }
 
     /// The code for this call, issuing a new one when there is none or it expired.
     func issue(tool: String, arguments: JSONValue) -> Issued {
         let key = Self.key(tool: tool, arguments: arguments)
-        return entries.withLockedValue { entries in
-            entries = entries.filter { $0.value.expires > Date() }
-            if let existing = entries[key] { return existing.isLocked ? .locked(until: existing.expires) : .code(existing.code) }
+        return state.withLockedValue { state in
+            state.prune()
+            if let until = state.lockedUntil { return .locked(until: until) }
+            if let existing = state.entries[key] { return existing.isLocked ? .locked(until: existing.expires) : .code(existing.code) }
             let code = String(format: "%06d", Int.random(in: 0...999_999))
-            entries[key] = Entry(code: code, expires: Date().addingTimeInterval(Self.lifetime))
+            state.entries[key] = Entry(code: code, expires: Date().addingTimeInterval(Self.lifetime))
             return .code(code)
         }
     }
 
-    /// Consumes the code when it matches this call. Compared in constant time; a wrong code counts towards the lock.
+    /// Consumes the code when it matches this call. Compared in constant time; a wrong code counts towards both locks.
     func redeem(_ code: String, tool: String, arguments: JSONValue) -> Bool {
         let key = Self.key(tool: tool, arguments: arguments)
-        return entries.withLockedValue { entries in
-            guard var entry = entries[key], entry.expires > Date() else { return false }
+        return state.withLockedValue { state in
+            state.prune()
+            guard state.lockedUntil == nil, var entry = state.entries[key] else { return false }
             guard !entry.isLocked, MCPConfiguration.constantTimeEqual(entry.code, code) else {
                 entry.wrongGuesses += 1
-                entries[key] = entry
+                state.entries[key] = entry
+                state.wrongGuesses.append(Date())
                 return false
             }
-            entries.removeValue(forKey: key)
+            state.entries.removeValue(forKey: key)
             return true
         }
     }
 
     /// For tests.
     func current(tool: String, arguments: JSONValue) -> String? {
-        entries.withLockedValue { $0[Self.key(tool: tool, arguments: arguments)]?.code }
+        state.withLockedValue { $0.entries[Self.key(tool: tool, arguments: arguments)]?.code }
     }
 }

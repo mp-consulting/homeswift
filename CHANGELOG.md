@@ -52,7 +52,8 @@ All notable changes to this project are documented here. The format follows
   log instead of a self-declared `confirmed: true`; `dryRun` skips the question only for tools that honour
   it; `get_config` returns secrets only to an admin token and never the MCP tokens; log tools mask secrets
   and defuse data tags; `search_logs` matches plain text unless an admin asks for a regex. The log tools
-  and notifications hide confirmation codes, and three wrong codes lock a call until its code expires.
+  and notifications hide confirmation codes; three wrong codes lock a call until its code expires, and
+  ten wrong codes in five minutes lock every call for that long.
 
 - swift-log 1.11 or later.
 

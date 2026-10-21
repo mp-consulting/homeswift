@@ -211,6 +211,22 @@ struct ProtocolTests {
         #expect(environment.auditEntries.filter { $0["notConfirmed"] == true }.count == 10)
     }
 
+    @Test func capsWrongConfirmationCodesAcrossCalls() {
+        let codes = ConfirmationCodes()
+        // Varying the arguments gives a fresh code and three guesses each time; ten wrong guesses over any
+        // calls within five minutes lock them all.
+        for n in 0..<4 {
+            let arguments: JSONValue = ["n": .number(Double(n))]
+            guard case .code(let code) = codes.issue(tool: "t", arguments: arguments) else { Issue.record("no code for call \(n)"); return }
+            let wrong = code == "000000" ? "000001" : "000000"
+            for _ in 0..<3 { #expect(!codes.redeem(wrong, tool: "t", arguments: arguments)) }
+        }
+        guard case .locked(let until) = codes.issue(tool: "t", arguments: ["n": 99]) else { Issue.record("not locked"); return }
+        #expect(until > Date() && until <= Date().addingTimeInterval(ConfirmationCodes.lifetime))
+        #expect(codes.current(tool: "t", arguments: ["n": 99]) == nil)
+        if case .code(let code) = codes.issue(tool: "t", arguments: ["n": 0]) { #expect(!codes.redeem(code, tool: "t", arguments: ["n": 0])) }
+    }
+
     @Test func revealsSecretsOnlyToAdminsWhenAllowed() async throws {
         let environment = try MCPTestEnvironment(allowSecrets: true)
         try await environment.start()
