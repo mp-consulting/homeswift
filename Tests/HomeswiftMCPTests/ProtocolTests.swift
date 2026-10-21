@@ -227,6 +227,21 @@ struct ProtocolTests {
         if case .code(let code) = codes.issue(tool: "t", arguments: ["n": 0]) { #expect(!codes.redeem(code, tool: "t", arguments: ["n": 0])) }
     }
 
+    @Test func restartsOnlyWhenTheProcessCan() async throws {
+        let environment = try MCPTestEnvironment()
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let admin = DirectClient(server: environment.server)
+        try await admin.initialize()
+        // The test environment has no restart hook: the tool says so instead of pretending.
+        let refused = try await admin.tool("restart_bridge", [:], answer: ["action": "accept", "content": ["confirm": true]])
+        #expect(refused["isError"] == true)
+        #expect(refused["content"]?[0]?["text"]?.stringValue?.contains("cannot restart") == true)
+        let controller = DirectClient(server: environment.server, scope: .control)
+        try await controller.initialize()
+        #expect(try await controller.tool("restart_bridge", [:])["content"]?[0]?["text"]?.stringValue?.contains("needs admin") == true)
+    }
+
     @Test func revealsSecretsOnlyToAdminsWhenAllowed() async throws {
         let environment = try MCPTestEnvironment(allowSecrets: true)
         try await environment.start()

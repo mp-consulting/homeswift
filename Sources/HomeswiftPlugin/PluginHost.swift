@@ -216,6 +216,13 @@ public final class PluginHost: @unchecked Sendable {
         }
     }
 
+    /// Hands a request from a plugin's web page to the instance it names. nil when no such instance runs.
+    public func handleWebRequest(platform: String, name: String, _ request: PluginWebRequest) async throws -> PluginWebResponse? {
+        guard let instance = instances.first(where: { $0.context.platform == platform && $0.context.name == name }),
+              let plugin = instance.plugin.withLockedValue({ $0 }) else { return nil }
+        return try await plugin.handleWebRequest(request)
+    }
+
     /// Starts everything and keeps running until the task is cancelled.
     public func run() async throws {
         try await start()

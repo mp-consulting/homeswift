@@ -125,18 +125,25 @@ public enum AuthError: Error, CustomStringConvertible, Sendable, Equatable {
     }
 }
 
-/// Logged-in sessions, in memory: a random token in a cookie, gone after `lifetime` without a request.
+/// Logged-in sessions: a random token in a cookie, gone after `lifetime` without a request. With a `url`
+/// they are kept in a file (owner-only) and survive a restart of the bridge; the file is written when a
+/// session starts or ends, so a session's expiry in the file is from its start. Sessions are keyed by the
+/// SHA-256 of the token, so neither the file nor memory holds a usable cookie.
 public final class SessionStore: Sendable {
-    struct Session {
+    struct Session: Codable {
         var username: String
         var expires: Date
     }
 
     public let lifetime: TimeInterval
-    private let sessions = NIOLockedValueBox<[String: Session]>([:])
+    let url: URL?
+    private let sessions: NIOLockedValueBox<[String: Session]>
 
-    public init(lifetime: TimeInterval) {
+    public init(lifetime: TimeInterval, url: URL? = nil) {
         self.lifetime = lifetime
+        self.url = url
+        let saved = url.flatMap { try? Data(contentsOf: $0) }.flatMap { try? JSONDecoder().decode([String: Session].self, from: $0) } ?? [:]
+        sessions = NIOLockedValueBox(saved.filter { $0.value.expires > Date() })
     }
 
     public func create(username: String) -> String {
@@ -145,25 +152,50 @@ public final class SessionStore: Sendable {
         let token = bytes.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
         sessions.withLockedValue { sessions in
             sessions = sessions.filter { $0.value.expires > Date() }
-            sessions[token] = Session(username: username, expires: Date().addingTimeInterval(lifetime))
+            sessions[Self.key(for: token)] = Session(username: username, expires: Date().addingTimeInterval(lifetime))
+            save(sessions)
         }
         return token
     }
 
+    static func key(for token: String) -> String {
+        SHA256.hash(data: Data(token.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func save(_ sessions: [String: Session]) {
+        guard let url else { return }
+        do {
+            let directory = url.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            #if !os(Windows)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+            #endif
+            try JSONEncoder().encode(sessions).write(to: url, options: .atomic)
+            #if !os(Windows)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            #endif
+        } catch {}
+    }
+
     /// The user of a live session, refreshing its expiry.
     public func username(for token: String) -> String? {
-        sessions.withLockedValue { sessions in
-            guard let session = sessions[token], session.expires > Date() else {
-                sessions.removeValue(forKey: token)
+        let key = Self.key(for: token)
+        return sessions.withLockedValue { sessions in
+            guard let session = sessions[key], session.expires > Date() else {
+                sessions.removeValue(forKey: key)
                 return nil
             }
-            sessions[token]?.expires = Date().addingTimeInterval(lifetime)
+            sessions[key]?.expires = Date().addingTimeInterval(lifetime)
             return session.username
         }
     }
 
     public func revoke(_ token: String) {
-        _ = sessions.withLockedValue { $0.removeValue(forKey: token) }
+        let key = Self.key(for: token)
+        sessions.withLockedValue { sessions in
+            sessions.removeValue(forKey: key)
+            save(sessions)
+        }
     }
 
     public var count: Int { sessions.withLockedValue { $0.count } }

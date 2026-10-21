@@ -12,15 +12,31 @@ public struct HomeswiftCatalog: Sendable {
     public let configURL: URL
     /// `get_config` may return secrets (`HOMESWIFT_ALLOW_SECRETS=true`).
     public let allowSecrets: Bool
+    /// Restarts the process, when it can (the `homeswift` binary execs itself). nil in a library or a test.
+    public let restart: (@Sendable () -> Void)?
     public let startedAt = Date()
     let logger: Logger
 
-    public init(host: PluginHost, logs: LogBuffer, configURL: URL, allowSecrets: Bool = false, logger: Logger = Logger(label: "homeswift.mcp")) {
+    public init(
+        host: PluginHost, logs: LogBuffer, configURL: URL, allowSecrets: Bool = false, restart: (@Sendable () -> Void)? = nil,
+        logger: Logger = Logger(label: "homeswift.mcp")
+    ) {
         self.host = host
         self.logs = logs
         self.configURL = configURL
         self.allowSecrets = allowSecrets
+        self.restart = restart
         self.logger = logger
+    }
+
+    /// Runs the restart hook once the current reply has left.
+    public func scheduleRestart() -> Bool {
+        guard let restart else { return false }
+        Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            restart()
+        }
+        return true
     }
 
     public static let instructions = """
@@ -186,7 +202,7 @@ public struct HomeswiftCatalog: Sendable {
             }),
             "unknownPlatforms": .array(configured.subtracting(running.map(\.platform)).subtracting(Self.systemPlatforms).sorted().map(JSONValue.string)),
             "plugins": .array(host.registry.entries.map {
-                ["platform": .string($0.platform), "name": .string($0.name), "hasSchema": .bool($0.configurationSchemaJSON != nil)]
+                ["platform": .string($0.platform), "name": .string($0.name), "hasSchema": .bool($0.configurationSchemaJSON != nil), "hasPages": .bool($0.webFiles["index.html"] != nil)]
             }),
         ]
     }
@@ -390,6 +406,16 @@ public struct HomeswiftCatalog: Sendable {
                     matches = lines.filter { $0.range(of: pattern, options: [.caseInsensitive]) != nil }
                 }
                 return .text("<untrusted-data source=\"log\">\n\(matches.suffix(limit).joined(separator: "\n"))\n</untrusted-data>\n\(matches.count) match(es)")
+            },
+            MCPTool(
+                name: "restart_bridge", title: "Restart the bridge",
+                description: "Restarts homeswift so configuration changes apply. Every connection, this one included, drops for a few seconds; pairings and accessories are unaffected.",
+                scope: .admin, destructive: true, idempotent: true
+            ) { call in
+                guard catalog.restart != nil else { return .error("This process cannot restart itself; restart homeswift by hand.") }
+                catalog.logger.warning("Restart requested through MCP", metadata: ["principal": "\(call.session.principal.name)"])
+                _ = catalog.scheduleRestart()
+                return .text("Restarting homeswift; reconnect in a few seconds.")
             },
             MCPTool(
                 name: "get_system_info", title: "System information",

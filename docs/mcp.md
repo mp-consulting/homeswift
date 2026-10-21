@@ -58,7 +58,7 @@ with `Authorization: Bearer <token>`.
 |---|---|
 | `read` | `get_server_status`, `list_accessories`, `get_accessory`, `list_plugins`, `get_config`, `list_config_backups`, `get_recent_logs`, `search_logs`, `get_system_info` |
 | `control` | Plus `set_accessory`, `set_accessories` (with `dryRun`), `set_security_accessory`, `identify_accessory` |
-| `admin` | Plus `update_config`, `patch_config`, `restore_config` |
+| `admin` | Plus `update_config`, `patch_config`, `restore_config`, `restart_bridge` |
 
 A token sees only the tools its scope allows. Locks, garage doors and alarms (Lock Target State, Target
 Door State, Security System Target State) change only through `set_security_accessory`; `set_accessory`

@@ -46,6 +46,11 @@ All notable changes to this project are documented here. The format follows
   slowed-down failed logins), or `auth: none`. The pages follow the system's light or dark appearance and
   its reduced-motion, reduced-transparency and increased-contrast settings. `docs/ui.md`.
 - `get_plugin_config_schema` MCP tool; `list_plugins` says which plugins have a schema.
+- Web UI: a **Restart** button (in the banner and on the Status page) that restarts homeswift in place,
+  with logins kept in `ui-sessions.json`; the pairing QR code next to the setup code; plugin pages
+  (`HomeswiftPlugin.webFiles` and `handleWebRequest`, served at `/plugins/<platform>/`, with
+  `/plugin.js` to talk to the instance), the Elgato Key Lights page being the first. `restart_bridge`
+  MCP tool.
 
 ### Changed
 

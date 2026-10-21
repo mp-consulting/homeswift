@@ -59,6 +59,12 @@ Per light, keyed by MAC address (`id` in the light's Bonjour record; the log pri
 }
 ```
 
+## The web page
+
+With the web UI on, the Plugins page has an **Open** button for this plugin: a page with every light the
+instance knows (address, serial, firmware, whether it answers, its state) and an Identify button that
+flashes one. `Web/` holds the page; `Sources/WebFiles.swift` is generated from it.
+
 ## How it works
 
 Lights announce `_elg._tcp` over Bonjour with their MAC in the TXT record. The plugin resolves each one,

@@ -7,11 +7,11 @@ import Logging
 
 /// Starts the web UI when config.json has a `HomeswiftUI` block.
 enum UICommands {
-    static func startServer(host: PluginHost, configuration: HomeswiftConfiguration, logs: LogBuffer, configURL: URL, logger: Logger) async -> UIServer? {
+    static func startServer(host: PluginHost, configuration: HomeswiftConfiguration, logs: LogBuffer, configURL: URL, logger: Logger, restart: (@Sendable () -> Void)? = nil) async -> UIServer? {
         guard let block = configuration.platforms.first(where: { $0.platform == UIConfiguration.platform }) else { return nil }
         do {
             let ui = try UIConfiguration(block: try JSONValue(data: block.json))
-            let catalog = HomeswiftCatalog(host: host, logs: logs, configURL: configURL, logger: logger)
+            let catalog = HomeswiftCatalog(host: host, logs: logs, configURL: configURL, restart: restart, logger: logger)
             var options = UIServer.Options()
             options.logger = logger
             let server = UIServer(configuration: ui, catalog: catalog, usersURL: configURL.deletingLastPathComponent().appendingPathComponent("ui-users.json"), options: options)
