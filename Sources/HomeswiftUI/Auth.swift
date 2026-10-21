@@ -30,6 +30,11 @@ public final class UserStore: Sendable {
     public var isEmpty: Bool { state.withLockedValue { $0.isEmpty } }
     public var usernames: [String] { state.withLockedValue { $0.map(\.username) } }
 
+    public func contains(_ username: String) -> Bool {
+        let name = username.lowercased()
+        return state.withLockedValue { $0.contains { $0.username.lowercased() == name } }
+    }
+
     /// Adds a user. The username must be new; the password at least eight characters.
     public func create(username: String, password: String) throws {
         try add(username: username, password: password, onlyWhenEmpty: false)
@@ -128,7 +133,8 @@ public enum AuthError: Error, CustomStringConvertible, Sendable, Equatable {
 /// Logged-in sessions: a random token in a cookie, gone after `lifetime` without a request. With a `url`
 /// they are kept in a file (owner-only) and survive a restart of the bridge; the file is written when a
 /// session starts or ends, so a session's expiry in the file is from its start. Sessions are keyed by the
-/// SHA-256 of the token, so neither the file nor memory holds a usable cookie.
+/// SHA-256 of the token, so neither the file nor memory holds a usable cookie. A loaded session never
+/// outlives the configured lifetime, and `retain(usernames:)` drops the sessions of users that are gone.
 public final class SessionStore: Sendable {
     struct Session: Codable {
         var username: String
@@ -143,7 +149,23 @@ public final class SessionStore: Sendable {
         self.lifetime = lifetime
         self.url = url
         let saved = url.flatMap { try? Data(contentsOf: $0) }.flatMap { try? JSONDecoder().decode([String: Session].self, from: $0) } ?? [:]
-        sessions = NIOLockedValueBox(saved.filter { $0.value.expires > Date() })
+        let latest = Date().addingTimeInterval(lifetime)
+        sessions = NIOLockedValueBox(saved.compactMapValues { session in
+            let capped = Session(username: session.username, expires: min(session.expires, latest))
+            return capped.expires > Date() ? capped : nil
+        })
+    }
+
+    /// Keeps only the sessions of these users: after the user file was reset, a kept cookie is worthless.
+    public func retain(usernames: [String]) {
+        let known = Set(usernames.map { $0.lowercased() })
+        sessions.withLockedValue { sessions in
+            let kept = sessions.filter { known.contains($0.value.username.lowercased()) }
+            if kept.count != sessions.count {
+                sessions = kept
+                save(sessions)
+            }
+        }
     }
 
     public func create(username: String) -> String {
