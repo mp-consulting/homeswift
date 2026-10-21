@@ -3,7 +3,7 @@ import Foundation
 import NIOCore
 import NIOPosix
 
-@testable import HomeSwift
+@testable import Homeswift
 
 /// A minimal HomeKit controller that talks to the server over a real socket, for end-to-end tests.
 final class TestController: @unchecked Sendable {

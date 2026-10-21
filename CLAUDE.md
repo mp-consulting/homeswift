@@ -1,19 +1,19 @@
-# HomeSwift
+# Homeswift
 
 The HomeKit Accessory Protocol (accessory side, over IP) in Swift: the base for a Homebridge in Swift. Library
-`HomeSwift`, demo `homeswift-demo`. macOS 14+ and Linux. The plugin model is not designed yet.
+`Homeswift`, demo `homeswift-demo`. macOS 14+ and Linux. The plugin model is not designed yet.
 
 ## Layout
 
 | Path | What it is |
 |---|---|
-| `Sources/HomeSwift/Model` | `Accessory`, `Service`, `Characteristic`, `HAPValue`, `CharacteristicType`; `Definitions.swift` is generated |
-| `Sources/HomeSwift/Crypto` | TLV8, `ModularField` (Montgomery arithmetic), SRP-6a, HKDF/ChaCha20 helpers |
-| `Sources/HomeSwift/Pairing` | Setup code and URI, pair setup, pair verify, pairings |
-| `Sources/HomeSwift/Server` | `HAPServer`, `HAPConnection` (one task per connection), HTTP, sessions, endpoints, storage, Bonjour |
+| `Sources/Homeswift/Model` | `Accessory`, `Service`, `Characteristic`, `HAPValue`, `CharacteristicType`; `Definitions.swift` is generated |
+| `Sources/Homeswift/Crypto` | TLV8, `ModularField` (Montgomery arithmetic), SRP-6a, HKDF/ChaCha20 helpers |
+| `Sources/Homeswift/Pairing` | Setup code and URI, pair setup, pair verify, pairings |
+| `Sources/Homeswift/Server` | `HAPServer`, `HAPConnection` (one task per connection), HTTP, sessions, endpoints, storage, Bonjour |
 | `Sources/CHAPMath` | C Montgomery multiplication for SRP |
 | `Sources/CDNSSD` | Avahi's dns_sd on Linux (macOS imports `dnssd`) |
-| `Tests/HomeSwiftTests` | Primitives (SRP vectors from fast-srp-hap) and a real controller (`TestController`) against the server |
+| `Tests/HomeswiftTests` | Primitives (SRP vectors from fast-srp-hap) and a real controller (`TestController`) against the server |
 
 ## Commands
 
@@ -24,7 +24,7 @@ swift test  --scratch-path ~/Library/Caches/homeswift-build
 swift run   --scratch-path ~/Library/Caches/homeswift-build homeswift-demo   # HAP_DEBUG=1 logs every request
 
 # After a HAP-NodeJS update (needs a built checkout of homebridge/HAP-NodeJS):
-node Scripts/generate-definitions.js <hap-nodejs> > Sources/HomeSwift/Model/Definitions.swift 2>/dev/null
+node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Definitions.swift 2>/dev/null
 ```
 
 ## Rules

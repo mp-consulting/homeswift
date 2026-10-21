@@ -1,5 +1,5 @@
 import Foundation
-import HomeSwift
+import Homeswift
 import Logging
 
 // A bridge with a lamp, a switch and a temperature sensor that drifts, for pairing with the Home app.
@@ -29,9 +29,9 @@ let thermometer = Accessory(
     onIdentify: { print("Identify: Demo Temperature") })
 
 let bridge = Accessory(
-    id: "demo-bridge", name: "HomeSwift Bridge", model: "Bridge", category: .bridge,
+    id: "demo-bridge", name: "Homeswift Bridge", model: "Bridge", category: .bridge,
     services: [Service(.protocolInformation, extra: [Characteristic(.version, value: "1.1.0")])],
-    onIdentify: { print("Identify: HomeSwift Bridge") })
+    onIdentify: { print("Identify: Homeswift Bridge") })
 
 let server = try HAPServer(
     bridge: bridge, accessories: [lamp, demoSwitch, thermometer],
@@ -40,12 +40,12 @@ let server = try HAPServer(
 
 print("""
 
-    HomeSwift Bridge
+    Homeswift Bridge
       Setup code: \(server.setupCode)
       Setup URI:  \(server.setupURI)
       Paired:     \(server.isPaired ? "yes (\(server.pairings.count) controller(s))" : "no")
 
-    In the Home app: Add Accessory > More options > HomeSwift Bridge, then enter the code.
+    In the Home app: Add Accessory > More options > Homeswift Bridge, then enter the code.
     State is kept in ~/.homeswift/homeswift-demo.json; delete it to start over.
 
     """)

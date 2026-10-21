@@ -1,4 +1,8 @@
-<h1 align="center">HomeSwift</h1>
+<p align="center">
+  <img src="docs/images/icon.svg" width="128" height="128" alt="Homeswift icon: a white house with a swift flying inside, on an orange square">
+</p>
+
+<h1 align="center">Homeswift</h1>
 
 <p align="center">
   The HomeKit Accessory Protocol in Swift: put your own devices in the Home app, alone or behind a bridge.
@@ -14,10 +18,10 @@
 > **Status: early.** Pairing, control, identify and events work with the Home app. Linux builds and passes the
 > tests in CI but has not been paired with a real Home app yet. The API may still change before 1.0. See [CHANGELOG.md](CHANGELOG.md).
 
-HomeSwift is a library for the accessory side of HomeKit over IP, the part
+Homeswift is a library for the accessory side of HomeKit over IP, the part
 [HAP-NodeJS](https://github.com/homebridge/HAP-NodeJS) plays for Homebridge. You describe accessories with
 services and characteristics, react to writes from the Home app, set values when your device changes, and
-HomeSwift takes care of pairing, encryption, Bonjour and keeping the accessory's identity across launches.
+Homeswift takes care of pairing, encryption, Bonjour and keeping the accessory's identity across launches.
 
 It is the base for a Homebridge written in Swift: one small binary, no Node.js, no npm.
 
@@ -43,7 +47,7 @@ confirm.
 
 ## Install
 
-Add HomeSwift to your package:
+Add Homeswift to your package:
 
 ```swift
 dependencies: [
@@ -51,7 +55,7 @@ dependencies: [
 ],
 targets: [
     .executableTarget(name: "MyBridge", dependencies: [
-        .product(name: "HomeSwift", package: "homeswift"),
+        .product(name: "Homeswift", package: "homeswift"),
     ]),
 ]
 ```
@@ -68,7 +72,7 @@ sudo apt install libavahi-compat-libdnssd-dev avahi-daemon
 A bridge with a dimmable lamp:
 
 ```swift
-import HomeSwift
+import Homeswift
 
 let light = Service(.lightbulb, name: "Desk Lamp", optional: [.brightness], isPrimary: true)
 
@@ -121,7 +125,7 @@ A few things to know:
 swift run homeswift-demo
 ```
 
-It prints the setup code. In the Home app choose **Add Accessory**, then **More options**, pick **HomeSwift
+It prints the setup code. In the Home app choose **Add Accessory**, then **More options**, pick **Homeswift
 Bridge** and enter the code. Set `HAP_SETUP_CODE=031-45-154` for a fixed code and `HAP_DEBUG=1` to log every
 request. Its state lives in `~/.homeswift/homeswift-demo.json`.
 
@@ -129,21 +133,21 @@ request. Its state lives in `~/.homeswift/homeswift-demo.json`.
 
 | Layer | Files |
 |---|---|
-| Model: accessories, services, characteristics, values, the generated definitions | `Sources/HomeSwift/Model` |
-| Crypto: TLV8, SRP-6a over a C Montgomery multiplication (`CHAPMath`), HKDF and ChaCha20-Poly1305 | `Sources/HomeSwift/Crypto` |
-| Pairing: setup code, pair setup (M1–M6), pair verify (M1–M4), pairings | `Sources/HomeSwift/Pairing` |
-| Server: SwiftNIO listener, HTTP and EVENT messages, encrypted sessions, endpoints, storage, Bonjour | `Sources/HomeSwift/Server` |
+| Model: accessories, services, characteristics, values, the generated definitions | `Sources/Homeswift/Model` |
+| Crypto: TLV8, SRP-6a over a C Montgomery multiplication (`CHAPMath`), HKDF and ChaCha20-Poly1305 | `Sources/Homeswift/Crypto` |
+| Pairing: setup code, pair setup (M1–M6), pair verify (M1–M4), pairings | `Sources/Homeswift/Pairing` |
+| Server: SwiftNIO listener, HTTP and EVENT messages, encrypted sessions, endpoints, storage, Bonjour | `Sources/Homeswift/Server` |
 
 Each connection handles its requests in order on one task; handlers are `async`, so a slow device never blocks
 other connections. Crypto comes from [swift-crypto](https://github.com/apple/swift-crypto) (CryptoKit on macOS).
 
 Apple no longer publishes the HAP specification outside the MFi program. The protocol details follow HAP-NodeJS
 and the tests check SRP against [fast-srp-hap](https://github.com/homebridge/fast-srp)'s vectors.
-`Sources/HomeSwift/Model/Definitions.swift` is generated from HAP-NodeJS's service and characteristic
+`Sources/Homeswift/Model/Definitions.swift` is generated from HAP-NodeJS's service and characteristic
 definitions:
 
 ```bash
-node Scripts/generate-definitions.js path/to/hap-nodejs > Sources/HomeSwift/Model/Definitions.swift 2>/dev/null
+node Scripts/generate-definitions.js path/to/hap-nodejs > Sources/Homeswift/Model/Definitions.swift 2>/dev/null
 ```
 
 ## Development
@@ -160,4 +164,4 @@ metadata), build outside the repository with `--scratch-path ~/Library/Caches/ho
 
 MIT, see [LICENSE](LICENSE). The service and characteristic definitions come from HAP-NodeJS (Apache-2.0).
 
-HomeSwift is not made or endorsed by Apple. HomeKit is a trademark of Apple Inc.
+Homeswift is not made or endorsed by Apple. HomeKit is a trademark of Apple Inc.

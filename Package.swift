@@ -6,7 +6,7 @@ let package = Package(
     name: "homeswift",
     platforms: [.macOS(.v14)],
     products: [
-        .library(name: "HomeSwift", targets: ["HomeSwift"]),
+        .library(name: "Homeswift", targets: ["Homeswift"]),
         .executable(name: "homeswift-demo", targets: ["homeswift-demo"]),
     ],
     dependencies: [
@@ -21,7 +21,7 @@ let package = Package(
         // Montgomery multiplication for SRP; C keeps it fast even in debug builds.
         .target(name: "CHAPMath"),
         .target(
-            name: "HomeSwift",
+            name: "Homeswift",
             dependencies: [
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
@@ -32,7 +32,7 @@ let package = Package(
                 .target(name: "CDNSSD", condition: .when(platforms: [.linux])),
             ]
         ),
-        .executableTarget(name: "homeswift-demo", dependencies: ["HomeSwift"]),
-        .testTarget(name: "HomeSwiftTests", dependencies: ["HomeSwift"]),
+        .executableTarget(name: "homeswift-demo", dependencies: ["Homeswift"]),
+        .testTarget(name: "HomeswiftTests", dependencies: ["Homeswift"]),
     ]
 )

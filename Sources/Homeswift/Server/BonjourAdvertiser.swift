@@ -80,7 +80,8 @@ final class BonjourAdvertiser: @unchecked Sendable {
         }
         let running = NIOLockedValueBox(true)
         #if os(Linux)
-        let thread = Thread { Self.poll(ref, running: running) }
+        let handle = Handle(ref: ref)
+        let thread = Thread { Self.poll(handle.ref, running: running) }
         thread.name = "homeswift.bonjour"
         thread.start()
         #else
@@ -90,6 +91,11 @@ final class BonjourAdvertiser: @unchecked Sendable {
     }
 
     #if os(Linux)
+    /// Carries the ref to the polling thread, which processes its results and deallocates it.
+    private struct Handle: @unchecked Sendable {
+        let ref: DNSServiceRef
+    }
+
     private static func poll(_ ref: DNSServiceRef, running: NIOLockedValueBox<Bool>) {
         let fd = DNSServiceRefSockFD(ref)
         while running.withLockedValue({ $0 }) {

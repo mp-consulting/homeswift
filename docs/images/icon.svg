@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Homeswift</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFA01C"/>
+      <stop offset="1" stop-color="#F0442E"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <!-- House -->
+  <path d="M232 470 L512 236 L792 470 M300 420 V776 Q300 800 324 800 H700 Q724 800 724 776 V420"
+        fill="none" stroke="#fff" stroke-width="64" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- A swift in flight: sickle wings, forked tail -->
+  <path fill="#fff" transform="translate(512 618) scale(0.8) translate(-512 -618)" d="M512 500 C530 500 540 520 540 546 Q616 560 712 668 Q616 628 544 616
+                       L560 736 L512 690 L464 736 L480 616 Q408 628 312 668 Q408 560 484 546
+                       C484 520 494 500 512 500 Z"/>
+</svg>

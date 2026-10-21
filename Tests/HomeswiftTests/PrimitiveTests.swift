@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import HomeSwift
+@testable import Homeswift
 
 struct TLV8Tests {
     @Test func roundTripsAndFragmentsLongValues() throws {

@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import HomeSwift
+@testable import Homeswift
 
 @Suite(.timeLimit(.minutes(1)))
 struct ServerTests {

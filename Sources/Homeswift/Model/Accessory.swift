@@ -25,7 +25,7 @@ public final class Accessory: @unchecked Sendable {
     public init(
         id: String,
         name: String,
-        manufacturer: String = "HomeSwift",
+        manufacturer: String = "Homeswift",
         model: String = "Accessory",
         serialNumber: String? = nil,
         firmwareRevision: String = "1.0.0",
