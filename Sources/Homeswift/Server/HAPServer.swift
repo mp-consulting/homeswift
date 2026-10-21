@@ -20,14 +20,21 @@ public final class HAPServer: @unchecked Sendable {
     public struct Options: Sendable {
         /// Overrides the stored setup code. Defaults to the stored one, or a random code on first launch.
         public var setupCode: SetupCode?
+        /// Overrides the stored device ID, six hex octets such as `0E:1A:2B:3C:4D:5E` (Homebridge's
+        /// `username`). Defaults to the stored one, or a random ID on first launch. Changing it unpairs.
+        public var deviceID: String?
         /// The TCP port. Defaults to the port used last time, or one the system picks.
         public var port: Int?
         /// Advertise over Bonjour. Turn off for tests.
         public var advertise: Bool
         public var logger: Logger
 
-        public init(setupCode: SetupCode? = nil, port: Int? = nil, advertise: Bool = true, logger: Logger = Logger(label: "homeswift")) {
+        public init(
+            setupCode: SetupCode? = nil, deviceID: String? = nil, port: Int? = nil, advertise: Bool = true,
+            logger: Logger = Logger(label: "homeswift")
+        ) {
             self.setupCode = setupCode
+            self.deviceID = deviceID
             self.port = port
             self.advertise = advertise
             self.logger = logger
@@ -74,6 +81,7 @@ public final class HAPServer: @unchecked Sendable {
             persisted = PersistedState.new(setupCode: options.setupCode)
         }
         if let code = options.setupCode { persisted.setupCode = code.rawValue }
+        if let deviceID = options.deviceID { persisted.deviceID = deviceID.uppercased() }
         signingKey = try Curve25519.Signing.PrivateKey(rawRepresentation: persisted.signingKey)
         state = NIOLockedValueBox(State(persisted: persisted))
 

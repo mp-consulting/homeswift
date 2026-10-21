@@ -6,7 +6,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Plugins** (`HomeswiftPlugin`): the `HomeswiftPlugin` protocol and `PluginContext`. `PluginHost` runs the
+  plugins of a Homebridge-shaped `config.json` on one bridge, restores each platform's accessories from a
+  cache before its plugin starts (aids and iids kept), and runs a block with `_bridge` on its own child
+  bridge. `docs/plugins.md` explains how to write one and how to port a Homebridge plugin.
+- **`homeswift`**, the bridge: reads `~/.homeswift/config.json` (created on the first run), runs the plugins
+  compiled in, prints the setup codes; `-U`, `-D`, `--version` and `homeswift plugins`.
+- **Elgato Key Lights** (`Plugins/ElgatoKeyLights`), a port of `@mp-consulting/homebridge-elgato-key-lights`
+  with the same configuration: Bonjour discovery and configured lights, power, brightness and colour
+  temperature, polling for changes made elsewhere, power-on settings, "No Response" while a light does not
+  answer.
+- `BonjourBrowser.browse(type:)`: service discovery through dns_sd on macOS and Avahi on Linux, with host,
+  port, TXT record and addresses.
+- `HAPServer.Options.deviceID` overrides the stored device ID (Homebridge's `username`).
+
 ### Changed
+
+- swift-log 1.11 or later.
 
 - JSON responses (the accessory database, reads, writes, events) are written directly instead of through
   `JSONEncoder`: `GET /accessories` for 100 accessories dropped from about 13 ms to 2.5 ms of server time. The

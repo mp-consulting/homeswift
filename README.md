@@ -23,7 +23,9 @@ Homeswift is a library for the accessory side of HomeKit over IP, the part
 services and characteristics, react to writes from the Home app, set values when your device changes, and
 Homeswift takes care of pairing, encryption, Bonjour and keeping the accessory's identity across launches.
 
-It is the base for a Homebridge written in Swift: one small binary, no Node.js, no npm.
+It is also a Homebridge written in Swift: the `homeswift` bridge reads a Homebridge-style `config.json` and
+runs the plugins compiled into it, one small binary, no Node.js, no npm. The first plugin is Elgato Key Lights;
+[docs/plugins.md](docs/plugins.md) explains how to write or port one.
 
 ## What it does
 
@@ -117,6 +119,35 @@ A few things to know:
   a new identity; the old accessory must then be removed from the Home app.
 - Run one server per identity: two processes advertising the same device ID confuse the Home app.
 
+## Run a bridge with plugins
+
+`homeswift` is the bridge: it reads `~/.homeswift/config.json`, runs the plugins listed in it, and prints the
+setup code.
+
+```bash
+swift run --scratch-path ~/Library/Caches/homeswift-build homeswift
+```
+
+The first run creates a `config.json` with a random username and pin. Add platform blocks to it; a block
+written for the Homebridge version of a plugin works unchanged:
+
+```json
+{
+  "bridge": { "name": "Homeswift", "username": "0E:1A:2B:3C:4D:5E", "pin": "031-45-154" },
+  "platforms": [
+    { "platform": "ElgatoKeyLights", "name": "Elgato Key Lights" }
+  ]
+}
+```
+
+`homeswift plugins` lists the plugins compiled in, `-U <dir>` uses another directory, `-D` logs debug output.
+A block with `_bridge` runs on its own child bridge, with its own pairing. Accessories are cached, so they
+are back in the Home app at the next launch before the plugin has reached its devices.
+
+| Plugin | Platform | Devices |
+|---|---|---|
+| [Elgato Key Lights](Plugins/ElgatoKeyLights) | `ElgatoKeyLights` | Key Light, Key Light Air, Key Light Mini, Ring Light |
+
 ## Demo
 
 `homeswift-demo` is a bridge with a lamp, a switch and a temperature sensor that drifts. Install it with
@@ -144,7 +175,10 @@ request. Its state lives in `~/.homeswift/homeswift-demo.json`.
 | Model: accessories, services, characteristics, values, the generated definitions | `Sources/Homeswift/Model` |
 | Crypto: TLV8, SRP-6a over a C Montgomery multiplication (`CHAPMath`), HKDF and ChaCha20-Poly1305 | `Sources/Homeswift/Crypto` |
 | Pairing: setup code, pair setup (M1–M6), pair verify (M1–M4), pairings | `Sources/Homeswift/Pairing` |
-| Server: SwiftNIO listener, HTTP and EVENT messages, encrypted sessions, endpoints, storage, Bonjour | `Sources/Homeswift/Server` |
+| Server: SwiftNIO listener, HTTP and EVENT messages, encrypted sessions, endpoints, storage, Bonjour advertising and browsing | `Sources/Homeswift/Server` |
+| Plugin API and runtime: `HomeswiftPlugin`, `PluginContext`, `PluginHost`, config.json, the accessory cache, child bridges | `Sources/HomeswiftPlugin` |
+| The `homeswift` bridge: command line, logging, the plugins compiled in | `Sources/HomeswiftCLI` |
+| Plugins, one directory each with sources, tests, README and config schema | `Plugins/` |
 
 Each connection handles its requests in order on one task; handlers are `async`, so a slow device never blocks
 other connections. Crypto comes from [swift-crypto](https://github.com/apple/swift-crypto) (CryptoKit on macOS).
