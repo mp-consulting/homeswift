@@ -1,0 +1,74 @@
+import Foundation
+import HomeSwift
+import Logging
+
+// A bridge with a lamp, a switch and a temperature sensor that drifts, for pairing with the Home app.
+
+LoggingSystem.bootstrap { label in
+    var handler = StreamLogHandler.standardOutput(label: label)
+    handler.logLevel = ProcessInfo.processInfo.environment["HAP_DEBUG"] != nil ? .trace : .info
+    return handler
+}
+
+let lightbulb = Service(.lightbulb, name: "Demo Lamp", optional: [.brightness], isPrimary: true)
+lightbulb.characteristic(.on).onWrite { print("Lamp on: \($0.boolValue ?? false)") }
+lightbulb.characteristic(.brightness).onWrite { print("Lamp brightness: \($0.intValue ?? 0)%") }
+let lamp = Accessory(
+    id: "demo-lamp", name: "Demo Lamp", model: "Lamp", category: .lightbulb, services: [lightbulb],
+    onIdentify: { print("Identify: Demo Lamp") })
+
+let switchService = Service(.switch, name: "Demo Switch")
+switchService.characteristic(.on).onWrite { print("Switch on: \($0.boolValue ?? false)") }
+let demoSwitch = Accessory(
+    id: "demo-switch", name: "Demo Switch", model: "Switch", category: .switch, services: [switchService],
+    onIdentify: { print("Identify: Demo Switch") })
+
+let temperature = Service(.temperatureSensor, name: "Demo Temperature")
+let thermometer = Accessory(
+    id: "demo-temperature", name: "Demo Temperature", model: "Sensor", category: .sensor, services: [temperature],
+    onIdentify: { print("Identify: Demo Temperature") })
+
+let bridge = Accessory(
+    id: "demo-bridge", name: "HomeSwift Bridge", model: "Bridge", category: .bridge,
+    services: [Service(.protocolInformation, extra: [Characteristic(.version, value: "1.1.0")])],
+    onIdentify: { print("Identify: HomeSwift Bridge") })
+
+let server = try HAPServer(
+    bridge: bridge, accessories: [lamp, demoSwitch, thermometer],
+    storage: FileStorage(name: "homeswift-demo"),
+    options: .init(setupCode: ProcessInfo.processInfo.environment["HAP_SETUP_CODE"].flatMap(SetupCode.init)))
+
+print("""
+
+    HomeSwift Bridge
+      Setup code: \(server.setupCode)
+      Setup URI:  \(server.setupURI)
+      Paired:     \(server.isPaired ? "yes (\(server.pairings.count) controller(s))" : "no")
+
+    In the Home app: Add Accessory > More options > HomeSwift Bridge, then enter the code.
+    State is kept in ~/.homeswift/homeswift-demo.json; delete it to start over.
+
+    """)
+
+let main = Task {
+    try await server.start()
+    var reading = 21.0
+    while !Task.isCancelled {
+        try await Task.sleep(for: .seconds(10))
+        reading += Double.random(in: -0.3...0.3)
+        temperature.characteristic(.currentTemperature).value = .double((reading * 10).rounded() / 10)
+    }
+}
+
+let interrupt = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+signal(SIGINT, SIG_IGN)
+// Not main-actor code: Dispatch runs the handler on its own terms, so it only uses what it captures.
+interrupt.setEventHandler { @Sendable [main, server] in
+    main.cancel()
+    Task {
+        await server.stop()
+        exit(0)
+    }
+}
+interrupt.resume()
+dispatchMain()
