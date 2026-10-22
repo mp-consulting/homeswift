@@ -25,6 +25,7 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
     struct Dependencies: Sendable {
         var transports: any JointSpaceTransportFactory = NetworkTransportFactory()
         var discover: @Sendable (Logger) async -> [DiscoveredTV] = Discovery.browse
+        var lookUpARP: @Sendable (String) async -> String? = ARPTable.macAddress(for:)
     }
 
     struct DiscoveredTV: Sendable, Equatable {
@@ -203,11 +204,21 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
         }
     }
 
+    /// The TV's own `network/devices` first, preferring the interface that answers on `ip`; then this machine's
+    /// ARP table, which has the TV since pairing just talked to it (what the Homebridge plugin reads).
     private func lookUpMAC(ip: String, credentials: JointSpacePairing.Credentials) async -> String? {
         let client = JointSpaceClient(ip: ip, username: credentials.username, password: credentials.password, certificateFingerprint: credentials.certFingerprint, transports: dependencies.transports, logger: logger)
-        guard let devices = try? await client.networkDevices() else { return nil }
-        let preferred = devices.first { $0.type?.lowercased().contains("wifi") == true || $0.type?.lowercased().contains("wireless") == true } ?? devices.first { $0.mac != nil }
-        return preferred?.mac.flatMap(TVSettings.canonicalMAC)
+        do {
+            let devices = try await client.networkDevices().filter { $0.mac.flatMap(TVSettings.canonicalMAC) != nil }
+            let wireless = devices.first { $0.type?.lowercased().contains("wifi") == true || $0.type?.lowercased().contains("wireless") == true }
+            if let mac = (devices.first { $0.ip == ip } ?? wireless ?? devices.first)?.mac.flatMap(TVSettings.canonicalMAC) { return mac }
+            logger.info("The TV lists no MAC address in network/devices; trying the ARP table", metadata: ["ip": "\(ip)"])
+        } catch {
+            logger.info("The TV did not give its MAC address (\(error)); trying the ARP table", metadata: ["ip": "\(ip)"])
+        }
+        if let mac = await dependencies.lookUpARP(ip).flatMap(TVSettings.canonicalMAC) { return mac }
+        logger.warning("No MAC address for the TV in the ARP table either; the TV's network settings show it", metadata: ["ip": "\(ip)"])
+        return nil
     }
 }
 

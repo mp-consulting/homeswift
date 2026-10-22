@@ -14,7 +14,8 @@ Home app as a second accessory to add, with the same setup code as the bridge.
 A TV has to accept the plugin once, like the Philips TV Remote app: with the web UI on, the Plugins page has
 an **Open** button for this plugin whose page finds TVs on the network (or takes an address), asks the TV to
 show a PIN, and turns the PIN into the TV's entry for the block, with the `username` and `password` the TV
-handed out and the fingerprint of its certificate. **Add to the configuration** writes the entry into this
+handed out, the fingerprint of its certificate and its MAC address (from the TV's `network/devices`, else from
+this machine's ARP table, as the Homebridge plugin reads it). **Add to the configuration** writes the entry into this
 block (a restart follows); **Copy the entry** gives it to paste by hand. The settings page of the Homebridge
 plugin produces the same keys.
 
@@ -94,6 +95,5 @@ The accessory id is `PhilipsAmbilightTV:<MAC>`; its HAP state lives in `external
 The plugin's own files (`inputs-<mac>.json`, `switch-names-<mac>.json`) are in its storage directory. The
 HTTP client, Digest authentication and Wake-on-LAN are `HomeswiftNetwork`, shared with other plugins.
 
-Not ported: Adaptive Lighting on the Ambilight light, the ARP lookup of a MAC (the pairing page asks the TV
-for it, and the TV's network settings show it), and the Homebridge settings page's source editor (the
+Not ported: Adaptive Lighting on the Ambilight light, and the Homebridge settings page's source editor (the
 `sources` keys are honoured; the web UI's form edits them).

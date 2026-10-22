@@ -108,6 +108,18 @@ enum JointSpace {
     }
 }
 
+extension JointSpace.NetworkDevice {
+    /// Field by field: a set that sends one of them as a number or a boolean still gives its MAC address.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try? container.decodeIfPresent(String.self, forKey: .id)
+        mac = try? container.decodeIfPresent(String.self, forKey: .mac)
+        ip = try? container.decodeIfPresent(String.self, forKey: .ip)
+        type = try? container.decodeIfPresent(String.self, forKey: .type)
+        wake_on_lan = try? container.decodeIfPresent(String.self, forKey: .wake_on_lan)
+    }
+}
+
 enum JointSpaceError: Error, CustomStringConvertible, Equatable {
     case unreachable(String)
     /// Nothing listens on the port: a set without HTTPS, on 1926.

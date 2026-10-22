@@ -21,7 +21,8 @@ All notable changes to this project are documented here. The format follows
   their inputs and speaker; `HAPServer.replace(primary:)` swaps a standalone accessory under its identity.
 - **`HomeswiftNetwork`**, for plugins that reach devices on the LAN: an HTTP client on NIO and NIOSSL that
   trusts or pins a self-signed certificate (the same on macOS and Linux, where URLSession cannot), HTTP Digest
-  authentication, Wake-on-LAN with the directed broadcast of the device's network.
+  authentication, Wake-on-LAN with the directed broadcast of the device's network, the MAC address of a LAN
+  host from the system's ARP table.
 
 ### Changed
 
