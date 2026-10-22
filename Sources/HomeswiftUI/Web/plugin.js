@@ -1,31 +1,20 @@
-// For a plugin's own pages, served at /plugins/<platform>/: homeswift.request() talks to the plugin instance
-// named in the page's URL (?name=), with the session cookie; homeswift.el() and homeswift.$() build and find
-// elements the way the UI's own pages do. A signed-out visitor is sent to the login page.
+// For a plugin's own pages, served at /plugins/<platform>/ after common.js: homeswift.request() talks to the plugin
+// instance named in the page's URL (?name=), with the session cookie; homeswift.el(), .$() and .tile() are the UI's
+// own (common.js). A signed-out visitor is sent to the login page.
 (() => {
   "use strict";
   const platform = decodeURIComponent(location.pathname.split("/")[2] || "");
   const name = new URLSearchParams(location.search).get("name") || platform;
   const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
 
-  const $ = (selector, root = document) => root.querySelector(selector);
-  const el = (tag, attrs = {}, ...children) => {
-    const node = document.createElement(tag);
-    for (const [key, value] of Object.entries(attrs)) {
-      if (key === "class") node.className = value;
-      else if (key === "text") node.textContent = value;
-      else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
-      // Attributes with no property of the same name: data-*, aria-* (a screen reader reads those).
-      else if (key.startsWith("data-") || key.startsWith("aria-")) node.setAttribute(key, value);
-      else if (value !== undefined && value !== null && value !== false) node[key] = value;
-    }
-    for (const child of children.flat()) if (child != null) node.append(child.nodeType ? child : document.createTextNode(String(child)));
-    return node;
-  };
+  const { $, el, icon, tile } = HomeswiftCommon;
 
-  async function request(path, { method = "GET", body } = {}) {
+  /// The UI's API, with the session cookie: `body` is an object, sent as JSON; a refusal carries the server's
+  /// message, and a signed-out visitor goes to the login page.
+  async function api(path, { method = "GET", body } = {}) {
     const options = { method, credentials: "same-origin", headers: {} };
     if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
-    const response = await fetch(prefix + String(path).replace(/^\//, ""), options);
+    const response = await fetch(path, options);
     if (response.status === 401) { location.href = "/"; throw new Error("signed out"); }
     const text = await response.text();
     let json = null;
@@ -34,10 +23,12 @@
     return json;
   }
 
+  /// This plugin instance's own routes (its handleWebRequest).
+  const request = (path, options) => api(prefix + String(path).replace(/^\//, ""), options);
+
   // The Assistant, when config.json has a HomeswiftAiKit block that works: pages offer "Explain" next to errors.
   let assistantState = null;
-  const assistant = () => (assistantState ??= fetch("/api/assistant", { credentials: "same-origin" })
-    .then((response) => (response.ok ? response.json() : { enabled: false })).catch(() => ({ enabled: false })));
+  const assistant = () => (assistantState ??= api("/api/assistant").catch(() => ({ enabled: false })));
 
   /// Markdown from the Assistant as elements, never as HTML: headings, paragraphs, nested lists, code blocks,
   /// bold, italics, code and http(s) links. Anything else stays text.
@@ -181,14 +172,9 @@
       };
       const ask = () => {
         const entry = { pending: null };
-        entry.pending = fetch("/api/assistant/explain", {
-          method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ error, context, device, plugin: platform }),
-        }).then(async (response) => {
-          const json = await response.json().catch(() => ({}));
-          if (!response.ok) throw new Error(json.error || `HTTP ${response.status}`);
-          explanations.set(error, { text: json.text, model: json.model });
-        }).catch((e) => { explanations.set(error, { failed: e.message }); });
+        entry.pending = api("/api/assistant/explain", { method: "POST", body: { error, context, device, plugin: platform } })
+          .then((json) => { explanations.set(error, { text: json.text, model: json.model }); })
+          .catch((e) => { explanations.set(error, { failed: e.message }); });
         explanations.set(error, entry);
         show(entry);
         card.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
@@ -214,7 +200,7 @@
       el("a", { class: "brand", href: "/#status" }, el("img", { src: "/icon.svg", class: "logo", alt: "" }), "Homeswift"),
       el("nav", { "aria-label": "Sections" }, sections.map(([hash, text]) => el("a", { href: `/${hash}`, text, class: hash === "#plugins" ? "active" : "" }))),
       el("span", { class: "spacer" }), user, logout);
-    fetch("/api/auth/state", { credentials: "same-origin" }).then((response) => response.json()).then((state) => {
+    api("/api/auth/state").then((state) => {
       user.textContent = state.username || "";
       logout.classList.toggle("hidden", state.mode !== "form");
       if (state.liveWebFiles) followWebFiles();
@@ -264,5 +250,108 @@
     breadcrumb(null);
   }
 
-  window.homeswift = { platform, name, request, home: "/#plugins", $, el, assistant, explain, breadcrumb };
+  // ---- This instance's block of config.json -------------------------------------------------------------
+  // Read and written by platform and name: a write applies at once (the plugin reloads), and the page never
+  // handles the rest of the file.
+
+  const blockPath = `/api/config/block/${encodeURIComponent(platform)}/${encodeURIComponent(name)}`;
+
+  /// This instance's block of config.json.
+  const readBlock = () => api(blockPath);
+
+  /// Changes the block (`change` edits it, or returns its replacement) and writes it; answers what the write
+  /// did (applied, or what waits for a restart).
+  async function updateBlock(change) {
+    const block = await readBlock();
+    return api(blockPath, { method: "PUT", body: change(block) ?? block });
+  }
+
+  /// A MAC address however it is spelled, octets without their leading zero too, as AA:BB:CC:DD:EE:FF (the
+  /// server's MACAddress); anything else comes back trimmed and upper-cased.
+  function canonicalMAC(mac) {
+    const text = String(mac ?? "").trim();
+    const octets = text.split(/[:-]/);
+    const digits = octets.length === 6 && octets.every((octet) => /^[0-9a-f]{1,2}$/i.test(octet))
+      ? octets.map((octet) => octet.padStart(2, "0")).join("") : text.replace(/[:\-. ]/g, "");
+    return /^[0-9a-f]{12}$/i.test(digits) ? digits.toUpperCase().replace(/(..)(?!$)/g, "$1:") : text.toUpperCase();
+  }
+  const isMAC = (mac) => /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(canonicalMAC(mac));
+  const sameMAC = (a, b) => canonicalMAC(a) === canonicalMAC(b);
+
+  /// The block's `devices`, changed in place by `change` and written; an empty list leaves the block.
+  function updateDevices(change) {
+    return updateBlock((block) => {
+      const devices = block.devices || [];
+      change(devices);
+      if (devices.length) block.devices = devices; else delete block.devices;
+    });
+  }
+
+  /// One device's entry, by MAC: `change` edits it in place, returns its replacement, or returns null to remove it.
+  function updateDevice(mac, change) {
+    return updateDevices((devices) => {
+      const index = devices.findIndex((device) => sameMAC(device.mac, mac));
+      if (index < 0) throw new Error("This device is not in the configuration.");
+      const replacement = change(devices[index]);
+      if (replacement === null) devices.splice(index, 1);
+      else if (replacement) devices[index] = replacement;
+    });
+  }
+
+  /// Adds an entry, or replaces the one with its MAC.
+  const putDevice = (entry) => updateDevices((devices) => {
+    const index = devices.findIndex((device) => sameMAC(device.mac, entry.mac));
+    if (index >= 0) devices[index] = entry; else devices.push(entry);
+  });
+
+  /// The entry of a device in the block, or null.
+  const findDevice = async (mac) => ((await readBlock()).devices || []).find((device) => sameMAC(device.mac, mac)) ?? null;
+
+  /// Sets a key of a draft entry, or removes it when it holds the default: config.json keeps what was chosen.
+  function setKey(draft, key, value, fallback) {
+    if (value === undefined || value === "" || value === fallback) delete draft[key]; else draft[key] = value;
+  }
+
+  /// Calls `refresh` now and every `interval` while the page is visible.
+  function poll(refresh, interval = 2000) {
+    let timer = null;
+    const start = () => { if (timer) return; refresh(); timer = setInterval(refresh, interval); };
+    const stop = () => { clearInterval(timer); timer = null; };
+    document.addEventListener("visibilitychange", () => (document.hidden ? stop() : start()));
+    start();
+  }
+
+  /// One card per item in `list`, by key: a card is drawn again only when its own item changed, so the others
+  /// keep their focus, what is open in them and their place. Anything else in the list goes.
+  function renderKeyed(list, items, keyOf, render) {
+    const previous = new Map([...list.children].filter((node) => node.dataset.key).map((node) => [node.dataset.key, node]));
+    const nodes = items.map((item) => {
+      const key = String(keyOf(item));
+      const json = JSON.stringify(item);
+      const old = previous.get(key);
+      if (old && old.dataset.json === json) return old;
+      const node = render(item);
+      node.dataset.key = key;
+      node.dataset.json = json;
+      return node;
+    });
+    nodes.forEach((node, index) => { if (list.children[index] !== node) list.insertBefore(node, list.children[index] ?? null); });
+    while (list.children.length > nodes.length) list.lastElementChild.remove();
+  }
+
+  /// Runs `work` with the button disabled and, when it takes a moment, a spinner on it; errors go to `report`.
+  async function act(button, work, report = alert) {
+    button.disabled = true;
+    const spin = setTimeout(() => button.classList.add("busy"), 150);
+    try { await work(); } catch (e) { report(e.message); }
+    clearTimeout(spin);
+    button.classList.remove("busy");
+    button.disabled = false;
+  }
+
+  window.homeswift = {
+    platform, name, request, home: "/#plugins", $, el, icon, tile, assistant, explain, breadcrumb, api, act,
+    readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, poll, renderKeyed,
+    canonicalMAC, isMAC, sameMAC,
+  };
 })();

@@ -14,12 +14,17 @@ final class ExternalAccessories: @unchecked Sendable {
     private let storageDirectory: URL
     private let options: PluginHost.Options
     private let setupCode: @Sendable () -> SetupCode
+    private let added: @Sendable (PluginHost.Bridge) -> Void
 
-    init(bridges: NIOLockedValueBox<[PluginHost.Bridge]>, storageDirectory: URL, options: PluginHost.Options, setupCode: @escaping @Sendable () -> SetupCode) {
+    init(
+        bridges: NIOLockedValueBox<[PluginHost.Bridge]>, storageDirectory: URL, options: PluginHost.Options, setupCode: @escaping @Sendable () -> SetupCode,
+        added: @escaping @Sendable (PluginHost.Bridge) -> Void = { _ in }
+    ) {
         self.bridges = bridges
         self.storageDirectory = storageDirectory
         self.options = options
         self.setupCode = setupCode
+        self.added = added
     }
 
     /// Whether the host has started its servers: a server published from now on starts at once.
@@ -48,6 +53,7 @@ final class ExternalAccessories: @unchecked Sendable {
         let server = try HAPServer(accessory: accessory, storage: storage, options: serverOptions)
         let bridge = PluginHost.Bridge(name: accessory.name, server: server, isChild: false, isExternal: true, owner: owner, ownerKey: key)
         bridges.withLockedValue { $0.append(bridge) }
+        added(bridge)
         return (bridge, true)
     }
 

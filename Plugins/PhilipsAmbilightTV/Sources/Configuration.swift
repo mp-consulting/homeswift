@@ -1,4 +1,5 @@
 import Foundation
+import HomeswiftNetwork
 
 extension PhilipsAmbilightTVPlugin {
     /// The platform block of `homebridge-philips-ambilight-tv`, key for key. Every option is optional at
@@ -125,8 +126,8 @@ struct TVSettings: Sendable, Equatable {
     /// Checks a device block. Throws with what is wrong, so the log says it.
     init(_ device: PhilipsAmbilightTVPlugin.Configuration.Device) throws {
         guard let name = device.name?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { throw TVConfigurationError.missing("name") }
-        guard let rawMAC = device.mac, let mac = Self.canonicalMAC(rawMAC) else { throw TVConfigurationError.invalid("mac", device.mac ?? "") }
-        guard let ip = device.ip?.trimmingCharacters(in: .whitespaces), Self.isIPv4(ip) else { throw TVConfigurationError.invalid("ip", device.ip ?? "") }
+        guard let rawMAC = device.mac, let mac = MACAddress.canonical(rawMAC) else { throw TVConfigurationError.invalid("mac", device.mac ?? "") }
+        guard let ip = device.ip?.trimmingCharacters(in: .whitespaces), WakeOnLAN.ipv4(ip) != nil else { throw TVConfigurationError.invalid("ip", device.ip ?? "") }
         guard let username = device.username, !username.isEmpty else { throw TVConfigurationError.missing("username") }
         guard let password = device.password, !password.isEmpty else { throw TVConfigurationError.missing("password") }
         self.name = Self.homeKitName(name)
@@ -173,20 +174,6 @@ struct TVSettings: Sendable, Equatable {
             sources[id] = SourceSetting(order: setting.order, visible: setting.visible, customName: setting.customName?.nonEmpty.map(Self.homeKitName))
         }
         self.sources = sources
-    }
-
-    /// Uppercase colon-separated octets, whatever separators the input had: one spelling, so a TV keeps
-    /// its HomeKit identity however its address was typed.
-    static func canonicalMAC(_ mac: String) -> String? {
-        let digits = mac.trimmingCharacters(in: .whitespaces).filter { $0 != ":" && $0 != "-" && $0 != "." }
-        guard digits.count == 12, digits.allSatisfy(\.isHexDigit) else { return nil }
-        let characters = Array(digits.uppercased())
-        return stride(from: 0, to: 12, by: 2).map { String(characters[$0..<$0 + 2]) }.joined(separator: ":")
-    }
-
-    static func isIPv4(_ string: String) -> Bool {
-        let parts = string.split(separator: ".", omittingEmptySubsequences: false)
-        return parts.count == 4 && parts.allSatisfy { UInt8($0) != nil && !$0.isEmpty }
     }
 
     /// A name HomeKit accepts: letters, digits, spaces, apostrophes, commas, periods and hyphens, 64 at most,

@@ -337,17 +337,7 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
     /// Uppercase colon-separated octets (`3C:6A:9D:04:0A:0B`), whatever separators and leading zeros the
     /// input had, so a light is keyed the same from Bonjour and from config.json.
     static func canonicalMAC(_ mac: String) -> String {
-        let trimmed = mac.trimmingCharacters(in: .whitespaces)
-        let octets = trimmed.split(whereSeparator: { $0 == ":" || $0 == "-" }).map { String($0) }
-        let digits: String
-        if octets.count == 6, octets.allSatisfy({ (1...2).contains($0.count) && $0.allSatisfy(\.isHexDigit) }) {
-            digits = octets.map { $0.count == 1 ? "0" + $0 : $0 }.joined()
-        } else {
-            digits = trimmed.filter { $0 != ":" && $0 != "-" && $0 != "." }
-        }
-        guard digits.count == 12, digits.allSatisfy(\.isHexDigit) else { return trimmed.uppercased() }
-        let characters = Array(digits.uppercased())
-        return stride(from: 0, to: 12, by: 2).map { String(characters[$0..<$0 + 2]) }.joined(separator: ":")
+        MACAddress.canonical(mac) ?? mac.trimmingCharacters(in: .whitespaces).uppercased()
     }
 }
 

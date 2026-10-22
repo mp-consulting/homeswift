@@ -101,9 +101,9 @@ struct ConfigurationTests {
     }
 
     @Test func helpers() {
-        #expect(TVSettings.canonicalMAC("aa-bb-cc-dd-ee-ff") == "AA:BB:CC:DD:EE:FF")
-        #expect(TVSettings.canonicalMAC("aabbccddeeff") == "AA:BB:CC:DD:EE:FF")
-        #expect(TVSettings.canonicalMAC("hello") == nil)
+        #expect(MACAddress.canonical("aa-bb-cc-dd-ee-ff") == "AA:BB:CC:DD:EE:FF")
+        #expect(MACAddress.canonical("aabbccddeeff") == "AA:BB:CC:DD:EE:FF")
+        #expect(MACAddress.canonical("hello") == nil)
         #expect(TVSettings.homeKitName("Disney+") == "Disney Plus")
         #expect(TVSettings.homeKitName("com.netflix.ninja") == "com.netflix.ninja")
         #expect(TVSettings.homeKitName("  Tom & Jerry / 2 ") == "Tom and Jerry 2")

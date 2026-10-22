@@ -20,7 +20,7 @@ enum UICommands {
             try await server.start()
             if ui.auth == .form, server.users.isEmpty {
                 // The set-up code itself goes to the banner (stdout), never to the log the MCP tools can read.
-                logger.info("Web UI: no account yet; the set-up code printed at startup creates the first one")
+                logger.info("Web UI: no account yet; the set-up code in the bridge's output creates the first one")
             }
             return server
         } catch {

@@ -111,12 +111,14 @@ public final class AssistantService: Assistant, Sendable {
         return try await reply(system: Prompts.Ask.system, messages: Redaction.redactMessages(history) + [.user(user)], onChunk: onChunk)
     }
 
+    /// A device's error, explained. Its network addresses stay home: `<IP>` and `<MAC>` reach the provider, as
+    /// the Homebridge UIs send them, whoever asks (a page, the command line, a plugin).
     public func explain(error: String, context: String?, device: JSONValue?, pluginName: String?, onChunk: (@Sendable (String) -> Void)?) async throws -> AssistantReply {
         let cap = budget(8_000)
         let user = Prompts.ExplainDeviceError.user(
-            error: Tokens.trim(Redaction.redactText(error), to: cap / 2),
-            context: context.map { Tokens.trim(Redaction.redactText($0), to: cap / 4) },
-            device: device.map { boundedJSON($0, cap / 4) },
+            error: Tokens.trim(Redaction.redactText(Redaction.scrubAddresses(error)), to: cap / 2),
+            context: context.map { Tokens.trim(Redaction.redactText(Redaction.scrubAddresses($0)), to: cap / 4) },
+            device: device.map { boundedJSON(Redaction.scrubAddresses($0), cap / 4) },
             pluginName: pluginName.map(Redaction.redactText))
         return try await reply(system: Prompts.ExplainDeviceError.system, messages: [.user(user)], onChunk: onChunk)
     }

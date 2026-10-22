@@ -4,7 +4,7 @@
 // light by its address. Saving writes this instance's block, and the plugin reloads with it.
 (() => {
   "use strict";
-  const { $, el, request, name, platform, explain, breadcrumb } = homeswift;
+  const { $, el, tile, request, explain, breadcrumb, act, readBlock, updateDevices, setKey, poll, renderKeyed, canonicalMAC, sameMAC } = homeswift;
 
   const list = $("#lights");
   const panel = $("#light-settings");
@@ -14,55 +14,27 @@
   const tint = (mirek) => (mirek ? `hsl(${mirek > 250 ? 35 : 210}, 90%, ${55 + Math.abs(mirek - 250) / 10}%)` : "var(--muted)");
   const behaviours = [[0, "Use the platform's setting"], [1, "Restore the last settings"], [2, "Use the defaults below"]];
 
-  /// Runs `work` with the button disabled; errors go to `report`.
-  async function act(button, work, report = alert) {
-    button.disabled = true;
-    try { await work(); } catch (e) { report(e.message); }
-    button.disabled = false;
-  }
+  // MARK: config.json: this instance's block, through plugin.js.
 
-  function bulb() {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.innerHTML = '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/>';
-    return svg;
-  }
-
-  // MARK: config.json: this instance's block, read and written through the signed-in UI.
-
-  const api = async (path, options = {}) => {
-    const response = await fetch(path, { credentials: "same-origin", ...options });
-    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `HTTP ${response.status}`);
-    return response.json();
-  };
-  const canonical = (mac) => (mac || "").toUpperCase().replace(/[^0-9A-F]/g, "").replace(/(..)(?!$)/g, "$1:");
-
-  async function readBlock() {
-    const plugins = await api("/api/plugins");
-    const block = (plugins.blocks || []).find((b) => b.platform === platform && b.name === name);
-    if (!block) throw new Error("This instance's block is not in the configuration.");
-    const config = await api("/api/config");
-    return { index: block.index, current: config.platforms[block.index] };
-  }
-
-  /// Changes the per-light entries and saves the block: the plugin reloads with them.
-  async function updateDevices(change) {
-    const { index, current } = await readBlock();
-    const devices = current.devices || [];
-    change(devices);
-    const block = { ...current, devices };
-    if (!devices.length) delete block.devices;
-    await api(`/api/config/platforms/${index}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(block) });
+  /// Changes the per-light entries and saves the block (the plugin reloads with them); the page keeps what was saved.
+  async function updateEntries(change) {
+    let devices = [];
+    await updateDevices((list) => { change(list); devices = list; });
     configured = devices;
   }
+
+  /// Adds a light's entry, or changes the one it has: `change` gets the entry there was, if any.
+  const putEntry = (mac, change) => updateEntries((devices) => {
+    const index = devices.findIndex((d) => sameMAC(d.mac, mac));
+    if (index >= 0) devices[index] = change(devices[index]); else devices.push(change(undefined));
+  });
 
   // MARK: The lights
 
   let lights = [];
   let configured = [];   // the block's per-light entries
-  let shown = null;
 
-  const entryFor = (mac) => configured.find((d) => canonical(d.mac) === canonical(mac));
+  const entryFor = (mac) => configured.find((d) => sameMAC(d.mac, mac));
 
   function lightCard(light) {
     const disabled = light.disabled === true;
@@ -70,7 +42,7 @@
     const fact = (label, value) => el("div", { class: "fact" }, el("span", { text: label }), el("b", { text: value, title: value }));
     return el("div", { class: `card light ${disabled ? "is-disabled" : ""}` },
       el("div", { class: "server-head" },
-        el("span", { class: `tile ${light.on && !disabled ? "light" : "system"}`, "aria-hidden": "true" }, bulb()),
+        tile("bulb", light.on && !disabled ? "yellow" : "grey"),
         el("div", { class: "who" }, el("strong", { text: light.name }), el("div", { class: "muted", text: [light.model, light.serial].filter(Boolean).join(" · ") })),
         el("span", { class: `pill status ${kind}`, text: state })),
       disabled
@@ -102,9 +74,9 @@
 
   /// The lights the plugin runs, then the disabled ones from config.json, which the plugin leaves out.
   function allLights() {
-    const running = new Set(lights.map((light) => canonical(light.mac)));
-    const disabled = configured.filter((d) => d.enabled === false && !running.has(canonical(d.mac))).map((d) => ({
-      mac: canonical(d.mac), name: d.displayName || d.name || canonical(d.mac), model: d.model || "Key Light", host: d.ip || d.host, port: d.port || 9123, disabled: true,
+    const running = new Set(lights.map((light) => canonicalMAC(light.mac)));
+    const disabled = configured.filter((d) => d.enabled === false && !running.has(canonicalMAC(d.mac))).map((d) => ({
+      mac: canonicalMAC(d.mac), name: d.displayName || d.name || canonicalMAC(d.mac), model: d.model || "Key Light", host: d.ip || d.host, port: d.port || 9123, disabled: true,
     }));
     return [...lights, ...disabled];
   }
@@ -113,17 +85,15 @@
     try {
       ({ lights } = await request("lights"));
       const all = allLights();
-      const answer = JSON.stringify(all);
-      if (answer === shown) return;
-      shown = answer;
       if (all.length === 0) {
-        list.replaceChildren(el("div", { class: "card empty", style: "grid-column:1/-1" },
-          el("p", { class: "muted", text: "No light found yet. Lights announce themselves over Bonjour; a light Bonjour does not reach can be added by its address." })));
+        if (!list.querySelector(".empty")) {
+          list.replaceChildren(el("div", { class: "card empty" },
+            el("p", { class: "muted", text: "No light found yet. Lights announce themselves over Bonjour; a light Bonjour does not reach can be added by its address." })));
+        }
         return;
       }
-      list.replaceChildren(...all.map(lightCard));
+      renderKeyed(list, all, (light) => canonicalMAC(light.mac), lightCard);
     } catch (e) {
-      shown = null;
       list.replaceChildren(el("p", { class: "error", text: e.message }));
     }
   }
@@ -153,7 +123,7 @@
 
   function renderSettings() {
     const { light, draft } = editing;
-    const set = (key, value, fallback) => { if (value === undefined || value === "" || value === fallback) delete draft[key]; else draft[key] = value; changed(); };
+    const set = (key, value, fallback) => { setKey(draft, key, value, fallback); changed(); };
     const message = el("span", { class: "muted" });
     const save = el("button", { class: "primary", text: "Save", onclick: (event) => act(event.currentTarget, saveSettings, (text) => { message.className = "error"; message.textContent = text; }) });
     const changed = () => {
@@ -219,14 +189,10 @@
 
   async function saveSettings() {
     const { draft } = editing;
-    await updateDevices((devices) => {
-      const index = devices.findIndex((d) => canonical(d.mac) === canonical(draft.mac));
-      if (index >= 0) devices[index] = draft; else devices.push(draft);
-    });
+    await putEntry(draft.mac, () => draft);
     editing.saved = JSON.stringify(draft);
     editing.exists = true;
     renderSettings();
-    shown = null;
     setTimeout(refresh, 600);
   }
 
@@ -234,13 +200,12 @@
   async function removeEntry() {
     const { light } = editing;
     if (!confirm(`Remove the settings of ${light.name} from config.json? ${light.pinned ? "It is only reached through its address there, so it leaves the Home app." : "Bonjour still finds it, with the platform's settings."}`)) return;
-    await updateDevices((devices) => {
-      const index = devices.findIndex((d) => canonical(d.mac) === canonical(light.mac));
+    await updateEntries((devices) => {
+      const index = devices.findIndex((d) => sameMAC(d.mac, light.mac));
       if (index >= 0) devices.splice(index, 1);
     });
     editing.draft = JSON.parse(editing.saved);
     closeSettings();
-    shown = null;
     setTimeout(refresh, 600);
   }
 
@@ -278,21 +243,13 @@
     if (entryFor(light.mac)?.ip === address) throw new Error(`${light.name} is already in config.json at this address.`);
     const entry = { mac: light.mac, name: light.name, ip: address, model: light.model };
     if (Number(port.value) !== 9123) entry.port = Number(port.value);
-    await updateDevices((devices) => {
-      const index = devices.findIndex((d) => canonical(d.mac) === canonical(light.mac));
-      if (index >= 0) devices[index] = { ...devices[index], ...entry }; else devices.push(entry);
-    });
+    await putEntry(light.mac, (old) => ({ ...old, ...entry }));
     addStatus.className = "status-line ok";
     addStatus.textContent = `Added ${light.name}. It appears in the Home app under the bridge.`;
     host.value = "";
-    shown = null;
     setTimeout(refresh, 800);
   }
 
-  readBlock().then(({ current }) => { configured = current.devices || []; shown = null; refresh(); }).catch(() => {});
-  let timer = null;
-  function start() { if (timer) return; refresh(); timer = setInterval(refresh, 2000); }
-  function stop() { clearInterval(timer); timer = null; }
-  document.addEventListener("visibilitychange", () => (document.hidden ? stop() : start()));
-  start();
+  readBlock().then((block) => { configured = block.devices || []; refresh(); }).catch(() => {});
+  poll(refresh);
 })();

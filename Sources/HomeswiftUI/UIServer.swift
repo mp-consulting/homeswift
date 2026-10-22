@@ -161,16 +161,18 @@ public final class UIServer: Sendable {
     private func page(for parts: [String], _ request: Request) -> Reply {
         let files: [String: WebFile]
         let name: String
+        var platform: String?
         if parts.first == "plugins", parts.count >= 2 {
             // A plugin's own pages, for a signed-in user; anyone else lands on the login page.
             guard authenticatedUser(request) != nil else { return .redirect(to: "/") }
+            platform = parts[1]
             files = catalog.host.registry.entry(for: parts[1])?.webFiles ?? [:]
             name = parts.count == 2 ? "index.html" : parts.dropFirst(2).joined(separator: "/")
         } else {
             files = WebAssets.files
             name = parts.isEmpty ? "index.html" : parts.joined(separator: "/")
         }
-        if let live, let file = live.file(name, platform: parts.first == "plugins" ? parts[1] : nil, unreadable: { url, error in
+        if let live, let file = live.file(name, platform: platform, unreadable: { url, error in
             logger.warning("Live web file unreadable; serving the compiled-in copy", metadata: ["file": "\(url.path)", "error": "\(error)"])
         }) {
             return .data(status: 200, contentType: file.contentType, body: Data(file.body.utf8))
@@ -260,6 +262,18 @@ public final class UIServer: Sendable {
             }
             throttle.succeeded(request.remote)
             return .json(["username": .string(username)], headers: ["Set-Cookie": cookie(sessions.create(username: username))])
+        case (.POST, "password-strength"):
+            // The gauge under a new password: the server's PasswordPolicy, the one that decides, while typing.
+            // No session needed: the first account is created before there is one. evaluate caps the size.
+            let body = (try? JSONValue(data: request.body)) ?? .null
+            let strength = PasswordPolicy.evaluate(body["password"]?.stringValue ?? "", username: body["username"]?.stringValue)
+            return .json([
+                "bits": .number(strength.bits.rounded()), "level": .string(strength.level.rawValue), "problems": .array(strength.problems.map(JSONValue.string)),
+                "reason": strength.reason.map(JSONValue.string) ?? .null,
+                "lengthMet": .bool(strength.length >= PasswordPolicy.minimumLength), "bitsMet": .bool(strength.bits >= PasswordPolicy.minimumBits),
+                "acceptable": .bool(strength.isAcceptable), "minimumLength": .number(Double(PasswordPolicy.minimumLength)),
+                "minimumBits": .number(PasswordPolicy.minimumBits),
+            ])
         case (.POST, "logout"):
             if let token = request.cookies[Self.cookieName] { sessions.revoke(token) }
             return .json(JSONValue.object([:]), headers: ["Set-Cookie": cookie(nil)])
@@ -301,6 +315,10 @@ public final class UIServer: Sendable {
                 return .json(.object(plugins))
             case ["config"]:
                 return .text(try String(contentsOf: catalog.configURL, encoding: .utf8), contentType: "application/json")
+            case let path where path.count == 4 && path[0] == "config" && path[1] == "block":
+                let block = try catalog.readConfig()["platforms"]?.arrayValue?.first { $0["platform"]?.stringValue == path[2] && ($0["name"]?.stringValue ?? path[2]) == path[3] }
+                guard let block else { return .error(404, "no block \(path[3]) of \(path[2])") }
+                return .json(block)
             case ["logs"]:
                 return .json(.array(catalog.logs.recent(500).map(Self.logJSON)))
             case ["events"]:
@@ -328,7 +346,7 @@ public final class UIServer: Sendable {
             if route == ["config"] {
                 guard body.objectValue != nil else { return .error(400, "the config must be a JSON object") }
                 let result = try await catalog.applyConfig(body, dryRun: false)
-                noteConfigChange(by: username, result)
+                noteConfigChange(by: username)
                 return .json(result)
             }
             if route.count == 2, route[0] == "accessories" {
@@ -340,6 +358,20 @@ public final class UIServer: Sendable {
             }
             if route.count == 3, route[0] == "config", route[1] == "platforms" {
                 return try await replacePlatformBlock(at: route[2], with: body, username: username)
+            }
+            if route.count == 4, route[0] == "config", route[1] == "block" {
+                // A block by platform and name, for a plugin's own page: its read-modify-write never needs
+                // the whole file, nor an index that may have moved.
+                guard body.objectValue != nil, body["platform"]?.stringValue == route[2] else { return .error(400, "the block must keep its platform") }
+                var found = false
+                let result = try await catalog.editPlatforms(dryRun: false) { platforms in
+                    guard let index = platforms.firstIndex(where: { $0["platform"]?.stringValue == route[2] && ($0["name"]?.stringValue ?? route[2]) == route[3] }) else { return }
+                    platforms[index] = body
+                    found = true
+                }
+                guard found else { return .error(404, "no block \(route[3]) of \(route[2])") }
+                noteConfigChange(by: username)
+                return .json(result)
             }
         case .POST:
             if route == ["account", "password"] {
@@ -419,7 +451,7 @@ public final class UIServer: Sendable {
                     platforms.remove(at: index)
                 }
             }
-            noteConfigChange(by: username, result)
+            noteConfigChange(by: username)
             return .json(result)
         } catch let missing as NoSuchBlock {
             return .error(404, "no block \(missing.index)")
@@ -430,36 +462,38 @@ public final class UIServer: Sendable {
         ["time": .string(line.date.formatted(.iso8601)), "level": .string(line.level.rawValue), "label": .string(line.label), "text": .string(line.text)]
     }
 
-    private func noteConfigChange(by username: String, _ result: JSONValue) {
-        let pending = result["restartNeeded"]?.arrayValue ?? []
-        logger.info(pending.isEmpty ? "config.json changed from the web UI and applied" : "config.json changed from the web UI; restart to apply the rest", metadata: ["user": "\(username)"])
+    /// Who changed config.json; the host's own line says what applied.
+    private func noteConfigChange(by username: String) {
+        logger.info("config.json changed from the web UI", metadata: ["user": "\(username)"])
     }
 }
 
-/// Broadcasts accessory changes and log lines to every open `/api/events` stream.
+/// Broadcasts accessory changes and log lines to every open `/api/events` stream. Its subscriptions end with
+/// `close()`, so a web UI restarted in the process leaves nothing behind; the host's feed brings the servers
+/// it adds later.
 final class EventHub: Sendable {
     private let listeners = NIOLockedValueBox<[UUID: AsyncStream<Data>.Continuation]>([:])
-    private let attached = NIOLockedValueBox(false)
+    private let observations = NIOLockedValueBox<[Observation]?>(nil)
 
     func attach(to catalog: HomeswiftCatalog) {
-        guard attached.withLockedValue({ attached -> Bool in
-            defer { attached = true }
-            return !attached
-        }) else { return }
-        for bridge in catalog.host.bridges {
-            bridge.server.observeChanges { accessory, characteristic, value in
+        guard observations.withLockedValue({ $0 == nil }) else { return }
+        // The host's feed covers the servers it adds later too (a new TV, a child bridge from a live reload).
+        let changes = catalog.host.observeChanges { [self] accessory, characteristic, value in
+            // Nothing is looked up while no page listens: `payload` is only built for a listener.
+            broadcast(event: "accessory", payload: {
                 let service = accessory.services.first { $0.characteristics.contains { $0 === characteristic } }
                 var payload: [String: JSONValue] = ["id": .string(accessory.id), "characteristic": .string(characteristic.type.name), "value": HomeswiftCatalog.json(value)]
                 if let service {
                     payload["service"] = .string(service.type.name)
                     if let subtype = service.subtype { payload["subtype"] = .string(subtype) }
                 }
-                self.broadcast(event: "accessory", payload: .object(payload))
-            }
+                return .object(payload)
+            }())
         }
-        catalog.logs.observe { line in
-            self.broadcast(event: "log", payload: UIServer.logJSON(line))
+        let log = catalog.logs.observe { [self] line in
+            broadcast(event: "log", payload: UIServer.logJSON(line))
         }
+        observations.withLockedValue { $0 = [changes, log] }
     }
 
     func stream() -> AsyncStream<Data> {
@@ -480,6 +514,7 @@ final class EventHub: Sendable {
     }
 
     func close() {
+        observations.withLockedValue { $0 ?? [] }.forEach { $0.cancel() }
         for continuation in listeners.withLockedValue({ Array($0.values) }) { continuation.finish() }
     }
 }

@@ -139,6 +139,8 @@ public final class PluginHost: @unchecked Sendable {
     private let configurationBox: NIOLockedValueBox<HomeswiftConfiguration>
     private let instanceList = NIOLockedValueBox<[Instance]>([])
     private let assistantBox = NIOLockedValueBox<AssistantService?>(nil)
+    // Characteristic changes of every server the host runs, for the web UI and the MCP server.
+    private let changes: ChangeFeed
     // The tail of the reloads, so two quick saves apply one after the other.
     private let reloadTail = NIOLockedValueBox<Task<Void, Never>?>(nil)
 
@@ -155,9 +157,12 @@ public final class PluginHost: @unchecked Sendable {
         let bridgeList = NIOLockedValueBox([main])
         self.bridgeList = bridgeList
         let mainServer = main.server
-        externals = ExternalAccessories(bridges: bridgeList, storageDirectory: storageDirectory, options: options) { mainServer.setupCode }
-        var instances: [Instance] = []
-        var keys = Set<String>()
+        let changes = ChangeFeed()
+        self.changes = changes
+        changes.follow(mainServer)
+        externals = ExternalAccessories(bridges: bridgeList, storageDirectory: storageDirectory, options: options, setupCode: { mainServer.setupCode }) { bridge in
+            changes.follow(bridge.server)
+        }
 
         if configuration.accessoryBlockCount > 0 {
             logger.warning("config.json has \(configuration.accessoryBlockCount) \"accessories\" block(s); Homeswift only runs platforms, they are ignored")
@@ -168,28 +173,16 @@ public final class PluginHost: @unchecked Sendable {
         aiConfigurationBox = NIOLockedValueBox(ai)
         assistantBox.withLockedValue { $0 = Self.makeAssistant(ai, logger: logger) }
 
+        var instances: [Instance] = []
         for block in configuration.platforms where !options.systemPlatforms.contains(block.platform) {
             if configuration.disabledPlugins.contains(block.platform) {
                 logger.info("Skipping disabled platform", metadata: ["platform": "\(block.platform)", "name": "\(block.name)"])
                 continue
             }
-            guard let entry = registry.entry(for: block.platform) else {
-                logger.warning("No plugin for platform \"\(block.platform)\"; the block \"\(block.name)\" is ignored (homeswift plugins lists the available ones)")
-                continue
-            }
-            let key = Self.uniqueKey(for: block, taken: keys)
-            keys.insert(key)
-
-            let bridge: Bridge
-            if let child = block.childBridge {
-                bridge = try Self.makeBridge(child.bridge(named: block.name), storageName: "child-bridges/\(key)", isChild: true, storageDirectory: storageDirectory, options: options)
-                bridgeList.withLockedValue { $0.append(bridge) }
-            } else {
-                bridge = main
-            }
-
-            let context = Self.makeContext(block: block, key: key, bridge: bridge, storageDirectory: storageDirectory, logLevel: logger.logLevel, assistant: assistantBox, externals: externals)
-            instances.append(Instance(entry: entry, block: block, context: context))
+            guard let entry = entry(for: block) else { continue }
+            let instance = try makeInstance(block, entry: entry, taken: Set(instances.map(\.context.key)))
+            if instance.context.bridge.isChild { appendBridge(instance.context.bridge) }
+            instances.append(instance)
         }
         instanceList.withLockedValue { $0 = instances }
         for instance in instances { instance.context.restoreCache() }
@@ -239,11 +232,18 @@ public final class PluginHost: @unchecked Sendable {
         await stop()
     }
 
+    /// Calls `observer` with every characteristic change on any server the host runs, those it adds later
+    /// included (a child bridge, a television published after start), until the observation is cancelled.
+    public func observeChanges(_ observer: @escaping HAPServer.ChangeObserver) -> Observation {
+        changes.add(observer)
+    }
+
     /// Applies a new configuration without a restart, the way a save in the web UI or over MCP should take
     /// effect: a changed platform block gets a fresh plugin on the same context (its accessories, aids, iids
     /// and pairings stay, and the plugin's `start()` drops what left the block), a new block starts, a
-    /// removed one stops and leaves HomeKit. What only a restart can change is listed in the report: the
-    /// bridge block, the runtime's own blocks (the Assistant, the web UI), and child bridges.
+    /// removed one stops and leaves HomeKit, child bridges start and stop with their blocks, and the Assistant
+    /// swaps. The runtime's other blocks (the web UI) are listed for whoever runs their servers; the bridge
+    /// block, which only a restart changes, is listed as such.
     @discardableResult
     public func apply(_ next: HomeswiftConfiguration) async -> ReloadReport {
         let task = reloadTail.withLockedValue { tail -> Task<ReloadReport, Never> in
@@ -303,10 +303,7 @@ public final class PluginHost: @unchecked Sendable {
                 }
                 report.reloaded.append(block.name)
             } else {
-                guard let entry = registry.entry(for: block.platform) else {
-                    logger.warning("No plugin for platform \"\(block.platform)\"; the block \"\(block.name)\" is ignored (homeswift plugins lists the available ones)")
-                    continue
-                }
+                guard let entry = entry(for: block) else { continue }
                 await add(block, entry: entry)
                 report.started.append(block.name)
             }
@@ -346,20 +343,18 @@ public final class PluginHost: @unchecked Sendable {
     /// Creates an instance for a block, on a new child bridge when it asks for one, restores its cache and
     /// starts its plugin; servers start at once when the host runs.
     private func add(_ block: HomeswiftConfiguration.Platform, entry: PluginRegistry.Entry, as verb: String = "Started") async {
-        let key = Self.uniqueKey(for: block, taken: Set(instances.map(\.context.key)))
-        var bridge = mainBridge
-        if let child = block.childBridge {
-            do {
-                bridge = try Self.makeBridge(child.bridge(named: block.name), storageName: "child-bridges/\(key)", isChild: true, storageDirectory: storageDirectory, options: options)
-                if externals.isRunning { try await bridge.server.start() }
-                bridgeList.withLockedValue { $0.append(bridge) }
-            } catch {
-                logger.error("Could not start the child bridge of \"\(block.name)\": \(error)")
-                return
+        let instance: Instance
+        do {
+            instance = try makeInstance(block, entry: entry, taken: Set(instances.map(\.context.key)))
+            if instance.context.bridge.isChild {
+                if externals.isRunning { try await instance.context.bridge.server.start() }
+                appendBridge(instance.context.bridge)
             }
+        } catch {
+            logger.error("Could not start the child bridge of \"\(block.name)\": \(error)")
+            return
         }
-        let context = Self.makeContext(block: block, key: key, bridge: bridge, storageDirectory: storageDirectory, logLevel: logger.logLevel, assistant: assistantBox, externals: externals)
-        let instance = Instance(entry: entry, block: block, context: context)
+        let context = instance.context
         for server in context.restoreCache() where externals.isRunning {
             do { try await server.start() } catch { context.logger.warning("Could not start a restored accessory: \(error)") }
         }
@@ -390,6 +385,33 @@ public final class PluginHost: @unchecked Sendable {
         }
         instance.plugin.withLockedValue { $0 = nil }
         instance.context.saveCache()
+    }
+
+    /// The plugin for a block; nil, with a line in the log, when no plugin compiled in provides its platform.
+    private func entry(for block: HomeswiftConfiguration.Platform) -> PluginRegistry.Entry? {
+        guard let entry = registry.entry(for: block.platform) else {
+            logger.warning("No plugin for platform \"\(block.platform)\"; the block \"\(block.name)\" is ignored (homeswift plugins lists the available ones)")
+            return nil
+        }
+        return entry
+    }
+
+    /// What runs a block: a key no other instance has, its bridge (a new child bridge when it asks for one, which
+    /// the caller adds with `appendBridge`) and its context. The caller restores its cache and launches it.
+    private func makeInstance(_ block: HomeswiftConfiguration.Platform, entry: PluginRegistry.Entry, taken: Set<String>) throws -> Instance {
+        let key = Self.uniqueKey(for: block, taken: taken)
+        var bridge = mainBridge
+        if let child = block.childBridge {
+            bridge = try Self.makeBridge(child.bridge(named: block.name), storageName: "child-bridges/\(key)", isChild: true, storageDirectory: storageDirectory, options: options)
+        }
+        let context = Self.makeContext(block: block, key: key, bridge: bridge, storageDirectory: storageDirectory, logLevel: logger.logLevel, assistant: assistantBox, externals: externals)
+        return Instance(entry: entry, block: block, context: context)
+    }
+
+    /// Lists a new bridge and follows its changes.
+    private func appendBridge(_ bridge: Bridge) {
+        bridgeList.withLockedValue { $0.append(bridge) }
+        changes.follow(bridge.server)
     }
 
     private static func uniqueKey(for block: HomeswiftConfiguration.Platform, taken: Set<String>) -> String {

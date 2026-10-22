@@ -20,19 +20,10 @@
 
   .off-note { margin: 0; padding: 10px 14px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); color: var(--muted); }
 
-  .page-head { align-items: center; }
   .tv-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--line); font-size: 0.8125rem; }
   .tv-foot a { color: var(--accent); text-decoration: none; font-weight: 500; }
-  .empty { text-align: center; padding: 28px 20px; grid-column: 1 / -1; }
-  .foot-actions { display: inline-flex; align-items: center; gap: 14px; }
-  .foot-actions .link { font-size: inherit; padding: 0; font-weight: 500; }
 
-  /* The inputs editor: two columns like the Homebridge plugin's, shown (ordered) and hidden. */
-  .sources-editor { margin-top: 14px; display: grid; gap: 16px; animation: materialize var(--normal) var(--ease-out); scroll-margin-top: 90px; }
-  .sources-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-  .sources-head h2 { margin: 0 0 4px; }
-  .sources-head p { margin: 0; font-size: 0.8125rem; }
-  .sources-columns { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 18px; align-items: start; }
+  /* The inputs editor: a panel with two columns like the Homebridge plugin's, shown (ordered) and hidden. */
   .column-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; font-size: 0.8125rem; }
   .sources { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
   .source {
@@ -62,8 +53,6 @@
   .original { font-size: 0.75rem; flex: none; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .icon-button { flex: none; width: 32px; height: 32px; padding: 0; font-size: 1.125rem; line-height: 1; display: grid; place-items: center; }
   .empty-list { margin: 0; padding: 14px; border-radius: 14px; border: 1px dashed var(--line); text-align: center; font-size: 0.8125rem; }
-  .save-bar > .muted { flex: 1; font-size: 0.8125rem; }
-  .save-bar > .dirty { flex: 1; font-size: 0.8125rem; color: var(--warn); font-weight: 500; }
   .off-note p { margin: 0; }
   .off-note .explain { margin-top: 4px; }
   .status-line .link { margin-left: 10px; padding: 0; }
@@ -82,7 +71,6 @@
   .add-box { margin-top: 16px; padding: 14px 16px; border-radius: 16px; border: 1px dashed var(--line); }
   .add-box .actions { margin-top: 10px; }
   .save-bar.dirty > .muted { color: var(--warn); font-weight: 500; }
-  .empty p { margin: 0 0 14px; }
 
   .steps { display: flex; gap: 6px; list-style: none; margin: 0 0 18px; padding: 0; flex-wrap: wrap; }
   .steps li { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px 5px 5px; border-radius: 999px; color: var(--muted); font-weight: 500; }
@@ -112,25 +100,15 @@
   .check { display: flex; align-items: center; gap: 12px; margin: 14px 0 0; }
   .check label { margin: 0; }
   .needs { border-color: var(--warn) !important; }
-  .status-line { margin: 14px 0 0; min-height: 1.2em; }
-  .status-line.error { color: var(--error); }
-  .status-line.ok { color: var(--ok); }
   details { margin-top: 14px; }
   details pre { font-family: var(--mono); font-size: 0.78rem; margin: 6px 0 0; padding: 12px 14px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); overflow: auto; }
 
-  .busy::after {
-    content: ""; display: inline-block; width: 0.9em; height: 0.9em; margin-left: 8px; vertical-align: -0.12em;
-    border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) {
-    .tv, .step, .sources-editor { animation: none; }
+    .tv, .step { animation: none; }
     .source { transition: none; }
-    .busy::after { animation: none; border-right-color: currentColor; opacity: 0.5; }
   }
   @media (max-width: 640px) {
     .form { grid-template-columns: 1fr; }
-    .sources-columns { grid-template-columns: 1fr; }
     .original { display: none; }
     .pin input { width: 48px; height: 56px; }
   }
@@ -140,7 +118,7 @@
 <header><a class="brand" href="/#status"><img src="/icon.svg" class="logo" alt="">Homeswift</a></header>
 <main>
   <div class="page-head">
-    <span class="tile large accessory" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/></svg></span>
+    <span class="tile large tone-blue" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/></svg></span>
     <div>
       <h1>Philips Ambilight TV</h1>
       <p class="muted">Pair your Philips Android TVs and control them from here and from the Home app.</p>
@@ -149,12 +127,13 @@
 
   <div class="section-head"><h2>Your TVs</h2></div>
   <div id="tvs" class="tvs"></div>
-  <div id="sources" class="card sources-editor hidden"></div>
-  <div id="tv-editor" class="card sources-editor hidden"></div>
+  <div id="sources" class="card panel hidden"></div>
+  <div id="tv-editor" class="card panel hidden"></div>
 
   <div class="section-head"><h2 id="add-title">Add a TV</h2></div>
   <div id="pairing" class="card"></div>
 </main>
+<script src="/common.js"></script>
 <script src="/plugin.js"></script>
 <script src="/remote.js"></script>
 <script src="app.js"></script>

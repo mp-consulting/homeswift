@@ -21,6 +21,12 @@ import Testing
 }
 
 @Suite struct RedactionTests {
+    @Test func scrubsAddressesForTheProvider() {
+        let text = "connect ECONNREFUSED 192.168.1.5:9123 from 3C:7A:AA:F3:D5:B0, [fe80::1], studio-light.local"
+        #expect(Redaction.scrubAddresses(text) == "connect ECONNREFUSED <IP>:9123 from <MAC>, <IP>, <hostname>.local")
+        #expect(Redaction.scrubAddresses(["model": "Key Light", "ip": "10.0.0.2"]) == ["model": "Key Light", "ip": "<IP>"])
+    }
+
     @Test func redactsSecretKeysAndRestoresThem() throws {
         let config: JSONValue = [
             "platform": "Govee", "apiKey": "abc", "password": "p", "pin": "031-45-154", "maxOutputTokens": 2048,

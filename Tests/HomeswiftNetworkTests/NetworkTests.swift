@@ -281,7 +281,7 @@ final class NIOLockedValueBoxCompat<Value>: @unchecked Sendable {
 @Suite struct ARPTableTests {
     @Test func readsMacOSOutput() {
         let output = "? (192.168.1.20) at 0:11:22:aa:b:c on en0 ifscope [ethernet]\n"
-        #expect(ARPTable.darwinEntry(in: output, ip: "192.168.1.20") == "00:11:22:aa:0b:0c")
+        #expect(ARPTable.darwinEntry(in: output, ip: "192.168.1.20") == "00:11:22:AA:0B:0C")
         #expect(ARPTable.darwinEntry(in: output, ip: "192.168.1.2") == nil)
         #expect(ARPTable.darwinEntry(in: "? (192.168.1.20) at (incomplete) on en0 ifscope [ethernet]", ip: "192.168.1.20") == nil)
         #expect(ARPTable.darwinEntry(in: "192.168.1.20 (192.168.1.20) -- no entry", ip: "192.168.1.20") == nil)
@@ -293,7 +293,7 @@ final class NIOLockedValueBoxCompat<Value>: @unchecked Sendable {
             192.168.1.2      0x1         0x0         00:00:00:00:00:00     *        eth0
             192.168.1.20     0x1         0x2         AA:BB:CC:DD:EE:FF     *        eth0
             """
-        #expect(ARPTable.linuxEntry(in: table, ip: "192.168.1.20") == "aa:bb:cc:dd:ee:ff")
+        #expect(ARPTable.linuxEntry(in: table, ip: "192.168.1.20") == "AA:BB:CC:DD:EE:FF")
         #expect(ARPTable.linuxEntry(in: table, ip: "192.168.1.2") == nil)
     }
 

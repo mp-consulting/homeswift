@@ -11,20 +11,7 @@ enum WebAssets {
 (() => {
   "use strict";
 
-  const $ = (selector, root = document) => root.querySelector(selector);
-  const el = (tag, attrs = {}, ...children) => {
-    const node = document.createElement(tag);
-    for (const [key, value] of Object.entries(attrs)) {
-      if (key === "class") node.className = value;
-      else if (key === "text") node.textContent = value;
-      else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
-      // Attributes with no property of the same name: data-*, aria-* (a screen reader reads those).
-      else if (key.startsWith("data-") || key.startsWith("aria-")) node.setAttribute(key, value);
-      else if (value !== undefined && value !== null && value !== false) node[key] = value;
-    }
-    for (const child of children.flat()) if (child != null) node.append(child.nodeType ? child : document.createTextNode(String(child)));
-    return node;
-  };
+  const { $, el, tile } = HomeswiftCommon;
 
   const show = (main, ...nodes) => main.replaceChildren(...nodes.flat().filter(Boolean));
 
@@ -84,7 +71,7 @@ enum WebAssets {
     try {
       const body = { username: form.username.value, password: form.password.value };
       if (auth && auth.setupNeeded) {
-        if (setupGauge && !setupGauge.acceptable) throw new Error("The password is not strong enough yet: the gauge says what is missing.");
+        if (setupGauge && !(await setupGauge.acceptable())) throw new Error("The password is not strong enough yet: the gauge says what is missing.");
         body.setupCode = form.setupCode.value;
       }
       await api(auth && auth.setupNeeded ? "/api/auth/setup" : "/api/auth/login", { method: "POST", body });
@@ -165,7 +152,8 @@ enum WebAssets {
   let leaveGuard = null;   // a page with unsaved changes: false keeps it
   let shownHash = null;
   function route() {
-    const [name, ...args] = (location.hash || "#status").slice(1).split("/").map(decodeURIComponent);
+    const decode = (part) => { try { return decodeURIComponent(part); } catch { return part; } };
+    const [name, ...args] = (location.hash || "#status").slice(1).split("/").map(decode);
     const section = sectionOf[name] || name;
     for (const link of document.querySelectorAll("nav a")) link.classList.toggle("active", link.getAttribute("href") === `#${section}`);
     const view = views[name] || views.status;
@@ -211,31 +199,6 @@ enum WebAssets {
 
   // ---- Status --------------------------------------------------------------
 
-  // Line icons for the tiles, drawn like the TV page's: 24-unit boxes, round caps, the current colour.
-  const icons = {
-    bridge: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/>',
-    child: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/>',
-    accessory: '<rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/>',
-    system: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
-    bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/>',
-    switch: '<rect x="6" y="3" width="12" height="18" rx="3"/><circle cx="12" cy="9" r="2"/>',
-    outlet: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M10 9v2M14 9v2M10 15h4"/>',
-    sensor: '<circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/>',
-    fan: '<circle cx="12" cy="12" r="2"/><path d="M12 10c0-4 1-7 4-7 2 0 3 2 2 4l-4 4M14 12c4 0 7 1 7 4 0 2-2 3-4 2l-4-4M12 14c0 4-1 7-4 7-2 0-3-2-2-4l4-4M10 12c-4 0-7-1-7-4 0-2 2-3 4-2l4 4"/>',
-    speaker: '<rect x="6" y="3" width="12" height="18" rx="2"/><circle cx="12" cy="14" r="3"/><path d="M12 7h.01"/>',
-    lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
-    thermo: '<path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"/>',
-    door: '<path d="M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17M3 21h18M14 12h.01"/>',
-    generic: '<rect x="4" y="4" width="16" height="16" rx="4"/>',
-    plugin: '<path d="M4 7h4a2 2 0 1 1 4 0h4v4a2 2 0 1 1 0 4v4H4z"/>',
-    gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
-  };
-  function icon(name, kind = name) {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.innerHTML = icons[name];
-    return el("span", { class: `tile ${kind}`, "aria-hidden": "true" }, svg);
-  }
   /// A page's title, one line on what it is for, and its tools (search, filters) on the right.
   const pageHead = (title, subtitle, ...tools) => el("div", { class: "page-head" },
     el("div", { class: "who" }, el("h1", { text: title }), subtitle ? el("p", { class: "muted", text: subtitle }) : null),
@@ -254,10 +217,11 @@ enum WebAssets {
 
     const bridges = status.bridges.map((bridge, index) => {
       const kind = bridge.external ? "accessory" : bridge.childBridge ? "child" : "bridge";
+      const tone = { accessory: "blue", child: "violet", bridge: "orange" }[kind];
       const role = bridge.external ? `Accessory of its own, from ${bridge.platforms.join(", ") || "a plugin"}` : bridge.childBridge ? "Child bridge" : "Main bridge";
       return el("div", { class: "card server" },
         el("div", { class: "server-head" },
-          icon(kind),
+          tile(kind, tone),
           el("div", { class: "who" }, el("strong", { text: bridge.name }), el("div", { class: "muted", text: role })),
           el("span", { class: `pill status ${bridge.paired ? "on" : "away"}`, text: bridge.paired ? `Paired · ${bridge.controllers}` : "Not paired", title: bridge.paired ? `${bridge.controllers} Home app controller(s)` : "" })),
         el("div", { class: "facts lead" },
@@ -286,7 +250,7 @@ enum WebAssets {
       el("div", { class: "servers" }, ...bridges),
       el("h2", { text: "System" }),
       el("div", { class: "card server" },
-        el("div", { class: "server-head" }, icon("system"),
+        el("div", { class: "server-head" }, tile("system", "grey"),
           el("div", { class: "who" }, el("strong", { text: status.system.hostname }), el("div", { class: "muted", text: `${status.system.platform} ${status.system.os}` }))),
         el("div", { class: "facts" },
           fact("CPUs", status.system.cpus),
@@ -418,12 +382,13 @@ enum WebAssets {
     }).filter(Boolean);
   }
 
+  // An accessory's category as its tile: the icon and the colour.
   const categoryIcons = {
-    lightbulb: ["bulb", "light"], television: ["accessory", "accessory"], tvSetTopBox: ["accessory", "accessory"], tvStreamingStick: ["accessory", "accessory"],
-    appleTV: ["accessory", "accessory"], switch: ["switch", "switch"], programmableSwitch: ["switch", "switch"], outlet: ["outlet", "switch"],
-    sensor: ["sensor", "sensor"], fan: ["fan", "sensor"], airPurifier: ["fan", "sensor"], speaker: ["speaker", "accessory"], homePod: ["speaker", "accessory"],
-    audioReceiver: ["speaker", "accessory"], doorLock: ["lock", "child"], thermostat: ["thermo", "light"], heater: ["thermo", "light"], airConditioner: ["thermo", "sensor"],
-    garageDoorOpener: ["door", "child"], door: ["door", "child"], window: ["door", "child"], windowCovering: ["door", "child"],
+    lightbulb: ["bulb", "yellow"], television: ["accessory", "blue"], tvSetTopBox: ["accessory", "blue"], tvStreamingStick: ["accessory", "blue"],
+    appleTV: ["accessory", "blue"], switch: ["switch", "green"], programmableSwitch: ["switch", "green"], outlet: ["outlet", "green"],
+    sensor: ["sensor", "teal"], fan: ["fan", "teal"], airPurifier: ["fan", "teal"], speaker: ["speaker", "blue"], homePod: ["speaker", "blue"],
+    audioReceiver: ["speaker", "blue"], doorLock: ["lock", "violet"], thermostat: ["thermo", "yellow"], heater: ["thermo", "yellow"], airConditioner: ["thermo", "teal"],
+    garageDoorOpener: ["door", "violet"], door: ["door", "violet"], window: ["door", "violet"], windowCovering: ["door", "violet"],
   };
 
   // A television's remote: HomeKit's Remote Key values, and its speaker's volume and mute.
@@ -456,7 +421,7 @@ enum WebAssets {
     const primary = services.find((s) => s.primary) || services[0];
     const power = primary && primary.characteristics.find((c) => (c.type === "On" || c.type === "Active") && c.permissions.includes("pw"));
     const remoteKey = primary && primary.characteristics.find((c) => c.type === "Remote Key" && c.permissions.includes("pw"));
-    const [iconName, kind] = categoryIcons[accessory.category] || ["generic", "system"];
+    const [iconName, tone] = categoryIcons[accessory.category] || ["generic", "grey"];
     // "Living Room TV HDMI 1" reads "HDMI 1" inside the Living Room TV's card.
     const shortName = (service) => {
       const name = service.name || service.type.replace(/([a-z])([A-Z])/g, "$1 $2");
@@ -472,7 +437,7 @@ enum WebAssets {
     const subtitle = [...new Set([describeModel(accessory), accessory.platformName].filter(Boolean))].join(" · ");
     const card = el("div", { class: "card accessory-card", "data-search": `${accessory.name} ${accessory.platformName || ""} ${accessory.model || ""}`.toLowerCase() },
       el("div", { class: "server-head" },
-        icon(iconName, kind),
+        tile(iconName, tone),
         el("div", { class: "who" }, el("strong", { text: accessory.name }), el("div", { class: "muted", text: subtitle })),
         power ? powerSwitch(accessory, primary, power) : null),
       primary ? el("div", { class: "controls" }, controlRows(accessory, primary, power, remoteKey)) : null,
@@ -552,7 +517,7 @@ enum WebAssets {
       const [state, kind] = block.system ? ["Built in", "standby"] : instance ? ["Running", "on"] : plugin ? ["Not running", "away"] : ["No plugin", "away"];
       return el("div", { class: "card server" },
         el("div", { class: "server-head" },
-          icon(block.system ? "gear" : "plugin", block.system ? "system" : "bridge"),
+          tile(block.system ? "gear" : "plugin", block.system ? "grey" : "orange"),
           el("div", { class: "who" }, el("strong", { text: block.name }), el("div", { class: "muted", text: [plugin ? plugin.name : block.platform, block.childBridge ? "child bridge" : null].filter(Boolean).join(" · ") })),
           el("span", { class: `pill status ${kind}`, text: state })),
         instance ? el("div", { class: "facts" }, fact("Bridge", instance.bridge), fact("Accessories", instance.accessories), fact("Platform", block.platform))
@@ -565,7 +530,7 @@ enum WebAssets {
     const catalog = el("div", { class: "grid" }, plugins.plugins.map((plugin) => {
       const used = plugins.blocks.some((block) => block.platform === plugin.platform);
       return el("div", { class: "card server catalog" },
-        el("div", { class: "server-head" }, icon("plugin", "bridge"),
+        el("div", { class: "server-head" }, tile("plugin", "orange"),
           el("div", { class: "who" }, el("strong", { text: plugin.name }), el("div", { class: "muted", text: plugin.platform })),
           used ? el("span", { class: "pill status standby", text: "In use" }) : null),
         el("div", { class: "actions" }, el("a", { class: `button ${used ? "" : "primary"}`, href: `#settings/new/${encodeURIComponent(plugin.platform)}`, text: used ? "Add another" : "Add" })));
@@ -685,7 +650,7 @@ enum WebAssets {
     show(main,
       breadcrumb(["Plugins", "#plugins"], [block.name, isNew ? "#plugins" : settingsLink(block)], [isNew ? "Add" : "Settings"]),
       el("div", { class: "page-head settings-head" },
-        icon(block.system ? "gear" : "plugin", block.system ? "system" : "bridge"),
+        tile(block.system ? "gear" : "plugin", block.system ? "grey" : "orange"),
         el("div", { class: "who" },
           el("h1", { text: isNew ? `Add ${plugin.name}` : block.name }),
           el("p", { class: "muted", text: [...new Set([plugin ? plugin.name : platform, platform])].filter((part) => part !== block.name).concat(
@@ -862,62 +827,16 @@ enum WebAssets {
   }
 
   // ---- Password strength ---------------------------------------------------
-  // The server's PasswordPolicy (Sources/HomeswiftUI/PasswordPolicy.swift), mirrored for the gauge: the ANSSI's
-  // guide PG-078 (R21 length, R23 a large character set, R27 a check at creation) with the "moyen à fort" bar,
-  // 12 characters and 85 bits. Entropy is length × log2(character set), less what people tend to type. The
-  // server's check decides; this only shows it while typing.
+  // The gauge asks the server's PasswordPolicy (Sources/HomeswiftUI/PasswordPolicy.swift) while the password is
+  // typed: the ANSSI's guide PG-078 (R21 length, R23 a large character set, R27 a check at creation) with the
+  // "moyen à fort" bar, 12 characters and 85 bits. The numbers here only draw the gauge.
 
   const passwordPolicy = { minimumLength: 12, minimumBits: 85, scaleBits: 128 };
-  const commonWords = ["password", "passw0rd", "motdepasse", "secret", "admin", "administrator", "root", "user", "login", "welcome", "letmein", "iloveyou", "monkey", "dragon", "master", "sunshine", "princess", "football", "baseball", "shadow", "azerty", "qwerty", "qwertz", "asdf", "zxcv", "abc123", "123456", "654321", "111111", "000000", "121212", "bonjour", "soleil", "chouchou", "doudou", "loulou", "marseille", "paris", "france", "amour", "jetaime", "homeswift", "homebridge", "homekit", "apple", "iphone", "changeme", "default", "test",];
-  const strengthLevels = [
-    [100, "strongToVeryStrong", "Strong to very strong"], [85, "mediumToStrong", "Medium to strong"],
-    [65, "lowToMedium", "Low to medium"], [0, "veryWeak", "Very weak"],
-  ];
+  const strengthLabels = { strongToVeryStrong: "Strong to very strong", mediumToStrong: "Medium to strong", lowToMedium: "Low to medium", veryWeak: "Very weak" };
 
-  function passwordStrength(password, username = "") {
-    const chars = Array.from(password);
-    const code = (c) => c.codePointAt(0);
-    let pool = 0;
-    if (chars.some((c) => c >= "a" && c <= "z")) pool += 26;
-    if (chars.some((c) => c >= "A" && c <= "Z")) pool += 26;
-    if (chars.some((c) => c >= "0" && c <= "9")) pool += 10;
-    if (chars.some((c) => code(c) < 128 && !/[A-Za-z0-9]/.test(c))) pool += 33;
-    if (chars.some((c) => code(c) >= 128)) pool += 64;
-    const counts = chars.map(() => true);
-    let patterned = false;
-    for (let i = 2; i < chars.length; i++) {
-      const [a, b, c] = [code(chars[i - 2]), code(chars[i - 1]), code(chars[i])];
-      if ((a === b && b === c) || (b - a === c - b && Math.abs(c - b) === 1)) { counts[i] = false; patterned = true; }
-    }
-    const lowered = chars.map((c) => { const l = c.toLowerCase(); return Array.from(l).length === 1 ? l : c; });
-    const name = username.trim().toLowerCase();
-    const words = Array.from(name).length >= 3 ? [...commonWords, name] : commonWords;
-    let foundCommon = false, foundName = false;
-    for (const word of words) {
-      const target = Array.from(word);
-      for (let i = 0; i + target.length <= lowered.length;) {
-        if (target.every((t, k) => lowered[i + k] === t)) {
-          for (let j = i + 1; j < i + target.length; j++) counts[j] = false;
-          if (word === name) foundName = true; else foundCommon = true;
-          i += target.length;
-        } else i++;
-      }
-    }
-    const effective = counts.filter(Boolean).length;
-    const bits = pool ? effective * Math.log2(pool) : 0;
-    const [, level, label] = strengthLevels.find(([floor]) => bits >= floor);
-    let hint = null;
-    if (bits < passwordPolicy.minimumBits) {
-      hint = foundName ? "Your username adds nothing." : foundCommon ? "Common words add little." : patterned ? "Repeated or sequential characters add nothing."
-        : "Length helps most: a phrase of several random words is strong and easy to remember.";
-    }
-    const lengthOK = chars.length >= passwordPolicy.minimumLength;
-    const bitsOK = bits >= passwordPolicy.minimumBits;
-    return { bits, length: chars.length, level, label, hint, lengthOK, bitsOK, acceptable: lengthOK && bitsOK };
-  }
-
-  /// A live gauge under a password field: the ANSSI's bands along 0 to 128 bits, the 80-bit bar marked, and the
+  /// A live gauge under a password field: the ANSSI's bands along 0 to 128 bits, the 85-bit bar marked, and the
   /// two rules ticking as they are met. `username()` gives the name the password must not lean on.
+  /// `gauge.acceptable()` answers, once the server has, whether the password as typed passes.
   function strengthGauge(input, username = () => "") {
     const fill = el("div", { class: "gauge-fill" });
     const label = el("strong", {});
@@ -930,23 +849,41 @@ enum WebAssets {
       ...[65, 85, 100].map((at) => el("span", { class: "gauge-tick", style: `left:${(at / passwordPolicy.scaleBits) * 100}%` })),
       el("span", { class: "gauge-mark", title: `Required: ${passwordPolicy.minimumBits} bits`, style: `left:${(passwordPolicy.minimumBits / passwordPolicy.scaleBits) * 100}%` }));
     const gauge = el("div", { class: "gauge" }, track, el("div", { class: "gauge-legend" }, label, bits), el("ul", { class: "gauge-rules" }, ruleLength, ruleBits), hint);
+
+    // One request per password and username as typed; an answer that is no longer the latest is dropped.
+    let latest = null;
+    const evaluate = () => {
+      const body = { password: input.value, username: username() };
+      const key = JSON.stringify(body);
+      if (latest?.key !== key) latest = { key, answer: api("/api/auth/password-strength", { method: "POST", body }) };
+      return latest.answer;
+    };
+    const draw = (s) => {
+      gauge.dataset.level = s ? s.level : "";
+      fill.style.width = `${Math.min(s?.bits ?? 0, passwordPolicy.scaleBits) / passwordPolicy.scaleBits * 100}%`;
+      track.setAttribute("aria-valuenow", String(s?.bits ?? 0));
+      track.setAttribute("aria-valuetext", s ? `${strengthLabels[s.level]}, ${s.bits} bits` : "empty");
+      label.textContent = s ? strengthLabels[s.level] : "Strength";
+      bits.textContent = s ? `${s.bits} bits` : `${passwordPolicy.minimumBits} bits needed`;
+      ruleLength.classList.toggle("met", Boolean(s?.lengthMet));
+      ruleBits.classList.toggle("met", Boolean(s?.bitsMet));
+      hint.textContent = !s || s.bitsMet ? "" : s.reason ? `${s.reason[0].toUpperCase()}${s.reason.slice(1)}.`
+        : "Length helps most: a phrase of several random words is strong and easy to remember.";
+    };
+    let timer = null;
     const update = () => {
-      const s = passwordStrength(input.value, username());
-      const empty = input.value.length === 0;
-      gauge.dataset.level = empty ? "" : s.level;
-      fill.style.width = `${Math.min(s.bits, passwordPolicy.scaleBits) / passwordPolicy.scaleBits * 100}%`;
-      track.setAttribute("aria-valuenow", String(Math.round(s.bits)));
-      track.setAttribute("aria-valuetext", empty ? "empty" : `${s.label}, ${Math.round(s.bits)} bits`);
-      label.textContent = empty ? "Strength" : s.label;
-      bits.textContent = empty ? `${passwordPolicy.minimumBits} bits needed` : `${Math.round(s.bits)} bits`;
-      ruleLength.classList.toggle("met", s.lengthOK);
-      ruleBits.classList.toggle("met", s.bitsOK);
-      hint.textContent = empty ? "" : s.hint ?? "";
-      gauge.acceptable = s.acceptable;
+      clearTimeout(timer);
+      if (!input.value) { latest = null; draw(null); return; }
+      timer = setTimeout(async () => {
+        const answer = evaluate();
+        try { const s = await answer; if (latest?.answer === answer) draw(s); } catch { /* the server's check still decides */ }
+      }, 120);
     };
     input.addEventListener("input", update);
-    update();
+    draw(null);
     gauge.refresh = update;
+    // When the server cannot be asked, the form goes through: the server's own check then answers.
+    gauge.acceptable = async () => input.value !== "" && (await evaluate().catch(() => ({ acceptable: true }))).acceptable;
     return gauge;
   }
 
@@ -969,7 +906,7 @@ enum WebAssets {
     const fail = (text) => { message.className = "status-line error"; message.textContent = text; };
     const form = el("form", { class: "card account-form", onsubmit: async (event) => {
       event.preventDefault();
-      if (!gauge.acceptable) { next.focus(); return fail("The new password is not strong enough yet: the gauge says what is missing."); }
+      if (!(await gauge.acceptable())) { next.focus(); return fail("The new password is not strong enough yet: the gauge says what is missing."); }
       if (next.value !== again.value) { again.focus(); return fail("The two new passwords are not the same."); }
       if (next.value === current.value) return fail("The new password is the current one.");
       submit.disabled = true;
@@ -1119,6 +1056,64 @@ enum WebAssets {
 })();
 
 """#),
+        "common.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
+// What every page of the web UI shares, the UI's own and plugins' alike: $ and el, which build and find elements,
+// and the tiles: an icon on a colour, as the Home app draws them. Loaded before the page's own script.
+(() => {
+  "use strict";
+
+  const $ = (selector, root = document) => root.querySelector(selector);
+  const el = (tag, attrs = {}, ...children) => {
+    const node = document.createElement(tag);
+    for (const [key, value] of Object.entries(attrs)) {
+      if (key === "class") node.className = value;
+      else if (key === "text") node.textContent = value;
+      else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
+      // Attributes with no property of the same name: data-*, aria-* (a screen reader reads those).
+      else if (key.startsWith("data-") || key.startsWith("aria-")) node.setAttribute(key, value);
+      else if (value !== undefined && value !== null && value !== false) node[key] = value;
+    }
+    for (const child of children.flat()) if (child != null) node.append(child.nodeType ? child : document.createTextNode(String(child)));
+    return node;
+  };
+
+  // Line icons: 24-unit boxes, round caps, the current colour.
+  const icons = {
+    bridge: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/>',
+    child: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/>',
+    accessory: '<rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/>',
+    system: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
+    bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/>',
+    switch: '<rect x="6" y="3" width="12" height="18" rx="3"/><circle cx="12" cy="9" r="2"/>',
+    outlet: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M10 9v2M14 9v2M10 15h4"/>',
+    sensor: '<circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/>',
+    fan: '<circle cx="12" cy="12" r="2"/><path d="M12 10c0-4 1-7 4-7 2 0 3 2 2 4l-4 4M14 12c4 0 7 1 7 4 0 2-2 3-4 2l-4-4M12 14c0 4-1 7-4 7-2 0-3-2-2-4l4-4M10 12c-4 0-7-1-7-4 0-2 2-3 4-2l4 4"/>',
+    speaker: '<rect x="6" y="3" width="12" height="18" rx="2"/><circle cx="12" cy="14" r="3"/><path d="M12 7h.01"/>',
+    lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+    thermo: '<path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"/>',
+    door: '<path d="M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17M3 21h18M14 12h.01"/>',
+    generic: '<rect x="4" y="4" width="16" height="16" rx="4"/>',
+    plugin: '<path d="M4 7h4a2 2 0 1 1 4 0h4v4a2 2 0 1 1 0 4v4H4z"/>',
+    gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+  };
+
+  /// An icon as an SVG element.
+  function icon(name) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.innerHTML = icons[name] ?? icons.generic;
+    return svg;
+  }
+
+  /// A tile: the icon on a colour (`tone-orange`, `-blue`, `-violet`, `-green`, `-teal`, `-yellow`, `-grey`);
+  /// `large` for a page's heading.
+  const tile = (name, tone = "orange", large = false) =>
+    el("span", { class: `tile tone-${tone}${large ? " large" : ""}`, "aria-hidden": "true" }, icon(name));
+
+  window.HomeswiftCommon = { $, el, icon, tile };
+})();
+
+"""#),
         "icon.svg": WebFile(contentType: "image/svg+xml", body: #"""
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <title>Homeswift</title>
@@ -1177,6 +1172,7 @@ enum WebAssets {
   <div id="banner" class="banner hidden">Some changes need a restart of homeswift. <button id="restart" class="link">Restart now</button></div>
   <main id="view"></main>
 </div>
+<script src="/common.js"></script>
 <script src="/remote.js"></script>
 <script src="/app.js"></script>
 </body>
@@ -1184,34 +1180,23 @@ enum WebAssets {
 
 """#),
         "plugin.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
-// For a plugin's own pages, served at /plugins/<platform>/: homeswift.request() talks to the plugin instance
-// named in the page's URL (?name=), with the session cookie; homeswift.el() and homeswift.$() build and find
-// elements the way the UI's own pages do. A signed-out visitor is sent to the login page.
+// For a plugin's own pages, served at /plugins/<platform>/ after common.js: homeswift.request() talks to the plugin
+// instance named in the page's URL (?name=), with the session cookie; homeswift.el(), .$() and .tile() are the UI's
+// own (common.js). A signed-out visitor is sent to the login page.
 (() => {
   "use strict";
   const platform = decodeURIComponent(location.pathname.split("/")[2] || "");
   const name = new URLSearchParams(location.search).get("name") || platform;
   const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
 
-  const $ = (selector, root = document) => root.querySelector(selector);
-  const el = (tag, attrs = {}, ...children) => {
-    const node = document.createElement(tag);
-    for (const [key, value] of Object.entries(attrs)) {
-      if (key === "class") node.className = value;
-      else if (key === "text") node.textContent = value;
-      else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
-      // Attributes with no property of the same name: data-*, aria-* (a screen reader reads those).
-      else if (key.startsWith("data-") || key.startsWith("aria-")) node.setAttribute(key, value);
-      else if (value !== undefined && value !== null && value !== false) node[key] = value;
-    }
-    for (const child of children.flat()) if (child != null) node.append(child.nodeType ? child : document.createTextNode(String(child)));
-    return node;
-  };
+  const { $, el, icon, tile } = HomeswiftCommon;
 
-  async function request(path, { method = "GET", body } = {}) {
+  /// The UI's API, with the session cookie: `body` is an object, sent as JSON; a refusal carries the server's
+  /// message, and a signed-out visitor goes to the login page.
+  async function api(path, { method = "GET", body } = {}) {
     const options = { method, credentials: "same-origin", headers: {} };
     if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
-    const response = await fetch(prefix + String(path).replace(/^\//, ""), options);
+    const response = await fetch(path, options);
     if (response.status === 401) { location.href = "/"; throw new Error("signed out"); }
     const text = await response.text();
     let json = null;
@@ -1220,10 +1205,12 @@ enum WebAssets {
     return json;
   }
 
+  /// This plugin instance's own routes (its handleWebRequest).
+  const request = (path, options) => api(prefix + String(path).replace(/^\//, ""), options);
+
   // The Assistant, when config.json has a HomeswiftAiKit block that works: pages offer "Explain" next to errors.
   let assistantState = null;
-  const assistant = () => (assistantState ??= fetch("/api/assistant", { credentials: "same-origin" })
-    .then((response) => (response.ok ? response.json() : { enabled: false })).catch(() => ({ enabled: false })));
+  const assistant = () => (assistantState ??= api("/api/assistant").catch(() => ({ enabled: false })));
 
   /// Markdown from the Assistant as elements, never as HTML: headings, paragraphs, nested lists, code blocks,
   /// bold, italics, code and http(s) links. Anything else stays text.
@@ -1367,14 +1354,9 @@ enum WebAssets {
       };
       const ask = () => {
         const entry = { pending: null };
-        entry.pending = fetch("/api/assistant/explain", {
-          method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ error, context, device, plugin: platform }),
-        }).then(async (response) => {
-          const json = await response.json().catch(() => ({}));
-          if (!response.ok) throw new Error(json.error || `HTTP ${response.status}`);
-          explanations.set(error, { text: json.text, model: json.model });
-        }).catch((e) => { explanations.set(error, { failed: e.message }); });
+        entry.pending = api("/api/assistant/explain", { method: "POST", body: { error, context, device, plugin: platform } })
+          .then((json) => { explanations.set(error, { text: json.text, model: json.model }); })
+          .catch((e) => { explanations.set(error, { failed: e.message }); });
         explanations.set(error, entry);
         show(entry);
         card.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
@@ -1400,7 +1382,7 @@ enum WebAssets {
       el("a", { class: "brand", href: "/#status" }, el("img", { src: "/icon.svg", class: "logo", alt: "" }), "Homeswift"),
       el("nav", { "aria-label": "Sections" }, sections.map(([hash, text]) => el("a", { href: `/${hash}`, text, class: hash === "#plugins" ? "active" : "" }))),
       el("span", { class: "spacer" }), user, logout);
-    fetch("/api/auth/state", { credentials: "same-origin" }).then((response) => response.json()).then((state) => {
+    api("/api/auth/state").then((state) => {
       user.textContent = state.username || "";
       logout.classList.toggle("hidden", state.mode !== "form");
       if (state.liveWebFiles) followWebFiles();
@@ -1450,7 +1432,110 @@ enum WebAssets {
     breadcrumb(null);
   }
 
-  window.homeswift = { platform, name, request, home: "/#plugins", $, el, assistant, explain, breadcrumb };
+  // ---- This instance's block of config.json -------------------------------------------------------------
+  // Read and written by platform and name: a write applies at once (the plugin reloads), and the page never
+  // handles the rest of the file.
+
+  const blockPath = `/api/config/block/${encodeURIComponent(platform)}/${encodeURIComponent(name)}`;
+
+  /// This instance's block of config.json.
+  const readBlock = () => api(blockPath);
+
+  /// Changes the block (`change` edits it, or returns its replacement) and writes it; answers what the write
+  /// did (applied, or what waits for a restart).
+  async function updateBlock(change) {
+    const block = await readBlock();
+    return api(blockPath, { method: "PUT", body: change(block) ?? block });
+  }
+
+  /// A MAC address however it is spelled, octets without their leading zero too, as AA:BB:CC:DD:EE:FF (the
+  /// server's MACAddress); anything else comes back trimmed and upper-cased.
+  function canonicalMAC(mac) {
+    const text = String(mac ?? "").trim();
+    const octets = text.split(/[:-]/);
+    const digits = octets.length === 6 && octets.every((octet) => /^[0-9a-f]{1,2}$/i.test(octet))
+      ? octets.map((octet) => octet.padStart(2, "0")).join("") : text.replace(/[:\-. ]/g, "");
+    return /^[0-9a-f]{12}$/i.test(digits) ? digits.toUpperCase().replace(/(..)(?!$)/g, "$1:") : text.toUpperCase();
+  }
+  const isMAC = (mac) => /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(canonicalMAC(mac));
+  const sameMAC = (a, b) => canonicalMAC(a) === canonicalMAC(b);
+
+  /// The block's `devices`, changed in place by `change` and written; an empty list leaves the block.
+  function updateDevices(change) {
+    return updateBlock((block) => {
+      const devices = block.devices || [];
+      change(devices);
+      if (devices.length) block.devices = devices; else delete block.devices;
+    });
+  }
+
+  /// One device's entry, by MAC: `change` edits it in place, returns its replacement, or returns null to remove it.
+  function updateDevice(mac, change) {
+    return updateDevices((devices) => {
+      const index = devices.findIndex((device) => sameMAC(device.mac, mac));
+      if (index < 0) throw new Error("This device is not in the configuration.");
+      const replacement = change(devices[index]);
+      if (replacement === null) devices.splice(index, 1);
+      else if (replacement) devices[index] = replacement;
+    });
+  }
+
+  /// Adds an entry, or replaces the one with its MAC.
+  const putDevice = (entry) => updateDevices((devices) => {
+    const index = devices.findIndex((device) => sameMAC(device.mac, entry.mac));
+    if (index >= 0) devices[index] = entry; else devices.push(entry);
+  });
+
+  /// The entry of a device in the block, or null.
+  const findDevice = async (mac) => ((await readBlock()).devices || []).find((device) => sameMAC(device.mac, mac)) ?? null;
+
+  /// Sets a key of a draft entry, or removes it when it holds the default: config.json keeps what was chosen.
+  function setKey(draft, key, value, fallback) {
+    if (value === undefined || value === "" || value === fallback) delete draft[key]; else draft[key] = value;
+  }
+
+  /// Calls `refresh` now and every `interval` while the page is visible.
+  function poll(refresh, interval = 2000) {
+    let timer = null;
+    const start = () => { if (timer) return; refresh(); timer = setInterval(refresh, interval); };
+    const stop = () => { clearInterval(timer); timer = null; };
+    document.addEventListener("visibilitychange", () => (document.hidden ? stop() : start()));
+    start();
+  }
+
+  /// One card per item in `list`, by key: a card is drawn again only when its own item changed, so the others
+  /// keep their focus, what is open in them and their place. Anything else in the list goes.
+  function renderKeyed(list, items, keyOf, render) {
+    const previous = new Map([...list.children].filter((node) => node.dataset.key).map((node) => [node.dataset.key, node]));
+    const nodes = items.map((item) => {
+      const key = String(keyOf(item));
+      const json = JSON.stringify(item);
+      const old = previous.get(key);
+      if (old && old.dataset.json === json) return old;
+      const node = render(item);
+      node.dataset.key = key;
+      node.dataset.json = json;
+      return node;
+    });
+    nodes.forEach((node, index) => { if (list.children[index] !== node) list.insertBefore(node, list.children[index] ?? null); });
+    while (list.children.length > nodes.length) list.lastElementChild.remove();
+  }
+
+  /// Runs `work` with the button disabled and, when it takes a moment, a spinner on it; errors go to `report`.
+  async function act(button, work, report = alert) {
+    button.disabled = true;
+    const spin = setTimeout(() => button.classList.add("busy"), 150);
+    try { await work(); } catch (e) { report(e.message); }
+    clearTimeout(spin);
+    button.classList.remove("busy");
+    button.disabled = false;
+  }
+
+  window.homeswift = {
+    platform, name, request, home: "/#plugins", $, el, icon, tile, assistant, explain, breadcrumb, api, act,
+    readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, poll, renderKeyed,
+    canonicalMAC, isMAC, sameMAC,
+  };
 })();
 
 """#),
@@ -1613,7 +1698,7 @@ body::before {
 
 /* Materials. Content scrolls under the floating header (thick); cards hold content (regular); chips and
    groups are tinted only (thin); controls are solid, since a blur on a blur loses contrast and frames. */
-.card, .log, .toolbar, .banner {
+.card, .log, .banner {
   background-color: var(--material); background-image: var(--sheen);
   -webkit-backdrop-filter: blur(var(--blur)) saturate(180%); backdrop-filter: blur(var(--blur)) saturate(180%);
   border: 1px solid var(--edge); box-shadow: var(--shadow), inset 0 1px 0 var(--edge-light);
@@ -1626,7 +1711,6 @@ header {
   -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
   border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
 }
-.card .toolbar { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--material-thin); box-shadow: none; }
 .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -0.01em; color: var(--text); text-decoration: none; }
 .logo { width: 36px; height: 36px; border-radius: 10px; box-shadow: 0 2px 8px rgba(255, 122, 26, 0.35); }
 .logo.large { width: 72px; height: 72px; border-radius: 18px; margin-bottom: 4px; }
@@ -1677,6 +1761,27 @@ details.more-options { margin: 10px 0 2px; }
 details.more-options > summary { font-size: 0.8125rem; color: var(--accent); font-weight: 500; padding: 6px 0; }
 details.more-options[open] > summary { margin-bottom: 4px; }
 
+/* Plugin pages: a heading with the plugin's tile, card feet with their links, and panels (an editor that opens
+   under the cards) with a head and two columns. A button working for a moment shows a spinner (act()). */
+.page-head:has(> .tile) { align-items: center; }
+.foot-actions { display: inline-flex; align-items: center; gap: 14px; }
+.foot-actions .link { font-size: inherit; padding: 0; font-weight: 500; }
+.panel { margin-top: 14px; display: grid; gap: 16px; animation: materialize var(--normal) var(--ease-out); scroll-margin-top: 90px; }
+.panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.panel-head h2 { margin: 0 0 4px; }
+.panel-head p { margin: 0; font-size: 0.8125rem; }
+.panel-columns { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 20px; align-items: start; }
+.busy::after {
+  content: ""; display: inline-block; width: 0.9em; height: 0.9em; margin-left: 8px; vertical-align: -0.12em;
+  border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .panel { animation: none; }
+  .busy::after { animation: none; border-right-color: currentColor; opacity: 0.5; }
+}
+@media (max-width: 640px) { .panel-columns { grid-template-columns: 1fr; } }
+
 /* The password gauge: the ANSSI's bands along 0 to 128 bits, the 80-bit bar marked; the fill eases to its
    width as you type and takes the band's colour. */
 .gauge { margin-top: 10px; }
@@ -1711,12 +1816,7 @@ h2 { font-size: 1.0625rem; line-height: 1.25; letter-spacing: -0.01em; font-weig
 strong { font-weight: 600; }
 .help, .pill, dt, legend, .log { letter-spacing: 0.01em; }
 .card { padding: 18px 20px; margin-bottom: 14px; }
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
-.cards .card { margin: 0; }
 .muted { color: var(--muted); }
-.row { display: flex; align-items: center; gap: 12px; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--line); }
-.row:first-of-type { border-top: 0; }
-.row .name { flex: 1; }
 .value { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 52px; text-align: right; }
 
 /* Controls: feedback on the press, at once, and a focus ring for the keyboard. */
@@ -1756,8 +1856,8 @@ label > input, label > select { margin-top: 5px; }
 .pill.status.standby { color: var(--muted); }
 .pill.status.away { color: var(--warn); border-color: rgba(201, 115, 26, 0.35); }
 
-/* Tiles: an icon on a solid colour per kind of thing, like the Home app's: the bridge in the accent, child
-   bridges violet, accessories of their own (televisions) blue, the machine grey. */
+/* Tiles: an icon on a colour, like the Home app's (common.js's tile()): the accent by default, and tone-* classes
+   that no control's class can collide with. */
 .tile {
   width: 40px; height: 40px; flex: none; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #fff;
   background: linear-gradient(160deg, var(--accent-2), var(--accent)); box-shadow: 0 6px 16px rgba(25, 34, 56, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.4);
@@ -1766,12 +1866,12 @@ label > input, label > select { margin-top: 5px; }
 .tile svg { display: block; flex: none; width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .tile.large { width: 48px; height: 48px; border-radius: 14px; }
 .tile.large svg { width: 26px; height: 26px; }
-.tile.child { background: linear-gradient(160deg, #a78bfa, #7c4ddb); }
-.tile.accessory { background: linear-gradient(160deg, #4aa3ff, #1f6fe0); }
-.tile.system { background: linear-gradient(160deg, #9aa3b2, #687284); }
-.tile.light { background: linear-gradient(160deg, #ffd66b, #f0a01e); color: #5c3b00; }
-.tile.sensor { background: linear-gradient(160deg, #4fd1c5, #1c9c91); }
-.tile.switch { background: linear-gradient(160deg, #6ee7a0, #23a55a); }
+.tile.tone-violet { background: linear-gradient(160deg, #a78bfa, #7c4ddb); }
+.tile.tone-blue { background: linear-gradient(160deg, #4aa3ff, #1f6fe0); }
+.tile.tone-grey { background: linear-gradient(160deg, #9aa3b2, #687284); }
+.tile.tone-yellow { background: linear-gradient(160deg, #ffd66b, #f0a01e); color: #5c3b00; }
+.tile.tone-teal { background: linear-gradient(160deg, #4fd1c5, #1c9c91); }
+.tile.tone-green { background: linear-gradient(160deg, #6ee7a0, #23a55a); }
 
 /* Breadcrumb, on plugin pages: where the page sits, each level a way back. */
 .breadcrumb { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 2px 0 10px; }
@@ -1794,7 +1894,7 @@ label > input, label > select { margin-top: 5px; }
 .section-head .muted { font-size: 0.8125rem; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 14px; }
 .grid > .card { margin: 0; }
-.card.empty { text-align: center; padding: 28px 20px; }
+.card.empty { text-align: center; padding: 28px 20px; grid-column: 1 / -1; }
 .card.empty p { margin: 0; }
 .card.notice { color: var(--warn); font-weight: 500; }
 .card.notice p { margin: 0; }
@@ -1935,7 +2035,6 @@ input[type=search] { -webkit-appearance: none; appearance: none; }
 /* Plugins: a card per block; the settings form opens across the grid. */
 .server .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .server.editor { grid-column: 1 / -1; gap: 18px; }
-.form-body { display: grid; gap: 4px; }
 .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 4px 18px; align-items: start; }
 .fields > fieldset, .fields > .group-box { grid-column: 1 / -1; }
 .field { margin: 10px 0 4px; }
@@ -2005,9 +2104,7 @@ textarea.short { min-height: 220px; }
 .auth .card { width: min(400px, 100%); padding: 26px 26px 22px; animation: materialize 320ms var(--ease-out); }
 .auth h1 { margin-top: 6px; }
 .auth button { width: 100%; margin-top: 10px; }
-.pairing { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
 .qr { width: 148px; height: 148px; border-radius: 14px; background: #fff; padding: 6px; box-shadow: var(--shadow-control); }
-.pairing .code { margin-top: 0; }
 .code { font-family: var(--mono); font-size: 1.875rem; letter-spacing: 0.1em; font-variant-numeric: tabular-nums; margin: 10px 0; padding: 10px 16px; border-radius: 16px; display: inline-block; background: var(--material-thin); border: 1px solid var(--edge); box-shadow: inset 0 1px 0 var(--edge-light); }
 
 /* A glass surface arrives as a material: blur and scale settle together, not a plain fade. */
@@ -2049,9 +2146,6 @@ textarea.short { min-height: 220px; }
 .log-line.error .text, .log-line.critical .text { color: var(--error); }
 .log-line.debug .text, .log-line.trace .text { color: var(--muted); }
 .empty-log { padding: 20px; text-align: center; }
-.toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; padding: 10px 14px; border-radius: 999px; }
-.toolbar input, .toolbar select { width: auto; }
-.toolbar label { margin: 0; display: inline-flex; align-items: center; gap: 6px; }
 
 /* Forms */
 fieldset { border: 1px solid var(--line); border-radius: 18px; padding: 8px 16px 14px; margin: 14px 0; background: var(--material-thin); }
@@ -2078,12 +2172,12 @@ dd { margin: 0; }
 }
 @media (prefers-reduced-transparency: reduce) {
   :root { --material: var(--material-solid); --material-thick: var(--material-solid); --material-thin: var(--field); --sheen: none; }
-  .card, header, .log, .toolbar, .banner { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .card, header, .log, .banner { -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
 @media (prefers-contrast: more) {
   :root { --material: var(--material-solid); --material-thick: var(--material-solid); --sheen: none; --edge: rgba(20, 30, 50, 0.55); --line: rgba(20, 30, 50, 0.3); --muted: #3a4150; }
   @media (prefers-color-scheme: dark) { :root { --edge: rgba(255, 255, 255, 0.6); --line: rgba(255, 255, 255, 0.3); --muted: #cfd4dc; } }
-  .card, header, .log, .toolbar, .banner { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .card, header, .log, .banner { -webkit-backdrop-filter: none; backdrop-filter: none; }
   button, input, select, textarea, .pill { border-color: var(--edge); }
 }
 @media (max-width: 640px) {

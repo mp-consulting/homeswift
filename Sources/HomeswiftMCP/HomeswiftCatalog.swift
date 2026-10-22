@@ -294,9 +294,9 @@ public struct HomeswiftCatalog: Sendable {
         ((try? FileManager.default.contentsOfDirectory(atPath: backupsDirectory.path)) ?? []).filter { $0.hasPrefix("config-") && $0.hasSuffix(".json") }.sorted()
     }
 
-    /// Validates, backs up the current file and writes the new one owner-only. Returns the backup's name.
+    /// Backs up the current file and writes the new one owner-only (`applyConfig` validated it). Returns the
+    /// backup's name.
     func writeConfig(_ config: JSONValue) throws -> String {
-        try HomeswiftConfiguration.decode(config.encoded()).validate()
         let manager = FileManager.default
         try manager.createDirectory(at: backupsDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let formatter = ISO8601DateFormatter()
@@ -321,7 +321,11 @@ public struct HomeswiftCatalog: Sendable {
     /// swaps, the web UI and MCP servers restart in the process. The bridge block (the HomeKit identity, port
     /// and setup code) restarts the process on its own; only when it cannot does the restart flag go up.
     public func applyConfig(_ next: JSONValue, dryRun: Bool) async throws -> JSONValue {
-        let current = (try? readConfig()) ?? [:]
+        try await applyConfig(next, dryRun: dryRun, current: (try? readConfig()) ?? [:])
+    }
+
+    /// `applyConfig` with the file as it was just read, so a caller that read it does not read it again.
+    func applyConfig(_ next: JSONValue, dryRun: Bool, current: JSONValue) async throws -> JSONValue {
         let restored = Redaction.containsRedacted(next) ? try Redaction.restoreSecrets(next, from: current) : next
         let configuration = try HomeswiftConfiguration.decode(restored.encoded())
         try configuration.validate()
@@ -356,11 +360,12 @@ public struct HomeswiftCatalog: Sendable {
     /// Reads config.json, lets `edit` change its platform blocks, and applies the result: validation, a
     /// backup, the restart flag. An unreadable file is an error, never an empty one to write over.
     public func editPlatforms(dryRun: Bool, _ edit: (inout [JSONValue]) throws -> Void) async throws -> JSONValue {
-        var root = try readConfig().objectValue ?? [:]
+        let current = try readConfig()
+        var root = current.objectValue ?? [:]
         var platforms = root["platforms"]?.arrayValue ?? []
         try edit(&platforms)
         root["platforms"] = .array(platforms)
-        return try await applyConfig(.object(root), dryRun: dryRun)
+        return try await applyConfig(.object(root), dryRun: dryRun, current: current)
     }
 
     static func changedKeys(from a: JSONValue, to b: JSONValue, path: String = "") -> [String] {
@@ -667,18 +672,20 @@ public struct HomeswiftCatalog: Sendable {
     }
 
     /// Sends resource-update notifications when accessories change, coalesced per resource.
-    public func attach(to server: MCPServer) {
+    /// Sends the server resource updates and log lines, until the observations are cancelled: an MCP server
+    /// restarted in the process cancels its old ones, so none piles up.
+    public func attach(to server: MCPServer) -> [Observation] {
         let notifier = ChangeNotifier(server: server)
-        for bridge in host.bridges {
-            bridge.server.observeChanges { accessory, _, _ in
+        return [
+            host.observeChanges { accessory, _, _ in
                 notifier.changed("homeswift://accessories")
                 notifier.changed("homeswift://accessory/\(accessory.id)")
-            }
-        }
-        logs.observe { line in
-            notifier.changed("homeswift://logs/recent")
-            server.log(level: line.level, logger: line.label, message: Self.safe(line.text))
-        }
+            },
+            logs.observe { line in
+                notifier.changed("homeswift://logs/recent")
+                server.log(level: line.level, logger: line.label, message: Self.safe(line.text))
+            },
+        ]
     }
 }
 

@@ -51,6 +51,32 @@ public enum Redaction {
     }
 
     /// A copy of `value` with every secret replaced by the placeholder.
+    /// Masks network addresses in text for a provider: MAC addresses, IPv4, bracketed IPv6 and `.local` host
+    /// names, as the Homebridge UIs' `scrubAddresses` does. A device's address helps nobody explain its error.
+    public static func scrubAddresses(_ text: String) -> String {
+        var result = text
+        let patterns: [(String, String)] = [
+            (#"\b(?:[0-9A-Fa-f]{1,2}[:-]){5}[0-9A-Fa-f]{1,2}\b"#, "<MAC>"),
+            (#"\b\d{1,3}(?:\.\d{1,3}){3}\b"#, "<IP>"),
+            (#"\[[0-9A-Fa-f:]*:[0-9A-Fa-f:]*\]"#, "<IP>"),
+            (#"\b[\w-]+\.local\b"#, "<hostname>.local"),
+        ]
+        for (pattern, replacement) in patterns {
+            result = result.replacingOccurrences(of: pattern, with: replacement, options: [.regularExpression, .caseInsensitive])
+        }
+        return result
+    }
+
+    /// `scrubAddresses` on every string of a value.
+    public static func scrubAddresses(_ value: JSONValue) -> JSONValue {
+        switch value {
+        case .string(let text): .string(scrubAddresses(text))
+        case .array(let items): .array(items.map(scrubAddresses))
+        case .object(let object): .object(object.mapValues(scrubAddresses))
+        default: value
+        }
+    }
+
     public static func redactSecrets(_ value: JSONValue, underSecretKey: Bool = false) -> JSONValue {
         switch value {
         case .array(let items):

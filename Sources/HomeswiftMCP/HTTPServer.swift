@@ -33,6 +33,7 @@ public final class MCPHTTPServer: Sendable {
     public let configuration: MCPConfiguration
     public let options: Options
     private let channel = NIOLockedValueBox<(any Channel)?>(nil)
+    private let stopActions = NIOLockedValueBox<[@Sendable () -> Void]>([])
     private let expiry = NIOLockedValueBox<Task<Void, Never>?>(nil)
     private let throttle = FailureThrottle(window: 600, threshold: 3, maxDelay: 5)
     private let attached = NIOLockedValueBox<Set<String>>([])
@@ -73,7 +74,13 @@ public final class MCPHTTPServer: Sendable {
         logger.info("MCP server listening", metadata: ["url": "http://\(options.host):\(bound.localAddress?.port ?? options.port)\(options.path)"])
     }
 
+    /// Runs `action` when the server stops: what it subscribed to, it lets go of.
+    public func onStop(_ action: @escaping @Sendable () -> Void) {
+        stopActions.withLockedValue { $0.append(action) }
+    }
+
     public func stop() async {
+        for action in stopActions.withLockedValue({ actions in defer { actions = [] }; return actions }) { action() }
         expiry.withLockedValue { $0?.cancel(); $0 = nil }
         for session in server.activeSessions { server.endSession(session) }
         let bound = channel.withLockedValue { channel -> (any Channel)? in

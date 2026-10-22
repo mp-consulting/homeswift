@@ -19,7 +19,7 @@ public final class LogBuffer: Sendable {
     }
 
     public let capacity: Int
-    private let state = NIOLockedValueBox<(lines: [Line], observers: [@Sendable (Line) -> Void])>(([], []))
+    private let state = NIOLockedValueBox<(lines: [Line], observers: [UUID: @Sendable (Line) -> Void])>(([], [:]))
 
     public init(capacity: Int = 5000) {
         self.capacity = capacity
@@ -29,7 +29,7 @@ public final class LogBuffer: Sendable {
         let observers = state.withLockedValue { state in
             state.lines.append(line)
             if state.lines.count > capacity { state.lines.removeFirst(state.lines.count - capacity) }
-            return state.observers
+            return Array(state.observers.values)
         }
         for observer in observers { observer(line) }
     }
@@ -41,8 +41,12 @@ public final class LogBuffer: Sendable {
 
     public var all: [Line] { state.withLockedValue { $0.lines } }
 
-    public func observe(_ observer: @escaping @Sendable (Line) -> Void) {
-        state.withLockedValue { $0.observers.append(observer) }
+    /// Calls `observer` with every line from now on, until the observation is cancelled.
+    @discardableResult
+    public func observe(_ observer: @escaping @Sendable (Line) -> Void) -> Observation {
+        let id = UUID()
+        state.withLockedValue { $0.observers[id] = observer }
+        return Observation { [self] in _ = state.withLockedValue { $0.observers.removeValue(forKey: id) } }
     }
 }
 

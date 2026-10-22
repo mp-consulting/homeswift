@@ -68,10 +68,11 @@ enum MCPCommands {
             let server = MCPServer(
                 options: options, tools: catalog.tools, resources: catalog.resources, templates: catalog.templates, prompts: catalog.prompts,
                 audit: mcp.auditLog ? AuditLog(url: auditURL, logger: logger) : nil)
-            catalog.attach(to: server)
+            let observations = catalog.attach(to: server)
             var transportOptions = MCPHTTPServer.Options(host: mcp.host, port: mcp.port, allowedOrigins: mcp.allowedOrigins)
             transportOptions.logger = logger
             let transport = MCPHTTPServer(server: server, configuration: mcp, options: transportOptions)
+            transport.onStop { observations.forEach { $0.cancel() } }
             try await transport.start()
             return transport
         } catch {

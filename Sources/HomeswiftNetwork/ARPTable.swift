@@ -3,7 +3,7 @@ import Foundation
 /// The operating system's ARP table: the MAC address behind an IPv4 address on the local network that this
 /// machine talked to lately. Linux has it in `/proc/net/arp`; macOS has no file for it, so `arp -n` is asked.
 public enum ARPTable {
-    /// The MAC address of `ip`, lowercase with colons, or nil when the table has no complete entry for it.
+    /// The MAC address of `ip` (`MACAddress.canonical`), or nil when the table has no complete entry for it.
     public static func macAddress(for ip: String) async -> String? {
         guard WakeOnLAN.ipv4(ip) != nil else { return nil }
         #if canImport(Darwin)
@@ -37,29 +37,29 @@ public enum ARPTable {
         return nil
     }
 
-    /// Six octets of one or two hex digits, padded; nil for `(incomplete)`, all zeros and broadcast.
+    /// The address in canonical form; nil for `(incomplete)`, all zeros and broadcast.
     static func normalized(_ address: String) -> String? {
-        let octets = address.split(separator: ":", omittingEmptySubsequences: false)
-        guard octets.count == 6, octets.allSatisfy({ (1...2).contains($0.count) && $0.allSatisfy(\.isHexDigit) }) else { return nil }
-        let mac = octets.map { $0.count == 1 ? "0" + $0.lowercased() : $0.lowercased() }.joined(separator: ":")
-        return mac == "00:00:00:00:00:00" || mac == "ff:ff:ff:ff:ff:ff" ? nil : mac
+        guard let mac = MACAddress.canonical(address), mac != "00:00:00:00:00:00", mac != "FF:FF:FF:FF:FF:FF" else { return nil }
+        return mac
     }
 
     #if canImport(Darwin)
-    /// Runs a tool and returns what it printed; it reads to the end before waiting, so a full pipe cannot block it.
+    /// Runs a tool and returns what it printed. Nothing waits on a thread of Swift's pool: the output is read
+    /// on Foundation's handler thread once the tool exits (one line of `arp`, far below a pipe's buffer).
     private static func run(_ path: String, _ arguments: [String]) async -> String? {
-        await Task.detached {
+        await withCheckedContinuation { continuation in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: path)
             process.arguments = arguments
             let pipe = Pipe()
             process.standardOutput = pipe
             process.standardError = FileHandle.nullDevice
-            do { try process.run() } catch { return nil }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            return String(decoding: data, as: UTF8.self)
-        }.value
+            process.terminationHandler = { _ in
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                continuation.resume(returning: String(decoding: data, as: UTF8.self))
+            }
+            do { try process.run() } catch { continuation.resume(returning: nil) }
+        }
     }
     #endif
 }

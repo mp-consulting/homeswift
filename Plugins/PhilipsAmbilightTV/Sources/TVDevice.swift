@@ -417,10 +417,8 @@ actor TVDevice {
     func setPower(_ on: Bool) async throws {
         if on {
             if settings.wakeOnLAN {
-                var addresses = ["255.255.255.255"]
-                if let directed = WakeOnLAN.broadcastAddress(for: settings.ip) { addresses.append(directed) }
                 do {
-                    try await WakeOnLAN.wake(mac: settings.mac, addresses: addresses)
+                    try await WakeOnLAN.wake(mac: settings.mac, near: settings.ip)
                 } catch {
                     logger.debug("Wake-on-LAN failed: \(error)")
                 }
