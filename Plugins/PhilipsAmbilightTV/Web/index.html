@@ -21,6 +21,7 @@
   .off-note { margin: 0; padding: 10px 14px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); color: var(--muted); }
 
   .tv-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--line); font-size: 0.8125rem; }
+  .tv-foot .menu-button { margin-left: auto; }
   .tv-foot a { color: var(--accent); text-decoration: none; font-weight: 500; }
 
   /* The inputs editor: a panel with two columns like the Homebridge plugin's, shown (ordered) and hidden. */
@@ -82,6 +83,10 @@
   .steps li.current::before { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); border-color: transparent; }
   .steps li.done::before { content: "✓"; color: var(--ok); }
   .step { animation: fade var(--normal) var(--ease-out); }
+  /* The pairing wizard opens under its button, above the TVs, as the material arriving. */
+  .pairing { margin-bottom: 16px; animation: materialize var(--normal) var(--ease-out); scroll-margin-top: 90px; }
+  .pairing .panel-head { margin-bottom: 14px; }
+  .pairing .panel-head h2 { margin: 0; }
   .step > p:first-child { margin-top: 0; }
   .found { display: grid; gap: 8px; margin: 14px 0 0; }
   .found .item { display: flex; align-items: center; gap: 12px; margin: 0; padding: 10px 10px 10px 14px; }
@@ -125,13 +130,11 @@
     </div>
   </div>
 
-  <div class="section-head"><h2>Your TVs</h2></div>
+  <div class="section-head"><h2>Your TVs</h2><button id="add-tv" class="primary" aria-expanded="false" aria-controls="pairing">Add a TV</button></div>
+  <section id="pairing" class="card pairing hidden" aria-labelledby="add-title"></section>
   <div id="tvs" class="tvs"></div>
   <div id="sources" class="card panel hidden"></div>
   <div id="tv-editor" class="card panel hidden"></div>
-
-  <div class="section-head"><h2 id="add-title">Add a TV</h2></div>
-  <div id="pairing" class="card"></div>
 </main>
 <script src="/common.js"></script>
 <script src="/plugin.js"></script>

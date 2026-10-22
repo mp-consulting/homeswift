@@ -2,7 +2,7 @@
 (() => {
   "use strict";
 
-  const { $, el, tile } = HomeswiftCommon;
+  const { $, el, tile, sparkle, menuButton, copyText, jsonEditor } = HomeswiftCommon;
 
   const show = (main, ...nodes) => main.replaceChildren(...nodes.flat().filter(Boolean));
 
@@ -58,7 +58,12 @@
     const form = event.target;
     const error = $("#auth-error");
     error.textContent = "";
-    $("#auth-submit").disabled = true;
+    // Feedback on the press: the button says what happens while the bridge checks the password.
+    const submit = $("#auth-submit");
+    const label = submit.textContent;
+    submit.disabled = true;
+    submit.classList.add("busy");
+    submit.textContent = auth && auth.setupNeeded ? "Creating the account…" : "Signing in…";
     try {
       const body = { username: form.username.value, password: form.password.value };
       if (auth && auth.setupNeeded) {
@@ -71,7 +76,9 @@
     } catch (e) {
       error.textContent = e.message;
     } finally {
-      $("#auth-submit").disabled = false;
+      submit.disabled = false;
+      submit.classList.remove("busy");
+      submit.textContent = label;
     }
   });
 
@@ -129,6 +136,7 @@
     $("#auth").classList.add("hidden");
     $("#app").classList.remove("hidden");
     $("#user").textContent = auth.username || "";
+    HomeswiftChat.mount();
     $("#logout").classList.toggle("hidden", auth.mode !== "form");
     openEvents();
     route();
@@ -438,11 +446,18 @@
         el("div", { class: "controls" }, otherNodes)) : null,
       el("div", { class: "card-foot" },
         el("span", { class: "muted", text: accessory.bridge }),
-        el("button", { class: "link", text: "Identify", title: "Make the device show itself (blink, beep)", onclick: (event) => {
-          const button = event.currentTarget;
-          api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).then(() => { button.textContent = "Identified"; setTimeout(() => { button.textContent = "Identify"; }, 1500); }).catch(() => {});
-        } })));
+        menuButton(`Actions for ${accessory.name}`, () => accessoryActions(accessory))));
     return card;
+  }
+
+  /// What the menu of an accessory's card offers.
+  function accessoryActions(accessory) {
+    return [
+      { label: "Identify", icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) },
+      { label: "Show its log", icon: "logs", href: `#logs/${encodeURIComponent(accessory.id)}` },
+      window.HomeswiftChat?.available() ? { label: "Ask the Assistant", icon: sparkle(), onSelect: () => HomeswiftChat.ask(`About ${accessory.name}: `) } : null,
+      accessory.platform ? { label: "Plugin settings", icon: "gear", href: `#settings/${encodeURIComponent(accessory.platform)}/${encodeURIComponent(accessory.platformName || accessory.platform)}` } : null,
+    ];
   }
 
   views.accessories = async (main) => {
@@ -524,8 +539,24 @@
         el("div", { class: "server-head" }, tile("plugin", "orange"),
           el("div", { class: "who" }, el("strong", { text: plugin.name }), el("div", { class: "muted", text: plugin.platform })),
           used ? el("span", { class: "pill status standby", text: "In use" }) : null),
-        el("div", { class: "actions" }, el("a", { class: `button ${used ? "" : "primary"}`, href: `#settings/new/${encodeURIComponent(plugin.platform)}`, text: used ? "Add another" : "Add" })));
+        el("div", { class: "actions" }, plugin.hasPages && !used
+          // A plugin with its own page sets itself up there (pairing a TV, finding lights), as Homebridge's
+          // custom UIs do: Add writes an empty block and opens the page.
+          ? el("button", { class: "primary", text: "Add", onclick: (event) => addWithPage(plugin, event.currentTarget) })
+          : el("a", { class: `button ${used ? "" : "primary"}`, href: `#settings/new/${encodeURIComponent(plugin.platform)}`, text: used ? "Add another" : "Add" })));
     }));
+
+    async function addWithPage(plugin, button) {
+      button.disabled = true;
+      const block = { platform: plugin.platform, name: plugin.name };
+      try {
+        await api(`/api/config/block/${encodeURIComponent(block.platform)}/${encodeURIComponent(block.name)}`, { method: "POST", body: {} });
+        location.href = pluginPage(block);
+      } catch (e) {
+        button.disabled = false;
+        alert(e.message);
+      }
+    }
 
     show(main,
       pageHead("Plugins", "The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept."),
@@ -572,17 +603,47 @@
     }
     let getValue;
     let body;
+    const textarea = el("textarea", { class: "short", value: JSON.stringify(current, null, 2), spellcheck: false, "aria-label": "The block as JSON" });
+    const editor = jsonEditor(textarea);
+    const fromJSON = () => { const value = JSON.parse(textarea.value); delete value.platform; return value; };
     if (schema) {
-      const form = buildForm(schema, current);
-      body = el("div", { class: "card form-card" }, form.element);
-      getValue = form.getValue;
+      // The form first; the block as JSON one tap away, for what the form does not show. Each view starts
+      // from the other's value, and Save takes the one on screen.
+      let form = buildForm(schema, current);
+      const formView = el("div", {}, form.element);
+      const jsonView = el("div", { class: "hidden" }, el("p", { class: "muted", text: "The block as config.json keeps it." }), editor);
+      const switchError = el("p", { class: "error" });
+      let mode = "form";
+      const tabs = el("div", { class: "group view-switch", role: "tablist", "aria-label": "Edit as" },
+        [["form", "Form"], ["json", "JSON"]].map(([value, text]) => el("button", { type: "button", role: "tab", text, class: value === mode ? "on" : "", "aria-selected": String(value === mode), onclick: () => {
+          if (value === mode) return;
+          switchError.textContent = "";
+          try {
+            if (value === "json") {
+              textarea.value = JSON.stringify({ platform, ...form.getValue() }, null, 2);
+              editor.repaint();
+            } else {
+              form = buildForm(schema, { platform, ...fromJSON() });
+              formView.replaceChildren(form.element);
+            }
+          } catch (e) { switchError.textContent = `The JSON is not valid: ${e.message}`; return; }
+          mode = value;
+          formView.classList.toggle("hidden", mode !== "form");
+          jsonView.classList.toggle("hidden", mode !== "json");
+          for (const tab of tabs.children) { tab.classList.toggle("on", tab.textContent.toLowerCase() === mode); tab.setAttribute("aria-selected", String(tab.textContent.toLowerCase() === mode)); }
+        } })));
+      body = el("div", { class: "card form-card" }, tabs, switchError, formView, jsonView);
+      getValue = () => (mode === "form" ? form.getValue() : fromJSON());
     } else {
-      const textarea = el("textarea", { class: "short", value: JSON.stringify(current, null, 2), spellcheck: false, "aria-label": "The block as JSON" });
-      body = el("div", { class: "card form-card" }, el("p", { class: "muted", text: "This block has no settings form; edit it as JSON." }), textarea);
-      getValue = () => JSON.parse(textarea.value);
+      body = el("div", { class: "card form-card" }, el("p", { class: "muted", text: "This block has no settings form; edit it as JSON." }), editor);
+      getValue = fromJSON;
     }
 
-    const snapshot = () => { try { return JSON.stringify(getValue()); } catch { return null; } };
+    // The block as a comparable text: without its platform (the form keeps it, the JSON view leaves it to
+    // Save) and with sorted keys, so switching views or reordering keys is not a change.
+    const sorted = (value) => Array.isArray(value) ? value.map(sorted)
+      : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sorted(value[key])])) : value;
+    const snapshot = () => { try { const { platform: _, ...rest } = getValue(); return JSON.stringify(sorted(rest)); } catch { return null; } };
     let saved = isNew ? null : snapshot();
     const dirty = () => snapshot() !== saved;
     const message = el("span", { class: "muted" });
@@ -612,11 +673,13 @@
         saved = snapshot();
         message.className = "ok";
         message.textContent = savedText(result);
-        // The web UI's own block: it restarts on its new port, and this page follows (the login stays).
+        // The web UI's own block: it restarts on its new port or scheme, and this page follows (the login
+        // stays, though a session started over HTTPS does not go back to HTTP).
         const port = platform === "HomeswiftUI" ? Number(value.port || 8581) : null;
-        if (port && String(port) !== (location.port || (location.protocol === "https:" ? "443" : "80"))) {
-          message.textContent = `Saved. The web UI moves to port ${port}…`;
-          setTimeout(() => { location.href = `${location.protocol}//${location.hostname}:${port}/${settingsLink({ platform, name: value.name || block.name })}`; }, 1500);
+        const scheme = value.https === true ? "https:" : "http:";
+        if (port && (String(port) !== (location.port || (location.protocol === "https:" ? "443" : "80")) || scheme !== location.protocol)) {
+          message.textContent = scheme !== location.protocol ? `Saved. The web UI moves to ${scheme.slice(0, -1).toUpperCase()}…` : `Saved. The web UI moves to port ${port}…`;
+          setTimeout(() => { location.href = `${scheme}//${location.hostname}:${port}/${settingsLink({ platform, name: value.name || block.name })}`; }, 1500);
           return;
         }
         // A new block, or a renamed one, lives at its own address now.
@@ -656,6 +719,36 @@
       remove);
     update();
   };
+
+  /// A place to drop a file for a path field (a certificate, its key), or to choose it: the bridge keeps the
+  /// file next to config.json, owner-only, and the field gets its path.
+  function dropZone(key, input, accept = "") {
+    const picker = el("input", { type: "file", accept, class: "hidden" });
+    const zone = el("div", { class: "drop-zone", role: "button", tabIndex: 0, "aria-label": `Drop or choose the file for ${key}` },
+      "Drop the file here, or ", el("strong", { text: "choose it" }), picker);
+    const take = async (file) => {
+      if (!file) return;
+      zone.classList.remove("ok", "error");
+      try {
+        if (file.size > 256 * 1024) throw new Error("That file is too large for a certificate or a key.");
+        const { path } = await api("/api/files", { method: "POST", body: { field: key, name: file.name, content: await file.text() } });
+        input.value = path;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        zone.classList.add("ok");
+        zone.replaceChildren(`${file.name} saved`, picker);
+      } catch (e) {
+        zone.classList.add("error");
+        zone.replaceChildren(e.message, picker);
+      }
+    };
+    zone.addEventListener("click", (event) => { if (event.target !== picker) picker.click(); });
+    zone.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); picker.click(); } });
+    picker.addEventListener("change", () => take(picker.files[0]));
+    zone.addEventListener("dragover", (event) => { event.preventDefault(); zone.classList.add("over"); });
+    zone.addEventListener("dragleave", () => zone.classList.remove("over"));
+    zone.addEventListener("drop", (event) => { event.preventDefault(); zone.classList.remove("over"); take(event.dataTransfer.files[0]); });
+    return zone;
+  }
 
   /// A block name not in use yet: "Elgato Key Lights", then "Elgato Key Lights 2".
   function uniqueName(name, blocks) {
@@ -744,6 +837,7 @@
         return { element, get: () => { const v = rows.map((r) => r.get()).filter((x) => x !== undefined); return v.length ? v : undefined; } };
       }
       const input = el("input", { type: property["x-schema-form"] && property["x-schema-form"].type === "password" ? "password" : "text", value: current ?? "", placeholder: property.placeholder ?? property.default ?? "", required });
+      if (property["x-schema-form"]?.type === "file") return { element: el("div", {}, wrap(input), dropZone(key, input, property["x-schema-form"].accept)), get: () => (input.value === "" ? undefined : input.value) };
       return { element: wrap(input), get: () => (input.value === "" ? undefined : input.value) };
     };
 
@@ -951,6 +1045,7 @@
         message.textContent = `Changed: ${result.changes.join(", ") || "nothing"}. ${savedText(result)}`;
         saved = await api("/api/config", { raw: true });
         textarea.value = saved;
+        editor.repaint();
       } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
       update();
     };
@@ -961,28 +1056,59 @@
     });
     save.addEventListener("click", doSave);
     revert.addEventListener("click", () => { textarea.value = saved; message.textContent = ""; update(); });
-    format.addEventListener("click", () => { try { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); update(); } catch {} });
+    const editor = jsonEditor(textarea);
+    format.addEventListener("click", () => { try { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); update(); } catch {} });
+    revert.addEventListener("click", () => editor.repaint());
     update();
     show(main,
       pageHead("Configuration", "The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once."),
       el("div", { class: "card editor-card" },
         el("div", { class: "editor-bar" }, el("span", { class: "mono muted", text: "config.json" }), check, el("span", { class: "spacer" }), format, revert, save),
-        textarea, message));
+        editor, message));
   };
 
   // ---- Logs ----------------------------------------------------------------
 
   const levelRank = { trace: 0, debug: 1, info: 2, notice: 3, warning: 4, error: 5, critical: 6 };
+  // The server's caps: the latest lines (/api/logs) and a time range (UIServer.logLimit).
+  const latestLines = 2000, rangeLines = 10000;
+  const timeFormat = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  /// A line with what filtering reads, worked out once: its date and its text in lower case.
+  const prepared = (line) => Object.assign(line, { date: new Date(line.time), haystack: `${line.label} ${line.text}`.toLowerCase() });
   const levelChoices = [["trace", "All"], ["info", "Info"], ["warning", "Warnings"], ["error", "Errors"]];
   let logState = null;
 
-  views.logs = async (main) => {
-    const lines = await api("/api/logs");
+  views.logs = async (main, [accessoryID] = []) => {
+    const [lines, accessories] = await Promise.all([api(`/api/logs${accessoryID ? `?accessory=${encodeURIComponent(accessoryID)}` : ""}`), api("/api/accessories").catch(() => [])]);
     const output = el("div", { class: "log", role: "log", "aria-live": "off" });
     const filter = el("input", { type: "search", class: "search", placeholder: "Filter text", "aria-label": "Filter the log" });
     const follow = el("input", { type: "checkbox", checked: true });
     const count = el("span", { class: "muted count" });
-    logState = { output, level: "info", filter, follow, count, lines: [] };
+    // One accessory's lines: those of its own server, and those naming it, its id or its address.
+    const byID = new Map(accessories.map((accessory) => [accessory.id, accessory]));
+    const accessoryPicker = el("select", { class: "popup", "aria-label": "Only the lines about an accessory" },
+      el("option", { value: "", text: "All accessories" }),
+      [...accessories].sort((a, b) => a.name.localeCompare(b.name)).map((accessory) =>
+        el("option", { value: accessory.id, text: accessory.platformName ? `${accessory.name} · ${accessory.platformName}` : accessory.name, selected: accessory.id === accessoryID })));
+    const termsFor = (id) => {
+      const accessory = byID.get(id);
+      if (!accessory) return null;
+      // ElgatoKeyLights:3C:6A:… → the MAC, as the server matches (UIServer.logMatcher).
+      const rest = id.includes(":") ? id.slice(id.indexOf(":") + 1) : "";
+      const address = /^([0-9a-f]{1,2}[:-]){5}[0-9a-f]{1,2}$/i.test(rest) ? rest : null;
+      return [accessory.name, id, address, accessory.serialNumber].filter((term) => typeof term === "string" && term.length >= 3).map((term) => term.toLowerCase());
+    };
+    // `live`: new lines join the page (not while a span in the past is shown); `cap`: how many it keeps.
+    logState = { output, level: "info", filter, follow, count, lines: [], accessory: termsFor(accessoryID), live: true, cap: latestLines, capped: false };
+    accessoryPicker.classList.toggle("chosen", Boolean(accessoryPicker.value));
+    accessoryPicker.addEventListener("change", () => {
+      logState.accessory = termsFor(accessoryPicker.value);
+      accessoryPicker.classList.toggle("chosen", Boolean(accessoryPicker.value));
+      // The address keeps the choice (a link, a reload) without drawing the page again; the server picks
+      // the accessory's lines before its limit, so a week of one accessory is not cut short by the others'.
+      history.replaceState(null, "", accessoryPicker.value ? `#logs/${encodeURIComponent(accessoryPicker.value)}` : "#logs");
+      load();
+    });
     const levels = el("div", { class: "group", role: "group", "aria-label": "Lowest level shown" }, levelChoices.map(([level, text]) =>
       el("button", { text, class: level === logState.level ? "on" : "", "aria-pressed": String(level === logState.level), onclick: (event) => {
         logState.level = level;
@@ -990,47 +1116,119 @@
         render();
       } })));
     const render = () => {
-      const shown = logState.lines.filter(visible);
+      const needle = filter.value.toLowerCase();
+      const shown = logState.lines.filter((line) => visible(line, needle));
       output.replaceChildren(...(shown.length ? shown.map(lineNode) : [el("p", { class: "muted empty-log", text: "No line matches." })]));
-      count.textContent = `${shown.length} of ${logState.lines.length} lines`;
+      count.textContent = `${shown.length} of ${logState.lines.length} lines${logState.capped ? " (the latest of the range)" : ""}`;
       if (follow.checked) output.scrollTop = output.scrollHeight;
     };
-    filter.addEventListener("input", render);
+    // Typing filters once it pauses: thousands of lines are not drawn again per key.
+    let typing = null;
+    filter.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(render, 120); });
     follow.addEventListener("change", () => { if (follow.checked) output.scrollTop = output.scrollHeight; });
-    logState.lines = lines;
+
+    // A time range: the latest lines from memory, or a span from the log the bridge keeps on disk (rotated, a
+    // week at most). A span that ends now keeps following; one in the past stays as it is.
+    const ranges = [["latest", "Latest lines"], ["1h", "Last hour"], ["6h", "Last 6 hours"], ["24h", "Last 24 hours"],
+      ["today", "Today"], ["yesterday", "Yesterday"], ["7d", "Last 7 days"], ["custom", "Custom range…"]];
+    const rangePicker = el("select", { class: "popup", "aria-label": "Time range" }, ranges.map(([value, text]) => el("option", { value, text })));
+    const localInput = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    const fromInput = el("input", { type: "datetime-local", "aria-label": "From", value: localInput(new Date(Date.now() - 3600000)) });
+    const toInput = el("input", { type: "datetime-local", "aria-label": "To", value: localInput(new Date()) });
+    const customRow = el("div", { class: "log-range hidden" },
+      el("label", {}, "From", fromInput), el("label", {}, "To", toInput),
+      el("button", { text: "Show", onclick: () => load() }));
+    const span = (choice) => {
+      const now = new Date();
+      const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      switch (choice) {
+      case "1h": return [new Date(now - 3600000), null];
+      case "6h": return [new Date(now - 6 * 3600000), null];
+      case "24h": return [new Date(now - 86400000), null];
+      case "today": return [midnight, null];
+      case "yesterday": return [new Date(midnight - 86400000), midnight];
+      case "7d": return [new Date(now - 7 * 86400000), null];
+      case "custom": {
+        const from = new Date(fromInput.value), to = new Date(toInput.value);
+        return isNaN(from) ? null : [from, isNaN(to) || to > now ? null : to];
+      }
+      default: return null;
+      }
+    };
+    async function load() {
+      const chosen = span(rangePicker.value);
+      const query = new URLSearchParams();
+      if (chosen) query.set("from", chosen[0].toISOString());
+      if (chosen?.[1]) query.set("to", chosen[1].toISOString());
+      if (accessoryPicker.value) query.set("accessory", accessoryPicker.value);
+      count.textContent = "Loading…";
+      try {
+        logState.lines = (await api(`/api/logs${query.size ? `?${query}` : ""}`)).map(prepared);
+      } catch (e) {
+        count.textContent = e.message;
+        return;
+      }
+      logState.live = !chosen?.[1];
+      logState.cap = chosen ? rangeLines : latestLines;
+      logState.capped = Boolean(chosen) && logState.lines.length >= rangeLines;
+      render();
+    }
+    // What the page shows, as text: a line each, the time, the label, the level when it is not info.
+    const copy = el("button", { text: "Copy", title: "Copy the lines shown", onclick: async () => {
+      const needle = filter.value.toLowerCase();
+      const shown = logState.lines.filter((line) => visible(line, needle));
+      const text = shown.map((line) => {
+        const level = line.level === "info" || line.level === "notice" ? "" : ` [${line.level.toUpperCase()}]`;
+        return `${line.time} [${line.label}]${level} ${line.text}`;
+      }).join("\n");
+      try {
+        await copyText(text);
+        copy.textContent = `Copied ${shown.length} line${shown.length === 1 ? "" : "s"}`;
+      } catch (e) {
+        copy.textContent = "Not copied";
+        copy.title = e.message;
+      }
+      setTimeout(() => { copy.textContent = "Copy"; copy.title = "Copy the lines shown"; }, 1800);
+    } });
+    rangePicker.addEventListener("change", () => {
+      customRow.classList.toggle("hidden", rangePicker.value !== "custom");
+      rangePicker.classList.toggle("chosen", rangePicker.value !== "latest");
+      if (rangePicker.value === "custom") fromInput.focus(); else load();
+    });
+    logState.lines = lines.map(prepared);
     show(main,
-      pageHead("Logs", "The last 2,000 lines of this homeswift, live."),
+      pageHead("Logs", "This homeswift's log, live, and up to a week back."),
       el("div", { class: "card log-card" },
-        el("div", { class: "editor-bar" }, levels, filter, el("span", { class: "spacer" }), count,
-          el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: "Follow" }))),
+        el("div", { class: "editor-bar" }, levels, rangePicker, accessoryPicker, filter, el("span", { class: "spacer" }), count, copy,
+          el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: "Follow" })),
+          customRow),
         output));
     render();
   };
 
-  function visible(line) {
-    const minimum = levelRank[logState.level] ?? 0;
-    const text = logState.filter.value.toLowerCase();
-    return (levelRank[line.level] ?? 0) >= minimum && (!text || `${line.label} ${line.text}`.toLowerCase().includes(text));
+  /// Whether a prepared line passes the level, the text (`needle`, in lower case) and the accessory.
+  function visible(line, needle = logState.filter.value.toLowerCase()) {
+    return (levelRank[line.level] ?? 0) >= (levelRank[logState.level] ?? 0) && (!needle || line.haystack.includes(needle))
+      && (!logState.accessory || logState.accessory.some((term) => line.haystack.includes(term)));
   }
   function lineNode(line) {
-    const date = new Date(line.time);
-    const time = isNaN(date) ? line.time : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    const time = isNaN(line.date) ? line.time : timeFormat.format(line.date);
     return el("div", { class: `log-line ${line.level}` },
       el("time", { text: time, title: line.time, dateTime: line.time }),
       el("span", { class: "label", text: line.label, title: line.label }),
       el("span", { class: "text", text: line.text }));
   }
   function appendLogLine(line) {
-    if (!logState || !document.body.contains(logState.output)) return;
-    logState.lines.push(line);
-    if (logState.lines.length > 2000) logState.lines.shift();
+    if (!logState || !logState.live || !document.body.contains(logState.output)) return;
+    logState.lines.push(prepared(line));
+    if (logState.lines.length > logState.cap) logState.lines.splice(0, logState.lines.length - logState.cap);
     if (!visible(line)) return;
     const output = logState.output;
     // Follow only when the reader is at the bottom: scrolling up to read stops it without a click.
     const atBottom = output.scrollHeight - output.scrollTop - output.clientHeight < 40;
     $(".empty-log", output)?.remove();
     output.append(lineNode(line));
-    while (output.childElementCount > 2000) output.firstElementChild.remove();   // the page stays the size of the buffer
+    while (output.childElementCount > logState.cap) output.firstElementChild.remove();   // the page stays the size of what it keeps
     if (logState.follow.checked && atBottom) output.scrollTop = output.scrollHeight;
     logState.count.textContent = `${output.childElementCount} of ${logState.lines.length} lines`;
   }

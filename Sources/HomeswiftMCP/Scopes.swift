@@ -1,6 +1,7 @@
 import Foundation
 import Homeswift
 import HomeswiftAI
+import Logging
 
 /// What a client token may do: `read` < `control` (device control) < `admin` (everything).
 public enum Scope: String, Sendable, Codable, CaseIterable, Comparable {
@@ -101,6 +102,14 @@ public struct MCPConfiguration: Sendable, Equatable {
     }
 
     public var hasTokens: Bool { token != nil || !clients.isEmpty }
+
+    /// The audit log the block asks for (`auditLogPath`, else `homeswift-mcp-audit.jsonl` in the config
+    /// directory), or nil with `auditLog: false`. The web UI's chat writes to the same one.
+    public func makeAuditLog(configDirectory: URL, logger: Logger) -> AuditLog? {
+        guard auditLog else { return nil }
+        let url = auditLogPath.map { URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath) } ?? configDirectory.appendingPathComponent("homeswift-mcp-audit.jsonl")
+        return AuditLog(url: url, logger: logger)
+    }
 
     /// The principal a presented bearer token identifies, or nil. Every token is compared in constant
     /// time, and all of them are compared whatever matches, so timing says nothing about the tokens.

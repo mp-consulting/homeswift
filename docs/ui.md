@@ -31,15 +31,51 @@ with a new code).
 - **Accessories**: every accessory with its services. Switches for on/off, sliders for brightness, colour
   temperature and the like, menus for lock, door and alarm targets, text for everything else. Values
   update live when a device changes elsewhere. Locks, garage doors and alarms can be operated here, as in
-  the Home app, since the user signed in.
+  the Home app, since the user signed in. Each card's **⋯** menu identifies the accessory, shows its log,
+  asks the Assistant about it, and opens its plugin's settings.
 - **Plugins**: every platform block of config.json, with whether it runs and where. **Open** shows a
   plugin's own page when it has one (see below). **Settings** opens a
   form built from the plugin's schema (the same `config.schema.json` the Homebridge version ships), or a
   JSON editor for plugins without one and for the runtime's own blocks. **Add a platform** lists the
-  plugins compiled in. Saving validates, backs up the previous file, and applies the block at once.
+  plugins compiled in. A settings page shows the form first and the block as JSON under **JSON** (coloured
+  as you type, like the Config page); Save takes the view on screen. A certificate or key field takes a
+  dropped PEM file, which the bridge checks and keeps owner-only under `files/` next to config.json. The
+  runtime's own blocks, `HomeswiftUI` and `HomeswiftAiKit` (the Assistant and the MCP server), have forms too.
+  **Add** on a plugin with its own page (pairing a TV, finding lights) writes an empty
+  block and opens that page, as Homebridge's custom UIs do. Saving validates, backs up the previous file,
+  and applies the block at once.
 - **Config**: the whole file in an editor. Saving validates it, keeps a backup under `backups/`, sorts
   the keys, and applies it.
-- **Logs**: the last lines and the live log, filtered by level and text.
+- **Logs**: the live log, filtered by level, text, accessory (the lines of its own server and those that
+  name it, its id or its address) and time: the latest lines, the last hour, 6 or 24 hours, today,
+  yesterday, the last 7 days, or a custom range. The bridge keeps its log on disk for that, under `logs/`
+  next to config.json: segments of 8 MB at most, a new one each day, the oldest removed past 64 MB or 7
+  days, written in batches once a second so logging never waits for the disk. **Copy** puts the lines shown
+  on the clipboard as text.
+
+## The Assistant's chat
+
+With a `HomeswiftAiKit` block that names a provider, a sparkle **Assistant** button in the header opens a
+chat, on every page, plugin pages included. Ask it what the bridge runs or why an accessory does not
+answer, or tell it what to do: "add the Elgato light at 192.168.1.50", "pair my Philips TV", "turn off
+every light". It looks at the setup and acts through the MCP server's tools, the plugins' own actions
+included (find TVs, pair one, check a light's address; `docs/plugins.md`).
+
+- **Every change asks first.** A tool that changes configuration or unlocks something shows a card with
+  what would change (a dry run's list of settings and their new values) and waits for **Allow**; **Don't
+  allow** leaves everything as it was, and a change that would fail anyway is never put to you. Writes are
+  in the MCP audit log (`homeswift-mcp-audit.jsonl`) as the client `web UI chat`.
+- **Secrets stay home.** A password a device hands out while pairing reaches config.json as a handle
+  (`__SECRET_1__`) the model passes on without reading it; configuration it reads has `__REDACTED__`
+  values, which a write restores.
+- **Voice.** The mic dictates a message (tap, or hold while speaking) and the answer to a spoken message is
+  read out, in the language chosen under the field (the browser's, unless you pick one; each browser keeps
+  its choice). Browsers allow the microphone only on `localhost` or over HTTPS: turn on `https` below to use
+  it from a phone or another computer. Safari sends the audio to Apple and Chrome to Google for recognition.
+- The conversation stays while the process runs, one per user; **New chat** starts afresh. Each answer's
+  cost shows under the field for priced models.
+
+On a wide window the chat is a panel beside the page; on a phone a sheet you drag down to close.
 
 Saving a plugin's block applies it at once: the plugin stops and starts again with the new settings on
 the same accessories (their aids, iids and pairings stay), a new block starts, and a removed one leaves
@@ -61,8 +97,15 @@ Logins survive a restart: sessions are kept in `ui-sessions.json` next to config
 - Requests are answered only when their `Host` is an IP address, localhost, this machine's name or an
   `allowedHosts` entry (421 otherwise), so a page that rebinds its own name to this address gets nothing,
   with `auth: none` too.
-- The UI is plain HTTP. Keep it on the home network, or put it behind a reverse proxy with TLS; the
-  cookie cannot carry `Secure` without one. With `auth: none`, set `host` to `127.0.0.1`.
+- With `"https": true` the UI serves HTTPS and the cookie carries `Secure`. Name a certificate and its key
+  (`certificate`, `privateKey`, PEM files), or let the bridge make a self-signed one, kept next to
+  config.json (`ui-certificate.pem`, `ui-key.pem`, owner-only): it names this machine, its `.local` name,
+  `localhost`, `allowedHosts` and the LAN addresses, lasts 397 days and is made again before it expires or
+  when an address changes. The banner prints its SHA-256 fingerprint, which the browser's warning shows.
+  To trust it once and for all, download `/homeswift-ui.crt` and add it to the keychain (macOS: Always
+  Trust), or install it on an iPhone and turn it on under Settings › General › About › Certificate Trust
+  Settings. Without `https`, keep the UI on the home network or behind a reverse proxy with TLS. With
+  `auth: none`, set `host` to `127.0.0.1`.
 - The account is an administrator: the Config page shows config.json as it is, secrets included, the way
   Config UI X does. The MCP server's redaction rules are for models, not for the person who owns the file.
 

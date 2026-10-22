@@ -7,21 +7,7 @@
   const name = new URLSearchParams(location.search).get("name") || platform;
   const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
 
-  const { $, el, icon, tile } = HomeswiftCommon;
-
-  /// The UI's API, with the session cookie: `body` is an object, sent as JSON; a refusal carries the server's
-  /// message, and a signed-out visitor goes to the login page.
-  async function api(path, { method = "GET", body } = {}) {
-    const options = { method, credentials: "same-origin", headers: {} };
-    if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
-    const response = await fetch(path, options);
-    if (response.status === 401) { location.href = "/"; throw new Error("signed out"); }
-    const text = await response.text();
-    let json = null;
-    try { json = text ? JSON.parse(text) : null; } catch { json = { error: text }; }
-    if (!response.ok) throw new Error((json && json.error) || `HTTP ${response.status}`);
-    return json;
-  }
+  const { $, el, icon, tile, markdown, sparkle, api } = HomeswiftCommon;
 
   /// This plugin instance's own routes (its handleWebRequest).
   const request = (path, options) => api(prefix + String(path).replace(/^\//, ""), options);
@@ -29,98 +15,6 @@
   // The Assistant, when config.json has a HomeswiftAiKit block that works: pages offer "Explain" next to errors.
   let assistantState = null;
   const assistant = () => (assistantState ??= api("/api/assistant").catch(() => ({ enabled: false })));
-
-  /// Markdown from the Assistant as elements, never as HTML: headings, paragraphs, nested lists, code blocks,
-  /// bold, italics, code and http(s) links. Anything else stays text.
-  function markdown(source) {
-    const root = el("div", { class: "md" });
-    const lines = String(source).replace(/\r/g, "").split("\n");
-    let paragraph = [];
-    let lists = [];   // { indent, node }, the open lists, innermost last
-    const flush = () => {
-      if (paragraph.length) root.append(el("p", {}, inline(paragraph.join(" "))));
-      paragraph = [];
-    };
-    const closeLists = () => { lists = []; };
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (/^\s*```/.test(line)) {
-        flush(); closeLists();
-        const code = [];
-        while (++i < lines.length && !/^\s*```/.test(lines[i])) code.push(lines[i]);
-        root.append(el("pre", {}, el("code", { text: code.join("\n") })));
-        continue;
-      }
-      const heading = line.match(/^\s*(#{1,6})\s+(.*)$/);
-      if (heading) {
-        flush(); closeLists();
-        root.append(el(heading[1].length <= 2 ? "h3" : "h4", {}, inline(heading[2].replace(/^"(.*)"$/, "$1"))));
-        continue;
-      }
-      const item = line.match(/^(\s*)([-*+•]|\d+[.)])\s+(.*)$/);
-      if (item) {
-        flush();
-        const indent = item[1].replace(/\t/g, "  ").length;
-        const ordered = /\d/.test(item[2]);
-        while (lists.length && lists[lists.length - 1].indent > indent) lists.pop();
-        let current = lists[lists.length - 1];
-        if (!current || current.indent < indent || current.ordered !== ordered) {
-          const node = el(ordered ? "ol" : "ul", {});
-          const parent = current && current.indent < indent ? current.node.lastElementChild : null;
-          (parent || root).append(node);
-          if (current && current.indent === indent) lists.pop();
-          current = { indent, ordered, node };
-          lists.push(current);
-        }
-        current.node.append(el("li", {}, inline(item[3])));
-        continue;
-      }
-      if (!line.trim()) { flush(); continue; }
-      if (lists.length && /^\s+\S/.test(line)) {
-        // A continuation of the last item.
-        lists[lists.length - 1].node.lastElementChild?.append(" ", ...inline(line.trim()));
-        continue;
-      }
-      closeLists();
-      paragraph.push(line.trim());
-    }
-    flush();
-    return root;
-  }
-
-  /// Inline Markdown: **bold**, *italics*, `code`, [a link](https://…).
-  function inline(text) {
-    const nodes = [];
-    const pattern = /(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\*[^*\s][^*]*\*|\[[^\]]+\]\((?:https?:\/\/)[^)\s]+\))/g;
-    let last = 0;
-    for (const match of text.matchAll(pattern)) {
-      if (match.index > last) nodes.push(text.slice(last, match.index));
-      const token = match[0];
-      if (token.startsWith("**") || token.startsWith("__")) nodes.push(el("strong", { text: token.slice(2, -2) }));
-      else if (token.startsWith("`")) nodes.push(el("code", { text: token.slice(1, -1) }));
-      else if (token.startsWith("[")) {
-        const [, label, url] = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
-        nodes.push(el("a", { href: url, text: label, target: "_blank", rel: "noopener noreferrer" }));
-      } else nodes.push(el("em", { text: token.slice(1, -1) }));
-      last = match.index + token.length;
-    }
-    if (last < text.length) nodes.push(text.slice(last));
-    return nodes;
-  }
-
-  // The Apple Intelligence sparkle, its colours on a gradient (an id per drawing, so each has its own).
-  let sparkles = 0;
-  function sparkle() {
-    const id = `ai-gradient-${++sparkles}`;
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.setAttribute("aria-hidden", "true");
-    svg.classList.add("sparkle");
-    svg.innerHTML = `<defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff9f0a"/><stop offset=".35" stop-color="#ff375f"/><stop offset=".7" stop-color="#bf5af2"/><stop offset="1" stop-color="#5e5ce6"/></linearGradient></defs>`
-      + `<path fill="url(#${id})" d="M11 2.5c.7 5 3 7.3 8 8-5 .7-7.3 3-8 8-.7-5-3-7.3-8-8 5-.7 7.3-3 8-8z"/>`
-      + `<path fill="url(#${id})" d="M19 14.5c.3 2 1 2.7 3 3-2 .3-2.7 1-3 3-.3-2-1-2.7-3-3 2-.3 2.7-1 3-3z"/>`;
-    return svg;
-  }
 
   // Answers by error, so a card a page redraws (a TV's state changed) shows the answer it already had, and a
   // request in flight carries on into the new card.
@@ -200,6 +94,8 @@
       el("a", { class: "brand", href: "/#status" }, el("img", { src: "/icon.svg", class: "logo", alt: "" }), "Homeswift"),
       el("nav", { "aria-label": "Sections" }, sections.map(([hash, text]) => el("a", { href: `/${hash}`, text, class: hash === "#plugins" ? "active" : "" }))),
       el("span", { class: "spacer" }), user, logout);
+    // The Assistant's chat, as on the UI's own pages.
+    document.head.append(el("script", { src: "/chat.js" }));
     api("/api/auth/state").then((state) => {
       user.textContent = state.username || "";
       logout.classList.toggle("hidden", state.mode !== "form");

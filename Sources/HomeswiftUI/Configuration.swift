@@ -4,7 +4,7 @@ import HomeswiftAI
 /// The `HomeswiftUI` platform block: where the web UI listens and how it authenticates.
 ///
 /// ```json
-/// { "platform": "HomeswiftUI", "port": 8581, "host": "0.0.0.0", "auth": "form" }
+/// { "platform": "HomeswiftUI", "port": 8581, "host": "0.0.0.0", "auth": "form", "https": true }
 /// ```
 public struct UIConfiguration: Sendable, Equatable {
     public static let platform = "HomeswiftUI"
@@ -24,10 +24,13 @@ public struct UIConfiguration: Sendable, Equatable {
                 { "title": "None (a trusted network or this machine only)", "enum": ["none"] }
               ], "description": "Without sign-in anyone who reaches the address controls the bridge." },
               "sessionDays": { "title": "Stay signed in (days)", "type": "integer", "default": 7, "minimum": 1, "maximum": 365, "description": "How long a login lasts without activity." },
-              "allowedHosts": { "title": "Other names", "type": "array", "items": { "type": "string" }, "description": "Names the UI answers to besides IP addresses, localhost and this machine's name: a DNS name, a reverse proxy's host. * allows every name." }
+              "allowedHosts": { "title": "Other names", "type": "array", "items": { "type": "string" }, "description": "Names the UI answers to besides IP addresses, localhost and this machine's name: a DNS name, a reverse proxy's host. * allows every name." },
+              "https": { "title": "HTTPS", "type": "boolean", "default": false, "description": "Serve the UI over HTTPS, which browsers need for the Assistant's microphone away from this machine. Without a certificate below, the bridge makes a self-signed one: the browser warns once, or install it from /homeswift-ui.crt to trust it." },
+              "certificate": { "title": "Certificate file", "type": "string", "placeholder": "~/certs/homeswift.pem", "x-schema-form": { "type": "file", "accept": ".pem,.crt,.cer" }, "description": "A PEM certificate (with its chain) to use instead of the self-signed one: a path, or drop the file." },
+              "privateKey": { "title": "Private key file", "type": "string", "placeholder": "~/certs/homeswift-key.pem", "x-schema-form": { "type": "file", "accept": ".pem,.key" }, "description": "The certificate's PEM private key: a path, or drop the file." }
             }
           },
-          "layout": ["port", "host", "auth", "sessionDays", "allowedHosts"]
+          "layout": ["port", "host", "auth", "sessionDays", "allowedHosts", "https", "certificate", "privateKey"]
         }
         """#
 
@@ -46,6 +49,12 @@ public struct UIConfiguration: Sendable, Equatable {
     /// Names the UI answers to besides IP addresses, localhost and this machine's name: a DNS name, a reverse
     /// proxy's host. Lower-cased. `*` allows every name.
     public var allowedHosts: [String] = []
+    /// Serve over HTTPS, with `certificate` and `privateKey` (PEM files) or a self-signed certificate.
+    public var https = false
+    public var certificate: String?
+    public var privateKey: String?
+
+    public var scheme: String { https ? "https" : "http" }
 
     public init() {}
 
@@ -68,6 +77,15 @@ public struct UIConfiguration: Sendable, Equatable {
                 throw UIConfigurationError.invalid(key: "allowedHosts", expected: "a list of host names")
             }
             allowedHosts = list.compactMap(\.stringValue).map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty }
+        }
+        if let https = block["https"], !https.isNull {
+            guard let value = https.boolValue else { throw UIConfigurationError.invalid(key: "https", expected: "true or false") }
+            self.https = value
+        }
+        certificate = block["certificate"]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty
+        privateKey = block["privateKey"]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty
+        guard (certificate == nil) == (privateKey == nil) else {
+            throw UIConfigurationError.invalid(key: certificate == nil ? "certificate" : "privateKey", expected: "given with the other: a certificate needs its private key")
         }
     }
 }

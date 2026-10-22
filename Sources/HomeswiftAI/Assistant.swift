@@ -81,12 +81,12 @@ public final class AssistantService: Assistant, Sendable {
     public var providerName: String { provider.name }
     public var model: String { provider.model }
 
-    private func system(_ base: String) -> String {
+    func system(_ base: String) -> String {
         systemContext.map { "\(base)\n\n\($0)" } ?? base
     }
 
-    /// Tokens available for one variable input (logs, a changelog), capped.
-    private func budget(_ cap: Int) -> Int {
+    /// Tokens available for one variable input (logs, a changelog, a conversation), capped.
+    public func budget(_ cap: Int) -> Int {
         Tokens.inputBudget(contextTokens: provider.capabilities.contextTokens, maxOutputTokens: maxOutputTokens, cap: cap)
     }
 

@@ -239,6 +239,17 @@ import Testing
 }
 
 @Suite struct ConfigurationTests {
+    /// The web UI's form for the block: valid JSON naming every key the block reads, the API key as a password.
+    @Test func describesTheBlockForTheSettingsForm() throws {
+        let properties = try JSONValue(string: AIConfiguration.schemaJSON)["schema"]?["properties"]
+        for key in ["provider", "model", "apiKey", "baseUrl", "effort", "maxOutputTokens", "contextTokens", "openaiApi", "maxRetries", "promptCaching", "fallbacks", "enabled", "mcp"] {
+            #expect(properties?[key] != nil, "\(key)")
+        }
+        #expect(properties?["apiKey"]?["x-schema-form"]?["type"] == "password")
+        let providers = properties?["provider"]?["oneOf"]?.arrayValue?.compactMap { $0["enum"]?[0]?.stringValue } ?? []
+        #expect(Set(providers) == Set(AIConfiguration.ProviderKind.allCases.map(\.rawValue)))
+    }
+
     @Test func appliesDefaults() throws {
         let anthropic = try AIConfiguration(block: ["platform": "HomeswiftAiKit", "apiKey": "k"], environment: [:])
         #expect(anthropic.provider == .anthropic)

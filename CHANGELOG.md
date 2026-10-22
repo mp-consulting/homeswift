@@ -8,6 +8,35 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **The Assistant's chat** in the web UI: a sparkle button in the header, on every page, opens a chat where
+  the Assistant answers and acts through the MCP server's tools, plugin actions included. Each change shows
+  a card with a dry run's list of what would change and waits for Allow; writes go to the MCP audit log.
+  Streaming answers, tool steps as they run, a panel beside the page or a sheet on a phone, the Apple
+  Intelligence glow while it works. The mic dictates (tap, or hold to talk) and answers to spoken messages
+  are read out.
+- **Plugin actions for the Assistant**: `HomeswiftPlugin.assistantActions` describes routes of a plugin's web
+  API as tools (`<platform>_<name>`). Philips Ambilight TV: list, find and pair TVs, wake one, press a key;
+  Elgato Key Lights: list lights, check an address, flash one.
+- **`put_list_entry`**, an MCP tool that adds or replaces one entry of a block's list (`devices`, keyed by
+  MAC), keeping the entry's secrets through a rename.
+- **Secrets as handles**: an MCP session's `SecretVault` turns secrets in tool answers into `__SECRET_n__`
+  handles and back in arguments, so a model can store a pairing's password without reading it.
+- **HTTPS for the web UI** (`"https": true` in the HomeswiftUI block): with a configured certificate or a
+  self-signed one the bridge makes and renews (this machine's names and addresses, a CA a phone can trust,
+  downloadable at `/homeswift-ui.crt`); the session cookie carries `Secure`, the banner prints the
+  fingerprint. Browsers need it for the microphone away from localhost.
+- **The log on disk**, rotated (8 MB segments, a new one each day, 64 MB and 7 days kept, batched writes):
+  the Logs page filters by time (the last hour, today, yesterday, a custom range…) and by accessory, and each
+  accessory card's menu opens its log.
+- Accessory cards have a menu of actions (identify, show the log, ask the Assistant, plugin settings).
+- Settings pages show the form first and the block as JSON on demand; the Config page and the JSON views
+  colour JSON as it is typed; certificate and key fields take a dropped PEM file; the HomeswiftAiKit block
+  (the Assistant, the MCP server) has a form. The Logs page copies the lines shown. Selects look like the
+  platform's pop-up buttons.
+- The voice language of the Assistant's chat can be chosen.
+- **Add** on a plugin with its own page writes an empty block and opens the page; the Philips TV page opens
+  its pairing wizard from an **Add a TV** button, and on its own while there is no TV.
+
 - **Philips Ambilight TV** (`Plugins/PhilipsAmbilightTV`), a port of `homebridge-philips-ambilight-tv` with the
   same configuration: power with Wake-on-LAN, inputs (tuner, Home, HDMI, discovered or configured apps) with
   stable identifiers, the remote, volume and mute, Ambilight as a colour light, source switches, custom
@@ -25,6 +54,15 @@ All notable changes to this project are documented here. The format follows
   host from the system's ARP table.
 
 ### Changed
+
+- Signing in is quick in debug builds too: PBKDF2 runs on CommonCrypto on Apple platforms, and the button
+  shows its progress.
+- MCP sessions refuse a `__SECRET_…__` handle that is not under a secret's key or not their own, so a model
+  cannot move a secret into a field that would show it.
+- `get_config` gives secrets as session handles instead of `__REDACTED__`, so a rename keeps them. Every MCP
+  client's confirmation now lists what a change would do (from a dry run), and a change that would fail is
+  answered without a question. A step's read-only tool calls run at the same time in the chat. The Logs
+  page's accessory filter runs on the server, before the line limit.
 
 - **No restart to apply configuration.** `PluginHost.apply(_:)` applies a new config.json in place: a changed
   platform block gets a fresh plugin on the same accessories (aids, iids and pairings kept), a new block

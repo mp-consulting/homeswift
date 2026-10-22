@@ -151,6 +151,28 @@ A plugin can give the web UI a page of its own: a `Web/` directory next to `Sour
 `webFiles`, and a `handleWebRequest(_:)` that answers the page's requests. `docs/ui.md` has the details
 and `Plugins/ElgatoKeyLights/Web` is the example.
 
+### What the Assistant can do
+
+`assistantActions` describes routes of `handleWebRequest` for a model, so the Assistant (the web UI's chat,
+an MCP client) can find, check or pair a device the way the plugin's page does. Each becomes the tool
+`<platform>_<name>`, with an `instance` argument when the platform has several blocks; arguments go in the
+query of a `GET` and in the JSON body otherwise (`queryKeys` puts some in the query of a `POST`). `access`
+sets the MCP scope it needs (`configure` is admin), and `confirm: true` asks the user before it runs.
+
+```swift
+public static let assistantActions = [
+    AssistantAction(
+        name: "probe", title: "Check an address",
+        description: "Asks the light at an address who it is. Add it with put_list_entry (platform ElgatoKeyLights, list devices, match mac).",
+        path: "probe", access: .read,
+        inputSchema: ["type": "object", "required": ["host"], "properties": ["host": ["type": "string"]]]),
+]
+```
+
+The description is the model's only guide: say what comes back and which tool writes it into config.json
+(`put_list_entry` adds or replaces one entry of a list, keyed by `mac` unless told otherwise). Secrets in
+the answer reach the model as handles it passes on without reading (`docs/ai.md`).
+
 ### Testing
 
 Run a `PluginHost` with `MemoryStorage` and no Bonjour, and register the plugin with a closure that injects

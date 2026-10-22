@@ -63,10 +63,14 @@ extension PhilipsAmbilightTVPlugin {
       }),
       el("div", { class: "tv-foot muted" },
         el("span", { text: `${tv.inputs} inputs · ${updates} · Certificate ${tv.pinned ? "pinned" : "not pinned, pair again to pin it"}` }),
-        el("span", { class: "foot-actions" },
-          el("button", { class: "link", text: "Inputs", onclick: () => openSources(tv) }),
-          el("button", { class: "link", text: "Edit", onclick: () => openEditor(tv) }),
-          el("button", { class: "link danger", text: "Remove", onclick: (event) => act(event.currentTarget, () => removeTV(tv)) }))));
+        // The same menu as the Accessories page's cards, with what this page adds.
+        HomeswiftCommon.menuButton(`Actions for ${tv.name}`, () => [
+          { label: "Inputs", icon: "inputs", onSelect: () => openSources(tv) },
+          { label: "Edit", icon: "edit", onSelect: () => openEditor(tv) },
+          { label: "Show its log", icon: "logs", href: `/#logs/${encodeURIComponent(`${platform}:${tv.mac}`)}` },
+          window.HomeswiftChat?.available() ? { label: "Ask the Assistant", icon: HomeswiftCommon.sparkle(), onSelect: () => HomeswiftChat.ask(`About my TV ${tv.name}: `) } : null,
+          { label: "Remove", icon: "trash", danger: true, onSelect: () => removeTV(tv).catch((e) => alert(e.message)) },
+        ])));
   }
 
   /// `FOLLOW_VIDEO` as "Follow video"; nil as "On".
@@ -78,8 +82,9 @@ extension PhilipsAmbilightTVPlugin {
       if (tvs.length === 0) {
         if (!list.querySelector(".empty")) {
           list.replaceChildren(el("div", { class: "card empty" },
-            el("p", { class: "muted", text: "No TV yet. Switch your TV on, then add it below." })));
+            el("p", { class: "muted", text: "No TV yet. Switch your TV on, then add it above." })));
         }
+        if (!pairingOpened) openPairing(false);
         return;
       }
       // Only the card of a TV that changed is drawn again: keep the keyboard on the remote it was on.
@@ -524,7 +529,31 @@ extension PhilipsAmbilightTVPlugin {
 
   // MARK: Add a TV: find → PIN → confirm, one step at a time
 
+  // The wizard opens from "Add a TV" next to the TVs' heading, as Homebridge's "Pair a TV" does; on its own
+  // while there is no TV yet, and for "Pair again".
   const pairing = $("#pairing");
+  const addButton = $("#add-tv");
+  let pairingOpened = false;
+  function openPairing(scroll = true) {
+    pairingOpened = true;
+    pairing.classList.remove("hidden");
+    addButton.setAttribute("aria-expanded", "true");
+    if (scroll) pairing.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth", block: "start" });
+  }
+  function closePairing() {
+    reset();
+    pairing.classList.add("hidden");
+    addButton.setAttribute("aria-expanded", "false");
+    addButton.focus();
+  }
+  addButton.addEventListener("click", () => {
+    if (pairing.classList.contains("hidden")) {
+      openPairing();
+      findButton.focus({ preventScroll: true });
+    } else {
+      closePairing();
+    }
+  });
   const stepNames = ["Find", "PIN", "Confirm"];
   const steps = el("ol", { class: "steps" }, stepNames.map((label, i) => el("li", { "data-n": String(i + 1), text: label })));
   const status = el("p", { class: "status-line muted", role: "status" });
@@ -573,7 +602,7 @@ extension PhilipsAmbilightTVPlugin {
   const macHelp = el("p", { class: "help", text: "For Wake-on-LAN, which switches the TV on from deep standby." });
   const modeField = el("div", { class: "wide" }, el("label", { text: "Ambilight style when switched on from HomeKit" }));
   const onStart = el("input", { type: "checkbox", id: "ambilight-on-start" });
-  const entryText = el("pre", {});
+  const entryText = el("pre", { class: "json" });
   let options = {};   // what is chosen for the TV being added, from the schema: Ambilight style, remote, automations
   const moreOptions = el("details", { class: "group-box" }, el("summary", { text: "Remote and automations" }));
   async function renderOptions() {
@@ -597,16 +626,18 @@ extension PhilipsAmbilightTVPlugin {
       el("button", { class: "primary", text: "Add TV", onclick: (event) => act(event.currentTarget, addToConfiguration, fail) }),
       el("button", { class: "link", text: "Cancel", onclick: reset })),
     el("details", {}, el("summary", { text: "The entry for config.json" }), entryText,
-      el("button", { class: "link", text: "Copy", onclick: (event) => act(event.currentTarget, async () => { await navigator.clipboard.writeText(entryText.textContent); say("Copied.", "ok"); }, fail) })));
+      el("button", { class: "link", text: "Copy", onclick: (event) => act(event.currentTarget, async () => { await HomeswiftCommon.copyText(entryText.textContent); say("Copied.", "ok"); }, fail) })));
 
   // After saving: the plugin reloads with the TV at once.
   const doneText = el("p", {});
   const done = el("div", { class: "step" },
     doneText,
-    el("div", { class: "actions" }, el("button", { text: "Add another TV", onclick: reset })));
+    el("div", { class: "actions" }, el("button", { class: "primary", text: "Done", onclick: closePairing }), el("button", { text: "Add another TV", onclick: reset })));
 
   const bodies = [find, pinStep, confirmStep, done];
-  pairing.replaceChildren(steps, ...bodies, status);
+  pairing.replaceChildren(
+    el("div", { class: "panel-head" }, el("h2", { id: "add-title", text: "Add a TV" }), el("button", { class: "link", text: "Close", onclick: closePairing })),
+    steps, ...bodies, status);
 
   function show(step) {
     bodies.forEach((body, i) => body.classList.toggle("hidden", i !== step));
@@ -645,7 +676,7 @@ extension PhilipsAmbilightTVPlugin {
     reset();
     repairing = tv.mac;
     steps.children[2].textContent = "Done";
-    $("#add-title").scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth" });
+    openPairing();
     await act(manualPair, () => pair({ ip: tv.ip, name: tv.name }), fail);
   }
 
@@ -735,7 +766,7 @@ extension PhilipsAmbilightTVPlugin {
     if (onStart.checked) result.ambilightOnStart = true;
     return result;
   }
-  const showEntry = () => { if (device) entryText.textContent = JSON.stringify(entry(), null, 2); };
+  const showEntry = () => { if (device) entryText.replaceChildren(HomeswiftCommon.jsonHighlight(JSON.stringify(entry(), null, 2))); };
   [tvName, mac].forEach((field) => field.addEventListener("input", () => { if (field === mac) checkMAC(); showEntry(); }));
   onStart.addEventListener("change", showEntry);
 
@@ -779,6 +810,7 @@ extension PhilipsAmbilightTVPlugin {
   .off-note { margin: 0; padding: 10px 14px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); color: var(--muted); }
 
   .tv-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--line); font-size: 0.8125rem; }
+  .tv-foot .menu-button { margin-left: auto; }
   .tv-foot a { color: var(--accent); text-decoration: none; font-weight: 500; }
 
   /* The inputs editor: a panel with two columns like the Homebridge plugin's, shown (ordered) and hidden. */
@@ -840,6 +872,10 @@ extension PhilipsAmbilightTVPlugin {
   .steps li.current::before { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); border-color: transparent; }
   .steps li.done::before { content: "✓"; color: var(--ok); }
   .step { animation: fade var(--normal) var(--ease-out); }
+  /* The pairing wizard opens under its button, above the TVs, as the material arriving. */
+  .pairing { margin-bottom: 16px; animation: materialize var(--normal) var(--ease-out); scroll-margin-top: 90px; }
+  .pairing .panel-head { margin-bottom: 14px; }
+  .pairing .panel-head h2 { margin: 0; }
   .step > p:first-child { margin-top: 0; }
   .found { display: grid; gap: 8px; margin: 14px 0 0; }
   .found .item { display: flex; align-items: center; gap: 12px; margin: 0; padding: 10px 10px 10px 14px; }
@@ -883,13 +919,11 @@ extension PhilipsAmbilightTVPlugin {
     </div>
   </div>
 
-  <div class="section-head"><h2>Your TVs</h2></div>
+  <div class="section-head"><h2>Your TVs</h2><button id="add-tv" class="primary" aria-expanded="false" aria-controls="pairing">Add a TV</button></div>
+  <section id="pairing" class="card pairing hidden" aria-labelledby="add-title"></section>
   <div id="tvs" class="tvs"></div>
   <div id="sources" class="card panel hidden"></div>
   <div id="tv-editor" class="card panel hidden"></div>
-
-  <div class="section-head"><h2 id="add-title">Add a TV</h2></div>
-  <div id="pairing" class="card"></div>
 </main>
 <script src="/common.js"></script>
 <script src="/plugin.js"></script>

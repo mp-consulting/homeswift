@@ -55,6 +55,54 @@ public struct AIConfiguration: Sendable, Equatable {
 
     public static let defaultMaxOutputTokens = 2048
 
+    /// The block's settings form, in the shape of a plugin's config.schema.json: the web UI's Settings uses it.
+    /// It covers the MCP server's part of the block (`mcp.http`) too.
+    public static let schemaJSON = #"""
+        {
+          "pluginAlias": "HomeswiftAiKit",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "provider": { "title": "Provider", "type": "string", "default": "anthropic", "required": true, "oneOf": [
+                { "title": "Anthropic (Claude)", "enum": ["anthropic"] },
+                { "title": "OpenAI", "enum": ["openai"] },
+                { "title": "Google Gemini", "enum": ["gemini"] },
+                { "title": "OpenAI-compatible (Ollama, LM Studio, a proxy)", "enum": ["openai-compatible"] },
+                { "title": "Apple on-device model (macOS 26)", "enum": ["apple"] }
+              ], "description": "Who answers. Apple's on-device model is free and private but too small for the chat's tools." },
+              "model": { "title": "Model", "type": "string", "placeholder": "claude-opus-5-5", "description": "Empty uses the provider's default: claude-opus-5-5, gpt-6.1-sol, gemini-3.8-flash." },
+              "apiKey": { "title": "API key", "type": "string", "x-schema-form": { "type": "password" }, "description": "Empty reads ANTHROPIC_API_KEY, OPENAI_API_KEY or GEMINI_API_KEY from the environment. Never sent anywhere but the provider." },
+              "baseUrl": { "title": "Base URL", "type": "string", "placeholder": "http://127.0.0.1:11434/v1", "description": "For an OpenAI-compatible server or a proxy." },
+              "effort": { "title": "Effort", "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "How much the model thinks before answering (Claude, OpenAI reasoning models)." },
+              "maxOutputTokens": { "title": "Longest answer (tokens)", "type": "integer", "default": 2048, "minimum": 1 },
+              "contextTokens": { "title": "Context window (tokens)", "type": "integer", "minimum": 1, "description": "The model's window, for a local model the bridge cannot know." },
+              "openaiApi": { "title": "OpenAI API", "type": "string", "enum": ["responses", "chat"], "description": "Chat Completions for servers that only speak it; OpenAI uses the Responses API." },
+              "maxRetries": { "title": "Retries", "type": "integer", "default": 2, "minimum": 0, "maximum": 10 },
+              "promptCaching": { "title": "Prompt caching", "type": "boolean", "default": true, "description": "Claude: cache the system prompt and tools. Off for proxies that reject it." },
+              "fallbacks": { "title": "Fallback model", "type": "boolean", "description": "Claude: let the API retry a declined request on a fallback model." },
+              "enabled": { "title": "Enabled", "type": "boolean", "default": true },
+              "mcp": { "title": "MCP server", "type": "object", "properties": {
+                "http": { "title": "Over HTTP", "type": "object", "properties": {
+                  "enabled": { "title": "Run the MCP server", "type": "boolean", "default": false, "description": "Lets Claude Desktop and other MCP clients read and control the bridge with a token." },
+                  "host": { "title": "Listen on", "type": "string", "placeholder": "127.0.0.1" },
+                  "port": { "title": "Port", "type": "integer", "default": 8582, "minimum": 1, "maximum": 65535 },
+                  "token": { "title": "Admin token", "type": "string", "x-schema-form": { "type": "password" }, "description": "homeswift mcp --generate-token makes one." },
+                  "readOnly": { "title": "Read only", "type": "boolean", "description": "Caps every token at read access." },
+                  "allowedOrigins": { "title": "Allowed browser origins", "type": "array", "items": { "type": "string" } },
+                  "auditLog": { "title": "Audit log", "type": "boolean", "default": true, "description": "Every write, with who asked, in homeswift-mcp-audit.jsonl." },
+                  "auditLogPath": { "title": "Audit log file", "type": "string" },
+                  "clients": { "title": "Clients", "type": "array", "items": { "type": "object", "properties": {
+                    "name": { "title": "Name", "type": "string" },
+                    "token": { "title": "Token", "type": "string", "x-schema-form": { "type": "password" } },
+                    "scope": { "title": "Scope", "type": "string", "enum": ["read", "control", "admin"] }
+                  } } }
+                } }
+              } }
+            }
+          }
+        }
+        """#
+
     public var name: String
     public var enabled: Bool
     public var provider: ProviderKind

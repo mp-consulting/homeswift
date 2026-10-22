@@ -71,6 +71,15 @@ is a plain JSON value. `ask`, `explain`, `diagnose` and `generateConfiguration` 
 closure to stream. `generateConfiguration(request:schema:current:)` writes a block from the plugin's
 `config.schema.json`; secrets in `current` are redacted before sending and restored after.
 
+## In the web UI's chat
+
+`AssistantService.converse(history:tools:vault:)` runs a turn with tools: the model answers or calls tools,
+their results go back to it, until it answers or 16 model calls were made. The web UI's chat gives it the
+MCP server's tools through `ChatToolbox`, an MCP session inside the process that acts as the signed-in user:
+scopes, schema checks, confirmations and the audit log are the MCP server's. A destructive tool runs a dry
+run first; its answer goes on the page's confirmation card, and the user's choice answers the session's
+elicitation. `docs/ui.md` describes the chat.
+
 ## What goes to the provider
 
 - **Secrets never.** Configuration values under keys such as `password`, `token`, `apiKey`, `pin` are
@@ -81,12 +90,15 @@ closure to stream. `generateConfiguration(request:schema:current:)` writes a blo
   tells the model never to follow instructions found in them.
 - **Inputs are trimmed** to the provider's context window, keeping the end of a log and the start of a
   changelog, with a note saying how much was cut.
+- **Secrets a tool returns become handles.** Each MCP session (the chat's too) has a `SecretVault`: a
+  secret in a tool's answer (a TV's password after pairing) reaches the model as `__SECRET_1__`, and that
+  handle in a later tool's arguments becomes the secret again, so the model can put it in config.json
+  without seeing it.
 - **Nothing is stored** on the provider's side where that is a choice: OpenAI requests use `store: false`.
 
 ## Library
 
 `HomeswiftAI` is a library of its own (Foundation and swift-log only): `Provider` adapters with `chat` and
-`stream`, tool definitions and calls for a later agent loop, `JSONGeneration.generate` for schema-checked
-JSON with one repair, `Redaction`, `Tokens`, `Pricing` and `UsageTracker`. `AssistantService` wires them
-into the features. The MCP server, which lets Claude Desktop and other clients control the bridge, is the
-next step on top of it.
+`stream`, tool definitions and calls, `AssistantService.converse` for a turn with tools, `SecretVault`,
+`JSONGeneration.generate` for schema-checked JSON with one repair, `Redaction`, `Tokens`, `Pricing` and
+`UsageTracker`. `AssistantService` wires them into the features.

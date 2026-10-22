@@ -1,5 +1,6 @@
-// What every page of the web UI shares, the UI's own and plugins' alike: $ and el, which build and find elements,
-// and the tiles: an icon on a colour, as the Home app draws them. Loaded before the page's own script.
+// What every page of the web UI shares, the UI's own and plugins' alike: $ and el, which build and find elements;
+// the tiles, an icon on a colour, as the Home app draws them; and the Assistant's Markdown and sparkle. Loaded
+// before the page's own script.
 (() => {
   "use strict";
 
@@ -36,6 +37,12 @@
     generic: '<rect x="4" y="4" width="16" height="16" rx="4"/>',
     plugin: '<path d="M4 7h4a2 2 0 1 1 4 0h4v4a2 2 0 1 1 0 4v4H4z"/>',
     gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+    more: '<circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/>',
+    logs: '<path d="M8 6h12M8 12h12M8 18h8M4 6h.01M4 12h.01M4 18h.01"/>',
+    trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+    edit: '<path d="M12 20h8M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+    inputs: '<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/>',
+    identify: '<circle cx="12" cy="12" r="2.5"/><path d="M7.5 7.5a6.4 6.4 0 0 0 0 9M16.5 7.5a6.4 6.4 0 0 1 0 9"/>',
   };
 
   /// An icon as an SVG element.
@@ -51,5 +58,239 @@
   const tile = (name, tone = "orange", large = false) =>
     el("span", { class: `tile tone-${tone}${large ? " large" : ""}`, "aria-hidden": "true" }, icon(name));
 
-  window.HomeswiftCommon = { $, el, icon, tile };
+  /// Markdown from the Assistant as elements, never as HTML: headings, paragraphs, nested lists, code blocks,
+  /// bold, italics, code and http(s) links. Anything else stays text.
+  function markdown(source) {
+    const root = el("div", { class: "md" });
+    const lines = String(source).replace(/\r/g, "").split("\n");
+    let paragraph = [];
+    let lists = [];   // { indent, node }, the open lists, innermost last
+    const flush = () => {
+      if (paragraph.length) root.append(el("p", {}, inline(paragraph.join(" "))));
+      paragraph = [];
+    };
+    const closeLists = () => { lists = []; };
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (/^\s*```/.test(line)) {
+        flush(); closeLists();
+        const code = [];
+        while (++i < lines.length && !/^\s*```/.test(lines[i])) code.push(lines[i]);
+        root.append(el("pre", {}, el("code", { text: code.join("\n") })));
+        continue;
+      }
+      const heading = line.match(/^\s*(#{1,6})\s+(.*)$/);
+      if (heading) {
+        flush(); closeLists();
+        root.append(el(heading[1].length <= 2 ? "h3" : "h4", {}, inline(heading[2].replace(/^"(.*)"$/, "$1"))));
+        continue;
+      }
+      const item = line.match(/^(\s*)([-*+•]|\d+[.)])\s+(.*)$/);
+      if (item) {
+        flush();
+        const indent = item[1].replace(/\t/g, "  ").length;
+        const ordered = /\d/.test(item[2]);
+        while (lists.length && lists[lists.length - 1].indent > indent) lists.pop();
+        let current = lists[lists.length - 1];
+        if (!current || current.indent < indent || current.ordered !== ordered) {
+          const node = el(ordered ? "ol" : "ul", {});
+          const parent = current && current.indent < indent ? current.node.lastElementChild : null;
+          (parent || root).append(node);
+          if (current && current.indent === indent) lists.pop();
+          current = { indent, ordered, node };
+          lists.push(current);
+        }
+        current.node.append(el("li", {}, inline(item[3])));
+        continue;
+      }
+      if (!line.trim()) { flush(); continue; }
+      if (lists.length && /^\s+\S/.test(line)) {
+        // A continuation of the last item.
+        lists[lists.length - 1].node.lastElementChild?.append(" ", ...inline(line.trim()));
+        continue;
+      }
+      closeLists();
+      paragraph.push(line.trim());
+    }
+    flush();
+    return root;
+  }
+
+  /// Inline Markdown: **bold**, *italics*, `code`, [a link](https://…).
+  function inline(text) {
+    const nodes = [];
+    const pattern = /(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\*[^*\s][^*]*\*|\[[^\]]+\]\((?:https?:\/\/)[^)\s]+\))/g;
+    let last = 0;
+    for (const match of text.matchAll(pattern)) {
+      if (match.index > last) nodes.push(text.slice(last, match.index));
+      const token = match[0];
+      if (token.startsWith("**") || token.startsWith("__")) nodes.push(el("strong", { text: token.slice(2, -2) }));
+      else if (token.startsWith("`")) nodes.push(el("code", { text: token.slice(1, -1) }));
+      else if (token.startsWith("[")) {
+        const [, label, url] = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+        nodes.push(el("a", { href: url, text: label, target: "_blank", rel: "noopener noreferrer" }));
+      } else nodes.push(el("em", { text: token.slice(1, -1) }));
+      last = match.index + token.length;
+    }
+    if (last < text.length) nodes.push(text.slice(last));
+    return nodes;
+  }
+
+  // The Apple Intelligence sparkle, its colours on a gradient (an id per drawing, so each has its own).
+  let sparkles = 0;
+  function sparkle() {
+    const id = `ai-gradient-${++sparkles}`;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    svg.classList.add("sparkle");
+    svg.innerHTML = `<defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff9f0a"/><stop offset=".35" stop-color="#ff375f"/><stop offset=".7" stop-color="#bf5af2"/><stop offset="1" stop-color="#5e5ce6"/></linearGradient></defs>`
+      + `<path fill="url(#${id})" d="M11 2.5c.7 5 3 7.3 8 8-5 .7-7.3 3-8 8-.7-5-3-7.3-8-8 5-.7 7.3-3 8-8z"/>`
+      + `<path fill="url(#${id})" d="M19 14.5c.3 2 1 2.7 3 3-2 .3-2.7 1-3 3-.3-2-1-2.7-3-3 2-.3 2.7-1 3-3z"/>`;
+    return svg;
+  }
+
+  // ---- A menu of actions, after a macOS pull-down menu --------------------------------------------------
+  // It grows out of its button and goes back into it; the arrow keys move between items, Escape and a click
+  // elsewhere close it, and focus returns to the button.
+
+  let openMenu = null;
+
+  /// Opens a menu under `trigger`. Each item: { label, icon (a name or a node), href or onSelect, danger }.
+  /// Opened from the keyboard, its first item takes the focus; from a click, the menu does, so no item looks
+  /// chosen before the pointer or an arrow key gets to it.
+  function menu(trigger, items, { keyboard = false } = {}) {
+    if (openMenu?.trigger === trigger) { openMenu.close(); return; }
+    openMenu?.close(true);
+    const entries = items.filter(Boolean).map((item) => {
+      const glyph = typeof item.icon === "string" ? icon(item.icon) : item.icon ?? null;
+      const node = item.href
+        ? el("a", { role: "menuitem", href: item.href, class: item.danger ? "danger" : "", tabIndex: -1 }, glyph, el("span", { text: item.label }))
+        : el("button", { type: "button", role: "menuitem", class: item.danger ? "danger" : "", tabIndex: -1 }, glyph, el("span", { text: item.label }));
+      node.addEventListener("click", () => { close(); item.onSelect?.(); });
+      return node;
+    });
+    const list = el("div", { class: "menu", role: "menu", tabIndex: -1, "aria-label": trigger.getAttribute("aria-label") || "Actions" }, entries);
+    document.body.append(list);
+    // Under the button, its right edges aligned, inside the window; above it when there is no room below.
+    const box = trigger.getBoundingClientRect();
+    const width = list.offsetWidth, height = list.offsetHeight;
+    const below = box.bottom + 6 + height < innerHeight;
+    list.style.left = `${Math.max(8, Math.min(innerWidth - width - 8, box.right - width))}px`;
+    list.style.top = `${below ? box.bottom + 6 : box.top - 6 - height}px`;
+    list.style.transformOrigin = `${box.right - parseFloat(list.style.left) - box.width / 2}px ${below ? "0" : "100%"}`;
+    trigger.setAttribute("aria-expanded", "true");
+    const focusAt = (index) => entries[(index + entries.length) % entries.length]?.focus();
+    const onKey = (event) => {
+      const index = entries.indexOf(document.activeElement);
+      if (event.key === "Escape") { event.preventDefault(); close(); }
+      else if (event.key === "ArrowDown") { event.preventDefault(); focusAt(index + 1); }
+      else if (event.key === "ArrowUp") { event.preventDefault(); focusAt(index < 0 ? -1 : index - 1); }
+      else if (event.key === "Home") { event.preventDefault(); focusAt(0); }
+      else if (event.key === "End") { event.preventDefault(); focusAt(-1); }
+      else if (event.key === "Tab") close(true);
+    };
+    const onPointer = (event) => { if (!list.contains(event.target) && !trigger.contains(event.target)) close(true); };
+    function close(quietly = false) {
+      if (openMenu?.list !== list) return;
+      openMenu = null;
+      document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("pointerdown", onPointer, true);
+      removeEventListener("resize", onResize);
+      trigger.setAttribute("aria-expanded", "false");
+      list.classList.add("closing");
+      setTimeout(() => list.remove(), 160);
+      if (!quietly) trigger.focus({ preventScroll: true });
+    }
+    const onResize = () => close(true);
+    document.addEventListener("keydown", onKey, true);
+    document.addEventListener("pointerdown", onPointer, true);
+    addEventListener("resize", onResize);
+    openMenu = { trigger, list, close };
+    if (keyboard) focusAt(0); else list.focus({ preventScroll: true });
+  }
+
+  /// A round icon button that opens `menu` with what `items()` gives when pressed.
+  const menuButton = (label, items) => {
+    const button = el("button", { type: "button", class: "icon-button menu-button", "aria-label": label, title: label, "aria-haspopup": "menu", "aria-expanded": "false" }, icon("more"));
+    // A click from the keyboard (Enter, Space) has no pointer position: detail is 0.
+    button.addEventListener("click", (event) => { event.stopPropagation(); menu(button, items(), { keyboard: event.detail === 0 }); });
+    return button;
+  };
+
+  /// The UI's API, with the session cookie: `body` is an object, sent as JSON; a refusal carries the server's
+  /// message, and a signed-out visitor goes to the sign-in page. `stream: true` answers the Response itself,
+  /// for a body read as it arrives.
+  async function api(path, { method = "GET", body, stream = false } = {}) {
+    const options = { method, credentials: "same-origin", headers: {} };
+    if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
+    const response = await fetch(path, options);
+    if (response.status === 401) { location.href = "/"; throw new Error("signed out"); }
+    if (stream && response.ok) return response;
+    const text = await response.text();
+    let json = null;
+    try { json = text ? JSON.parse(text) : null; } catch { json = { error: text }; }
+    if (!response.ok) throw new Error((json && json.error) || `HTTP ${response.status}`);
+    return json;
+  }
+
+  /// Puts `text` on the clipboard. The Clipboard API exists only over HTTPS or on localhost; a page on the
+  /// network over plain HTTP copies through a hidden text field instead.
+  async function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    const field = el("textarea", { value: text, readOnly: true, style: "position:fixed;top:-1000px;opacity:0" });
+    document.body.append(field);
+    field.select();
+    const copied = document.execCommand("copy");
+    field.remove();
+    if (!copied) throw new Error("The browser did not allow copying.");
+  }
+
+  // ---- JSON, coloured -----------------------------------------------------------------------------------
+  // Keys, strings, numbers, true, false and null each in a colour; punctuation quiet. Text nodes only, never HTML.
+
+  const jsonToken = /("(?:[^"\\]|\\.)*")(\s*:)?|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|\b(true|false)\b|\b(null)\b|([{}[\],:])/g;
+
+  /// `text` (JSON, or almost: it is being typed) as coloured spans.
+  function jsonHighlight(text) {
+    const fragment = document.createDocumentFragment();
+    let last = 0;
+    for (const match of text.matchAll(jsonToken)) {
+      if (match.index > last) fragment.append(text.slice(last, match.index));
+      const [whole, string, colon, number, boolean, nil] = match;
+      const kind = string ? (colon ? "key" : "string") : number ? "number" : boolean ? "bool" : nil ? "null" : "punct";
+      fragment.append(el("span", { class: `json-${kind}`, text: string && colon ? string : whole }));
+      if (string && colon) fragment.append(el("span", { class: "json-punct", text: colon }));
+      last = match.index + whole.length;
+    }
+    if (last < text.length) fragment.append(text.slice(last));
+    return fragment;
+  }
+
+  /// A value shown as indented, coloured JSON.
+  const jsonView = (value, attrs = {}) => el("pre", { class: "json", ...attrs }, jsonHighlight(JSON.stringify(value, null, 2) ?? ""));
+
+  /// Colours a JSON textarea as it is typed: a coloured copy of its text sits under it, the textarea's own
+  /// text transparent, so editing, selection and undo stay the browser's. Returns the wrapper to show.
+  function jsonEditor(textarea) {
+    const layer = el("pre", { class: "code-layer", "aria-hidden": "true" });
+    const wrapper = el("div", { class: "code-editor" }, layer, textarea);
+    textarea.classList.add("code-input");
+    let scheduled = false;
+    const paint = () => {
+      scheduled = false;
+      // A final newline needs a character after it to take its line.
+      layer.replaceChildren(jsonHighlight(textarea.value), "\n");
+      layer.scrollTop = textarea.scrollTop;
+      layer.scrollLeft = textarea.scrollLeft;
+    };
+    const schedule = () => { if (!scheduled) { scheduled = true; requestAnimationFrame(paint); } };
+    textarea.addEventListener("input", schedule);
+    textarea.addEventListener("scroll", () => { layer.scrollTop = textarea.scrollTop; layer.scrollLeft = textarea.scrollLeft; });
+    wrapper.repaint = paint;
+    paint();
+    return wrapper;
+  }
+
+  window.HomeswiftCommon = { $, el, icon, tile, markdown, sparkle, api, menuButton, copyText, jsonHighlight, jsonView, jsonEditor };
 })();

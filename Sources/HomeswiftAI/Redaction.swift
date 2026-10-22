@@ -44,13 +44,17 @@ public enum Redaction {
 
     private static func isSecretValue(_ value: JSONValue) -> Bool {
         switch value {
-        case .string(let string): !string.isEmpty
+        case .string(let string): !string.isEmpty && !isConcealed(string)
         case .number: true
         default: false
         }
     }
 
-    /// A copy of `value` with every secret replaced by the placeholder.
+    /// The placeholder, or a `SecretVault` handle: a value that already hides a secret.
+    public static func isConcealed(_ string: String) -> Bool {
+        string == placeholder || SecretVault.isHandle(string)
+    }
+
     /// Masks network addresses in text for a provider: MAC addresses, IPv4, bracketed IPv6 and `.local` host
     /// names, as the Homebridge UIs' `scrubAddresses` does. A device's address helps nobody explain its error.
     public static func scrubAddresses(_ text: String) -> String {
@@ -77,16 +81,18 @@ public enum Redaction {
         }
     }
 
-    public static func redactSecrets(_ value: JSONValue, underSecretKey: Bool = false) -> JSONValue {
+    /// A copy of `value` with every secret replaced by the placeholder, or by what `replacing` makes of it
+    /// (a `SecretVault`'s handle).
+    public static func redactSecrets(_ value: JSONValue, underSecretKey: Bool = false, replacing: (JSONValue) -> JSONValue = { _ in .string(placeholder) }) -> JSONValue {
         switch value {
         case .array(let items):
-            return .array(items.map { redactSecrets($0, underSecretKey: underSecretKey) })
+            return .array(items.map { redactSecrets($0, underSecretKey: underSecretKey, replacing: replacing) })
         case .object(let object):
             return .object(object.reduce(into: [:]) { result, entry in
-                result[entry.key] = redactSecrets(entry.value, underSecretKey: underSecretKey || isSecretKey(entry.key))
+                result[entry.key] = redactSecrets(entry.value, underSecretKey: underSecretKey || isSecretKey(entry.key), replacing: replacing)
             })
         default:
-            return underSecretKey && isSecretValue(value) ? .string(placeholder) : value
+            return underSecretKey && isSecretValue(value) ? replacing(value) : value
         }
     }
 
@@ -102,7 +108,8 @@ public enum Redaction {
     public struct RestoreError: Error, CustomStringConvertible, Sendable {
         public let paths: [String]
         public var description: String {
-            "Cannot restore \(placeholder) at \(paths.joined(separator: ", ")): no matching value in the current config. "
+            // Worded so that redactText, which every error passes through, finds no "key: value" pair to mask.
+            "Cannot restore \(placeholder) (no matching value in the current config) in \(paths.joined(separator: ", ")). "
                 + "Supply the real value, or keep the entry's identifying fields (platform, accessory, name) unchanged."
         }
     }
@@ -167,6 +174,7 @@ public enum Redaction {
             guard let whole = Range(match.range, in: out), let keyRange = Range(match.range(at: 2), in: out) else { continue }
             let key = String(out[keyRange])
             if matches(notSecretKey, key) { continue }
+            if let valueRange = Range(match.range(at: 5), in: out), isConcealed(String(out[valueRange])) { continue }
             let quote = Range(match.range(at: 1), in: out).map { String(out[$0]) } ?? ""
             let separator = Range(match.range(at: 3), in: out).map { String(out[$0]) } ?? ""
             let valueQuote = Range(match.range(at: 4), in: out).map { String(out[$0]) } ?? ""

@@ -253,7 +253,9 @@ struct ProtocolTests {
         #expect(shown?["platforms"]?[2]?["mcp"]?["http"]?["token"] == "__REDACTED__")
         let viewer = DirectClient(server: environment.server, scope: .read)
         try await viewer.initialize()
-        #expect(try await viewer.tool("get_config", ["includeSecrets": true])["structuredContent"]?["platforms"]?[0]?["token"] == "__REDACTED__")
+        // Without the right to see them, secrets come as handles of the session's vault.
+        let hidden = try await viewer.tool("get_config", ["includeSecrets": true])["structuredContent"]?["platforms"]?[0]?["token"]
+        #expect(hidden?.stringValue.map(SecretVault.isHandle) == true)
     }
 
     @Test func managesTheConfigFile() async throws {
@@ -264,8 +266,9 @@ struct ProtocolTests {
         try await client.initialize()
 
         let config = try await client.tool("get_config")["structuredContent"]
-        #expect(config?["platforms"]?[0]?["token"] == "__REDACTED__")
-        #expect(config?["bridge"]?["pin"] == "__REDACTED__")
+        #expect(config?["platforms"]?[0]?["token"]?.stringValue.map(SecretVault.isHandle) == true)
+        #expect(config?["bridge"]?["pin"]?.stringValue.map(SecretVault.isHandle) == true)
+        #expect(config?["platforms"]?[2]?["mcp"]?["http"]?["token"] == "__REDACTED__")
         #expect(config?["platforms"]?[0]?["platform"] == "Devices")
         #expect(try await client.tool("get_plugin_config_schema", ["platform": "Devices"])["isError"] == true)
 
@@ -283,7 +286,7 @@ struct ProtocolTests {
         let backups = try await client.tool("list_config_backups")["structuredContent"]?["backups"]?.arrayValue ?? []
         #expect(backups.count == 1)
 
-        // A full replacement with redacted secrets keeps the real ones; an invalid one is refused.
+        // A full replacement with the handles keeps the real secrets; an invalid one is refused.
         let redacted = try #require(try await client.tool("get_config")["structuredContent"])
         var root = redacted.objectValue!
         root["platforms"] = .array([redacted["platforms"]![0]!])

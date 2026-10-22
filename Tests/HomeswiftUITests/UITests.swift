@@ -68,7 +68,7 @@ final class UITestEnvironment: @unchecked Sendable {
     let server: UIServer
     var configURL: URL { directory.appendingPathComponent("config.json") }
 
-    init(auth: UIConfiguration.AuthMode = .form, webRoot: URL? = nil) throws {
+    init(auth: UIConfiguration.AuthMode = .form, webRoot: URL? = nil, https: Bool = false) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let config = """
             {
@@ -93,6 +93,7 @@ final class UITestEnvironment: @unchecked Sendable {
         configuration.host = "127.0.0.1"
         configuration.port = 0
         configuration.auth = auth
+        configuration.https = https
         var serverOptions = UIServer.Options()
         serverOptions.hashIterations = 1000
         serverOptions.logger = testLogger
@@ -103,7 +104,7 @@ final class UITestEnvironment: @unchecked Sendable {
     func start() async throws -> URL {
         try await host.start()
         try await server.start()
-        return URL(string: "http://127.0.0.1:\(server.port!)")!
+        return URL(string: "\(server.configuration.scheme)://127.0.0.1:\(server.port!)")!
     }
 
     func stop() async {
@@ -181,6 +182,10 @@ final class Browser: @unchecked Sendable {
         #expect(reloaded.usernames == ["rosaly"])
         #expect(reloaded.verify(username: "rosaly", password: "correct horse battery"))
         #expect(UserStore.pbkdf2(password: "password", salt: Data("salt".utf8), iterations: 1).map { String(format: "%02x", $0) }.joined().hasPrefix("120fb6cffcf8b32c"))
+        // The usual PBKDF2-HMAC-SHA256 vector (password, salt, 4096 rounds), through the platform's code and the portable loop.
+        let expected = "c5e478d59288c841aa530db6845c4c8d962893a001ce4e11a4963873aa98134a"
+        #expect(UserStore.pbkdf2(password: "password", salt: Data("salt".utf8), iterations: 4096).map { String(format: "%02x", $0) }.joined() == expected)
+        #expect(UserStore.portablePBKDF2(password: "password", salt: Data("salt".utf8), iterations: 4096).map { String(format: "%02x", $0) }.joined() == expected)
 
         let sessionsURL = url.deletingLastPathComponent().appendingPathComponent("homeswift-ui-sessions-\(UUID().uuidString).json")
         let sessions = SessionStore(lifetime: 60, url: sessionsURL)
@@ -339,6 +344,25 @@ final class Browser: @unchecked Sendable {
             #expect(files[name]?.body == file, "run: swift Scripts/embed-assets.swift \(command) (\(name))")
         }
         #expect(files["index.html"]?.contentType == "text/html; charset=utf-8")
+    }
+}
+
+@Suite(.timeLimit(.minutes(1)))
+struct LogFilterTests {
+    /// One accessory's lines, picked on the server, for the latest lines and for a time range.
+    @Test func picksAnAccessorysLines() async throws {
+        let environment = try UITestEnvironment(auth: .none)
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        environment.logs.append(LogBuffer.Line(level: .info, label: "Lamps", text: "Desk Lamp turned on"))
+        environment.logs.append(LogBuffer.Line(level: .info, label: "Lamps", text: "Front Door locked"))
+        let browser = Browser(base: base)
+        let latest = try await browser.get("/api/logs?accessory=Lamps:lamp").json?.arrayValue ?? []
+        #expect(latest.map { $0["text"]?.stringValue ?? "" } == ["Desk Lamp turned on"])
+        let from = Date().addingTimeInterval(-60).ISO8601Format(.iso8601.year().month().day().time(includingFractionalSeconds: true).timeSeparator(.colon).dateSeparator(.dash))
+        let range = try await browser.get("/api/logs?from=\(from)Z&accessory=Lamps:lock").json?.arrayValue ?? []
+        #expect(range.map { $0["text"]?.stringValue ?? "" } == ["Front Door locked"])
+        #expect(try await browser.get("/api/logs").json?.arrayValue?.count ?? 0 >= 2)
     }
 }
 

@@ -1,4 +1,7 @@
 import Crypto
+#if canImport(CommonCrypto)
+import CommonCrypto
+#endif
 import Foundation
 import Homeswift
 import HomeswiftAI
@@ -99,21 +102,48 @@ public final class UserStore: Sendable {
         try OwnerOnlyFile.write(JSONEncoder().encode(users), to: url)
     }
 
-    /// PBKDF2 with HMAC-SHA256 (RFC 8018), 32 bytes.
+    /// PBKDF2 with HMAC-SHA256 (RFC 8018), 32 bytes. CommonCrypto's on Apple platforms; elsewhere a loop that
+    /// keys the HMAC once and reuses its buffers (a fresh HMAC and `Data` per round took seconds in debug builds).
     static func pbkdf2(password: String, salt: Data, iterations: Int, length: Int = 32) -> Data {
-        let key = SymmetricKey(data: Data(password.utf8))
+        #if canImport(CommonCrypto)
+        var derived = [UInt8](repeating: 0, count: length)
+        let secret = Array(password.utf8)
+        let status = salt.withUnsafeBytes { saltBytes in
+            secret.withUnsafeBufferPointer { passwordBytes in
+                CCKeyDerivationPBKDF(
+                    CCPBKDFAlgorithm(kCCPBKDF2), passwordBytes.baseAddress.map { UnsafeRawPointer($0).assumingMemoryBound(to: CChar.self) }, secret.count,
+                    saltBytes.bindMemory(to: UInt8.self).baseAddress, salt.count, CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256),
+                    UInt32(max(1, iterations)), &derived, length)
+            }
+        }
+        if status == kCCSuccess { return Data(derived) }
+        #endif
+        return portablePBKDF2(password: password, salt: salt, iterations: iterations, length: length)
+    }
+
+    static func portablePBKDF2(password: String, salt: Data, iterations: Int, length: Int = 32) -> Data {
+        let keyed = HMAC<SHA256>(key: SymmetricKey(data: Data(password.utf8)))
         var output = Data()
         var block: UInt32 = 1
+        var u = [UInt8](repeating: 0, count: 32)
+        var t = [UInt8](repeating: 0, count: 32)
         while output.count < length {
-            var message = salt
-            message.append(contentsOf: withUnsafeBytes(of: block.bigEndian) { Array($0) })
-            var u = Data(HMAC<SHA256>.authenticationCode(for: message, using: key))
-            var t = u
+            var first = keyed
+            first.update(data: salt)
+            first.update(data: withUnsafeBytes(of: block.bigEndian) { Array($0) })
+            first.finalize().withUnsafeBytes { bytes in for index in 0..<32 { u[index] = bytes[index] } }
+            t = u
             for _ in 1..<max(1, iterations) {
-                u = Data(HMAC<SHA256>.authenticationCode(for: u, using: key))
-                for index in t.indices { t[index] ^= u[index] }
+                var round = keyed
+                round.update(data: u)
+                round.finalize().withUnsafeBytes { bytes in
+                    for index in 0..<32 {
+                        u[index] = bytes[index]
+                        t[index] ^= bytes[index]
+                    }
+                }
             }
-            output.append(t)
+            output.append(contentsOf: t)
             block += 1
         }
         return output.prefix(length)
