@@ -67,8 +67,11 @@ and `set_accessories` refuse them.
 ## Confirmations
 
 `set_security_accessory`, `update_config`, `patch_config` and `restore_config` ask the user before
-running. When the client supports MCP elicitation, the server asks through it, with the arguments shown
-(secrets redacted), and a declined question means the tool does not run. When the client cannot ask, the
+running, as do plugin actions marked to confirm. When the client supports MCP elicitation, the server asks
+through it. A tool with a dry run is run as one first: the question lists what would change, each setting
+with its new value, and carries the dry run's answer in `_meta` (`homeswift/preview`) for a client that
+shows it; a call the dry run says would fail comes back with that error, not as a question. Other tools show
+their arguments (secrets redacted). A declined question means the tool does not run. When the client cannot ask, the
 tool refuses and the bridge writes a six-digit confirmation code to its log (the terminal and the web UI's
 Logs page; the MCP log tools and notifications hide it). The user passes the code to the assistant, which
 calls again with `confirmationCode`. A code is for that tool and those arguments, lasts five minutes and
@@ -92,10 +95,13 @@ Prompts: `diagnose-logs` (`focus?`), `troubleshoot-device` (`device`, `symptom?`
   slow its next attempts. The server binds to `127.0.0.1` unless `host` says otherwise.
 - **Origins** other than localhost and the server's own address are refused unless listed, so a web page
   cannot reach the server from the user's browser.
-- **Secrets stay out.** `get_config` replaces passwords, tokens, keys and the pin with `__REDACTED__`, and
-  `update_config` puts the real values back. `includeSecrets` exists only when the bridge runs with
-  `HOMESWIFT_ALLOW_SECRETS=true`.
-- **Log lines and accessory data are data.** They come back wrapped in `<untrusted-data>` tags, and the
+- **Secrets stay out.** `get_config` and the plugin actions (a TV's password after pairing) give each secret
+  as a handle of the session's vault, `__SECRET_…__`, which becomes the secret again when the same session
+  passes it back under a secret's key (password, token, key, pin); a handle anywhere else, or from another
+  session, is refused. A client can so move a secret into config.json without reading it. MCP tokens and
+  dry-run previews show `__REDACTED__`, which `update_config` also restores. `includeSecrets` exists only
+  when the bridge runs with `HOMESWIFT_ALLOW_SECRETS=true`.
+- **Log lines, accessory data and what devices answer are data.** They come back wrapped in `<untrusted-data>` tags, and the
   server's instructions tell the model never to follow instructions found in them.
 - **An audit trail.** Every write tool call is appended to the audit log with its arguments (redacted),
   the session, the token's name and scope, `dryRun` and `notConfirmed`; the file rotates at 5 MB.

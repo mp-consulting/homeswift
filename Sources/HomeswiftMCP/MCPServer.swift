@@ -16,6 +16,9 @@ public struct ClientInfo: Sendable, Equatable {
 public final class MCPSession: Sendable, Identifiable {
     public let id: String
     public let principal: Principal
+    /// The session's secrets from tool answers: handles go out, and handles in arguments come back as the
+    /// secrets, so a client can pass a secret on without reading it.
+    public let vault = SecretVault()
 
     struct State {
         var initialized = false
@@ -149,8 +152,9 @@ public struct ToolCall: Sendable {
         elicitationEnabled && session.supportsElicitation && (serverRequests || session.hasStandingStream)
     }
 
-    /// Asks the user to confirm through MCP elicitation. Check `canAsk` first.
-    public func confirm(_ message: String) async throws -> Bool {
+    /// Asks the user to confirm through MCP elicitation. Check `canAsk` first. `preview`, a dry run's
+    /// answer, goes along in `_meta` for a client that can show it (the web UI's chat).
+    public func confirm(_ message: String, preview: JSONValue? = nil) async throws -> Bool {
         let session = session
         let send: @Sendable (JSONRPCMessage) -> Void
         if serverRequests {
@@ -158,7 +162,7 @@ public struct ToolCall: Sendable {
         } else {
             send = { message in session.send(message) }
         }
-        let params: JSONValue = [
+        var params: [String: JSONValue] = [
             "message": .string(message),
             "requestedSchema": [
                 "type": "object",
@@ -166,7 +170,8 @@ public struct ToolCall: Sendable {
                 "required": ["confirm"],
             ],
         ]
-        let answer = try await session.request("elicitation/create", params: params, emit: send)
+        if let preview { params["_meta"] = ["homeswift/preview": preview] }
+        let answer = try await session.request("elicitation/create", params: .object(params), emit: send)
         let accepted = answer["action"] == "accept"
         let confirmed = answer["content"]?["confirm"] == JSONValue.bool(true)
         return accepted && confirmed
@@ -199,6 +204,11 @@ public struct ToolResult: Sendable {
     public static func error(_ text: String) -> ToolResult { ToolResult(text: Redaction.redactText(text), isError: true) }
     /// A JSON value as both the text and the structured content.
     public static func json(_ value: JSONValue) -> ToolResult { ToolResult(text: value.text(pretty: true), structured: value) }
+
+    /// A `tools/call` result as the wire carries it (`json`), read back.
+    public init(json: JSONValue) {
+        self.init(text: json["content"]?[0]?["text"]?.stringValue ?? "", structured: json["structuredContent"], isError: json["isError"] == .bool(true))
+    }
 
     var json: JSONValue {
         var object: [String: JSONValue] = ["content": [["type": "text", "text": .string(text)]]]
@@ -612,8 +622,12 @@ public final class MCPServer: Sendable {
     private func callTool(_ params: JSONValue, session: MCPSession, serverRequests: Bool, emit: @escaping @Sendable (JSONRPCMessage) -> Void) async throws -> JSONValue {
         let name = try requiredString(params, "name")
         guard let tool = tools.first(where: { $0.name == name }) else { throw JSONRPCError.invalidParams("unknown tool \(name)") }
-        let arguments = params["arguments"] ?? [:]
+        let arguments = session.vault.reveal(params["arguments"] ?? [:])
         guard arguments.objectValue != nil else { throw JSONRPCError.invalidParams("arguments must be an object") }
+        // A handle left after reveal is from another session, or outside a secret's place: never written as is.
+        guard !SecretVault.containsHandle(arguments) else {
+            return ToolResult.error("A __SECRET_…__ value can only be passed as it was given, under a secret's key (password, token…), in the conversation that received it.").json
+        }
         guard tool.scope <= session.principal.scope else {
             return ToolResult.error("This token's scope (\(session.principal.scope.rawValue)) does not allow \(name), which needs \(tool.scope.rawValue).").json
         }
@@ -632,6 +646,21 @@ public final class MCPServer: Sendable {
             var bare = arguments.objectValue ?? [:]
             let presentedCode = bare.removeValue(forKey: "confirmationCode")?.stringValue
             let summary = Redaction.redactSecrets(.object(bare)).text()
+            // A tool with a dry run shows what it would change with the question; a call that would fail is
+            // answered with its error instead of being put to the user.
+            var preview: JSONValue?
+            if tool.supportsDryRun, presentedCode == nil {
+                var dry = bare
+                dry["dryRun"] = true
+                let dryCall = ToolCall(session: session, tool: tool, arguments: .object(dry), emit: emit, elicitationEnabled: false, serverRequests: serverRequests)
+                let answer: ToolResult
+                do { answer = try await tool.handler(dryCall) } catch let error as JSONRPCError { throw error } catch { answer = .error("\(error)") }
+                if answer.isError {
+                    audit(ok: false, error: answer.text)
+                    return answer.json
+                }
+                preview = answer.structured
+            }
             if let presentedCode {
                 guard confirmationCodes.redeem(presentedCode, tool: name, arguments: .object(bare)) else {
                     logger.warning("A wrong, expired or mismatched confirmation code was presented for \(name) \(summary)")
@@ -641,7 +670,7 @@ public final class MCPServer: Sendable {
             } else if call.canAsk {
                 let confirmed: Bool
                 do {
-                    confirmed = try await call.confirm("Allow \(name)? Arguments: \(summary)")
+                    confirmed = try await call.confirm(Self.question(tool: tool, arguments: summary, preview: preview), preview: preview)
                 } catch {
                     audit(ok: false, error: "\(error)", notConfirmed: true)
                     return ToolResult.error("Not run: \(error)").json
@@ -680,6 +709,34 @@ public final class MCPServer: Sendable {
             audit(ok: false, error: "\(error)")
             return ToolResult.error("\(error)").json
         }
+    }
+
+    /// The confirmation's question: what would change when a dry run said so, else the arguments.
+    static func question(tool: MCPTool, arguments: String, preview: JSONValue?) -> String {
+        let ask = tool.title.map { "Allow \($0) (\(tool.name))?" } ?? "Allow \(tool.name)?"
+        guard let preview, let changes = preview["changes"]?.arrayValue?.compactMap(\.stringValue) else { return "\(ask) Arguments: \(arguments)" }
+        guard !changes.isEmpty else { return "\(ask) It would change nothing." }
+        let lines = changes.prefix(8).map { path -> String in
+            let value = preview["config"].flatMap { value(at: path, in: $0) }
+            return "- \(path) → \(value.map { Redaction.isConcealed($0.stringValue ?? "") ? "(secret, kept)" : $0.text() } ?? "removed")"
+        }
+        return "\(ask) It would change:\n" + lines.joined(separator: "\n") + (changes.count > 8 ? "\n- and \(changes.count - 8) more" : "")
+    }
+
+    /// The value at a path such as `platforms[1].devices[0].name`, or nil.
+    static func value(at path: String, in root: JSONValue) -> JSONValue? {
+        var current: JSONValue? = root
+        for part in path.split(separator: ".") {
+            var key = Substring(part)
+            var indices: [Int] = []
+            while let open = key.lastIndex(of: "["), key.hasSuffix("]"), let index = Int(key[key.index(after: open)..<key.index(before: key.endIndex)]) {
+                indices.insert(index, at: 0)
+                key = key[..<open]
+            }
+            if !key.isEmpty { current = current?[String(key)] }
+            for index in indices { current = current?[index] }
+        }
+        return current
     }
 
     private func readResource(_ params: JSONValue) async throws -> JSONValue {

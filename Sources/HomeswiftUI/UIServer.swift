@@ -2,12 +2,14 @@ import Foundation
 import Homeswift
 import HomeswiftAI
 import HomeswiftMCP
+import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
 import NIOConcurrencyHelpers
 import NIOCore
 import NIOHTTP1
 import NIOPosix
+import NIOSSL
 
 /// The web UI: a NIO HTTP server inside the bridge serving the embedded pages and a JSON API over the
 /// same control surface the MCP server uses (`HomeswiftCatalog`).
@@ -39,9 +41,14 @@ public final class UIServer: Sendable {
     let options: Options
     let throttle = FailureThrottle()
     let events = EventHub()
+    let chat: AssistantChat
     private let channel = NIOLockedValueBox<(any Channel)?>(nil)
     let live: LiveWebFiles?
     private let watcher = NIOLockedValueBox<Task<Void, Never>?>(nil)
+    /// With `https`, the certificate it serves, once started.
+    private let tls = NIOLockedValueBox<UICertificate?>(nil)
+    /// Where the bridge keeps its own files: the generated certificate goes there.
+    let directory: URL
     var logger: Logger { options.logger }
 
     static let cookieName = "homeswift_session"
@@ -58,25 +65,32 @@ public final class UIServer: Sendable {
         setupCode = configuration.auth == .form && users.isEmpty ? Self.makeSetupCode() : nil
         allowedHosts = Self.allowedHosts(for: configuration)
         live = options.webRoot.map(LiveWebFiles.init(root:))
+        chat = AssistantChat(catalog: catalog, logger: options.logger)
+        directory = usersURL.deletingLastPathComponent()
     }
+
+    /// The SHA-256 fingerprint of the HTTPS certificate, for the banner: what a browser's warning shows.
+    public var certificateFingerprint: String? { tls.withLockedValue { $0?.fingerprint } }
 
     /// The bound port, once started.
     public var port: Int? { channel.withLockedValue { $0?.localAddress?.port } }
 
     public func start() async throws {
         events.attach(to: catalog)
+        let sslContext = try configuration.https ? makeSSLContext() : nil
         let bootstrap = ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton)
             .serverChannelOption(.backlog, value: 32)
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { [self] channel in
                 channel.eventLoop.makeCompletedFuture {
+                    if let sslContext { try channel.pipeline.syncOperations.addHandler(NIOSSLServerHandler(context: sslContext)) }
                     try channel.pipeline.syncOperations.configureHTTPServerPipeline(withErrorHandling: true)
                     try channel.pipeline.syncOperations.addHandler(UIRequestHandler(server: self))
                 }
             }
         let bound = try await bootstrap.bind(host: configuration.host, port: configuration.port).get()
         channel.withLockedValue { $0 = bound }
-        logger.info("Web UI listening", metadata: ["url": "http://\(configuration.host):\(bound.localAddress?.port ?? configuration.port)/", "auth": "\(configuration.auth.rawValue)"])
+        logger.info("Web UI listening", metadata: ["url": "\(configuration.scheme)://\(configuration.host):\(bound.localAddress?.port ?? configuration.port)/", "auth": "\(configuration.auth.rawValue)"])
         if let live {
             // Open pages swap a stylesheet in place and reload for a script or a page.
             let events = events
@@ -87,9 +101,18 @@ public final class UIServer: Sendable {
         }
     }
 
+    /// The HTTPS certificate (kept for the banner and for download) and its TLS context.
+    private func makeSSLContext() throws -> NIOSSLContext {
+        let names = allowedHosts.filter { $0 != "*" }.sorted { $0.count > $1.count }
+        let certificate = try UICertificate.load(configuration: configuration, directory: directory, names: names, logger: logger)
+        tls.withLockedValue { $0 = certificate }
+        return try certificate.sslContext()
+    }
+
     public func stop() async {
         watcher.withLockedValue { $0 }?.cancel()
         events.close()
+        await chat.close()
         let bound = channel.withLockedValue { channel -> (any Channel)? in
             defer { channel = nil }
             return channel
@@ -169,6 +192,11 @@ public final class UIServer: Sendable {
             files = catalog.host.registry.entry(for: parts[1])?.webFiles ?? [:]
             name = parts.count == 2 ? "index.html" : parts.dropFirst(2).joined(separator: "/")
         } else {
+            // The HTTPS certificate, for a phone or a computer to trust: public, like any served certificate.
+            if parts == ["homeswift-ui.crt"], let certificate = tls.withLockedValue({ $0 }) {
+                return .data(status: 200, contentType: "application/x-x509-ca-cert", body: certificate.certificateDER,
+                             headers: ["Content-Disposition": "attachment; filename=\"homeswift-ui.crt\""])
+            }
             files = WebAssets.files
             name = parts.isEmpty ? "index.html" : parts.joined(separator: "/")
         }
@@ -192,7 +220,7 @@ public final class UIServer: Sendable {
     private func cookie(_ token: String?) -> String {
         let value = token ?? ""
         let age = token == nil ? 0 : Int(sessions.lifetime)
-        return "\(Self.cookieName)=\(value); Path=/; HttpOnly; SameSite=Strict; Max-Age=\(age)"
+        return "\(Self.cookieName)=\(value); Path=/; HttpOnly; SameSite=Strict; Max-Age=\(age)\(configuration.https ? "; Secure" : "")"
     }
 
     /// A browser sends `Origin` on cross-site and on same-site mutations; it must name this server.
@@ -303,6 +331,10 @@ public final class UIServer: Sendable {
                 // Whether pages may offer "Explain": the HomeswiftAiKit block's Assistant, when one works.
                 guard let assistant = catalog.host.assistant else { return .json(["enabled": false]) }
                 return .json(["enabled": true, "provider": .string(assistant.providerName), "model": .string(assistant.model)])
+            case ["assistant", "chat"]:
+                guard catalog.host.assistant != nil else { return .error(404, "the Assistant is off: add a HomeswiftAiKit block") }
+                // The conversation so far, then the run going on, if any, as it goes.
+                return .events(await chat.conversation(for: username).subscribe())
             case ["accessories"]:
                 return .json(.array(catalog.located().map { HomeswiftCatalog.accessoryJSON($0, detailed: true) }))
             case ["plugins"]:
@@ -320,7 +352,19 @@ public final class UIServer: Sendable {
                 guard let block else { return .error(404, "no block \(path[3]) of \(path[2])") }
                 return .json(block)
             case ["logs"]:
-                return .json(.array(catalog.logs.recent(500).map(Self.logJSON)))
+                // `from` (and `to`, now when left out) as ISO 8601: that span, from the archive on disk; else the latest lines.
+                // `accessory`: only the lines about it, picked before the limit.
+                let matching = request.query["accessory"].flatMap { catalog.find(id: $0) }.map(Self.logMatcher(for:))
+                if let from = request.query["from"].flatMap(Self.date(iso:)) {
+                    let to = request.query["to"].flatMap(Self.date(iso:)) ?? Date()
+                    // The archive is read off the concurrency pool: up to a week of files.
+                    let logs = catalog.logs
+                    let lines = await withCheckedContinuation { continuation in
+                        DispatchQueue.global(qos: .userInitiated).async { continuation.resume(returning: logs.lines(from: from, to: to, limit: Self.logLimit, matching: matching)) }
+                    }
+                    return .json(.array(lines.map(Self.logJSON)))
+                }
+                return .json(.array(catalog.logs.recent(2000, matching: matching).map(Self.logJSON)))
             case ["events"]:
                 return .events(events.stream())
             default:
@@ -336,8 +380,10 @@ public final class UIServer: Sendable {
                     return .text(svg, contentType: "image/svg+xml")
                 }
                 if route.count == 3, route[0] == "plugins", route[2] == "schema" {
-                    // The runtime's own web UI block has a form too.
-                    let schema = route[1] == UIConfiguration.platform ? UIConfiguration.schemaJSON : catalog.host.registry.entry(for: route[1])?.configurationSchemaJSON
+                    // The runtime's own blocks, the web UI's and the Assistant's, have forms too.
+                    let schema = route[1] == UIConfiguration.platform ? UIConfiguration.schemaJSON
+                        : route[1] == AIConfiguration.platform ? AIConfiguration.schemaJSON
+                        : catalog.host.registry.entry(for: route[1])?.configurationSchemaJSON
                     guard let text = schema else { return .error(404, "no schema for \(route[1])") }
                     return .text(text, contentType: "application/json")
                 }
@@ -362,14 +408,13 @@ public final class UIServer: Sendable {
             if route.count == 4, route[0] == "config", route[1] == "block" {
                 // A block by platform and name, for a plugin's own page: its read-modify-write never needs
                 // the whole file, nor an index that may have moved.
-                guard body.objectValue != nil, body["platform"]?.stringValue == route[2] else { return .error(400, "the block must keep its platform") }
-                var found = false
-                let result = try await catalog.editPlatforms(dryRun: false) { platforms in
-                    guard let index = platforms.firstIndex(where: { $0["platform"]?.stringValue == route[2] && ($0["name"]?.stringValue ?? route[2]) == route[3] }) else { return }
-                    platforms[index] = body
-                    found = true
+                guard let replacement = body.objectValue, body["platform"]?.stringValue == route[2] else { return .error(400, "the block must keep its platform") }
+                let result: JSONValue
+                do {
+                    result = try await catalog.editBlock(platform: route[2], name: route[3], create: false, dryRun: false) { $0 = replacement }
+                } catch let error as CatalogError {
+                    return .error(404, error.description)
                 }
-                guard found else { return .error(404, "no block \(route[3]) of \(route[2])") }
                 noteConfigChange(by: username)
                 return .json(result)
             }
@@ -404,6 +449,21 @@ public final class UIServer: Sendable {
                     return .error(502, "the Assistant did not answer: \(error)")
                 }
             }
+            if route == ["files"] {
+                return try storeFile(body, username: username)
+            }
+            if route.count == 4, route[0] == "config", route[1] == "block" {
+                // A new, empty block, for a plugin whose own page sets it up (pairing a TV, finding lights).
+                guard (try catalog.readConfig()["platforms"]?.arrayValue ?? []).allSatisfy({ $0["platform"]?.stringValue != route[2] || ($0["name"]?.stringValue ?? route[2]) != route[3] }) else {
+                    return .error(409, "there is already a block \(route[3]) of \(route[2])")
+                }
+                let result = try await catalog.editBlock(platform: route[2], name: route[3], dryRun: false) { _ in }
+                noteConfigChange(by: username)
+                return .json(result, status: 201)
+            }
+            if route.first == "assistant", route.count >= 2, route[1] == "chat" {
+                return try await chatAction(Array(route.dropFirst(2)), body: body, username: username)
+            }
             if route == ["restart"] {
                 guard catalog.scheduleRestart(requestedBy: "web UI user \(username)") else { return .error(501, "this process cannot restart itself; restart homeswift by hand") }
                 return .json(["restarting": true])
@@ -414,6 +474,10 @@ public final class UIServer: Sendable {
                 return .json(JSONValue.object([:]))
             }
         case .DELETE:
+            if route == ["assistant", "chat"] {
+                await chat.reset(user: username)
+                return .json(JSONValue.object([:]))
+            }
             if route.count == 3, route[0] == "config", route[1] == "platforms" {
                 return try await replacePlatformBlock(at: route[2], with: nil, username: username)
             }
@@ -421,6 +485,57 @@ public final class UIServer: Sendable {
             break
         }
         return .error(404, "unknown API route")
+    }
+
+    /// A certificate or a private key dropped on a settings form: checked, kept next to config.json under
+    /// `files/`, owner-only, and answered with its path for the form's field. PEM text only.
+    private func storeFile(_ body: JSONValue, username: String) throws -> Reply {
+        guard let field = body["field"]?.stringValue, !field.isEmpty, field.count <= 64, field.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else {
+            return .error(400, "a field name is required")
+        }
+        guard let content = body["content"]?.stringValue, content.utf8.count <= 256 * 1024 else { return .error(400, "the file is missing or too large") }
+        guard content.contains("-----BEGIN ") else { return .error(400, "This is not a PEM file: a certificate or a key starts with -----BEGIN.") }
+        let isKey = content.contains("PRIVATE KEY-----")
+        // The field says which it wants: a key dropped on the certificate's field would keep HTTPS from starting.
+        let wantsKey = field.lowercased().contains("key")
+        guard isKey == wantsKey else {
+            return .error(400, wantsKey ? "This is a certificate; drop the private key here." : "This is a private key; drop the certificate here.")
+        }
+        do {
+            if isKey { _ = try NIOSSLPrivateKey(bytes: Array(content.utf8), format: .pem) } else { _ = try NIOSSLCertificate.fromPEMBytes(Array(content.utf8)) }
+        } catch {
+            return .error(400, isKey ? "This private key cannot be read (an encrypted key needs its passphrase removed)." : "This certificate cannot be read.")
+        }
+        let url = directory.appendingPathComponent("files").appendingPathComponent("\(field).pem")
+        try OwnerOnlyFile.write(Data(content.utf8), to: url)
+        logger.info("Web UI stored a file", metadata: ["user": "\(username)", "file": "\(url.lastPathComponent)", "kind": "\(isKey ? "private key" : "certificate")"])
+        return .json(["path": .string(url.path), "kind": .string(isKey ? "key" : "certificate")])
+    }
+
+    /// `POST assistant/chat` sends a message and streams the run; `…/confirm` answers a confirmation card;
+    /// `…/stop` stops the run.
+    private func chatAction(_ action: [String], body: JSONValue, username: String) async throws -> Reply {
+        let conversation = await chat.conversation(for: username)
+        switch action {
+        case []:
+            guard let assistant = catalog.host.assistant else { return .error(404, "the Assistant is off: add a HomeswiftAiKit block") }
+            guard let text = body["text"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return .error(400, "a message is required") }
+            guard text.count <= 4000 else { return .error(400, "the message is too long: 4000 characters at most") }
+            let page = body["page"]?.stringValue.map { String($0.prefix(100)) }
+            guard conversation.send(text, page: page, user: username, assistant: assistant, logger: logger) else {
+                return .error(409, "the Assistant is still answering; stop it first")
+            }
+            return .events(conversation.subscribe())
+        case ["confirm"]:
+            guard let id = body["id"]?.stringValue, let allow = body["allow"]?.boolValue else { return .error(400, "id and allow are required") }
+            guard conversation.answer(id, allow: allow) else { return .error(404, "nothing waits for that answer") }
+            return .json(JSONValue.object([:]))
+        case ["stop"]:
+            conversation.stop()
+            return .json(JSONValue.object([:]))
+        default:
+            return .error(404, "unknown API route")
+        }
     }
 
     private func status(username: String) -> JSONValue {
@@ -456,6 +571,33 @@ public final class UIServer: Sendable {
         } catch let missing as NoSuchBlock {
             return .error(404, "no block \(missing.index)")
         }
+    }
+
+    /// The most lines one time range answers with: the latest of them.
+    static let logLimit = 10_000
+
+    /// Whether a log line is about an accessory: its own server's lines, and those naming it, its id, the
+    /// address its id carries (`ElgatoKeyLights:3C:6A:…`) or its serial number. The page filters live lines
+    /// the same way.
+    static func logMatcher(for found: HomeswiftCatalog.Located) -> @Sendable (LogBuffer.Line) -> Bool {
+        let accessory = found.accessory
+        let id = accessory.id
+        let address = id.firstIndex(of: ":").map { String(id[id.index(after: $0)...]) }.flatMap(MACAddress.canonical)
+        let serial = accessory.information[.serialNumber]?.value.stringValue
+        let terms = [accessory.name, id, address, serial].compactMap { $0?.lowercased() }.filter { $0.count >= 3 }
+        return { line in
+            let haystack = "\(line.label) \(line.text)".lowercased()
+            return terms.contains { haystack.contains($0) }
+        }
+    }
+
+    /// An ISO 8601 date and time, with or without fractional seconds (`Date.toISOString()` sends them).
+    static func date(iso text: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: text) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: text)
     }
 
     static func logJSON(_ line: LogBuffer.Line) -> JSONValue {

@@ -64,20 +64,9 @@ public enum WakeOnLAN {
     /// limited broadcast still forward it on the segment.
     public static func broadcastAddress(for ip: String) -> String? {
         guard let target = ipv4(ip) else { return nil }
-        var list: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&list) == 0, let first = list else { return nil }
-        defer { freeifaddrs(list) }
-        var entry: UnsafeMutablePointer<ifaddrs>? = first
-        while let current = entry {
-            defer { entry = current.pointee.ifa_next }
-            guard let address = current.pointee.ifa_addr, let mask = current.pointee.ifa_netmask,
-                  address.pointee.sa_family == sa_family_t(AF_INET), mask.pointee.sa_family == sa_family_t(AF_INET) else { continue }
-            let local = address.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { UInt32(bigEndian: $0.pointee.sin_addr.s_addr) }
-            let netmask = mask.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { UInt32(bigEndian: $0.pointee.sin_addr.s_addr) }
-            guard netmask != 0, netmask != 0xFFFF_FFFF, local & netmask == target & netmask else { continue }
-            return dotted(local | ~netmask)
-        }
-        return nil
+        return NetworkInterfaces.ipv4()
+            .first { $0.netmask != 0 && $0.netmask != 0xFFFF_FFFF && $0.address & $0.netmask == target & $0.netmask }
+            .map { dotted($0.address | ~$0.netmask) }
     }
 
     /// A dotted IPv4 address as a number; nil for anything else (a host name, IPv6).
@@ -92,7 +81,7 @@ public enum WakeOnLAN {
         return value
     }
 
-    static func dotted(_ value: UInt32) -> String {
+    public static func dotted(_ value: UInt32) -> String {
         "\(value >> 24 & 0xFF).\(value >> 16 & 0xFF).\(value >> 8 & 0xFF).\(value & 0xFF)"
     }
 }

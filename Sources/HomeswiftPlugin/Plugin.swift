@@ -54,6 +54,10 @@ public protocol HomeswiftPlugin: Sendable {
     /// Defaults to none. `docs/ui.md` describes what a page can do.
     static var webFiles: [String: WebFile] { get }
 
+    /// What the Assistant may do with an instance, from the web UI's chat or an MCP client: routes of
+    /// `handleWebRequest` described for a model (find devices, check an address, pair). Defaults to none.
+    static var assistantActions: [AssistantAction] { get }
+
     /// Creates the instance. Throw for settings the plugin cannot work with; the runtime logs the error
     /// and leaves this block out, the other plugins keep running.
     init(configuration: Configuration, context: PluginContext) async throws
@@ -76,8 +80,69 @@ extension HomeswiftPlugin {
     public static var name: String { platform }
     public static var configurationSchemaJSON: String? { nil }
     public static var webFiles: [String: WebFile] { [:] }
+    public static var assistantActions: [AssistantAction] { [] }
     public func stop() async {}
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse { .error(404, "\(Self.name) has no web API") }
+}
+
+/// One route of a plugin's `handleWebRequest` that the Assistant may call, as the tool
+/// `<platform>_<name>`. The arguments go in the query of a `GET`, and in the JSON body otherwise, except
+/// those named in `queryKeys`. The answer goes to the model with its secrets as handles it can pass on but
+/// not read, so a pairing's password reaches config.json without the provider seeing it.
+///
+/// ```swift
+/// AssistantAction(name: "probe", title: "Check an address", description: "Asks the light at host:port who it is.",
+///                 method: "GET", path: "probe", access: .read,
+///                 inputSchema: ["type": "object", "required": ["host"], "properties": ["host": ["type": "string"]]])
+/// ```
+public struct AssistantAction: Sendable {
+    /// Who may call it: an MCP token's scope; `configure` needs admin.
+    public enum Access: String, Sendable {
+        case read, control, configure
+    }
+
+    public var name: String
+    /// For people, while it runs: "Find TVs".
+    public var title: String
+    /// For the model: what it does, what it needs, what comes back and what to do with it.
+    public var description: String
+    public var method: String
+    public var path: String
+    public var access: Access
+    /// A JSON Schema object for the arguments.
+    public var inputSchema: JSONValue
+    public var queryKeys: Set<String>
+    /// The user confirms before it runs.
+    public var confirm: Bool
+
+    public init(
+        name: String, title: String, description: String, method: String = "GET", path: String, access: Access,
+        inputSchema: JSONValue = ["type": "object", "properties": [:]], queryKeys: Set<String> = [], confirm: Bool = false
+    ) {
+        self.name = name
+        self.title = title
+        self.description = description
+        self.method = method
+        self.path = path
+        self.access = access
+        self.inputSchema = inputSchema
+        self.queryKeys = queryKeys
+        self.confirm = confirm
+    }
+
+    /// The request for these arguments.
+    public func request(arguments: JSONValue, user: String) -> PluginWebRequest {
+        var query: [String: String] = [:]
+        var body: [String: JSONValue] = [:]
+        for (key, value) in arguments.objectValue ?? [:] {
+            if method == "GET" || queryKeys.contains(key) {
+                query[key] = value.stringValue ?? value.text()
+            } else {
+                body[key] = value
+            }
+        }
+        return PluginWebRequest(method: method, path: path, query: query, body: body.isEmpty ? .null : .object(body), user: user)
+    }
 }
 
 /// A file of a web page: the UI's own, or a plugin's.

@@ -52,6 +52,61 @@ actor DevicesPlugin: HomeswiftPlugin {
         lock.characteristic(.lockTargetState).onWrite { value in writes.withLockedValue { $0.append(("lock.target", value)) } }
         try context.add(Accessory(id: "Devices:lock", name: "Front Door", category: .doorLock, services: [lock]))
     }
+
+    static let assistantActions = [
+        AssistantAction(
+            name: "pair", title: "Pair a device", description: "Pairs the device at an address; answers its entry for the devices list.",
+            method: "POST", path: "pair", access: .configure,
+            inputSchema: ["type": "object", "required": ["ip"], "properties": ["ip": ["type": "string"]]]),
+    ]
+
+    /// `POST pair` hands out a password, as a TV does when it pairs.
+    func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
+        guard request.method == "POST", request.path == "pair", let ip = request.body["ip"]?.stringValue else { return .error(404, "nothing there") }
+        return PluginWebResponse(["device": ["ip": .string(ip), "mac": "AA:BB:CC:00:11:22", "username": "homeswift", "password": "s3cret-pass"]])
+    }
+}
+
+/// A model that follows a script: each step answers a request with text or tool calls.
+final class ScriptedProvider: Provider, @unchecked Sendable {
+    let name = "scripted"
+    let model = "scripted-1"
+    let capabilities = ProviderCapabilities(streaming: false, contextTokens: 200_000)
+    private let lock = NSLock()
+    private var steps: [@Sendable (ChatRequest) -> ChatResult]
+    private(set) var requests: [ChatRequest] = []
+
+    init(_ steps: [@Sendable (ChatRequest) -> ChatResult]) {
+        self.steps = steps
+    }
+
+    static func calls(_ calls: [HomeswiftAI.ToolCall]) -> @Sendable (ChatRequest) -> ChatResult {
+        { _ in ChatResult(model: "scripted-1", text: "", toolCalls: calls, usage: TokenUsage(inputTokens: 100, outputTokens: 10), stopReason: .toolCalls) }
+    }
+
+    static func answer(_ text: String) -> @Sendable (ChatRequest) -> ChatResult {
+        { _ in ChatResult(model: "scripted-1", text: text, toolCalls: [], usage: TokenUsage(inputTokens: 100, outputTokens: 10), stopReason: .end) }
+    }
+
+    func chat(_ request: ChatRequest) async throws -> ChatResult {
+        let step = lock.withLock { () -> (@Sendable (ChatRequest) -> ChatResult)? in
+            requests.append(request)
+            return steps.isEmpty ? nil : steps.removeFirst()
+        }
+        return step?(request) ?? ChatResult(model: model, text: "(no more steps)", toolCalls: [], usage: .zero, stopReason: .end)
+    }
+
+    func stream(_ request: ChatRequest) -> AsyncThrowingStream<ChatChunk, any Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do { continuation.yield(.done(try await self.chat(request))) } catch { continuation.finish(throwing: error) }
+                continuation.finish()
+            }
+        }
+    }
+
+    /// Everything the model was sent, as text.
+    var sentText: String { lock.withLock { requests.map { $0.messages.map { "\($0)" }.joined() + ($0.system ?? "") }.joined() } }
 }
 
 /// A host with the devices plugin, the catalog and an MCP server, in a temporary directory.
@@ -82,7 +137,7 @@ final class MCPTestEnvironment: @unchecked Sendable {
         try Data(config.utf8).write(to: configURL)
         var registry = PluginRegistry()
         let writes = self.writes
-        registry.register(platform: DevicesPlugin.platform, name: DevicesPlugin.name) { json, context in
+        registry.register(platform: DevicesPlugin.platform, name: DevicesPlugin.name, assistantActions: DevicesPlugin.assistantActions) { json, context in
             DevicesPlugin(configuration: try JSONDecoder().decode(DevicesPlugin.Configuration.self, from: json), context: context, writes: writes)
         }
         host = try PluginHost(

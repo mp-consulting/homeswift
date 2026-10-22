@@ -63,11 +63,9 @@ enum MCPCommands {
             var options = MCPServer.Options(version: PluginHost.version, instructions: HomeswiftCatalog.instructions)
             options.elicitation = environment["HOMESWIFT_ELICITATION"] != "false"
             options.logger = logger
-            let auditURL = mcp.auditLogPath.map { URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath) }
-                ?? catalog.configURL.deletingLastPathComponent().appendingPathComponent("homeswift-mcp-audit.jsonl")
             let server = MCPServer(
                 options: options, tools: catalog.tools, resources: catalog.resources, templates: catalog.templates, prompts: catalog.prompts,
-                audit: mcp.auditLog ? AuditLog(url: auditURL, logger: logger) : nil)
+                audit: mcp.makeAuditLog(configDirectory: catalog.configURL.deletingLastPathComponent(), logger: logger))
             let observations = catalog.attach(to: server)
             var transportOptions = MCPHTTPServer.Options(host: mcp.host, port: mcp.port, allowedOrigins: mcp.allowedOrigins)
             transportOptions.logger = logger

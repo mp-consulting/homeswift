@@ -11,7 +11,7 @@ enum WebAssets {
 (() => {
   "use strict";
 
-  const { $, el, tile } = HomeswiftCommon;
+  const { $, el, tile, sparkle, menuButton, copyText, jsonEditor } = HomeswiftCommon;
 
   const show = (main, ...nodes) => main.replaceChildren(...nodes.flat().filter(Boolean));
 
@@ -67,7 +67,12 @@ enum WebAssets {
     const form = event.target;
     const error = $("#auth-error");
     error.textContent = "";
-    $("#auth-submit").disabled = true;
+    // Feedback on the press: the button says what happens while the bridge checks the password.
+    const submit = $("#auth-submit");
+    const label = submit.textContent;
+    submit.disabled = true;
+    submit.classList.add("busy");
+    submit.textContent = auth && auth.setupNeeded ? "Creating the account…" : "Signing in…";
     try {
       const body = { username: form.username.value, password: form.password.value };
       if (auth && auth.setupNeeded) {
@@ -80,7 +85,9 @@ enum WebAssets {
     } catch (e) {
       error.textContent = e.message;
     } finally {
-      $("#auth-submit").disabled = false;
+      submit.disabled = false;
+      submit.classList.remove("busy");
+      submit.textContent = label;
     }
   });
 
@@ -138,6 +145,7 @@ enum WebAssets {
     $("#auth").classList.add("hidden");
     $("#app").classList.remove("hidden");
     $("#user").textContent = auth.username || "";
+    HomeswiftChat.mount();
     $("#logout").classList.toggle("hidden", auth.mode !== "form");
     openEvents();
     route();
@@ -447,11 +455,18 @@ enum WebAssets {
         el("div", { class: "controls" }, otherNodes)) : null,
       el("div", { class: "card-foot" },
         el("span", { class: "muted", text: accessory.bridge }),
-        el("button", { class: "link", text: "Identify", title: "Make the device show itself (blink, beep)", onclick: (event) => {
-          const button = event.currentTarget;
-          api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).then(() => { button.textContent = "Identified"; setTimeout(() => { button.textContent = "Identify"; }, 1500); }).catch(() => {});
-        } })));
+        menuButton(`Actions for ${accessory.name}`, () => accessoryActions(accessory))));
     return card;
+  }
+
+  /// What the menu of an accessory's card offers.
+  function accessoryActions(accessory) {
+    return [
+      { label: "Identify", icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) },
+      { label: "Show its log", icon: "logs", href: `#logs/${encodeURIComponent(accessory.id)}` },
+      window.HomeswiftChat?.available() ? { label: "Ask the Assistant", icon: sparkle(), onSelect: () => HomeswiftChat.ask(`About ${accessory.name}: `) } : null,
+      accessory.platform ? { label: "Plugin settings", icon: "gear", href: `#settings/${encodeURIComponent(accessory.platform)}/${encodeURIComponent(accessory.platformName || accessory.platform)}` } : null,
+    ];
   }
 
   views.accessories = async (main) => {
@@ -533,8 +548,24 @@ enum WebAssets {
         el("div", { class: "server-head" }, tile("plugin", "orange"),
           el("div", { class: "who" }, el("strong", { text: plugin.name }), el("div", { class: "muted", text: plugin.platform })),
           used ? el("span", { class: "pill status standby", text: "In use" }) : null),
-        el("div", { class: "actions" }, el("a", { class: `button ${used ? "" : "primary"}`, href: `#settings/new/${encodeURIComponent(plugin.platform)}`, text: used ? "Add another" : "Add" })));
+        el("div", { class: "actions" }, plugin.hasPages && !used
+          // A plugin with its own page sets itself up there (pairing a TV, finding lights), as Homebridge's
+          // custom UIs do: Add writes an empty block and opens the page.
+          ? el("button", { class: "primary", text: "Add", onclick: (event) => addWithPage(plugin, event.currentTarget) })
+          : el("a", { class: `button ${used ? "" : "primary"}`, href: `#settings/new/${encodeURIComponent(plugin.platform)}`, text: used ? "Add another" : "Add" })));
     }));
+
+    async function addWithPage(plugin, button) {
+      button.disabled = true;
+      const block = { platform: plugin.platform, name: plugin.name };
+      try {
+        await api(`/api/config/block/${encodeURIComponent(block.platform)}/${encodeURIComponent(block.name)}`, { method: "POST", body: {} });
+        location.href = pluginPage(block);
+      } catch (e) {
+        button.disabled = false;
+        alert(e.message);
+      }
+    }
 
     show(main,
       pageHead("Plugins", "The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept."),
@@ -581,17 +612,47 @@ enum WebAssets {
     }
     let getValue;
     let body;
+    const textarea = el("textarea", { class: "short", value: JSON.stringify(current, null, 2), spellcheck: false, "aria-label": "The block as JSON" });
+    const editor = jsonEditor(textarea);
+    const fromJSON = () => { const value = JSON.parse(textarea.value); delete value.platform; return value; };
     if (schema) {
-      const form = buildForm(schema, current);
-      body = el("div", { class: "card form-card" }, form.element);
-      getValue = form.getValue;
+      // The form first; the block as JSON one tap away, for what the form does not show. Each view starts
+      // from the other's value, and Save takes the one on screen.
+      let form = buildForm(schema, current);
+      const formView = el("div", {}, form.element);
+      const jsonView = el("div", { class: "hidden" }, el("p", { class: "muted", text: "The block as config.json keeps it." }), editor);
+      const switchError = el("p", { class: "error" });
+      let mode = "form";
+      const tabs = el("div", { class: "group view-switch", role: "tablist", "aria-label": "Edit as" },
+        [["form", "Form"], ["json", "JSON"]].map(([value, text]) => el("button", { type: "button", role: "tab", text, class: value === mode ? "on" : "", "aria-selected": String(value === mode), onclick: () => {
+          if (value === mode) return;
+          switchError.textContent = "";
+          try {
+            if (value === "json") {
+              textarea.value = JSON.stringify({ platform, ...form.getValue() }, null, 2);
+              editor.repaint();
+            } else {
+              form = buildForm(schema, { platform, ...fromJSON() });
+              formView.replaceChildren(form.element);
+            }
+          } catch (e) { switchError.textContent = `The JSON is not valid: ${e.message}`; return; }
+          mode = value;
+          formView.classList.toggle("hidden", mode !== "form");
+          jsonView.classList.toggle("hidden", mode !== "json");
+          for (const tab of tabs.children) { tab.classList.toggle("on", tab.textContent.toLowerCase() === mode); tab.setAttribute("aria-selected", String(tab.textContent.toLowerCase() === mode)); }
+        } })));
+      body = el("div", { class: "card form-card" }, tabs, switchError, formView, jsonView);
+      getValue = () => (mode === "form" ? form.getValue() : fromJSON());
     } else {
-      const textarea = el("textarea", { class: "short", value: JSON.stringify(current, null, 2), spellcheck: false, "aria-label": "The block as JSON" });
-      body = el("div", { class: "card form-card" }, el("p", { class: "muted", text: "This block has no settings form; edit it as JSON." }), textarea);
-      getValue = () => JSON.parse(textarea.value);
+      body = el("div", { class: "card form-card" }, el("p", { class: "muted", text: "This block has no settings form; edit it as JSON." }), editor);
+      getValue = fromJSON;
     }
 
-    const snapshot = () => { try { return JSON.stringify(getValue()); } catch { return null; } };
+    // The block as a comparable text: without its platform (the form keeps it, the JSON view leaves it to
+    // Save) and with sorted keys, so switching views or reordering keys is not a change.
+    const sorted = (value) => Array.isArray(value) ? value.map(sorted)
+      : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sorted(value[key])])) : value;
+    const snapshot = () => { try { const { platform: _, ...rest } = getValue(); return JSON.stringify(sorted(rest)); } catch { return null; } };
     let saved = isNew ? null : snapshot();
     const dirty = () => snapshot() !== saved;
     const message = el("span", { class: "muted" });
@@ -621,11 +682,13 @@ enum WebAssets {
         saved = snapshot();
         message.className = "ok";
         message.textContent = savedText(result);
-        // The web UI's own block: it restarts on its new port, and this page follows (the login stays).
+        // The web UI's own block: it restarts on its new port or scheme, and this page follows (the login
+        // stays, though a session started over HTTPS does not go back to HTTP).
         const port = platform === "HomeswiftUI" ? Number(value.port || 8581) : null;
-        if (port && String(port) !== (location.port || (location.protocol === "https:" ? "443" : "80"))) {
-          message.textContent = `Saved. The web UI moves to port ${port}…`;
-          setTimeout(() => { location.href = `${location.protocol}//${location.hostname}:${port}/${settingsLink({ platform, name: value.name || block.name })}`; }, 1500);
+        const scheme = value.https === true ? "https:" : "http:";
+        if (port && (String(port) !== (location.port || (location.protocol === "https:" ? "443" : "80")) || scheme !== location.protocol)) {
+          message.textContent = scheme !== location.protocol ? `Saved. The web UI moves to ${scheme.slice(0, -1).toUpperCase()}…` : `Saved. The web UI moves to port ${port}…`;
+          setTimeout(() => { location.href = `${scheme}//${location.hostname}:${port}/${settingsLink({ platform, name: value.name || block.name })}`; }, 1500);
           return;
         }
         // A new block, or a renamed one, lives at its own address now.
@@ -665,6 +728,36 @@ enum WebAssets {
       remove);
     update();
   };
+
+  /// A place to drop a file for a path field (a certificate, its key), or to choose it: the bridge keeps the
+  /// file next to config.json, owner-only, and the field gets its path.
+  function dropZone(key, input, accept = "") {
+    const picker = el("input", { type: "file", accept, class: "hidden" });
+    const zone = el("div", { class: "drop-zone", role: "button", tabIndex: 0, "aria-label": `Drop or choose the file for ${key}` },
+      "Drop the file here, or ", el("strong", { text: "choose it" }), picker);
+    const take = async (file) => {
+      if (!file) return;
+      zone.classList.remove("ok", "error");
+      try {
+        if (file.size > 256 * 1024) throw new Error("That file is too large for a certificate or a key.");
+        const { path } = await api("/api/files", { method: "POST", body: { field: key, name: file.name, content: await file.text() } });
+        input.value = path;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        zone.classList.add("ok");
+        zone.replaceChildren(`${file.name} saved`, picker);
+      } catch (e) {
+        zone.classList.add("error");
+        zone.replaceChildren(e.message, picker);
+      }
+    };
+    zone.addEventListener("click", (event) => { if (event.target !== picker) picker.click(); });
+    zone.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); picker.click(); } });
+    picker.addEventListener("change", () => take(picker.files[0]));
+    zone.addEventListener("dragover", (event) => { event.preventDefault(); zone.classList.add("over"); });
+    zone.addEventListener("dragleave", () => zone.classList.remove("over"));
+    zone.addEventListener("drop", (event) => { event.preventDefault(); zone.classList.remove("over"); take(event.dataTransfer.files[0]); });
+    return zone;
+  }
 
   /// A block name not in use yet: "Elgato Key Lights", then "Elgato Key Lights 2".
   function uniqueName(name, blocks) {
@@ -753,6 +846,7 @@ enum WebAssets {
         return { element, get: () => { const v = rows.map((r) => r.get()).filter((x) => x !== undefined); return v.length ? v : undefined; } };
       }
       const input = el("input", { type: property["x-schema-form"] && property["x-schema-form"].type === "password" ? "password" : "text", value: current ?? "", placeholder: property.placeholder ?? property.default ?? "", required });
+      if (property["x-schema-form"]?.type === "file") return { element: el("div", {}, wrap(input), dropZone(key, input, property["x-schema-form"].accept)), get: () => (input.value === "" ? undefined : input.value) };
       return { element: wrap(input), get: () => (input.value === "" ? undefined : input.value) };
     };
 
@@ -960,6 +1054,7 @@ enum WebAssets {
         message.textContent = `Changed: ${result.changes.join(", ") || "nothing"}. ${savedText(result)}`;
         saved = await api("/api/config", { raw: true });
         textarea.value = saved;
+        editor.repaint();
       } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
       update();
     };
@@ -970,28 +1065,59 @@ enum WebAssets {
     });
     save.addEventListener("click", doSave);
     revert.addEventListener("click", () => { textarea.value = saved; message.textContent = ""; update(); });
-    format.addEventListener("click", () => { try { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); update(); } catch {} });
+    const editor = jsonEditor(textarea);
+    format.addEventListener("click", () => { try { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); update(); } catch {} });
+    revert.addEventListener("click", () => editor.repaint());
     update();
     show(main,
       pageHead("Configuration", "The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once."),
       el("div", { class: "card editor-card" },
         el("div", { class: "editor-bar" }, el("span", { class: "mono muted", text: "config.json" }), check, el("span", { class: "spacer" }), format, revert, save),
-        textarea, message));
+        editor, message));
   };
 
   // ---- Logs ----------------------------------------------------------------
 
   const levelRank = { trace: 0, debug: 1, info: 2, notice: 3, warning: 4, error: 5, critical: 6 };
+  // The server's caps: the latest lines (/api/logs) and a time range (UIServer.logLimit).
+  const latestLines = 2000, rangeLines = 10000;
+  const timeFormat = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  /// A line with what filtering reads, worked out once: its date and its text in lower case.
+  const prepared = (line) => Object.assign(line, { date: new Date(line.time), haystack: `${line.label} ${line.text}`.toLowerCase() });
   const levelChoices = [["trace", "All"], ["info", "Info"], ["warning", "Warnings"], ["error", "Errors"]];
   let logState = null;
 
-  views.logs = async (main) => {
-    const lines = await api("/api/logs");
+  views.logs = async (main, [accessoryID] = []) => {
+    const [lines, accessories] = await Promise.all([api(`/api/logs${accessoryID ? `?accessory=${encodeURIComponent(accessoryID)}` : ""}`), api("/api/accessories").catch(() => [])]);
     const output = el("div", { class: "log", role: "log", "aria-live": "off" });
     const filter = el("input", { type: "search", class: "search", placeholder: "Filter text", "aria-label": "Filter the log" });
     const follow = el("input", { type: "checkbox", checked: true });
     const count = el("span", { class: "muted count" });
-    logState = { output, level: "info", filter, follow, count, lines: [] };
+    // One accessory's lines: those of its own server, and those naming it, its id or its address.
+    const byID = new Map(accessories.map((accessory) => [accessory.id, accessory]));
+    const accessoryPicker = el("select", { class: "popup", "aria-label": "Only the lines about an accessory" },
+      el("option", { value: "", text: "All accessories" }),
+      [...accessories].sort((a, b) => a.name.localeCompare(b.name)).map((accessory) =>
+        el("option", { value: accessory.id, text: accessory.platformName ? `${accessory.name} · ${accessory.platformName}` : accessory.name, selected: accessory.id === accessoryID })));
+    const termsFor = (id) => {
+      const accessory = byID.get(id);
+      if (!accessory) return null;
+      // ElgatoKeyLights:3C:6A:… → the MAC, as the server matches (UIServer.logMatcher).
+      const rest = id.includes(":") ? id.slice(id.indexOf(":") + 1) : "";
+      const address = /^([0-9a-f]{1,2}[:-]){5}[0-9a-f]{1,2}$/i.test(rest) ? rest : null;
+      return [accessory.name, id, address, accessory.serialNumber].filter((term) => typeof term === "string" && term.length >= 3).map((term) => term.toLowerCase());
+    };
+    // `live`: new lines join the page (not while a span in the past is shown); `cap`: how many it keeps.
+    logState = { output, level: "info", filter, follow, count, lines: [], accessory: termsFor(accessoryID), live: true, cap: latestLines, capped: false };
+    accessoryPicker.classList.toggle("chosen", Boolean(accessoryPicker.value));
+    accessoryPicker.addEventListener("change", () => {
+      logState.accessory = termsFor(accessoryPicker.value);
+      accessoryPicker.classList.toggle("chosen", Boolean(accessoryPicker.value));
+      // The address keeps the choice (a link, a reload) without drawing the page again; the server picks
+      // the accessory's lines before its limit, so a week of one accessory is not cut short by the others'.
+      history.replaceState(null, "", accessoryPicker.value ? `#logs/${encodeURIComponent(accessoryPicker.value)}` : "#logs");
+      load();
+    });
     const levels = el("div", { class: "group", role: "group", "aria-label": "Lowest level shown" }, levelChoices.map(([level, text]) =>
       el("button", { text, class: level === logState.level ? "on" : "", "aria-pressed": String(level === logState.level), onclick: (event) => {
         logState.level = level;
@@ -999,47 +1125,119 @@ enum WebAssets {
         render();
       } })));
     const render = () => {
-      const shown = logState.lines.filter(visible);
+      const needle = filter.value.toLowerCase();
+      const shown = logState.lines.filter((line) => visible(line, needle));
       output.replaceChildren(...(shown.length ? shown.map(lineNode) : [el("p", { class: "muted empty-log", text: "No line matches." })]));
-      count.textContent = `${shown.length} of ${logState.lines.length} lines`;
+      count.textContent = `${shown.length} of ${logState.lines.length} lines${logState.capped ? " (the latest of the range)" : ""}`;
       if (follow.checked) output.scrollTop = output.scrollHeight;
     };
-    filter.addEventListener("input", render);
+    // Typing filters once it pauses: thousands of lines are not drawn again per key.
+    let typing = null;
+    filter.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(render, 120); });
     follow.addEventListener("change", () => { if (follow.checked) output.scrollTop = output.scrollHeight; });
-    logState.lines = lines;
+
+    // A time range: the latest lines from memory, or a span from the log the bridge keeps on disk (rotated, a
+    // week at most). A span that ends now keeps following; one in the past stays as it is.
+    const ranges = [["latest", "Latest lines"], ["1h", "Last hour"], ["6h", "Last 6 hours"], ["24h", "Last 24 hours"],
+      ["today", "Today"], ["yesterday", "Yesterday"], ["7d", "Last 7 days"], ["custom", "Custom range…"]];
+    const rangePicker = el("select", { class: "popup", "aria-label": "Time range" }, ranges.map(([value, text]) => el("option", { value, text })));
+    const localInput = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    const fromInput = el("input", { type: "datetime-local", "aria-label": "From", value: localInput(new Date(Date.now() - 3600000)) });
+    const toInput = el("input", { type: "datetime-local", "aria-label": "To", value: localInput(new Date()) });
+    const customRow = el("div", { class: "log-range hidden" },
+      el("label", {}, "From", fromInput), el("label", {}, "To", toInput),
+      el("button", { text: "Show", onclick: () => load() }));
+    const span = (choice) => {
+      const now = new Date();
+      const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      switch (choice) {
+      case "1h": return [new Date(now - 3600000), null];
+      case "6h": return [new Date(now - 6 * 3600000), null];
+      case "24h": return [new Date(now - 86400000), null];
+      case "today": return [midnight, null];
+      case "yesterday": return [new Date(midnight - 86400000), midnight];
+      case "7d": return [new Date(now - 7 * 86400000), null];
+      case "custom": {
+        const from = new Date(fromInput.value), to = new Date(toInput.value);
+        return isNaN(from) ? null : [from, isNaN(to) || to > now ? null : to];
+      }
+      default: return null;
+      }
+    };
+    async function load() {
+      const chosen = span(rangePicker.value);
+      const query = new URLSearchParams();
+      if (chosen) query.set("from", chosen[0].toISOString());
+      if (chosen?.[1]) query.set("to", chosen[1].toISOString());
+      if (accessoryPicker.value) query.set("accessory", accessoryPicker.value);
+      count.textContent = "Loading…";
+      try {
+        logState.lines = (await api(`/api/logs${query.size ? `?${query}` : ""}`)).map(prepared);
+      } catch (e) {
+        count.textContent = e.message;
+        return;
+      }
+      logState.live = !chosen?.[1];
+      logState.cap = chosen ? rangeLines : latestLines;
+      logState.capped = Boolean(chosen) && logState.lines.length >= rangeLines;
+      render();
+    }
+    // What the page shows, as text: a line each, the time, the label, the level when it is not info.
+    const copy = el("button", { text: "Copy", title: "Copy the lines shown", onclick: async () => {
+      const needle = filter.value.toLowerCase();
+      const shown = logState.lines.filter((line) => visible(line, needle));
+      const text = shown.map((line) => {
+        const level = line.level === "info" || line.level === "notice" ? "" : ` [${line.level.toUpperCase()}]`;
+        return `${line.time} [${line.label}]${level} ${line.text}`;
+      }).join("\n");
+      try {
+        await copyText(text);
+        copy.textContent = `Copied ${shown.length} line${shown.length === 1 ? "" : "s"}`;
+      } catch (e) {
+        copy.textContent = "Not copied";
+        copy.title = e.message;
+      }
+      setTimeout(() => { copy.textContent = "Copy"; copy.title = "Copy the lines shown"; }, 1800);
+    } });
+    rangePicker.addEventListener("change", () => {
+      customRow.classList.toggle("hidden", rangePicker.value !== "custom");
+      rangePicker.classList.toggle("chosen", rangePicker.value !== "latest");
+      if (rangePicker.value === "custom") fromInput.focus(); else load();
+    });
+    logState.lines = lines.map(prepared);
     show(main,
-      pageHead("Logs", "The last 2,000 lines of this homeswift, live."),
+      pageHead("Logs", "This homeswift's log, live, and up to a week back."),
       el("div", { class: "card log-card" },
-        el("div", { class: "editor-bar" }, levels, filter, el("span", { class: "spacer" }), count,
-          el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: "Follow" }))),
+        el("div", { class: "editor-bar" }, levels, rangePicker, accessoryPicker, filter, el("span", { class: "spacer" }), count, copy,
+          el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: "Follow" })),
+          customRow),
         output));
     render();
   };
 
-  function visible(line) {
-    const minimum = levelRank[logState.level] ?? 0;
-    const text = logState.filter.value.toLowerCase();
-    return (levelRank[line.level] ?? 0) >= minimum && (!text || `${line.label} ${line.text}`.toLowerCase().includes(text));
+  /// Whether a prepared line passes the level, the text (`needle`, in lower case) and the accessory.
+  function visible(line, needle = logState.filter.value.toLowerCase()) {
+    return (levelRank[line.level] ?? 0) >= (levelRank[logState.level] ?? 0) && (!needle || line.haystack.includes(needle))
+      && (!logState.accessory || logState.accessory.some((term) => line.haystack.includes(term)));
   }
   function lineNode(line) {
-    const date = new Date(line.time);
-    const time = isNaN(date) ? line.time : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    const time = isNaN(line.date) ? line.time : timeFormat.format(line.date);
     return el("div", { class: `log-line ${line.level}` },
       el("time", { text: time, title: line.time, dateTime: line.time }),
       el("span", { class: "label", text: line.label, title: line.label }),
       el("span", { class: "text", text: line.text }));
   }
   function appendLogLine(line) {
-    if (!logState || !document.body.contains(logState.output)) return;
-    logState.lines.push(line);
-    if (logState.lines.length > 2000) logState.lines.shift();
+    if (!logState || !logState.live || !document.body.contains(logState.output)) return;
+    logState.lines.push(prepared(line));
+    if (logState.lines.length > logState.cap) logState.lines.splice(0, logState.lines.length - logState.cap);
     if (!visible(line)) return;
     const output = logState.output;
     // Follow only when the reader is at the bottom: scrolling up to read stops it without a click.
     const atBottom = output.scrollHeight - output.scrollTop - output.clientHeight < 40;
     $(".empty-log", output)?.remove();
     output.append(lineNode(line));
-    while (output.childElementCount > 2000) output.firstElementChild.remove();   // the page stays the size of the buffer
+    while (output.childElementCount > logState.cap) output.firstElementChild.remove();   // the page stays the size of what it keeps
     if (logState.follow.checked && atBottom) output.scrollTop = output.scrollHeight;
     logState.count.textContent = `${output.childElementCount} of ${logState.lines.length} lines`;
   }
@@ -1056,9 +1254,587 @@ enum WebAssets {
 })();
 
 """#),
+        "chat.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
+// The Assistant's chat, on every page of the web UI (plugin pages load it through plugin.js): a sparkle button
+// in the header opens a panel where the Assistant answers and acts through the bridge's tools. Each change it
+// wants to make shows a card with what would change, and waits for Allow. The mic dictates a message (the
+// browser's speech recognition, which needs HTTPS away from localhost); an answer to a spoken message is read
+// out.
+//
+// Motion after Apple's fluid interfaces: the panel comes from its button and goes back to it on one spring
+// that any tap or drag can retarget; on a phone it is a sheet that follows the finger, resists past the top
+// and closes when a flick would carry it past half its height. Reduced motion cross-fades instead.
+(() => {
+  "use strict";
+  const { $, el, markdown, sparkle, api, jsonView } = HomeswiftCommon;
+
+  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+  const phone = matchMedia("(max-width: 640px)");
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  // ---- A spring, after Apple's damping ratio and response (no mass, stiffness, damping to tune) ----------
+
+  /// Moves `state.value` to `target` frame by frame from where it is and as fast as it goes, so a new target
+  /// mid-flight bends the motion instead of restarting it. `onFrame` draws each value.
+  function spring(state, target, { damping = 1, response = 0.35, velocity, onFrame, onRest } = {}) {
+    cancelAnimationFrame(state.frame);
+    if (velocity !== undefined) state.velocity = velocity;
+    if (reducedMotion.matches) {
+      state.value = target;
+      state.velocity = 0;
+      onFrame(target);
+      onRest?.();
+      return;
+    }
+    const stiffness = (2 * Math.PI / response) ** 2;
+    const friction = 4 * Math.PI * damping / response;
+    let last = performance.now();
+    const step = (now) => {
+      const dt = Math.min((now - last) / 1000, 1 / 30);
+      last = now;
+      const force = -stiffness * (state.value - target) - friction * state.velocity;
+      state.velocity += force * dt;
+      state.value += state.velocity * dt;
+      if (Math.abs(state.value - target) < 0.001 && Math.abs(state.velocity) < 0.01) {
+        state.value = target;
+        state.velocity = 0;
+        onFrame(target);
+        onRest?.();
+        return;
+      }
+      onFrame(state.value);
+      state.frame = requestAnimationFrame(step);
+    };
+    state.frame = requestAnimationFrame(step);
+  }
+
+  /// Where a flick comes to rest, as a scroll view decelerates.
+  const project = (velocity, rate = 0.998) => (velocity / 1000) * rate / (1 - rate);
+  /// The further past the edge, the less the sheet follows.
+  const rubberband = (over, size, constant = 0.55) => (over * size * constant) / (size + constant * Math.abs(over));
+
+  // ---- The panel -------------------------------------------------------------------------------------------
+
+  let info = null;      // what /api/assistant answered
+  let panel = null;     // the parts, once built
+  const openness = { value: 0, velocity: 0, frame: 0 };
+  let items = [];
+  let nodes = [];
+  let running = false;
+  let usage = null;
+  let spoken = false;   // the running turn started from the mic: read its answer out
+  let trigger = null;
+
+  function build() {
+    const log = el("div", { class: "chat-log", "aria-live": "polite", "aria-relevant": "additions" });
+    const input = el("textarea", { rows: 1, placeholder: "Ask, or tell it what to set up…", "aria-label": "Message to the Assistant", maxLength: 4000 });
+    const mic = el("button", { type: "button", class: "chat-mic", "aria-label": "Dictate", title: "Dictate: tap, or hold while you speak" });
+    mic.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>';
+    const send = el("button", { type: "submit", class: "chat-send", "aria-label": "Send" });
+    send.innerHTML = '<svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>'
+      + '<svg class="stop-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>';
+    const foot = el("p", { class: "chat-foot" });
+    // The language spoken to the mic and in which answers are read out; this browser remembers it.
+    const languages = [["", "Browser's language"], ["en-US", "English (US)"], ["en-GB", "English (UK)"], ["fr-FR", "Français"], ["de-DE", "Deutsch"],
+      ["es-ES", "Español"], ["it-IT", "Italiano"], ["nl-NL", "Nederlands"], ["pt-PT", "Português"], ["pt-BR", "Português (Brasil)"],
+      ["sv-SE", "Svenska"], ["da-DK", "Dansk"], ["nb-NO", "Norsk"], ["fi-FI", "Suomi"], ["pl-PL", "Polski"], ["ja-JP", "日本語"], ["zh-CN", "中文"]];
+    let stored = "";
+    try { stored = localStorage.getItem("homeswift.voiceLanguage") || ""; } catch {}
+    const languagePicker = el("select", { class: "popup", "aria-label": "Voice language" },
+      languages.map(([value, text]) => el("option", { value, text, selected: value === stored })));
+    languagePicker.addEventListener("change", () => { try { localStorage.setItem("homeswift.voiceLanguage", languagePicker.value); } catch {} });
+    const voice = Recognition ? el("div", { class: "chat-voice" }, el("span", { text: "Voice" }), languagePicker) : null;
+    const form = el("form", { class: "chat-composer", onsubmit: (event) => { event.preventDefault(); running ? stop() : submit(); } },
+      input, Recognition ? mic : null, send);
+    const close = el("button", { type: "button", class: "chat-icon", "aria-label": "Close", title: "Close (Esc)", text: "×", onclick: () => toggle(false) });
+    const fresh = el("button", { type: "button", class: "chat-icon", "aria-label": "New chat", title: "New chat", onclick: reset });
+    fresh.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h8M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
+    const head = el("div", { class: "chat-head" },
+      el("span", { class: "chat-grabber", "aria-hidden": "true" }),
+      sparkle(), el("strong", { id: "chat-title", text: "Assistant" }), el("span", { class: "chat-model", text: info.model || "" }),
+      el("span", { class: "spacer" }), fresh, close);
+    const sheet = el("section", { class: "chat", role: "dialog", "aria-labelledby": "chat-title", hidden: true },
+      el("div", { class: "chat-glow", "aria-hidden": "true" }),
+      el("div", { class: "chat-surface" }, head, log, form, voice, foot));
+    const scrim = el("div", { class: "chat-scrim", hidden: true, onclick: () => toggle(false) });
+    document.body.append(scrim, sheet);
+    panel = { sheet, scrim, log, input, mic, send, foot, head, languagePicker };
+
+    input.addEventListener("input", grow);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); form.requestSubmit(); }
+    });
+    sheet.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") { event.preventDefault(); listening ? stopListening(true) : toggle(false); }
+    });
+    if (Recognition) setUpMic();
+    setUpDrag();
+    renderControls();
+  }
+
+  /// The text field grows with what is typed, up to a few lines.
+  function grow() {
+    panel.input.style.height = "auto";
+    panel.input.style.height = `${Math.min(panel.input.scrollHeight, 140)}px`;
+  }
+
+  const isOpen = () => panel && !panel.sheet.hidden && openness.target === 1;
+
+  /// The panel at `value` (0 closed, 1 open). It fades through `--open` on its surface, never through its own
+  /// opacity: an ancestor with opacity would keep the surface's backdrop blur from seeing the page.
+  function draw(value) {
+    const { sheet, scrim } = panel;
+    const fade = (amount) => sheet.style.setProperty("--open", String(Math.max(0, Math.min(1, amount))));
+    if (reducedMotion.matches) {
+      sheet.style.transform = "";
+      fade(value);
+    } else if (phone.matches) {
+      sheet.style.transform = `translateY(${(1 - value) * 100}%)`;
+      fade(1);
+    } else {
+      // Out of the button and back into it: a small move toward it, a slight scale, the material arriving.
+      sheet.style.transform = `translate(${(1 - value) * 24}px, ${(1 - value) * -12}px) scale(${0.94 + 0.06 * value})`;
+      fade(value * 1.4);
+    }
+    scrim.style.opacity = String(Math.max(0, Math.min(1, value)) * (phone.matches ? 1 : 0));
+  }
+
+  async function toggle(open = !isOpen(), velocity) {
+    if (!panel) build();
+    openness.target = open ? 1 : 0;
+    const { sheet, scrim } = panel;
+    trigger?.setAttribute("aria-expanded", String(open));
+    if (open) {
+      sheet.hidden = false;
+      scrim.hidden = !phone.matches;
+      if (openness.value === 0) draw(0);
+      load();
+      setTimeout(() => panel.input.focus({ preventScroll: true }), 50);
+    } else if (listening) {
+      stopListening(true);
+    }
+    spring(openness, openness.target, {
+      damping: velocity ? 0.8 : 1, response: phone.matches ? 0.32 : 0.3, velocity, onFrame: draw,
+      onRest: () => {
+        if (openness.target === 0) {
+          sheet.hidden = true;
+          scrim.hidden = true;
+          trigger?.focus({ preventScroll: true });
+        }
+      },
+    });
+  }
+
+  /// The phone sheet follows a drag on its head: 1:1, softer past the top, and a flick decides.
+  function setUpDrag() {
+    const { head, sheet } = panel;
+    head.addEventListener("pointerdown", (event) => {
+      if (!phone.matches || event.target.closest("button")) return;
+      head.setPointerCapture(event.pointerId);
+      cancelAnimationFrame(openness.frame);
+      const height = sheet.getBoundingClientRect().height;
+      const startY = event.clientY;
+      const startValue = openness.value;
+      let samples = [{ y: event.clientY, t: event.timeStamp }];
+      const move = (moveEvent) => {
+        let value = startValue - (moveEvent.clientY - startY) / height;
+        if (value > 1) value = 1 + rubberband(value - 1, 1);
+        openness.value = value;
+        draw(value);
+        samples = [...samples.slice(-4), { y: moveEvent.clientY, t: moveEvent.timeStamp }];
+      };
+      const end = () => {
+        head.removeEventListener("pointermove", move);
+        head.removeEventListener("pointerup", end);
+        head.removeEventListener("pointercancel", end);
+        const first = samples[0], last = samples[samples.length - 1];
+        const pxPerSecond = last.t > first.t ? ((last.y - first.y) / (last.t - first.t)) * 1000 : 0;
+        const velocity = -pxPerSecond / height;   // openness per second
+        const projected = openness.value + project(-pxPerSecond) / height;
+        toggle(projected > 0.5, velocity);
+      };
+      head.addEventListener("pointermove", move);
+      head.addEventListener("pointerup", end);
+      head.addEventListener("pointercancel", end);
+    });
+  }
+
+  // ---- The conversation ---------------------------------------------------------------------------------
+
+  let loaded = false;
+  async function load() {
+    if (loaded) return;
+    loaded = true;
+    try {
+      // The conversation so far, then the run going on, if any.
+      await follow(await api("/api/assistant/chat", { stream: true }));
+    } catch (e) {
+      loaded = false;
+      showError(e.message);
+    }
+    renderControls();
+  }
+
+  function page() {
+    const path = location.pathname.split("/").filter(Boolean);
+    if (path[0] === "plugins") return `plugin page of ${decodeURIComponent(path[1] || "")}`;
+    return (location.hash.slice(1).split("/")[0] || "status");
+  }
+
+  async function submit(text = panel.input.value.trim(), byVoice = false) {
+    if (!text || running) return;
+    panel.input.value = "";
+    grow();
+    spoken = byVoice;
+    window.speechSynthesis?.cancel();
+    running = true;
+    renderControls();
+    try {
+      follow(await api("/api/assistant/chat", { method: "POST", body: { text, page: page() }, stream: true }));
+    } catch (e) {
+      running = false;
+      renderControls();
+      showError(e.message);
+    }
+  }
+
+  async function stop() {
+    try { await api("/api/assistant/chat/stop", { method: "POST", body: {} }); } catch (e) { showError(e.message); }
+  }
+
+  async function reset() {
+    if (running) await stop();
+    try { await api("/api/assistant/chat", { method: "DELETE" }); } catch (e) { showError(e.message); return; }
+    setItems([], false);
+    usage = null;
+    renderControls();
+    panel.input.focus();
+  }
+
+  /// Reads a run's event stream: a snapshot, then items, text and the end.
+  async function follow(response) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    running = true;
+    renderControls();
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let end;
+        while ((end = buffer.indexOf("\n\n")) >= 0) {
+          const frame = buffer.slice(0, end);
+          buffer = buffer.slice(end + 2);
+          const event = frame.match(/^event: (.*)$/m)?.[1];
+          const data = frame.match(/^data: (.*)$/m)?.[1];
+          if (event && data) handle(event, JSON.parse(data));
+        }
+      }
+    } catch (e) {
+      showError(`The connection dropped: ${e.message}`);
+    }
+    running = false;
+    renderControls();
+  }
+
+  function handle(event, data) {
+    switch (event) {
+    case "snapshot": setItems(data.items, data.running); if (data.usage) usage = data.usage; break;
+    case "item": items[data.index] = data.item; renderItem(data.index); break;
+    case "delta": {
+      const item = items[data.index];
+      if (item) { item.text += data.text; scheduleText(data.index); }
+      break;
+    }
+    case "done":
+      usage = data.usage;
+      if (spoken) speak(items.findLast((item) => item.kind === "assistant")?.text);
+      spoken = false;
+      break;
+    }
+  }
+
+  // ---- Drawing the conversation --------------------------------------------------------------------------
+
+  function setItems(next, isRunning) {
+    items = next.slice();
+    running = isRunning;
+    nodes = [];
+    panel.log.replaceChildren();
+    if (!items.length) panel.log.append(welcome());
+    items.forEach((_, index) => renderItem(index, false));
+    renderControls();
+    scrollToEnd(true);
+  }
+
+  /// Suggestions for an empty conversation.
+  function welcome() {
+    const suggestions = ["Add a device for me", "What does my bridge run?", "Why is an accessory not responding?", "Turn off every light"];
+    return el("div", { class: "chat-welcome" },
+      sparkle(),
+      el("h2", { text: "What can I do for you?" }),
+      el("p", { class: "muted", text: "I can look at your bridge, set up a device with its plugin, or change a setting. I ask before I change anything." }),
+      el("div", { class: "chat-suggestions" }, suggestions.map((text) => el("button", { type: "button", text, onclick: () => submit(text) }))));
+  }
+
+  function renderItem(index, scroll = true) {
+    const item = items[index];
+    if (!item) return;
+    panel.log.querySelector(".chat-welcome")?.remove();
+    const node = itemNode(item);
+    const old = nodes[index];
+    if (old) old.replaceWith(node); else panel.log.append(node);
+    nodes[index] = node;
+    renderControls();
+    if (scroll) scrollToEnd();
+  }
+
+  // Streaming text is drawn once per frame, however many pieces arrive.
+  const pendingText = new Set();
+  function scheduleText(index) {
+    if (!pendingText.size) requestAnimationFrame(() => {
+      for (const i of pendingText) {
+        const body = nodes[i]?.querySelector(".chat-text");
+        if (body) body.replaceChildren(...markdown(items[i].text).childNodes);
+      }
+      pendingText.clear();
+      scrollToEnd();
+    });
+    pendingText.add(index);
+  }
+
+  function itemNode(item) {
+    switch (item.kind) {
+    case "user":
+      return el("div", { class: "chat-user" }, el("p", { text: item.text }));
+    case "assistant":
+      return el("div", { class: "chat-answer" }, el("div", { class: "chat-text md" }, ...markdown(item.text).childNodes));
+    case "tool":
+      return el("div", { class: `chat-step ${item.state}`, title: item.name },
+        el("span", { class: "chat-step-mark", "aria-hidden": "true" }),
+        el("span", {}, el("span", { class: "chat-step-title", text: item.title }), item.summary ? el("span", { class: "chat-step-summary", text: ` · ${item.summary}` }) : null),
+        el("span", { class: "visually-hidden", text: { running: " (running)", failed: " (failed)", declined: " (not allowed)" }[item.state] ?? " (done)" }));
+    case "confirm":
+      return confirmCard(item);
+    default:
+      return el("p", { class: "chat-error", role: "alert", text: item.text });
+    }
+  }
+
+  /// A change the Assistant wants to make: what it is in words, the details on demand, and the choice.
+  function confirmCard(item) {
+    const pending = item.state === "pending";
+    const answer = (allow) => async (event) => {
+      event.currentTarget.closest(".chat-confirm").querySelectorAll("button").forEach((button) => { button.disabled = true; });
+      try { await api("/api/assistant/chat/confirm", { method: "POST", body: { id: item.id, allow } }); } catch (e) { showError(e.message); }
+    };
+    const changes = changeList(item.preview);
+    const details = el("details", {},
+      el("summary", { text: changes ? "The whole request" : item.preview !== undefined ? "What would change" : "Details" }),
+      jsonView(changes ? item.arguments : item.preview ?? item.arguments));
+    return el("div", { class: `chat-confirm ${item.state}` },
+      el("div", { class: "chat-confirm-head" }, el("strong", { text: describe(item) }),
+        pending ? null : el("span", { class: `pill status ${item.state === "allowed" ? "on" : "standby"}`, text: item.state === "allowed" ? "Allowed" : "Not allowed" })),
+      el("p", { text: pending ? `${item.title}. Nothing changes until you allow it.` : item.title }),
+      changes,
+      details,
+      pending ? el("div", { class: "chat-confirm-actions" },
+        el("button", { type: "button", text: "Don't allow", onclick: answer(false) }),
+        el("button", { type: "button", class: "primary", text: "Allow", onclick: answer(true) })) : null);
+  }
+
+  /// What a config dry run would change, a line per setting with its new value; null for other previews.
+  function changeList(preview) {
+    if (!preview || !Array.isArray(preview.changes) || !preview.config) return null;
+    const valueAt = (path) => path.match(/[^.[\]]+/g).reduce((value, key) => value?.[/^\d+$/.test(key) ? Number(key) : key], preview.config);
+    const shown = (value) => value === undefined ? "removed" : value === "__REDACTED__" ? "(secret, kept)" : JSON.stringify(value);
+    const lines = preview.changes.slice(0, 8).map((path) => el("li", {},
+      el("code", { text: path.replace(/^platforms\[\d+\]\./, "") }), " ", el("span", { text: `→ ${shown(valueAt(path))}`.slice(0, 120) })));
+    if (preview.changes.length > 8) lines.push(el("li", { class: "muted", text: `and ${preview.changes.length - 8} more` }));
+    return lines.length ? el("ul", { class: "chat-changes" }, lines) : el("p", { class: "muted", text: "Nothing would change." });
+  }
+
+  /// A change in a sentence, from the tool and its arguments.
+  function describe({ tool, arguments: args = {} }) {
+    const entry = args.entry || {};
+    const settings = Object.keys(args.settings || {});
+    switch (tool) {
+    case "put_list_entry":
+      return `Save “${entry.name || entry.mac || "this entry"}” in ${args.name || args.platform}?`;
+    case "patch_config":
+      return `Change ${settings.length ? settings.join(", ") : "settings"} of ${args.name || args.platform}?`;
+    case "update_config": return "Replace the whole config.json? A backup is kept.";
+    case "restore_config": return `Restore config.json from ${args.backup}?`;
+    case "restart_bridge": return "Restart homeswift? Connections drop for a few seconds.";
+    case "set_security_accessory": return `Set ${args.characteristic} to ${JSON.stringify(args.value)} on ${args.id}?`;
+    default: return `Allow ${tool}?`;
+    }
+  }
+
+  function showError(text) {
+    if (!panel) return;
+    panel.log.append(el("p", { class: "chat-error", role: "alert", text }));
+    scrollToEnd();
+  }
+
+  /// Keeps the newest line in view, unless the person scrolled up to read.
+  function scrollToEnd(force = false) {
+    const { log } = panel;
+    if (force || log.scrollHeight - log.scrollTop - log.clientHeight < 120) log.scrollTop = log.scrollHeight;
+  }
+
+  /// The send button turns into stop while the Assistant works; the glow turns around the panel meanwhile.
+  function renderControls() {
+    if (!panel) return;
+    const { sheet, send, foot, log } = panel;
+    sheet.classList.toggle("working", running);
+    log.setAttribute("aria-busy", String(running));
+    send.classList.toggle("stop", running);
+    send.setAttribute("aria-label", running ? "Stop" : "Send");
+    send.title = running ? "Stop" : "Send (Enter)";
+    const waiting = running && !items.some((item) => item.kind === "confirm" && item.state === "pending") && items[items.length - 1]?.kind !== "assistant";
+    let thinking = log.querySelector(".chat-thinking");
+    if (waiting && !thinking) log.append(thinking = el("p", { class: "chat-thinking", text: "Thinking…" }));
+    if (waiting) log.append(thinking);   // stays last
+    if (!waiting) thinking?.remove();
+    const cost = usage && usage.cost != null && usage.cost > 0 ? ` · $${usage.cost < 0.01 ? usage.cost.toFixed(4) : usage.cost.toFixed(2)} so far` : "";
+    foot.textContent = listening ? "Listening… tap the mic again when you are done." : voiceNote || `${info.provider || "Assistant"}${cost}. Changes always ask first.`;
+  }
+
+  // ---- Voice ------------------------------------------------------------------------------------------------
+
+  let recognition = null;
+  let listening = false;
+  let voiceNote = "";
+
+  function setUpMic() {
+    const { mic } = panel;
+    if (!window.isSecureContext) {
+      mic.classList.add("unavailable");
+      mic.title = "Voice needs HTTPS: turn on https in the HomeswiftUI settings, or open this page on localhost.";
+    }
+    let pressedAt = 0;
+    mic.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      pressedAt = event.timeStamp;
+      if (!listening) startListening();
+      else stopListening(false);
+    });
+    // Held down and let go: push to talk. A tap keeps listening until the next tap or a pause.
+    mic.addEventListener("pointerup", (event) => {
+      if (listening && event.timeStamp - pressedAt > 400) stopListening(false);
+    });
+    mic.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); listening ? stopListening(false) : startListening(); }
+    });
+  }
+
+  function startListening() {
+    if (!window.isSecureContext) {
+      voiceNote = "Voice needs HTTPS here: turn on https in Plugins › HomeswiftUI › Settings (or open the page on localhost).";
+      renderControls();
+      return;
+    }
+    if (running) return;
+    voiceNote = "";
+    window.speechSynthesis?.cancel();
+    recognition = new Recognition();
+    recognition.lang = voiceLanguage();
+    recognition.interimResults = true;
+    recognition.continuous = false;
+    const before = panel.input.value ? `${panel.input.value} ` : "";
+    let finalText = "";
+    recognition.onresult = (event) => {
+      let interim = "";
+      finalText = "";
+      for (const result of event.results) {
+        if (result.isFinal) finalText += result[0].transcript; else interim += result[0].transcript;
+      }
+      panel.input.value = before + finalText + interim;
+      grow();
+    };
+    recognition.onerror = (event) => {
+      voiceNote = event.error === "not-allowed" || event.error === "service-not-allowed"
+        ? "The browser did not allow the microphone for this page."
+        : event.error === "no-speech" ? "Nothing was heard. Tap the mic and speak." : `Voice stopped: ${event.error}.`;
+    };
+    recognition.onend = () => {
+      const send = recognition?.sendWhenDone !== false;
+      listening = false;
+      recognition = null;
+      panel.sheet.classList.remove("listening");
+      renderControls();
+      const text = panel.input.value.trim();
+      if (send && finalText.trim() && text) submit(text, true);
+    };
+    try {
+      recognition.start();
+    } catch (e) {
+      voiceNote = `Voice did not start: ${e.message}`;
+      renderControls();
+      return;
+    }
+    listening = true;
+    panel.sheet.classList.add("listening");
+    renderControls();
+  }
+
+  /// `cancel` keeps the words in the field without sending them.
+  function stopListening(cancel) {
+    if (!recognition) return;
+    recognition.sendWhenDone = !cancel;
+    recognition.stop();
+  }
+
+  /// An answer to a spoken message, read out: plain text, without Markdown's marks.
+  function speak(text) {
+    if (!text || !window.speechSynthesis) return;
+    const plain = text.replace(/```[\s\S]*?```/g, "").replace(/[*_`#>]/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+    const utterance = new SpeechSynthesisUtterance(plain);
+    utterance.lang = voiceLanguage();
+    speechSynthesis.speak(utterance);
+  }
+
+  // ---- The button in the header -----------------------------------------------------------------------------
+
+  async function mount() {
+    try {
+      info = await api("/api/assistant");
+    } catch { return; }
+    if (!info.enabled) return;
+    const header = $("header");
+    if (!header || header.querySelector(".chat-open")) return;
+    trigger = el("button", {
+      type: "button", class: "chat-open", "aria-expanded": "false", "aria-haspopup": "dialog", title: "Ask the Assistant",
+      onclick: () => toggle(),
+    }, sparkle(), el("span", { text: "Assistant" }));
+    header.insertBefore(trigger, header.querySelector("#user"));
+    phone.addEventListener("change", () => { if (isOpen()) { panel.scrim.hidden = !phone.matches; draw(openness.value); } });
+  }
+
+  /// Opens the chat with `text` typed in, for the person to finish and send.
+  function ask(text) {
+    toggle(true);
+    panel.input.value = text;
+    grow();
+    setTimeout(() => { panel.input.focus(); panel.input.setSelectionRange(text.length, text.length); }, 60);
+  }
+
+  /// The language chosen for voice, else the browser's.
+  const voiceLanguage = () => panel?.languagePicker.value || navigator.language || "en-US";
+
+  window.HomeswiftChat = { mount, ask, open: () => toggle(true), available: () => Boolean(info?.enabled) };
+  // The UI's own page mounts it once signed in; a plugin page is signed in already.
+  if (location.pathname.startsWith("/plugins/")) mount();
+})();
+
+"""#),
         "common.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
-// What every page of the web UI shares, the UI's own and plugins' alike: $ and el, which build and find elements,
-// and the tiles: an icon on a colour, as the Home app draws them. Loaded before the page's own script.
+// What every page of the web UI shares, the UI's own and plugins' alike: $ and el, which build and find elements;
+// the tiles, an icon on a colour, as the Home app draws them; and the Assistant's Markdown and sparkle. Loaded
+// before the page's own script.
 (() => {
   "use strict";
 
@@ -1095,6 +1871,12 @@ enum WebAssets {
     generic: '<rect x="4" y="4" width="16" height="16" rx="4"/>',
     plugin: '<path d="M4 7h4a2 2 0 1 1 4 0h4v4a2 2 0 1 1 0 4v4H4z"/>',
     gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+    more: '<circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/>',
+    logs: '<path d="M8 6h12M8 12h12M8 18h8M4 6h.01M4 12h.01M4 18h.01"/>',
+    trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+    edit: '<path d="M12 20h8M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+    inputs: '<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/>',
+    identify: '<circle cx="12" cy="12" r="2.5"/><path d="M7.5 7.5a6.4 6.4 0 0 0 0 9M16.5 7.5a6.4 6.4 0 0 1 0 9"/>',
   };
 
   /// An icon as an SVG element.
@@ -1109,108 +1891,6 @@ enum WebAssets {
   /// `large` for a page's heading.
   const tile = (name, tone = "orange", large = false) =>
     el("span", { class: `tile tone-${tone}${large ? " large" : ""}`, "aria-hidden": "true" }, icon(name));
-
-  window.HomeswiftCommon = { $, el, icon, tile };
-})();
-
-"""#),
-        "icon.svg": WebFile(contentType: "image/svg+xml", body: #"""
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <title>Homeswift</title>
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#FFA01C"/>
-      <stop offset="1" stop-color="#F0442E"/>
-    </linearGradient>
-  </defs>
-  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
-  <!-- House: 13% side margins, 12.5% above, 20% below, a 37° roof whose eaves overhang the walls -->
-  <path d="M165 420.3 L512 160 L859 420.3 M227 373.8 V763 Q227 787 251 787 H773 Q797 787 797 763 V373.8"
-        fill="none" stroke="#fff" stroke-width="64" stroke-linecap="round" stroke-linejoin="round"/>
-  <!-- The Swift logo bird (swift.org), a trademark of Apple Inc.: its bounding box centred on the house's interior -->
-  <path fill="#fff" transform="translate(512 522) scale(8) translate(-28.38 -28.5)" d="m47.06 36.66-.004-.004c.066-.224.134-.446.191-.675 2.465-9.821-3.55-21.432-13.731-27.546 4.461 6.048 6.434 13.374 4.681 19.78-.156.571-.344 1.12-.552 1.653-.225-.148-.51-.316-.89-.527 0 0-10.127-6.252-21.103-17.312-.288-.29 5.852 8.777 12.822 16.14-3.284-1.843-12.434-8.5-18.227-13.802.712 1.187 1.558 2.33 2.489 3.43C17.573 23.932 23.882 31.5 31.44 37.314c-5.31 3.25-12.814 3.502-20.285.003a30.646 30.646 0 0 1-5.193-3.098c3.162 5.058 8.033 9.423 13.96 11.97 7.07 3.039 14.1 2.833 19.336.05l-.004.007c.024-.016.055-.032.08-.047.214-.116.428-.234.636-.358 2.516-1.306 7.485-2.63 10.152 2.559.654 1.27 2.041-5.46-3.061-11.74z"/>
-</svg>
-
-"""#),
-        "index.html": WebFile(contentType: "text/html; charset=utf-8", body: #"""
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Homeswift</title>
-<link rel="icon" href="/icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/style.css">
-</head>
-<body>
-<div id="auth" class="auth hidden">
-  <form id="auth-form" class="card">
-    <img src="/icon.svg" class="logo large" alt="">
-    <h1>Homeswift</h1>
-    <p id="auth-text"></p>
-    <label>Username <input name="username" autocomplete="username" required></label>
-    <label>Password <input name="password" type="password" autocomplete="current-password" required minlength="1"></label>
-    <label id="auth-setup-code" class="hidden">Set-up code <input name="setupCode" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX"></label>
-    <p class="error" id="auth-error"></p>
-    <button type="submit" id="auth-submit">Sign in</button>
-  </form>
-</div>
-<div id="app" class="hidden">
-  <header>
-    <a class="brand" href="#status"><img src="/icon.svg" class="logo" alt="">Homeswift</a>
-    <nav>
-      <a href="#status">Status</a>
-      <a href="#accessories">Accessories</a>
-      <a href="#plugins">Plugins</a>
-      <a href="#config">Config</a>
-      <a href="#logs">Logs</a>
-    </nav>
-    <span class="spacer"></span>
-    <a id="user" href="#account" title="Your account: change the password"></a>
-    <button id="logout" class="link">Sign out</button>
-  </header>
-  <div id="banner" class="banner hidden">Some changes need a restart of homeswift. <button id="restart" class="link">Restart now</button></div>
-  <main id="view"></main>
-</div>
-<script src="/common.js"></script>
-<script src="/remote.js"></script>
-<script src="/app.js"></script>
-</body>
-</html>
-
-"""#),
-        "plugin.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
-// For a plugin's own pages, served at /plugins/<platform>/ after common.js: homeswift.request() talks to the plugin
-// instance named in the page's URL (?name=), with the session cookie; homeswift.el(), .$() and .tile() are the UI's
-// own (common.js). A signed-out visitor is sent to the login page.
-(() => {
-  "use strict";
-  const platform = decodeURIComponent(location.pathname.split("/")[2] || "");
-  const name = new URLSearchParams(location.search).get("name") || platform;
-  const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
-
-  const { $, el, icon, tile } = HomeswiftCommon;
-
-  /// The UI's API, with the session cookie: `body` is an object, sent as JSON; a refusal carries the server's
-  /// message, and a signed-out visitor goes to the login page.
-  async function api(path, { method = "GET", body } = {}) {
-    const options = { method, credentials: "same-origin", headers: {} };
-    if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
-    const response = await fetch(path, options);
-    if (response.status === 401) { location.href = "/"; throw new Error("signed out"); }
-    const text = await response.text();
-    let json = null;
-    try { json = text ? JSON.parse(text) : null; } catch { json = { error: text }; }
-    if (!response.ok) throw new Error((json && json.error) || `HTTP ${response.status}`);
-    return json;
-  }
-
-  /// This plugin instance's own routes (its handleWebRequest).
-  const request = (path, options) => api(prefix + String(path).replace(/^\//, ""), options);
-
-  // The Assistant, when config.json has a HomeswiftAiKit block that works: pages offer "Explain" next to errors.
-  let assistantState = null;
-  const assistant = () => (assistantState ??= api("/api/assistant").catch(() => ({ enabled: false })));
 
   /// Markdown from the Assistant as elements, never as HTML: headings, paragraphs, nested lists, code blocks,
   /// bold, italics, code and http(s) links. Anything else stays text.
@@ -1304,6 +1984,237 @@ enum WebAssets {
     return svg;
   }
 
+  // ---- A menu of actions, after a macOS pull-down menu --------------------------------------------------
+  // It grows out of its button and goes back into it; the arrow keys move between items, Escape and a click
+  // elsewhere close it, and focus returns to the button.
+
+  let openMenu = null;
+
+  /// Opens a menu under `trigger`. Each item: { label, icon (a name or a node), href or onSelect, danger }.
+  /// Opened from the keyboard, its first item takes the focus; from a click, the menu does, so no item looks
+  /// chosen before the pointer or an arrow key gets to it.
+  function menu(trigger, items, { keyboard = false } = {}) {
+    if (openMenu?.trigger === trigger) { openMenu.close(); return; }
+    openMenu?.close(true);
+    const entries = items.filter(Boolean).map((item) => {
+      const glyph = typeof item.icon === "string" ? icon(item.icon) : item.icon ?? null;
+      const node = item.href
+        ? el("a", { role: "menuitem", href: item.href, class: item.danger ? "danger" : "", tabIndex: -1 }, glyph, el("span", { text: item.label }))
+        : el("button", { type: "button", role: "menuitem", class: item.danger ? "danger" : "", tabIndex: -1 }, glyph, el("span", { text: item.label }));
+      node.addEventListener("click", () => { close(); item.onSelect?.(); });
+      return node;
+    });
+    const list = el("div", { class: "menu", role: "menu", tabIndex: -1, "aria-label": trigger.getAttribute("aria-label") || "Actions" }, entries);
+    document.body.append(list);
+    // Under the button, its right edges aligned, inside the window; above it when there is no room below.
+    const box = trigger.getBoundingClientRect();
+    const width = list.offsetWidth, height = list.offsetHeight;
+    const below = box.bottom + 6 + height < innerHeight;
+    list.style.left = `${Math.max(8, Math.min(innerWidth - width - 8, box.right - width))}px`;
+    list.style.top = `${below ? box.bottom + 6 : box.top - 6 - height}px`;
+    list.style.transformOrigin = `${box.right - parseFloat(list.style.left) - box.width / 2}px ${below ? "0" : "100%"}`;
+    trigger.setAttribute("aria-expanded", "true");
+    const focusAt = (index) => entries[(index + entries.length) % entries.length]?.focus();
+    const onKey = (event) => {
+      const index = entries.indexOf(document.activeElement);
+      if (event.key === "Escape") { event.preventDefault(); close(); }
+      else if (event.key === "ArrowDown") { event.preventDefault(); focusAt(index + 1); }
+      else if (event.key === "ArrowUp") { event.preventDefault(); focusAt(index < 0 ? -1 : index - 1); }
+      else if (event.key === "Home") { event.preventDefault(); focusAt(0); }
+      else if (event.key === "End") { event.preventDefault(); focusAt(-1); }
+      else if (event.key === "Tab") close(true);
+    };
+    const onPointer = (event) => { if (!list.contains(event.target) && !trigger.contains(event.target)) close(true); };
+    function close(quietly = false) {
+      if (openMenu?.list !== list) return;
+      openMenu = null;
+      document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("pointerdown", onPointer, true);
+      removeEventListener("resize", onResize);
+      trigger.setAttribute("aria-expanded", "false");
+      list.classList.add("closing");
+      setTimeout(() => list.remove(), 160);
+      if (!quietly) trigger.focus({ preventScroll: true });
+    }
+    const onResize = () => close(true);
+    document.addEventListener("keydown", onKey, true);
+    document.addEventListener("pointerdown", onPointer, true);
+    addEventListener("resize", onResize);
+    openMenu = { trigger, list, close };
+    if (keyboard) focusAt(0); else list.focus({ preventScroll: true });
+  }
+
+  /// A round icon button that opens `menu` with what `items()` gives when pressed.
+  const menuButton = (label, items) => {
+    const button = el("button", { type: "button", class: "icon-button menu-button", "aria-label": label, title: label, "aria-haspopup": "menu", "aria-expanded": "false" }, icon("more"));
+    // A click from the keyboard (Enter, Space) has no pointer position: detail is 0.
+    button.addEventListener("click", (event) => { event.stopPropagation(); menu(button, items(), { keyboard: event.detail === 0 }); });
+    return button;
+  };
+
+  /// The UI's API, with the session cookie: `body` is an object, sent as JSON; a refusal carries the server's
+  /// message, and a signed-out visitor goes to the sign-in page. `stream: true` answers the Response itself,
+  /// for a body read as it arrives.
+  async function api(path, { method = "GET", body, stream = false } = {}) {
+    const options = { method, credentials: "same-origin", headers: {} };
+    if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
+    const response = await fetch(path, options);
+    if (response.status === 401) { location.href = "/"; throw new Error("signed out"); }
+    if (stream && response.ok) return response;
+    const text = await response.text();
+    let json = null;
+    try { json = text ? JSON.parse(text) : null; } catch { json = { error: text }; }
+    if (!response.ok) throw new Error((json && json.error) || `HTTP ${response.status}`);
+    return json;
+  }
+
+  /// Puts `text` on the clipboard. The Clipboard API exists only over HTTPS or on localhost; a page on the
+  /// network over plain HTTP copies through a hidden text field instead.
+  async function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    const field = el("textarea", { value: text, readOnly: true, style: "position:fixed;top:-1000px;opacity:0" });
+    document.body.append(field);
+    field.select();
+    const copied = document.execCommand("copy");
+    field.remove();
+    if (!copied) throw new Error("The browser did not allow copying.");
+  }
+
+  // ---- JSON, coloured -----------------------------------------------------------------------------------
+  // Keys, strings, numbers, true, false and null each in a colour; punctuation quiet. Text nodes only, never HTML.
+
+  const jsonToken = /("(?:[^"\\]|\\.)*")(\s*:)?|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|\b(true|false)\b|\b(null)\b|([{}[\],:])/g;
+
+  /// `text` (JSON, or almost: it is being typed) as coloured spans.
+  function jsonHighlight(text) {
+    const fragment = document.createDocumentFragment();
+    let last = 0;
+    for (const match of text.matchAll(jsonToken)) {
+      if (match.index > last) fragment.append(text.slice(last, match.index));
+      const [whole, string, colon, number, boolean, nil] = match;
+      const kind = string ? (colon ? "key" : "string") : number ? "number" : boolean ? "bool" : nil ? "null" : "punct";
+      fragment.append(el("span", { class: `json-${kind}`, text: string && colon ? string : whole }));
+      if (string && colon) fragment.append(el("span", { class: "json-punct", text: colon }));
+      last = match.index + whole.length;
+    }
+    if (last < text.length) fragment.append(text.slice(last));
+    return fragment;
+  }
+
+  /// A value shown as indented, coloured JSON.
+  const jsonView = (value, attrs = {}) => el("pre", { class: "json", ...attrs }, jsonHighlight(JSON.stringify(value, null, 2) ?? ""));
+
+  /// Colours a JSON textarea as it is typed: a coloured copy of its text sits under it, the textarea's own
+  /// text transparent, so editing, selection and undo stay the browser's. Returns the wrapper to show.
+  function jsonEditor(textarea) {
+    const layer = el("pre", { class: "code-layer", "aria-hidden": "true" });
+    const wrapper = el("div", { class: "code-editor" }, layer, textarea);
+    textarea.classList.add("code-input");
+    let scheduled = false;
+    const paint = () => {
+      scheduled = false;
+      // A final newline needs a character after it to take its line.
+      layer.replaceChildren(jsonHighlight(textarea.value), "\n");
+      layer.scrollTop = textarea.scrollTop;
+      layer.scrollLeft = textarea.scrollLeft;
+    };
+    const schedule = () => { if (!scheduled) { scheduled = true; requestAnimationFrame(paint); } };
+    textarea.addEventListener("input", schedule);
+    textarea.addEventListener("scroll", () => { layer.scrollTop = textarea.scrollTop; layer.scrollLeft = textarea.scrollLeft; });
+    wrapper.repaint = paint;
+    paint();
+    return wrapper;
+  }
+
+  window.HomeswiftCommon = { $, el, icon, tile, markdown, sparkle, api, menuButton, copyText, jsonHighlight, jsonView, jsonEditor };
+})();
+
+"""#),
+        "icon.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Homeswift</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFA01C"/>
+      <stop offset="1" stop-color="#F0442E"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <!-- House: 13% side margins, 12.5% above, 20% below, a 37° roof whose eaves overhang the walls -->
+  <path d="M165 420.3 L512 160 L859 420.3 M227 373.8 V763 Q227 787 251 787 H773 Q797 787 797 763 V373.8"
+        fill="none" stroke="#fff" stroke-width="64" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- The Swift logo bird (swift.org), a trademark of Apple Inc.: its bounding box centred on the house's interior -->
+  <path fill="#fff" transform="translate(512 522) scale(8) translate(-28.38 -28.5)" d="m47.06 36.66-.004-.004c.066-.224.134-.446.191-.675 2.465-9.821-3.55-21.432-13.731-27.546 4.461 6.048 6.434 13.374 4.681 19.78-.156.571-.344 1.12-.552 1.653-.225-.148-.51-.316-.89-.527 0 0-10.127-6.252-21.103-17.312-.288-.29 5.852 8.777 12.822 16.14-3.284-1.843-12.434-8.5-18.227-13.802.712 1.187 1.558 2.33 2.489 3.43C17.573 23.932 23.882 31.5 31.44 37.314c-5.31 3.25-12.814 3.502-20.285.003a30.646 30.646 0 0 1-5.193-3.098c3.162 5.058 8.033 9.423 13.96 11.97 7.07 3.039 14.1 2.833 19.336.05l-.004.007c.024-.016.055-.032.08-.047.214-.116.428-.234.636-.358 2.516-1.306 7.485-2.63 10.152 2.559.654 1.27 2.041-5.46-3.061-11.74z"/>
+</svg>
+
+"""#),
+        "index.html": WebFile(contentType: "text/html; charset=utf-8", body: #"""
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Homeswift</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="auth" class="auth hidden">
+  <form id="auth-form" class="card">
+    <img src="/icon.svg" class="logo large" alt="">
+    <h1>Homeswift</h1>
+    <p id="auth-text"></p>
+    <label>Username <input name="username" autocomplete="username" required></label>
+    <label>Password <input name="password" type="password" autocomplete="current-password" required minlength="1"></label>
+    <label id="auth-setup-code" class="hidden">Set-up code <input name="setupCode" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX"></label>
+    <p class="error" id="auth-error"></p>
+    <button type="submit" id="auth-submit">Sign in</button>
+  </form>
+</div>
+<div id="app" class="hidden">
+  <header>
+    <a class="brand" href="#status"><img src="/icon.svg" class="logo" alt="">Homeswift</a>
+    <nav>
+      <a href="#status">Status</a>
+      <a href="#accessories">Accessories</a>
+      <a href="#plugins">Plugins</a>
+      <a href="#config">Config</a>
+      <a href="#logs">Logs</a>
+    </nav>
+    <span class="spacer"></span>
+    <a id="user" href="#account" title="Your account: change the password"></a>
+    <button id="logout" class="link">Sign out</button>
+  </header>
+  <div id="banner" class="banner hidden">Some changes need a restart of homeswift. <button id="restart" class="link">Restart now</button></div>
+  <main id="view"></main>
+</div>
+<script src="/common.js"></script>
+<script src="/remote.js"></script>
+<script src="/chat.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
+
+"""#),
+        "plugin.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
+// For a plugin's own pages, served at /plugins/<platform>/ after common.js: homeswift.request() talks to the plugin
+// instance named in the page's URL (?name=), with the session cookie; homeswift.el(), .$() and .tile() are the UI's
+// own (common.js). A signed-out visitor is sent to the login page.
+(() => {
+  "use strict";
+  const platform = decodeURIComponent(location.pathname.split("/")[2] || "");
+  const name = new URLSearchParams(location.search).get("name") || platform;
+  const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
+
+  const { $, el, icon, tile, markdown, sparkle, api } = HomeswiftCommon;
+
+  /// This plugin instance's own routes (its handleWebRequest).
+  const request = (path, options) => api(prefix + String(path).replace(/^\//, ""), options);
+
+  // The Assistant, when config.json has a HomeswiftAiKit block that works: pages offer "Explain" next to errors.
+  let assistantState = null;
+  const assistant = () => (assistantState ??= api("/api/assistant").catch(() => ({ enabled: false })));
+
   // Answers by error, so a card a page redraws (a TV's state changed) shows the answer it already had, and a
   // request in flight carries on into the new card.
   const explanations = new Map();
@@ -1382,6 +2293,8 @@ enum WebAssets {
       el("a", { class: "brand", href: "/#status" }, el("img", { src: "/icon.svg", class: "logo", alt: "" }), "Homeswift"),
       el("nav", { "aria-label": "Sections" }, sections.map(([hash, text]) => el("a", { href: `/${hash}`, text, class: hash === "#plugins" ? "active" : "" }))),
       el("span", { class: "spacer" }), user, logout);
+    // The Assistant's chat, as on the UI's own pages.
+    document.head.append(el("script", { src: "/chat.js" }));
     api("/api/auth/state").then((state) => {
       user.textContent = state.username || "";
       logout.classList.toggle("hidden", state.mode !== "form");
@@ -1764,21 +2677,19 @@ details.more-options[open] > summary { margin-bottom: 4px; }
 /* Plugin pages: a heading with the plugin's tile, card feet with their links, and panels (an editor that opens
    under the cards) with a head and two columns. A button working for a moment shows a spinner (act()). */
 .page-head:has(> .tile) { align-items: center; }
-.foot-actions { display: inline-flex; align-items: center; gap: 14px; }
-.foot-actions .link { font-size: inherit; padding: 0; font-weight: 500; }
 .panel { margin-top: 14px; display: grid; gap: 16px; animation: materialize var(--normal) var(--ease-out); scroll-margin-top: 90px; }
 .panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .panel-head h2 { margin: 0 0 4px; }
 .panel-head p { margin: 0; font-size: 0.8125rem; }
 .panel-columns { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 20px; align-items: start; }
-.busy::after {
+button.busy::after {
   content: ""; display: inline-block; width: 0.9em; height: 0.9em; margin-left: 8px; vertical-align: -0.12em;
   border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .panel { animation: none; }
-  .busy::after { animation: none; border-right-color: currentColor; opacity: 0.5; }
+  button.busy::after { animation: none; border-right-color: currentColor; opacity: 0.5; }
 }
 @media (max-width: 640px) { .panel-columns { grid-template-columns: 1fr; } }
 
@@ -1842,7 +2753,29 @@ input, select, textarea {
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px rgba(255, 122, 26, 0.18); }
 input[type=checkbox] { width: auto; box-shadow: none; accent-color: var(--accent); }
 input[type=range] { padding: 0; width: 160px; background: none; border: 0; box-shadow: none; accent-color: var(--accent); }
-select { touch-action: manipulation; }
+/* Selects as pop-up buttons, after macOS: the platform's arrows replaced by one up-and-down chevron in the
+   text's colour, the field's shape kept; a toolbar's (.popup) is a solid pill like the controls next to it. The
+   accent ring shows for the keyboard, not for a click. */
+:root { --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 16' fill='none' stroke='%23596170' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 6l3-3 3 3M2 10l3 3 3-3'/%3E%3C/svg%3E"); }
+@media (prefers-color-scheme: dark) {
+  :root { --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 16' fill='none' stroke='%23a2a9b5' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 6l3-3 3 3M2 10l3 3 3-3'/%3E%3C/svg%3E"); }
+}
+select {
+  -webkit-appearance: none; appearance: none; touch-action: manipulation; cursor: pointer; padding-right: 34px;
+  background-image: var(--chevron); background-repeat: no-repeat; background-position: right 13px center; background-size: 9px 14px;
+  text-overflow: ellipsis; white-space: nowrap; overflow: hidden;
+}
+select:focus:not(:focus-visible) { border-color: var(--edge); box-shadow: inset 0 1px 2px rgba(25, 34, 56, 0.08); }
+select.popup {
+  width: auto; border-radius: 999px; padding: 7px 34px 7px 15px; font-weight: 500;
+  background-color: var(--control); border-color: var(--edge); box-shadow: var(--shadow-control), inset 0 1px 0 var(--edge-light);
+  transition: transform var(--fast) var(--ease-out), box-shadow var(--fast) var(--ease-out), border-color var(--fast) var(--ease-out);
+}
+select.popup:hover { transform: translateY(-1px); }
+select.popup:active { transform: scale(0.97); transition-duration: 80ms; }
+select.popup:focus:not(:focus-visible) { border-color: var(--edge); box-shadow: var(--shadow-control), inset 0 1px 0 var(--edge-light); }
+select.popup:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(255, 122, 26, 0.18); }
+select.popup.chosen { color: var(--accent); }
 textarea { font-family: var(--mono); font-size: 0.8125rem; min-height: 420px; white-space: pre; border-radius: var(--radius); }
 label { display: block; margin: 10px 0 6px; }
 label > input, label > select { margin-top: 5px; }
@@ -2055,6 +2988,37 @@ textarea.short { min-height: 220px; }
 .editor-card, .log-card { padding: 0; overflow: hidden; }
 .editor-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--material-thin); }
 .editor-bar .search { width: 220px; }
+.editor-bar .popup { max-width: 240px; }
+
+/* A menu of actions (common.js menu()): thick material over the page, out of its button. */
+.menu-button { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
+.menu-button svg { width: 18px; height: 18px; fill: currentColor; stroke: none; }
+.menu-button[aria-expanded="true"] { background: var(--material-thin); }
+.menu {
+  position: fixed; z-index: 30; min-width: 210px; padding: 6px; display: grid; gap: 1px; border-radius: 16px;
+  background-color: var(--material-thick); background-image: var(--sheen);
+  -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+  border: 1px solid var(--edge); box-shadow: 0 18px 44px rgba(25, 34, 56, 0.24), inset 0 1px 0 var(--edge-light);
+  animation: menu-in 180ms var(--ease-out);
+}
+.menu:focus { outline: none; }
+.menu.closing { animation: menu-out 140ms var(--ease-out) forwards; pointer-events: none; }
+@keyframes menu-in { from { opacity: 0; transform: scale(0.92); } }
+@keyframes menu-out { to { opacity: 0; transform: scale(0.95); } }
+.menu [role="menuitem"] {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 12px; border: 0; border-radius: 10px;
+  background: none; box-shadow: none; color: var(--text); font: inherit; font-size: 0.875rem; text-align: left; text-decoration: none; cursor: pointer;
+}
+.menu [role="menuitem"]:hover, .menu [role="menuitem"]:focus-visible { background: var(--accent); color: var(--accent-text); outline: none; transform: none; }
+.menu [role="menuitem"].danger { color: var(--error); }
+.menu [role="menuitem"].danger:hover, .menu [role="menuitem"].danger:focus-visible { background: var(--error); color: #fff; }
+.menu [role="menuitem"] svg { width: 17px; height: 17px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+@media (prefers-reduced-motion: reduce) { .menu, .menu.closing { animation-name: fade; } }
+@media (prefers-reduced-transparency: reduce) { .menu { background: var(--material-solid); -webkit-backdrop-filter: none; backdrop-filter: none; } }
+/* A custom time range: from and to, under the toolbar, as the material arriving. */
+.log-range { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%; animation: fade var(--normal) var(--ease-out); }
+.log-range label { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 0.8125rem; color: var(--muted); }
+.log-range input { width: auto; padding: 6px 12px; border-radius: 999px; font-variant-numeric: tabular-nums; }
 .editor-bar .count { font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
 .editor-card textarea { display: block; border: 0; border-radius: 0; box-shadow: none; background: transparent; min-height: 62vh; padding: 16px 18px; resize: vertical; tab-size: 2; line-height: 1.55; }
 .editor-card textarea:focus { box-shadow: none; }
@@ -2196,6 +3160,204 @@ dd { margin: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .servers .server, .card.server { animation: fade var(--normal) ease; } }
 @media (max-width: 640px) { header { gap: 6px; padding: 6px 8px; } nav a { padding: 6px 10px; white-space: nowrap; } main { padding: 14px 10px 30px; } input[type=range] { width: 110px; } }
+
+/* The Assistant's chat (chat.js). On a wide window a panel floats beside the page under the header, no scrim,
+   so the page stays usable; on a phone it is a sheet over a scrim, dragged by its head. Thick material like
+   the header, controls solid on top; the Apple Intelligence glow turns around the panel only while the
+   Assistant works or listens. chat.js moves it on a spring, from the button and back to it. */
+.chat-open { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px 6px 11px; border-radius: 999px; }
+.chat-open span {
+  font-weight: 600; background: linear-gradient(90deg, #ff9f0a, #ff375f 35%, #bf5af2 70%, #5e5ce6);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.chat-open[aria-expanded="true"] { box-shadow: 0 0 0 3px rgba(191, 90, 242, 0.22), var(--shadow-control); }
+.chat {
+  position: fixed; z-index: 20; top: 84px; right: max(16px, calc((100vw - 1100px) / 2));
+  width: min(420px, calc(100vw - 32px)); height: min(740px, calc(100dvh - 100px));
+  transform-origin: top right; will-change: transform; isolation: isolate; --open: 1; --glow: 0;
+}
+.chat-surface {
+  position: relative; height: 100%; display: flex; flex-direction: column; overflow: hidden; border-radius: 26px;
+  background-color: var(--material-thick); background-image: var(--sheen);
+  -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+  border: 1px solid var(--edge); box-shadow: 0 24px 64px rgba(25, 34, 56, 0.24), inset 0 1px 0 var(--edge-light);
+  opacity: var(--open);
+}
+.chat-glow {
+  position: absolute; inset: -3px; z-index: -1; border-radius: 29px; pointer-events: none;
+  background: conic-gradient(from var(--ai-angle), var(--ai-colors)); filter: blur(18px);
+  opacity: calc(var(--glow) * var(--open));
+}
+/* Registered, so the glow eases in and out instead of switching. */
+@property --glow { syntax: "<number>"; inherits: true; initial-value: 0; }
+.chat { transition: --glow 700ms var(--ease-out); }
+.chat.working { --glow: 0.5; }
+.chat.listening { --glow: 0.8; }
+.chat.working .chat-glow, .chat.listening .chat-glow { animation: ai-turn 3s linear infinite; }
+.chat.listening .chat-glow { animation-duration: 2s; }
+.chat-scrim { position: fixed; inset: 0; z-index: 19; background: rgba(10, 14, 22, 0.35); opacity: 0; }
+
+.chat-head { position: relative; display: flex; align-items: center; gap: 8px; padding: 14px 12px 10px 18px; }
+.chat-head .sparkle { width: 18px; height: 18px; }
+.chat-head strong { font-size: 1.0625rem; letter-spacing: -0.015em; }
+.chat-model { color: var(--muted); font-size: 0.75rem; letter-spacing: 0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-icon { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; border-radius: 50%; font-size: 1.25rem; line-height: 1; }
+.chat-icon svg, .chat-mic svg, .chat-send svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.chat-grabber { display: none; }
+
+.chat-log {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 18px 16px;
+  display: flex; flex-direction: column; gap: 12px;
+  -webkit-mask-image: linear-gradient(transparent, #000 12px, #000 calc(100% - 16px), transparent);
+  mask-image: linear-gradient(transparent, #000 12px, #000 calc(100% - 16px), transparent);
+}
+.chat-log > * { animation: chat-in var(--normal) var(--ease-out); }
+@keyframes chat-in { from { opacity: 0; transform: translateY(6px); } }
+.chat-user { align-self: flex-end; max-width: 86%; }
+.chat-user p {
+  margin: 0; padding: 9px 14px; border-radius: 20px 20px 6px 20px; white-space: pre-wrap; overflow-wrap: anywhere;
+  background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text);
+  box-shadow: 0 6px 16px rgba(255, 122, 26, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+.chat-answer { line-height: 1.55; overflow-wrap: anywhere; }
+.chat-answer .chat-text > :last-child { margin-bottom: 0; }
+.chat-step { display: flex; align-items: flex-start; gap: 8px; font-size: 0.8125rem; color: var(--muted); line-height: 1.35; }
+.chat-step + .chat-step { margin-top: -6px; }
+.chat-step-title { color: var(--text); font-weight: 500; }
+.chat-step-summary { overflow-wrap: anywhere; }
+.chat-step-mark {
+  position: relative; flex: none; width: 15px; height: 15px; margin-top: 1px; border-radius: 50%;
+  border: 2px solid var(--line); border-top-color: #bf5af2; animation: spin 0.8s linear infinite;
+}
+.chat-step:is(.done, .failed, .declined) .chat-step-mark { animation: none; border: 0; background: var(--ok); transition: background-color var(--normal) var(--ease-out); }
+.chat-step.failed .chat-step-mark { background: var(--error); }
+.chat-step.declined .chat-step-mark { background: var(--muted); }
+.chat-step.declined .chat-step-mark::after { content: ""; position: absolute; left: 4px; right: 4px; top: 6.5px; height: 2px; border-radius: 1px; background: #fff; }
+.chat-step.declined .chat-step-title { color: var(--muted); }
+.chat-step.done .chat-step-mark::after {
+  content: ""; position: absolute; left: 5px; top: 2.5px; width: 3.5px; height: 7px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg);
+}
+.chat-step.failed .chat-step-mark::after { content: "×"; position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 700; line-height: 1; }
+.chat-thinking {
+  margin: 0; font-size: 0.875rem; font-weight: 500;
+  background: linear-gradient(90deg, var(--muted) 20%, var(--text) 50%, var(--muted) 80%); background-size: 250% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent; animation: ai-shimmer 1.8s linear infinite;
+}
+.chat-error { margin: 0; color: var(--error); font-size: 0.875rem; }
+
+/* A change waiting for the user: solid, set apart by an accent edge, the answer within reach of the thumb. */
+.chat-confirm {
+  padding: 12px 14px; border-radius: 18px; background: var(--material-solid); border: 1px solid var(--edge);
+  box-shadow: var(--shadow-control);
+}
+.chat-confirm.pending { border-color: rgba(191, 90, 242, 0.45); box-shadow: 0 0 0 3px rgba(191, 90, 242, 0.12), var(--shadow-control); }
+.chat-confirm-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.chat-confirm-head strong { font-size: 0.9375rem; letter-spacing: -0.01em; }
+.chat-confirm p { margin: 6px 0 4px; font-size: 0.875rem; color: var(--muted); }
+.chat-confirm summary { cursor: pointer; font-size: 0.8125rem; color: var(--muted); padding: 2px 0; }
+.chat-confirm pre {
+  margin: 6px 0 0; max-height: 220px; overflow: auto; padding: 8px 10px; border-radius: 10px;
+  font: 0.75rem/1.45 var(--mono); background: var(--material-thin); border: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.chat-changes { margin: 8px 0 6px; padding: 0; list-style: none; font-size: 0.8125rem; display: grid; gap: 4px; }
+.chat-changes li { overflow-wrap: anywhere; }
+.chat-changes code { font-family: var(--mono); font-size: 0.75rem; padding: 1px 6px; border-radius: 6px; background: var(--material-thin); border: 1px solid var(--line); }
+.chat-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.chat-confirm-actions button { min-width: 96px; }
+
+.chat-welcome { margin: auto 0; padding: 16px 4px; text-align: center; }
+.chat-welcome .sparkle { width: 36px; height: 36px; margin: 0 auto 8px; }
+.chat-welcome h2 { margin: 0 0 6px; font-size: 1.3125rem; line-height: 1.2; letter-spacing: -0.02em; }
+.chat-welcome p { margin: 0 auto; max-width: 30ch; font-size: 0.875rem; }
+.chat-suggestions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 16px; }
+.chat-suggestions button { border-radius: 999px; padding: 7px 13px; font-size: 0.8125rem; }
+
+.chat-composer {
+  display: flex; align-items: flex-end; gap: 6px; margin: 0 12px; padding: 5px 5px 5px 14px; border-radius: 22px;
+  background: var(--control); border: 1px solid var(--line); box-shadow: var(--shadow-control);
+  transition: border-color var(--fast) var(--ease-out), box-shadow var(--fast) var(--ease-out);
+}
+.chat-composer:focus-within { border-color: rgba(191, 90, 242, 0.55); box-shadow: 0 0 0 4px rgba(191, 90, 242, 0.14); }
+.chat-composer textarea {
+  flex: 1; min-height: 0; max-height: 140px; padding: 7px 0; resize: none; border: 0; border-radius: 0; background: none; box-shadow: none;
+  font: inherit; white-space: pre-wrap; line-height: 1.4;
+}
+.chat-composer textarea:focus { box-shadow: none; }
+.chat-mic, .chat-send { flex: none; width: 34px; height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
+.chat-mic { border-color: transparent; background: none; box-shadow: none; color: var(--muted); }
+.chat-mic:hover { color: var(--text); background: var(--material-thin); transform: none; }
+.chat-mic.unavailable { opacity: 0.45; }
+.chat.listening .chat-mic {
+  color: #fff; background: conic-gradient(from var(--ai-angle), var(--ai-colors)); animation: ai-turn 2s linear infinite;
+  box-shadow: 0 0 0 4px rgba(191, 90, 242, 0.2);
+}
+.chat-send { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); border-color: rgba(255, 255, 255, 0.4); }
+.chat-send .stop-icon, .chat-send.stop .send-icon { display: none; }
+.chat-send.stop .stop-icon { display: block; fill: currentColor; stroke: none; }
+.chat-send.stop { background: var(--text); color: var(--material-solid); }
+.chat-foot { margin: 7px 16px 12px; min-height: 1.2em; font-size: 0.75rem; color: var(--muted); text-align: center; letter-spacing: 0.01em; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+@media (max-width: 640px) {
+  .chat { top: auto; bottom: 0; left: 0; right: 0; width: auto; height: min(88dvh, 780px); transform-origin: bottom center; }
+  .chat-surface { border-radius: 26px 26px 0 0; padding-bottom: env(safe-area-inset-bottom); border-bottom: 0; }
+  .chat-glow { inset: -3px -3px 0; border-radius: 29px 29px 0 0; }
+  .chat-grabber { display: block; position: absolute; top: 6px; left: 50%; width: 36px; height: 5px; border-radius: 3px; background: var(--line); transform: translateX(-50%); }
+  .chat-head { padding-top: 20px; touch-action: none; cursor: grab; }
+  .chat-open { padding: 7px; }
+  .chat-open span { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-glow, .chat.listening .chat-mic, .chat-step-mark, .chat-thinking, .chat-log > * { animation: none !important; }
+  .chat-thinking { color: var(--muted); background: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .chat-surface { background: var(--material-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .chat-glow { display: none; }
+}
+@media (prefers-contrast: more) {
+  .chat-surface { background: var(--material-solid); border-color: var(--text); }
+}
+
+/* JSON in colour (common.js): keys, strings, numbers, booleans and null each their own hue, punctuation quiet;
+   a read-only block (.json) and an editor whose coloured layer sits under a transparent textarea. */
+:root { --json-key: #6f42c1; --json-string: #1a7f37; --json-number: #c4510d; --json-bool: #0a63c9; --json-null: #8a8f98; }
+@media (prefers-color-scheme: dark) {
+  :root { --json-key: #c8a2ff; --json-string: #8ddc8f; --json-number: #ffb06b; --json-bool: #79b8ff; --json-null: #8b949e; }
+}
+.json-key { color: var(--json-key); }
+.json-string { color: var(--json-string); }
+.json-number { color: var(--json-number); }
+.json-bool { color: var(--json-bool); }
+.json-null { color: var(--json-null); font-style: italic; }
+.json-punct { color: var(--muted); }
+pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5 var(--mono); background: var(--material-thin); border: 1px solid var(--line); overflow: auto; tab-size: 2; }
+.code-editor { display: grid; position: relative; }
+.code-editor > .code-layer, .code-editor > .code-input {
+  grid-area: 1 / 1; margin: 0; box-sizing: border-box; min-width: 0; padding: 14px 16px;
+  font: 0.8125rem/1.55 var(--mono); tab-size: 2; white-space: pre; overflow: auto; overflow-wrap: normal; word-break: normal;
+}
+.code-editor > .code-layer { pointer-events: none; border: 1px solid transparent; border-radius: var(--radius); overflow: hidden; color: var(--text); }
+.code-editor > .code-input { position: relative; z-index: 1; color: transparent; background: transparent; caret-color: var(--text); resize: vertical; }
+.code-editor > .code-input::selection { color: transparent; background: rgba(10, 132, 255, 0.28); }
+.editor-card .code-editor > * { border-width: 0; border-radius: 0; padding: 16px 18px; min-height: 62vh; }
+.form-card .code-editor > * { min-height: 340px; }
+.form-card .code-editor { margin-top: 4px; border-radius: var(--radius); background: var(--field); }
+
+/* A file field: its path, and a place to drop the file or choose it. */
+.drop-zone {
+  display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 6px; padding: 12px; border-radius: 14px;
+  border: 1.5px dashed var(--line); color: var(--muted); font-size: 0.8125rem; text-align: center; cursor: pointer;
+  transition: border-color var(--fast) var(--ease-out), background-color var(--fast) var(--ease-out), transform var(--fast) var(--ease-out);
+}
+.drop-zone:hover { border-color: var(--accent); color: var(--text); }
+.drop-zone.over { border-color: var(--accent); background: rgba(255, 122, 26, 0.08); color: var(--text); transform: scale(1.01); }
+.drop-zone.ok { border-style: solid; border-color: var(--ok); color: var(--ok); }
+.drop-zone.error { border-color: var(--error); color: var(--error); }
+.view-switch { margin-bottom: 12px; }
+.form-card > p.error:empty { display: none; }
+.chat-voice { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 6px 16px 0; font-size: 0.75rem; color: var(--muted); }
+.chat-voice select.popup { padding: 3px 26px 3px 10px; font-size: 0.75rem; font-weight: 500; background-position: right 9px center; }
 
 """#),
     ]

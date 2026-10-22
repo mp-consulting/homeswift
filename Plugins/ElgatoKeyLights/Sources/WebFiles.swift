@@ -68,17 +68,13 @@ extension ElgatoKeyLightsPlugin {
       }) : null,
       el("div", { class: "card-foot" },
         el("span", { class: "muted", text: [light.host && `${light.host}:${light.port}`, light.pinned ? "from config.json" : null, light.mac].filter(Boolean).join(" · ") }),
-        el("span", { class: "foot-actions" },
-          disabled ? null : el("button", { class: "link", text: "Identify", disabled: !light.reachable, onclick: (event) => identify(light, event.currentTarget) }),
-          el("button", { class: "link", text: "Settings", onclick: () => openSettings(light) }))));
-  }
-
-  async function identify(light, button) {
-    await act(button, async () => {
-      await request(`identify?mac=${encodeURIComponent(light.mac)}`, { method: "POST" });
-      button.textContent = "Flashing…";
-      setTimeout(() => { button.textContent = "Identify"; }, 1500);
-    });
+        // The same menu as the Accessories page's cards, with what this page adds.
+        HomeswiftCommon.menuButton(`Actions for ${light.name}`, () => [
+          !disabled && light.reachable ? { label: "Identify", icon: "identify", onSelect: () => request(`identify?mac=${encodeURIComponent(light.mac)}`, { method: "POST" }).catch((e) => alert(e.message)) } : null,
+          { label: "Settings", icon: "gear", onSelect: () => openSettings(light) },
+          disabled ? null : { label: "Show its log", icon: "logs", href: `/#logs/${encodeURIComponent(`ElgatoKeyLights:${canonicalMAC(light.mac)}`)}` },
+          window.HomeswiftChat?.available() ? { label: "Ask the Assistant", icon: HomeswiftCommon.sparkle(), onSelect: () => HomeswiftChat.ask(`About my light ${light.name}: `) } : null,
+        ])));
   }
 
   /// The lights the plugin runs, then the disabled ones from config.json, which the plugin leaves out.

@@ -83,7 +83,8 @@ while let argument = arguments.next() {
 }
 
 let level: Logger.Level = ProcessInfo.processInfo.environment["HAP_DEBUG"] != nil ? .trace : (debug ? .debug : .info)
-let logBuffer = LogBuffer()
+// The bridge keeps its log on disk too, rotated, for the web UI's time ranges; the other commands do not.
+let logBuffer = LogBuffer(archive: command == "run" ? LogArchive(directory: storagePath.appendingPathComponent("logs")) : nil)
 // `homeswift mcp` owns stdout for the protocol: its log goes to stderr.
 let logToStandardError = command == "mcp"
 LoggingSystem.bootstrap { label in HomeswiftLogHandler(label: label, logLevel: level, buffer: logBuffer, standardError: logToStandardError) }
@@ -153,6 +154,7 @@ let shutdown: @Sendable () async -> Void = { [host, mcpServer, uiServer] in
     await uiServer.withLockedValue { $0 }?.stop()
     await mcpServer.withLockedValue { $0 }?.stop()
     await host.stop()
+    logBuffer.archive?.flush()
 }
 let main = Task {
     do {
@@ -222,7 +224,10 @@ let main = Task {
     let mcpLine = mcpServer.withLockedValue { $0 }.map { "MCP server: http://\($0.options.host):\($0.port ?? $0.options.port)\($0.options.path)   (homeswift mcp --snippets for client configs)\n" } ?? ""
     let uiLine = uiServer.withLockedValue { $0 }.map { server -> String in
         let host = server.configuration.host == "0.0.0.0" ? "<this machine>" : server.configuration.host
-        var line = "Web UI:     http://\(host):\(server.port ?? server.configuration.port)/\n"
+        var line = "Web UI:     \(server.configuration.scheme)://\(host):\(server.port ?? server.configuration.port)/\n"
+        if let fingerprint = server.certificateFingerprint {
+            line += "            Certificate SHA-256: \(fingerprint)\n"
+        }
         if let code = server.setupCode, server.users.isEmpty {
             line += "            Set-up code: \(code)   (asked once, on the visit that creates the administrator account)\n"
         }

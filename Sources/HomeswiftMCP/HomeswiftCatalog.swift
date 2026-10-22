@@ -8,6 +8,7 @@ import Musl
 import Darwin
 #endif
 import HomeswiftAI
+import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
 import NIOConcurrencyHelpers
@@ -236,8 +237,11 @@ public struct HomeswiftCatalog: Sendable {
                 ["platform": .string($0.platform), "name": .string($0.name), "plugin": .string($0.pluginName), "bridge": .string($0.bridge.name), "accessories": .number(Double($0.accessoryIDs.count))]
             }),
             "unknownPlatforms": .array(configured.subtracting(running.map(\.platform)).subtracting(Self.systemPlatforms).sorted().map(JSONValue.string)),
-            "plugins": .array(host.registry.entries.map {
-                ["platform": .string($0.platform), "name": .string($0.name), "hasSchema": .bool($0.configurationSchemaJSON != nil), "hasPages": .bool($0.hasPages)]
+            "plugins": .array(host.registry.entries.map { entry in
+                [
+                    "platform": .string(entry.platform), "name": .string(entry.name), "hasSchema": .bool(entry.configurationSchemaJSON != nil), "hasPages": .bool(entry.hasPages),
+                    "tools": .array(entry.assistantActions.map { .string("\(entry.platform)_\($0.name)") }),
+                ]
             }),
         ]
     }
@@ -359,6 +363,19 @@ public struct HomeswiftCatalog: Sendable {
 
     /// Reads config.json, lets `edit` change its platform blocks, and applies the result: validation, a
     /// backup, the restart flag. An unreadable file is an error, never an empty one to write over.
+    /// Changes the block with this platform (and name, when there are several), or adds it when `create`;
+    /// `edit` gets the block to change. What `editPlatforms` answers.
+    public func editBlock(platform: String, name: String?, create: Bool = true, dryRun: Bool, _ edit: (inout [String: JSONValue]) throws -> Void) async throws -> JSONValue {
+        try await editPlatforms(dryRun: dryRun) { platforms in
+            let matching = platforms.indices.filter { platforms[$0]["platform"]?.stringValue == platform && (name == nil || (platforms[$0]["name"]?.stringValue ?? platform) == name) }
+            guard matching.count <= 1 else { throw CatalogError("\(matching.count) blocks have platform \(platform); give the name") }
+            guard create || !matching.isEmpty else { throw CatalogError("No block \(name ?? platform) of \(platform)") }
+            var block = matching.first.map { platforms[$0].objectValue ?? [:] } ?? ["platform": .string(platform), "name": .string(name ?? platform)]
+            try edit(&block)
+            if let index = matching.first { platforms[index] = .object(block) } else { platforms.append(.object(block)) }
+        }
+    }
+
     public func editPlatforms(dryRun: Bool, _ edit: (inout [JSONValue]) throws -> Void) async throws -> JSONValue {
         let current = try readConfig()
         var root = current.objectValue ?? [:]
@@ -450,13 +467,14 @@ public struct HomeswiftCatalog: Sendable {
             },
             MCPTool(
                 name: "get_config", title: "Read config.json",
-                description: "config.json with secrets replaced by __REDACTED__." + (allowSecrets ? " includeSecrets: true returns them to an admin token (MCP tokens stay redacted)." : ""),
+                description: "config.json with each secret as a __SECRET_…__ handle: pass it on as it is (it becomes the secret again in this session's writes), never ask for the real value. MCP tokens show as __REDACTED__."
+                    + (allowSecrets ? " includeSecrets: true returns the secrets to an admin token (MCP tokens stay redacted)." : ""),
                 inputSchema: allowSecrets ? ["type": "object", "properties": ["includeSecrets": ["type": "boolean"]]] : ["type": "object", "properties": [:]],
                 scope: .read, idempotent: true
             ) { call in
                 let config = try catalog.readConfig()
                 guard catalog.allowSecrets, call.bool("includeSecrets"), call.session.principal.scope == .admin else {
-                    return .json(Redaction.redactSecrets(config))
+                    return .json(call.session.vault.conceal(Self.redactingMCPTokens(config)))
                 }
                 return .json(Self.redactingMCPTokens(config))
             },
@@ -586,14 +604,10 @@ public struct HomeswiftCatalog: Sendable {
                 let platform = try call.string("platform")
                 let name = call.optionalString("name")
                 let settings = call.arguments["settings"]?.objectValue ?? [:]
-                return .json(try await catalog.editPlatforms(dryRun: call.isDryRun) { platforms in
-                    let matching = platforms.indices.filter { platforms[$0]["platform"]?.stringValue == platform && (name == nil || platforms[$0]["name"]?.stringValue == name) }
-                    guard matching.count <= 1 else { throw CatalogError("\(matching.count) blocks have platform \(platform); give the name") }
-                    var block = matching.first.map { platforms[$0].objectValue ?? [:] } ?? ["platform": .string(platform), "name": .string(name ?? platform)]
+                return .json(try await catalog.editBlock(platform: platform, name: name, dryRun: call.isDryRun) { block in
                     for (key, value) in settings where key != "platform" {
                         if value.isNull { block.removeValue(forKey: key) } else { block[key] = value }
                     }
-                    if let index = matching.first { platforms[index] = .object(block) } else { platforms.append(.object(block)) }
                 })
             },
             MCPTool(
@@ -607,7 +621,91 @@ public struct HomeswiftCatalog: Sendable {
                 let config = try JSONValue(data: Data(contentsOf: catalog.backupsDirectory.appendingPathComponent(backup)))
                 return .json(try await catalog.applyConfig(config, dryRun: false))
             },
-        ]
+            MCPTool(
+                name: "put_list_entry", title: "Add or change a device entry",
+                description: "Adds an entry to a list of a platform block (devices by default), or replaces the entry whose match key (mac by default) has the same value; "
+                    + "the rest of the list and of the block stay as they are. Adds the block when there is none. __REDACTED__ values keep the entry's current secrets. "
+                    + "dryRun previews. The block applies at once: its plugin reloads.",
+                inputSchema: [
+                    "type": "object", "required": ["platform", "entry"],
+                    "properties": [
+                        "platform": ["type": "string"], "name": ["type": "string", "description": "The block's name, when the platform has several"],
+                        "list": ["type": "string", "description": "The list's key; devices when left out"],
+                        "match": ["type": "string", "description": "The key that identifies an entry; mac when left out"],
+                        "entry": ["type": "object"],
+                    ],
+                ],
+                scope: .admin, destructive: true, supportsDryRun: true
+            ) { call in
+                let platform = try call.string("platform")
+                let name = call.optionalString("name")
+                let list = call.optionalString("list") ?? "devices"
+                let match = call.optionalString("match") ?? "mac"
+                guard let entry = call.arguments["entry"]?.objectValue else { throw JSONRPCError.invalidParams("entry must be an object") }
+                guard let key = entry[match], !key.isNull else { throw JSONRPCError.invalidParams("the entry needs its \(match)") }
+                return .json(try await catalog.editBlock(platform: platform, name: name, dryRun: call.isDryRun) { block in
+                    var entries = block[list]?.arrayValue ?? []
+                    if let index = entries.firstIndex(where: { Self.sameKey($0[match], key) }) {
+                        // The entry it replaces holds its secrets: a rename changes the fields restoreSecrets matches on.
+                        entries[index] = (try? Redaction.restoreSecrets(.object(entry), from: entries[index])) ?? .object(entry)
+                    } else {
+                        entries.append(.object(entry))
+                    }
+                    block[list] = .array(entries)
+                })
+            },
+        ] + pluginActionTools
+    }
+
+    /// Whether two list keys name the same entry: a MAC however it is spelled, anything else case aside.
+    static func sameKey(_ a: JSONValue?, _ b: JSONValue) -> Bool {
+        guard let a else { return false }
+        func bare(_ value: JSONValue) -> String {
+            let text = value.stringValue ?? value.text()
+            return MACAddress.canonical(text) ?? text.lowercased()
+        }
+        return bare(a) == bare(b)
+    }
+
+    /// The plugins' `assistantActions`, as `<platform>_<action>` tools on a running instance. Their answers
+    /// reach the client with secrets as handles of the session's vault.
+    var pluginActionTools: [MCPTool] {
+        let catalog = self
+        return host.registry.entries.flatMap { entry in
+            entry.assistantActions.map { action in
+                var schema = action.inputSchema.objectValue ?? ["type": "object"]
+                var properties = schema["properties"]?.objectValue ?? [:]
+                properties["instance"] = ["type": "string", "description": .string("The block's name, when \(entry.platform) has several")]
+                schema["properties"] = .object(properties)
+                let scope: Scope = switch action.access {
+                case .read: .read
+                case .control: .control
+                case .configure: .admin
+                }
+                return MCPTool(
+                    name: "\(entry.platform)_\(action.name)", title: action.title, description: "\(entry.name): \(action.description)",
+                    inputSchema: .object(schema), scope: scope, readOnly: action.access == .read, destructive: action.confirm
+                ) { call in
+                    let instances = catalog.host.platforms.filter { $0.platform == entry.platform }
+                    let wanted = call.optionalString("instance")
+                    guard let instance = wanted.map({ name in instances.first { $0.name == name } }) ?? (instances.count == 1 ? instances.first : nil) else {
+                        return .error(instances.isEmpty
+                            ? "No \(entry.name) block is running: add one first (put_list_entry or patch_config with platform \(entry.platform))."
+                            : "Say which instance: \(instances.map(\.name).joined(separator: ", ")).")
+                    }
+                    var arguments = call.arguments.objectValue ?? [:]
+                    arguments.removeValue(forKey: "instance")
+                    let request = action.request(arguments: .object(arguments), user: call.session.principal.name)
+                    guard let response = try await catalog.host.handleWebRequest(platform: entry.platform, name: instance.name, request) else {
+                        return .error("\(instance.name) is not running")
+                    }
+                    guard response.status < 400 else { return .error(response.json["error"]?.stringValue ?? "HTTP \(response.status)") }
+                    // What a device or the network said (a TV's name, a light's): data, never instructions.
+                    let answer = call.session.vault.conceal(response.json)
+                    return ToolResult(text: "<untrusted-data source=\"\(entry.platform)\">\n\(answer.text(pretty: true))\n</untrusted-data>")
+                }
+            }
+        }
     }
 
     public var resources: [MCPResource] {
@@ -714,8 +812,8 @@ final class ChangeNotifier: Sendable {
     }
 }
 
-struct CatalogError: Error, CustomStringConvertible {
-    let description: String
-    init(_ description: String) { self.description = description }
+public struct CatalogError: Error, CustomStringConvertible {
+    public let description: String
+    public init(_ description: String) { self.description = description }
 }
 
