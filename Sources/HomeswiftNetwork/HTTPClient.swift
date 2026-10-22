@@ -65,8 +65,9 @@ public protocol HTTPSending: Sendable {
 
 public enum HTTPClientError: Error, CustomStringConvertible, Equatable, Sendable {
     case invalidURL(String)
-    /// The connection failed: nothing listens, no route, the host is asleep.
-    case cannotConnect(host: String, port: Int, reason: String)
+    /// The connection failed: nothing listens, no route, the host is asleep. `code` is the errno when
+    /// the system gave one (`ECONNREFUSED` for a port nothing listens on).
+    case cannotConnect(host: String, port: Int, code: Int32?, reason: String)
     case timeout
     /// The server's certificate is not the pinned one. Both are SHA-256 fingerprints.
     case certificateMismatch(expected: String, observed: String)
@@ -76,7 +77,7 @@ public enum HTTPClientError: Error, CustomStringConvertible, Equatable, Sendable
     public var description: String {
         switch self {
         case .invalidURL(let url): "cannot request \(url)"
-        case .cannotConnect(let host, let port, let reason): "cannot connect to \(host):\(port): \(reason)"
+        case .cannotConnect(let host, let port, _, let reason): "cannot connect to \(host):\(port): \(reason)"
         case .timeout: "the request timed out"
         case .certificateMismatch(let expected, let observed): "the certificate (\(observed)) is not the pinned one (\(expected))"
         case .connectionClosed: "the connection closed before the response ended"
@@ -223,17 +224,19 @@ public final class HTTPClient: HTTPSending, Sendable {
         do {
             return try await bootstrap.connect(host: host, port: port).get()
         } catch let error as NIOConnectionError {
-            throw HTTPClientError.cannotConnect(host: host, port: port, reason: Self.reason(for: error.connectionErrors.first?.error ?? error))
+            let (code, reason) = Self.reason(for: error.connectionErrors.first?.error ?? error)
+            throw HTTPClientError.cannotConnect(host: host, port: port, code: code, reason: reason)
         } catch {
-            throw HTTPClientError.cannotConnect(host: host, port: port, reason: Self.reason(for: error))
+            let (code, reason) = Self.reason(for: error)
+            throw HTTPClientError.cannotConnect(host: host, port: port, code: code, reason: reason)
         }
     }
 
-    /// A short reason for a failed connection: the system's message for an errno, else the error.
-    private static func reason(for error: any Error) -> String {
-        if let io = error as? IOError { return String(cString: strerror(io.errnoCode)).lowercased() }
-        if error is HTTPClientError { return "\(error)" }
-        return "\(error)"
+    /// The errno of a failed connection when the system gave one, and a short reason: its message, else
+    /// the error.
+    private static func reason(for error: any Error) -> (code: Int32?, reason: String) {
+        if let io = error as? IOError { return (io.errnoCode, String(cString: strerror(io.errnoCode)).lowercased()) }
+        return (nil, "\(error)")
     }
 
     private func context() throws -> NIOSSLContext {

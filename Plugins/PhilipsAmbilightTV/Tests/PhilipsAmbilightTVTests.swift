@@ -91,6 +91,10 @@ struct ConfigurationTests {
         #expect(throws: TVConfigurationError.invalid("mac", "nope")) { try TVSettings(devices[1]) }
         #expect(throws: TVConfigurationError.missing("password")) { try TVSettings(.init(name: "x", mac: "aa:bb:cc:dd:ee:ff", ip: "1.2.3.4", username: "u")) }
         #expect(throws: TVConfigurationError.invalid("pollingInterval", "10")) { try TVSettings(.init(name: "x", mac: "aa:bb:cc:dd:ee:ff", ip: "1.2.3.4", username: "u", password: "p", pollingInterval: 10)) }
+        // A fingerprint that is not one must not quietly accept any certificate.
+        #expect(throws: TVConfigurationError.invalid("certFingerprint", "abc")) { try TVSettings(.init(name: "x", mac: "aa:bb:cc:dd:ee:ff", ip: "1.2.3.4", username: "u", password: "p", certFingerprint: "abc")) }
+        #expect(try TVSettings(.init(name: "x", mac: "aa:bb:cc:dd:ee:ff", ip: "1.2.3.4", username: "u", password: "p", certFingerprint: " ")).certFingerprint == nil)
+        #expect(try TVSettings(.init(name: "x", mac: "aa:bb:cc:dd:ee:ff", ip: "1.2.3.4", username: "u", password: "p", certFingerprint: FakeTV.fingerprint.uppercased())).certFingerprint == FakeTV.fingerprint)
     }
 
     @Test func helpers() {
@@ -154,6 +158,40 @@ struct PairingTests {
         await #expect(throws: JointSpaceError.certificateMismatch(expected: String(repeating: "cd", count: 32), observed: FakeTV.fingerprint)) { try await client.powerState() }
         let trusting = JointSpaceClient(ip: "192.168.1.20", username: "user1", password: "wrong", certificateFingerprint: nil, transports: FakeTransports(tv: tv), logger: testLogger)
         await #expect(throws: JointSpaceError.unauthorized) { try await trusting.powerState() }
+    }
+
+    @Test func pinsTheFirstCertificateAndNeverDowngrades() async throws {
+        // Without a configured fingerprint, the first certificate seen is pinned for the run.
+        let tv = SchemeFakeTV()
+        let client = JointSpaceClient(ip: "192.168.1.20", username: "u", password: "p", certificateFingerprint: nil, transports: SchemeFakeTransports(tv: tv), logger: testLogger)
+        #expect(try await client.powerState())
+        #expect(await client.pinnedFingerprint == FakeTV.fingerprint)
+        let other = String(repeating: "ef", count: 32)
+        await tv.set(httpsFingerprint: other)
+        await #expect(throws: JointSpaceError.certificateMismatch(expected: FakeTV.fingerprint, observed: other)) { try await client.powerState() }
+        // HTTPS answered once: a refused HTTPS port is an error, never a switch to plain HTTP.
+        await tv.set(httpsFingerprint: nil)
+        await #expect(throws: JointSpaceError.connectionRefused(port: JointSpace.securePort)) { try await client.powerState() }
+        #expect(await tv.schemes.allSatisfy { $0 == "https" })
+
+        // A set without HTTPS: plain HTTP, but only because the HTTPS port refuses the connection.
+        let old = SchemeFakeTV()
+        await old.set(httpsFingerprint: nil)
+        let plain = JointSpaceClient(ip: "192.168.1.21", username: "u", password: "p", certificateFingerprint: nil, transports: SchemeFakeTransports(tv: old), logger: testLogger)
+        #expect(try await plain.powerState())
+        #expect(try await plain.powerState())
+        #expect(await old.schemes == ["https", "http", "http"])
+
+        // A TV that does not answer (asleep, away) is not probed over plain HTTP.
+        let asleep = SchemeFakeTV()
+        await asleep.set(httpsTimesOut: true)
+        let quiet = JointSpaceClient(ip: "192.168.1.22", username: "u", password: "p", certificateFingerprint: nil, transports: SchemeFakeTransports(tv: asleep), logger: testLogger)
+        await #expect(throws: JointSpaceError.self) { try await quiet.powerState() }
+        #expect(await asleep.schemes == ["https"])
+
+        // A configured fingerprint never tries plain HTTP.
+        let pinned = JointSpaceClient(ip: "192.168.1.21", username: "u", password: "p", certificateFingerprint: FakeTV.fingerprint, transports: SchemeFakeTransports(tv: old), logger: testLogger)
+        await #expect(throws: JointSpaceError.connectionRefused(port: JointSpace.securePort)) { try await pinned.powerState() }
     }
 }
 

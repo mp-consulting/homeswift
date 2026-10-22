@@ -185,3 +185,44 @@ struct FakeTransports: JointSpaceTransportFactory {
         }
     }
 }
+
+/// A TV reduced to its transport behaviour per scheme, for the policy tests: HTTPS answers with a certificate,
+/// refuses, or hangs; HTTP answers or refuses. Every answer is `{"powerstate":"On"}`, no Digest challenge.
+actor SchemeFakeTV {
+    /// nil: nothing listens on 1926.
+    var httpsFingerprint: String? = FakeTV.fingerprint
+    var httpsTimesOut = false
+    var httpAnswers = true
+    private(set) var schemes: [String] = []
+
+    func set(httpsFingerprint: String?) { self.httpsFingerprint = httpsFingerprint }
+    func set(httpsTimesOut: Bool) { self.httpsTimesOut = httpsTimesOut }
+    func set(httpAnswers: Bool) { self.httpAnswers = httpAnswers }
+
+    func send(_ request: HTTPRequest, tls: HTTPClient.TLS) async throws -> HTTPResponse {
+        let scheme = request.url.scheme ?? "?"
+        schemes.append(scheme)
+        if scheme == "https" {
+            if httpsTimesOut { throw HTTPClientError.timeout }
+            guard let fingerprint = httpsFingerprint else { throw HTTPClientError.cannotConnect(host: "tv", port: JointSpace.securePort, code: ECONNREFUSED, reason: "connection refused") }
+            if case .pinned(let expected) = tls, HTTPClient.normalizeFingerprint(expected) != fingerprint {
+                throw HTTPClientError.certificateMismatch(expected: HTTPClient.normalizeFingerprint(expected), observed: fingerprint)
+            }
+            return HTTPResponse(status: 200, body: Data(#"{"powerstate":"On"}"#.utf8), certificateFingerprint: fingerprint)
+        }
+        guard httpAnswers else { throw HTTPClientError.cannotConnect(host: "tv", port: JointSpace.plainPort, code: ECONNREFUSED, reason: "connection refused") }
+        return HTTPResponse(status: 200, body: Data(#"{"powerstate":"On"}"#.utf8))
+    }
+}
+
+struct SchemeFakeTransports: JointSpaceTransportFactory {
+    let tv: SchemeFakeTV
+
+    func makeTransport(tls: HTTPClient.TLS) -> any HTTPSending { Transport(tv: tv, tls: tls) }
+
+    struct Transport: HTTPSending {
+        let tv: SchemeFakeTV
+        let tls: HTTPClient.TLS
+        func send(_ request: HTTPRequest) async throws -> HTTPResponse { try await tv.send(request, tls: tls) }
+    }
+}

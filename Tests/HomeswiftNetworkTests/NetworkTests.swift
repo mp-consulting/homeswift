@@ -180,8 +180,8 @@ struct HTTPClientTests {
             _ = try await client.send(HTTPRequest(url: URL(string: "http://127.0.0.1:1/")!, timeout: .seconds(2)))
             Issue.record("port 1 answered")
         } catch let error as HTTPClientError {
-            guard case .cannotConnect(let host, let port, let reason) = error else { throw error }
-            #expect(host == "127.0.0.1" && port == 1 && reason == "connection refused")
+            guard case .cannotConnect(let host, let port, let code, let reason) = error else { throw error }
+            #expect(host == "127.0.0.1" && port == 1 && code == ECONNREFUSED && reason == "connection refused")
         }
     }
 
