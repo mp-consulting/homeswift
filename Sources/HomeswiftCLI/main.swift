@@ -164,6 +164,8 @@ let main = Task {
     // process, and a saved HomeswiftUI or HomeswiftAiKit block restarts the servers it configures in place.
     let catalogBox = NIOLockedValueBox<HomeswiftCatalog?>(nil)
     let mcpSettings = NIOLockedValueBox(MCPCommands.mcpBlock(configuration)?["mcp"])
+    // The web UI's settings as last started, to fall back on when new ones cannot start.
+    let uiConfiguration = NIOLockedValueBox(configuration)
     let catalog = HomeswiftCatalog(
         host: host, logs: logBuffer, configURL: configURL, allowSecrets: ProcessInfo.processInfo.environment["HOMESWIFT_ALLOW_SECRETS"] == "true",
         restart: { Task.detached { await shutdown(); Restart.exec() } },
@@ -178,10 +180,22 @@ let main = Task {
                 logger.info(started == nil ? "MCP server stopped" : "MCP server restarted with the new settings")
             }
             if platforms.contains(UIConfiguration.platform) {
+                // The old server goes first: the new one usually wants the same port.
                 await uiServer.withLockedValue { $0 }?.stop()
-                let started = await UICommands.startServer(catalog: catalog, configuration: next, logger: logger)
+                var started = await UICommands.startServer(catalog: catalog, configuration: next, logger: logger)
+                if started == nil, (try? next.block(for: UIConfiguration.platform)) != nil {
+                    logger.error("The web UI could not start with its new settings; it is back on the previous ones until they are fixed")
+                    started = await UICommands.startServer(catalog: catalog, configuration: uiConfiguration.withLockedValue { $0 }, logger: logger)
+                } else {
+                    uiConfiguration.withLockedValue { $0 = next }
+                    logger.info(started == nil ? "Web UI stopped" : "Web UI restarted with the new settings")
+                }
                 uiServer.withLockedValue { $0 = started }
-                logger.info(started == nil ? "Web UI stopped" : "Web UI restarted with the new settings")
+                // A new server with no account has a new set-up code: the banner's no longer works. Like the
+                // banner, it goes to standard output, never to the log.
+                if let started, let code = started.setupCode, started.users.isEmpty {
+                    say("Web UI set-up code: \(code)   (asked once, on the visit that creates the administrator account)")
+                }
             }
         },
         logger: logger)

@@ -61,7 +61,8 @@ All notable changes to this project are documented here. The format follows
 - The Assistant's answers look like Apple Intelligence: a sparkle button, a glow turning around the card while
   it thinks, then the answer typeset from its Markdown (never as HTML) in a card with a rainbow edge, long
   answers folded under "Show more"; an answer survives the page redrawing its card.
-- **Explain**: with the Assistant on, plugin pages offer an explanation next to errors
+- **Explain**: with the Assistant on, plugin pages offer an explanation next to errors, with IP and MAC
+  addresses and `.local` names masked before they reach the provider (`Redaction.scrubAddresses`)
   (`POST /api/assistant/explain`; `homeswift.explain` in `plugin.js`).
 - `PluginContext.remove(id:)` is async: removing an external accessory stops its server.
 - Every accessory a server publishes carries the Protocol Information service; bridges no longer add it themselves.

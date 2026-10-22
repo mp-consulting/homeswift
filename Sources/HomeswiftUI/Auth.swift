@@ -66,6 +66,12 @@ public final class UserStore: Sendable {
 
     /// Whether the password is the user's. Every call does the full hash, so timing says nothing about users.
     public func verify(username: String, password: String) -> Bool {
+        // No password is that long; hashing megabytes 210,000 times would only slow the bridge down. The hash of
+        // an empty one keeps the timing of a refusal.
+        guard password.utf8.count <= PasswordPolicy.maximumBytes else {
+            _ = Self.pbkdf2(password: "", salt: Data(count: 16), iterations: iterations)
+            return false
+        }
         let user = user(named: username)
         let salt = user?.salt ?? Data(count: 16)
         let expected = user?.hash ?? Data(count: 32)

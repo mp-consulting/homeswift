@@ -68,7 +68,7 @@ final class UITestEnvironment: @unchecked Sendable {
     let server: UIServer
     var configURL: URL { directory.appendingPathComponent("config.json") }
 
-    init(auth: UIConfiguration.AuthMode = .form) throws {
+    init(auth: UIConfiguration.AuthMode = .form, webRoot: URL? = nil) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let config = """
             {
@@ -96,6 +96,7 @@ final class UITestEnvironment: @unchecked Sendable {
         var serverOptions = UIServer.Options()
         serverOptions.hashIterations = 1000
         serverOptions.logger = testLogger
+        serverOptions.webRoot = webRoot
         server = UIServer(configuration: configuration, catalog: catalog, usersURL: directory.appendingPathComponent("ui-users.json"), options: serverOptions)
     }
 
@@ -288,6 +289,18 @@ final class Browser: @unchecked Sendable {
         #expect(Set(live.snapshot().keys) == ["Sources/HomeswiftUI/Web/style.css", "Plugins/Lamps/Web/app.js"])
     }
 
+    @Test func servesTheCheckoutWithoutTrippingOnBarePaths() async throws {
+        let root = try checkout()
+        let environment = try UITestEnvironment(auth: .none, webRoot: root)
+        let base = try await environment.start()
+        let browser = Browser(base: base)
+        #expect(try await browser.get("/style.css").body == "body { color: red; }")
+        // /plugins alone names no plugin: an answer, not a crash.
+        #expect(try await browser.get("/plugins").status == 404)
+        #expect(try await browser.get("/plugins/Lamps/app.js").body == "// lamps")
+        await environment.server.stop()
+    }
+
     @Test func reportsAChangedFile() async throws {
         let root = try checkout()
         let live = LiveWebFiles(root: root)
@@ -381,6 +394,8 @@ struct UIServerTests {
         #expect(!environment.server.isAllowedHost(nil))
 
         // Changing the password: the current one first; the user's other browsers are signed out, this one stays.
+        // A password past the size limit is refused without hashing it.
+        #expect(!environment.server.users.verify(username: "rosaly", password: String(repeating: "x", count: 100_000)))
         let other = Browser(base: base)
         #expect(try await other.post("/api/auth/login", ["username": "rosaly", "password": "correct horse battery"]).status == 200)
         #expect(try await browser.post("/api/account/password", ["current": "wrong horse", "new": "battery staple lamp"]).status == 403)

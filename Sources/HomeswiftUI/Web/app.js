@@ -2,20 +2,7 @@
 (() => {
   "use strict";
 
-  const $ = (selector, root = document) => root.querySelector(selector);
-  const el = (tag, attrs = {}, ...children) => {
-    const node = document.createElement(tag);
-    for (const [key, value] of Object.entries(attrs)) {
-      if (key === "class") node.className = value;
-      else if (key === "text") node.textContent = value;
-      else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
-      // Attributes with no property of the same name: data-*, aria-* (a screen reader reads those).
-      else if (key.startsWith("data-") || key.startsWith("aria-")) node.setAttribute(key, value);
-      else if (value !== undefined && value !== null && value !== false) node[key] = value;
-    }
-    for (const child of children.flat()) if (child != null) node.append(child.nodeType ? child : document.createTextNode(String(child)));
-    return node;
-  };
+  const { $, el, tile } = HomeswiftCommon;
 
   const show = (main, ...nodes) => main.replaceChildren(...nodes.flat().filter(Boolean));
 
@@ -75,7 +62,7 @@
     try {
       const body = { username: form.username.value, password: form.password.value };
       if (auth && auth.setupNeeded) {
-        if (setupGauge && !setupGauge.acceptable) throw new Error("The password is not strong enough yet: the gauge says what is missing.");
+        if (setupGauge && !(await setupGauge.acceptable())) throw new Error("The password is not strong enough yet: the gauge says what is missing.");
         body.setupCode = form.setupCode.value;
       }
       await api(auth && auth.setupNeeded ? "/api/auth/setup" : "/api/auth/login", { method: "POST", body });
@@ -156,7 +143,8 @@
   let leaveGuard = null;   // a page with unsaved changes: false keeps it
   let shownHash = null;
   function route() {
-    const [name, ...args] = (location.hash || "#status").slice(1).split("/").map(decodeURIComponent);
+    const decode = (part) => { try { return decodeURIComponent(part); } catch { return part; } };
+    const [name, ...args] = (location.hash || "#status").slice(1).split("/").map(decode);
     const section = sectionOf[name] || name;
     for (const link of document.querySelectorAll("nav a")) link.classList.toggle("active", link.getAttribute("href") === `#${section}`);
     const view = views[name] || views.status;
@@ -202,31 +190,6 @@
 
   // ---- Status --------------------------------------------------------------
 
-  // Line icons for the tiles, drawn like the TV page's: 24-unit boxes, round caps, the current colour.
-  const icons = {
-    bridge: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/>',
-    child: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/>',
-    accessory: '<rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/>',
-    system: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
-    bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/>',
-    switch: '<rect x="6" y="3" width="12" height="18" rx="3"/><circle cx="12" cy="9" r="2"/>',
-    outlet: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M10 9v2M14 9v2M10 15h4"/>',
-    sensor: '<circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/>',
-    fan: '<circle cx="12" cy="12" r="2"/><path d="M12 10c0-4 1-7 4-7 2 0 3 2 2 4l-4 4M14 12c4 0 7 1 7 4 0 2-2 3-4 2l-4-4M12 14c0 4-1 7-4 7-2 0-3-2-2-4l4-4M10 12c-4 0-7-1-7-4 0-2 2-3 4-2l4 4"/>',
-    speaker: '<rect x="6" y="3" width="12" height="18" rx="2"/><circle cx="12" cy="14" r="3"/><path d="M12 7h.01"/>',
-    lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
-    thermo: '<path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"/>',
-    door: '<path d="M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17M3 21h18M14 12h.01"/>',
-    generic: '<rect x="4" y="4" width="16" height="16" rx="4"/>',
-    plugin: '<path d="M4 7h4a2 2 0 1 1 4 0h4v4a2 2 0 1 1 0 4v4H4z"/>',
-    gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
-  };
-  function icon(name, kind = name) {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.innerHTML = icons[name];
-    return el("span", { class: `tile ${kind}`, "aria-hidden": "true" }, svg);
-  }
   /// A page's title, one line on what it is for, and its tools (search, filters) on the right.
   const pageHead = (title, subtitle, ...tools) => el("div", { class: "page-head" },
     el("div", { class: "who" }, el("h1", { text: title }), subtitle ? el("p", { class: "muted", text: subtitle }) : null),
@@ -245,10 +208,11 @@
 
     const bridges = status.bridges.map((bridge, index) => {
       const kind = bridge.external ? "accessory" : bridge.childBridge ? "child" : "bridge";
+      const tone = { accessory: "blue", child: "violet", bridge: "orange" }[kind];
       const role = bridge.external ? `Accessory of its own, from ${bridge.platforms.join(", ") || "a plugin"}` : bridge.childBridge ? "Child bridge" : "Main bridge";
       return el("div", { class: "card server" },
         el("div", { class: "server-head" },
-          icon(kind),
+          tile(kind, tone),
           el("div", { class: "who" }, el("strong", { text: bridge.name }), el("div", { class: "muted", text: role })),
           el("span", { class: `pill status ${bridge.paired ? "on" : "away"}`, text: bridge.paired ? `Paired · ${bridge.controllers}` : "Not paired", title: bridge.paired ? `${bridge.controllers} Home app controller(s)` : "" })),
         el("div", { class: "facts lead" },
@@ -277,7 +241,7 @@
       el("div", { class: "servers" }, ...bridges),
       el("h2", { text: "System" }),
       el("div", { class: "card server" },
-        el("div", { class: "server-head" }, icon("system"),
+        el("div", { class: "server-head" }, tile("system", "grey"),
           el("div", { class: "who" }, el("strong", { text: status.system.hostname }), el("div", { class: "muted", text: `${status.system.platform} ${status.system.os}` }))),
         el("div", { class: "facts" },
           fact("CPUs", status.system.cpus),
@@ -409,12 +373,13 @@
     }).filter(Boolean);
   }
 
+  // An accessory's category as its tile: the icon and the colour.
   const categoryIcons = {
-    lightbulb: ["bulb", "light"], television: ["accessory", "accessory"], tvSetTopBox: ["accessory", "accessory"], tvStreamingStick: ["accessory", "accessory"],
-    appleTV: ["accessory", "accessory"], switch: ["switch", "switch"], programmableSwitch: ["switch", "switch"], outlet: ["outlet", "switch"],
-    sensor: ["sensor", "sensor"], fan: ["fan", "sensor"], airPurifier: ["fan", "sensor"], speaker: ["speaker", "accessory"], homePod: ["speaker", "accessory"],
-    audioReceiver: ["speaker", "accessory"], doorLock: ["lock", "child"], thermostat: ["thermo", "light"], heater: ["thermo", "light"], airConditioner: ["thermo", "sensor"],
-    garageDoorOpener: ["door", "child"], door: ["door", "child"], window: ["door", "child"], windowCovering: ["door", "child"],
+    lightbulb: ["bulb", "yellow"], television: ["accessory", "blue"], tvSetTopBox: ["accessory", "blue"], tvStreamingStick: ["accessory", "blue"],
+    appleTV: ["accessory", "blue"], switch: ["switch", "green"], programmableSwitch: ["switch", "green"], outlet: ["outlet", "green"],
+    sensor: ["sensor", "teal"], fan: ["fan", "teal"], airPurifier: ["fan", "teal"], speaker: ["speaker", "blue"], homePod: ["speaker", "blue"],
+    audioReceiver: ["speaker", "blue"], doorLock: ["lock", "violet"], thermostat: ["thermo", "yellow"], heater: ["thermo", "yellow"], airConditioner: ["thermo", "teal"],
+    garageDoorOpener: ["door", "violet"], door: ["door", "violet"], window: ["door", "violet"], windowCovering: ["door", "violet"],
   };
 
   // A television's remote: HomeKit's Remote Key values, and its speaker's volume and mute.
@@ -447,7 +412,7 @@
     const primary = services.find((s) => s.primary) || services[0];
     const power = primary && primary.characteristics.find((c) => (c.type === "On" || c.type === "Active") && c.permissions.includes("pw"));
     const remoteKey = primary && primary.characteristics.find((c) => c.type === "Remote Key" && c.permissions.includes("pw"));
-    const [iconName, kind] = categoryIcons[accessory.category] || ["generic", "system"];
+    const [iconName, tone] = categoryIcons[accessory.category] || ["generic", "grey"];
     // "Living Room TV HDMI 1" reads "HDMI 1" inside the Living Room TV's card.
     const shortName = (service) => {
       const name = service.name || service.type.replace(/([a-z])([A-Z])/g, "$1 $2");
@@ -463,7 +428,7 @@
     const subtitle = [...new Set([describeModel(accessory), accessory.platformName].filter(Boolean))].join(" · ");
     const card = el("div", { class: "card accessory-card", "data-search": `${accessory.name} ${accessory.platformName || ""} ${accessory.model || ""}`.toLowerCase() },
       el("div", { class: "server-head" },
-        icon(iconName, kind),
+        tile(iconName, tone),
         el("div", { class: "who" }, el("strong", { text: accessory.name }), el("div", { class: "muted", text: subtitle })),
         power ? powerSwitch(accessory, primary, power) : null),
       primary ? el("div", { class: "controls" }, controlRows(accessory, primary, power, remoteKey)) : null,
@@ -543,7 +508,7 @@
       const [state, kind] = block.system ? ["Built in", "standby"] : instance ? ["Running", "on"] : plugin ? ["Not running", "away"] : ["No plugin", "away"];
       return el("div", { class: "card server" },
         el("div", { class: "server-head" },
-          icon(block.system ? "gear" : "plugin", block.system ? "system" : "bridge"),
+          tile(block.system ? "gear" : "plugin", block.system ? "grey" : "orange"),
           el("div", { class: "who" }, el("strong", { text: block.name }), el("div", { class: "muted", text: [plugin ? plugin.name : block.platform, block.childBridge ? "child bridge" : null].filter(Boolean).join(" · ") })),
           el("span", { class: `pill status ${kind}`, text: state })),
         instance ? el("div", { class: "facts" }, fact("Bridge", instance.bridge), fact("Accessories", instance.accessories), fact("Platform", block.platform))
@@ -556,7 +521,7 @@
     const catalog = el("div", { class: "grid" }, plugins.plugins.map((plugin) => {
       const used = plugins.blocks.some((block) => block.platform === plugin.platform);
       return el("div", { class: "card server catalog" },
-        el("div", { class: "server-head" }, icon("plugin", "bridge"),
+        el("div", { class: "server-head" }, tile("plugin", "orange"),
           el("div", { class: "who" }, el("strong", { text: plugin.name }), el("div", { class: "muted", text: plugin.platform })),
           used ? el("span", { class: "pill status standby", text: "In use" }) : null),
         el("div", { class: "actions" }, el("a", { class: `button ${used ? "" : "primary"}`, href: `#settings/new/${encodeURIComponent(plugin.platform)}`, text: used ? "Add another" : "Add" })));
@@ -676,7 +641,7 @@
     show(main,
       breadcrumb(["Plugins", "#plugins"], [block.name, isNew ? "#plugins" : settingsLink(block)], [isNew ? "Add" : "Settings"]),
       el("div", { class: "page-head settings-head" },
-        icon(block.system ? "gear" : "plugin", block.system ? "system" : "bridge"),
+        tile(block.system ? "gear" : "plugin", block.system ? "grey" : "orange"),
         el("div", { class: "who" },
           el("h1", { text: isNew ? `Add ${plugin.name}` : block.name }),
           el("p", { class: "muted", text: [...new Set([plugin ? plugin.name : platform, platform])].filter((part) => part !== block.name).concat(
@@ -853,62 +818,16 @@
   }
 
   // ---- Password strength ---------------------------------------------------
-  // The server's PasswordPolicy (Sources/HomeswiftUI/PasswordPolicy.swift), mirrored for the gauge: the ANSSI's
-  // guide PG-078 (R21 length, R23 a large character set, R27 a check at creation) with the "moyen à fort" bar,
-  // 12 characters and 85 bits. Entropy is length × log2(character set), less what people tend to type. The
-  // server's check decides; this only shows it while typing.
+  // The gauge asks the server's PasswordPolicy (Sources/HomeswiftUI/PasswordPolicy.swift) while the password is
+  // typed: the ANSSI's guide PG-078 (R21 length, R23 a large character set, R27 a check at creation) with the
+  // "moyen à fort" bar, 12 characters and 85 bits. The numbers here only draw the gauge.
 
   const passwordPolicy = { minimumLength: 12, minimumBits: 85, scaleBits: 128 };
-  const commonWords = ["password", "passw0rd", "motdepasse", "secret", "admin", "administrator", "root", "user", "login", "welcome", "letmein", "iloveyou", "monkey", "dragon", "master", "sunshine", "princess", "football", "baseball", "shadow", "azerty", "qwerty", "qwertz", "asdf", "zxcv", "abc123", "123456", "654321", "111111", "000000", "121212", "bonjour", "soleil", "chouchou", "doudou", "loulou", "marseille", "paris", "france", "amour", "jetaime", "homeswift", "homebridge", "homekit", "apple", "iphone", "changeme", "default", "test",];
-  const strengthLevels = [
-    [100, "strongToVeryStrong", "Strong to very strong"], [85, "mediumToStrong", "Medium to strong"],
-    [65, "lowToMedium", "Low to medium"], [0, "veryWeak", "Very weak"],
-  ];
+  const strengthLabels = { strongToVeryStrong: "Strong to very strong", mediumToStrong: "Medium to strong", lowToMedium: "Low to medium", veryWeak: "Very weak" };
 
-  function passwordStrength(password, username = "") {
-    const chars = Array.from(password);
-    const code = (c) => c.codePointAt(0);
-    let pool = 0;
-    if (chars.some((c) => c >= "a" && c <= "z")) pool += 26;
-    if (chars.some((c) => c >= "A" && c <= "Z")) pool += 26;
-    if (chars.some((c) => c >= "0" && c <= "9")) pool += 10;
-    if (chars.some((c) => code(c) < 128 && !/[A-Za-z0-9]/.test(c))) pool += 33;
-    if (chars.some((c) => code(c) >= 128)) pool += 64;
-    const counts = chars.map(() => true);
-    let patterned = false;
-    for (let i = 2; i < chars.length; i++) {
-      const [a, b, c] = [code(chars[i - 2]), code(chars[i - 1]), code(chars[i])];
-      if ((a === b && b === c) || (b - a === c - b && Math.abs(c - b) === 1)) { counts[i] = false; patterned = true; }
-    }
-    const lowered = chars.map((c) => { const l = c.toLowerCase(); return Array.from(l).length === 1 ? l : c; });
-    const name = username.trim().toLowerCase();
-    const words = Array.from(name).length >= 3 ? [...commonWords, name] : commonWords;
-    let foundCommon = false, foundName = false;
-    for (const word of words) {
-      const target = Array.from(word);
-      for (let i = 0; i + target.length <= lowered.length;) {
-        if (target.every((t, k) => lowered[i + k] === t)) {
-          for (let j = i + 1; j < i + target.length; j++) counts[j] = false;
-          if (word === name) foundName = true; else foundCommon = true;
-          i += target.length;
-        } else i++;
-      }
-    }
-    const effective = counts.filter(Boolean).length;
-    const bits = pool ? effective * Math.log2(pool) : 0;
-    const [, level, label] = strengthLevels.find(([floor]) => bits >= floor);
-    let hint = null;
-    if (bits < passwordPolicy.minimumBits) {
-      hint = foundName ? "Your username adds nothing." : foundCommon ? "Common words add little." : patterned ? "Repeated or sequential characters add nothing."
-        : "Length helps most: a phrase of several random words is strong and easy to remember.";
-    }
-    const lengthOK = chars.length >= passwordPolicy.minimumLength;
-    const bitsOK = bits >= passwordPolicy.minimumBits;
-    return { bits, length: chars.length, level, label, hint, lengthOK, bitsOK, acceptable: lengthOK && bitsOK };
-  }
-
-  /// A live gauge under a password field: the ANSSI's bands along 0 to 128 bits, the 80-bit bar marked, and the
+  /// A live gauge under a password field: the ANSSI's bands along 0 to 128 bits, the 85-bit bar marked, and the
   /// two rules ticking as they are met. `username()` gives the name the password must not lean on.
+  /// `gauge.acceptable()` answers, once the server has, whether the password as typed passes.
   function strengthGauge(input, username = () => "") {
     const fill = el("div", { class: "gauge-fill" });
     const label = el("strong", {});
@@ -921,23 +840,41 @@
       ...[65, 85, 100].map((at) => el("span", { class: "gauge-tick", style: `left:${(at / passwordPolicy.scaleBits) * 100}%` })),
       el("span", { class: "gauge-mark", title: `Required: ${passwordPolicy.minimumBits} bits`, style: `left:${(passwordPolicy.minimumBits / passwordPolicy.scaleBits) * 100}%` }));
     const gauge = el("div", { class: "gauge" }, track, el("div", { class: "gauge-legend" }, label, bits), el("ul", { class: "gauge-rules" }, ruleLength, ruleBits), hint);
+
+    // One request per password and username as typed; an answer that is no longer the latest is dropped.
+    let latest = null;
+    const evaluate = () => {
+      const body = { password: input.value, username: username() };
+      const key = JSON.stringify(body);
+      if (latest?.key !== key) latest = { key, answer: api("/api/auth/password-strength", { method: "POST", body }) };
+      return latest.answer;
+    };
+    const draw = (s) => {
+      gauge.dataset.level = s ? s.level : "";
+      fill.style.width = `${Math.min(s?.bits ?? 0, passwordPolicy.scaleBits) / passwordPolicy.scaleBits * 100}%`;
+      track.setAttribute("aria-valuenow", String(s?.bits ?? 0));
+      track.setAttribute("aria-valuetext", s ? `${strengthLabels[s.level]}, ${s.bits} bits` : "empty");
+      label.textContent = s ? strengthLabels[s.level] : "Strength";
+      bits.textContent = s ? `${s.bits} bits` : `${passwordPolicy.minimumBits} bits needed`;
+      ruleLength.classList.toggle("met", Boolean(s?.lengthMet));
+      ruleBits.classList.toggle("met", Boolean(s?.bitsMet));
+      hint.textContent = !s || s.bitsMet ? "" : s.reason ? `${s.reason[0].toUpperCase()}${s.reason.slice(1)}.`
+        : "Length helps most: a phrase of several random words is strong and easy to remember.";
+    };
+    let timer = null;
     const update = () => {
-      const s = passwordStrength(input.value, username());
-      const empty = input.value.length === 0;
-      gauge.dataset.level = empty ? "" : s.level;
-      fill.style.width = `${Math.min(s.bits, passwordPolicy.scaleBits) / passwordPolicy.scaleBits * 100}%`;
-      track.setAttribute("aria-valuenow", String(Math.round(s.bits)));
-      track.setAttribute("aria-valuetext", empty ? "empty" : `${s.label}, ${Math.round(s.bits)} bits`);
-      label.textContent = empty ? "Strength" : s.label;
-      bits.textContent = empty ? `${passwordPolicy.minimumBits} bits needed` : `${Math.round(s.bits)} bits`;
-      ruleLength.classList.toggle("met", s.lengthOK);
-      ruleBits.classList.toggle("met", s.bitsOK);
-      hint.textContent = empty ? "" : s.hint ?? "";
-      gauge.acceptable = s.acceptable;
+      clearTimeout(timer);
+      if (!input.value) { latest = null; draw(null); return; }
+      timer = setTimeout(async () => {
+        const answer = evaluate();
+        try { const s = await answer; if (latest?.answer === answer) draw(s); } catch { /* the server's check still decides */ }
+      }, 120);
     };
     input.addEventListener("input", update);
-    update();
+    draw(null);
     gauge.refresh = update;
+    // When the server cannot be asked, the form goes through: the server's own check then answers.
+    gauge.acceptable = async () => input.value !== "" && (await evaluate().catch(() => ({ acceptable: true }))).acceptable;
     return gauge;
   }
 
@@ -960,7 +897,7 @@
     const fail = (text) => { message.className = "status-line error"; message.textContent = text; };
     const form = el("form", { class: "card account-form", onsubmit: async (event) => {
       event.preventDefault();
-      if (!gauge.acceptable) { next.focus(); return fail("The new password is not strong enough yet: the gauge says what is missing."); }
+      if (!(await gauge.acceptable())) { next.focus(); return fail("The new password is not strong enough yet: the gauge says what is missing."); }
       if (next.value !== again.value) { again.focus(); return fail("The two new passwords are not the same."); }
       if (next.value === current.value) return fail("The new password is the current one.");
       submit.disabled = true;

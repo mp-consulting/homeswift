@@ -81,15 +81,22 @@ diagnostic) ships a `Web/` directory with an `index.html` and whatever files it 
 Scripts/embed-assets.swift web Plugins/<Name>/Web Plugins/<Name>/Sources/WebFiles.swift <Type>` (a test
 checks it is current). The UI serves them at `/plugins/<platform>/`, to signed-in users only, and the
 Plugins page shows **Open** for every running instance, linking to `index.html?name=<block name>`. The
-page is a full document: link `/style.css` for the look of the rest of the UI, and `/plugin.js` for the
-helper. The content security policy allows scripts and styles from files only, no inline script.
+page is a full document: link `/style.css` for the look of the rest of the UI, then `/common.js` and
+`/plugin.js` for the helpers. The content security policy allows scripts and styles from files only, no
+inline script.
 
 The page talks to its instance through `homeswift.request(path, { method, body })`, which sends
 `/api/plugins/<platform>/<name>/<path>` with the session cookie and parses the JSON answer; the plugin
 answers in `handleWebRequest(_:)` with a `PluginWebResponse` (JSON and a status). `homeswift.el(tag,
 attributes, ...children)` and `homeswift.$(selector)` build and find elements the way the UI's own pages
 do; `homeswift.platform`, `homeswift.name` and `homeswift.home` (the Plugins page) are there too. Mutations must be JSON, like the
-rest of the API. `Plugins/ElgatoKeyLights/Web` is the example: the lights the instance knows, their state,
+rest of the API.
+
+The instance's own block of config.json is `homeswift.readBlock()` and `homeswift.updateBlock(change)`
+(`GET`/`PUT /api/config/block/<platform>/<name>`): a write applies at once, and the plugin reloads. For a
+block with a `devices` list keyed by MAC address there are `updateDevices`, `updateDevice`, `putDevice` and
+`findDevice`; `poll(refresh)` refreshes while the page is visible, and `renderKeyed` redraws only the cards
+whose item changed. `Plugins/ElgatoKeyLights/Web` is the example: the lights the instance knows, their state,
 and an Identify button.
 
 The UI's own pages are plain HTML, CSS and JavaScript under `Sources/HomeswiftUI/Web`, embedded into the

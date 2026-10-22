@@ -3,33 +3,15 @@
 // shows, confirm its details), which writes the TV's entry into this instance's block.
 (() => {
   "use strict";
-  const { $, el, request, name, platform, explain, breadcrumb } = homeswift;
-
-  const ambilightModes = [
-    ["FOLLOW_VIDEO/STANDARD", "Follow video: Standard"], ["FOLLOW_VIDEO/NATURAL", "Follow video: Natural"],
-    ["FOLLOW_VIDEO/VIVID", "Follow video: Vivid"], ["FOLLOW_VIDEO/GAME", "Follow video: Game"],
-    ["FOLLOW_VIDEO/COMFORT", "Follow video: Comfort"], ["FOLLOW_VIDEO/RELAX", "Follow video: Relax"],
-    ["FOLLOW_VIDEO/FOOTBALL", "Follow video: Football"], ["FOLLOW_AUDIO/ENERGY_ADAPTIVE_BRIGHTNESS", "Follow audio: Energy brightness"],
-    ["FOLLOW_AUDIO/ENERGY_ADAPTIVE_COLORS", "Follow audio: Energy colours"], ["FOLLOW_AUDIO/VU_METER", "Follow audio: VU meter"],
-    ["FOLLOW_AUDIO/SPECTRUM_ANALYZER", "Follow audio: Spectrum"], ["FOLLOW_AUDIO/PARTY", "Follow audio: Party"], ["Lounge light", "Lounge light"],
-  ];
-  const defaultMode = "FOLLOW_VIDEO/NATURAL";
-
-  /// Runs `work` with the button disabled and, when it takes a moment, a spinner on it.
-  async function act(button, work, report = alert) {
-    button.disabled = true;
-    const spin = setTimeout(() => button.classList.add("busy"), 150);
-    try { await work(); } catch (e) { report(e.message); }
-    clearTimeout(spin);
-    button.classList.remove("busy");
-    button.disabled = false;
-  }
+  const {
+    $, el, tile, request, platform, explain, breadcrumb, api, act,
+    updateDevice, putDevice, findDevice, setKey, poll, renderKeyed, canonicalMAC, isMAC, sameMAC,
+  } = homeswift;
 
   // MARK: Your TVs
 
   const list = $("#tvs");
   let tvs = [];
-  let shown = null;
 
   const sendKey = (tv, key) => (event) => act(event.currentTarget, () => request("key", { method: "POST", body: { mac: tv.mac, key } }));
   const keyButton = (tv, key, label, attrs = {}) => el("button", { text: label, disabled: !tv.reachable, onclick: sendKey(tv, key), ...attrs });
@@ -54,9 +36,9 @@
           context: "The Homeswift plugin polls the Philips TV's JointSpace API over HTTPS on port 1926; after two polls without an answer the TV is shown as not responding.",
           device: { model: "Philips Android TV with Ambilight", certificatePinned: tv.pinned, updates: tv.longPoll },
         }));
-    return el("div", { class: "card tv", "data-mac": tv.mac },
+    return el("div", { class: "card tv" },
       el("div", { class: "tv-head" },
-        el("span", { class: "tile accessory", "aria-hidden": "true" }, tileIcon()),
+        tile("accessory", "blue"),
         el("div", { class: "who" }, el("strong", { text: tv.name }), el("div", { class: "muted", text: `${tv.ip} · ${tv.mac}` })),
         el("span", { class: `pill status ${state[1]}`, text: state[0] })),
       body,
@@ -81,30 +63,21 @@
   /// `FOLLOW_VIDEO` as "Follow video"; nil as "On".
   const styleName = (style) => style ? style.replaceAll("_", " ").toLowerCase().replace(/^./, (c) => c.toUpperCase()) : "On";
 
-  function tileIcon() {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.innerHTML = '<rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/>';
-    return svg;
-  }
-
   async function refresh() {
     try {
       ({ tvs } = await request("tvs"));
-      const answer = JSON.stringify(tvs);
-      if (answer === shown) return;
-      shown = answer;
       if (tvs.length === 0) {
-        list.replaceChildren(el("div", { class: "card empty" },
-          el("p", { class: "muted", text: "No TV yet. Switch your TV on, then add it below." })));
+        if (!list.querySelector(".empty")) {
+          list.replaceChildren(el("div", { class: "card empty" },
+            el("p", { class: "muted", text: "No TV yet. Switch your TV on, then add it below." })));
+        }
         return;
       }
-      // A card is redrawn when its TV changes: keep the keyboard on the remote it was on.
-      const focused = document.activeElement?.closest?.(".tv")?.dataset.mac;
-      list.replaceChildren(...tvs.map(tvCard));
-      if (focused) list.querySelector(`.tv[data-mac="${CSS.escape(focused)}"] .pad`)?.focus();
+      // Only the card of a TV that changed is drawn again: keep the keyboard on the remote it was on.
+      const focused = document.activeElement?.closest?.(".tv")?.dataset.key;
+      renderKeyed(list, tvs, (tv) => tv.mac, tvCard);
+      if (focused && !list.contains(document.activeElement)) list.querySelector(`.tv[data-key="${CSS.escape(focused)}"] .pad`)?.focus();
     } catch (e) {
-      shown = null;
       list.replaceChildren(el("p", { class: "error", text: e.message }));
     }
   }
@@ -157,11 +130,11 @@
     const hiddenList = el("ul", { class: "sources pool", "aria-label": "Hidden inputs" }, hidden.map((source) => sourceRow(source, false)));
     const dirty = isDirty();
     sourcesCard.replaceChildren(
-      el("div", { class: "sources-head" },
+      el("div", { class: "panel-head" },
         el("div", {}, el("h2", { text: `Inputs of ${editing.tv.name}` }),
           el("p", { class: "muted", text: "The order of the input wheel in the Home app. Drag a row by its handle, or press Alt and an arrow key. Click a name to rename it." })),
         el("button", { class: "link", text: "Close", onclick: closeSources })),
-      el("div", { class: "sources-columns" },
+      el("div", { class: "panel-columns" },
         el("section", {}, el("div", { class: "column-head" }, el("span", { class: "pill status on", text: `Shown · ${shown.length}` }), el("span", { class: "muted", text: "drag to reorder" })),
           shown.length ? shownList : el("p", { class: "muted empty-list", text: "No input is shown." })),
         el("section", {}, el("div", { class: "column-head" }, el("span", { class: "pill status standby", text: `Hidden · ${hidden.length}` }), el("span", { class: "muted", text: "+ shows an input" })),
@@ -328,8 +301,8 @@
 
   const editorCard = $("#tv-editor");
   let schemaPromise = null;
-  const deviceSchema = () => (schemaPromise ??= fetch(`/api/plugins/${encodeURIComponent(platform)}/schema`, { credentials: "same-origin" })
-    .then((response) => response.json()).then((schema) => schema.schema.properties.devices.items.properties));
+  const deviceSchema = () => (schemaPromise ??= api(`/api/plugins/${encodeURIComponent(platform)}/schema`)
+    .then((schema) => schema.schema.properties.devices.items.properties));
   const choices = (property) => (property.oneOf ? property.oneOf.map((o) => [o.enum[0], o.title]) : (property.enum || []).map((v) => [v, v]));
   let editorState = null;   // { tv, draft, saved, section }
 
@@ -339,10 +312,6 @@
     input.addEventListener("change", () => onChange(input.checked));
     return el("label", { class: "toggle" }, el("span", { class: "switch" }, input, el("span")),
       el("span", {}, el("span", { class: "field-title", text: label }), help ? el("span", { class: "help", text: help }) : null));
-  }
-  /// Sets a key of a draft entry, or removes it when it holds the default, as Homebridge leaves it out.
-  function setKey(draft, key, value, fallback) {
-    if (value === undefined || value === "" || value === fallback) delete draft[key]; else draft[key] = value;
   }
   function selectFor(property, value, onChange) {
     const select = el("select", {}, choices(property).map(([v, title]) => el("option", { value: v, text: title, selected: v === (value ?? property.default) })));
@@ -379,8 +348,9 @@
     editorCard.replaceChildren(el("p", { class: "muted", text: `Loading ${tv.name}…` }));
     editorCard.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth", block: "start" });
     try {
-      const [schema, found] = await Promise.all([deviceSchema(), findDevice(tv.mac)]);
-      editorState = { tv, schema, draft: structuredClone(found.device), saved: JSON.stringify(found.device), section: "general" };
+      const [schema, device] = await Promise.all([deviceSchema(), findDevice(tv.mac)]);
+      if (!device) throw new Error("This TV is not in the configuration.");
+      editorState = { tv, schema, draft: structuredClone(device), saved: JSON.stringify(device), section: "general" };
       renderEditor();
     } catch (e) {
       editorCard.replaceChildren(el("p", { class: "error", text: e.message }));
@@ -453,7 +423,7 @@
       break;
     }
     editorCard.replaceChildren(
-      el("div", { class: "sources-head" },
+      el("div", { class: "panel-head" },
         el("div", {}, el("h2", { text: `Edit ${tv.name}` }), el("p", { class: "muted", text: "Saving applies at once: the TV keeps its place in the Home app." })),
         el("button", { class: "link", text: "Close", onclick: closeEditor })),
       tabs, el("div", { class: "editor-body" }, body),
@@ -526,23 +496,19 @@
     const { tv, draft } = editorState;
     if (!draft.name) throw new Error("The TV needs a name.");
     if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(draft.ip ?? "")) throw new Error("The address must be an IPv4 address, like 192.168.1.20.");
-    if (!macPattern.test(draft.mac ?? "")) throw new Error("The MAC address must look like AA:BB:CC:DD:EE:FF.");
+    if (!isMAC(draft.mac)) throw new Error("The MAC address must look like AA:BB:CC:DD:EE:FF.");
+    draft.mac = canonicalMAC(draft.mac);
     await updateDevice(tv.mac, () => draft);
     editorState.saved = JSON.stringify(draft);
-    editorState.tv = { ...tv, name: draft.name, mac: draft.mac.toUpperCase().replaceAll("-", ":") };
+    editorState.tv = { ...tv, name: draft.name, mac: draft.mac };
     renderEditor();
-    shown = null;
     setTimeout(refresh, 600);
   }
 
   async function removeTV(tv) {
     if (!confirm(`Remove ${tv.name}? It leaves the Home app, with its scenes and automations.`)) return;
     if (editingTV(tv) && (!closeSources() || !closeEditor())) return;
-    await updateDevices((devices) => {
-      const index = devices.findIndex((d) => sameMAC(d.mac, tv.mac));
-      if (index >= 0) devices.splice(index, 1);
-    });
-    shown = null;
+    await updateDevice(tv.mac, () => null);
     await refresh();
   }
   const editingTV = (tv) => (editing && sameMAC(editing.tv.mac, tv.mac)) || (editorState && sameMAC(editorState.tv.mac, tv.mac));
@@ -596,24 +562,26 @@
   const ipField = el("input", { type: "text", readOnly: true, tabIndex: -1 });
   const mac = el("input", { type: "text", placeholder: "AA:BB:CC:DD:EE:FF", autocomplete: "off", spellcheck: false });
   const macHelp = el("p", { class: "help", text: "For Wake-on-LAN, which switches the TV on from deep standby." });
-  const mode = el("select", {}, ambilightModes.map(([value, label]) => el("option", { value, text: label, selected: value === defaultMode })));
+  const modeField = el("div", { class: "wide" }, el("label", { text: "Ambilight style when switched on from HomeKit" }));
   const onStart = el("input", { type: "checkbox", id: "ambilight-on-start" });
   const entryText = el("pre", {});
-  let extras = {};   // the Remote and Automations choices of the TV being added
+  let options = {};   // what is chosen for the TV being added, from the schema: Ambilight style, remote, automations
   const moreOptions = el("details", { class: "group-box" }, el("summary", { text: "Remote and automations" }));
-  async function renderMoreOptions() {
-    extras = {};
+  async function renderOptions() {
+    options = {};
     const schema = await deviceSchema();
+    modeField.replaceChildren(modeField.firstChild,
+      selectFor(schema.ambilightMode, undefined, (value) => { setKey(options, "ambilightMode", value, schema.ambilightMode.default); showEntry(); }));
     moreOptions.replaceChildren(moreOptions.firstChild,
-      el("div", { class: "fields" }, remoteFields(schema, extras, showEntry)),
-      automationFields(schema, extras, showEntry));
+      el("div", { class: "fields" }, remoteFields(schema, options, showEntry)),
+      automationFields(schema, options, showEntry));
   }
-  const confirm = el("div", { class: "step" },
+  const confirmStep = el("div", { class: "step" },
     el("div", { class: "form" },
       el("div", { class: "wide" }, el("label", { text: "Name in the Home app" }), tvName),
       el("div", {}, el("label", { text: "Address" }), ipField),
       el("div", {}, el("label", { text: "MAC address" }), mac, macHelp),
-      el("div", { class: "wide" }, el("label", { text: "Ambilight style when switched on from HomeKit" }), mode)),
+      modeField),
     el("div", { class: "check" }, el("label", { class: "switch" }, onStart, el("span", {})), el("label", { htmlFor: "ambilight-on-start", text: "Switch Ambilight on whenever the TV comes on" })),
     moreOptions,
     el("div", { class: "actions" },
@@ -622,15 +590,13 @@
     el("details", {}, el("summary", { text: "The entry for config.json" }), entryText,
       el("button", { class: "link", text: "Copy", onclick: (event) => act(event.currentTarget, async () => { await navigator.clipboard.writeText(entryText.textContent); say("Copied.", "ok"); }, fail) })));
 
-  // After saving: the plugin reloads with the TV at once. A restart is offered only when the bridge says
-  // some change still needs one.
+  // After saving: the plugin reloads with the TV at once.
   const doneText = el("p", {});
-  const restartButton = el("button", { class: "primary", text: "Restart Homeswift", onclick: (event) => act(event.currentTarget, restart, fail) });
   const done = el("div", { class: "step" },
     doneText,
-    el("div", { class: "actions" }, restartButton, el("button", { text: "Add another TV", onclick: reset })));
+    el("div", { class: "actions" }, el("button", { text: "Add another TV", onclick: reset })));
 
-  const bodies = [find, pinStep, confirm, done];
+  const bodies = [find, pinStep, confirmStep, done];
   pairing.replaceChildren(steps, ...bodies, status);
 
   function show(step) {
@@ -722,21 +688,18 @@
           entry.password = device.password;
           if (device.certFingerprint) entry.certFingerprint = device.certFingerprint; else delete entry.certFingerprint;
         });
-        restartButton.classList.add("hidden");
         doneText.replaceChildren(el("strong", { text: target.name ?? target.ip }), answer.certificatePinned ? " is paired again, with its certificate pinned." : " is paired again.");
         show(3);
         say("");
         repairing = null;
-        shown = null;
         setTimeout(refresh, 600);
         return;
       }
       tvName.value = target.name ?? "";
       ipField.value = device.ip;
       mac.value = device.mac ?? "";
-      mode.value = defaultMode;
       onStart.checked = false;
-      await renderMoreOptions().catch(() => {});
+      await renderOptions().catch(() => {});
       checkMAC();
       showEntry();
       show(2);
@@ -749,9 +712,8 @@
     }
   }
 
-  const macPattern = /^([0-9A-F]{2}[:-]){5}[0-9A-F]{2}$/i;
   function checkMAC() {
-    const missing = !macPattern.test(mac.value.trim());
+    const missing = !isMAC(mac.value);
     mac.classList.toggle("needs", missing);
     macHelp.textContent = missing && !mac.value.trim()
       ? "The TV did not give it. Its network settings show it (Settings › Network › View network settings)."
@@ -759,100 +721,26 @@
   }
 
   function entry() {
-    const result = { name: tvName.value.trim() || "Philips TV", ...device };
-    result.name = tvName.value.trim() || "Philips TV";
-    if (mac.value.trim()) result.mac = mac.value.trim().toUpperCase().replaceAll("-", ":"); else delete result.mac;
-    if (mode.value !== defaultMode) result.ambilightMode = mode.value;
+    const result = { name: tvName.value.trim() || "Philips TV", ...device, ...options };
+    if (mac.value.trim()) result.mac = canonicalMAC(mac.value); else delete result.mac;
     if (onStart.checked) result.ambilightOnStart = true;
-    return { ...result, ...extras };
+    return result;
   }
   const showEntry = () => { if (device) entryText.textContent = JSON.stringify(entry(), null, 2); };
-  [tvName, mac, mode, onStart].forEach((field) => field.addEventListener("input", () => { if (field === mac) checkMAC(); showEntry(); }));
-  [mode, onStart].forEach((field) => field.addEventListener("change", showEntry));
-
-  // The page runs inside the signed-in UI, so it can edit this instance's block like the settings form does.
-  const api = async (path, options = {}) => {
-    const response = await fetch(path, { credentials: "same-origin", ...options });
-    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `HTTP ${response.status}`);
-    return response.json();
-  };
-
-  const sameMAC = (a, b) => (a || "").toUpperCase().replaceAll("-", ":") === (b || "").toUpperCase().replaceAll("-", ":");
-
-  /// This instance's block in config.json.
-  async function readBlock() {
-    const plugins = await api("/api/plugins");
-    const block = (plugins.blocks || []).find((b) => b.platform === platform && b.name === name);
-    if (!block) throw new Error("This instance's block is not in the configuration.");
-    const config = await api("/api/config");
-    return { index: block.index, current: config.platforms[block.index] };
-  }
-
-  async function findDevice(mac) {
-    const { current } = await readBlock();
-    const device = (current.devices || []).find((d) => sameMAC(d.mac, mac));
-    if (!device) throw new Error("This TV is not in the configuration.");
-    return { device };
-  }
-
-  /// Changes the list of TVs in this instance's block and saves it: the plugin reloads with it.
-  async function updateDevices(change) {
-    const { index, current } = await readBlock();
-    const devices = current.devices || [];
-    change(devices);
-    return api(`/api/config/platforms/${index}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...current, devices }) });
-  }
-
-  /// Changes one TV's entry; `change` edits it in place or returns its replacement.
-  function updateDevice(mac, change) {
-    return updateDevices((devices) => {
-      const index = devices.findIndex((d) => sameMAC(d.mac, mac));
-      if (index < 0) throw new Error("This TV is not in the configuration.");
-      const replacement = change(devices[index]);
-      if (replacement) devices[index] = replacement;
-    });
-  }
+  [tvName, mac].forEach((field) => field.addEventListener("input", () => { if (field === mac) checkMAC(); showEntry(); }));
+  onStart.addEventListener("change", showEntry);
 
   async function addToConfiguration() {
     const tv = entry();
-    if (!macPattern.test(tv.mac ?? "")) { mac.focus(); throw new Error("A MAC address is needed to switch the TV on."); }
-    const result = await updateDevices((devices) => {
-      const index = devices.findIndex((d) => sameMAC(d.mac, tv.mac));
-      if (index >= 0) devices.splice(index, 1);
-      devices.push(tv);
-    });
-    const pending = result.restartNeeded || [];
-    restartButton.classList.toggle("hidden", pending.length === 0);
-    doneText.replaceChildren(el("strong", { text: tv.name }), pending.length
-      ? ` is saved. Restart Homeswift to apply the rest (${pending.join("; ")}), then add it in the Home app.`
-      : " is added. In the Home app, add it with the bridge's setup code: Add Accessory › More options, then the TV's name.");
+    if (!isMAC(tv.mac)) { mac.focus(); throw new Error("A MAC address is needed to switch the TV on."); }
+    await putDevice(tv);
+    doneText.replaceChildren(el("strong", { text: tv.name }),
+      " is added. In the Home app, add it with the bridge's setup code: Add Accessory › More options, then the TV's name.");
     say("");
     show(3);
-    shown = null;
     await refresh();
-  }
-
-  async function restart() {
-    await api("/api/restart", { method: "POST" });
-    say("Restarting…");
-    const added = device?.ip;
-    for (let tries = 0; tries < 60; tries++) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      try {
-        const answer = await request("tvs");
-        if (answer.tvs.some((tv) => tv.ip === added)) break;
-      } catch { /* not back yet */ }
-    }
-    shown = null;
-    await refresh();
-    reset();
-    say("Homeswift restarted with the new TV.", "ok");
   }
 
   show(0);
-  let timer = null;
-  function start() { if (timer) return; refresh(); timer = setInterval(refresh, 2000); }
-  function stop() { clearInterval(timer); timer = null; }
-  document.addEventListener("visibilitychange", () => (document.hidden ? stop() : start()));
-  start();
+  poll(refresh);
 })();

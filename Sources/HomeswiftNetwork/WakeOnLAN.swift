@@ -11,11 +11,9 @@ import Darwin
 public enum WakeOnLAN {
     public static let port = 9
 
-    /// The twelve hex digits of a MAC address, lowercase, whatever separators it had. nil when it is not one.
+    /// The twelve hex digits of a MAC address, lowercase, however it was spelled. nil when it is not one.
     public static func hexDigits(mac: String) -> String? {
-        let digits = mac.lowercased().filter { $0 != ":" && $0 != "-" && $0 != "." && $0 != " " }
-        guard digits.count == 12, digits.allSatisfy(\.isHexDigit) else { return nil }
-        return digits
+        MACAddress.canonical(mac).map { $0.replacingOccurrences(of: ":", with: "").lowercased() }
     }
 
     /// Six `0xFF` bytes, then the MAC sixteen times. nil for a malformed MAC.
@@ -53,6 +51,14 @@ public enum WakeOnLAN {
         }
     }
 
+    /// Wakes a device on the network of `ip`: the limited broadcast, and the directed broadcast of its subnet
+    /// when this machine is on it (routers that drop the first still forward the second).
+    public static func wake(mac: String, near ip: String) async throws {
+        var addresses = ["255.255.255.255"]
+        if let directed = broadcastAddress(for: ip) { addresses.append(directed) }
+        try await wake(mac: mac, addresses: addresses)
+    }
+
     /// The directed broadcast address of the local IPv4 network that contains `ip` (`192.168.1.255` for a
     /// host on `192.168.1.0/24`), when one of this machine's interfaces is on it. Routers that drop the
     /// limited broadcast still forward it on the segment.
@@ -74,7 +80,8 @@ public enum WakeOnLAN {
         return nil
     }
 
-    static func ipv4(_ string: String) -> UInt32? {
+    /// A dotted IPv4 address as a number; nil for anything else (a host name, IPv6).
+    public static func ipv4(_ string: String) -> UInt32? {
         let parts = string.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 4 else { return nil }
         var value: UInt32 = 0

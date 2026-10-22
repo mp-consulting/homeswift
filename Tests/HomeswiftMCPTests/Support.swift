@@ -93,7 +93,7 @@ final class MCPTestEnvironment: @unchecked Sendable {
         options.elicitation = elicitation
         options.logger = testLogger
         server = MCPServer(options: options, tools: catalog.tools, resources: catalog.resources, templates: catalog.templates, prompts: catalog.prompts, audit: AuditLog(url: auditURL, logger: testLogger))
-        catalog.attach(to: server)
+        _ = catalog.attach(to: server)
     }
 
     func start() async throws {

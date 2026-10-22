@@ -79,7 +79,7 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
         logger.debug("Stopped")
     }
 
-    func device(mac: String) -> TVDevice? { TVSettings.canonicalMAC(mac).flatMap { devices[$0] } }
+    func device(mac: String) -> TVDevice? { MACAddress.canonical(mac).flatMap { devices[$0] } }
 
     /// Builds the TV's accessory and publishes it on a server of its own; the device's changes flow into
     /// it, and a change of inputs rebuilds it.
@@ -173,10 +173,8 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
         case ("POST", "wake"):
             guard let mac = request.query["mac"], let device = device(mac: mac) else { return .error(404, "no TV with that MAC") }
             let settings = device.settings
-            var addresses = ["255.255.255.255"]
-            if let directed = WakeOnLAN.broadcastAddress(for: settings.ip) { addresses.append(directed) }
             do {
-                try await WakeOnLAN.wake(mac: settings.mac, addresses: addresses)
+                try await WakeOnLAN.wake(mac: settings.mac, near: settings.ip)
             } catch {
                 return .error(500, "\(error)")
             }
@@ -194,7 +192,7 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
             let found = await dependencies.discover(logger)
             return PluginWebResponse(["tvs": .array(found.map { ["name": .string($0.name), "host": .string($0.host)] })])
         case ("POST", "pair"):
-            guard let ip = request.body["ip"]?.stringValue?.trimmingCharacters(in: .whitespaces), TVSettings.isIPv4(ip) else { return .error(400, "an IPv4 address is required") }
+            guard let ip = request.body["ip"]?.stringValue?.trimmingCharacters(in: .whitespaces), WakeOnLAN.ipv4(ip) != nil else { return .error(400, "an IPv4 address is required") }
             let deviceName = request.body["name"]?.stringValue?.nonEmpty ?? "Homeswift"
             do {
                 let session = try await JointSpacePairing.request(ip: ip, deviceName: deviceName, transport: dependencies.transports.makeTransport(tls: .any))
@@ -240,14 +238,14 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
     private func lookUpMAC(ip: String, credentials: JointSpacePairing.Credentials) async -> String? {
         let client = JointSpaceClient(ip: ip, username: credentials.username, password: credentials.password, certificateFingerprint: credentials.certFingerprint, transports: dependencies.transports, logger: logger)
         do {
-            let devices = try await client.networkDevices().filter { $0.mac.flatMap(TVSettings.canonicalMAC) != nil }
+            let devices = try await client.networkDevices().filter { $0.mac.flatMap(MACAddress.canonical) != nil }
             let wireless = devices.first { $0.type?.lowercased().contains("wifi") == true || $0.type?.lowercased().contains("wireless") == true }
-            if let mac = (devices.first { $0.ip == ip } ?? wireless ?? devices.first)?.mac.flatMap(TVSettings.canonicalMAC) { return mac }
+            if let mac = (devices.first { $0.ip == ip } ?? wireless ?? devices.first)?.mac.flatMap(MACAddress.canonical) { return mac }
             logger.info("The TV lists no MAC address in network/devices; trying the ARP table", metadata: ["ip": "\(ip)"])
         } catch {
             logger.info("The TV did not give its MAC address (\(error)); trying the ARP table", metadata: ["ip": "\(ip)"])
         }
-        if let mac = await dependencies.lookUpARP(ip).flatMap(TVSettings.canonicalMAC) { return mac }
+        if let mac = await dependencies.lookUpARP(ip).flatMap(MACAddress.canonical) { return mac }
         logger.warning("No MAC address for the TV in the ARP table either; the TV's network settings show it", metadata: ["ip": "\(ip)"])
         return nil
     }

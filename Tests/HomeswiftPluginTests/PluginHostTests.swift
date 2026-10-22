@@ -319,11 +319,20 @@ struct PluginHostTests {
         #expect(reloaded.service(.lightbulb)?[.brightness]?.iid == lamp.service(.lightbulb)?[.brightness]?.iid)
 
         // A new block starts, with its television on a server of its own; a removed one leaves the bridge.
+        // The host's change feed (the web UI's live events, MCP) covers the new server too.
+        let changed = NIOLockedValueBox<[String]>([])
+        let observation = host.observeChanges { accessory, characteristic, _ in changed.withLockedValue { $0.append("\(accessory.id) \(characteristic.type.name)") } }
         let added = await host.apply(try configuration(#"""
             { "platform": "Recording", "name": "Lamps", "lamps": ["lamp-1"], "brightness": 70 },
             { "platform": "Recording", "name": "TVs", "externals": ["tv-1"] }
             """#))
         #expect(added == PluginHost.ReloadReport(started: ["TVs"]))
+        let television = try #require(host.bridges.first { $0.isExternal }?.server.primary.service(.television))
+        television.characteristic(.active).value = .int(1)
+        #expect(changed.withLockedValue { $0 }.contains("Recording:tv-1 Active"))
+        observation.cancel()
+        television.characteristic(.active).value = .int(0)
+        #expect(changed.withLockedValue { $0 }.count == 1)
         #expect(host.platforms.map(\.name) == ["Lamps", "TVs"])
         let tv = try #require(host.bridges.first { $0.isExternal })
         #expect(tv.server.port != nil)

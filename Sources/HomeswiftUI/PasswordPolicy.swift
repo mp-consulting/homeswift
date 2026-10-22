@@ -10,7 +10,7 @@ import Foundation
 /// The estimate is the guide's: length × log₂(size of the character set used). As the guide warns, that only
 /// holds for characters drawn at random, so what people tend to type earns nothing: a character repeating the
 /// two before it, one continuing a run (abc, 321), and every character after the first of a common word or of
-/// the username. `Web/app.js` (`passwordStrength`) mirrors this, for the gauge; the server's check is this one.
+/// the username. The UI's gauge asks this one while the password is typed (`POST /api/auth/password-strength`).
 public enum PasswordPolicy {
     public static let minimumLength = 12
     /// Bytes: long enough for any passphrase (R22), short enough that hashing it costs nothing (the guide's caution).
@@ -28,6 +28,9 @@ public enum PasswordPolicy {
         public var level: Level
         /// What keeps the password from the bar, in words; empty when it passes.
         public var problems: [String]
+        /// Why typing more of the same adds little, when it falls short of the bits: the username, a common
+        /// word, or repeated and sequential characters.
+        public var reason: String?
         public var isAcceptable: Bool { problems.isEmpty }
     }
 
@@ -41,6 +44,10 @@ public enum PasswordPolicy {
     ]
 
     public static func evaluate(_ password: String, username: String? = nil) -> Strength {
+        // Past the limit nothing else is looked at: the scan below is not run on megabytes.
+        guard password.utf8.count <= maximumBytes else {
+            return Strength(bits: 0, length: password.unicodeScalars.count, level: .veryWeak, problems: ["use at most \(maximumBytes) bytes"], reason: nil)
+        }
         let scalars = Array(password.unicodeScalars)
         var pool = 0
         if scalars.contains(where: { ("a"..."z").contains($0) }) { pool += 26 }
@@ -83,14 +90,13 @@ public enum PasswordPolicy {
         let bits = pool > 0 ? Double(effective) * log2(Double(pool)) : 0
 
         if scalars.count < minimumLength { problems.append("use at least \(minimumLength) characters") }
-        if password.utf8.count > maximumBytes { problems.append("use at most \(maximumBytes) bytes") }
+        var reason: String?
         if bits < minimumBits {
-            var hint = "make it stronger: \(Int(bits.rounded())) of \(Int(minimumBits)) bits"
-            if foundName { hint += "; your username adds nothing" } else if foundCommon { hint += "; common words add little" } else if patterned { hint += "; repeated or sequential characters add nothing" }
-            problems.append(hint)
+            reason = foundName ? "your username adds nothing" : foundCommon ? "common words add little" : patterned ? "repeated or sequential characters add nothing" : nil
+            problems.append(["make it stronger: \(Int(bits.rounded())) of \(Int(minimumBits)) bits", reason].compactMap { $0 }.joined(separator: "; "))
         }
         let level: Level = bits >= 100 ? .strongToVeryStrong : bits >= 85 ? .mediumToStrong : bits >= 65 ? .lowToMedium : .veryWeak
-        return Strength(bits: bits, length: scalars.count, level: level, problems: problems)
+        return Strength(bits: bits, length: scalars.count, level: level, problems: problems, reason: reason)
     }
 
     /// Throws `AuthError.weakPassword` with what to change when the password does not pass.
