@@ -26,7 +26,8 @@ actor FakeTV: HTTPSending {
         .init(id: "settings", label: "Settings", intent: .init(component: .init(packageName: "com.android.tv.settings", className: "x"), action: "android.intent.action.MAIN")),
         .init(id: "disney", label: "Disney+", intent: .init(component: .init(packageName: "com.disney.disneyplus", className: "com.bamtechmedia.dominguez.main.MainActivity"), action: "android.intent.action.MAIN")),
     ]
-    var networkDevices: [[String: String]] = [["id": "wifi0", "mac": "aa:bb:cc:dd:ee:ff", "ip": "192.168.1.20", "type": "wifi", "wake-on-lan": "Enabled"]]
+    /// nil: the TV answers 404, as sets without the endpoint do.
+    var networkDevices: [[String: String]]? = [["id": "wifi0", "mac": "aa:bb:cc:dd:ee:ff", "ip": "192.168.1.20", "type": "wifi", "wake-on-lan": "Enabled"]]
     var menuBrightness: Int?
     var pin = "1234"
     var authKey = "key-from-tv"
@@ -44,6 +45,7 @@ actor FakeTV: HTTPSending {
 
     func set(power: String) { self.power = power }
     func set(reachable: Bool) { self.reachable = reachable }
+    func set(networkDevices: [[String: String]]?) { self.networkDevices = networkDevices }
     func set(currentApp: String) { self.currentApp = currentApp }
     func set(muted: Bool) { volume.muted = muted }
     func set(ambilight: JointSpace.AmbilightConfiguration) { self.ambilight = ambilight }
@@ -131,7 +133,9 @@ actor FakeTV: HTTPSending {
             hueLamp = body["power"] as? String == "On"
             return ok()
         case ("GET", "system"): return json(["name": "Fake TV", "softwareversion": "TPM191E_R.101.001.030.001"])
-        case ("GET", "network/devices"): return json(networkDevices)
+        case ("GET", "network/devices"):
+            guard let networkDevices else { return HTTPResponse(status: 404, certificateFingerprint: Self.fingerprint) }
+            return json(networkDevices)
         case ("POST", "notifychange"):
             // Held open until a notification is queued, for a while.
             for _ in 0..<40 {

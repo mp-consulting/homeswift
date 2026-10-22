@@ -19,6 +19,8 @@ let testLogger: Logger = {
 final class PhilipsTestEnvironment: @unchecked Sendable {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-philips-tests-\(UUID().uuidString)")
     let tv = FakeTV()
+    /// This machine's ARP table as the plugin sees it: IP to MAC.
+    let arpTable = NIOLockedValueBox<[String: String]>([:])
     private let plugins = NIOLockedValueBox<[PhilipsAmbilightTVPlugin]>([])
     private let storages = NIOLockedValueBox<[String: MemoryStorage]>([:])
 
@@ -30,7 +32,8 @@ final class PhilipsTestEnvironment: @unchecked Sendable {
             let configuration = try JSONDecoder().decode(PhilipsAmbilightTVPlugin.Configuration.self, from: json)
             let plugin = PhilipsAmbilightTVPlugin(
                 configuration: configuration, context: context,
-                dependencies: .init(transports: FakeTransports(tv: self.tv), discover: { _ in [.init(name: "Fake TV", host: "192.168.1.20")] }))
+                dependencies: .init(transports: FakeTransports(tv: self.tv), discover: { _ in [.init(name: "Fake TV", host: "192.168.1.20")] },
+                    lookUpARP: { ip in self.arpTable.withLockedValue { $0[ip] } }))
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
         }
@@ -150,6 +153,41 @@ struct PairingTests {
         #expect(granted.json["device"]?["mac"] == "AA:BB:CC:DD:EE:FF")
         let found = try await plugin.handleWebRequest(.init(method: "GET", path: "discover", user: "admin"))
         #expect(found.json["tvs"]?[0]?["host"] == "192.168.1.20")
+    }
+
+    /// Pairs from the web page and returns the MAC address the entry carries.
+    private func pairedMAC() async throws -> JSONValue? {
+        _ = try await environment.start(settings: ["devices": []])
+        let plugin = try #require(environment.plugin)
+        _ = try await plugin.handleWebRequest(.init(method: "POST", path: "pair", body: ["ip": "192.168.1.20"], user: "admin"))
+        let granted = try await plugin.handleWebRequest(.init(method: "POST", path: "pair/grant", body: ["ip": "192.168.1.20", "pin": "1234"], user: "admin"))
+        #expect(granted.status == 200)
+        return granted.json["device"]?["mac"]
+    }
+
+    @Test func prefersTheInterfaceThatAnswers() async throws {
+        await environment.tv.set(networkDevices: [
+            ["id": "wifi0", "mac": "aa:bb:cc:dd:ee:ff", "type": "Wifi"],
+            ["id": "eth0", "mac": "11:22:33:44:55:66", "ip": "192.168.1.20", "type": "Ethernet"],
+        ])
+        #expect(try await pairedMAC() == "11:22:33:44:55:66")
+    }
+
+    @Test func findsTheMACInTheARPTableWhenTheTVDoesNotSay() async throws {
+        await environment.tv.set(networkDevices: nil)
+        environment.arpTable.withLockedValue { $0["192.168.1.20"] = "0a:bb:cc:0d:ee:f0" }
+        #expect(try await pairedMAC() == "0A:BB:CC:0D:EE:F0")
+    }
+
+    @Test func pairsWithoutAMACWhenNothingKnowsIt() async throws {
+        await environment.tv.set(networkDevices: [["id": "wifi0", "type": "Wifi"]])
+        #expect(try await pairedMAC() == nil)
+    }
+
+    @Test func readsNetworkDevicesWithOddFieldTypes() throws {
+        let json = #"[{"id": "eth0", "mac": "11:22:33:44:55:66", "ip": "192.168.1.20", "wake-on-lan": true, "type": 1}]"#
+        let devices = try JSONDecoder().decode([JointSpace.NetworkDevice].self, from: Data(json.utf8))
+        #expect(devices.first?.mac == "11:22:33:44:55:66" && devices.first?.wake_on_lan == nil && devices.first?.type == nil)
     }
 
     @Test func refusesAnotherCertificate() async throws {
