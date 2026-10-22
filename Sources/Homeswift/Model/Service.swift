@@ -12,16 +12,25 @@ public final class Service: @unchecked Sendable {
     let iidBox = NIOLockedValueBox(0)
     public var iid: Int { iidBox.withLockedValue { $0 } }
 
+    private let linkedBox = NIOLockedValueBox<[Service]>([])
+    /// Services of the same accessory this one groups, listed by iid as `linked`: a Television lists its
+    /// input sources and speaker, so the Home app shows them with it.
+    public var linked: [Service] {
+        get { linkedBox.withLockedValue { $0 } }
+        set { linkedBox.withLockedValue { $0 = newValue } }
+    }
+
     /// Creates a service with its required characteristics, plus the `optional` ones you list.
     ///
     /// Pass `name` to add a Name characteristic. Extra characteristics (custom types, or types not
-    /// listed in the definition) go in `extra`.
+    /// listed in the definition) go in `extra`. `linked` names the services this one groups.
     public init(
         _ type: ServiceType,
         name: String? = nil,
         subtype: String? = nil,
         optional: [CharacteristicType] = [],
         extra: [Characteristic] = [],
+        linked: [Service] = [],
         isPrimary: Bool = false,
         isHidden: Bool = false
     ) {
@@ -29,6 +38,7 @@ public final class Service: @unchecked Sendable {
         self.subtype = subtype
         self.isPrimary = isPrimary
         self.isHidden = isHidden
+        linkedBox.withLockedValue { $0 = linked }
         var characteristics = type.required.map { Characteristic($0) }
         var seen = Set(type.required.map(\.uuid))
         if let name, !seen.contains(CharacteristicType.name.uuid) {

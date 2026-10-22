@@ -6,6 +6,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Philips Ambilight TV** (`Plugins/PhilipsAmbilightTV`), a port of `homebridge-philips-ambilight-tv` with the
+  same configuration: power with Wake-on-LAN, inputs (tuner, Home, HDMI, discovered or configured apps) with
+  stable identifiers, the remote, volume and mute, Ambilight as a colour light, source switches, custom
+  buttons, state sensors, the Ambilight+hue switch, the TV's `notifychange` push channel with polling as the
+  fallback, selections parked while the TV wakes. Its web page finds and pairs TVs and writes the entry into
+  the configuration.
+- **External accessories**: `PluginContext.publishExternal(_:)` puts an accessory on a HAP server of its own
+  (its identity in `external/`, the main bridge's setup code), as Homebridge publishes televisions and
+  cameras; the cache brings it back before the plugin starts, the banner, status page and MCP status list it.
+- **Linked services**: `Service.linked` (`linked` in the accessory database), which televisions need for
+  their inputs and speaker; `HAPServer.replace(primary:)` swaps a standalone accessory under its identity.
+- **`HomeswiftNetwork`**, for plugins that reach devices on the LAN: an HTTP client on NIO and NIOSSL that
+  trusts or pins a self-signed certificate (the same on macOS and Linux, where URLSession cannot), HTTP Digest
+  authentication, Wake-on-LAN with the directed broadcast of the device's network.
+
+### Changed
+
+- `PluginContext.remove(id:)` is async: removing an external accessory stops its server.
+- Every accessory a server publishes carries the Protocol Information service; bridges no longer add it themselves.
+
 ## [0.3.0] - 2026-10-21
 
 ### Added

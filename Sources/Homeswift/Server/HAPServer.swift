@@ -55,7 +55,9 @@ public final class HAPServer: @unchecked Sendable {
         var serverChannel: (any Channel)?
     }
 
-    public let primary: Accessory
+    private let primaryBox: NIOLockedValueBox<Accessory>
+    /// The accessory with aid 1: the bridge, or the one standalone accessory.
+    public var primary: Accessory { primaryBox.withLockedValue { $0 } }
     let options: Options
     let storage: any HAPStorage
     let logger: Logger
@@ -74,7 +76,8 @@ public final class HAPServer: @unchecked Sendable {
     }
 
     init(primary: Accessory, bridged: [Accessory], storage: any HAPStorage, options: Options) throws {
-        self.primary = primary
+        Self.addProtocolInformation(to: primary)
+        primaryBox = NIOLockedValueBox(primary)
         self.options = options
         self.storage = storage
         logger = options.logger
@@ -140,6 +143,27 @@ public final class HAPServer: @unchecked Sendable {
         guard running else { return }
         try persist()
         updateAdvertisement()
+    }
+
+    /// Replaces the primary accessory (a standalone accessory that changed shape) under the same identity:
+    /// the iids of the services it keeps stay, HomeKit sees the rest through the configuration number.
+    public func replace(primary accessory: Accessory) throws {
+        Self.addProtocolInformation(to: accessory)
+        let running = state.withLockedValue { state in
+            state.accessories[1] = nil
+            assign(accessory, aid: 1, in: &state)
+            return refreshIfRunning(&state)
+        }
+        primaryBox.withLockedValue { $0 = accessory }
+        guard running else { return }
+        try persist()
+        updateAdvertisement()
+    }
+
+    /// Every accessory a controller pairs with carries a Protocol Information service.
+    private static func addProtocolInformation(to accessory: Accessory) {
+        guard accessory[.protocolInformation] == nil else { return }
+        accessory.append(Service(.protocolInformation, extra: [Characteristic(.version, value: "1.1.0")]))
     }
 
     /// Removes a bridged accessory, before or while running.
@@ -300,7 +324,8 @@ public final class HAPServer: @unchecked Sendable {
                         CharacteristicJSON(describing: $0, includeValue: includeValues, includeMeta: true)
                     },
                     primary: service.isPrimary ? true : nil,
-                    hidden: service.isHidden ? true : nil
+                    hidden: service.isHidden ? true : nil,
+                    linked: service.linked.isEmpty ? nil : service.linked.map(\.iid)
                 )
             })
         })

@@ -34,19 +34,30 @@ public final class PluginHost: @unchecked Sendable {
         }
     }
 
-    /// One HAP server: the main bridge, or the child bridge of one platform block.
+    /// One HAP server: the main bridge, the child bridge of one platform block, or the standalone server of
+    /// an external accessory (`isExternal`: one accessory, published by the platform instance `owner`).
     public final class Bridge: @unchecked Sendable {
-        public let name: String
         public let server: HAPServer
         public let isChild: Bool
+        public let isExternal: Bool
+        /// The platform instance that published this external accessory.
+        public let owner: String?
+        let ownerKey: String?
+        private let storedName: String
         // Accessory ids on this bridge and the platform instance that owns each.
         private let owners = NIOLockedValueBox<[String: (key: String, name: String)]>([:])
 
-        init(name: String, server: HAPServer, isChild: Bool) {
-            self.name = name
+        init(name: String, server: HAPServer, isChild: Bool, isExternal: Bool = false, owner: String? = nil, ownerKey: String? = nil) {
+            storedName = name
             self.server = server
             self.isChild = isChild
+            self.isExternal = isExternal
+            self.owner = owner
+            self.ownerKey = ownerKey
         }
+
+        /// The bridge's name, or the external accessory's.
+        public var name: String { isExternal ? server.primary.name : storedName }
 
         func claim(_ id: String, for key: String, name: String) throws {
             try owners.withLockedValue { owners in
@@ -89,8 +100,11 @@ public final class PluginHost: @unchecked Sendable {
     public let storageDirectory: URL
     /// The plugins this host knows, whether or not config.json uses them.
     public let registry: PluginRegistry
-    /// The main bridge first, then the child bridges in configuration order.
-    public let bridges: [Bridge]
+    /// The main bridge first, then the child bridges in configuration order, then the external accessories
+    /// in the order they were published.
+    public var bridges: [Bridge] { bridgeList.withLockedValue { $0 } }
+    private let bridgeList: NIOLockedValueBox<[Bridge]>
+    let externals: ExternalAccessories
     public var mainBridge: Bridge { bridges[0] }
     public var platforms: [PlatformInstance] {
         instances.map {
@@ -120,7 +134,10 @@ public final class PluginHost: @unchecked Sendable {
         logger = options.logger
 
         let main = try Self.makeBridge(configuration.bridge, storageName: "homeswift", isChild: false, storageDirectory: storageDirectory, options: options)
-        var bridges = [main]
+        let bridgeList = NIOLockedValueBox([main])
+        self.bridgeList = bridgeList
+        let mainServer = main.server
+        externals = ExternalAccessories(bridges: bridgeList, storageDirectory: storageDirectory, options: options) { mainServer.setupCode }
         var instances: [Instance] = []
         var keys = Set<String>()
 
@@ -162,7 +179,7 @@ public final class PluginHost: @unchecked Sendable {
             let bridge: Bridge
             if let child = block.childBridge {
                 bridge = try Self.makeBridge(child.bridge(named: block.name), storageName: "child-bridges/\(key)", isChild: true, storageDirectory: storageDirectory, options: options)
-                bridges.append(bridge)
+                bridgeList.withLockedValue { $0.append(bridge) }
             } else {
                 bridge = main
             }
@@ -173,13 +190,11 @@ public final class PluginHost: @unchecked Sendable {
                 platform: block.platform, name: block.name, key: key, logger: pluginLogger, bridge: bridge,
                 cache: AccessoryCache(url: storageDirectory.appendingPathComponent("accessories").appendingPathComponent("\(key).json")),
                 storageURL: storageDirectory.appendingPathComponent("plugins").appendingPathComponent(key),
-                assistant: assistantBox)
-            context.restoreCache()
+                assistant: assistantBox, externals: externals)
             instances.append(Instance(entry: entry, block: block, context: context))
         }
-
-        self.bridges = bridges
         self.instances = instances
+        for instance in instances { instance.context.restoreCache() }
     }
 
     /// Starts the bridges, then creates and starts every plugin. Returns once each plugin's `start()` has
@@ -188,6 +203,8 @@ public final class PluginHost: @unchecked Sendable {
         for bridge in bridges {
             try await bridge.server.start()
         }
+        // From here on an external accessory a plugin publishes starts its server at once.
+        externals.markRunning()
         await withTaskGroup(of: Void.self) { group in
             for instance in instances {
                 group.addTask { await self.launch(instance) }
@@ -256,8 +273,7 @@ public final class PluginHost: @unchecked Sendable {
         }
         let accessory = Accessory(
             id: "bridge", name: settings.name, manufacturer: settings.manufacturer ?? "Homeswift", model: settings.model ?? "Homeswift",
-            serialNumber: settings.username?.uppercased(), firmwareRevision: settings.firmwareRevision ?? version, category: .bridge,
-            services: [Service(.protocolInformation, extra: [Characteristic(.version, value: "1.1.0")])])
+            serialNumber: settings.username?.uppercased(), firmwareRevision: settings.firmwareRevision ?? version, category: .bridge, services: [])
         let storage = options.makeStorage?(storageName)
             ?? FileStorage(url: storageDirectory.appendingPathComponent("\(storageName).json"))
         let server = try HAPServer(bridge: accessory, accessories: [], storage: storage, options: serverOptions)

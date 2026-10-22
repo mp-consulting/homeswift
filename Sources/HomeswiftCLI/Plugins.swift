@@ -1,4 +1,5 @@
 import HomeswiftElgatoKeyLights
+import HomeswiftPhilipsAmbilightTV
 import HomeswiftPlugin
 
 /// The plugins compiled into this binary.
@@ -9,5 +10,6 @@ import HomeswiftPlugin
 func builtInPlugins() -> PluginRegistry {
     var registry = PluginRegistry()
     registry.register(ElgatoKeyLightsPlugin.self)
+    registry.register(PhilipsAmbilightTVPlugin.self)
     return registry
 }

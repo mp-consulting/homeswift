@@ -90,6 +90,18 @@ public actor MyDevicesPlugin: HomeswiftPlugin {
 - **`context.logger`** carries the instance name; `homeswift -D` shows debug lines. Never log tokens,
   passwords or setup codes.
 - **`context.storageDirectory`** is the plugin's own directory for tokens and caches.
+- **External accessories.** HomeKit allows one television per bridge and wants cameras on their own, so
+  Homebridge publishes those outside the bridge. `try await context.publishExternal(accessory)` does the
+  same: a HAP server of its own (its identity and pairings in `external/<platform>-<name>-<id>.json`, the
+  main bridge's setup code), listed with the bridges in the banner and on the status page so the user adds
+  it in the Home app like a second bridge. Publishing the same id again replaces the accessory under the
+  same identity, iids kept; the cache brings it back at launch before the plugin starts; `context.remove`
+  stops its server. `Plugins/PhilipsAmbilightTV` does this for each TV.
+- **Linked services.** A Television lists its input sources and speaker in `Service(linked:)`, which
+  becomes `linked` in the accessory database; the Home app shows them with it.
+- **Shared transports.** `HomeswiftNetwork` has what devices on the LAN need: `HTTPClient` (on NIO and
+  NIOSSL, so a self-signed certificate can be trusted or pinned on Linux too, where URLSession cannot),
+  `DigestAuthentication` and `WakeOnLAN`. A plugin depends on it rather than adding a package.
 
 ### The runtime
 
@@ -100,6 +112,7 @@ public actor MyDevicesPlugin: HomeswiftPlugin {
 | `config.json` | `~/.homeswift/config.json` (`-U` changes the directory) |
 | Main bridge state (identity, pairings, aids, iids) | `~/.homeswift/homeswift.json` |
 | Child bridge state | `~/.homeswift/child-bridges/<platform>-<name>.json` |
+| External accessory state | `~/.homeswift/external/<platform>-<name>-<accessory id>.json` |
 | Accessory cache per platform instance | `~/.homeswift/accessories/<platform>-<name>.json` |
 | Plugin files | `~/.homeswift/plugins/<platform>-<name>/` |
 
@@ -175,7 +188,7 @@ Keep the platform name and the option names, and copy `config.schema.json` and t
 | `api.hap.uuid.generate(seed)` | `Accessory(id: "\(platform):\(seed)")` |
 | `new PlatformAccessory(name, uuid)` + `registerPlatformAccessories` | `Accessory(id:name:...)` + `context.add` |
 | `configureAccessory(cached)` | Nothing: the runtime restores the cache; `context.add` with the same id replaces it |
-| `unregisterPlatformAccessories` | `context.remove(id:)` |
+| `unregisterPlatformAccessories` | `try await context.remove(id:)` |
 | `accessory.getService(S) ?? accessory.addService(S)` | `Service(.s, optional: [...], extra: [...])` passed to the `Accessory` |
 | `setCharacteristic(C, v)` / `updateCharacteristic(C, v)` | `service.characteristic(.c).value = v` |
 | `getCharacteristic(C).onSet(fn)` | `.onWrite(changesOnly:) { value in ... }` |
@@ -184,11 +197,14 @@ Keep the platform name and the option names, and copy `config.schema.json` and t
 | `throw new HapStatusError(SERVICE_COMMUNICATION_FAILURE)` | `throw HAPStatusError(.serviceCommunicationFailure)` |
 | `accessory.on('identify')` | `Accessory(onIdentify:)` |
 | `api.user.storagePath()` | `context.storageDirectory` |
+| `api.publishExternalAccessories(...)` | `try await context.publishExternal(accessory)` |
+| `tvService.addLinkedService(input)` | `Service(.television, linked: [input, ...])` |
 | `bonjour-service` / `mdns` | `BonjourBrowser.browse(type:)` in `Homeswift` |
-| `axios` / `undici` | `URLSession` (import `FoundationNetworking` on Linux) |
+| `axios` / `undici` | `URLSession` (import `FoundationNetworking` on Linux), or `HomeswiftNetwork.HTTPClient` for a device with a self-signed certificate or Digest authentication |
 | `homebridge-ui/server.js`, `config.schema.json` | Keep the schema file; the settings page comes with the Homeswift UI |
 
-Transports still to add as shared targets, in the order the ported plugins need them: MQTT (Dyson, then
+`HomeswiftNetwork` is the first shared transport (HTTP with self-signed certificates, Digest, Wake-on-LAN). Still
+to add, in the order the ported plugins need them: MQTT (Dyson, then
 AWS IoT for Govee, LG ThinQ and Dolphin), WebSocket events (eWeLink, Daikin, UniFi Access). UniFi Protect
 waits for camera streaming in the HAP library.
 

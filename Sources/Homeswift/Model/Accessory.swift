@@ -17,7 +17,9 @@ public final class Accessory: @unchecked Sendable {
     public let id: String
     public let category: AccessoryCategory
     public let information: Service
-    public let services: [Service]
+    private let servicesBox: NIOLockedValueBox<[Service]>
+    /// The Accessory Information service first, then the services given at creation.
+    public var services: [Service] { servicesBox.withLockedValue { $0 } }
 
     let aidBox = NIOLockedValueBox(0)
     public var aid: Int { aidBox.withLockedValue { $0 } }
@@ -42,7 +44,15 @@ public final class Accessory: @unchecked Sendable {
         information.characteristic(.firmwareRevision).value = .string(firmwareRevision)
         information.characteristic(.identify).onWrite { _ in await onIdentify?() }
         self.information = information
-        self.services = [information] + services
+        servicesBox = NIOLockedValueBox([information] + services)
+    }
+
+    /// The first service of the given type, if any.
+    public subscript(type: ServiceType) -> Service? { service(type) }
+
+    /// Adds a service the server needs on every accessory (Protocol Information).
+    func append(_ service: Service) {
+        servicesBox.withLockedValue { $0.append(service) }
     }
 
     public var name: String {

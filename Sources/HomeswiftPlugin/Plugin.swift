@@ -170,14 +170,29 @@ public final class PluginContext: @unchecked Sendable {
     let key: String
     let bridge: PluginHost.Bridge
     let cache: AccessoryCache
+    let externals: ExternalAccessories
     private let storageURL: URL
     private let assistantBox: NIOLockedValueBox<AssistantService?>
     // Mutable state is behind the lock; the class is otherwise immutable.
-    private let list = NIOLockedValueBox<[Accessory]>([])
+    private let list = NIOLockedValueBox<Entries>(Entries())
+
+    private struct Entries {
+        var accessories: [Accessory] = []
+        /// The ids published as external accessories.
+        var external: Set<String> = []
+
+        mutating func put(_ accessory: Accessory) {
+            if let index = accessories.firstIndex(where: { $0.id == accessory.id }) {
+                accessories[index] = accessory
+            } else {
+                accessories.append(accessory)
+            }
+        }
+    }
 
     init(
         platform: String, name: String, key: String, logger: Logger, bridge: PluginHost.Bridge, cache: AccessoryCache, storageURL: URL,
-        assistant: NIOLockedValueBox<AssistantService?>
+        assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories
     ) {
         self.platform = platform
         self.name = name
@@ -187,52 +202,93 @@ public final class PluginContext: @unchecked Sendable {
         self.cache = cache
         self.storageURL = storageURL
         assistantBox = assistant
+        self.externals = externals
     }
 
-    /// The accessories this instance has on the bridge, including those restored from the cache at
-    /// launch that the plugin has not replaced yet.
-    public var accessories: [Accessory] { list.withLockedValue { $0 } }
+    /// The accessories this instance has on the bridge or published on their own, including those
+    /// restored from the cache at launch that the plugin has not replaced yet.
+    public var accessories: [Accessory] { list.withLockedValue { $0.accessories } }
 
     public func accessory(id: String) -> Accessory? {
-        list.withLockedValue { $0.first { $0.id == id } }
+        list.withLockedValue { $0.accessories.first { $0.id == id } }
     }
+
+    /// Whether the accessory with this id is published on its own server rather than on the bridge.
+    public func isExternal(id: String) -> Bool { list.withLockedValue { $0.external.contains(id) } }
 
     /// Adds an accessory to the bridge, or replaces the one with the same `id`. HomeKit sees the change
     /// through the configuration number; the aid and iids stay, so rooms and automations survive.
     public func add(_ accessory: Accessory) throws {
         try bridge.claim(accessory.id, for: key, name: name)
+        if isExternal(id: accessory.id) {
+            // Moving from its own server to the bridge: the old server stops in the background.
+            let externals = externals, id = accessory.id, key = key
+            Task { await externals.unpublish(id: id, key: key) }
+            _ = list.withLockedValue { $0.external.remove(accessory.id) }
+        }
         try bridge.server.add(accessory)
-        list.withLockedValue { list in
-            if let index = list.firstIndex(where: { $0.id == accessory.id }) {
-                list[index] = accessory
-            } else {
-                list.append(accessory)
-            }
+        list.withLockedValue { $0.put(accessory) }
+        saveCache()
+    }
+
+    /// Publishes an accessory on a HAP server of its own instead of the bridge, as Homebridge publishes
+    /// external accessories: HomeKit wants televisions (one per bridge at most) and cameras this way. The
+    /// server has its own identity and pairing, listed with the bridges (`PluginHost.bridges`), and the
+    /// main bridge's setup code; the user adds it in the Home app like a second bridge. Publishing an id
+    /// again replaces the accessory under the same identity, so a television whose inputs changed keeps
+    /// its pairing. The id must still be unique on the bridge.
+    public func publishExternal(_ accessory: Accessory) async throws {
+        try bridge.claim(accessory.id, for: key, name: name)
+        if self.accessory(id: accessory.id) != nil, !isExternal(id: accessory.id) {
+            try bridge.server.remove(accessory)
+        }
+        let (published, isNew) = try externals.publish(accessory, key: key, owner: name)
+        list.withLockedValue { entries in
+            entries.put(accessory)
+            entries.external.insert(accessory.id)
+        }
+        saveCache()
+        if isNew, externals.isRunning {
+            try await published.server.start()
+        }
+    }
+
+    /// Removes an accessory from the bridge, or stops the server of an external one. HomeKit drops it
+    /// from its rooms.
+    public func remove(_ accessory: Accessory) async throws {
+        try await remove(id: accessory.id)
+    }
+
+    public func remove(id: String) async throws {
+        guard let accessory = self.accessory(id: id) else { throw PluginError.unknownAccessory(id: id) }
+        if isExternal(id: id) {
+            await externals.unpublish(id: id, key: key)
+        } else {
+            try bridge.server.remove(accessory)
+        }
+        bridge.release(id)
+        list.withLockedValue { entries in
+            entries.accessories.removeAll { $0.id == id }
+            entries.external.remove(id)
         }
         saveCache()
     }
 
-    /// Removes an accessory from the bridge. HomeKit drops it from its rooms.
-    public func remove(_ accessory: Accessory) throws {
-        try remove(id: accessory.id)
-    }
-
-    public func remove(id: String) throws {
-        guard let accessory = self.accessory(id: id) else { throw PluginError.unknownAccessory(id: id) }
-        try bridge.server.remove(accessory)
-        bridge.release(id)
-        list.withLockedValue { $0.removeAll { $0.id == id } }
-        saveCache()
-    }
-
-    /// Puts the cached accessories back on the bridge before the plugin starts.
+    /// Puts the cached accessories back on the bridge, or on their own servers, before the plugin starts.
     func restoreCache() {
-        for accessory in cache.load(logger: logger) {
+        for (accessory, external) in cache.load(logger: logger) {
             do {
                 try bridge.claim(accessory.id, for: key, name: name)
-                try bridge.server.add(accessory)
-                list.withLockedValue { $0.append(accessory) }
-                logger.info("Restored accessory from cache", metadata: ["accessory": "\(accessory.name)"])
+                if external {
+                    _ = try externals.publish(accessory, key: key, owner: name)
+                } else {
+                    try bridge.server.add(accessory)
+                }
+                list.withLockedValue { entries in
+                    entries.accessories.append(accessory)
+                    if external { entries.external.insert(accessory.id) }
+                }
+                logger.info("Restored accessory from cache", metadata: ["accessory": "\(accessory.name)", "external": "\(external)"])
             } catch {
                 logger.warning("Could not restore cached accessory", metadata: ["accessory": "\(accessory.name)", "error": "\(error)"])
             }
@@ -241,7 +297,8 @@ public final class PluginContext: @unchecked Sendable {
 
     func saveCache() {
         do {
-            try cache.save(accessories)
+            let (accessories, external) = list.withLockedValue { ($0.accessories, $0.external) }
+            try cache.save(accessories, external: external)
         } catch {
             logger.warning("Could not save the accessory cache", metadata: ["path": "\(cache.url.path)", "error": "\(error)"])
         }
