@@ -39,7 +39,7 @@ public final class UserStore: Sendable {
         return state.withLockedValue { $0.first { $0.username.lowercased() == name } }
     }
 
-    /// Adds a user. The username must be new; the password at least eight characters.
+    /// Adds a user. The username must be new; the password must pass `PasswordPolicy`.
     public func create(username: String, password: String) throws {
         try add(username: username, password: password, onlyWhenEmpty: false)
     }
@@ -53,7 +53,7 @@ public final class UserStore: Sendable {
     private func add(username: String, password: String, onlyWhenEmpty: Bool) throws {
         let name = username.trimmingCharacters(in: .whitespaces)
         guard (1...64).contains(name.count), !name.contains(where: { $0.isWhitespace || $0 == ":" }) else { throw AuthError.invalidUsername }
-        guard password.count >= 8, password.utf8.count <= 1024 else { throw AuthError.weakPassword }
+        try PasswordPolicy.check(password, username: name)
         let salt = Secrets.randomBytes(16)
         let user = User(username: name, salt: salt, hash: Self.pbkdf2(password: password, salt: salt, iterations: iterations), iterations: iterations, created: Date())
         try state.withLockedValue { users in
@@ -71,6 +71,22 @@ public final class UserStore: Sendable {
         let expected = user?.hash ?? Data(count: 32)
         let computed = Self.pbkdf2(password: password, salt: salt, iterations: user?.iterations ?? iterations)
         return Secrets.constantTimeEqual(computed, expected) && user != nil
+    }
+
+    /// Replaces a user's password once the current one checks out (a full hash either way, as `verify`).
+    public func changePassword(username: String, current: String, new password: String) throws {
+        guard verify(username: username, password: current) else { throw AuthError.wrongPassword }
+        try PasswordPolicy.check(password, username: username)
+        let salt = Secrets.randomBytes(16)
+        let hash = Self.pbkdf2(password: password, salt: salt, iterations: iterations)
+        let name = username.trimmingCharacters(in: .whitespaces).lowercased()
+        try state.withLockedValue { users in
+            guard let index = users.firstIndex(where: { $0.username.lowercased() == name }) else { throw AuthError.badCredentials }
+            users[index].salt = salt
+            users[index].hash = hash
+            users[index].iterations = iterations
+            try save(users)
+        }
     }
 
     private func save(_ users: [User]) throws {
@@ -100,20 +116,23 @@ public final class UserStore: Sendable {
 
 public enum AuthError: Error, CustomStringConvertible, Sendable, Equatable {
     case invalidUsername
-    case weakPassword
+    /// What to change, in words.
+    case weakPassword(String)
     case userExists
     case setupDone
     case wrongSetupCode
     case badCredentials
+    case wrongPassword
 
     public var description: String {
         switch self {
         case .invalidUsername: "the username must be 1 to 64 characters without spaces or colons"
-        case .weakPassword: "the password must be at least 8 characters"
+        case .weakPassword(let problems): "the password is too weak: \(problems)"
         case .userExists: "that user already exists"
         case .setupDone: "the first user already exists; sign in"
         case .wrongSetupCode: "wrong set-up code: it is in the bridge's output, next to the web UI address"
         case .badCredentials: "wrong username or password"
+        case .wrongPassword: "the current password is not right"
         }
     }
 }
@@ -180,6 +199,14 @@ public final class SessionStore: Sendable {
     }
 
     public var count: Int { sessions.withLockedValue { $0.count } }
+
+    /// Ends every session of a user but the one with `keeping`: after a password change, a browser signed in with
+    /// the old password is signed out.
+    public func revokeAll(of username: String, keeping token: String?) {
+        let kept = token.map(Self.key(for:))
+        let name = username.lowercased()
+        update { sessions in sessions = sessions.filter { $0.key == kept || $0.value.username.lowercased() != name } }
+    }
 
     /// Changes the sessions under the lock and writes the file after it, so requests never wait on the disk.
     private func update(_ change: (inout [String: Session]) -> Void) {

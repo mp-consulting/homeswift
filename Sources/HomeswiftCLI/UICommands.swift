@@ -13,6 +13,9 @@ enum UICommands {
             let ui = try UIConfiguration(block: block)
             var options = UIServer.Options()
             options.logger = logger
+            if let root = ProcessInfo.processInfo.environment["HOMESWIFT_WEB_ROOT"], !root.isEmpty {
+                options.webRoot = URL(fileURLWithPath: NSString(string: root).expandingTildeInPath)
+            }
             let server = UIServer(configuration: ui, catalog: catalog, usersURL: catalog.configURL.deletingLastPathComponent().appendingPathComponent("ui-users.json"), options: options)
             try await server.start()
             if ui.auth == .form, server.users.isEmpty {

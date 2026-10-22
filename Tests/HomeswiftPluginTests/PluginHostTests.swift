@@ -293,6 +293,53 @@ struct PluginHostTests {
         await second.stop()
     }
 
+    @Test func appliesANewConfigurationWithoutARestart() async throws {
+        func configuration(_ platforms: String, port: Int = 0) throws -> HomeswiftConfiguration {
+            try HomeswiftConfiguration.decode(Data(#"{ "bridge": { "port": \#(port) }, "platforms": [\#(platforms)] }"#.utf8))
+        }
+        let host = try PluginHost(
+            configuration: try configuration(#"{ "platform": "Recording", "name": "Lamps", "lamps": ["lamp-1"], "brightness": 10 }"#),
+            registry: environment.registry, storageDirectory: environment.directory, options: environment.options)
+        try await host.start()
+        let server = host.mainBridge.server
+        let lamp = try #require(server.accessories.last)
+
+        // Unchanged: nothing happens.
+        #expect(await host.apply(host.configuration) == PluginHost.ReloadReport())
+
+        // A changed block: a fresh plugin on the same accessory, aid and iids kept.
+        let report = await host.apply(try configuration(#"{ "platform": "Recording", "name": "Lamps", "lamps": ["lamp-1"], "brightness": 70 }"#))
+        #expect(report == PluginHost.ReloadReport(reloaded: ["Lamps"]))
+        #expect(environment.createdPlugins.count == 2)
+        #expect(await environment.createdPlugins[0].stopped)
+        #expect(await environment.createdPlugins[1].started)
+        let reloaded = try #require(server.accessories.last)
+        #expect(reloaded.aid == lamp.aid)
+        #expect(reloaded.service(.lightbulb)?[.brightness]?.value == .int(70))
+        #expect(reloaded.service(.lightbulb)?[.brightness]?.iid == lamp.service(.lightbulb)?[.brightness]?.iid)
+
+        // A new block starts, with its television on a server of its own; a removed one leaves the bridge.
+        let added = await host.apply(try configuration(#"""
+            { "platform": "Recording", "name": "Lamps", "lamps": ["lamp-1"], "brightness": 70 },
+            { "platform": "Recording", "name": "TVs", "externals": ["tv-1"] }
+            """#))
+        #expect(added == PluginHost.ReloadReport(started: ["TVs"]))
+        #expect(host.platforms.map(\.name) == ["Lamps", "TVs"])
+        let tv = try #require(host.bridges.first { $0.isExternal })
+        #expect(tv.server.port != nil)
+        let removed = await host.apply(try configuration(#"{ "platform": "Recording", "name": "TVs", "externals": ["tv-1"] }"#))
+        #expect(removed == PluginHost.ReloadReport(stopped: ["Lamps"]))
+        #expect(server.accessories.map(\.id) == ["bridge"])
+        #expect(host.platforms.map(\.name) == ["TVs"])
+
+        // The bridge block needs a restart; the plugin blocks still apply.
+        let bridge = await host.apply(try configuration("", port: 51826))
+        #expect(bridge.needsRestart == ["the bridge block changed"])
+        #expect(bridge.stopped == ["TVs"])
+        #expect(!host.bridges.contains { $0.isExternal })
+        await host.stop()
+    }
+
     @Test func runsChildBridges() async throws {
         let host = try environment.host("""
             {

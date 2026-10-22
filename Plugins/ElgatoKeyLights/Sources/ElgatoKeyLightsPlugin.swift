@@ -1,5 +1,6 @@
 import Foundation
 import Homeswift
+import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
 
@@ -132,7 +133,8 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
 
     // MARK: The web page
 
-    /// `GET lights` lists the lights with their state; `POST identify?mac=` flashes one. `Web/` is the page.
+    /// `GET lights` lists the lights with their state; `POST identify?mac=` flashes one; `GET probe?host=&port=`
+    /// asks a light at an address who it is (adding one by address, testing a connection). `Web/` is the page.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         switch (request.method, request.path) {
         case ("GET", "lights"):
@@ -148,6 +150,30 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
                 ])
             }
             return PluginWebResponse(["lights": .array(lights)])
+        case ("GET", "probe"):
+            guard let host = request.query["host"]?.trimmingCharacters(in: .whitespaces), KeyLightClient.isValidHost(host) else { return .error(400, "a host name or IP address is required") }
+            let port = request.query["port"].flatMap(Int.init) ?? KeyLightClient.defaultPort
+            guard KeyLightClient.isValidPort(port) else { return .error(400, "the port must be between 1 and 65535") }
+            let client = KeyLightClient(host: host, port: port, transport: dependencies.transport)
+            let started = ContinuousClock.now
+            let info: KeyLightInfo
+            do {
+                info = try await client.info()
+            } catch {
+                return .error(502, "No light answered at \(host):\(port): \(error)")
+            }
+            let elapsed = ContinuousClock.now - started
+            // Older firmware leaves the MAC out of its answer; the ARP table has it, the light having just answered.
+            var mac = info.macAddress.map(Self.canonicalMAC)
+            if mac == nil { mac = await ARPTable.macAddress(for: host).map(Self.canonicalMAC) }
+            var light: [String: JSONValue] = [
+                "host": .string(host), "port": .number(Double(port)), "milliseconds": .number((elapsed / .milliseconds(1)).rounded()),
+                "name": .string(info.displayName?.nonEmpty ?? info.productName ?? "Key Light"), "model": .string(info.productName ?? "Key Light"),
+            ]
+            if let mac { light["mac"] = .string(mac) }
+            if let serial = info.serialNumber { light["serial"] = .string(serial) }
+            if let firmware = info.firmwareVersion { light["firmware"] = .string(firmware) }
+            return PluginWebResponse(["light": .object(light)])
         case ("POST", "identify"):
             guard let mac = request.query["mac"].map(Self.canonicalMAC), let device = devices[mac] else { return .error(404, "no light with that MAC") }
             await device.identify()

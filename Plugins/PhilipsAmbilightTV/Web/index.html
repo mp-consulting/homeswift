@@ -6,23 +6,157 @@
 <title>Philips Ambilight TV</title>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css">
+<style>
+  /* The page's own pieces, on the UI's materials: a heading with the plugin's tile, one card per TV with its
+     state and a remote grouped the way a remote is (power, navigation, volume, Ambilight), and the pairing
+     wizard of the Homebridge plugin (find, PIN, confirm) with one step showing at a time. */
+
+  .tvs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); gap: 14px; }
+  .tv { margin: 0; display: grid; gap: 16px; animation: materialize var(--normal) var(--ease-out); }
+  .tv-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .tv-head .who { flex: 1; min-width: 0; }
+  .tv-head strong { display: block; font-size: 1.0625rem; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tv-head .muted { font-size: 0.8125rem; font-variant-numeric: tabular-nums; letter-spacing: 0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .off-note { margin: 0; padding: 10px 14px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); color: var(--muted); }
+
+  .page-head { align-items: center; }
+  .tv-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--line); font-size: 0.8125rem; }
+  .tv-foot a { color: var(--accent); text-decoration: none; font-weight: 500; }
+  .empty { text-align: center; padding: 28px 20px; grid-column: 1 / -1; }
+  .foot-actions { display: inline-flex; align-items: center; gap: 14px; }
+  .foot-actions .link { font-size: inherit; padding: 0; font-weight: 500; }
+
+  /* The inputs editor: two columns like the Homebridge plugin's, shown (ordered) and hidden. */
+  .sources-editor { margin-top: 14px; display: grid; gap: 16px; animation: materialize var(--normal) var(--ease-out); scroll-margin-top: 90px; }
+  .sources-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .sources-head h2 { margin: 0 0 4px; }
+  .sources-head p { margin: 0; font-size: 0.8125rem; }
+  .sources-columns { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 18px; align-items: start; }
+  .column-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; font-size: 0.8125rem; }
+  .sources { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .source {
+    display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 5px 6px 5px 8px; border-radius: 14px;
+    background: var(--control); border: 1px solid var(--edge); box-shadow: inset 0 1px 0 var(--edge-light), var(--shadow-control);
+    transition: transform 180ms var(--ease-out), box-shadow var(--fast) var(--ease-out);
+    touch-action: pan-y; position: relative;
+  }
+  .pool .source { background: var(--material-thin); box-shadow: none; }
+  .pool .source .source-name { color: var(--muted); }
+  .source:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* The dragged row is lifted and tracks the pointer 1:1, so it never animates; the others glide aside. */
+  .source.dragging { transition: box-shadow var(--fast) var(--ease-out); z-index: 2; box-shadow: 0 14px 30px rgba(25, 34, 56, 0.22), inset 0 1px 0 var(--edge-light); cursor: grabbing; }
+  .source.settling { transition: transform 260ms var(--ease-out); }
+  .sorting { user-select: none; -webkit-user-select: none; }
+  .handle { width: 24px; align-self: stretch; flex: none; cursor: grab; touch-action: none; display: grid; place-items: center; color: var(--muted); opacity: 0.6; border-radius: 8px; }
+  .handle svg { display: block; width: 10px; height: 16px; fill: currentColor; }
+  .handle:hover { opacity: 1; }
+  .kind { flex: none; min-width: 54px; text-align: center; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.03em; padding: 2px 8px; border-radius: 999px; background: var(--material-thin); border: 1px solid var(--line); color: var(--muted); }
+  .kind.hdmi { color: #1f6fe0; border-color: rgba(31, 111, 224, 0.3); }
+  .kind.tv, .kind.home { color: #7c4ddb; border-color: rgba(124, 77, 219, 0.3); }
+  .kind.app { color: var(--ok); border-color: rgba(31, 157, 85, 0.3); }
+  .kind.custom { color: var(--warn); border-color: rgba(201, 115, 26, 0.35); }
+  .source-name { flex: 1; min-width: 0; border: 1px solid transparent; background: none; box-shadow: none; padding: 6px 8px; border-radius: 10px; font-weight: 500; text-overflow: ellipsis; }
+  .source-name:hover { background: var(--material-thin); }
+  .source-name:focus { background: var(--field); }
+  .original { font-size: 0.75rem; flex: none; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .icon-button { flex: none; width: 32px; height: 32px; padding: 0; font-size: 1.125rem; line-height: 1; display: grid; place-items: center; }
+  .empty-list { margin: 0; padding: 14px; border-radius: 14px; border: 1px dashed var(--line); text-align: center; font-size: 0.8125rem; }
+  .save-bar > .muted { flex: 1; font-size: 0.8125rem; }
+  .save-bar > .dirty { flex: 1; font-size: 0.8125rem; color: var(--warn); font-weight: 500; }
+  .off-note p { margin: 0; }
+  .off-note .explain { margin-top: 4px; }
+  .status-line .link { margin-left: 10px; padding: 0; }
+  .status-line .explain { display: block; }
+
+  /* The TV editor: the Homebridge plugin's sections as tabs. */
+  .tabs { align-self: start; flex-wrap: wrap; }
+  .editor-body { min-height: 160px; }
+  .repair { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; padding: 14px 16px; border-radius: 16px; background: var(--material-thin); border: 1px solid var(--line); }
+  .repair p { margin: 2px 0 0; }
+  .sensors-help { margin: 16px 0 0; }
+  .entries { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+  .entries li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-radius: 14px; background: var(--control); border: 1px solid var(--edge); }
+  .entries li > div { min-width: 0; }
+  .entries .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .add-box { margin-top: 16px; padding: 14px 16px; border-radius: 16px; border: 1px dashed var(--line); }
+  .add-box .actions { margin-top: 10px; }
+  .save-bar.dirty > .muted { color: var(--warn); font-weight: 500; }
+  .empty p { margin: 0 0 14px; }
+
+  .steps { display: flex; gap: 6px; list-style: none; margin: 0 0 18px; padding: 0; flex-wrap: wrap; }
+  .steps li { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px 5px 5px; border-radius: 999px; color: var(--muted); font-weight: 500; }
+  .steps li::before {
+    content: attr(data-n); width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 0.8125rem;
+    background: var(--material-thin); border: 1px solid var(--edge); font-variant-numeric: tabular-nums;
+  }
+  .steps li.current { color: var(--text); background: var(--material-thin); }
+  .steps li.current::before { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); border-color: transparent; }
+  .steps li.done::before { content: "✓"; color: var(--ok); }
+  .step { animation: fade var(--normal) var(--ease-out); }
+  .step > p:first-child { margin-top: 0; }
+  .found { display: grid; gap: 8px; margin: 14px 0 0; }
+  .found .item { display: flex; align-items: center; gap: 12px; margin: 0; padding: 10px 10px 10px 14px; }
+  .found .item div { flex: 1; min-width: 0; }
+  .found .item .muted { font-size: 0.8125rem; }
+  .manual { display: flex; gap: 10px; align-items: center; margin-top: 6px; }
+  .manual input { flex: 1; max-width: 260px; font-variant-numeric: tabular-nums; }
+  .or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 0.8125rem; margin: 18px 0 4px; }
+  .or::before, .or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+
+  .pin { display: flex; gap: 10px; margin: 6px 0 4px; }
+  .pin input { width: 54px; height: 62px; padding: 0; text-align: center; font-size: 1.625rem; font-weight: 600; font-variant-numeric: tabular-nums; border-radius: 16px; }
+  .form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; }
+  .form .wide { grid-column: 1 / -1; }
+  .form input[readonly] { color: var(--muted); }
+  .check { display: flex; align-items: center; gap: 12px; margin: 14px 0 0; }
+  .check label { margin: 0; }
+  .needs { border-color: var(--warn) !important; }
+  .status-line { margin: 14px 0 0; min-height: 1.2em; }
+  .status-line.error { color: var(--error); }
+  .status-line.ok { color: var(--ok); }
+  details { margin-top: 14px; }
+  details pre { font-family: var(--mono); font-size: 0.78rem; margin: 6px 0 0; padding: 12px 14px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); overflow: auto; }
+
+  .busy::after {
+    content: ""; display: inline-block; width: 0.9em; height: 0.9em; margin-left: 8px; vertical-align: -0.12em;
+    border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .tv, .step, .sources-editor { animation: none; }
+    .source { transition: none; }
+    .busy::after { animation: none; border-right-color: currentColor; opacity: 0.5; }
+  }
+  @media (max-width: 640px) {
+    .form { grid-template-columns: 1fr; }
+    .sources-columns { grid-template-columns: 1fr; }
+    .original { display: none; }
+    .pin input { width: 48px; height: 56px; }
+  }
+</style>
 </head>
 <body>
-<header>
-  <a class="brand" href="/#plugins"><img src="/icon.svg" class="logo" alt="">Homeswift</a>
-  <nav><a href="/#plugins">Plugins</a></nav>
-  <span class="spacer"></span>
-  <span id="instance" class="muted"></span>
-</header>
+<header><a class="brand" href="/#status"><img src="/icon.svg" class="logo" alt="">Homeswift</a></header>
 <main>
-  <h1>Philips Ambilight TV</h1>
-  <p class="muted">The TVs this instance knows, as it sees them right now, and the pairing a new TV needs before it can be configured.</p>
-  <div id="tvs" class="cards"></div>
-  <h2>Pair a TV</h2>
-  <p class="muted">Switch the TV on, enter its address (or find it below), then type the PIN the TV shows. The result is the TV's entry for this plugin's configuration.</p>
+  <div class="page-head">
+    <span class="tile large accessory" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/></svg></span>
+    <div>
+      <h1>Philips Ambilight TV</h1>
+      <p class="muted">Pair your Philips Android TVs and control them from here and from the Home app.</p>
+    </div>
+  </div>
+
+  <div class="section-head"><h2>Your TVs</h2></div>
+  <div id="tvs" class="tvs"></div>
+  <div id="sources" class="card sources-editor hidden"></div>
+  <div id="tv-editor" class="card sources-editor hidden"></div>
+
+  <div class="section-head"><h2 id="add-title">Add a TV</h2></div>
   <div id="pairing" class="card"></div>
 </main>
 <script src="/plugin.js"></script>
+<script src="/remote.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

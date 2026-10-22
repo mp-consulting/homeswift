@@ -167,18 +167,18 @@ final class Browser: @unchecked Sendable {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-ui-users-\(UUID().uuidString).json")
         let store = UserStore(url: url, iterations: 1000)
         #expect(store.isEmpty)
-        try store.createFirst(username: "rosaly", password: "correct horse")
-        #expect(throws: AuthError.setupDone) { try store.createFirst(username: "other", password: "another one") }
-        #expect(throws: AuthError.weakPassword) { try store.create(username: "x", password: "short") }
-        #expect(throws: AuthError.userExists) { try store.create(username: "Rosaly", password: "another one") }
-        #expect(throws: AuthError.invalidUsername) { try store.create(username: "a b", password: "another one") }
-        #expect(store.verify(username: "rosaly", password: "correct horse"))
-        #expect(store.verify(username: "ROSALY", password: "correct horse"))
+        try store.createFirst(username: "rosaly", password: "correct horse battery")
+        #expect(throws: AuthError.setupDone) { try store.createFirst(username: "other", password: "a different strong pass") }
+        #expect { try store.create(username: "xyz", password: "short") } throws: { ($0 as? AuthError)?.description.contains("at least 12 characters") == true }
+        #expect(throws: AuthError.userExists) { try store.create(username: "Rosaly", password: "another strong one") }
+        #expect(throws: AuthError.invalidUsername) { try store.create(username: "a b", password: "another strong one") }
+        #expect(store.verify(username: "rosaly", password: "correct horse battery"))
+        #expect(store.verify(username: "ROSALY", password: "correct horse battery"))
         #expect(!store.verify(username: "rosaly", password: "wrong horse"))
-        #expect(!store.verify(username: "nobody", password: "correct horse"))
+        #expect(!store.verify(username: "nobody", password: "correct horse battery"))
         let reloaded = UserStore(url: url, iterations: 1000)
         #expect(reloaded.usernames == ["rosaly"])
-        #expect(reloaded.verify(username: "rosaly", password: "correct horse"))
+        #expect(reloaded.verify(username: "rosaly", password: "correct horse battery"))
         #expect(UserStore.pbkdf2(password: "password", salt: Data("salt".utf8), iterations: 1).map { String(format: "%02x", $0) }.joined().hasPrefix("120fb6cffcf8b32c"))
 
         let sessionsURL = url.deletingLastPathComponent().appendingPathComponent("homeswift-ui-sessions-\(UUID().uuidString).json")
@@ -239,6 +239,71 @@ final class Browser: @unchecked Sendable {
     }
 }
 
+@Suite struct PasswordPolicyTests {
+    @Test func followsTheANSSIBands() {
+        // 12 lower-case letters and spaces: 12 × log2(59) ≈ 70.6 bits, the "low to medium" band, under the bar.
+        let medium = PasswordPolicy.evaluate("orange plane")
+        #expect(medium.level == .lowToMedium && !medium.isAcceptable)
+        #expect((medium.bits - 12 * log2(59)).magnitude < 0.01)
+        // A passphrase of random words passes, a long one is strong.
+        #expect(PasswordPolicy.evaluate("battery staple lamp").isAcceptable)
+        // 14 such characters, ≈ 82 bits: above the CNIL's 80, under the guide's 85.
+        #expect(!PasswordPolicy.evaluate("battery staple").isAcceptable)
+        #expect(PasswordPolicy.evaluate("correct horse battery staple").level == .strongToVeryStrong)
+        #expect(PasswordPolicy.evaluate("k7#Qm2!vXp9&Lw").level == .mediumToStrong)
+        #expect(PasswordPolicy.evaluate("Tr0ub4dor&3").problems.first == "use at least 12 characters")
+    }
+
+    @Test func givesNothingForWhatPeopleType() {
+        // Repeats and runs count once, common words and the username as one character.
+        #expect(PasswordPolicy.evaluate("aaaaaaaaaaaaaaaaaaaaaaaa").level == .veryWeak)
+        #expect(PasswordPolicy.evaluate("abcdefghijklmnopqrstuvwx").level == .veryWeak)
+        #expect(!PasswordPolicy.evaluate("Password123456!").isAcceptable)
+        #expect(!PasswordPolicy.evaluate("rosalyrosaly42!", username: "rosaly").isAcceptable)
+        #expect(PasswordPolicy.evaluate("rosalyrosaly42!").bits > PasswordPolicy.evaluate("rosalyrosaly42!", username: "rosaly").bits)
+        #expect(PasswordPolicy.evaluate("homeswift2026!").problems.contains { $0.contains("common words") })
+        #expect(PasswordPolicy.evaluate(String(repeating: "x", count: 2000)).problems.contains("use at most 1024 bytes"))
+    }
+}
+
+@Suite struct LiveWebFilesTests {
+    /// A checkout with the UI's Web folder and one plugin's.
+    func checkout() throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-live-\(UUID().uuidString)")
+        for (path, text) in [("Sources/HomeswiftUI/Web/style.css", "body { color: red; }"), ("Plugins/Lamps/Web/app.js", "// lamps"), ("secret.txt", "no")] {
+            let url = root.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(text.utf8).write(to: url)
+        }
+        return root
+    }
+
+    @Test func readsFilesFromTheCheckoutAndStaysInIt() throws {
+        let live = LiveWebFiles(root: try checkout())
+        #expect(live.file("style.css", platform: nil) == WebFile(contentType: "text/css; charset=utf-8", body: "body { color: red; }"))
+        #expect(live.file("app.js", platform: "Lamps")?.body == "// lamps")
+        #expect(live.file("../../../secret.txt", platform: nil) == nil)
+        #expect(live.file("app.js", platform: "../Lamps") == nil)
+        #expect(live.file(".hidden", platform: nil) == nil)
+        #expect(Set(live.snapshot().keys) == ["Sources/HomeswiftUI/Web/style.css", "Plugins/Lamps/Web/app.js"])
+    }
+
+    @Test func reportsAChangedFile() async throws {
+        let root = try checkout()
+        let live = LiveWebFiles(root: root)
+        let changes = NIOLockedValueBox<[String]>([])
+        let watcher = live.watch(every: .milliseconds(50)) { path in changes.withLockedValue { $0.append(path) } }
+        defer { watcher.cancel() }
+        try await Task.sleep(for: .milliseconds(120))
+        let url = root.appendingPathComponent("Plugins/Lamps/Web/app.js")
+        try Data("// changed".utf8).write(to: url)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: url.path)
+        let deadline = ContinuousClock.now + .seconds(3)
+        while changes.withLockedValue({ $0.isEmpty }), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(changes.withLockedValue { $0 } == ["Plugins/Lamps/Web/app.js"])
+    }
+}
+
 @Suite struct EmbeddingTests {
     static var root: URL { URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent() }
 
@@ -288,23 +353,23 @@ struct UIServerTests {
         let code = try #require(environment.server.setupCode)
         #expect(code.count == 9)
         browser.origin = "http://evil.example"
-        #expect(try await browser.post("/api/auth/setup", ["username": "rosaly", "password": "correct horse", "setupCode": .string(code)]).status == 403)
+        #expect(try await browser.post("/api/auth/setup", ["username": "rosaly", "password": "correct horse battery", "setupCode": .string(code)]).status == 403)
         browser.origin = "http://127.0.0.1:\(environment.server.port!)"
         browser.contentType = "text/plain"
-        #expect(try await browser.post("/api/auth/setup", ["username": "rosaly", "password": "correct horse", "setupCode": .string(code)]).status == 415)
+        #expect(try await browser.post("/api/auth/setup", ["username": "rosaly", "password": "correct horse battery", "setupCode": .string(code)]).status == 415)
         browser.contentType = "application/json"
         // The set-up code from the bridge's output is required; its case and dashes are not.
-        #expect(try await browser.post("/api/auth/setup", ["username": "rosaly", "password": "correct horse"]).status == 403)
-        #expect(try await browser.post("/api/auth/setup", ["username": "rosaly", "password": "correct horse", "setupCode": "NOPE-NOPE"]).status == 403)
+        #expect(try await browser.post("/api/auth/setup", ["username": "rosaly", "password": "correct horse battery"]).status == 403)
+        #expect(try await browser.post("/api/auth/setup", ["username": "rosaly", "password": "correct horse battery", "setupCode": "NOPE-NOPE"]).status == 403)
         #expect(try await browser.post("/api/auth/setup", ["username": "rosaly", "password": "short", "setupCode": .string(code)]).status == 400)
         #expect(environment.server.users.isEmpty)
         let typed = code.lowercased().replacingOccurrences(of: "-", with: " ")
-        let created = try await browser.post("/api/auth/setup", ["username": "rosaly", "password": "correct horse", "setupCode": .string(typed)])
+        let created = try await browser.post("/api/auth/setup", ["username": "rosaly", "password": "correct horse battery", "setupCode": .string(typed)])
         #expect(created.status == 200)
         #expect(browser.cookie?.hasPrefix("homeswift_session=") == true)
         #expect(created.headers["set-cookie"]?.contains("HttpOnly") == true)
         #expect(created.headers["set-cookie"]?.contains("SameSite=Strict") == true)
-        #expect(try await browser.post("/api/auth/setup", ["username": "again", "password": "correct horse", "setupCode": .string(code)]).status == 409)
+        #expect(try await browser.post("/api/auth/setup", ["username": "again", "password": "correct horse battery", "setupCode": .string(code)]).status == 409)
 
         // Only the server's own names are answered: a page whose name is rebound to this address gets nothing.
         let port = environment.server.port!
@@ -315,7 +380,21 @@ struct UIServerTests {
         #expect(!environment.server.isAllowedHost("evil.example:\(port)"))
         #expect(!environment.server.isAllowedHost(nil))
 
+        // Changing the password: the current one first; the user's other browsers are signed out, this one stays.
+        let other = Browser(base: base)
+        #expect(try await other.post("/api/auth/login", ["username": "rosaly", "password": "correct horse battery"]).status == 200)
+        #expect(try await browser.post("/api/account/password", ["current": "wrong horse", "new": "battery staple lamp"]).status == 403)
+        #expect(try await browser.post("/api/account/password", ["current": "correct horse battery", "new": "short"]).status == 400)
+        #expect(try await browser.post("/api/account/password", ["current": "correct horse battery", "new": "battery staple lamp"]).status == 200)
+        #expect(try await other.get("/api/status").status == 401)
+        #expect(try await browser.get("/api/status").status == 200)
+        #expect(environment.server.users.verify(username: "rosaly", password: "battery staple lamp"))
+        #expect(try await Browser(base: base).post("/api/auth/login", ["username": "rosaly", "password": "correct horse battery"]).status == 401)
+
         // Status, accessories, control.
+        // Without a HomeswiftAiKit block the pages offer no Explain, and asking for one says why.
+        #expect(try await browser.get("/api/assistant").json?["enabled"] == false)
+        #expect(try await browser.post("/api/assistant/explain", ["error": "boom"]).status == 404)
         let status = try await browser.get("/api/status").json
         #expect(status?["bridges"]?[0]?["deviceId"] == "0E:11:22:33:44:66")
         #expect(status?["bridges"]?[0]?["setupCode"] == "0314-5154")
@@ -388,7 +467,9 @@ struct UIServerTests {
         #expect(patched.status == 200)
         #expect(patched.json?["changes"] == ["platforms[0].pollingRate"])
         #expect(try JSONValue(data: Data(contentsOf: environment.configURL))["platforms"]?[0]?["pollingRate"] == 5)
-        #expect(try await browser.get("/api/status").json?["restartNeeded"] == true)
+        // A plugin block applies in place: no restart.
+        #expect(patched.json?["restartNeeded"] == [] && patched.json?["restarting"] == false)
+        #expect(try await browser.get("/api/status").json?["restartNeeded"] == false)
         #expect(try await browser.put("/api/config/platforms/2", ["platform": "ElgatoKeyLights", "name": "Lights"]).status == 200)
         #expect(try await browser.put("/api/config/platforms/9", ["platform": "X"]).status == 404)
         #expect(try await browser.put("/api/config/platforms/0", ["name": "no platform"]).status == 400)
@@ -421,7 +502,7 @@ struct UIServerTests {
         // Login, wrong password, logout.
         let fresh = Browser(base: base)
         #expect(try await fresh.post("/api/auth/login", ["username": "rosaly", "password": "wrong horse"]).status == 401)
-        #expect(try await fresh.post("/api/auth/login", ["username": "rosaly", "password": "correct horse"]).status == 200)
+        #expect(try await fresh.post("/api/auth/login", ["username": "rosaly", "password": "battery staple lamp"]).status == 200)
         #expect(try await fresh.get("/api/status").status == 200)
         #expect(try await fresh.post("/api/auth/logout", [:]).status == 200)
         #expect(try await fresh.get("/api/status").status == 401)

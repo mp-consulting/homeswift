@@ -6,18 +6,51 @@
 <title>Elgato Key Lights</title>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css">
+<style>
+  /* A card per light on the UI's materials: its state as facts, where it is, and Identify. */
+  .page-head { align-items: center; }
+  .light { display: grid; gap: 14px; align-content: start; animation: materialize var(--normal) var(--ease-out); }
+  .light .actions { margin-top: 0; }
+  .glow { width: 10px; height: 10px; border-radius: 50%; flex: none; box-shadow: 0 0 0 3px var(--material-thin); }
+  .fact b.colour { display: flex; align-items: center; gap: 8px; }
+  .light.is-disabled { opacity: 0.7; }
+  .foot-actions { display: inline-flex; gap: 14px; }
+  .foot-actions .link { padding: 0; font-size: inherit; font-weight: 500; }
+  .panel { margin-top: 14px; display: grid; gap: 16px; animation: materialize var(--normal) var(--ease-out); scroll-margin-top: 90px; }
+  .panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .panel-head h2 { margin: 0 0 4px; }
+  .panel-head p { margin: 0; font-size: 0.8125rem; }
+  .panel-columns { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 24px; align-items: start; }
+  .facts.info { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .defaults { transition: opacity var(--normal) var(--ease-out); }
+  .defaults.inactive { opacity: 0.45; pointer-events: none; }
+  .range { display: flex; align-items: center; gap: 12px; }
+  .range input { flex: 1; width: auto; }
+  .range .value { min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
+  .save-bar > .dirty { flex: 1; font-size: 0.8125rem; color: var(--warn); font-weight: 500; }
+  .add-box { margin-bottom: 14px; animation: materialize var(--normal) var(--ease-out); }
+  .add-box > p:first-child { margin-top: 0; font-size: 0.875rem; }
+  .add-form { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+  .add-form .field { flex: 1; min-width: 200px; margin: 0; }
+  .add-form .field.port { flex: 0 0 110px; min-width: 0; }
+  @media (max-width: 640px) { .panel-columns { grid-template-columns: 1fr; } }
+  @media (prefers-reduced-motion: reduce) { .light, .panel, .add-box { animation: none; } }
+</style>
 </head>
 <body>
-<header>
-  <a class="brand" href="/#plugins"><img src="/icon.svg" class="logo" alt="">Homeswift</a>
-  <nav><a href="/#plugins">Plugins</a></nav>
-  <span class="spacer"></span>
-  <span id="instance" class="muted"></span>
-</header>
+<header><a class="brand" href="/#status"><img src="/icon.svg" class="logo" alt="">Homeswift</a></header>
 <main>
-  <h1>Elgato Key Lights</h1>
-  <p class="muted">The lights this instance knows, as it sees them right now. Identify flashes a light so you can tell which is which.</p>
-  <div id="lights" class="cards"></div>
+  <div class="page-head">
+    <span class="tile large light" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></svg></span>
+    <div class="who">
+      <h1>Elgato Key Lights</h1>
+      <p class="muted">The lights this instance knows, as it sees them right now. Identify flashes a light so you can tell which is which.</p>
+    </div>
+  </div>
+  <div class="section-head"><h2>Your lights</h2><button id="add-toggle" aria-expanded="false" aria-controls="add-light">Add by address</button></div>
+  <div id="add-light" class="card add-box hidden"></div>
+  <div id="lights" class="grid"></div>
+  <div id="light-settings" class="card panel hidden"></div>
 </main>
 <script src="/plugin.js"></script>
 <script src="app.js"></script>

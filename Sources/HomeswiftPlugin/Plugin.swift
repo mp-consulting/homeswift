@@ -275,12 +275,16 @@ public final class PluginContext: @unchecked Sendable {
     }
 
     /// Puts the cached accessories back on the bridge, or on their own servers, before the plugin starts.
-    func restoreCache() {
+    /// Returns the servers it created for external accessories, which the host starts when it already runs.
+    @discardableResult
+    func restoreCache() -> [HAPServer] {
+        var created: [HAPServer] = []
         for (accessory, external) in cache.load(logger: logger) {
             do {
                 try bridge.claim(accessory.id, for: key, name: name)
                 if external {
-                    _ = try externals.publish(accessory, key: key, owner: name)
+                    let (published, isNew) = try externals.publish(accessory, key: key, owner: name)
+                    if isNew { created.append(published.server) }
                 } else {
                     try bridge.server.add(accessory)
                 }
@@ -292,6 +296,24 @@ public final class PluginContext: @unchecked Sendable {
             } catch {
                 logger.warning("Could not restore cached accessory", metadata: ["accessory": "\(accessory.name)", "error": "\(error)"])
             }
+        }
+        return created
+    }
+
+    /// Takes every accessory of this instance off the bridge and stops its external servers, when its block
+    /// leaves the configuration. The cache stays, as it would across a restart without the block.
+    func detach() async {
+        let (accessories, external) = list.withLockedValue { entries in
+            defer { entries = Entries() }
+            return (entries.accessories, entries.external)
+        }
+        for accessory in accessories {
+            if external.contains(accessory.id) {
+                await externals.unpublish(id: accessory.id, key: key)
+            } else {
+                do { try bridge.server.remove(accessory) } catch { logger.warning("Could not remove \(accessory.name): \(error)") }
+            }
+            bridge.release(accessory.id)
         }
     }
 

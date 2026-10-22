@@ -103,7 +103,7 @@ let package = Package(
         // package, so moving one into its own repository is a directory move plus a Package.swift.
         .target(
             name: "HomeswiftElgatoKeyLights",
-            dependencies: ["Homeswift", "HomeswiftPlugin", .product(name: "Logging", package: "swift-log")],
+            dependencies: ["Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", .product(name: "Logging", package: "swift-log")],
             path: "Plugins/ElgatoKeyLights/Sources"
         ),
         .target(

@@ -37,6 +37,7 @@ actor FakeLight: KeyLightTransport {
     func set(reachable: Bool) { self.reachable = reachable }
     func set(impostorHosts: Set<String>) { self.impostorHosts = impostorHosts }
     func set(unreachableHosts: Set<String>) { self.unreachableHosts = unreachableHosts }
+    func set(macAddress: String?) { info.macAddress = macAddress }
 
     func send(_ request: KeyLightRequest) async throws -> KeyLightResponse {
         guard reachable, !unreachableHosts.contains(request.url.host ?? "") else { throw FakeError.unreachable }
@@ -192,6 +193,21 @@ struct ElgatoKeyLightsTests {
         environment.discover.yield(.init(name: "Elgato Key Light 1234", mac: "aa:bb:cc:dd:ee:ff", host: "10.0.0.6", port: 9123))
         #expect(await eventually { await device.host == "10.0.0.6" })
         await host.stop()
+    }
+
+    @Test func probesALightByItsAddressForThePage() async throws {
+        let host = try await environment.start(settings: [:])
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        await environment.light.set(macAddress: "3c:6a:9d:04:0a:0b")
+        let answer = try await plugin.handleWebRequest(.init(method: "GET", path: "probe", query: ["host": "192.168.1.50"], user: "admin"))
+        #expect(answer.status == 200)
+        #expect(answer.json["light"]?["mac"] == "3C:6A:9D:04:0A:0B" && answer.json["light"]?["name"] == "Studio Light")
+        #expect(answer.json["light"]?["port"] == 9123 && answer.json["light"]?["model"] == "Elgato Key Light Air")
+        await environment.light.set(unreachableHosts: ["192.168.1.51"])
+        #expect(try await plugin.handleWebRequest(.init(method: "GET", path: "probe", query: ["host": "192.168.1.51"], user: "admin")).status == 502)
+        #expect(try await plugin.handleWebRequest(.init(method: "GET", path: "probe", query: ["host": "a/b"], user: "admin")).status == 400)
+        #expect(try await plugin.handleWebRequest(.init(method: "GET", path: "probe", query: ["host": "192.168.1.50", "port": "0"], user: "admin")).status == 400)
     }
 
     @Test func configuredLightBecomesAnAccessory() async throws {

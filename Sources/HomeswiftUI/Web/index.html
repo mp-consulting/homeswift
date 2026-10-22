@@ -14,7 +14,7 @@
     <h1>Homeswift</h1>
     <p id="auth-text"></p>
     <label>Username <input name="username" autocomplete="username" required></label>
-    <label>Password <input name="password" type="password" autocomplete="current-password" required minlength="8"></label>
+    <label>Password <input name="password" type="password" autocomplete="current-password" required minlength="1"></label>
     <label id="auth-setup-code" class="hidden">Set-up code <input name="setupCode" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX"></label>
     <p class="error" id="auth-error"></p>
     <button type="submit" id="auth-submit">Sign in</button>
@@ -31,12 +31,13 @@
       <a href="#logs">Logs</a>
     </nav>
     <span class="spacer"></span>
-    <span id="user"></span>
+    <a id="user" href="#account" title="Your account: change the password"></a>
     <button id="logout" class="link">Sign out</button>
   </header>
-  <div id="banner" class="banner hidden">Configuration changed. Restart homeswift to apply it. <button id="restart" class="link">Restart now</button></div>
+  <div id="banner" class="banner hidden">Some changes need a restart of homeswift. <button id="restart" class="link">Restart now</button></div>
   <main id="view"></main>
 </div>
+<script src="/remote.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>
