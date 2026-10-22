@@ -12,19 +12,21 @@ final class AccessoryCache: Sendable {
 
     init(url: URL) { self.url = url }
 
-    func load(logger: Logger) -> [Accessory] {
+    /// The cached accessories, each with whether it was published as an external accessory.
+    func load(logger: Logger) -> [(accessory: Accessory, external: Bool)] {
         guard FileManager.default.fileExists(atPath: url.path) else { return [] }
         do {
             let file = try JSONDecoder().decode(CacheFile.self, from: Data(contentsOf: url))
-            return file.accessories.map { $0.restore() }
+            return file.accessories.map { ($0.restore(), $0.external ?? false) }
         } catch {
             logger.warning("Ignoring an unreadable accessory cache", metadata: ["path": "\(url.path)", "error": "\(error)"])
             return []
         }
     }
 
-    func save(_ accessories: [Accessory]) throws {
-        let file = CacheFile(accessories: accessories.map(CachedAccessory.init))
+    /// `external` lists the ids published as standalone accessories rather than on the bridge.
+    func save(_ accessories: [Accessory], external: Set<String> = []) throws {
+        let file = CacheFile(accessories: accessories.map { CachedAccessory($0, external: external.contains($0.id)) })
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try OwnerOnlyFile.write(encoder.encode(file), to: url)
@@ -44,10 +46,13 @@ struct CachedAccessory: Codable {
     var model: String
     var serialNumber: String
     var firmwareRevision: String
+    /// Published on its own HAP server, not the bridge.
+    var external: Bool?
     var services: [CachedService]
 
-    init(_ accessory: Accessory) {
+    init(_ accessory: Accessory, external: Bool = false) {
         id = accessory.id
+        self.external = external ? true : nil
         name = accessory.name
         category = accessory.category
         let information = accessory.information
@@ -55,15 +60,22 @@ struct CachedAccessory: Codable {
         model = information[.model]?.value.stringValue ?? ""
         serialNumber = information[.serialNumber]?.value.stringValue ?? ""
         firmwareRevision = information[.firmwareRevision]?.value.stringValue ?? ""
-        services = accessory.services
-            .filter { $0.type.uuid != ServiceType.accessoryInformation.uuid }
-            .map(CachedService.init)
+        // The server adds Protocol Information itself.
+        let kept = accessory.services.filter { $0.type.uuid != ServiceType.accessoryInformation.uuid && $0.type.uuid != ServiceType.protocolInformation.uuid }
+        let indexes = Dictionary(kept.enumerated().map { (ObjectIdentifier($0.element), $0.offset) }, uniquingKeysWith: { first, _ in first })
+        services = kept.map { service in
+            CachedService(service, linked: service.linked.compactMap { indexes[ObjectIdentifier($0)] })
+        }
     }
 
     func restore() -> Accessory {
-        Accessory(
+        let restored = services.map { $0.restore() }
+        for (service, cached) in zip(restored, services) {
+            service.linked = (cached.linked ?? []).filter { restored.indices.contains($0) }.map { restored[$0] }
+        }
+        return Accessory(
             id: id, name: name, manufacturer: manufacturer, model: model, serialNumber: serialNumber,
-            firmwareRevision: firmwareRevision, category: category, services: services.map { $0.restore() })
+            firmwareRevision: firmwareRevision, category: category, services: restored)
     }
 }
 
@@ -73,9 +85,12 @@ struct CachedService: Codable {
     var subtype: String?
     var isPrimary: Bool
     var isHidden: Bool
+    /// Positions, in the accessory's cached services, of the services this one links to.
+    var linked: [Int]?
     var characteristics: [CachedCharacteristic]
 
-    init(_ service: Service) {
+    init(_ service: Service, linked: [Int]) {
+        self.linked = linked.isEmpty ? nil : linked
         name = service.type.name
         uuid = service.type.uuid.uuidString
         subtype = service.subtype

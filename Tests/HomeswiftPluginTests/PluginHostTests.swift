@@ -20,6 +20,8 @@ actor RecordingPlugin: HomeswiftPlugin {
     struct Configuration: Decodable, Sendable {
         var name: String?
         var lamps: [String]?
+        /// Televisions to publish on servers of their own.
+        var externals: [String]?
         var refuse: Bool?
         var brightness: Int?
     }
@@ -43,6 +45,9 @@ actor RecordingPlugin: HomeswiftPlugin {
         for lamp in configuration.lamps ?? [] {
             try addLamp(id: lamp)
         }
+        for tv in configuration.externals ?? [] {
+            try await publishTelevision(id: tv, inputs: ["HDMI 1"])
+        }
     }
 
     func stop() async { stopped = true }
@@ -51,6 +56,15 @@ actor RecordingPlugin: HomeswiftPlugin {
         let lightbulb = Service(.lightbulb, name: id, optional: [.brightness], isPrimary: true)
         lightbulb.characteristic(.brightness).value = .int(configuration.brightness ?? 0)
         try context.add(Accessory(id: "Recording:\(id)", name: id, category: .lightbulb, services: [lightbulb]))
+    }
+
+    /// A television with its inputs as linked services, published outside the bridge.
+    func publishTelevision(id: String, inputs: [String]) async throws {
+        let sources = inputs.enumerated().map { index, name in
+            Service(.inputSource, name: name, subtype: "input-\(index + 1)", optional: [.identifier], extra: [Characteristic(.identifier, value: .int(index + 1))])
+        }
+        let television = Service(.television, name: id, linked: sources, isPrimary: true)
+        try await context.publishExternal(Accessory(id: "Recording:\(id)", name: id, category: .television, services: [television] + sources))
     }
 }
 
@@ -354,12 +368,76 @@ struct PluginHostTests {
 
         // Removing frees the id.
         let first = try #require(environment.createdPlugins.first { $0.context.name == "First" })
-        try first.context.remove(id: "Recording:shared")
+        try await first.context.remove(id: "Recording:shared")
         #expect(host.mainBridge.server.accessories.count == 1)
         try await second.addLamp(id: "shared")
         #expect(host.mainBridge.server.accessories.count == 2)
         #expect(second.context.accessories.count == 1)
         #expect(first.context.accessories.isEmpty)
         await host.stop()
+    }
+}
+
+@Suite(.timeLimit(.minutes(1)))
+struct ExternalAccessoryTests {
+    let environment = TestEnvironment()
+    let json = """
+        {
+          "bridge": { "name": "Main", "pin": "031-45-154", "port": 0 },
+          "platforms": [{ "platform": "Recording", "name": "TVs", "lamps": ["lamp"], "externals": ["Living Room TV"] }]
+        }
+        """
+
+    @Test func publishesTelevisionsOnTheirOwnServers() async throws {
+        let host = try environment.host(json)
+        try await host.start()
+        // Published while the host runs: the server is up at once.
+        #expect(host.bridges.map(\.name) == ["Main", "Living Room TV"])
+        let external = host.bridges[1]
+        #expect(external.isExternal && !external.isChild)
+        #expect(external.owner == "TVs")
+        #expect(external.server.port != nil)
+        #expect(external.server.port != host.mainBridge.server.port)
+        #expect(external.server.setupCode == host.mainBridge.server.setupCode)
+        #expect(external.server.primary.id == "Recording:Living Room TV")
+        #expect(external.server.primary.aid == 1)
+        #expect(external.server.primary.category == .television)
+        #expect(external.server.accessories.count == 1)
+        #expect(host.mainBridge.server.accessories.map(\.id) == ["bridge", "Recording:lamp"])
+        let plugin = try #require(environment.createdPlugins.first)
+        #expect(plugin.context.accessories.map(\.id) == ["Recording:lamp", "Recording:Living Room TV"])
+        #expect(plugin.context.isExternal(id: "Recording:Living Room TV"))
+        #expect(host.platforms[0].accessoryIDs.contains("Recording:Living Room TV"))
+        let deviceID = external.server.deviceID
+        let inputIID = external.server.primary.service(.inputSource, subtype: "input-1")?.iid
+
+        // Publishing again replaces the accessory on the same server.
+        try await plugin.publishTelevision(id: "Living Room TV", inputs: ["HDMI 1", "Netflix"])
+        #expect(host.bridges.count == 2)
+        #expect(host.bridges[1].server === external.server)
+        #expect(external.server.primary.service(.inputSource, subtype: "input-1")?.iid == inputIID)
+        #expect(external.server.primary.services.filter { $0.type.uuid == ServiceType.inputSource.uuid }.count == 2)
+        await host.stop()
+
+        // At the next launch the television is back on its own server, with its identity, before the plugin starts.
+        let second = try environment.host(json)
+        #expect(second.bridges.map(\.name) == ["Main", "Living Room TV"])
+        #expect(second.bridges[1].isExternal)
+        #expect(second.bridges[1].server.deviceID == deviceID)
+        let restored = second.bridges[1].server.primary
+        #expect(restored.service(.television)?.linked.count == 2)
+        #expect(restored.service(.inputSource, subtype: "input-1")?.iid == inputIID)
+        try await second.start()
+        #expect(second.bridges.count == 2)
+        #expect(second.bridges[1].server.port != nil)
+        #expect(second.bridges[1].server.primary !== restored)   // the plugin's own accessory replaced the cached one
+        #expect(second.bridges[1].server.primary.service(.inputSource, subtype: "input-1")?.iid == inputIID)
+
+        // Removing stops the server.
+        let plugin2 = try #require(environment.createdPlugins.last)
+        try await plugin2.context.remove(id: "Recording:Living Room TV")
+        #expect(second.bridges.map(\.name) == ["Main"])
+        #expect(plugin2.context.accessories.map(\.id) == ["Recording:lamp"])
+        await second.stop()
     }
 }

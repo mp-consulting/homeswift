@@ -161,12 +161,12 @@ enum WebAssets {
     $("#banner").classList.toggle("hidden", !status.restartNeeded);
     const bridges = status.bridges.map((bridge, index) => el("div", { class: "card" },
       el("h2", { text: bridge.name }, " ", el("span", { class: `pill ${bridge.paired ? "on" : ""}`, text: bridge.paired ? `paired, ${bridge.controllers} controller(s)` : "not paired" }),
-        bridge.childBridge ? el("span", { class: "pill", text: "child bridge" }) : null),
+        bridge.childBridge ? el("span", { class: "pill", text: "child bridge" }) : bridge.external ? el("span", { class: "pill", text: "accessory" }) : null),
       el("dl", {},
         el("dt", { text: "Device ID" }), el("dd", { text: bridge.deviceId }),
         el("dt", { text: "Port" }), el("dd", { text: bridge.port ?? "?" }),
         el("dt", { text: "Accessories" }), el("dd", { text: bridge.accessories }),
-        el("dt", { text: "Platforms" }), el("dd", { text: bridge.platforms.join(", ") || "none" })),
+        el("dt", { text: bridge.external ? "Published by" : "Platforms" }), el("dd", { text: bridge.platforms.join(", ") || "none" })),
       bridge.setupCode ? el("div", {}, el("p", { class: "muted", text: "In the Home app: Add Accessory, then scan this code with the camera, or choose More options and enter it." }),
         el("div", { class: "pairing" }, el("img", { class: "qr", src: `/api/qr/${index}.svg`, alt: "Pairing QR code", width: 148, height: 148 }),
           el("div", {}, el("div", { class: "code", text: bridge.setupCode }), el("p", { class: "muted", text: bridge.setupUri })))) : null));

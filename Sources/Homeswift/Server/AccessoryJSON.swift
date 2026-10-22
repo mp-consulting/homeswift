@@ -21,6 +21,7 @@ struct AccessoryDatabase: JSONWritable {
         var characteristics: [CharacteristicJSON]
         var primary: Bool?
         var hidden: Bool?
+        var linked: [Int]?
 
         func write(to json: inout JSONWriter) {
             json.object { json in
@@ -32,6 +33,7 @@ struct AccessoryDatabase: JSONWritable {
                 }
                 json.field("primary", primary)
                 json.field("hidden", hidden)
+                json.field("linked", linked)
             }
         }
     }

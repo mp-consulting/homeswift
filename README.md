@@ -24,7 +24,7 @@ services and characteristics, react to writes from the Home app, set values when
 Homeswift takes care of pairing, encryption, Bonjour and keeping the accessory's identity across launches.
 
 It is also a Homebridge written in Swift: the `homeswift` bridge reads a Homebridge-style `config.json` and
-runs the plugins compiled into it, one small binary, no Node.js, no npm. The first plugin is Elgato Key Lights;
+runs the plugins compiled into it, one small binary, no Node.js, no npm. Elgato Key Lights and Philips Ambilight TVs are the first plugins;
 [docs/plugins.md](docs/plugins.md) explains how to write or port one.
 
 ## What it does
@@ -147,6 +147,7 @@ are back in the Home app at the next launch before the plugin has reached its de
 | Plugin | Platform | Devices |
 |---|---|---|
 | [Elgato Key Lights](Plugins/ElgatoKeyLights) | `ElgatoKeyLights` | Key Light, Key Light Air, Key Light Mini, Ring Light |
+| [Philips Ambilight TV](Plugins/PhilipsAmbilightTV) | `PhilipsAmbilightTV` | Philips Android TVs with Ambilight (JointSpace API, paired from the web UI) |
 
 ## The Assistant
 

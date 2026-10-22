@@ -17,8 +17,9 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `Sources/HomeswiftAI` | The Assistant: `Provider` adapters (`Providers/`), `AIConfiguration` (the `HomeswiftAiKit` block), `Redaction`, `Prompts`, `JSONGeneration`, `Pricing`/`UsageTracker`, `AssistantService` |
 | `Sources/HomeswiftMCP` | The MCP server: `JSONRPC`, `MCPServer`/`MCPSession` (methods, elicitation), `Scopes` (`MCPConfiguration`, tokens), `AuditLog`, `HomeswiftCatalog` (the tools, resources and prompts over a `PluginHost`; also the web UI's control surface), `HTTPServer` (Streamable HTTP on NIO), `StdioProxy` (`homeswift mcp`), `HostName` and `FailureThrottle` (shared with the web UI) |
 | `Sources/HomeswiftUI` | The web UI: `UIConfiguration` (the `HomeswiftUI` block), `Auth` (users, PBKDF2, sessions, login throttle), `UIServer` (NIO HTTP, the JSON API, the event stream), `Web/` (the pages; `WebAssets.swift` is generated from it) |
+| `Sources/HomeswiftNetwork` | For plugins reaching devices on the LAN: `HTTPClient` (NIO and NIOSSL; trusts or pins a self-signed certificate, the same on Linux), `DigestAuthentication`, `WakeOnLAN` |
 | `Scripts/embed-assets.swift` | Embeds a plugin's `config.schema.json` or the `Web/` directory into Swift source; tests fail when the generated files are stale |
-| `Plugins/<Name>` | One plugin: `Sources` (target `Homeswift<Name>`), `Tests`, `README.md`, `config.schema.json`, optionally `Web/` (its own UI page; `Sources/WebFiles.swift` is generated). `ElgatoKeyLights` is the reference |
+| `Plugins/<Name>` | One plugin: `Sources` (target `Homeswift<Name>`), `Tests`, `README.md`, `config.schema.json`, optionally `Web/` (its own UI page; `Sources/WebFiles.swift` is generated). `ElgatoKeyLights` is the reference, `PhilipsAmbilightTV` the one with external accessories, a shared transport and pairing |
 | `Sources/CHAPMath` | C Montgomery multiplication for SRP |
 | `Sources/CDNSSD` | Avahi's dns_sd on Linux (macOS imports `dnssd`) |
 | `Tests/HomeswiftTests` | Primitives (SRP vectors from fast-srp-hap) and a real controller (`TestController`) against the server |
@@ -30,6 +31,7 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `Tests/HomeswiftUITests` | Users and sessions, embedded assets are current, the server end to end with a cookie-keeping client |
 | `Tests/HomeswiftMCPTests` | The protocol on a direct session (scopes, elicitation, config tools, resources), the HTTP transport and the stdio proxy against a real server on port 0 |
 | `Tests/HomeswiftAITests` | Providers against a fake transport (request shapes, parsing, streaming, retries), redaction, schema checks, the Assistant on a fake provider |
+| `Tests/HomeswiftNetworkTests` | The HTTP client against a NIO server, plain and with a self-signed certificate (trust, pin, mismatch), the RFC 2617 Digest vector, Wake-on-LAN packets over UDP |
 | `Benchmarks` | A separate package: `hap-bench`, a HomeKit controller that measures a server (pairing, requests, events, load, memory), `hap-bench-server` (a Homeswift bridge with N lightbulbs) and the same bridge on HAP-NodeJS under `hap-nodejs/`; `run.sh` compares them, `README.md` has the numbers |
 
 ## Commands
@@ -69,7 +71,9 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
   compatibility layer (no `DNSServiceSetDispatchQueue`, shared connections or `DNSServiceGetAddrInfo`).
 - Plugins live in `Plugins/<Name>/` with the layout of a standalone package, keep the platform name and
   option names of the Homebridge plugin they port, and are registered in `Sources/HomeswiftCLI/Plugins.swift`.
-  Plugins depend on `Homeswift` and `HomeswiftPlugin` only; shared transports become targets of this package.
+  Plugins depend on `Homeswift`, `HomeswiftPlugin` and shared transport targets of this package (`HomeswiftNetwork`), never
+  on a new package. An accessory HomeKit wants on its own (a television, a camera) goes through
+  `context.publishExternal`, which gives it a HAP server of its own under `external/`.
 - The executable target is `HomeswiftCLI`, not `homeswift`: that name is `Homeswift` on a case-insensitive
   file system.
 - The Assistant: providers talk to the APIs over plain HTTP (no SDKs), through `HTTPTransport` so tests use

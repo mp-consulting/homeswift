@@ -76,7 +76,7 @@ public struct HomeswiftCatalog: Sendable {
         let platforms = host.platforms
         return host.bridges.flatMap { bridge in
             bridge.server.accessories.filter { $0.id != "bridge" }.map { accessory in
-                Located(accessory: accessory, bridge: bridge, platform: platforms.first { $0.bridge === bridge && $0.accessoryIDs.contains(accessory.id) })
+                Located(accessory: accessory, bridge: bridge, platform: platforms.first { ($0.bridge === bridge || bridge.isExternal) && $0.accessoryIDs.contains(accessory.id) })
             }
         }
     }
@@ -210,8 +210,9 @@ public struct HomeswiftCatalog: Sendable {
                 var entry: [String: JSONValue] = [
                     "name": .string(bridge.name), "deviceId": .string(server.deviceID), "port": server.port.map { .number(Double($0)) } ?? .null,
                     "paired": .bool(server.isPaired), "controllers": .number(Double(server.pairings.count)), "childBridge": .bool(bridge.isChild),
-                    "accessories": .number(Double(max(0, server.accessories.count - 1))),
-                    "platforms": .array(platforms.filter { $0.bridge === bridge }.map { .string($0.name) }),
+                    "external": .bool(bridge.isExternal),
+                    "accessories": .number(Double(bridge.isExternal ? 1 : max(0, server.accessories.count - 1))),
+                    "platforms": .array(bridge.isExternal ? [bridge.owner.map { .string($0) } ?? .null] : platforms.filter { $0.bridge === bridge }.map { .string($0.name) }),
                 ]
                 if includePairing, !server.isPaired {
                     entry["setupCode"] = .string(server.setupCode.description)

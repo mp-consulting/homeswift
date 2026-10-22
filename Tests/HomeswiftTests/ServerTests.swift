@@ -199,7 +199,51 @@ struct ServerTests {
         #expect(renamed.txtRecord().first { $0.0 == "sf" }?.1 == "1")
     }
 
-    @Test func restoredAccessoriesBumpTheConfigurationNumberOnce() async throws {
+     func servesStandaloneAccessoriesWithLinkedServices() async throws {
+        // A television published on its own: aid 1, its inputs and speaker listed as linked services.
+        func makeTelevision(inputs: [String]) -> (Accessory, Service) {
+            let sources = inputs.enumerated().map { index, name in
+                Service(.inputSource, name: name, subtype: "input-\(index + 1)", optional: [.identifier], extra: [Characteristic(.identifier, value: .int(index + 1))])
+            }
+            let speaker = Service(.televisionSpeaker, name: "Speaker", optional: [.volumeSelector])
+            let tv = Service(.television, name: "TV", linked: sources + [speaker], isPrimary: true)
+            return (Accessory(id: "tv", name: "TV", category: .television, services: [tv] + sources + [speaker]), tv)
+        }
+        let storage = MemoryStorage()
+        let (accessory, tv) = makeTelevision(inputs: ["HDMI 1", "Netflix"])
+        let server = try HAPServer(accessory: accessory, storage: storage, options: .init(setupCode: SetupCode("031-45-154"), port: 0, advertise: false, logger: testLogger))
+        #expect(accessory[.protocolInformation] != nil)
+        try await server.start()
+        let controller = TestController()
+        try await controller.connect(port: server.port!)
+        try await controller.pairSetup(code: "031-45-154")
+        try await controller.pairVerify()
+        let response = try await controller.request("GET", "/accessories")
+        let accessories = try #require((response.json as? [String: Any])?["accessories"] as? [[String: Any]])
+        #expect(accessories.map { $0["aid"] as? Int } == [1])
+        let services = try #require(accessories[0]["services"] as? [[String: Any]])
+        let television = try #require(services.first { $0["type"] as? String == "D8" })
+        let linked = tv.linked.map(\.iid)
+        #expect(linked.count == 3)
+        #expect(television["linked"] as? [Int] == linked)
+        #expect(services.contains { $0["type"] as? String == "A2" })   // Protocol Information, added by the server
+        let netflixIID = accessory.service(.inputSource, subtype: "input-2")?.iid
+
+        // The accessory replaced with one more input keeps its identity and the iids of what it kept.
+        let (replacement, _) = makeTelevision(inputs: ["HDMI 1", "Netflix", "Plex"])
+        try server.replace(primary: replacement)
+        #expect(server.primary === replacement)
+        #expect(replacement.service(.inputSource, subtype: "input-2")?.iid == netflixIID)
+        #expect(replacement.aid == 1)
+        let again = try await controller.request("GET", "/accessories")
+        let againServices = try #require(((again.json as? [String: Any])?["accessories"] as? [[String: Any]])?[0]["services"] as? [[String: Any]])
+        #expect(againServices.filter { $0["type"] as? String == "D9" }.count == 3)
+        #expect(server.txtRecord().first { $0.0 == "c#" }?.1 == "2")
+        await controller.close()
+        await server.stop()
+    }
+
+     func restoredAccessoriesBumpTheConfigurationNumberOnce() async throws {
         func lamp(_ id: String) -> Accessory {
             Accessory(id: id, name: id, category: .lightbulb, services: [Service(.lightbulb, name: id, optional: [.brightness], isPrimary: true)])
         }
@@ -237,8 +281,8 @@ struct ServerTests {
         #expect(restartedBulb.characteristic(.brightness).iid == iid)
 
         try await restarted.start()
-        // The bridge lost its protocol information service, so the configuration number moved on at start.
-        #expect(restarted.txtRecord().first { $0.0 == "c#" }?.1 == "2")
+        // Protocol Information is the server's to add, so the database is the same and the configuration number stays.
+        #expect(restarted.txtRecord().first { $0.0 == "c#" }?.1 == "1")
         let again = TestController(identifier: controller.identifier, signingKey: controller.signingKey)
         again.accessoryLTPK = controller.accessoryLTPK
         try await again.connect(port: restarted.port!)

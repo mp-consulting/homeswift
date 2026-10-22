@@ -174,7 +174,7 @@ let main = Task {
         let platforms = host.platforms.filter { $0.bridge === bridge }.map(\.name)
         say("""
 
-            \(bridge.name)\(bridge.isChild ? " (child bridge)" : "")
+            \(bridge.name)\(bridge.isChild ? " (child bridge)" : bridge.isExternal ? " (accessory of \(bridge.owner ?? "a plugin"))" : "")
               Setup code: \(server.setupCode)
               Setup URI:  \(server.setupURI)
               Port:       \(server.port.map(String.init) ?? "?")
@@ -193,7 +193,7 @@ let main = Task {
     } ?? ""
     say("""
 
-        In the Home app: Add Accessory > More options > \(host.mainBridge.name), then enter the code.
+        In the Home app: Add Accessory > More options > \(host.mainBridge.name), then enter the code.\(host.bridges.contains(where: \.isExternal) ? " Accessories listed on their own are added the same way, one by one." : "")
         Config: \(configURL.path)
         \(uiLine)\(mcpLine)
         """)

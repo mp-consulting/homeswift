@@ -103,7 +103,7 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
     }
 
     public func start() async throws {
-        removeDisabledAccessories()
+        await removeDisabledAccessories()
         registerConfiguredDevices()
         let discover = dependencies.discover
         let logger = logger
@@ -267,12 +267,12 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
     }
 
     /// Lights disabled in config.json disappear from HomeKit instead of lingering as unresponsive tiles.
-    private func removeDisabledAccessories() {
+    private func removeDisabledAccessories() async {
         for device in configuration.devices ?? [] where device.enabled == false {
             let id = "\(Self.platform):\(Self.canonicalMAC(device.mac))"
             guard context.accessory(id: id) != nil else { continue }
             do {
-                try context.remove(id: id)
+                try await context.remove(id: id)
                 logger.info("Removed disabled light from the bridge", metadata: ["light": "\(device.displayName ?? device.name ?? device.mac)"])
             } catch {
                 logger.warning("Could not remove disabled light: \(error)")

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Philips Ambilight TV</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <a class="brand" href="/#plugins"><img src="/icon.svg" class="logo" alt="">Homeswift</a>
+  <nav><a href="/#plugins">Plugins</a></nav>
+  <span class="spacer"></span>
+  <span id="instance" class="muted"></span>
+</header>
+<main>
+  <h1>Philips Ambilight TV</h1>
+  <p class="muted">The TVs this instance knows, as it sees them right now, and the pairing a new TV needs before it can be configured.</p>
+  <div id="tvs" class="cards"></div>
+  <h2>Pair a TV</h2>
+  <p class="muted">Switch the TV on, enter its address (or find it below), then type the PIN the TV shows. The result is the TV's entry for this plugin's configuration.</p>
+  <div id="pairing" class="card"></div>
+</main>
+<script src="/plugin.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
