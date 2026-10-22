@@ -14,6 +14,8 @@ struct KeyLightInfo: Codable, Sendable, Equatable {
     var serialNumber: String?
     var displayName: String?
     var features: [String]?
+    /// Current firmware reports it; older lights leave it out.
+    var macAddress: String?
 }
 
 /// One light in `GET` and `PUT /elgato/lights`. Only the keys sent are changed, so each is optional.

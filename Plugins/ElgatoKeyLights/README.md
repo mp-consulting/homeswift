@@ -61,9 +61,14 @@ Per light, keyed by MAC address (`id` in the light's Bonjour record; the log pri
 
 ## The web page
 
-With the web UI on, the Plugins page has an **Open** button for this plugin: a page with every light the
-instance knows (address, serial, firmware, whether it answers, its state) and an Identify button that
-flashes one. `Web/` holds the page; `Sources/WebFiles.swift` is generated from it.
+With the web UI on, the Plugins page has an **Open** button for this plugin, a page with what the Homebridge
+plugin's settings page does: every light the instance knows (its state, address, serial and firmware, whether
+it answers) and the disabled ones from config.json; **Identify** flashes one. **Settings** keeps a light in
+or out of HomeKit, names it, and sets what it does when switched on (the platform's setting, the last
+settings, or a default brightness and colour temperature), with a connection test; **Add by address** adds a
+light Bonjour does not reach, asking it for its MAC (`macAddress` in `accessory-info`, else the ARP table).
+With the Assistant on, **Explain** sits next to errors. Saving applies at once, no restart. `Web/` holds the
+page; `Sources/WebFiles.swift` is generated from it.
 
 ## How it works
 
@@ -78,4 +83,4 @@ Accessories are cached by the runtime, so the lights are in the Home app right a
 answered. The accessory id is `ElgatoKeyLights:<MAC>`.
 
 Not ported: the ARP lookup the Homebridge plugin used to turn a `.local` host name into an address (Bonjour
-gives the address directly), and the custom settings page of the Homebridge UI.
+gives the address directly), and its **Discover** button (Homeswift browses for lights all the time).

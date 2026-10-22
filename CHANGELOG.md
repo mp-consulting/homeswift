@@ -26,6 +26,43 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **No restart to apply configuration.** `PluginHost.apply(_:)` applies a new config.json in place: a changed
+  platform block gets a fresh plugin on the same accessories (aids, iids and pairings kept), a new block
+  starts, a removed one leaves HomeKit, child bridges start and stop, the Assistant swaps. Saving from the
+  web UI or the MCP tools applies at once; a changed `HomeswiftUI` or MCP block restarts that server inside
+  the process, and only the `bridge` block (identity, port, setup code) restarts homeswift, by itself.
+- The web UI's Status page: a summary that says whether everything is in the Home app, the numbers that
+  matter, a card per bridge or accessory server with its setup code while unpaired, and the machine.
+- The Philips Ambilight TV page has what the Homebridge plugin's settings page has: a card per TV with a
+  remote; pairing in three steps (find, a box per PIN digit, confirm with the remote keys and automations),
+  waking a known TV that does not answer; the inputs editor (drag and drop, hide, rename); an editor with
+  General, Remote, Automations, Apps (**Detect from TV**) and Buttons; pairing again; removing a TV.
+- The Elgato Key Lights page has the Homebridge plugin's settings: per light, in or out of HomeKit, its name
+  and power-on behaviour, a connection test; adding a light by address (its MAC read from the light, or the
+  ARP table); disabled lights listed.
+- Every page of the web UI: a page head with tools, Home-app-like accessory cards (power in the header,
+  readable controls, an input picker and remote for televisions, search), plugin cards with a catalog to
+  add from and settings forms with switches, a config editor that checks JSON as you type (⌘S saves), and a
+  log with level filters, search and a row per line. The header stays on one line on a phone.
+- Plugin pages carry the UI's whole header and a breadcrumb (Plugins › the plugin › what is open on the page).
+- A mini remote for televisions, after the Control Center remote (a round pad, round keys, a volume rocker),
+  on the Philips TV page and on TV accessories in the Accessories page; keys on the keyboard too.
+- The HomeswiftUI block has a settings form; a new port moves the page there.
+- Each plugin's settings have a page of their own (`#settings/<platform>/<name>`): the form, a save bar that
+  stays in view, a link to the plugin's page, Remove; leaving with unsaved changes asks first.
+- **Account** (the user name in the header): change the password. The current one is checked (slowed down
+  after mistakes, like a login), and the user's other sessions are signed out.
+- **Passwords after the ANSSI** (guide PG-078: R21, R22, R23, R27): at least 12 characters and 85 bits, the
+  guide's "moyen à fort" level, checked by the server for the first account and every change
+  (`PasswordPolicy`); repeats, runs, common words and the username earn nothing. A gauge shows the guide's
+  bands while typing.
+- `HOMESWIFT_WEB_ROOT` serves the web pages from a checkout and reloads open pages when a file changes
+  (a stylesheet in place), for working on them without a rebuild.
+- The Assistant's answers look like Apple Intelligence: a sparkle button, a glow turning around the card while
+  it thinks, then the answer typeset from its Markdown (never as HTML) in a card with a rainbow edge, long
+  answers folded under "Show more"; an answer survives the page redrawing its card.
+- **Explain**: with the Assistant on, plugin pages offer an explanation next to errors
+  (`POST /api/assistant/explain`; `homeswift.explain` in `plugin.js`).
 - `PluginContext.remove(id:)` is async: removing an external accessory stops its server.
 - Every accessory a server publishes carries the Protocol Information service; bridges no longer add it themselves.
 

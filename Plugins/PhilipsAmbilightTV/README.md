@@ -15,9 +15,25 @@ A TV has to accept the plugin once, like the Philips TV Remote app: with the web
 an **Open** button for this plugin whose page finds TVs on the network (or takes an address), asks the TV to
 show a PIN, and turns the PIN into the TV's entry for the block, with the `username` and `password` the TV
 handed out, the fingerprint of its certificate and its MAC address (from the TV's `network/devices`, else from
-this machine's ARP table, as the Homebridge plugin reads it). **Add to the configuration** writes the entry into this
-block (a restart follows); **Copy the entry** gives it to paste by hand. The settings page of the Homebridge
-plugin produces the same keys.
+this machine's ARP table, as the Homebridge plugin reads it). **Add TV** writes the entry into this block and
+the plugin reloads with it at once, no restart; the entry can also be copied to paste by hand. The settings page of the Homebridge
+plugin produces the same keys. A TV that does not answer while pairing can be woken from there when it is
+already configured, and with the Assistant on, **Explain** sits next to errors.
+
+## The web page
+
+The page does what the Homebridge plugin's settings page does. Each TV has a card with its state and a
+remote, and:
+
+- **Inputs**: the order of the input wheel by drag and drop (or Alt and an arrow key), inputs hidden or
+  shown, renamed in place; it writes the `sources` keys.
+- **Edit**: General (name, address, MAC, Ambilight style, Wake-on-LAN, polling), Remote (the keys of the
+  Info, Back and Play/Pause buttons), Automations (source switches, the Ambilight+hue switch, state
+  sensors), Apps (custom apps, with **Detect from TV** reading the app in the foreground) and Buttons
+  (custom buttons), and **Pair again** after a reset of the TV.
+- **Remove** takes the TV out of the block, and out of the Home app.
+
+Every save applies at once: the plugin reloads and the TV keeps its place in the Home app.
 
 ## Configuration
 
@@ -95,5 +111,5 @@ The accessory id is `PhilipsAmbilightTV:<MAC>`; its HAP state lives in `external
 The plugin's own files (`inputs-<mac>.json`, `switch-names-<mac>.json`) are in its storage directory. The
 HTTP client, Digest authentication and Wake-on-LAN are `HomeswiftNetwork`, shared with other plugins.
 
-Not ported: Adaptive Lighting on the Ambilight light, and the Homebridge settings page's source editor (the
-`sources` keys are honoured; the web UI's form edits them).
+Not ported: Adaptive Lighting on the Ambilight light, and the sources editor's **Refresh from TV** (the
+plugin learns the TV's apps by itself whenever the TV is on).

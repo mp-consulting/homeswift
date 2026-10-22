@@ -21,20 +21,24 @@ public struct HomeswiftCatalog: Sendable {
     public let allowSecrets: Bool
     /// Restarts the process, when it can (the `homeswift` binary execs itself). nil in a library or a test.
     let restart: (@Sendable () -> Void)?
-    /// config.json was changed by a tool or the web UI since the process started.
+    /// Restarts the servers of the runtime's own blocks that changed (the web UI, the MCP server), given the
+    /// new configuration and the platforms of those blocks. Runs after the reply that saved them has left.
+    let reloadServices: (@Sendable (HomeswiftConfiguration, [String]) async -> Void)?
+    /// config.json has a change that only a restart applies, and this process could not restart itself.
     public let restartNeeded = NIOLockedValueBox(false)
     public let startedAt = Date()
     let logger: Logger
 
     public init(
         host: PluginHost, logs: LogBuffer, configURL: URL, allowSecrets: Bool = false, restart: (@Sendable () -> Void)? = nil,
-        logger: Logger = Logger(label: "homeswift.mcp")
+        reloadServices: (@Sendable (HomeswiftConfiguration, [String]) async -> Void)? = nil, logger: Logger = Logger(label: "homeswift.mcp")
     ) {
         self.host = host
         self.logs = logs
         self.configURL = configURL
         self.allowSecrets = allowSecrets
         self.restart = restart
+        self.reloadServices = reloadServices
         self.logger = logger
     }
 
@@ -312,28 +316,51 @@ public struct HomeswiftCatalog: Sendable {
         return backup
     }
 
-    /// Replaces the file with `next`, restoring redacted secrets from the current one.
-    public func applyConfig(_ next: JSONValue, dryRun: Bool) throws -> JSONValue {
+    /// Replaces the file with `next`, restoring redacted secrets from the current one, and applies it to the
+    /// running bridge (`PluginHost.apply`): plugin blocks and child bridges reload in place, the Assistant
+    /// swaps, the web UI and MCP servers restart in the process. The bridge block (the HomeKit identity, port
+    /// and setup code) restarts the process on its own; only when it cannot does the restart flag go up.
+    public func applyConfig(_ next: JSONValue, dryRun: Bool) async throws -> JSONValue {
         let current = (try? readConfig()) ?? [:]
         let restored = Redaction.containsRedacted(next) ? try Redaction.restoreSecrets(next, from: current) : next
-        try HomeswiftConfiguration.decode(restored.encoded()).validate()
+        let configuration = try HomeswiftConfiguration.decode(restored.encoded())
+        try configuration.validate()
         let changed = Self.changedKeys(from: current, to: restored)
         if dryRun {
             return ["dryRun": true, "changes": .array(changed.map(JSONValue.string)), "config": Redaction.redactSecrets(restored)]
         }
         let backup = try writeConfig(restored)
-        restartNeeded.withLockedValue { $0 = true }
-        return ["written": .string(configURL.path), "backup": .string(backup), "changes": .array(changed.map(JSONValue.string)), "note": "Restart homeswift to apply."]
+        let report = await host.apply(configuration)
+        var pending = report.needsRestart
+        let services = report.systemBlocksChanged.filter { $0 != AIConfiguration.platform || reloadServices != nil }
+        if let reloadServices, !services.isEmpty {
+            // After this reply: the web UI server may be the one answering it.
+            Task {
+                try? await Task.sleep(for: .milliseconds(400))
+                await reloadServices(configuration, services)
+            }
+        } else {
+            pending += services.map { "the \($0) block changed" }
+        }
+        let restarting = !pending.isEmpty && scheduleRestart(requestedBy: "a configuration change (\(pending.joined(separator: "; ")))")
+        if !pending.isEmpty, !restarting { restartNeeded.withLockedValue { $0 = true } }
+        let names = { (list: [String]) in JSONValue.array(list.map(JSONValue.string)) }
+        let note = pending.isEmpty ? "Applied." : restarting ? "Applied; homeswift restarts by itself for the rest (\(pending.joined(separator: "; ")))." : "Restart homeswift to apply the rest: \(pending.joined(separator: "; "))."
+        return [
+            "written": .string(configURL.path), "backup": .string(backup), "changes": .array(changed.map(JSONValue.string)),
+            "reloaded": names(report.reloaded), "started": names(report.started), "stopped": names(report.stopped),
+            "restarting": .bool(restarting), "restartNeeded": names(restarting ? [] : pending), "note": .string(note),
+        ]
     }
 
     /// Reads config.json, lets `edit` change its platform blocks, and applies the result: validation, a
     /// backup, the restart flag. An unreadable file is an error, never an empty one to write over.
-    public func editPlatforms(dryRun: Bool, _ edit: (inout [JSONValue]) throws -> Void) throws -> JSONValue {
+    public func editPlatforms(dryRun: Bool, _ edit: (inout [JSONValue]) throws -> Void) async throws -> JSONValue {
         var root = try readConfig().objectValue ?? [:]
         var platforms = root["platforms"]?.arrayValue ?? []
         try edit(&platforms)
         root["platforms"] = .array(platforms)
-        return try applyConfig(.object(root), dryRun: dryRun)
+        return try await applyConfig(.object(root), dryRun: dryRun)
     }
 
     static func changedKeys(from a: JSONValue, to b: JSONValue, path: String = "") -> [String] {
@@ -536,15 +563,15 @@ public struct HomeswiftCatalog: Sendable {
             },
             MCPTool(
                 name: "update_config", title: "Replace config.json",
-                description: "Replaces the whole config.json after validating it; __REDACTED__ values are restored from the current file; a backup is made first. dryRun shows the changes without writing. Restart homeswift to apply.",
+                description: "Replaces the whole config.json after validating it; __REDACTED__ values are restored from the current file; a backup is made first. dryRun shows the changes without writing. Plugin blocks apply at once; the answer lists what still needs a restart.",
                 inputSchema: ["type": "object", "required": ["config"], "properties": ["config": ["type": "object"]]],
                 scope: .admin, destructive: true, supportsDryRun: true
             ) { call in
-                .json(try catalog.applyConfig(call.arguments["config"] ?? [:], dryRun: call.isDryRun))
+                .json(try await catalog.applyConfig(call.arguments["config"] ?? [:], dryRun: call.isDryRun))
             },
             MCPTool(
                 name: "patch_config", title: "Change one platform block",
-                description: "Merges settings into the platform block with this platform (and name, when there are several), or adds the block. A null value removes a key. dryRun previews. Restart homeswift to apply.",
+                description: "Merges settings into the platform block with this platform (and name, when there are several), or adds the block. A null value removes a key. dryRun previews. The block applies at once: its plugin reloads.",
                 inputSchema: [
                     "type": "object", "required": ["platform", "settings"],
                     "properties": ["platform": ["type": "string"], "name": ["type": "string"], "settings": ["type": "object"]],
@@ -554,7 +581,7 @@ public struct HomeswiftCatalog: Sendable {
                 let platform = try call.string("platform")
                 let name = call.optionalString("name")
                 let settings = call.arguments["settings"]?.objectValue ?? [:]
-                return .json(try catalog.editPlatforms(dryRun: call.isDryRun) { platforms in
+                return .json(try await catalog.editPlatforms(dryRun: call.isDryRun) { platforms in
                     let matching = platforms.indices.filter { platforms[$0]["platform"]?.stringValue == platform && (name == nil || platforms[$0]["name"]?.stringValue == name) }
                     guard matching.count <= 1 else { throw CatalogError("\(matching.count) blocks have platform \(platform); give the name") }
                     var block = matching.first.map { platforms[$0].objectValue ?? [:] } ?? ["platform": .string(platform), "name": .string(name ?? platform)]
@@ -566,14 +593,14 @@ public struct HomeswiftCatalog: Sendable {
             },
             MCPTool(
                 name: "restore_config", title: "Restore a config backup",
-                description: "Replaces config.json with one of the backups from list_config_backups (the current file is backed up first). Restart homeswift to apply.",
+                description: "Replaces config.json with one of the backups from list_config_backups (the current file is backed up first), and applies it like update_config.",
                 inputSchema: ["type": "object", "required": ["backup"], "properties": ["backup": ["type": "string"]]],
                 scope: .admin, destructive: true
             ) { call in
                 let backup = try call.string("backup")
                 guard catalog.backups().contains(backup) else { return .error("No such backup") }
                 let config = try JSONValue(data: Data(contentsOf: catalog.backupsDirectory.appendingPathComponent(backup)))
-                return .json(try catalog.applyConfig(config, dryRun: false))
+                return .json(try await catalog.applyConfig(config, dryRun: false))
             },
         ]
     }

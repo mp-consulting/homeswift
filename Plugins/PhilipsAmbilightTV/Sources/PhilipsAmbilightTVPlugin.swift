@@ -122,9 +122,10 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
 
     // MARK: The web page
 
-    /// `GET tvs` lists the TVs with their state; `POST wake?mac=` sends Wake-on-LAN; `POST key` sends a
-    /// remote key; `GET discover` looks for TVs over Bonjour; `POST pair` and `POST pair/grant` pair a TV
-    /// and answer with the keys of its configuration block. `Web/` is the page.
+    /// `GET tvs` lists the TVs with their state; `GET sources?mac=` a TV's inputs in the wheel's order, for
+    /// the sources editor; `POST wake?mac=` sends Wake-on-LAN; `POST key` sends a remote key; `GET discover`
+    /// looks for TVs over Bonjour; `POST pair` and `POST pair/grant` pair a TV and answer with the keys of
+    /// its configuration block. `Web/` is the page.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         switch (request.method, request.path) {
         case ("GET", "tvs"):
@@ -139,6 +140,36 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
                 ])
             }
             return PluginWebResponse(["tvs": .array(tvs)])
+        case ("GET", "sources"):
+            guard let mac = request.query["mac"], let device = device(mac: mac) else { return .error(404, "no TV with that MAC") }
+            let settings = device.settings
+            let custom = Set(settings.customApps.map(\.id))
+            let sources: [JSONValue] = await device.orderedInputs.map { input in
+                let kind = input.id == JointSpace.watchTVURI ? "tv" : input.id == JointSpace.homeURI ? "home"
+                    : JointSpace.hdmiSources.contains { $0.id == input.id } ? "hdmi" : input.data.type == .channel ? "channel"
+                    : custom.contains(input.id) ? "custom" : "app"
+                var source: [String: JSONValue] = ["id": .string(input.id), "name": .string(input.name), "kind": .string(kind), "visible": .bool(!input.hidden)]
+                if input.configuredName != input.name { source["customName"] = .string(input.configuredName) }
+                return .object(source)
+            }
+            return PluginWebResponse(["sources": .array(sources)])
+        case ("GET", "current-app"):
+            // "Detect from TV" for a custom app: whatever is in the foreground, unless it is the TV's own.
+            guard let mac = request.query["mac"], let device = device(mac: mac) else { return .error(404, "no TV with that MAC") }
+            let found: (packageName: String, className: String?)?
+            do {
+                found = try await device.client.currentIntent()
+            } catch {
+                return .error(502, "\(error). Is the TV on?")
+            }
+            guard let found, found.packageName != Inputs.noAppReport, !Inputs.excludedPackages.contains(found.packageName), !Inputs.isLauncher(found.packageName) else {
+                return .error(404, "No app is in the foreground. Open the app on the TV, then try again.")
+            }
+            let label = await device.inputs.first { $0.id == found.packageName }?.name
+            var app: [String: JSONValue] = ["packageName": .string(found.packageName)]
+            if let className = found.className { app["className"] = .string(className) }
+            if let label { app["name"] = .string(label) }
+            return PluginWebResponse(["app": .object(app)])
         case ("POST", "wake"):
             guard let mac = request.query["mac"], let device = device(mac: mac) else { return .error(404, "no TV with that MAC") }
             let settings = device.settings

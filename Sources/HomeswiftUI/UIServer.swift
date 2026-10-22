@@ -21,6 +21,8 @@ public final class UIServer: Sendable {
         public var logger = Logger(label: "homeswift.ui")
         /// PBKDF2 iterations for new users (tests lower it).
         public var hashIterations = UserStore.defaultIterations
+        /// A checkout to serve the web files from, live, instead of the copies compiled in (`HOMESWIFT_WEB_ROOT`).
+        public var webRoot: URL?
         public init() {}
     }
 
@@ -38,6 +40,8 @@ public final class UIServer: Sendable {
     let throttle = FailureThrottle()
     let events = EventHub()
     private let channel = NIOLockedValueBox<(any Channel)?>(nil)
+    let live: LiveWebFiles?
+    private let watcher = NIOLockedValueBox<Task<Void, Never>?>(nil)
     var logger: Logger { options.logger }
 
     static let cookieName = "homeswift_session"
@@ -53,6 +57,7 @@ public final class UIServer: Sendable {
             isKnownUser: { users.contains($0) })
         setupCode = configuration.auth == .form && users.isEmpty ? Self.makeSetupCode() : nil
         allowedHosts = Self.allowedHosts(for: configuration)
+        live = options.webRoot.map(LiveWebFiles.init(root:))
     }
 
     /// The bound port, once started.
@@ -72,9 +77,18 @@ public final class UIServer: Sendable {
         let bound = try await bootstrap.bind(host: configuration.host, port: configuration.port).get()
         channel.withLockedValue { $0 = bound }
         logger.info("Web UI listening", metadata: ["url": "http://\(configuration.host):\(bound.localAddress?.port ?? configuration.port)/", "auth": "\(configuration.auth.rawValue)"])
+        if let live {
+            // Open pages swap a stylesheet in place and reload for a script or a page.
+            let events = events
+            watcher.withLockedValue { $0 = live.watch { path in
+                events.broadcast(event: "asset", payload: ["file": .string(path), "kind": .string(path.hasSuffix(".css") ? "css" : "page")])
+            } }
+            logger.info("Web files served live from the checkout; pages reload when one changes", metadata: ["root": "\(live.root.path)"])
+        }
     }
 
     public func stop() async {
+        watcher.withLockedValue { $0 }?.cancel()
         events.close()
         let bound = channel.withLockedValue { channel -> (any Channel)? in
             defer { channel = nil }
@@ -156,6 +170,11 @@ public final class UIServer: Sendable {
             files = WebAssets.files
             name = parts.isEmpty ? "index.html" : parts.joined(separator: "/")
         }
+        if let live, let file = live.file(name, platform: parts.first == "plugins" ? parts[1] : nil, unreadable: { url, error in
+            logger.warning("Live web file unreadable; serving the compiled-in copy", metadata: ["file": "\(url.path)", "error": "\(error)"])
+        }) {
+            return .data(status: 200, contentType: file.contentType, body: Data(file.body.utf8))
+        }
         guard let file = files[name] else { return .text("Not found", status: 404, contentType: "text/plain") }
         return .data(status: 200, contentType: file.contentType, body: Data(file.body.utf8))
     }
@@ -202,6 +221,7 @@ public final class UIServer: Sendable {
             let state: JSONValue = [
                 "mode": .string(configuration.auth.rawValue), "setupNeeded": .bool(configuration.auth == .form && users.isEmpty),
                 "authenticated": .bool(user != nil), "username": user.map(JSONValue.string) ?? .null, "version": .string(PluginHost.version),
+                "liveWebFiles": .bool(live != nil), "sessionDays": .number(Double(configuration.sessionDays)),
             ]
             return .json(state)
         case (.POST, "setup"):
@@ -265,6 +285,10 @@ public final class UIServer: Sendable {
             switch route {
             case ["status"]:
                 return .json(status(username: username))
+            case ["assistant"]:
+                // Whether pages may offer "Explain": the HomeswiftAiKit block's Assistant, when one works.
+                guard let assistant = catalog.host.assistant else { return .json(["enabled": false]) }
+                return .json(["enabled": true, "provider": .string(assistant.providerName), "model": .string(assistant.model)])
             case ["accessories"]:
                 return .json(.array(catalog.located().map { HomeswiftCatalog.accessoryJSON($0, detailed: true) }))
             case ["plugins"]:
@@ -294,15 +318,17 @@ public final class UIServer: Sendable {
                     return .text(svg, contentType: "image/svg+xml")
                 }
                 if route.count == 3, route[0] == "plugins", route[2] == "schema" {
-                    guard let text = catalog.host.registry.entry(for: route[1])?.configurationSchemaJSON else { return .error(404, "no schema for \(route[1])") }
+                    // The runtime's own web UI block has a form too.
+                    let schema = route[1] == UIConfiguration.platform ? UIConfiguration.schemaJSON : catalog.host.registry.entry(for: route[1])?.configurationSchemaJSON
+                    guard let text = schema else { return .error(404, "no schema for \(route[1])") }
                     return .text(text, contentType: "application/json")
                 }
             }
         case .PUT:
             if route == ["config"] {
                 guard body.objectValue != nil else { return .error(400, "the config must be a JSON object") }
-                let result = try catalog.applyConfig(body, dryRun: false)
-                noteConfigChange(by: username)
+                let result = try await catalog.applyConfig(body, dryRun: false)
+                noteConfigChange(by: username, result)
                 return .json(result)
             }
             if route.count == 2, route[0] == "accessories" {
@@ -313,9 +339,39 @@ public final class UIServer: Sendable {
                 return .json(result)
             }
             if route.count == 3, route[0] == "config", route[1] == "platforms" {
-                return try replacePlatformBlock(at: route[2], with: body, username: username)
+                return try await replacePlatformBlock(at: route[2], with: body, username: username)
             }
         case .POST:
+            if route == ["account", "password"] {
+                // The signed-in user's own password: the current one first, slowed down after mistakes like a login.
+                guard configuration.auth == .form else { return .error(400, "this web UI has no passwords: auth is none") }
+                guard let current = body["current"]?.stringValue, let new = body["new"]?.stringValue else { return .error(400, "the current and the new password are required") }
+                let delay = throttle.delay(for: request.remote)
+                if delay > .zero { try? await Task.sleep(for: delay) }
+                do {
+                    try users.changePassword(username: username, current: current, new: new)
+                } catch AuthError.wrongPassword {
+                    throttle.failed(request.remote)
+                    logger.warning("Web UI password change refused: wrong current password", metadata: ["user": "\(username)", "remote": "\(request.remote)"])
+                    return .error(403, AuthError.wrongPassword.description)
+                } catch let error as AuthError {
+                    return .error(400, error.description)
+                }
+                throttle.succeeded(request.remote)
+                sessions.revokeAll(of: username, keeping: request.cookies[Self.cookieName])
+                logger.info("Web UI password changed; the user's other sessions are signed out", metadata: ["user": "\(username)"])
+                return .json(["changed": true])
+            }
+            if route == ["assistant", "explain"] {
+                guard let assistant = catalog.host.assistant else { return .error(404, "the Assistant is off: add a HomeswiftAiKit block") }
+                guard let error = body["error"]?.stringValue, !error.isEmpty else { return .error(400, "an error to explain is required") }
+                do {
+                    let reply = try await assistant.explain(error: error, context: body["context"]?.stringValue, device: body["device"], pluginName: body["plugin"]?.stringValue)
+                    return .json(["text": .string(reply.text), "model": .string(reply.model)])
+                } catch {
+                    return .error(502, "the Assistant did not answer: \(error)")
+                }
+            }
             if route == ["restart"] {
                 guard catalog.scheduleRestart(requestedBy: "web UI user \(username)") else { return .error(501, "this process cannot restart itself; restart homeswift by hand") }
                 return .json(["restarting": true])
@@ -327,7 +383,7 @@ public final class UIServer: Sendable {
             }
         case .DELETE:
             if route.count == 3, route[0] == "config", route[1] == "platforms" {
-                return try replacePlatformBlock(at: route[2], with: nil, username: username)
+                return try await replacePlatformBlock(at: route[2], with: nil, username: username)
             }
         default:
             break
@@ -345,10 +401,10 @@ public final class UIServer: Sendable {
     /// Replaces (or appends, at the next index) a platform block; nil removes it.
     private struct NoSuchBlock: Error { let index: Int }
 
-    private func replacePlatformBlock(at indexText: String, with block: JSONValue?, username: String) throws -> Reply {
+    private func replacePlatformBlock(at indexText: String, with block: JSONValue?, username: String) async throws -> Reply {
         guard let index = Int(indexText) else { return .error(400, "bad index") }
         do {
-            let result = try catalog.editPlatforms(dryRun: false) { platforms in
+            let result = try await catalog.editPlatforms(dryRun: false) { platforms in
                 if let block {
                     guard let object = block.objectValue, object["platform"]?.stringValue?.isEmpty == false else { throw JSONRPCError.invalidParams("a platform block needs a platform") }
                     if platforms.indices.contains(index) {
@@ -363,7 +419,7 @@ public final class UIServer: Sendable {
                     platforms.remove(at: index)
                 }
             }
-            noteConfigChange(by: username)
+            noteConfigChange(by: username, result)
             return .json(result)
         } catch let missing as NoSuchBlock {
             return .error(404, "no block \(missing.index)")
@@ -374,8 +430,9 @@ public final class UIServer: Sendable {
         ["time": .string(line.date.formatted(.iso8601)), "level": .string(line.level.rawValue), "label": .string(line.label), "text": .string(line.text)]
     }
 
-    private func noteConfigChange(by username: String) {
-        logger.info("config.json changed from the web UI; restart to apply", metadata: ["user": "\(username)"])
+    private func noteConfigChange(by username: String, _ result: JSONValue) {
+        let pending = result["restartNeeded"]?.arrayValue ?? []
+        logger.info(pending.isEmpty ? "config.json changed from the web UI and applied" : "config.json changed from the web UI; restart to apply the rest", metadata: ["user": "\(username)"])
     }
 }
 

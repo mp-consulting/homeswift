@@ -36,13 +36,16 @@ with a new code).
   plugin's own page when it has one (see below). **Settings** opens a
   form built from the plugin's schema (the same `config.schema.json` the Homebridge version ships), or a
   JSON editor for plugins without one and for the runtime's own blocks. **Add a platform** lists the
-  plugins compiled in. Saving validates, backs up the previous file, and asks for a restart.
+  plugins compiled in. Saving validates, backs up the previous file, and applies the block at once.
 - **Config**: the whole file in an editor. Saving validates it, keeps a backup under `backups/`, sorts
-  the keys, and asks for a restart.
+  the keys, and applies it.
 - **Logs**: the last lines and the live log, filtered by level and text.
 
-Configuration changes need a restart of homeswift to apply: the page says so, and its **Restart now**
-button does it. The process replaces itself with a fresh copy (same binary, arguments and PID), so
+Saving a plugin's block applies it at once: the plugin stops and starts again with the new settings on
+the same accessories (their aids, iids and pairings stay), a new block starts, and a removed one leaves
+HomeKit. A few changes still need a restart: the `bridge` block, the runtime's own blocks (`HomeswiftUI`,
+`HomeswiftAiKit`) and child bridges (`_bridge`). The page says which, and its **Restart now** button
+does it. The process replaces itself with a fresh copy (same binary, arguments and PID), so
 launchd, systemd and `brew services` see nothing happen, and the page reloads once the bridge is back.
 Logins survive a restart: sessions are kept in `ui-sessions.json` next to config.json.
 
@@ -92,3 +95,29 @@ and an Identify button.
 The UI's own pages are plain HTML, CSS and JavaScript under `Sources/HomeswiftUI/Web`, embedded into the
 binary by `swift Scripts/embed-assets.swift web Sources/HomeswiftUI/Web Sources/HomeswiftUI/WebAssets.swift`,
 so a Homebrew install carries them and no build step needs Node.
+
+## Passwords
+
+The first account and every password change follow the ANSSI's recommendations (*Recommandations relatives à
+l'authentification multifacteur et aux mots de passe*, PG-078, 2021): at least 12 characters and about 85 bits of
+estimated entropy, the guide's "moyen à fort" level for a 90-character set (table 3), with no maximum short of
+1024 bytes. The estimate is the guide's length × log₂(character set); since the guide warns it only holds for
+random characters, repeated or sequential characters, common words and the username earn nothing. The server
+checks (`PasswordPolicy`); the pages show a gauge with the guide's bands (65, 85, 100 bits) while you type. A
+passphrase of several random words is the easy way over the bar. **Account**, behind your name in the header,
+changes the password; the other browsers signed in as you are then signed out.
+
+## Working on the pages
+
+The pages are compiled into the binary (`Sources/HomeswiftUI/WebAssets.swift` and each plugin's
+`Sources/WebFiles.swift`, made by `Scripts/embed-assets.swift`). To work on them without a rebuild, point
+`HOMESWIFT_WEB_ROOT` at the checkout:
+
+```sh
+HOMESWIFT_WEB_ROOT=$PWD swift run --scratch-path ~/Library/Caches/homeswift-build homeswift
+```
+
+The UI then reads `Sources/HomeswiftUI/Web` and `Plugins/<platform>/Web` from disk on every request, and open
+pages follow the files: a saved stylesheet swaps in place (what is open on the page stays), a saved script or
+page reloads it. Embed the files again before committing; a test fails while they differ.
+

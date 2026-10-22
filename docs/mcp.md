@@ -101,5 +101,6 @@ Prompts: `diagnose-logs` (`focus?`), `troubleshoot-device` (`device`, `symptom?`
   the session, the token's name and scope, `dryRun` and `notConfirmed`; the file rotates at 5 MB.
 - **Sessions** belong to the token that opened them and expire after 30 idle minutes.
 
-Configuration changes need a restart of homeswift to apply; the tools say so, and back up the previous
+Configuration changes apply at once, plugin blocks reloading in place; the answer lists what still needs a
+restart (the bridge block, the runtime's own blocks, child bridges). The tools back up the previous
 file under `backups/` next to config.json (the last 20 are kept).

@@ -237,6 +237,34 @@ struct PairingTests {
 struct TelevisionTests {
     let environment = PhilipsTestEnvironment()
 
+    @Test func detectsTheAppInTheForegroundForACustomApp() async throws {
+        let host = try await environment.start(settings: ["devices": [livingRoom]])
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        await environment.tv.set(currentApp: "com.ug.eon.android.tv")
+        let found = try await plugin.handleWebRequest(.init(method: "GET", path: "current-app", query: ["mac": "AA:BB:CC:DD:EE:FF"], user: "admin"))
+        #expect(found.json["app"]?["packageName"] == "com.ug.eon.android.tv" && found.json["app"]?["className"] == "x")
+        // The TV's own launcher is not an app to add.
+        await environment.tv.set(currentApp: "com.google.android.tvlauncher")
+        #expect(try await plugin.handleWebRequest(.init(method: "GET", path: "current-app", query: ["mac": "AA:BB:CC:DD:EE:FF"], user: "admin")).status == 404)
+        await environment.tv.set(reachable: false)
+        #expect(try await plugin.handleWebRequest(.init(method: "GET", path: "current-app", query: ["mac": "AA:BB:CC:DD:EE:FF"], user: "admin")).status == 502)
+    }
+
+    @Test func listsTheInputsInTheWheelsOrderForTheEditor() async throws {
+        let host = try await environment.start(settings: ["devices": [livingRoom]])
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        let answer = try await plugin.handleWebRequest(.init(method: "GET", path: "sources", query: ["mac": "aa-bb-cc-dd-ee-ff"], user: "admin"))
+        let sources = try #require(answer.json["sources"]?.arrayValue)
+        // The sources setting orders Home, then Watch TV (renamed); the rest follow in registration order.
+        #expect(sources.prefix(2).map { $0["name"]?.stringValue } == ["Home", "Watch TV"])
+        #expect(sources[1]["customName"] == "Télé" && sources[1]["kind"] == "tv" && sources[1]["visible"] == true)
+        #expect(sources.first { $0["name"] == "HDMI 1" }?["kind"] == "hdmi")
+        #expect(sources.first { $0["name"] == "Plex" }?["kind"] == "custom")
+        #expect(try await plugin.handleWebRequest(.init(method: "GET", path: "sources", query: ["mac": "00:00:00:00:00:01"], user: "admin")).status == 404)
+    }
+
      func publishesTheTelevisionAndFollowsItOn() async throws {
         let tv = environment.tv
         let host = try await environment.start(settings: ["devices": [livingRoom]])

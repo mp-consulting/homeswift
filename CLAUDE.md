@@ -46,6 +46,10 @@ swift Scripts/embed-assets.swift web Sources/HomeswiftUI/Web Sources/HomeswiftUI
 swift Scripts/embed-assets.swift plugin Plugins/ElgatoKeyLights ElgatoKeyLightsPlugin          # after editing a schema
 swift Scripts/embed-assets.swift web Plugins/ElgatoKeyLights/Web Plugins/ElgatoKeyLights/Sources/WebFiles.swift ElgatoKeyLightsPlugin   # after editing a plugin page
 swift run   --scratch-path ~/Library/Caches/homeswift-build homeswift-demo   # HAP_DEBUG=1 logs every request
+# Working on the web pages: serve them from the checkout; a CSS save swaps in place, a JS or HTML save reloads.
+HOMESWIFT_WEB_ROOT=$PWD swift run --scratch-path ~/Library/Caches/homeswift-build homeswift -U ~/.homeswift-tvtest
+# Then, before committing, embed them again (UITests.webFilesAreCurrent checks):
+swift Scripts/embed-assets.swift web Sources/HomeswiftUI/Web Sources/HomeswiftUI/WebAssets.swift
 
 # After a HAP-NodeJS update (needs a built checkout of homebridge/HAP-NodeJS):
 node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Definitions.swift 2>/dev/null

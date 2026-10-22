@@ -10,6 +10,27 @@ public struct UIConfiguration: Sendable, Equatable {
     public static let platform = "HomeswiftUI"
     public static let defaultPort = 8581
 
+    /// The block's settings form, in the shape of a plugin's config.schema.json: the web UI's Settings uses it.
+    public static let schemaJSON = #"""
+        {
+          "pluginAlias": "HomeswiftUI",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "port": { "title": "Port", "type": "integer", "default": 8581, "minimum": 1, "maximum": 65535, "description": "Where the web UI listens. After a change the page moves to the new port." },
+              "host": { "title": "Listen on", "type": "string", "placeholder": "0.0.0.0", "description": "0.0.0.0 listens on every interface, so phones on the network can open the UI; 127.0.0.1 keeps it on this machine." },
+              "auth": { "title": "Sign-in", "type": "string", "default": "form", "oneOf": [
+                { "title": "Username and password", "enum": ["form"] },
+                { "title": "None (a trusted network or this machine only)", "enum": ["none"] }
+              ], "description": "Without sign-in anyone who reaches the address controls the bridge." },
+              "sessionDays": { "title": "Stay signed in (days)", "type": "integer", "default": 7, "minimum": 1, "maximum": 365, "description": "How long a login lasts without activity." },
+              "allowedHosts": { "title": "Other names", "type": "array", "items": { "type": "string" }, "description": "Names the UI answers to besides IP addresses, localhost and this machine's name: a DNS name, a reverse proxy's host. * allows every name." }
+            }
+          },
+          "layout": ["port", "host", "auth", "sessionDays", "allowedHosts"]
+        }
+        """#
+
     public enum AuthMode: String, Sendable, Codable {
         /// A username and password, created on the first visit.
         case form

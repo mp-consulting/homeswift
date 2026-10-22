@@ -167,18 +167,20 @@ actor TVDevice {
         return ContinuousClock.now - poweredOnAt < Self.wakeWindow
     }
 
-    /// The `DisplayOrder` of the wheel: the sources setting's order, the configured list's, then registration order.
-    var displayOrder: String {
-        let ordered = inputs.enumerated().sorted { lhs, rhs in
+    /// The inputs in the wheel's order: the sources setting's order, the configured list's, then registration order.
+    var orderedInputs: [Input] {
+        inputs.enumerated().sorted { lhs, rhs in
             switch (catalog.order(of: lhs.element.id), catalog.order(of: rhs.element.id)) {
             case (let a?, let b?): a != b ? a < b : lhs.offset < rhs.offset
             case (_?, nil): true
             case (nil, _?): false
             case (nil, nil): lhs.offset < rhs.offset
             }
-        }
-        return Inputs.displayOrder(ordered.map(\.element.identifier))
+        }.map(\.element)
     }
+
+    /// The `DisplayOrder` of the wheel.
+    var displayOrder: String { Inputs.displayOrder(orderedInputs.map(\.identifier)) }
 
     func switchName(for id: String) -> String? { switchNames.names[id] }
 

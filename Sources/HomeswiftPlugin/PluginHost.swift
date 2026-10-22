@@ -83,6 +83,18 @@ public final class PluginHost: @unchecked Sendable {
         public let accessoryIDs: [String]
     }
 
+    /// What `apply(_:)` did with a new configuration, by platform instance name.
+    public struct ReloadReport: Sendable, Equatable {
+        public var reloaded: [String] = []
+        public var started: [String] = []
+        public var stopped: [String] = []
+        /// The runtime's own blocks that changed and that the host does not run itself (the web UI): whoever
+        /// runs their servers restarts them. The Assistant's block is applied here.
+        public var systemBlocksChanged: [String] = []
+        /// Why a restart of the process is still needed: the main bridge's identity, port or setup code.
+        public var needsRestart: [String] = []
+    }
+
     final class Instance: @unchecked Sendable {
         let entry: PluginRegistry.Entry
         let block: HomeswiftConfiguration.Platform
@@ -96,7 +108,8 @@ public final class PluginHost: @unchecked Sendable {
         }
     }
 
-    public let configuration: HomeswiftConfiguration
+    /// The configuration as last applied.
+    public var configuration: HomeswiftConfiguration { configurationBox.withLockedValue { $0 } }
     public let storageDirectory: URL
     /// The plugins this host knows, whether or not config.json uses them.
     public let registry: PluginRegistry
@@ -117,17 +130,22 @@ public final class PluginHost: @unchecked Sendable {
     /// The Assistant of the `HomeswiftAiKit` block, when there is one that works.
     public var assistant: AssistantService? { assistantBox.withLockedValue { $0 } }
     /// The `HomeswiftAiKit` block as read, whether or not its provider could be set up.
-    public let aiConfiguration: AIConfiguration?
+    public var aiConfiguration: AIConfiguration? { aiConfigurationBox.withLockedValue { $0 } }
+    private let aiConfigurationBox: NIOLockedValueBox<AIConfiguration?>
 
-    let instances: [Instance]
+    var instances: [Instance] { instanceList.withLockedValue { $0 } }
     let options: Options
     let logger: Logger
+    private let configurationBox: NIOLockedValueBox<HomeswiftConfiguration>
+    private let instanceList = NIOLockedValueBox<[Instance]>([])
     private let assistantBox = NIOLockedValueBox<AssistantService?>(nil)
+    // The tail of the reloads, so two quick saves apply one after the other.
+    private let reloadTail = NIOLockedValueBox<Task<Void, Never>?>(nil)
 
     /// Prepares the bridges and the plugins' contexts and restores the accessory caches. Nothing listens
     /// until `start()`.
     public init(configuration: HomeswiftConfiguration, registry: PluginRegistry, storageDirectory: URL, options: Options = Options()) throws {
-        self.configuration = configuration
+        configurationBox = NIOLockedValueBox(configuration)
         self.storageDirectory = storageDirectory
         self.registry = registry
         self.options = options
@@ -146,18 +164,9 @@ public final class PluginHost: @unchecked Sendable {
         }
 
         // The Assistant's block is the runtime's, not a plugin's. A bad one never stops the bridge.
-        aiConfiguration = Self.loadAIConfiguration(configuration, logger: logger)
-        if let aiConfiguration, aiConfiguration.enabled, !aiConfiguration.hasProviderSettings {
-            logger.info("Assistant off: the HomeswiftAiKit block names no provider")
-        } else if let aiConfiguration, aiConfiguration.enabled {
-            do {
-                let service = try AssistantService(configuration: aiConfiguration, logger: logger)
-                assistantBox.withLockedValue { $0 = service }
-                logger.info("Assistant ready", metadata: ["provider": "\(service.providerName)", "model": "\(service.model)"])
-            } catch {
-                logger.error("Assistant unavailable: \(error)")
-            }
-        }
+        let ai = Self.loadAIConfiguration(configuration, logger: logger)
+        aiConfigurationBox = NIOLockedValueBox(ai)
+        assistantBox.withLockedValue { $0 = Self.makeAssistant(ai, logger: logger) }
 
         for block in configuration.platforms where !options.systemPlatforms.contains(block.platform) {
             if configuration.disabledPlugins.contains(block.platform) {
@@ -168,12 +177,7 @@ public final class PluginHost: @unchecked Sendable {
                 logger.warning("No plugin for platform \"\(block.platform)\"; the block \"\(block.name)\" is ignored (homeswift plugins lists the available ones)")
                 continue
             }
-            var key = Self.slug("\(block.platform)-\(block.name)")
-            var suffix = 2
-            while keys.contains(key) {
-                key = Self.slug("\(block.platform)-\(block.name)") + "-\(suffix)"
-                suffix += 1
-            }
+            let key = Self.uniqueKey(for: block, taken: keys)
             keys.insert(key)
 
             let bridge: Bridge
@@ -184,16 +188,10 @@ public final class PluginHost: @unchecked Sendable {
                 bridge = main
             }
 
-            var pluginLogger = Logger(label: block.name)
-            pluginLogger.logLevel = logger.logLevel
-            let context = PluginContext(
-                platform: block.platform, name: block.name, key: key, logger: pluginLogger, bridge: bridge,
-                cache: AccessoryCache(url: storageDirectory.appendingPathComponent("accessories").appendingPathComponent("\(key).json")),
-                storageURL: storageDirectory.appendingPathComponent("plugins").appendingPathComponent(key),
-                assistant: assistantBox, externals: externals)
+            let context = Self.makeContext(block: block, key: key, bridge: bridge, storageDirectory: storageDirectory, logLevel: logger.logLevel, assistant: assistantBox, externals: externals)
             instances.append(Instance(entry: entry, block: block, context: context))
         }
-        self.instances = instances
+        instanceList.withLockedValue { $0 = instances }
         for instance in instances { instance.context.restoreCache() }
     }
 
@@ -214,11 +212,9 @@ public final class PluginHost: @unchecked Sendable {
 
     /// Stops the plugins, saves the accessory caches, and stops the bridges.
     public func stop() async {
+        _ = await reloadTail.withLockedValue({ $0 })?.value
         for instance in instances {
-            if let plugin = instance.plugin.withLockedValue({ $0 }) {
-                await plugin.stop()
-            }
-            instance.context.saveCache()
+            await stopPlugin(instance)
         }
         for bridge in bridges {
             await bridge.server.stop()
@@ -243,13 +239,190 @@ public final class PluginHost: @unchecked Sendable {
         await stop()
     }
 
-    private func launch(_ instance: Instance) async {
+    /// Applies a new configuration without a restart, the way a save in the web UI or over MCP should take
+    /// effect: a changed platform block gets a fresh plugin on the same context (its accessories, aids, iids
+    /// and pairings stay, and the plugin's `start()` drops what left the block), a new block starts, a
+    /// removed one stops and leaves HomeKit. What only a restart can change is listed in the report: the
+    /// bridge block, the runtime's own blocks (the Assistant, the web UI), and child bridges.
+    @discardableResult
+    public func apply(_ next: HomeswiftConfiguration) async -> ReloadReport {
+        let task = reloadTail.withLockedValue { tail -> Task<ReloadReport, Never> in
+            let previous = tail
+            let task = Task { () -> ReloadReport in
+                _ = await previous?.value
+                return await self.reload(to: next)
+            }
+            tail = Task { _ = await task.value }
+            return task
+        }
+        return await task.value
+    }
+
+    private func reload(to next: HomeswiftConfiguration) async -> ReloadReport {
+        var report = ReloadReport()
+        let previous = configurationBox.withLockedValue { previous in
+            defer { previous = next }
+            return previous
+        }
+        if next.bridge != previous.bridge { report.needsRestart.append("the bridge block changed") }
+        for platform in options.systemPlatforms.sorted() {
+            let before = previous.platforms.filter { $0.platform == platform }.map(\.json)
+            guard before != next.platforms.filter({ $0.platform == platform }).map(\.json) else { continue }
+            if platform == AIConfiguration.platform {
+                // The Assistant swaps in place: plugins read it through the shared box on every use.
+                let ai = Self.loadAIConfiguration(next, logger: logger)
+                aiConfigurationBox.withLockedValue { $0 = ai }
+                assistantBox.withLockedValue { $0 = Self.makeAssistant(ai, logger: logger) }
+            }
+            report.systemBlocksChanged.append(platform)
+        }
+        let wanted = next.platforms.filter { !options.systemPlatforms.contains($0.platform) && !next.disabledPlugins.contains($0.platform) }
+        let isSame = { (a: HomeswiftConfiguration.Platform, b: HomeswiftConfiguration.Platform) in a.platform == b.platform && a.name == b.name }
+
+        for instance in instances where !wanted.contains(where: { isSame($0, instance.block) }) {
+            await remove(instance)
+            instance.context.logger.info("Stopped: the block left the configuration")
+            report.stopped.append(instance.context.name)
+        }
+
+        for block in wanted {
+            if let old = instances.first(where: { isSame($0.block, block) }) {
+                guard old.block.json != block.json else { continue }
+                if old.block.childBridge == block.childBridge {
+                    // A fresh plugin on the same context: same accessories, aids, iids and pairings.
+                    await stopPlugin(old)
+                    let fresh = Instance(entry: old.entry, block: block, context: old.context)
+                    instanceList.withLockedValue { list in
+                        if let index = list.firstIndex(where: { $0 === old }) { list[index] = fresh }
+                    }
+                    await launch(fresh, as: "Reloaded")
+                } else {
+                    // On or off a child bridge, or a child bridge with other settings: the instance moves.
+                    await remove(old)
+                    await add(block, entry: old.entry, as: "Reloaded")
+                }
+                report.reloaded.append(block.name)
+            } else {
+                guard let entry = registry.entry(for: block.platform) else {
+                    logger.warning("No plugin for platform \"\(block.platform)\"; the block \"\(block.name)\" is ignored (homeswift plugins lists the available ones)")
+                    continue
+                }
+                await add(block, entry: entry)
+                report.started.append(block.name)
+            }
+        }
+        logApplied(report)
+        return report
+    }
+
+    /// One line per applied configuration, so the log shows what a save did without a restart.
+    private func logApplied(_ report: ReloadReport) {
+        let names = { (list: [String]) in list.isEmpty ? "-" : list.joined(separator: ", ") }
+        let changed = !(report.reloaded.isEmpty && report.started.isEmpty && report.stopped.isEmpty && report.systemBlocksChanged.isEmpty)
+        if !changed, report.needsRestart.isEmpty {
+            logger.info("Configuration applied live: nothing changed for the running plugins")
+            return
+        }
+        var metadata: Logger.Metadata = [
+            "reloaded": "\(names(report.reloaded))", "started": "\(names(report.started))", "stopped": "\(names(report.stopped))",
+        ]
+        if !report.systemBlocksChanged.isEmpty { metadata["runtime"] = "\(names(report.systemBlocksChanged))" }
+        if !report.needsRestart.isEmpty { metadata["needsRestart"] = "\(names(report.needsRestart))" }
+        logger.info("Configuration applied live", metadata: metadata)
+    }
+
+    /// Stops an instance and takes its accessories out of HomeKit; its child bridge, if it had one, stops.
+    private func remove(_ instance: Instance) async {
+        await stopPlugin(instance)
+        await instance.context.detach()
+        instanceList.withLockedValue { $0.removeAll { $0 === instance } }
+        let bridge = instance.context.bridge
+        if bridge.isChild {
+            bridgeList.withLockedValue { $0.removeAll { $0 === bridge } }
+            await bridge.server.stop()
+        }
+    }
+
+    /// Creates an instance for a block, on a new child bridge when it asks for one, restores its cache and
+    /// starts its plugin; servers start at once when the host runs.
+    private func add(_ block: HomeswiftConfiguration.Platform, entry: PluginRegistry.Entry, as verb: String = "Started") async {
+        let key = Self.uniqueKey(for: block, taken: Set(instances.map(\.context.key)))
+        var bridge = mainBridge
+        if let child = block.childBridge {
+            do {
+                bridge = try Self.makeBridge(child.bridge(named: block.name), storageName: "child-bridges/\(key)", isChild: true, storageDirectory: storageDirectory, options: options)
+                if externals.isRunning { try await bridge.server.start() }
+                bridgeList.withLockedValue { $0.append(bridge) }
+            } catch {
+                logger.error("Could not start the child bridge of \"\(block.name)\": \(error)")
+                return
+            }
+        }
+        let context = Self.makeContext(block: block, key: key, bridge: bridge, storageDirectory: storageDirectory, logLevel: logger.logLevel, assistant: assistantBox, externals: externals)
+        let instance = Instance(entry: entry, block: block, context: context)
+        for server in context.restoreCache() where externals.isRunning {
+            do { try await server.start() } catch { context.logger.warning("Could not start a restored accessory: \(error)") }
+        }
+        instanceList.withLockedValue { $0.append(instance) }
+        await launch(instance, as: verb)
+    }
+
+    /// The Assistant of a `HomeswiftAiKit` block; nil when it is off or its provider cannot be set up.
+    private static func makeAssistant(_ ai: AIConfiguration?, logger: Logger) -> AssistantService? {
+        guard let ai, ai.enabled else { return nil }
+        guard ai.hasProviderSettings else {
+            logger.info("Assistant off: the HomeswiftAiKit block names no provider")
+            return nil
+        }
+        do {
+            let service = try AssistantService(configuration: ai, logger: logger)
+            logger.info("Assistant ready", metadata: ["provider": "\(service.providerName)", "model": "\(service.model)"])
+            return service
+        } catch {
+            logger.error("Assistant unavailable: \(error)")
+            return nil
+        }
+    }
+
+    private func stopPlugin(_ instance: Instance) async {
+        if let plugin = instance.plugin.withLockedValue({ $0 }) {
+            await plugin.stop()
+        }
+        instance.plugin.withLockedValue { $0 = nil }
+        instance.context.saveCache()
+    }
+
+    private static func uniqueKey(for block: HomeswiftConfiguration.Platform, taken: Set<String>) -> String {
+        let base = slug("\(block.platform)-\(block.name)")
+        var key = base
+        var suffix = 2
+        while taken.contains(key) {
+            key = base + "-\(suffix)"
+            suffix += 1
+        }
+        return key
+    }
+
+    private static func makeContext(
+        block: HomeswiftConfiguration.Platform, key: String, bridge: Bridge, storageDirectory: URL, logLevel: Logger.Level,
+        assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories
+    ) -> PluginContext {
+        var pluginLogger = Logger(label: block.name)
+        pluginLogger.logLevel = logLevel
+        return PluginContext(
+            platform: block.platform, name: block.name, key: key, logger: pluginLogger, bridge: bridge,
+            cache: AccessoryCache(url: storageDirectory.appendingPathComponent("accessories").appendingPathComponent("\(key).json")),
+            storageURL: storageDirectory.appendingPathComponent("plugins").appendingPathComponent(key),
+            assistant: assistant, externals: externals)
+    }
+
+    private func launch(_ instance: Instance, as verb: String = "Started") async {
         let context = instance.context
         do {
             let plugin = try await instance.entry.make(instance.block.json, context)
             instance.plugin.withLockedValue { $0 = plugin }
             try await plugin.start()
-            context.logger.info("Started", metadata: ["plugin": "\(instance.entry.name)", "bridge": "\(context.bridge.name)"])
+            context.logger.info("\(verb)", metadata: ["plugin": "\(instance.entry.name)", "bridge": "\(context.bridge.name)"])
         } catch let error as DecodingError {
             context.logger.error("Invalid configuration for platform \"\(context.platform)\": \(Self.describe(error))")
         } catch {

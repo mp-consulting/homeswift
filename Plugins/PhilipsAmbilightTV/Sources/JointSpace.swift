@@ -230,6 +230,17 @@ actor JointSpaceClient {
         return activity.component?.packageName
     }
 
+    /// The foreground app's package and activity, for adding it as a custom app.
+    func currentIntent() async throws -> (packageName: String, className: String?)? {
+        struct Activity: Decodable {
+            struct Component: Decodable { var packageName: String?; var className: String? }
+            var component: Component?
+        }
+        let activity: Activity = try await get("activities/current")
+        guard let package = activity.component?.packageName, !package.isEmpty else { return nil }
+        return (package, activity.component?.className?.nonEmpty)
+    }
+
     func applications() async throws -> [JointSpace.Application] {
         struct List: Decodable { var applications: [JointSpace.Application]? }
         let list: List = try await get("applications", timeout: .seconds(5))

@@ -1,5 +1,6 @@
 import Foundation
 import Homeswift
+import HomeswiftAI
 import HomeswiftMCP
 import HomeswiftPlugin
 import HomeswiftUI
@@ -159,10 +160,32 @@ let main = Task {
     } catch {
         fail("could not start: \(error)")
     }
-    // The control surface the MCP server and the web UI share; its restart hook execs a fresh copy of this process.
+    // The control surface the MCP server and the web UI share; its restart hook execs a fresh copy of this
+    // process, and a saved HomeswiftUI or HomeswiftAiKit block restarts the servers it configures in place.
+    let catalogBox = NIOLockedValueBox<HomeswiftCatalog?>(nil)
+    let mcpSettings = NIOLockedValueBox(MCPCommands.mcpBlock(configuration)?["mcp"])
     let catalog = HomeswiftCatalog(
         host: host, logs: logBuffer, configURL: configURL, allowSecrets: ProcessInfo.processInfo.environment["HOMESWIFT_ALLOW_SECRETS"] == "true",
-        restart: { Task.detached { await shutdown(); Restart.exec() } }, logger: logger)
+        restart: { Task.detached { await shutdown(); Restart.exec() } },
+        reloadServices: { [mcpServer, uiServer] next, platforms in
+            guard let catalog = catalogBox.withLockedValue({ $0 }) else { return }
+            let settings = MCPCommands.mcpBlock(next)?["mcp"]
+            if platforms.contains(AIConfiguration.platform), mcpSettings.withLockedValue({ $0 }) != settings {
+                mcpSettings.withLockedValue { $0 = settings }
+                await mcpServer.withLockedValue { $0 }?.stop()
+                let started = await MCPCommands.startServer(catalog: catalog, configuration: next, logger: logger)
+                mcpServer.withLockedValue { $0 = started }
+                logger.info(started == nil ? "MCP server stopped" : "MCP server restarted with the new settings")
+            }
+            if platforms.contains(UIConfiguration.platform) {
+                await uiServer.withLockedValue { $0 }?.stop()
+                let started = await UICommands.startServer(catalog: catalog, configuration: next, logger: logger)
+                uiServer.withLockedValue { $0 = started }
+                logger.info(started == nil ? "Web UI stopped" : "Web UI restarted with the new settings")
+            }
+        },
+        logger: logger)
+    catalogBox.withLockedValue { $0 = catalog }
     if let started = await MCPCommands.startServer(catalog: catalog, configuration: configuration, logger: logger) {
         mcpServer.withLockedValue { $0 = started }
     }
