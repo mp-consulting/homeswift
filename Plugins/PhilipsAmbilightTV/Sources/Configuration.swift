@@ -134,7 +134,14 @@ struct TVSettings: Sendable, Equatable {
         self.ip = ip
         self.username = username
         self.password = password
-        certFingerprint = device.certFingerprint.map { $0.lowercased().filter(\.isHexDigit) }.flatMap { $0.count == 64 ? $0 : nil }
+        if let raw = device.certFingerprint?.trimmingCharacters(in: .whitespaces), !raw.isEmpty {
+            // A fingerprint that is not one must not quietly mean "accept any certificate".
+            let digits = raw.lowercased().filter(\.isHexDigit)
+            guard digits.count == 64 else { throw TVConfigurationError.invalid("certFingerprint", raw) }
+            certFingerprint = digits
+        } else {
+            certFingerprint = nil
+        }
         if let interval = device.pollingInterval, !Self.pollingIntervalRange.contains(interval) {
             throw TVConfigurationError.invalid("pollingInterval", String(interval))
         }

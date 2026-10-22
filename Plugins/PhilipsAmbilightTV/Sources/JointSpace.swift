@@ -110,6 +110,8 @@ enum JointSpace {
 
 enum JointSpaceError: Error, CustomStringConvertible, Equatable {
     case unreachable(String)
+    /// Nothing listens on the port: a set without HTTPS, on 1926.
+    case connectionRefused(port: Int)
     case httpStatus(Int)
     case unauthorized
     case invalidResponse(String)
@@ -118,6 +120,7 @@ enum JointSpaceError: Error, CustomStringConvertible, Equatable {
     var description: String {
         switch self {
         case .unreachable(let detail): "the TV did not answer: \(detail)"
+        case .connectionRefused(let port): "the TV refuses connections on port \(port)"
         case .httpStatus(let status): "the TV answered HTTP \(status)"
         case .unauthorized: "the TV refused the credentials: pair it again"
         case .invalidResponse(let detail): "unexpected answer from the TV: \(detail)"
@@ -138,16 +141,25 @@ struct NetworkTransportFactory: JointSpaceTransportFactory {
 
 /// One TV's API: requests one at a time, a small gap between them, the Digest challenge remembered, the
 /// scheme that works remembered. Every failure is a `JointSpaceError`.
+///
+/// Transport policy: HTTPS, with the configured certificate pinned; without one, the certificate of the
+/// first answer is pinned for the rest of the run (and the log says to configure it). Plain HTTP is tried
+/// only when nothing listens on the HTTPS port (sets from before HTTPS), and never once HTTPS has answered.
 actor JointSpaceClient {
     let ip: String
     let username: String
     private let password: String
-    /// SHA-256 of the TV's certificate; nil accepts any certificate (configurations from before pinning).
+    /// SHA-256 of the TV's certificate from the configuration; nil pins the first certificate seen.
     let certificateFingerprint: String?
-    private let transport: any HTTPSending
+    private let transports: any JointSpaceTransportFactory
+    private var transport: any HTTPSending
+    /// The certificate every connection must present: the configured one, or the first one seen.
+    private(set) var pinnedFingerprint: String?
     private var digest: DigestAuthentication
     /// `https` or `http`, once one answered.
     private var scheme: String?
+    /// True once HTTPS has answered: plain HTTP is never tried after that.
+    private var secureAnswered = false
     private var lastRequestEnded: ContinuousClock.Instant?
     private var busy = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
@@ -160,6 +172,8 @@ actor JointSpaceClient {
         self.username = username
         self.password = password
         self.certificateFingerprint = certificateFingerprint
+        self.transports = transports
+        pinnedFingerprint = certificateFingerprint
         transport = transports.makeTransport(tls: certificateFingerprint.map { .pinned($0) } ?? .any)
         digest = DigestAuthentication(username: username, password: password)
         self.logger = logger
@@ -400,28 +414,37 @@ actor JointSpaceClient {
         }
     }
 
-    /// The request over the scheme that works (HTTPS first, HTTP only without a pin), answering one Digest
-    /// challenge. The password never reaches the log.
+    /// The request over the scheme that works, answering one Digest challenge. HTTPS first; plain HTTP only
+    /// when the TV refuses connections on the HTTPS port, nothing is pinned and HTTPS never answered. The
+    /// password never reaches the log.
     private func request(method: String, path: String, body: Data?, timeout: Duration) async throws -> HTTPResponse {
-        let schemes = scheme.map { [$0] } ?? (certificateFingerprint == nil ? ["https", "http"] : ["https"])
+        let schemes: [String]
+        if let scheme {
+            schemes = [scheme]
+        } else if pinnedFingerprint != nil || secureAnswered {
+            schemes = ["https"]
+        } else {
+            schemes = ["https", "http"]
+        }
         var lastError: any Error = JointSpaceError.unreachable("no scheme to try")
         for candidate in schemes {
             do {
                 let response = try await request(scheme: candidate, method: method, path: path, body: body, timeout: timeout)
+                if candidate == "https" {
+                    secureAnswered = true
+                    pinOnFirstUse(response)
+                }
                 if scheme == nil {
                     scheme = candidate
                     logger.debug("The TV answers over \(candidate)")
                 }
                 return response
             } catch let error as JointSpaceError {
-                // The TV answered: no point trying another scheme.
-                if case .unreachable = error {
-                    lastError = error
-                    continue
-                }
-                throw error
-            } catch {
                 lastError = error
+                // Only a refused HTTPS port means a set without HTTPS; a TV that is asleep or away stays
+                // out of reach over plain HTTP too, and an answer of any kind ends the probing.
+                if case .connectionRefused = error, candidate == "https" { continue }
+                break
             }
         }
         if scheme != nil {
@@ -430,6 +453,15 @@ actor JointSpaceClient {
             digest.clear()
         }
         throw lastError
+    }
+
+    /// Without a configured fingerprint, the first certificate seen is the one every later connection
+    /// must present, and the log says which value to configure.
+    private func pinOnFirstUse(_ response: HTTPResponse) {
+        guard pinnedFingerprint == nil, let fingerprint = response.certificateFingerprint else { return }
+        pinnedFingerprint = fingerprint
+        transport = transports.makeTransport(tls: .pinned(fingerprint))
+        logger.warning("The TV's certificate is not in the configuration; pinned for this run. Add \"certFingerprint\": \"\(fingerprint)\" to the TV's entry.")
     }
 
     private func request(scheme: String, method: String, path: String, body: Data?, timeout: Duration) async throws -> HTTPResponse {
@@ -463,10 +495,14 @@ actor JointSpaceClient {
         do {
             return try await transport.send(request)
         } catch let error as HTTPClientError {
-            if case .certificateMismatch(let expected, let observed) = error {
+            switch error {
+            case .certificateMismatch(let expected, let observed):
                 throw JointSpaceError.certificateMismatch(expected: expected, observed: observed)
+            case .cannotConnect(_, let port, let code, _) where code == ECONNREFUSED:
+                throw JointSpaceError.connectionRefused(port: port)
+            default:
+                throw JointSpaceError.unreachable(error.description)
             }
-            throw JointSpaceError.unreachable(error.description)
         } catch is CancellationError {
             throw CancellationError()
         } catch {

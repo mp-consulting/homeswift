@@ -46,7 +46,7 @@ line in the log. The options:
 
 | Option | Default | What it does |
 |---|---|---|
-| `certFingerprint` | | SHA-256 of the TV's certificate, recorded at pairing: connections are refused when the TV presents another. Without it any certificate is accepted (pair again to pin it) |
+| `certFingerprint` | | SHA-256 of the TV's certificate, recorded at pairing: connections are refused when the TV presents another. Without it the first certificate seen is pinned for the run, and the log says the value to add |
 | `pollingInterval` | `10000` | Milliseconds between state polls, 1000 to 60000. Once the TV's own push channel delivers, polls slow to once a minute |
 | `wakeOnLanEnabled` | `true` | Send a Wake-on-LAN packet before switching on; a TV in deep standby hears nothing else |
 | `ambilightMode` | `FOLLOW_VIDEO/NATURAL` | The style (and algorithm) Ambilight takes when switched on from HomeKit |
@@ -79,8 +79,12 @@ the source switches are two views of one choice: a scene that sets both lands on
 
 ## How it works
 
-JointSpace version 6 over HTTPS on port 1926 (plain HTTP on 1925 for sets that never answer there, unless a
-fingerprint is pinned), with HTTP Digest authentication, one request at a time with 100 ms between them. The
+JointSpace version 6 over HTTPS on port 1926 with HTTP Digest authentication, one request at a time with
+100 ms between them. The configured `certFingerprint` is pinned; without one, the certificate of the first
+answer is pinned for the run and the log says which value to configure. Plain HTTP on port 1925 is tried only
+when nothing listens on 1926 (sets from before HTTPS), and never once HTTPS has answered or a fingerprint is
+configured. A `certFingerprint` that is not a SHA-256 fingerprint skips the TV rather than accepting any
+certificate. The
 TV is polled at `pollingInterval` while it is off or until its `notifychange` long-poll delivers; after two
 polls without an answer a TV believed on is reported off. Launches use the activity the TV reports for the
 app, else `<package>.MainActivity`, refreshed from the TV when rejected; the tuner is selected by URI first,

@@ -12,7 +12,7 @@ All notable changes to this project are documented here. The format follows
   same configuration: power with Wake-on-LAN, inputs (tuner, Home, HDMI, discovered or configured apps) with
   stable identifiers, the remote, volume and mute, Ambilight as a colour light, source switches, custom
   buttons, state sensors, the Ambilight+hue switch, the TV's `notifychange` push channel with polling as the
-  fallback, selections parked while the TV wakes. Its web page finds and pairs TVs and writes the entry into
+  fallback, selections parked while the TV wakes, the TV's certificate pinned (configured, or on first use). Its web page finds and pairs TVs and writes the entry into
   the configuration.
 - **External accessories**: `PluginContext.publishExternal(_:)` puts an accessory on a HAP server of its own
   (its identity in `external/`, the main bridge's setup code), as Homebridge publishes televisions and
