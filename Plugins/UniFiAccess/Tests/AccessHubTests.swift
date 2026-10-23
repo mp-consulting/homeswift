@@ -226,9 +226,9 @@ struct AccessHubTests {
         environment.send(AccessEventType.deviceUpdate, "test-device-unique-id", data: .object(update))
         #expect(await eventually { value(host, hubID, .lockMechanism, nil, .lockCurrentState) == 1 })
         #expect(await eventually { value(host, hubID, .contactSensor, "ContactSensor.DPS", .contactSensorState) == 1 })
-        #expect(value(host, hubID, .contactSensor, "ContactSensor.REX", .contactSensorState) == 0)
+        #expect(await eventually { value(host, hubID, .contactSensor, "ContactSensor.REX", .contactSensorState) == 0 })
         #expect(await eventually { self.environment.mqtt.connection.published(on: "unifi/access/AABBCCDDEEFF/dps") == ["true"] })
-        #expect(environment.mqtt.connection.published(on: "unifi/access/AABBCCDDEEFF/rex") == ["false"])
+        #expect(await eventually { self.environment.mqtt.connection.published(on: "unifi/access/AABBCCDDEEFF/rex") == ["false"] })
         #expect(environment.log.contains("Door position sensor open."))
         #expect(environment.log.contains("Request to Exit Sensor closed."))
 

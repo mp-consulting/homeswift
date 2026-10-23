@@ -78,7 +78,9 @@ struct WebSocketTests {
         let socket = try await WebSocket.connect(
             to: URL(string: "ws://127.0.0.1:\(server.port)/")!, options: WebSocket.Options(heartbeat: .milliseconds(200))
         )
-        try await socket.send(text: "mute")
+        // On a loaded runner a pong can come late enough that the heartbeat closes the socket before "mute" goes out:
+        // that is a heartbeat timeout too, which the stream reports.
+        try? await socket.send(text: "mute")
         await #expect(throws: WebSocketError.heartbeatTimeout) {
             for try await _ in socket.messages {}
         }
