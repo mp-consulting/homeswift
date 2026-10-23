@@ -4,7 +4,8 @@ Elgato Key Light, Key Light Air, Key Light Mini and Ring Light in HomeKit: power
 temperature, found over Bonjour, polled so changes made with the Control Center app or the light's buttons
 show up in the Home app.
 
-A port of [`@mp-consulting/homebridge-elgato-key-lights`](https://github.com/mp-consulting/homebridge-elgato-key-lights).
+A port of [`@mp-consulting/homebridge-elgato-key-lights`](https://github.com/mp-consulting/homebridge-elgato-key-lights),
+originally by Julian J. Maurer, under the MIT license (notice in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md)).
 The platform block is the same, so a Homebridge configuration works unchanged.
 
 ## Configuration

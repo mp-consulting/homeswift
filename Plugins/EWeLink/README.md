@@ -3,7 +3,8 @@
 eWeLink devices (SONOFF and every brand on the eWeLink app) in HomeKit: switches, outlets with power
 monitoring, lights, curtains, fans, thermostats, sensors, panels, RF Bridge remotes and sensors, Zigbee devices
 and eWeLink groups, plus simulations that show a switch as a blind, a garage door, a lock, a valve, a heater and
-more. A port of [`@mp-consulting/homebridge-ewelink`](https://github.com/mp-consulting/homebridge-ewelink): the
+more. A port of [`@mp-consulting/homebridge-ewelink`](https://github.com/mp-consulting/homebridge-ewelink), originally by bwp91,
+under the MIT license (notice in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md)): the
 platform name (`eWeLink`) and every option are the same, so a Homebridge block works unchanged.
 
 - **Hybrid connection.** Commands go over the LAN first (devices found over mDNS, `_ewelink._tcp`, which mDNS

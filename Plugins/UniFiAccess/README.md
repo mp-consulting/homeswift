@@ -3,7 +3,9 @@
 Ubiquiti's [UniFi Access](https://ui.com/door-access) door access system in HomeKit: every hub and reader of
 one or more controllers, found automatically and followed in real time through the controller's events.
 
-A port of [`@mp-consulting/homebridge-unifi-access`](https://github.com/mp-consulting/homebridge-unifi-access).
+A port of [`@mp-consulting/homebridge-unifi-access`](https://github.com/mp-consulting/homebridge-unifi-access), the
+fork of HJD's [`homebridge-unifi-access`](https://github.com/hjdhjd/homebridge-unifi-access), Copyright (c) 2017-2026
+HJD, under the ISC license; its notice is in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md).
 The platform name (`UniFi Access`), the block and the feature options are the same, so a Homebridge
 configuration works unchanged, `options` array included.
 

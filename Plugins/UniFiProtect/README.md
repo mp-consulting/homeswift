@@ -6,7 +6,8 @@ messages and chimes; floodlights, UP Sense sensors, viewports and chimes; livevi
 MQTT publishing and an M3U playlist of the cameras.
 
 A port of [`homebridge-unifi-protect`](https://github.com/hjdhjd/homebridge-unifi-protect) (the
-`@mp-consulting` fork). The platform block is the same (`"platform": "UniFi Protect"`), and so are the
+`@mp-consulting` fork), Copyright (c) 2017-2026 HJD, under the ISC license; its notice is in
+[THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md). The platform block is the same (`"platform": "UniFi Protect"`), and so are the
 feature options, so a Homebridge configuration works unchanged.
 
 ## Configuration

@@ -304,6 +304,8 @@ To propose a plugin or contribute a change, see [CONTRIBUTING.md](CONTRIBUTING.m
 
 ## License
 
-MIT, see [LICENSE](LICENSE). The service and characteristic definitions come from HAP-NodeJS (Apache-2.0).
+MIT, see [LICENSE](LICENSE). Most plugins, the FFmpeg utilities and the HAP definitions are ported from other
+projects (Homebridge plugins under MIT, ISC and Apache-2.0, HAP-NodeJS under Apache-2.0); their notices and the parts
+that come from each are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 Homeswift is not made or endorsed by Apple. HomeKit, Swift and the Swift logo are trademarks of Apple Inc.

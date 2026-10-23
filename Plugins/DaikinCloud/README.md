@@ -1,7 +1,8 @@
 # Daikin Cloud
 
 Daikin air conditioners and Altherma heat pumps in HomeKit through the Daikin Onecta cloud: the port of
-[`@mp-consulting/homebridge-daikin-cloud`](https://github.com/mp-consulting/homebridge-daikin-cloud) to Homeswift.
+[`@mp-consulting/homebridge-daikin-cloud`](https://github.com/mp-consulting/homebridge-daikin-cloud) to Homeswift, originally by
+Jeroen Van den Berghe, under the Apache License 2.0 (notice and changes in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md)).
 Platform `DaikinCloud`; a Homebridge block works unchanged.
 
 ## What it does
