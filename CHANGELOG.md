@@ -366,9 +366,6 @@ All notable changes to this project are documented here. The format follows
 - Philips Ambilight TV: the Television service has Current Media State (interrupted), as the Homebridge
   plugin sets it.
 - Philips Ambilight TV: `assistantBackground`, the Homebridge plugin's background for the Assistant, for the port.
-
-### Fixed
-
 - UniFi Protect: accessories show Protect's hardware revision (cameras, sensors and the other devices, the
   controller's system information and the liveview security system), as the Homebridge plugin sets it.
 - UniFi Protect: with no `playlistAddress`, the M3U playlist listens on IPv6 as well as IPv4 (one dual-stack
