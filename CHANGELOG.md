@@ -109,6 +109,10 @@ All notable changes to this project are documented here. The format follows
   decoder (also capped in depth), Adaptive Lighting and the Eve history no longer trap on hostile numbers.
 - The `homeswift` binary embeds an Info.plist on macOS with `NSBluetoothAlwaysUsageDescription`, so the Govee
   plugin's Bluetooth works.
+- The Daikin Cloud page's connection test refreshes an expired token first, as the plugin's own calls do.
+- The Govee plugin turns Bluetooth off, with a warning naming the app, when macOS holds an app without a
+  Bluetooth usage description responsible for homeswift (started from that app's shell); macOS aborted the
+  whole bridge at the first Bluetooth call.
 - **Camera cards** on the Accessories page: a 16:9 live video with the camera's name, motion, the doorbell's
   last ring and HomeKit Secure Video recording over it, mute, refresh and full screen buttons, and the camera's
   own controls (its light, switches, whether it is on in the Home app) under it. The video plays muted through
