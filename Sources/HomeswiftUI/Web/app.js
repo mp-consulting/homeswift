@@ -1146,21 +1146,28 @@
   const passwordPolicy = { minimumLength: 12, minimumBits: 85, scaleBits: 128 };
   const strengthLabels = { strongToVeryStrong: "Strong to very strong", mediumToStrong: "Medium to strong", lowToMedium: "Low to medium", veryWeak: "Very weak" };
 
-  /// A live gauge under a password field: the ANSSI's bands along 0 to 128 bits, the 85-bit bar marked, and the
-  /// two rules ticking as they are met. `username()` gives the name the password must not lean on.
-  /// `gauge.acceptable()` answers, once the server has, whether the password as typed passes.
+  /// The ANSSI's bands, from the bits where each starts: the scale under the gauge.
+  const strengthBands = [[0, "Weak"], [65, "Low"], [85, "Medium"], [100, "Strong"]];
+
+  /// A live gauge under a password field: the ANSSI's bands along 0 to 128 bits as one gradient, lit up to the
+  /// password's entropy, the 85-bit bar marked, and the two rules ticking as they are met. `username()` gives the
+  /// name the password must not lean on. `gauge.acceptable()` answers, once the server has, whether the password as
+  /// typed passes. Its classes are `strength-*`: the widgets' dial is `.gauge`.
   function strengthGauge(input, username = () => "") {
-    const fill = el("div", { class: "gauge-fill" });
-    const label = el("strong", {});
-    const bits = el("span", { class: "muted" });
+    const percent = (bits) => `${(Math.min(bits, passwordPolicy.scaleBits) / passwordPolicy.scaleBits) * 100}%`;
+    const fill = el("div", { class: "strength-fill" });
+    const label = el("strong", { class: "strength-level" });
+    const bits = el("span", { class: "strength-bits" });
     const ruleLength = el("li", { text: `At least ${passwordPolicy.minimumLength} characters` });
     const ruleBits = el("li", { text: `At least ${passwordPolicy.minimumBits} bits of entropy (ANSSI: medium to strong)` });
-    const hint = el("p", { class: "help gauge-hint" });
-    const track = el("div", { class: "gauge-track", role: "meter", "aria-label": "Password strength", "aria-valuemin": "0", "aria-valuemax": String(passwordPolicy.scaleBits) },
+    const hint = el("p", { class: "help strength-hint" });
+    const track = el("div", { class: "strength-track", role: "meter", "aria-label": "Password strength", "aria-valuemin": "0", "aria-valuemax": String(passwordPolicy.scaleBits) },
       fill,
-      ...[65, 85, 100].map((at) => el("span", { class: "gauge-tick", style: `left:${(at / passwordPolicy.scaleBits) * 100}%` })),
-      el("span", { class: "gauge-mark", title: `Required: ${passwordPolicy.minimumBits} bits`, style: `left:${(passwordPolicy.minimumBits / passwordPolicy.scaleBits) * 100}%` }));
-    const gauge = el("div", { class: "gauge" }, track, el("div", { class: "gauge-legend" }, label, bits), el("ul", { class: "gauge-rules" }, ruleLength, ruleBits), hint);
+      ...strengthBands.slice(1).map(([at]) => el("span", { class: "strength-tick", style: `left:${percent(at)}` })),
+      el("span", { class: "strength-mark", title: `Required: ${passwordPolicy.minimumBits} bits`, style: `left:${percent(passwordPolicy.minimumBits)}` }));
+    const scale = el("div", { class: "strength-scale", "aria-hidden": "true" },
+      ...strengthBands.map(([at, text], index) => el("span", { text, style: `left:${percent(at)};width:${percent((strengthBands[index + 1]?.[0] ?? passwordPolicy.scaleBits) - at)}` })));
+    const gauge = el("div", { class: "strength" }, el("div", { class: "strength-head" }, label, bits), track, scale, el("ul", { class: "strength-rules" }, ruleLength, ruleBits), hint);
 
     // One request per password and username as typed; an answer that is no longer the latest is dropped.
     let latest = null;
@@ -1172,7 +1179,7 @@
     };
     const draw = (s) => {
       gauge.dataset.level = s ? s.level : "";
-      fill.style.width = `${Math.min(s?.bits ?? 0, passwordPolicy.scaleBits) / passwordPolicy.scaleBits * 100}%`;
+      fill.style.setProperty("--lit", percent(s?.bits ?? 0));
       track.setAttribute("aria-valuenow", String(s?.bits ?? 0));
       track.setAttribute("aria-valuetext", s ? `${strengthLabels[s.level]}, ${s.bits} bits` : "empty");
       label.textContent = s ? strengthLabels[s.level] : "Strength";
@@ -1216,6 +1223,7 @@
     const message = el("p", { class: "status-line muted", role: "status" });
     const submit = el("button", { class: "primary", type: "submit", text: "Change password" });
     const fail = (text) => { message.className = "status-line error"; message.textContent = text; };
+    const days = state.sessionDays ?? 7;
     const form = el("form", { class: "card account-form", onsubmit: async (event) => {
       event.preventDefault();
       if (!(await gauge.acceptable())) { next.focus(); return fail("The new password is not strong enough yet: the gauge says what is missing."); }
@@ -1232,16 +1240,24 @@
       submit.disabled = false;
     } },
       el("h2", { text: "Change your password" }),
-      field("Current password", current),
-      el("label", { class: "field" }, el("span", { class: "field-title", text: "New password" }), next, gauge),
-      field("New password again", again),
-      el("div", { class: "actions" }, submit), message);
-    show(main,
-      pageHead("Account", `Signed in as ${state.username}. Logins last ${state.sessionDays ?? 7} days without activity.`),
-      el("div", { class: "account" }, form,
-        el("div", { class: "card" }, el("h2", { text: "Sign out" }),
-          el("p", { class: "muted", text: "Ends this browser's session. Changing the password ends the others." }),
-          el("button", { text: "Sign out", onclick: () => $("#logout").click() }))));
+      el("p", { class: "muted account-lead", text: "A phrase of several random words is long, strong and easy to remember." }),
+      // The fields on one side, the new password's entropy beside them as it is typed.
+      el("div", { class: "account-password" },
+        el("div", { class: "account-fields" },
+          field("Current password", current),
+          field("New password", next),
+          field("New password again", again),
+          el("div", { class: "actions" }, submit), message),
+        el("aside", { class: "strength-panel", "aria-label": "Strength of the new password" },
+          el("span", { class: "field-title", text: "Entropy of the new password" }), gauge)));
+    // Who is signed in, with the one thing to do about it.
+    const profile = el("section", { class: "card account-profile" },
+      el("span", { class: "account-avatar", "aria-hidden": "true", text: (state.username || "?").slice(0, 1).toUpperCase() }),
+      el("div", { class: "account-who" },
+        el("h2", { text: state.username }),
+        el("p", { class: "muted", text: `Signed in on this browser. Logins last ${days} day${days === 1 ? "" : "s"} without activity; changing the password signs the others out.` })),
+      el("button", { text: "Sign out", onclick: () => $("#logout").click() }));
+    show(main, pageHead("Account", "Your sign-in to this bridge's web UI."), el("div", { class: "account" }, profile, form));
   };
 
   // ---- Config --------------------------------------------------------------
