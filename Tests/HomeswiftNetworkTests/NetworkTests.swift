@@ -86,11 +86,14 @@ final class TestServer: Sendable {
     var requests: Int { counts.withLockedValue { $0.requests } }
 
     init(tls: Bool, behaviour: Behaviour, dropping: Int = 0, drop: Drop = .onAccept) async throws {
-        var context: NIOSSLContext?
+        // A constant: the child channel initializer, run on any event loop, captures it.
+        let context: NIOSSLContext?
         if tls {
             let certificate = try NIOSSLCertificate(bytes: Array(TestCertificate.certificatePEM.utf8), format: .pem)
             let key = try NIOSSLPrivateKey(bytes: Array(TestCertificate.keyPEM.utf8), format: .pem)
             context = try NIOSSLContext(configuration: .makeServerConfiguration(certificateChain: [.certificate(certificate)], privateKey: .privateKey(key)))
+        } else {
+            context = nil
         }
         let counts = counts
         channel = try await ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton)

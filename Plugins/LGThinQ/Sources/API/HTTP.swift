@@ -88,7 +88,7 @@ func parseQuery(_ query: String) -> [String: String] {
 /// Luxon's `DateTime.utc().toRFC2822()`: `Thu, 22 Oct 2026 08:05:09 +0000`. LG checks it against its clock.
 enum RFC2822 {
     /// Only formats (thread-safe); never changed after it is made.
-    nonisolated(unsafe) private static let formatter: DateFormatter = {
+    private static let formatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "UTC")
