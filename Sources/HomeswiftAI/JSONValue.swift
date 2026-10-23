@@ -77,6 +77,17 @@ public enum JSONValue: Sendable, Hashable, Codable, CustomStringConvertible {
         self = try JSONValueParser.parse(bytes)
     }
 
+    /// The members of a JSON object, in order, parsed in place without building a dictionary (duplicate keys are
+    /// all there): cheaper for many small objects whose keys are read once.
+    public static func members(of bytes: UnsafeRawBufferPointer) throws -> [(key: String, value: JSONValue)] {
+        try JSONValueParser.members(bytes).map { (key: $0.0, value: $0.1) }
+    }
+
+    /// Appends `string` as JSON, escaped as `encoded()` escapes it: for answers written a piece at a time.
+    public static func appendQuoted(_ string: String, to bytes: inout [UInt8]) {
+        quote(string, to: &bytes)
+    }
+
     public init(string: String) throws {
         self = try JSONValueParser.parse(Array(string.utf8))
     }
@@ -337,17 +348,36 @@ struct JSONValueParser {
         guard depth <= 128 else { throw error("too deeply nested") }
     }
 
+    /// The members of the object `raw` holds, in order, without a dictionary: for many small objects read a key at a
+    /// time (the log archive's rows).
+    static func members(_ raw: UnsafeRawBufferPointer) throws -> [(String, JSONValue)] {
+        var parser = JSONValueParser(bytes: raw.bindMemory(to: UInt8.self))
+        parser.skipWhitespace()
+        guard parser.index < parser.bytes.count, parser.bytes[parser.index] == UInt8(ascii: "{") else { throw parser.error("expected an object") }
+        let members = try parser.members()
+        parser.skipWhitespace()
+        guard parser.index == parser.bytes.count else { throw parser.error("unexpected text after the value") }
+        return members
+    }
+
     private mutating func object() throws -> JSONValue {
-        try nest()
-        index += 1
         // The members first, then a dictionary of the right size: growing one member at a time cost more than
         // the rest of parsing.
+        let members = try members()
+        var object = [String: JSONValue](minimumCapacity: members.count)
+        for (key, value) in members { object[key] = value }
+        return .object(object)
+    }
+
+    private mutating func members() throws -> [(String, JSONValue)] {
+        try nest()
+        index += 1
         var members: [(String, JSONValue)] = []
         skipWhitespace()
         if index < bytes.count, bytes[index] == UInt8(ascii: "}") {
             index += 1
             depth -= 1
-            return .object([:])
+            return members
         }
         while true {
             skipWhitespace()
@@ -364,9 +394,7 @@ struct JSONValueParser {
             } else if bytes[index] == UInt8(ascii: "}") {
                 index += 1
                 depth -= 1
-                var object = [String: JSONValue](minimumCapacity: members.count)
-                for (key, value) in members { object[key] = value }
-                return .object(object)
+                return members
             } else {
                 throw error("expected , or }")
             }

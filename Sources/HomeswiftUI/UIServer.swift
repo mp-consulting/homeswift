@@ -444,9 +444,9 @@ public final class UIServer: Sendable {
                     let lines = await withCheckedContinuation { continuation in
                         DispatchQueue.global(qos: .userInitiated).async { continuation.resume(returning: logs.lines(from: from, to: to, limit: Self.logLimit, matching: matching, mayMatch: mayMatch)) }
                     }
-                    return .json(.array(lines.map(Self.logJSON)))
+                    return .data(status: 200, contentType: "application/json", body: Self.logsJSON(lines))
                 }
-                return .json(.array(catalog.logs.recent(2000, matching: matching).map(Self.logJSON)))
+                return .data(status: 200, contentType: "application/json", body: Self.logsJSON(catalog.logs.recent(2000, matching: matching)))
             case ["metrics"]:
                 // `from` and `to` (now when left out) as ISO 8601, the last hour without them; `bridge` (a device ID,
                 // or `all`) or `accessory`: whose request and handler durations. Memory and CPU are the process's.
@@ -776,6 +776,35 @@ public final class UIServer: Sendable {
     }
 
     /// A line for the Logs page; `details`, the JSON taken out of it, as compact text for the page to expand.
+    /// Lines as the JSON array of their `logJSON`, the same bytes, written directly: a dictionary per line and its
+    /// sorted keys cost most of an answer of thousands of lines.
+    static func logsJSON(_ lines: [LogBuffer.Line]) -> Data {
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(lines.count * 160 + 2)
+        bytes.append(UInt8(ascii: "["))
+        for (index, line) in lines.enumerated() {
+            if index > 0 { bytes.append(UInt8(ascii: ",")) }
+            // Keys in the order encoded() sorts them.
+            bytes.append(UInt8(ascii: "{"))
+            if let details = line.details {
+                bytes.append(contentsOf: #""details":"#.utf8)
+                JSONValue.appendQuoted(details, to: &bytes)
+                bytes.append(UInt8(ascii: ","))
+            }
+            bytes.append(contentsOf: #""label":"#.utf8)
+            JSONValue.appendQuoted(line.label, to: &bytes)
+            bytes.append(contentsOf: #","level":"#.utf8)
+            JSONValue.appendQuoted(line.level.rawValue, to: &bytes)
+            bytes.append(contentsOf: #","text":"#.utf8)
+            JSONValue.appendQuoted(line.text, to: &bytes)
+            bytes.append(contentsOf: #","time":"#.utf8)
+            JSONValue.appendQuoted(Timestamp.iso8601(line.date), to: &bytes)
+            bytes.append(UInt8(ascii: "}"))
+        }
+        bytes.append(UInt8(ascii: "]"))
+        return Data(bytes)
+    }
+
     static func logJSON(_ line: LogBuffer.Line) -> JSONValue {
         var json: [String: JSONValue] = ["time": .string(Timestamp.iso8601(line.date)), "level": .string(line.level.rawValue), "label": .string(line.label), "text": .string(line.text)]
         if let details = line.details { json["details"] = .string(details) }
