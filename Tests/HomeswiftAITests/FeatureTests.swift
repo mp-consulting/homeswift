@@ -20,13 +20,19 @@ final class ScriptedProvider: Provider, @unchecked Sendable {
     let model = "claude-haiku-5-5"
     let capabilities = ProviderCapabilities(streaming: false, contextTokens: 100_000)
     private let answer: @Sendable (ChatRequest) -> String
+    /// How long it takes to answer, waited without holding a thread (a loaded CI runner has few).
+    private let delay: Duration?
     private let lock = NSLock()
     private(set) var requests: [ChatRequest] = []
 
-    init(_ answer: @escaping @Sendable (ChatRequest) -> String) { self.answer = answer }
+    init(delay: Duration? = nil, _ answer: @escaping @Sendable (ChatRequest) -> String) {
+        self.delay = delay
+        self.answer = answer
+    }
 
     func chat(_ request: ChatRequest) async throws -> ChatResult {
         lock.withLock { requests.append(request) }
+        if let delay { try await Task.sleep(for: delay) }
         return ChatResult(model: model, text: answer(request), toolCalls: [], usage: TokenUsage(inputTokens: 100, outputTokens: 20), stopReason: .end)
     }
 
@@ -188,7 +194,7 @@ struct FeatureTests {
     }
 
     @Test func testTimesOut() async {
-        let slow = ScriptedProvider { _ in Thread.sleep(forTimeInterval: 0.5); return "OK" }
+        let slow = ScriptedProvider(delay: .seconds(30)) { _ in "OK" }
         let result = await AssistantService.testConnection(provider: slow, timeout: 0.1)
         #expect(!result.ok)
         #expect(result.message?.contains("no answer within") == true)
