@@ -352,6 +352,24 @@ the status routes all answer within a millisecond, at 60 and at 300 accessories 
 otherwise, and READY says which: two runs side by side (another session's, say) no longer collide, and a server that
 cannot start exits with its error instead of leaving the script waiting for READY.
 
+Commit `dabf977` finds what the redaction expressions need in one pass over a line (it took sixteen searches) and
+makes the date formatters of the log routes once. Back to back with the build before it, interleaved twice (load
+average about 30), the better run of each:
+
+| p50 | before, 60 | after, 60 | before, 300 | after, 300 |
+|---|---:|---:|---:|---:|
+| MCP `search_logs` | 6.9 ms | 3.5 ms | 7.0 ms | 3.5 ms |
+| MCP `get_recent_logs` | 0.82 ms | 0.52 ms | 0.82 ms | 0.52 ms |
+| `GET /api/logs?from=` (an hour) | 6.9 ms | 6.8 ms | 6.8 ms | 6.5 ms |
+
+`/api/logs` and `?accessory=` do not redact and did not move.
+
+Commit `bee55cc` reads an archive row's members through a closure (no array of them per row), parses short
+decimals such as a row's time with one exact division instead of `strtod`, and puts a range's lines together in one
+pass: `GET /api/logs?from=` (an hour) went from 6.3 to 4.8 ms at 60 and at 300 accessories, back to back. The same
+run measured `search_logs` at 7.9 ms against 3.3 before: its new implementation (`HomeswiftCatalog.searchLogs`, with
+payloads, filters and context lines) came in between the two builds.
+
 ### Adding accessories
 
 A plugin adds its accessories one at a time. Each add rewrote the whole accessory cache with `JSONEncoder`, and
