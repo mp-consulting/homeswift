@@ -1013,3 +1013,15 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
 @media (prefers-reduced-transparency: reduce) {
   .camera-badge, .camera-button { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(20, 22, 28, 0.85); }
 }
+
+/* Describe your setup: the Assistant's suggestion for a block, as a diff to review. */
+.describe-setup summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 4px; }
+.describe-setup summary::-webkit-details-marker { display: none; }
+.describe-body { display: grid; gap: 10px; margin-top: 12px; }
+.describe-body .actions { display: flex; gap: 8px; }
+.describe-result:empty { display: none; }
+.describe-result { display: grid; gap: 10px; }
+pre.diff { margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--field); border: 1px solid var(--line); overflow-x: auto; font: 0.8125rem/1.45 var(--mono); }
+pre.diff .diff-add { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); display: block; }
+pre.diff .diff-remove { color: var(--error); background: color-mix(in srgb, var(--error) 12%, transparent); display: block; }
+pre.diff .diff-same { display: block; opacity: 0.7; }

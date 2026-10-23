@@ -66,7 +66,13 @@ with a new code).
   form built from the plugin's schema (the same `config.schema.json` the Homebridge version ships) or as JSON
   (`/plugins/<slug>/expert` or `/expert/json`); a plugin that does not run, or has no page, shows the form at
   its address, and so do the runtime's own blocks. **Add a platform** lists the plugins compiled in. The JSON view is coloured as you
-  type, like the Config page; Save takes the view on screen. A certificate or key field takes a
+  type, like the Config page; Save takes the view on screen. The form follows the schema's `condition`s
+  (`functionBody` or an expression, as Homebridge's form reads them): a field shows only when its condition
+  holds for the block or, in a list, for its entry (`arrayIndices`). The page runs no code from the schema: it
+  reads the part of JavaScript conditions use (`model.a.b`, `[arrayIndices]`, literals, `.includes()`, `!`,
+  comparisons, `&&`, `||`), and shows a field whose condition it cannot read. With the Assistant on, **Describe
+  your setup** above the form writes the block from a sentence and the plugin's schema; the change shows as a
+  diff, and **Use it** puts it in the form to review and save (passwords and tokens never reach the provider). A certificate or key field takes a
   dropped PEM file, which the bridge checks and keeps owner-only under `files/` next to config.json. The
   runtime's own blocks, `HomeswiftUI` and `HomeswiftAiKit` (the Assistant and the MCP server), have forms too.
   **Add** on a plugin with its own page (pairing a TV, finding lights) writes an empty

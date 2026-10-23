@@ -128,3 +128,24 @@ struct JSONNumberTests {
         #expect(JSONValue.null.saturatingIntValue(in: 0...100) == nil)
     }
 }
+
+struct AssistantBackgroundTests {
+    private struct Lamp: HomeswiftPlugin {
+        struct Configuration: Decodable, Sendable {}
+        static let platform = "Lamp"
+        static let assistantBackground: String? = "ECONNREFUSED means the lamp's API is off."
+        init(configuration: Configuration, context: PluginContext) async throws {}
+        func start() async throws {}
+    }
+
+    @Test func registryKeepsThePluginsBackgroundForTheAssistant() {
+        var registry = PluginRegistry()
+        registry.register(Lamp.self)
+        let entry = registry.entry(for: "Lamp")
+        #expect(entry?.assistantBackground == "ECONNREFUSED means the lamp's API is off.")
+        let context = PluginContext.assistantContext(name: "Desk", platform: "Lamp", background: entry?.assistantBackground)
+        #expect(context.hasPrefix("The requests come from the Homeswift plugin \"Desk\" (platform Lamp)."))
+        #expect(context.hasSuffix("ECONNREFUSED means the lamp's API is off."))
+        #expect(PluginContext.assistantContext(name: "Desk", platform: "Lamp", background: "  ") == "The requests come from the Homeswift plugin \"Desk\" (platform Lamp).")
+    }
+}

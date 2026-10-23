@@ -538,6 +538,27 @@ public final class UIServer: Sendable {
                     return .error(502, "the Assistant did not answer: \(error)")
                 }
             }
+            if route == ["assistant", "config"] {
+                // Describe your setup: a block written from the plugin's config.schema.json and a request in plain
+                // language, for the settings form to show as a change to review; nothing is saved here.
+                guard let assistant = catalog.host.assistant else { return .error(404, "the Assistant is off: add a HomeswiftAiKit block") }
+                guard let platform = body["platform"]?.stringValue, let entry = catalog.host.registry.entry(for: platform),
+                      let schemaText = entry.configurationSchemaJSON else { return .error(404, "that plugin has no config.schema.json") }
+                guard let wish = body["request"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !wish.isEmpty else {
+                    return .error(400, "say what the block should do")
+                }
+                let schema = try JSONValue(data: Data(schemaText.utf8))
+                var current = body["current"]
+                if case .object(var block)? = current { block["platform"] = nil; current = .object(block) }
+                do {
+                    let suggestion = try await assistant
+                        .withContext(PluginContext.assistantContext(name: entry.name, platform: platform, background: entry.assistantBackground))
+                        .generateConfiguration(request: wish, schema: schema, current: current == .null ? nil : current, pluginName: entry.name, onChunk: nil)
+                    return .json(["config": suggestion.config, "explanation": .string(suggestion.explanation), "model": .string(assistant.model)])
+                } catch {
+                    return .error(502, "the Assistant did not answer: \(error)")
+                }
+            }
             if route == ["files"] {
                 return try storeFile(body, username: username)
             }
