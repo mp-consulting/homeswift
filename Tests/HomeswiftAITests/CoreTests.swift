@@ -146,6 +146,31 @@ import Testing
     }
 
     /// The ASCII shortcut skips only expressions that cannot match: it masks what every expression masks.
+    /// One pass finds what a search for each needle finds.
+    @Test func hintsAreWhatEachSearchFinds() {
+        let pieces = ["Bearer x", "Basic y", "sk-", "SK-", "hbg_", "AIza", "aiza", "eyJ", "X-HM://", "x-hm://", "PASS", "pin", "Setup",
+                      "secret", "TOKEN", "api", "Private", "credential", "=", ":", "123-45-678", "a123-45-678", "1234-5678", "12345-678",
+                      "plain words", " ", "2026-10-23", "_1234-5678", "Entrée"]
+        var generator = SystemRandomNumberGenerator()
+        for _ in 0..<3000 {
+            let text = (0..<Int.random(in: 1...4, using: &generator)).map { _ in pieces.randomElement(using: &generator)! }.joined(separator: ["", " ", "-"].randomElement(using: &generator)!)
+            let hints = Redaction.hints(text)
+            guard TextSearch.isASCII(text) else { #expect(hints == .nonASCII); continue }
+            let lower = text.lowercased()
+            func expect(_ hint: Redaction.Hints, _ found: Bool) { #expect(hints.contains(hint) == found, "\(text)") }
+            expect(.separator, text.contains(":") || text.contains("="))
+            expect(.keyword, ["pass", "pin", "setup", "secret", "token", "api", "private", "credential"].contains { lower.contains($0) })
+            expect(.bearer, text.contains("Bearer") || text.contains("Basic"))
+            expect(.openAI, text.contains("sk-"))
+            expect(.homebridge, text.contains("hbg_"))
+            expect(.google, text.contains("AIza"))
+            expect(.jwt, text.contains("eyJ"))
+            expect(.setupURI, text.contains("X-HM://"))
+            expect(.setupCode, text.range(of: #"\b\d{3}-\d{2}-\d{3}\b"#, options: .regularExpression) != nil)
+            expect(.shortSetupCode, text.range(of: #"\b\d{4}-\d{4}\b"#, options: .regularExpression) != nil)
+        }
+    }
+
     @Test func freeTextShortcutMasksWhatTheExpressionsMask() {
         let pieces = [
             "password=hunter2", "PassWord : 'x1'", "apiKey: \"sk-ant-abcdefghijklmnop\"", "Authorization: Bearer abcdefghijklmnopqrstuvwxyz",

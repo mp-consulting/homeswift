@@ -517,14 +517,16 @@ public final class UIServer: Sendable {
                 // The user's own conversations, to open an earlier one.
                 return .json(await chat.list(user: username))
             case ["accessories"]:
+                // A doorbell's last ring since the bridge started, for its camera card. The list is written straight
+                // to bytes: the same JSON as its value would encode to, without the tree.
                 let rings = events.lastRings
-                return .json(.array(catalog.located().map { located in
-                    let json = HomeswiftCatalog.accessoryJSON(located, detailed: true)
-                    // A doorbell's last ring since the bridge started, for its camera card.
-                    guard let ring = rings[located.accessory.id], var object = json.objectValue else { return json }
-                    object["lastRing"] = .string(ring.formatted(.iso8601))
-                    return .object(object)
-                }))
+                var json = JSONBytesWriter(capacity: 64 * 1024)
+                json.array { json in
+                    for located in catalog.located() {
+                        HomeswiftCatalog.writeAccessory(located, detailed: true, lastRing: rings[located.accessory.id].map { $0.formatted(.iso8601) }, to: &json)
+                    }
+                }
+                return .data(status: 200, contentType: "application/json", body: Data(json.bytes))
             case ["plugins"]:
                 let platforms = catalog.host.configuration.platforms
                 let slugs = Slug.unique(platforms.map(\.name), fallback: "plugin")
@@ -1057,11 +1059,28 @@ public final class UIServer: Sendable {
 
     /// An ISO 8601 date and time, with or without fractional seconds (`Date.toISOString()` sends them).
     static func date(iso text: String) -> Date? {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: text) { return date }
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: text)
+        isoParsers.date(text)
+    }
+
+    private static let isoParsers = ISOParsers()
+
+    /// The two formatters `date(iso:)` tries, made once: making them cost more than the rest of a log range's request.
+    /// Formatters are not Sendable, so one caller at a time uses them.
+    private final class ISOParsers: @unchecked Sendable {
+        private let lock = NSLock()
+        private let fractional = ISO8601DateFormatter()
+        private let plain = ISO8601DateFormatter()
+
+        init() {
+            fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            plain.formatOptions = [.withInternetDateTime]
+        }
+
+        func date(_ text: String) -> Date? {
+            lock.lock()
+            defer { lock.unlock() }
+            return fractional.date(from: text) ?? plain.date(from: text)
+        }
     }
 
     /// A history for the Status page's charts: `step` in seconds, then a point per step with something recorded,

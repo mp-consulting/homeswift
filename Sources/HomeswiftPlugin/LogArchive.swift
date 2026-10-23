@@ -140,7 +140,7 @@ public final class LogArchive: @unchecked Sendable {
         let manager = FileManager.default
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         prune()
-        let stamp = Self.names().string(from: date)
+        let stamp = Self.names.string(from: date)
         var url = directory.appendingPathComponent("\(Self.prefix)\(stamp).jsonl")
         // Two segments in one second (a burst past the size limit): the next name.
         var suffix = 1
@@ -158,10 +158,9 @@ public final class LogArchive: @unchecked Sendable {
     /// The segments, oldest first, with when each starts.
     private func segments() -> [(url: URL, start: Date)] {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-        let formatter = Self.names()
         return names.compactMap { name -> (URL, Date)? in
             guard name.hasPrefix(Self.prefix), name.hasSuffix(".jsonl"),
-                  let start = formatter.date(from: String(name.dropFirst(Self.prefix.count).prefix(15))) else { return nil }
+                  let start = Self.names.date(from: String(name.dropFirst(Self.prefix.count).prefix(15))) else { return nil }
             return (directory.appendingPathComponent(name), start)
         }.sorted { $0.1 == $1.1 ? $0.0.lastPathComponent < $1.0.lastPathComponent : $0.1 < $1.1 }
     }
@@ -246,12 +245,31 @@ public final class LogArchive: @unchecked Sendable {
         return Double(String(decoding: UnsafeBufferPointer(rebasing: bytes[(index + 4)..<end]), as: UTF8.self))
     }
 
-    /// `20261022-221500`, in UTC: names sort by time whatever the time zone.
-    static func names() -> DateFormatter {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(identifier: "UTC")
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
-        return formatter
+    /// Segment names' times.
+    static let names = SegmentNames()
+
+    /// `20261022-221500`, in UTC: names sort by time whatever the time zone. The formatter is made once (making one
+    /// cost a time range more than reading its rows) and used by one caller at a time, formatters not being Sendable.
+    final class SegmentNames: @unchecked Sendable {
+        private let lock = NSLock()
+        private let formatter: DateFormatter = {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(identifier: "UTC")
+            formatter.dateFormat = "yyyyMMdd-HHmmss"
+            return formatter
+        }()
+
+        func string(from date: Date) -> String {
+            lock.lock()
+            defer { lock.unlock() }
+            return formatter.string(from: date)
+        }
+
+        func date(from string: String) -> Date? {
+            lock.lock()
+            defer { lock.unlock() }
+            return formatter.date(from: string)
+        }
     }
 }
