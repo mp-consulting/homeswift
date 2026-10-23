@@ -156,6 +156,58 @@ struct ProtocolTests {
         #expect(!entries.contains { $0["tool"] == "get_server_status" })
     }
 
+    @Test func securityControlsAPluginMarksNeedSetSecurityAccessory() async throws {
+        let environment = try MCPTestEnvironment()
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let controller = DirectClient(server: environment.server, scope: .control)
+        try await controller.initialize()
+
+        let detailed = try await controller.tool("get_accessory", ["id": "Devices:lock"])["structuredContent"]
+        let trigger = detailed?["services"]?.arrayValue?.first { $0["subtype"] == "trigger" }
+        #expect(trigger?["characteristics"]?.arrayValue?.first { $0["type"] == "On" }?["security"] == true)
+        #expect(detailed?["services"]?[0]?["characteristics"]?.arrayValue?.first { $0["type"] == "Lock Target State" }?["security"] == true)
+
+        let refused = try await controller.tool("set_accessory", ["id": "Devices:lock", "service": "trigger", "characteristic": "On", "value": true])
+        #expect(refused["isError"] == true)
+        #expect(refused["content"]?[0]?["text"]?.stringValue?.contains("set_security_accessory") == true)
+        let bulk = try await controller.tool("set_accessories", ["changes": [["id": "Devices:lock", "characteristic": "On", "value": true]]])
+        #expect(bulk["structuredContent"]?["results"]?[0]?["error"]?.stringValue?.contains("set_security_accessory") == true)
+        let preview = try await controller.tool("set_accessories", ["dryRun": true, "changes": [["id": "Devices:lock", "characteristic": "On", "value": true]]])
+        #expect(preview["structuredContent"]?["results"]?[0]?["error"]?.stringValue?.contains("set_security_accessory") == true)
+        #expect(!environment.written.contains { $0.0 == "trigger.on" })
+
+        let declined = try await controller.tool("set_security_accessory", ["id": "Devices:lock", "characteristic": "On", "value": true])
+        #expect(declined["isError"] == true)
+        #expect(!environment.written.contains { $0.0 == "trigger.on" })
+        let unlocked = try await controller.tool("set_security_accessory", ["id": "Devices:lock", "characteristic": "On", "value": true], answer: ["action": "accept", "content": ["confirm": true]])
+        #expect(unlocked["isError"] == nil)
+        #expect(environment.written.last?.0 == "trigger.on")
+    }
+
+    @Test func confidentialValuesStayOutOfTheCatalog() async throws {
+        let environment = try MCPTestEnvironment()
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let client = DirectClient(server: environment.server, scope: .read)
+        try await client.initialize()
+        let listed = try await client.tool("list_accessories")
+        #expect(!listed.text().contains("c3J0cC1tYXN0ZXIta2V5"))
+        let lock = listed["structuredContent"]?["accessories"]?.arrayValue?.first { $0["id"] == "Devices:lock" }
+        #expect(lock?["services"]?.arrayValue?.first { $0["subtype"] == "trigger" }?["values"]?["Setup Endpoints"] == nil)
+
+        let detailed = try await client.tool("get_accessory", ["id": "Devices:lock"])
+        #expect(!detailed.text().contains("c3J0cC1tYXN0ZXIta2V5"))
+        let setup = detailed["structuredContent"]?["services"]?.arrayValue?.first { $0["subtype"] == "trigger" }?["characteristics"]?.arrayValue?
+            .first { $0["type"] == "Setup Endpoints" }
+        #expect(setup?["confidential"] == true)
+        #expect(setup?["value"] == .null)
+        // HomeKit still has it.
+        let characteristic = try #require(environment.host.mainBridge.server.accessories.first { $0.id == "Devices:lock" }?.services.last?[.setupEndpoints])
+        #expect(characteristic.value == .string("c3J0cC1tYXN0ZXIta2V5"))
+        #expect(characteristic.isConfidential)
+    }
+
     @Test func confirmsWithAnArgumentWhenTheClientCannotAsk() async throws {
         let environment = try MCPTestEnvironment()
         try await environment.start()

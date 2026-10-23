@@ -13,14 +13,15 @@ final class AccessoryCache: Sendable {
     init(url: URL) { self.url = url }
 
     /// The cached accessories, each with whether it was published as an external accessory.
-    func load(logger: Logger) -> [(accessory: Accessory, external: Bool)] {
-        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+    /// The cached accessories; nil when there is no cache file or it cannot be read.
+    func load(logger: Logger) -> [(accessory: Accessory, external: Bool)]? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         do {
             let file = try JSONDecoder().decode(CacheFile.self, from: Data(contentsOf: url))
             return file.accessories.map { ($0.restore(), $0.external ?? false) }
         } catch {
             logger.warning("Ignoring an unreadable accessory cache", metadata: ["path": "\(url.path)", "error": "\(error)"])
-            return []
+            return nil
         }
     }
 
@@ -133,7 +134,8 @@ struct CachedCharacteristic: Codable {
         maxLength = type.maxLength
         validValues = type.validValues
         validValueRange = type.validValueRange.map { [$0.lowerBound, $0.upperBound] }
-        value = characteristic.value
+        // A confidential value (SRTP keys, key salts) is for HomeKit only and never reaches the disk.
+        value = characteristic.isConfidential ? .null : characteristic.value
     }
 
     func restore() -> Characteristic {

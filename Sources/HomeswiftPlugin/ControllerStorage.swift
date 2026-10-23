@@ -25,6 +25,17 @@ final class ControllerStorage: Sendable {
         guard changed else { return }
         try states.flush()
     }
+
+    /// Drops the states of the accessories whose id is not in `ids`; writes the file when one went. Returns the
+    /// ids dropped.
+    @discardableResult
+    func purge(keeping ids: Set<String>) throws -> [String] {
+        let stale = states.values.keys.filter { !ids.contains($0) }.sorted()
+        guard !stale.isEmpty else { return [] }
+        for id in stale { states.removeValue(forKey: id) }
+        try states.flush()
+        return stale
+    }
 }
 
 extension PluginContext {

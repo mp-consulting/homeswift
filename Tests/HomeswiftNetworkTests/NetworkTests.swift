@@ -1,4 +1,5 @@
 import Foundation
+import NIOConcurrencyHelpers
 import NIOCore
 import NIOHTTP1
 import NIOPosix
@@ -70,27 +71,35 @@ struct Seen: Codable, Equatable {
 }
 
 /// A small HTTP/1.1 server on NIO, plain or with the test certificate, that answers every request with what it
-/// received, or with a canned response, or never (for the timeout test).
+/// received, or with a canned response, or never (for the timeout test). The first `dropping` connections it
+/// closes without an answer, as a server does with a connection it timed out.
 final class TestServer: Sendable {
     enum Behaviour: Sendable { case echo, status(Int, body: String, headers: [(String, String)]), silent }
+    /// When a dropped connection closes: as soon as it is accepted, or once the request was read.
+    enum Drop: Sendable { case onAccept, afterRequest }
+    struct Counts { var connections = 0, requests = 0 }
 
     let channel: any Channel
+    let counts = NIOLockedValueBox(Counts())
     var port: Int { channel.localAddress!.port! }
+    var connections: Int { counts.withLockedValue { $0.connections } }
+    var requests: Int { counts.withLockedValue { $0.requests } }
 
-    init(tls: Bool, behaviour: Behaviour) async throws {
+    init(tls: Bool, behaviour: Behaviour, dropping: Int = 0, drop: Drop = .onAccept) async throws {
         var context: NIOSSLContext?
         if tls {
             let certificate = try NIOSSLCertificate(bytes: Array(TestCertificate.certificatePEM.utf8), format: .pem)
             let key = try NIOSSLPrivateKey(bytes: Array(TestCertificate.keyPEM.utf8), format: .pem)
             context = try NIOSSLContext(configuration: .makeServerConfiguration(certificateChain: [.certificate(certificate)], privateKey: .privateKey(key)))
         }
+        let counts = counts
         channel = try await ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton)
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { channel in
                 channel.eventLoop.makeCompletedFuture {
                     if let context { try channel.pipeline.syncOperations.addHandler(NIOSSLServerHandler(context: context)) }
                     try channel.pipeline.syncOperations.configureHTTPServerPipeline()
-                    try channel.pipeline.syncOperations.addHandler(Handler(behaviour: behaviour))
+                    try channel.pipeline.syncOperations.addHandler(Handler(behaviour: behaviour, counts: counts, dropping: dropping, drop: drop))
                 }
             }
             .bind(host: "127.0.0.1", port: 0)
@@ -103,10 +112,29 @@ final class TestServer: Sendable {
         typealias InboundIn = HTTPServerRequestPart
         typealias OutboundOut = HTTPServerResponsePart
         let behaviour: Behaviour
+        let counts: NIOLockedValueBox<Counts>
+        let dropping: Int
+        let drop: Drop
+        var dropped = false
         var head: HTTPRequestHead?
         var body = ""
 
-        init(behaviour: Behaviour) { self.behaviour = behaviour }
+        init(behaviour: Behaviour, counts: NIOLockedValueBox<Counts>, dropping: Int, drop: Drop) {
+            self.behaviour = behaviour
+            self.counts = counts
+            self.dropping = dropping
+            self.drop = drop
+        }
+
+        func channelActive(context: ChannelHandlerContext) {
+            let connection = counts.withLockedValue { counts in
+                counts.connections += 1
+                return counts.connections
+            }
+            dropped = connection <= dropping
+            if dropped, drop == .onAccept { return context.close(promise: nil) }
+            context.fireChannelActive()
+        }
 
         func channelRead(context: ChannelHandlerContext, data: NIOAny) {
             switch unwrapInboundIn(data) {
@@ -114,6 +142,8 @@ final class TestServer: Sendable {
             case .body(var buffer): body += buffer.readString(length: buffer.readableBytes) ?? ""
             case .end:
                 guard let head else { return }
+                counts.withLockedValue { $0.requests += 1 }
+                if dropped { return context.close(promise: nil) }
                 switch behaviour {
                 case .silent:
                     return
@@ -160,6 +190,55 @@ struct HTTPClientTests {
         #expect(seen.headers["content-length"] == "19")
         #expect(seen.headers["host"] == "127.0.0.1:\(server.port)")
         #expect(seen.headers["connection"] == "close")
+    }
+
+    @Test func aTimeoutBeyondNIOsRangeIsClamped() async throws {
+        let server = try await TestServer(tls: false, behaviour: .echo)
+        defer { Task { await server.stop() } }
+        // More nanoseconds than Int64 holds, as a timeout from a configuration may be.
+        let response = try await HTTPClient().send(HTTPRequest(url: URL(string: "http://127.0.0.1:\(server.port)/")!, timeout: .seconds(Int64.max)))
+        #expect(response.status == 200)
+    }
+
+    @Test func requestsThePathAsItIsEncoded() async throws {
+        let server = try await TestServer(tls: false, behaviour: .echo)
+        defer { Task { await server.stop() } }
+        let response = try await HTTPClient().send(HTTPRequest(url: URL(string: "http://127.0.0.1:\(server.port)/a%20b/c%2Fd?q=%2F")!))
+        #expect(try JSONDecoder().decode(Seen.self, from: response.body).uri == "/a%20b/c%2Fd?q=%2F")
+    }
+
+    @Test func retriesOnceOnAFreshConnectionWhenTheServerDropsOneUnanswered() async throws {
+        // Closed as soon as accepted: whether or not the request went out, a GET may go again.
+        let accepted = try await TestServer(tls: false, behaviour: .echo, dropping: 1)
+        defer { Task { await accepted.stop() } }
+        let get = try await HTTPClient().send(HTTPRequest(url: URL(string: "http://127.0.0.1:\(accepted.port)/state")!))
+        #expect(get.status == 200 && accepted.connections == 2)
+
+        // Closed once the request was read: a GET goes again, a POST does not (the server may have acted on it).
+        let read = try await TestServer(tls: false, behaviour: .echo, dropping: 1, drop: .afterRequest)
+        defer { Task { await read.stop() } }
+        let again = try await HTTPClient().send(HTTPRequest(method: "PUT", url: URL(string: "http://127.0.0.1:\(read.port)/state")!, body: Data("on".utf8)))
+        #expect(again.status == 200 && read.requests == 2)
+        let once = try await TestServer(tls: false, behaviour: .echo, dropping: 1, drop: .afterRequest)
+        defer { Task { await once.stop() } }
+        await #expect(throws: HTTPClientError.connectionClosed) {
+            try await HTTPClient().send(HTTPRequest(method: "POST", url: URL(string: "http://127.0.0.1:\(once.port)/unlock")!, body: Data("{}".utf8)))
+        }
+        #expect(once.requests == 1 && once.connections == 1)
+
+        // Over TLS a connection closed during the handshake never carried the request: a POST goes again too.
+        let handshake = try await TestServer(tls: true, behaviour: .echo, dropping: 1)
+        defer { Task { await handshake.stop() } }
+        let post = try await HTTPClient(tls: .any).send(HTTPRequest(method: "POST", url: URL(string: "https://127.0.0.1:\(handshake.port)/unlock")!))
+        #expect(post.status == 200 && handshake.connections == 2 && handshake.requests == 1)
+
+        // Only once: a server that drops every connection fails the request after two.
+        let always = try await TestServer(tls: false, behaviour: .echo, dropping: .max, drop: .afterRequest)
+        defer { Task { await always.stop() } }
+        await #expect(throws: HTTPClientError.connectionClosed) {
+            try await HTTPClient().send(HTTPRequest(url: URL(string: "http://127.0.0.1:\(always.port)/state")!))
+        }
+        #expect(always.connections == 2)
     }
 
     @Test func reportsStatusesTimeoutsAndBadURLs() async throws {

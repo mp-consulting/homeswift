@@ -49,7 +49,7 @@ public enum HAPValue: Sendable, Hashable, Codable {
         switch self {
         case .bool(let value): value ? 1 : 0
         case .int(let value): value
-        case .double(let value): value.isFinite ? Int(value.rounded()) : nil
+        case .double(let value): Int(exactly: value.rounded())
         case .string, .null: nil
         }
     }

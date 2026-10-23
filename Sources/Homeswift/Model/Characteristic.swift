@@ -77,6 +77,8 @@ public final class Characteristic: @unchecked Sendable {
         var unavailable = false
         var observers: [Int: Observer] = [:]
         var nextObserver = 0
+        var isSecurityControl: Bool
+        var isConfidential: Bool
     }
 
     let state: NIOLockedValueBox<State>
@@ -84,7 +86,46 @@ public final class Characteristic: @unchecked Sendable {
     public init(_ type: CharacteristicType, value: HAPValue? = nil) {
         self.type = type
         let initial = value.flatMap(type.coerce) ?? type.defaultValue
-        state = NIOLockedValueBox(State(value: initial))
+        state = NIOLockedValueBox(State(
+            value: initial, isSecurityControl: Self.securityControls.contains(type.uuid), isConfidential: Self.confidentialTypes.contains(type.uuid)))
+    }
+
+    /// Types whose writes unlock, open or disarm: on by default for `isSecurityControl`.
+    public static let securityControls: Set<HAPUUID> = [
+        CharacteristicType.lockTargetState.uuid, CharacteristicType.targetDoorState.uuid, CharacteristicType.securitySystemTargetState.uuid,
+        CharacteristicType.lockControlPoint.uuid,
+    ]
+
+    /// Types whose values carry keys (the SRTP master keys of Setup Endpoints, the salts of the data streams): on by
+    /// default for `isConfidential`.
+    public static let confidentialTypes: Set<HAPUUID> = [
+        CharacteristicType.setupEndpoints.uuid, CharacteristicType.setupDataStreamTransport.uuid, CharacteristicType.setupTransferTransport.uuid,
+        CharacteristicType.pairSetup.uuid, CharacteristicType.pairVerify.uuid, CharacteristicType.listPairings.uuid,
+    ]
+
+    /// Whether a write unlocks, opens or disarms something. The bridge's own surfaces treat these as they treat a
+    /// lock: the MCP server writes them only through `set_security_accessory`, after the user confirmed, and the web
+    /// UI asks before it writes. On for Lock Target State, Target Door State, Security System Target State and Lock
+    /// Control Point; a plugin turns it on for a characteristic that does the same, such as a switch whose On
+    /// unlocks a door. HomeKit itself is not affected.
+    public var isSecurityControl: Bool {
+        get { state.withLockedValue { $0.isSecurityControl } }
+        set { state.withLockedValue { $0.isSecurityControl = newValue } }
+    }
+
+    /// Marks the characteristic as a security control (`isSecurityControl`) and returns it, for chaining.
+    @discardableResult
+    public func securityControl(_ on: Bool = true) -> Self {
+        isSecurityControl = on
+        return self
+    }
+
+    /// Whether the value is for HomeKit only. Controllers read and write it as usual, but the MCP server, the web UI,
+    /// the accessory cache and the request trace never show or keep it. On for Setup Endpoints (SRTP keys), Setup
+    /// Data Stream Transport and Setup Transfer Transport (key salts) and the pairing characteristics.
+    public var isConfidential: Bool {
+        get { state.withLockedValue { $0.isConfidential } }
+        set { state.withLockedValue { $0.isConfidential = newValue } }
     }
 
     public var iid: Int { state.withLockedValue { $0.iid } }

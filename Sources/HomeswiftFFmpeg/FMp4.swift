@@ -74,7 +74,7 @@ public func findBox(_ buffer: Data, _ type: String, start: Int = 0, end: Int? = 
     guard let target = boxType(type) else { return nil }
     var offset = start
     while offset + BOX_HEADER_SIZE <= limit {
-        let size = Int(buffer.readUInt32BE(offset))
+        let size = Int(clamping: buffer.readUInt32BE(offset))
         guard size >= BOX_HEADER_SIZE, size <= limit - offset else { return nil }
         if buffer.readUInt32BE(offset + 4) == target {
             return FMp4Box(offset: offset, size: size)
@@ -199,7 +199,7 @@ public struct FMp4BoxReader: Sendable {
                 stash(buffer.rebased(offset, buffer.count), boxSize: 0)
                 return true
             }
-            let size = Int(buffer.readUInt32BE(offset))
+            let size = Int(clamping: buffer.readUInt32BE(offset))
             // A box smaller than its header would never advance the parser.
             if size < BOX_HEADER_SIZE {
                 reset()

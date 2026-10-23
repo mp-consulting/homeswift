@@ -162,6 +162,12 @@ let ENCODER_REQUESTS: [String: VideoEncoderOptions] = [
         #expect(jsNumber(1) == "1")
         #expect(jsNumber(0.75) == "0.75")
         #expect(jsNumber(0.1) == "0.1")
+        // Integers beyond Int64 used to trap; JavaScript prints them in full below 1e21.
+        #expect(jsNumber(1e20) == "100000000000000000000")
+        #expect(jsNumber(-1e20) == "-100000000000000000000")
+        #expect(jsNumber(9.223372036854776e18) == "9223372036854776000")
+        #expect(jsNumber(1.5e19) == "15000000000000000000")
+        #expect(jsNumber(1e21) == "1e+21")
     }
 }
 

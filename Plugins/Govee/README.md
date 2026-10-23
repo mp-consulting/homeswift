@@ -23,7 +23,9 @@ block is the same, so a Homebridge configuration works unchanged.
   `bleControlInterval` apart; thermo-hygrometers are read from their advertisements every `bleRefreshTime`.
 
 A command goes over LAN, then AWS, then Bluetooth, whichever works first. Without credentials the plugin runs
-with LAN and Bluetooth only.
+with LAN and Bluetooth only. Bluetooth works on macOS (the `homeswift` binary embeds the Info.plist key
+CoreBluetooth needs; a binary without it logs that Bluetooth needs `NSBluetoothAlwaysUsageDescription`), not
+yet on Linux.
 
 ### New-device verification
 

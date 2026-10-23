@@ -11,6 +11,15 @@ import NIOPosix
 /// How often, in seconds, FFmpeg gets a heartbeat in two-way audio sessions: below FFmpeg's five-second input timeout.
 let TWOWAY_HEARTBEAT_INTERVAL = 3
 
+/// The UDP ports a socket can be bound or sent to (0 binds any).
+private let UDP_PORTS = 0...65535
+
+/// A port outside 0...65535 (a failed reservation's -1, say): NIO would trap on it.
+struct RtpInvalidPortError: Error, CustomStringConvertible {
+    let port: Int
+    var description: String { "invalid UDP port \(port)" }
+}
+
 /// Splits the RTP and RTCP packets HomeKit sends on one UDP port: RTP goes to `rtpPort`, RTCP to `rtcpPort`, both on the loopback
 /// address. The last RTCP packet is also replayed to `rtpPort` every three seconds, which FFmpeg ignores as RTP but which keeps its
 /// input from timing out between talkback bursts. Credit to dgreif, brandawg93 and Sunoo for the approach.
@@ -21,7 +30,8 @@ let TWOWAY_HEARTBEAT_INTERVAL = 3
 /// demuxer.close()
 /// ```
 public final class RtpDemuxer: Sendable {
-    /// Fires on every RTP packet, and when the demuxer closes (the TypeScript `rtp` event).
+    /// Fires on every RTP packet, and when the demuxer closes (the TypeScript `rtp` event). Once closed, a listener added later
+    /// (or `next()`) is called at once, so a talkback waiter never waits on a demuxer that can no longer receive anything.
     public let rtpEvents = FfmpegEvent<Void>()
 
     private let log: Logger
@@ -29,8 +39,9 @@ public final class RtpDemuxer: Sendable {
     private typealias State = NIOLockedValueBox<(running: Bool, channel: (any Channel)?)>
     private let state = State((false, nil))
 
-    /// Binds `inputPort` (0 picks one; see `localPort`) on every interface of the family. A bind failure is logged and leaves the
-    /// demuxer closed.
+    /// Binds `inputPort` (0 picks one; see `localPort`) on every interface of the family. A bind failure (or a port outside
+    /// 0...65535) is logged and leaves the demuxer closed, with its `rtp` event fired as when it closes (TypeScript's socket
+    /// error handler closes the demuxer).
     public init(
         ipFamily: IPAddressVersion, inputPort: Int, rtcpPort: Int, rtpPort: Int, log: Logger,
         group: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton
@@ -40,6 +51,9 @@ public final class RtpDemuxer: Sendable {
         log.debug("Creating an RtpDemuxer instance - inbound port: \(inputPort), RTCP port: \(rtcpPort), RTP port: \(rtpPort).")
         let isIPv6 = ipFamily == .ipv6
         do {
+            for port in [inputPort, rtcpPort, rtpPort] where !UDP_PORTS.contains(port) {
+                throw RtpInvalidPortError(port: port)
+            }
             let loopback = isIPv6 ? "::1" : "127.0.0.1"
             let rtcpTarget = try SocketAddress(ipAddress: loopback, port: rtcpPort)
             let rtpTarget = try SocketAddress(ipAddress: loopback, port: rtpPort)
@@ -62,6 +76,7 @@ public final class RtpDemuxer: Sendable {
             state.withLockedValue { $0 = (true, channel) }
         } catch {
             log.error("RtpDemuxer Error: \(error)")
+            rtpEvents.finish()
         }
     }
 
@@ -79,7 +94,7 @@ public final class RtpDemuxer: Sendable {
         guard let channel else { return }
         log.debug("Closing the RtpDemuxer instance on port \(inputPort).")
         channel.close(promise: nil)
-        events.emit()
+        events.finish()
     }
 
     /// Whether the demuxer is accepting packets.
@@ -179,6 +194,8 @@ public final class RtpPortAllocator: Sendable {
     // Finds a free UDP port by binding to it (0 lets the system choose), skipping those we already handed out. -1 on error, or
     // when a specific port is already ours (the caller retries with a fresh pair).
     private func getPort(_ ipFamily: IPAddressVersion, _ port: Int = 0) async -> Int {
+        // The port after 65535 (the second of a pair) does not exist: try another pair.
+        guard UDP_PORTS.contains(port) else { return -1 }
         do {
             while true {
                 let channel = try await DatagramBootstrap(group: group)
@@ -186,7 +203,8 @@ public final class RtpPortAllocator: Sendable {
                     .get()
                 let assignedPort = channel.localAddress?.port ?? -1
                 try? await channel.close()
-                guard assignedPort > 0 else { return -1 }
+                // A specific port must be the one bound (a resolver may read an odd value as another port).
+                guard assignedPort > 0, port == 0 || assignedPort == port else { return -1 }
                 let isNew = portsInUse.withLockedValue { $0.insert(assignedPort).inserted }
                 if isNew { return assignedPort }
                 if port != 0 { return -1 }

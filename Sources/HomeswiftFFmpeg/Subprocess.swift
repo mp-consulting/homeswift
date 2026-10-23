@@ -117,10 +117,20 @@ private func withStopSignalsUnblocked<T>(_ body: () throws -> T) rethrows -> T {
 }
 #endif
 
+/// The most standard output kept for the first `onStdout` handler before one is registered (Node buffers a stream nobody reads
+/// yet as well). Beyond it, output is dropped.
+let SUBPROCESS_PENDING_STDOUT_LIMIT = 4 * 1024 * 1024
+
+/// The buffer a pipe's reads go to, reused for every read. Only touched on that pipe's read source queue, which is serial.
+private final class ReadBuffer: @unchecked Sendable {
+    var bytes = [UInt8](repeating: 0, count: 65536)
+}
+
 /// One child process with its three pipes: the counterpart of Node's `ChildProcess`. Standard output and standard error are read
-/// as soon as `beginReading()` is called and handed to the registered handlers in order; the exit handlers run once the process
-/// has ended and both pipes have reached end of file (Node's `close`), so every byte is delivered before them. Standard input is
-/// written on a serial queue, which gives callers backpressure by awaiting.
+/// as soon as `beginReading()` is called and handed to the registered handlers in order (standard output that arrives before the
+/// first standard output handler is kept for it, as Node's paused streams do); the exit handlers run once the process has ended and
+/// both pipes have reached end of file (Node's `close`), so every byte is delivered before them. Standard input is written on a
+/// serial queue, which gives callers backpressure by awaiting.
 final class Subprocess: @unchecked Sendable {
     typealias DataHandler = @Sendable (Data) -> Void
     typealias ExitHandler = @Sendable (FfmpegExitStatus) -> Void
@@ -138,6 +148,12 @@ final class Subprocess: @unchecked Sendable {
         var stdinClosed = false
         var stdoutDestroyed = false
         var reading = false
+        // Standard output read before the first handler was added (Node's stream flows from its first `data` listener on).
+        var stdoutFlowing = false
+        var pendingStdout: [Data] = []
+        var pendingStdoutLength = 0
+        // A handler is being given the pending output: new output queues behind it, so the order holds.
+        var flushingStdout = false
     }
 
     let process: Process
@@ -155,6 +171,8 @@ final class Subprocess: @unchecked Sendable {
     /// never fires. Its handler looks it up here rather than capturing it, which Linux's non-class-bound
     /// `DispatchSourceRead` would not allow `unowned`, and a strong capture would keep alive.
     private let readSources = NIOLockedValueBox<[Bool: any DispatchSourceRead]>([:])
+    private let stdoutBuffer = ReadBuffer()
+    private let stderrBuffer = ReadBuffer()
     private let pidBox = NIOLockedValueBox<Int32>(0)
 
     /// Starts `executable` (a name looked up in `PATH`, or a path). Nothing is read until `beginReading()`. The child keeps
@@ -207,19 +225,52 @@ final class Subprocess: @unchecked Sendable {
         self.stdinFD = stdin.fileDescriptor
         self.stdoutFD = stdout.fileDescriptor
         self.stderrFD = stderr.fileDescriptor
+        // A spurious wake-up of a read source must never block its queue in `read`.
+        for fd in [stdoutFD, stderrFD] {
+            let flags = fcntl(fd, F_GETFL)
+            if flags >= 0 { _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK) }
+        }
     }
 
     var processIdentifier: Int32 { pidBox.withLockedValue { $0 } }
 
     // MARK: Handlers
 
-    /// Adds a standard output handler; returns its id for `removeStdoutHandler`.
+    /// Adds a standard output handler; returns its id for `removeStdoutHandler`. The first one also gets the output read before it.
     @discardableResult
     func addStdoutHandler(_ handler: @escaping DataHandler) -> Int {
-        state.withLockedValue { state in
+        let (id, flush) = state.withLockedValue { state -> (Int, Bool) in
             state.nextID += 1
             state.stdoutHandlers.append((state.nextID, handler))
-            return state.nextID
+            state.stdoutFlowing = true
+            let flush = !state.pendingStdout.isEmpty && !state.flushingStdout
+            if flush { state.flushingStdout = true }
+            return (state.nextID, flush)
+        }
+        if flush { flushPendingStdout() }
+        return id
+    }
+
+    // Hands the pending output to the handlers, including what arrives meanwhile, then lets reads deliver directly again.
+    private func flushPendingStdout() {
+        while true {
+            let next = state.withLockedValue { state -> ([Data], [DataHandler])? in
+                guard !state.pendingStdout.isEmpty, !state.stdoutDestroyed else {
+                    state.flushingStdout = false
+                    state.pendingStdout = []
+                    state.pendingStdoutLength = 0
+                    return nil
+                }
+                defer {
+                    state.pendingStdout = []
+                    state.pendingStdoutLength = 0
+                }
+                return (state.pendingStdout, state.stdoutHandlers.map(\.handler))
+            }
+            guard let (chunks, handlers) = next else { return }
+            for chunk in chunks {
+                for handler in handlers { handler(chunk) }
+            }
         }
     }
 
@@ -280,10 +331,10 @@ final class Subprocess: @unchecked Sendable {
     private func readable(isStdout: Bool) {
         guard state.withLockedValue({ isStdout ? !$0.stdoutEOF : !$0.stderrEOF }) else { return }
         let fd = isStdout ? stdoutFD : stderrFD
-        var buffer = [UInt8](repeating: 0, count: 65536)
+        let buffer = isStdout ? stdoutBuffer : stderrBuffer
         var count: Int
         repeat {
-            count = buffer.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
+            count = buffer.bytes.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
         } while count < 0 && errno == EINTR
         if count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) { return }
         guard count > 0 else {
@@ -295,9 +346,20 @@ final class Subprocess: @unchecked Sendable {
             if deliver { deliverExit() }
             return
         }
-        let data = Data(buffer[0..<count])
+        let data = Data(buffer.bytes[0..<count])
         if isStdout {
-            let handlers = state.withLockedValue { $0.stdoutDestroyed ? [] : $0.stdoutHandlers.map(\.handler) }
+            let handlers = state.withLockedValue { state -> [DataHandler] in
+                if state.stdoutDestroyed { return [] }
+                // Before the first handler (within bounds), or behind output still being handed over to it: keep it.
+                if !state.stdoutFlowing || state.flushingStdout {
+                    if state.flushingStdout || state.pendingStdoutLength + data.count <= SUBPROCESS_PENDING_STDOUT_LIMIT {
+                        state.pendingStdout.append(data)
+                        state.pendingStdoutLength += data.count
+                    }
+                    return []
+                }
+                return state.stdoutHandlers.map(\.handler)
+            }
             for handler in handlers { handler(data) }
         } else {
             let handlers = state.withLockedValue { $0.stderrHandlers }
@@ -307,8 +369,18 @@ final class Subprocess: @unchecked Sendable {
 
     /// Stops handing standard output to the handlers (Node's `stdout.destroy()`); the pipe is still drained.
     func destroyStdout() {
-        state.withLockedValue { $0.stdoutDestroyed = true }
+        state.withLockedValue { state in
+            state.stdoutDestroyed = true
+            state.pendingStdout = []
+            state.pendingStdoutLength = 0
+        }
     }
+
+    /// Whether either output pipe is still watched by its read source.
+    var isReadingOutput: Bool { readSources.withLockedValue { $0.values.contains { !$0.isCancelled } } }
+
+    /// Whether the parent's end of standard input is still open.
+    var isStdinOpen: Bool { stdinQueue.sync { !stdinFDClosed } }
 
     // MARK: Exit
 
@@ -340,12 +412,21 @@ final class Subprocess: @unchecked Sendable {
         return true
     }
 
+    // Runs once. Every handler is dropped (they often capture the child, which holds them) and standard input is closed, so an
+    // ended child frees its descriptors and itself. The read sources are cancelled by then (at end of file, or by the fallback).
     private func deliverExit() {
         let (status, handlers) = state.withLockedValue { state -> (FfmpegExitStatus, [ExitHandler]) in
-            defer { state.exitHandlers = [] }
+            defer {
+                state.exitHandlers = []
+                state.stdoutHandlers = []
+                state.stderrHandlers = []
+                state.pendingStdout = []
+                state.pendingStdoutLength = 0
+            }
             return (state.terminated ?? FfmpegExitStatus(exitCode: nil, signal: nil), state.exitHandlers)
         }
         process.terminationHandler = nil
+        end()
         for handler in handlers { handler(status) }
     }
 

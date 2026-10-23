@@ -68,6 +68,8 @@ public class CameraController: SerializableController, @unchecked Sendable {
     let logger: Logger
     let streamManagements: [RTPStreamManagement]
     let recordingManagement: RecordingManagement?
+    /// When a slow snapshot is logged, and when the request gives up (8 and 25 seconds, as HAP-NodeJS).
+    let snapshotTimeouts: (warning: Duration, total: Duration)
 
     public let microphoneService: Service?
     public let speakerService: Service?
@@ -104,9 +106,13 @@ public class CameraController: SerializableController, @unchecked Sendable {
         try self.init(options, extraEventTriggers: [], logger: logger)
     }
 
-    init(_ options: CameraControllerOptions, extraEventTriggers: Set<EventTriggerOption>, logger: Logger) throws {
+    init(
+        _ options: CameraControllerOptions, extraEventTriggers: Set<EventTriggerOption>, logger: Logger,
+        snapshotTimeouts: (warning: Duration, total: Duration) = (.seconds(8), .seconds(25))
+    ) throws {
         self.options = options
         self.logger = logger
+        self.snapshotTimeouts = snapshotTimeouts
         let count = max(1, options.cameraStreamCount)
 
         var recordingManagement: RecordingManagement?
@@ -274,8 +280,11 @@ public class CameraController: SerializableController, @unchecked Sendable {
         let delegate = options.delegate
         let request = SnapshotRequest(height: height, width: width, reason: reason)
         let logger = logger
-        return try await withThrowingTaskGroup(of: Data?.self) { group in
-            group.addTask {
+        let (warning, total) = snapshotTimeouts
+        // Not a task group: a group waits for all its children, so a delegate that ignores cancellation would hold
+        // the request past the timeout. The loser is cancelled and left to finish on its own.
+        let first: Data? = try await Self.first(
+            {
                 do {
                     return try await delegate.handleSnapshotRequest(request)
                 } catch let error as HAPStatusError {
@@ -284,21 +293,36 @@ public class CameraController: SerializableController, @unchecked Sendable {
                     logger.debug("Error getting snapshot", metadata: ["accessory": "\(accessoryName)", "error": "\(error)"])
                     throw HAPStatusError(.serviceCommunicationFailure)
                 }
-            }
-            group.addTask {
-                try await Task.sleep(for: .seconds(8))
+            },
+            {
+                try await Task.sleep(for: warning)
                 logger.warning("The image snapshot handler is slow to respond", metadata: ["accessory": "\(accessoryName)"])
-                try await Task.sleep(for: .seconds(17))
+                try await Task.sleep(for: total - warning)
                 logger.warning("The image snapshot handler didn't respond at all", metadata: ["accessory": "\(accessoryName)"])
                 return nil
+            })
+        guard let image = first else { throw HAPStatusError(.operationTimedOut) }
+        guard !image.isEmpty else {
+            logger.warning("Snapshot request handler provided an empty image", metadata: ["accessory": "\(accessoryName)"])
+            throw HAPStatusError(.serviceCommunicationFailure)
+        }
+        return image
+    }
+
+    /// The result of whichever operation finishes first, in unstructured tasks: returns then even when the other
+    /// ignores cancellation (it is cancelled). Cancelling the caller throws `CancellationError` at once.
+    static func first<T: Sendable>(_ operations: (@Sendable () async throws -> T)...) async throws -> T {
+        let race = FirstResult<T>()
+        let tasks = operations.map { operation in
+            Task {
+                do { race.finish(.success(try await operation())) } catch { race.finish(.failure(error)) }
             }
-            defer { group.cancelAll() }
-            guard let first = try await group.next(), let image = first else { throw HAPStatusError(.operationTimedOut) }
-            guard !image.isEmpty else {
-                logger.warning("Snapshot request handler provided an empty image", metadata: ["accessory": "\(accessoryName)"])
-                throw HAPStatusError(.serviceCommunicationFailure)
-            }
-            return image
+        }
+        defer { for task in tasks { task.cancel() } }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { race.wait($0) }
+        } onCancel: {
+            race.finish(.failure(CancellationError()))
         }
     }
 
@@ -347,6 +371,35 @@ public class CameraController: SerializableController, @unchecked Sendable {
     public var recordingConfiguration: CameraRecordingConfiguration? { recordingManagement?.selectedConfiguration }
     /// Whether recording is on in the Home app.
     public var isRecordingActive: Bool { recordingManagement?.recordingActive ?? false }
+}
+
+/// The first result of a race, handed to the one waiter.
+private final class FirstResult<T: Sendable>: Sendable {
+    private struct State {
+        var result: Result<T, any Error>?
+        var continuation: CheckedContinuation<T, any Error>?
+    }
+
+    private let state = NIOLockedValueBox(State())
+
+    func wait(_ continuation: CheckedContinuation<T, any Error>) {
+        let result = state.withLockedValue { state -> Result<T, any Error>? in
+            if state.result == nil { state.continuation = continuation }
+            return state.result
+        }
+        if let result { continuation.resume(with: result) }
+    }
+
+    /// Only the first result counts.
+    func finish(_ result: Result<T, any Error>) {
+        let continuation = state.withLockedValue { state -> CheckedContinuation<T, any Error>? in
+            guard state.result == nil else { return nil }
+            state.result = result
+            defer { state.continuation = nil }
+            return state.continuation
+        }
+        continuation?.resume(with: result)
+    }
 }
 
 /// A video doorbell (HAP-NodeJS's `DoorbellController`): a camera with a Doorbell service as its primary service.

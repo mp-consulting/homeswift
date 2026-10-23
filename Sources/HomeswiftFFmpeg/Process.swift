@@ -405,7 +405,8 @@ public class FfmpegProcess: @unchecked Sendable {
         let id: Int
     }
 
-    /// Calls `handler` with each chunk of FFmpeg's standard output (Node's `stdout.on('data')`). nil when no process runs.
+    /// Calls `handler` with each chunk of FFmpeg's standard output (Node's `stdout.on('data')`). nil when no process runs. The first
+    /// listener of a process also gets what FFmpeg wrote before it was added (up to 4 MB), as a Node stream that nobody read yet.
     @discardableResult
     public func onStdout(_ handler: @escaping @Sendable (Data) -> Void) -> StdoutListener? {
         guard let child = currentChild else { return nil }

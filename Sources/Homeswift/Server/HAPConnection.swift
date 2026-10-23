@@ -24,7 +24,9 @@ final class HAPConnection: @unchecked Sendable {
         var controllerID: String?
         var isAdmin = false
         var subscriptions: Set<CharacteristicKey> = []
-        var closeHandlers: [@Sendable () -> Void] = []
+        /// By registration token, so a stream or session that ends first removes its own.
+        var closeHandlers: [Int: @Sendable () -> Void] = [:]
+        var nextCloseHandler = 0
         var closed = false
     }
 
@@ -90,8 +92,8 @@ final class HAPConnection: @unchecked Sendable {
         server.unregister(self)
         let handlers = shared.withLockedValue { shared in
             shared.closed = true
-            defer { shared.closeHandlers = [] }
-            return shared.closeHandlers
+            defer { shared.closeHandlers = [:] }
+            return shared.closeHandlers.sorted { $0.key < $1.key }.map(\.value)
         }
         for handler in handlers { handler() }
         server.logger.debug("Connection closed", metadata: ["controller": "\(controllerID ?? "-")"])
@@ -102,19 +104,34 @@ final class HAPConnection: @unchecked Sendable {
     }
 
     /// Runs `handler` once the connection has closed (at once when it already has): camera streams and data
-    /// streams end with the controller connection that set them up.
-    func onClose(_ handler: @escaping @Sendable () -> Void) {
-        let closed = shared.withLockedValue { shared in
-            if !shared.closed { shared.closeHandlers.append(handler) }
-            return shared.closed
+    /// streams end with the controller connection that set them up. Returns the token for `removeCloseHandler(_:)`,
+    /// nil when the handler already ran.
+    @discardableResult
+    func onClose(_ handler: @escaping @Sendable () -> Void) -> Int? {
+        let token = shared.withLockedValue { shared -> Int? in
+            guard !shared.closed else { return nil }
+            shared.nextCloseHandler += 1
+            shared.closeHandlers[shared.nextCloseHandler] = handler
+            return shared.nextCloseHandler
         }
-        if closed { handler() }
+        if token == nil { handler() }
+        return token
+    }
+
+    /// Drops a close handler whose stream or session ended before the connection.
+    func removeCloseHandler(_ token: Int) {
+        _ = shared.withLockedValue { $0.closeHandlers.removeValue(forKey: token) }
     }
 
     /// What handlers may know of this connection while they serve one of its requests.
     var requestContext: HAPRequestContext {
-        HAPRequestContext(
-            connectionID: id, controllerID: controllerID,
+        let controllerID = controllerID
+        // Read from the pairings, as HAP-NodeJS does, so a changed permission counts at once.
+        let isAdmin = controllerID.map { controller in
+            server.state.withLockedValue { $0.persisted.pairings.first { $0.identifier == controller }?.isAdmin ?? false }
+        } ?? false
+        return HAPRequestContext(
+            connectionID: id, controllerID: controllerID, isAdmin: isAdmin,
             localAddress: Self.plainAddress(channel.localAddress?.ipAddress), remoteAddress: Self.plainAddress(channel.remoteAddress?.ipAddress),
             sharedSecret: session?.sharedSecret, connection: self)
     }
@@ -190,11 +207,37 @@ final class HAPConnection: @unchecked Sendable {
         }
     }
 
+    /// A request body for the trace log: pairing bodies as their size, and in characteristic writes the values of
+    /// confidential characteristics (Setup Endpoints carries SRTP master keys) as their size.
+    static func traceBody(_ request: HTTPRequest, isConfidential: (_ aid: Int, _ iid: Int) -> Bool) -> String {
+        if request.path.hasPrefix("/pair") { return "<\(request.body.count) bytes>" }
+        let text = String(decoding: request.body, as: UTF8.self)
+        guard request.path == "/characteristics", !request.body.isEmpty else { return text }
+        guard var object = (try? JSONSerialization.jsonObject(with: request.body)) as? [String: Any],
+            var items = object["characteristics"] as? [[String: Any]]
+        else { return "<\(request.body.count) bytes>" }
+        var redacted = false
+        for index in items.indices {
+            guard let value = items[index]["value"], let aid = items[index]["aid"] as? Int, let iid = items[index]["iid"] as? Int,
+                isConfidential(aid, iid)
+            else { continue }
+            items[index]["value"] = "<\((value as? String)?.utf8.count ?? 0) bytes>"
+            redacted = true
+        }
+        guard redacted else { return text }
+        object["characteristics"] = items
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return "<\(request.body.count) bytes>" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
     private func handle(_ request: HTTPRequest) async -> (HTTPResponse, After) {
-        server.logger.trace("Request", metadata: [
-            "method": "\(request.method)", "target": "\(request.target)",
-            "body": "\(request.path.hasPrefix("/pair") ? "<\(request.body.count) bytes>" : String(decoding: request.body, as: UTF8.self))",
-        ])
+        if server.logger.logLevel <= .trace {
+            let server = server
+            server.logger.trace("Request", metadata: [
+                "method": "\(request.method)", "target": "\(request.target)",
+                "body": "\(Self.traceBody(request) { server.characteristic(aid: $0, iid: $1)?.isConfidential ?? false })",
+            ])
+        }
         switch (request.method, request.path) {
         case ("POST", "/pair-setup"):
             return (handlePairSetup(request.body), .none)

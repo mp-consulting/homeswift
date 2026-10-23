@@ -275,10 +275,24 @@ public final class FfmpegOptions: Sendable {
     }
 }
 
-/// A number as JavaScript prints it: `1` for 1.0, `0.75`, `0.1`.
+/// A number as JavaScript prints it: `1` for 1.0, `0.75`, `0.1`, `100000000000000000000` for 1e20.
 func jsNumber(_ value: Double) -> String {
-    if value.isFinite, value == value.rounded(), abs(value) < 1e21 {
-        return String(Int64(value))
+    guard value.isFinite, value == value.rounded(), abs(value) < 1e21 else { return String(value) }
+    if let integer = Int64(exactly: value) {
+        return String(integer)
     }
-    return String(value)
+    // Beyond Int64 JavaScript still prints integers in full: the shortest round-trip digits, then zeros. Swift's description has
+    // the same digits, in exponent form ("9.223372036854776e+18").
+    let description = String(value)
+    guard let exponentIndex = description.firstIndex(of: "e"), let exponent = Int(description[description.index(after: exponentIndex)...]) else {
+        return description
+    }
+    let mantissa = description[..<exponentIndex]
+    let sign = mantissa.hasPrefix("-") ? "-" : ""
+    let unsigned = mantissa.drop { $0 == "-" }
+    let parts = unsigned.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false)
+    let fraction = parts.count > 1 ? parts[1] : ""
+    let zeros = exponent - fraction.count
+    guard zeros >= 0 else { return description }
+    return sign + parts[0] + fraction + String(repeating: "0", count: zeros)
 }

@@ -83,10 +83,16 @@ final class RecordingManagement: @unchecked Sendable {
                 }
                 return .string(base64)
             }
-            .onWrite { [weak self] value in try self?.handleSelectedConfigurationWrite(value) }
+            .onWrite { [weak self] value in
+                try HAPRequestContext.requireAdmin()
+                try self?.handleSelectedConfigurationWrite(value)
+            }
 
+        // HAP-NodeJS gives Recording Active, Selected Camera Recording Configuration, HomeKit Camera Active, Event
+        // Snapshots Active and Periodic Snapshots Active `adminOnlyAccess: [Access.WRITE]`.
         recording.characteristic(.active)
             .onWrite { [weak self] value in
+                try HAPRequestContext.requireAdmin()
                 guard let self else { return }
                 let active = (value.intValue ?? 0) != 0
                 let changed = self.state.withLockedValue { state -> Bool in
@@ -102,6 +108,9 @@ final class RecordingManagement: @unchecked Sendable {
             .observe { [weak self] _ in self?.stateChanged() }
         recording.characteristic(.recordingAudioActive).observe { [weak self] _ in self?.stateChanged() }
 
+        for type in [CharacteristicType.homeKitCameraActive, .eventSnapshotsActive, .periodicSnapshotsActive] {
+            operatingModeService.characteristic(type).onWrite { _ in try HAPRequestContext.requireAdmin() }
+        }
         operatingModeService.characteristic(.homeKitCameraActive).observe { [weak self] change in
             guard let self else { return }
             let active = (change.newValue.intValue ?? 0) != 0
@@ -123,7 +132,7 @@ final class RecordingManagement: @unchecked Sendable {
     }
 
     func handleDataSendOpen(_ connection: DataStreamConnection, id: Int64, message: HDSDictionary) {
-        let streamID = Int(message["streamId"]?.intValue ?? 0)
+        let streamID = Int(clamping: message["streamId"]?.intValue ?? 0)
         let type = message["type"]?.stringValue
         let target = message["target"]?.stringValue
         let reason = message["reason"]?.stringValue
@@ -132,38 +141,44 @@ final class RecordingManagement: @unchecked Sendable {
             refuse(connection, id, .unexpectedFailure)
             return
         }
-        let (active, busy, configured) = state.withLockedValue { ($0.recordingActive, $0.recordingStream, $0.selectedConfiguration != nil) }
-        guard active else {
+        let cameraActive = (operatingModeService.characteristic(.homeKitCameraActive).value.intValue ?? 0) != 0
+        let stream = CameraRecordingStream(connection: connection, delegate: delegate, requestID: id, streamID: streamID, logger: logger)
+        enum Outcome {
+            case notActive, cameraOff, busy(CameraRecordingStream), unconfigured, claimed
+        }
+        // Checked and claimed under one lock: of two hubs opening at once, one records, the other hears "busy".
+        let outcome = state.withLockedValue { state -> Outcome in
+            guard state.recordingActive else { return .notActive }
+            guard cameraActive else { return .cameraOff }
+            if let busy = state.recordingStream { return .busy(busy) }
+            guard state.selectedConfiguration != nil else { return .unconfigured }
+            state.recordingStream = stream
+            return .claimed
+        }
+        switch outcome {
+        case .notActive:
             logger.debug("Rejecting data send open: recording is not active", metadata: ["remote": "\(connection.remoteAddress)"])
             refuse(connection, id, .notAllowed)
-            return
-        }
-        guard (operatingModeService.characteristic(.homeKitCameraActive).value.intValue ?? 0) != 0 else {
+        case .cameraOff:
             logger.debug("Rejecting data send open: the HomeKit camera is off", metadata: ["remote": "\(connection.remoteAddress)"])
             refuse(connection, id, .notAllowed)
-            return
-        }
-        if let busy {
+        case .busy(let busy):
             logger.debug("Rejecting data send open: another stream is recording", metadata: [
                 "remote": "\(connection.remoteAddress)", "other": "\(busy.connection.remoteAddress)", "streamId": "\(busy.streamID)",
             ])
             refuse(connection, id, .busy)
-            return
-        }
-        guard configured else {
+        case .unconfigured:
             logger.debug("Rejecting data send open: no recording configuration selected", metadata: ["remote": "\(connection.remoteAddress)"])
             refuse(connection, id, .invalidConfiguration)
-            return
-        }
-        logger.debug("Data send open", metadata: ["remote": "\(connection.remoteAddress)", "reason": "\(reason ?? "-")"])
-        let stream = CameraRecordingStream(connection: connection, delegate: delegate, requestID: id, streamID: streamID, logger: logger)
-        stream.onClosed { [weak self, weak stream] in
-            self?.state.withLockedValue { state in
-                if state.recordingStream === stream { state.recordingStream = nil }
+        case .claimed:
+            logger.debug("Data send open", metadata: ["remote": "\(connection.remoteAddress)", "reason": "\(reason ?? "-")"])
+            stream.onClosed { [weak self, weak stream] in
+                self?.state.withLockedValue { state in
+                    if state.recordingStream === stream { state.recordingStream = nil }
+                }
             }
+            stream.start()
         }
-        state.withLockedValue { $0.recordingStream = stream }
-        stream.start()
     }
 
     private func handleSelectedConfigurationWrite(_ value: HAPValue) throws {
@@ -373,6 +388,8 @@ final class CameraRecordingStream: @unchecked Sendable {
         var closingTimeout: Task<Void, Never>?
         var onClosed: [@Sendable () -> Void] = []
         var handler: DataStreamConnection.ProtocolHandler?
+        /// The close handler on the data stream connection, removed when the stream ends first.
+        var connectionCloseToken: Int?
     }
 
     private let state = NIOLockedValueBox(State())
@@ -383,13 +400,6 @@ final class CameraRecordingStream: @unchecked Sendable {
         self.requestID = requestID
         self.streamID = streamID
         self.logger = logger
-        let handler = DataStreamConnection.ProtocolHandler(events: [
-            "close": { [weak self] message in self?.handleDataSendClose(message) },
-            "ack": { [weak self] message in self?.handleDataSendAck(message) },
-        ])
-        state.withLockedValue { $0.handler = handler }
-        _ = connection.addProtocolHandler("dataSend", handler)
-        connection.onClose { [weak self] in self?.handleDataStreamConnectionClosed() }
     }
 
     var isClosed: Bool { state.withLockedValue { $0.closed } }
@@ -398,9 +408,23 @@ final class CameraRecordingStream: @unchecked Sendable {
         state.withLockedValue { $0.onClosed.append(handler) }
     }
 
+    /// Takes the connection's `dataSend` messages and streams; a stream that was not started touches nothing.
     func start() {
-        let task = Task { [weak self] () -> Void in await self?.stream() }
-        state.withLockedValue { $0.streaming = task }
+        let handler = DataStreamConnection.ProtocolHandler(events: [
+            "close": { [weak self] message in self?.handleDataSendClose(message) },
+            "ack": { [weak self] message in self?.handleDataSendAck(message) },
+        ])
+        state.withLockedValue { $0.handler = handler }
+        _ = connection.addProtocolHandler("dataSend", handler)
+        let token = connection.onClose { [weak self] in self?.handleDataStreamConnectionClosed() }
+        let started = state.withLockedValue { state -> Bool in
+            // Closed already (the connection went away): nothing to stream.
+            guard !state.closed else { return false }
+            state.connectionCloseToken = token
+            state.streaming = Task { [weak self] () -> Void in await self?.stream() }
+            return true
+        }
+        if !started, let token { connection.removeCloseHandler(token) }
     }
 
     private func stream() async {
@@ -481,8 +505,8 @@ final class CameraRecordingStream: @unchecked Sendable {
     }
 
     private func handleDataSendClose(_ message: HDSDictionary) {
-        guard let id = message["streamId"]?.intValue, Int(id) == streamID else { return }
-        let reason = message["reason"]?.intValue.flatMap { HDSProtocolSpecificErrorReason(rawValue: Int($0)) }
+        guard let id = message["streamId"]?.intValue, Int(exactly: id) == streamID else { return }
+        let reason = message["reason"]?.intValue.flatMap { Int(exactly: $0) }.flatMap(HDSProtocolSpecificErrorReason.init(rawValue:))
         logger.debug("Received DATA_SEND CLOSE", metadata: ["streamId": "\(streamID)", "reason": "\(reason.map { "\($0)" } ?? "-")"])
         handleClosed { $0.delegate.closeRecordingStream(streamID: $0.streamID, reason: reason) }
     }
@@ -493,18 +517,25 @@ final class CameraRecordingStream: @unchecked Sendable {
     }
 
     private func handleClosed(_ closure: (CameraRecordingStream) -> Void) {
-        let (first, streaming, handlers, handler) = state.withLockedValue { state in
+        let (first, streaming, handlers, handler, token) = state.withLockedValue { state in
             let first = !state.closed
             state.closed = true
             state.closingTimeout?.cancel()
             state.closingTimeout = nil
-            defer { if first { state.onClosed = [] } }
-            return (first, state.streaming, state.onClosed, state.handler)
+            defer {
+                if first {
+                    state.onClosed = []
+                    state.connectionCloseToken = nil
+                }
+            }
+            return (first, state.streaming, state.onClosed, state.handler, state.connectionCloseToken)
         }
         guard first else { return }
         // Cancelling the consuming task ends the delegate's stream (its onTermination runs): HAP-NodeJS's abort.
         streaming?.cancel()
         if let handler { connection.removeProtocolHandler("dataSend", handler) }
+        // A connection that carries several recordings one after the other must not keep a handler for each.
+        if let token { connection.removeCloseHandler(token) }
         closure(self)
         for handler in handlers { handler() }
     }

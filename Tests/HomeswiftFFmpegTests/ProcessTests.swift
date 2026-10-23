@@ -68,6 +68,33 @@ import Darwin
         #expect(await eventually { !exec.isRunning })
     }
 
+    @Test func stopsTheProcessWhenTheTaskIsCancelled() async throws {
+        let (logs, options) = shellOptions()
+        let exec = FfmpegExec(options, commandLineArgs: ["-c", "echo up >&2; exec sleep 30"], logErrors: false)
+        let task = Task { await exec.exec() }
+        #expect(await eventually { exec.isStarted })
+        let pid = try #require(exec.processIdentifier)
+        let start = ContinuousClock.now
+        task.cancel()
+        #expect(await task.value == nil)
+        #expect(ContinuousClock.now - start < .seconds(3))
+        #expect(logs.messages(.debug).contains("FFmpeg command cancelled. Terminating."))
+        #expect(await eventually { !exec.isRunning && kill(pid, 0) != 0 })
+    }
+
+    @Test func doesNotStartWhenCancelledBeforehand() async {
+        let (logs, options) = shellOptions()
+        let exec = FfmpegExec(options, commandLineArgs: ["-c", "exec sleep 30"], logErrors: false)
+        let task = Task { () -> ProcessResult? in
+            while !Task.isCancelled { await Task.yield() }
+            return await exec.exec()
+        }
+        task.cancel()
+        #expect(await task.value == nil)
+        #expect(!exec.isRunning)
+        #expect(!logs.messages(.debug).contains { $0.hasPrefix("FFmpeg command (version") })
+    }
+
     @Test func doesNotKillAProcessThatEndsInTime() async throws {
         let (_, options) = shellOptions()
         let exec = FfmpegExec(options, commandLineArgs: ["-c", "printf snapshot"], logErrors: false)
@@ -232,13 +259,30 @@ import Darwin
         #expect(await eventually { output.withLockedValue { $0 } == Data("hello world".utf8) })
         process.offStdout(listener)
         try await process.writeStdin(Data("ignored".utf8))
-        process.endStdin()
-        #expect(!process.isStdinWritable)
-        await #expect(throws: FfmpegProcessError.stdinClosed) { try await process.writeStdin(Data("late".utf8)) }
-        let status = await waitForExit(process)
+        // cat ends as soon as its input does: the wait is registered before.
+        let status = await waitForExit(process) {
+            process.endStdin()
+            #expect(!process.isStdinWritable)
+            await #expect(throws: FfmpegProcessError.stdinClosed) { try await process.writeStdin(Data("late".utf8)) }
+        }
         #expect(status?.exitCode == 0)
         #expect(output.withLockedValue { $0 } == Data("hello world".utf8))
         await #expect(throws: FfmpegProcessError.notRunning) { try await process.writeStdin(Data()) }
+    }
+
+    @Test func keepsStandardOutputForTheFirstListener() async throws {
+        let (_, options) = shellOptions()
+        let process = FfmpegProcess(options, commandLineArgs: ["-c", "printf early; echo ready >&2; read line; printf \"$line\"; exec sleep 30"])
+        process.start()
+        try await process.waitForStart()
+        // FFmpeg wrote before anyone listened: the first listener still gets it, then what follows, in order.
+        try await Task.sleep(for: .milliseconds(200))
+        let output = NIOLockedValueBox(Data())
+        _ = try #require(process.onStdout { data in output.withLockedValue { $0.append(data) } })
+        #expect(await eventually { output.withLockedValue { $0 } == Data("early".utf8) })
+        try await process.writeStdin(Data("late\n".utf8))
+        #expect(await eventually { output.withLockedValue { $0 } == Data("earlylate".utf8) })
+        _ = await waitForExit(process) { process.stop() }
     }
 
     @Test func survivesWritingToAProcessThatClosedItsInput() async throws {
@@ -258,8 +302,8 @@ import Darwin
         let (logs, options) = shellOptions(debug: true)
         let process = FfmpegProcess(options, commandLineArgs: ["-c", "echo 'Input #0, rtsp, from rtsp://admin:pw@cam/s' >&2"])
         process.start()
-        _ = await waitForExit(process)
-        #expect(logs.messages(.info).contains("Input #0, rtsp, from rtsp://admin:***@cam/s"))
+        // The shell can be gone before a wait registers: poll for the log instead.
+        #expect(await eventually { logs.messages(.info).contains("Input #0, rtsp, from rtsp://admin:***@cam/s") })
         #expect(logs.messages(.info).first?.hasPrefix("FFmpeg command (version: 8.0): /bin/sh") == true)
     }
 }
@@ -389,6 +433,16 @@ import Darwin
         #expect(process.pendingInitSegmentWaits == 0)
     }
 
+    @Test func clampsAnOversizedSegmentLength() async {
+        let (_, options) = shellOptions()
+        let process = FfmpegLivestreamProcess(options, recordingConfig: recordingConfiguration(), livestreamOptions: FMp4LivestreamOptions(url: "rtsp://x"))
+        process.segmentLength = Int.max
+        // Milliseconds to microseconds would overflow: the argument is clamped instead of trapping.
+        process.start(["-c", "exit 0", "-frag_duration", "1000000"])
+        #expect(process.commandLineArgs.suffix(2) == ["-frag_duration", String(Int.max)])
+        _ = await waitForExit(process)
+    }
+
     @Test func rejectsAtOnceWithoutAProcess() async {
         let (_, options) = shellOptions()
         let process = FfmpegLivestreamProcess(options, recordingConfig: recordingConfiguration(), livestreamOptions: FMp4LivestreamOptions(url: "rtsp://x"))
@@ -446,11 +500,45 @@ import Darwin
         _ = await waitForExit(process)
     }
 
+    @Test func isNotTimedOutWhenTheConsumerGoesAway() async throws {
+        let (_, options) = shellOptions()
+        let process = recording(options)
+        let segments = process.segmentGenerator()
+        let consumer = Task {
+            for await _ in segments {}
+        }
+        try await Task.sleep(for: .milliseconds(200))
+        consumer.cancel()
+        await consumer.value
+        // The generator's wait ends with the cancellation, well within HKSV_TIMEOUT: that is not FFmpeg falling silent.
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(!process.isTimedOut)
+        _ = await waitForExit(process) { process.stop() }
+    }
+
+    @Test func endsAtOnceWhenStoppedRightBeforeTheWait() async throws {
+        let (_, options) = shellOptions()
+        let process = recording(options)
+        // The stop lands between the generator's end check and its wait.
+        process.beforeBoxWait.withLockedValue {
+            $0 = { [weak process] in
+                process?.beforeBoxWait.withLockedValue { $0 = nil }
+                process?.stop()
+            }
+        }
+        let start = ContinuousClock.now
+        for await _ in process.segmentGenerator() {}
+        #expect(ContinuousClock.now - start < .milliseconds(HKSV_TIMEOUT / 2))
+        #expect(!process.isTimedOut)
+        _ = await waitForExit(process)
+    }
+
     @Test func logsKnownHKSVErrorsBriefly() async {
         let (logs, options) = shellOptions()
         let process = FfmpegRecordingProcess(options, recordingConfig: recordingConfiguration())
         process.start(["-c", "echo 'moov atom not found' >&2; exit 1"])
-        _ = await waitForExit(process)
+        // The shell can be gone before a wait registers: poll for the log instead.
+        #expect(await eventually { !logs.messages(.error).isEmpty })
         #expect(logs.messages(.error) == [
             "FFmpeg ended unexpectedly due to issues processing the media stream. This error can be safely ignored - it will occur occasionally."
         ])
@@ -556,5 +644,40 @@ final class RecordingStreamingDelegate: HomebridgeStreamingDelegate {
         _ = await waitForExit(process)
         #expect(await eventually { delegate.recorded.contains("adjustProbeSize") })
         #expect(logs.messages(.error).isEmpty)
+    }
+}
+
+@Suite struct SubprocessTests {
+    @Test func releasesThePipesWhenAGrandchildKeepsThemOpen() async throws {
+        // The shell exits at once; its background child holds standard output and standard error open for three seconds.
+        let child = try Subprocess.launch("/bin/sh", arguments: ["-c", "(sleep 3) & echo hi; exit 0"])
+        let status = NIOLockedValueBox<FfmpegExitStatus?>(nil)
+        child.addExitHandler { exit in status.withLockedValue { $0 = exit } }
+        child.beginReading()
+        // The exit is reported without waiting for the grandchild, and the pipes are given up then.
+        #expect(await eventually { status.withLockedValue { $0 } != nil })
+        #expect(status.withLockedValue { $0 } == FfmpegExitStatus(exitCode: 0, signal: nil))
+        #expect(!child.isReadingOutput)
+        // Their end of file, when the grandchild exits, wakes nothing (it used to spin the reader at full speed).
+        try await Task.sleep(for: .milliseconds(1500))
+        #expect(!child.isReadingOutput)
+    }
+
+    @Test func dropsItsHandlersAndClosesStandardInputOnExit() async throws {
+        weak var released: Subprocess?
+        do {
+            let child = try Subprocess.launch("/bin/sh", arguments: ["-c", "echo out; echo err >&2"])
+            released = child
+            let exited = NIOLockedValueBox(false)
+            // Handlers that capture the child, as the fMP4 reader's does: a cycle until the exit breaks it.
+            child.addStdoutHandler { _ in _ = child.processIdentifier }
+            child.addStderrHandler { _ in _ = child.processIdentifier }
+            child.addExitHandler { _ in exited.withLockedValue { $0 = true } }
+            child.beginReading()
+            #expect(await eventually { exited.withLockedValue { $0 } })
+            #expect(!child.isStdinOpen)
+            #expect(!child.isReadingOutput)
+        }
+        #expect(await eventually { released == nil })
     }
 }

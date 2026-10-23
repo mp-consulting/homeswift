@@ -72,6 +72,25 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
         public var updateInterval: Int
         /// The shortest interval between two event notifications, typically 600 000 (ten minutes).
         public var notifyIntervalThreshold: Int
+
+        /// Times and ranges within what a controller can send, so the schedule's arithmetic cannot overflow: a
+        /// saved schedule is read back through this too.
+        func clamped() -> Transition {
+            var transition = self
+            transition.transitionStartMillis = Self.clamp(transitionStartMillis, AdaptiveLightingController.startTimeRange)
+            transition.timeMillisOffset = Self.clamp(timeMillisOffset, -AdaptiveLightingController.maxStartMillis...AdaptiveLightingController.maxStartMillis)
+            for index in transition.transitionCurve.indices {
+                transition.transitionCurve[index].transitionTime = Self.clamp(transitionCurve[index].transitionTime, AdaptiveLightingController.timeRange)
+                transition.transitionCurve[index].duration = transitionCurve[index].duration.map { Self.clamp($0, AdaptiveLightingController.timeRange) }
+            }
+            transition.updateInterval = Self.clamp(updateInterval, AdaptiveLightingController.timeRange)
+            transition.notifyIntervalThreshold = Self.clamp(notifyIntervalThreshold, AdaptiveLightingController.timeRange)
+            transition.brightnessAdjustmentRange.minBrightnessValue = Self.clamp(brightnessAdjustmentRange.minBrightnessValue, AdaptiveLightingController.timeRange)
+            transition.brightnessAdjustmentRange.maxBrightnessValue = Self.clamp(brightnessAdjustmentRange.maxBrightnessValue, AdaptiveLightingController.timeRange)
+            return transition
+        }
+
+        private static func clamp(_ value: Int, _ range: ClosedRange<Int>) -> Int { min(max(value, range.lowerBound), range.upperBound) }
     }
 
     /// What `onUpdate` gets in manual mode.
@@ -249,7 +268,8 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
 
     public func deserialize(_ data: Data) throws {
         let serialized = try JSONDecoder().decode(Serialized.self, from: data)
-        state.withLockedValue { $0.activeTransition = serialized.activeTransition }
+        let transition = serialized.activeTransition.clamped()
+        state.withLockedValue { $0.activeTransition = transition }
         handleActiveTransitionUpdated(fromDeserializer: true)
     }
 
@@ -401,10 +421,10 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
             factor = lower.brightnessAdjustmentFactor + (upper.brightnessAdjustmentFactor - lower.brightnessAdjustmentFactor) * percentage
         }
         let multiplier = Double(max(range.minBrightnessValue, min(range.maxBrightnessValue, brightness)))
-        // Math.round: halves go up.
-        var value = Int((temperature + factor * multiplier + 0.5).rounded(.down))
-        value += customTemperatureAdjustment
-        return Int(max(bounds.0, min(bounds.1, Double(value))))
+        // Math.round: halves go up. In floating point until clamped: a curve value of 3e38 must not trap.
+        let value = (temperature + factor * multiplier + 0.5).rounded(.down) + Double(customTemperatureAdjustment)
+        guard !value.isNaN else { return Int(saturating: bounds.0) ?? 0 }
+        return Int(saturating: max(bounds.0, min(bounds.1, value))) ?? 0
     }
 
     /// One step of the automatic mode; a dry run only adjusts the temperature to a new brightness.
@@ -545,6 +565,12 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
 
     /// Milliseconds from 1970 to 2001-01-01, HomeKit's epoch.
     static let epoch2001Millis = 978_307_200_000
+    /// A start time past 2^53 ms (JavaScript's largest exact integer, as HAP-NodeJS reads it) is clamped there.
+    static let maxStartMillis = 1 << 53
+    static let startTimeRange = 0...(epoch2001Millis + maxStartMillis)
+    /// Controller times (transition offsets, durations, intervals) are kept to 32 bits, ~49 days: the sum over a
+    /// curve cannot overflow.
+    static let timeRange = 0...Int(UInt32.max)
 
     func supportedTransitionConfigurationTLV() -> Data {
         let brightnessIID = lightbulb.characteristic(.brightness).iid
@@ -584,6 +610,7 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
     enum TransitionError: Error {
         case notBase64
         case unknownIID(Int)
+        case notFinite(String)
     }
 
     /// A write of Characteristic Value Transition Control; returns the write response, base64.
@@ -604,7 +631,7 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
     private func handleReadTransition(_ data: Data) throws -> Data? {
         let read = try HAPTLV.decode(data)
         let iidData = try HAPTLV.required(read, Configuration.characteristicIID, "characteristic iid")
-        let iid = Int(try HAPTLV.readVariableUInt(iidData))
+        let iid = Int(clamping: try HAPTLV.readVariableUInt(iidData))
         guard let active = activeTransition else { return nil }
         guard active.iid == iid else {
             logger.warning("The iid of the current adaptive lighting transition does not match the requested one", metadata: [
@@ -641,7 +668,7 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
         let configurationData = try HAPTLV.required(update, 1, "value transition configuration")
         let configuration = try HAPTLV.decode(configurationData)
         let iidData = try HAPTLV.required(configuration, Configuration.characteristicIID, "characteristic iid")
-        let iid = Int(try HAPTLV.readVariableUInt(iidData))
+        let iid = Int(clamping: try HAPTLV.readVariableUInt(iidData))
         guard lightbulb.characteristics.contains(where: { $0.iid == iid }) else { throw HAPStatusError(.invalidValueInRequest) }
 
         // HomeKit sends only the iid to turn Adaptive Lighting off; otherwise the third item is always 1.
@@ -662,19 +689,26 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
         else { throw HAPTLV.DecodingError.missing("transition id or start time") }
         let id3 = parameters[Parameters.unknown3]
 
-        let startTimeMillis = Self.epoch2001Millis + Int(HAPTLV.readUInt(startTime))
+        // Clamped: 8 bytes from the controller would overflow Int, then the sums of the schedule.
+        let startTimeMillis = Self.epoch2001Millis + Int(clamping: min(HAPTLV.readUInt(startTime), UInt64(Self.maxStartMillis)))
         let timeMillisOffset = clock() - startTimeMillis
 
+        func time(_ data: Data) throws -> Int { min(Int(clamping: try HAPTLV.readVariableUInt(data)), Self.timeRange.upperBound) }
+        func float(_ data: Data, _ name: String) throws -> Double {
+            // NaN or infinity would reach the colour temperature.
+            guard let value = Double(try HAPTLV.readFloat32(data)).finite else { throw TransitionError.notFinite(name) }
+            return value
+        }
         var curve: [TransitionCurveEntry] = []
         for entryData in curveConfiguration[Curve.transitionEntry] ?? [] {
             let entry = try HAPTLV.decode(entryData)
             guard let factor = entry[Entry.adjustmentFactor], let value = entry[Entry.value], let offset = entry[Entry.transitionOffset]
             else { throw HAPTLV.DecodingError.missing("transition entry") }
-            let duration = try entry[Entry.duration].map { Int(try HAPTLV.readVariableUInt($0)) }
+            let duration = try entry[Entry.duration].map(time)
             if !curve.isEmpty { curve[curve.count - 1].duration = duration }
             curve.append(TransitionCurveEntry(
-                temperature: Double(try HAPTLV.readFloat32(value)), brightnessAdjustmentFactor: Double(try HAPTLV.readFloat32(factor)),
-                transitionTime: Int(try HAPTLV.readVariableUInt(offset))))
+                temperature: try float(value, "temperature"), brightnessAdjustmentFactor: try float(factor, "brightness adjustment factor"),
+                transitionTime: try time(offset)))
         }
         guard let adjustmentIIDData = curveConfiguration[Curve.adjustmentCharacteristicIID]?.first,
             let rangeData = curveConfiguration[Curve.adjustmentMultiplierRange]?.first
@@ -686,7 +720,7 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
             iid: iid, transitionStartMillis: startTimeMillis, timeMillisOffset: timeMillisOffset,
             transitionId: HAPTLV.uuidString(transitionID), transitionStartBuffer: HAPTLV.hexString(startTime),
             id3: id3.map(HAPTLV.hexString),
-            brightnessCharacteristicIID: Int(try HAPTLV.readVariableUInt(adjustmentIIDData)),
+            brightnessCharacteristicIID: Int(clamping: try HAPTLV.readVariableUInt(adjustmentIIDData)),
             brightnessAdjustmentRange: BrightnessAdjustmentRange(
                 minBrightnessValue: Int(HAPTLV.readUInt(minimum.prefix(4))), maxBrightnessValue: Int(HAPTLV.readUInt(maximum.prefix(4)))),
             transitionCurve: curve, updateInterval: updateInterval ?? 60000, notifyIntervalThreshold: notifyIntervalThreshold)

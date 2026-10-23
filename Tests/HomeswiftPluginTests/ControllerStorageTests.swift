@@ -22,4 +22,34 @@ import Testing
         #expect(permissions == 0o600)
         #endif
     }
+
+    @Test func purgesTheStatesOfOtherAccessories() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-controllers-\(UUID().uuidString)/controllers/X-x.json")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent().deletingLastPathComponent()) }
+        let storage = ControllerStorage(url: url)
+        try storage.save(Data("a".utf8), accessoryID: "lamp", controllerID: "transition")
+        try storage.save(Data("b".utf8), accessoryID: "gone", controllerID: "transition")
+        #expect(try storage.purge(keeping: ["lamp", "camera"]) == ["gone"])
+        #expect(try storage.purge(keeping: ["lamp"]) == [])
+        let reloaded = ControllerStorage(url: url)
+        #expect(reloaded.state(accessoryID: "lamp", controllerID: "transition") == Data("a".utf8))
+        #expect(reloaded.state(accessoryID: "gone", controllerID: "transition") == nil)
+    }
+
+    @Test func concurrentSavesLeaveTheLatestStateOnDisk() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-controllers-\(UUID().uuidString)/controllers/X-x.json")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent().deletingLastPathComponent()) }
+        let storage = ControllerStorage(url: url)
+        await withTaskGroup(of: Void.self) { group in
+            for accessory in 0..<8 {
+                group.addTask {
+                    for step in 0..<50 { try? storage.save(Data("\(step)".utf8), accessoryID: "lamp-\(accessory)", controllerID: "transition") }
+                }
+            }
+        }
+        let reloaded = ControllerStorage(url: url)
+        for accessory in 0..<8 {
+            #expect(reloaded.state(accessoryID: "lamp-\(accessory)", controllerID: "transition") == Data("49".utf8))
+        }
+    }
 }

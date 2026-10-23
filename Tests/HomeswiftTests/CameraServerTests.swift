@@ -33,7 +33,12 @@ final class HDSTestClient: @unchecked Sendable {
     }
 
     func send(header: HDSDictionary, message: HDSDictionary = [:]) async throws {
-        let frame = try HDSFrame.seal(payload: HDSFrame.payload(header: header, message: message), key: writeKey, counter: writeCounter)
+        try await send(payload: HDSFrame.payload(header: header, message: message))
+    }
+
+    /// Any payload, valid or not.
+    func send(payload: Data) async throws {
+        let frame = try HDSFrame.seal(payload: payload, key: writeKey, counter: writeCounter)
         writeCounter += 1
         try await channel.writeAndFlush(ByteBuffer(bytes: frame))
     }
@@ -252,6 +257,147 @@ struct CameraServerTests {
         // The data stream ends with the HAP connection.
         await controller.close()
         await #expect(throws: (any Error).self) { _ = try await hds.next() }
+        await server.stop()
+    }
+
+    /// A second controller, paired through the first without admin permissions, as the Home app pairs other users.
+    private func userController(through admin: TestController) async throws -> TestController {
+        let user = TestController(identifier: "user", signingKey: .init())
+        var add = TLV8()
+        add.append(.state, 1)
+        add.append(.method, 3)
+        add.append(.identifier, Data(user.identifier.utf8))
+        add.append(.publicKey, user.signingKey.publicKey.rawRepresentation)
+        add.append(.permissions, 0)
+        #expect(try await admin.tlv("/pairings", add).byte(.error) == nil)
+        user.accessoryLTPK = admin.accessoryLTPK
+        try await user.connect(port: server.port!)
+        try await user.pairVerify()
+        return user
+    }
+
+    private func status(_ message: TestController.Message) -> Int? {
+        ((message.json as? [String: Any])?["characteristics"] as? [[String: Any]])?.first?["status"] as? Int
+    }
+
+    /// The HAP connection of the server's side for the controller's (the only one open).
+    private func serverConnection() throws -> HAPConnection {
+        try #require(server.state.withLockedValue { Array($0.connections.values) }.first)
+    }
+
+    private func setupDataStream(_ controller: TestController) async throws -> HDSTestClient {
+        var salt = Data(count: 32)
+        for index in salt.indices { salt[index] = UInt8(index) }
+        let setup = HAPTLV.encode((1, .byte(0)), (2, .byte(0)), (3, .data(salt)))
+        let response = try await write(controller, try iid(.dataStreamTransportManagement, .setupDataStreamTransport), setup.base64EncodedString(), response: true)
+        let value = try #require(((response.json as? [String: Any])?["characteristics"] as? [[String: Any]])?.first?["value"] as? String)
+        let answer = try HAPTLV.decode(try #require(Data(base64Encoded: value)))
+        let port = Int(HAPTLV.readUInt(try HAPTLV.decode(try #require(answer[2]))[1] ?? Data()))
+        let keys = HDSFrame.keys(sharedSecret: try #require(controller.sharedSecret), controllerKeySalt: salt, accessoryKeySalt: try #require(answer[3]))
+        let hds = HDSTestClient(controllerToAccessory: keys.controllerToAccessory, accessoryToController: keys.accessoryToController)
+        try await hds.connect(port: port)
+        try await hds.send(header: ["protocol": "control", "request": "hello", "id": .int64(1)])
+        #expect(try await hds.next().kind == .response(id: 1, status: 0))
+        return hds
+    }
+
+    @Test func refusesAdminOnlyWritesFromOtherUsers() async throws {
+        let admin = try await pairedController()
+        let user = try await userController(through: admin)
+        let selected = "AR0BBKAPAAACCAMAAAAAAAAAAwsBAQACBgEEoA8AAAIkAQEAAhIBAQECAQIDBNAHAAAEBKAPAAADCwECgAcCAjgEAwEeAxQBAQACDwEBAQIBAAMBAQQEQAAAAA=="
+        // HAP-NodeJS's `adminOnlyAccess: [Access.WRITE]` characteristics of a camera.
+        let writes: [(ServiceType, CharacteristicType, String?, Any)] = [
+            (.cameraRTPStreamManagement, .active, "0", 0),
+            (.cameraRTPStreamManagement, .active, "1", 0),
+            (.cameraRecordingManagement, .active, nil, 1),
+            (.cameraRecordingManagement, .selectedCameraRecordingConfiguration, nil, selected),
+            (.cameraOperatingMode, .homeKitCameraActive, nil, 0),
+            (.cameraOperatingMode, .eventSnapshotsActive, nil, 0),
+            (.cameraOperatingMode, .periodicSnapshotsActive, nil, 0),
+        ]
+        for (service, type, subtype, value) in writes {
+            let characteristic = try #require(accessory.service(service, subtype: subtype)?[type])
+            let before = characteristic.value
+            let response = try await write(user, characteristic.iid, value)
+            #expect(status(response) == HAPStatus.insufficientPrivileges.rawValue, "\(service.name) \(type.name)")
+            #expect(characteristic.value == before, "\(service.name) \(type.name)")
+        }
+        #expect(recording.active.withLockedValue { $0 }.isEmpty)
+        #expect(recording.configurations.withLockedValue { $0 }.isEmpty)
+        // Other characteristics stay open to every user.
+        #expect(try await write(user, try iid(.microphone, .mute), true).status == 204)
+        // An admin may.
+        for (service, type, subtype, value) in writes {
+            let response = try await write(admin, try iid(service, type, subtype: subtype), value)
+            #expect(response.status == 204, "\(service.name) \(type.name)")
+        }
+        #expect(recording.active.withLockedValue { $0 } == [true])
+        await user.close()
+        await admin.close()
+        await server.stop()
+    }
+
+    @Test func streamsAndDataStreamsLeaveNoCloseHandlerBehind() async throws {
+        let controller = try await pairedController()
+        let connection = try serverConnection()
+        func handlers() -> Int { connection.shared.withLockedValue { $0.closeHandlers.count } }
+        let setup = try iid(.cameraRTPStreamManagement, .setupEndpoints, subtype: "0")
+        let selected = try iid(.cameraRTPStreamManagement, .selectedRTPStreamConfiguration, subtype: "0")
+        for _ in 0..<3 {
+            #expect(try await write(controller, setup, "ARCKPHsuH01OapsMLV6PGjt8AxkBAQACDDE5Mi4xNjguMS4yMAMCOMcEAjrHBCUBAQACEKGhoaGhoaGhoaGhoaGhoaEDDqKioqKioqKioqKioqKiBSUBAQACELGxsbGxsbGxsbGxsbGxsbEDDrKysrKysrKysrKysrKy").status == 204)
+            #expect(handlers() == 1)
+            // End.
+            #expect(try await write(controller, selected, "ARUBEIo8ey4fTU5qmwwtXo8aO3wCAQA=").status == 204)
+            #expect(handlers() == 0)
+        }
+
+        // A data stream session holds one handler on the HAP connection while its socket is open.
+        for _ in 0..<2 {
+            let hds = try await setupDataStream(controller)
+            #expect(handlers() == 1)
+            await hds.close()
+            for _ in 0..<100 where handlers() != 0 { try await Task.sleep(for: .milliseconds(10)) }
+            #expect(handlers() == 0)
+        }
+        await controller.close()
+        await server.stop()
+    }
+
+    @Test func dropsDataStreamMessagesThatDoNotDecode() async throws {
+        recording.packets = []
+        let controller = try await pairedController()
+        let hds = try await setupDataStream(controller)
+        // A header length past the payload, a header of nested arrays, a 64-bit length: dropped, the socket stays.
+        try await hds.send(payload: Data([200, 1, 2]))
+        try await hds.send(payload: Data([100]) + Data(repeating: HDSTag.arrayLengthStart + 1, count: 100) + Data(repeating: 0, count: 1000))
+        try await hds.send(payload: Data([9, HDSTag.utf8Length64]) + Data(repeating: 0xFF, count: 8) + HDSWriter.encode([:] as HDSDictionary))
+        try await hds.send(header: ["protocol": "dataSend", "request": "open", "id": .int64(5)], message: ["target": "controller", "type": "ipcamera.recording", "streamId": .int(1)])
+        // Recording is off: refused, but answered.
+        #expect(try await hds.next() == HDSFrame.Message(kind: .response(id: 5, status: 6), protocol: "dataSend", topic: "open", message: ["status": .int(1)]))
+        await hds.close()
+        await controller.close()
+        await server.stop()
+    }
+
+    @Test func oneOfTwoHubsOpeningAtOnceIsBusy() async throws {
+        recording.packets = []
+        let controller = try await pairedController()
+        let selected = "AR0BBKAPAAACCAMAAAAAAAAAAwsBAQACBgEEoA8AAAIkAQEAAhIBAQECAQIDBNAHAAAEBKAPAAADCwECgAcCAjgEAwEeAxQBAQACDwEBAQIBAAMBAQQEQAAAAA=="
+        #expect(try await write(controller, try iid(.cameraRecordingManagement, .selectedCameraRecordingConfiguration), selected).status == 204)
+        #expect(try await write(controller, try iid(.cameraRecordingManagement, .active), 1).status == 204)
+        let first = try await setupDataStream(controller)
+        let second = try await setupDataStream(controller)
+        let open: HDSDictionary = ["target": "controller", "type": "ipcamera.recording", "streamId": .int(2)]
+        async let a: Void = first.send(header: ["protocol": "dataSend", "request": "open", "id": .int64(1)], message: open)
+        async let b: Void = second.send(header: ["protocol": "dataSend", "request": "open", "id": .int64(1)], message: open)
+        _ = try await (a, b)
+        let answers = [try await first.next(), try await second.next()].map(\.message["status"])
+        #expect(answers.filter { $0 == .int(0) }.count == 1)
+        // HDSProtocolSpecificErrorReason.busy
+        #expect(answers.filter { $0 == .int(2) }.count == 1)
+        await first.close()
+        await second.close()
+        await controller.close()
         await server.stop()
     }
 

@@ -34,10 +34,17 @@ public struct Backoff: Sendable, Equatable {
         let grown = Self.seconds(initial) * pow(factor, Double(max(0, attempt)))
         let base = min(grown.isFinite ? grown : .greatestFiniteMagnitude, Self.seconds(maximum))
         switch jitter {
-        case .none: return .seconds(base)
-        case .proportional(let fraction): return .seconds(base * (1 + (random * 2 - 1) * fraction))
-        case .additive(let amount): return .seconds(base + Self.seconds(amount) * random)
+        case .none: return Self.duration(base)
+        case .proportional(let fraction): return Self.duration(base * (1 + (random * 2 - 1) * fraction))
+        case .additive(let amount): return Self.duration(base + Self.seconds(amount) * random)
         }
+    }
+
+    /// `Duration.seconds(_:)` traps on NaN and on more than about 1.7e20 seconds, which a factor or a jitter
+    /// from a configuration can produce: no delay for NaN or a negative one, at most `Int64.max` seconds.
+    private static func duration(_ seconds: Double) -> Duration {
+        guard seconds > 0 else { return .zero }
+        return seconds < 9.2e18 ? .seconds(seconds) : .seconds(Int64.max)
     }
 
     private static func seconds(_ duration: Duration) -> Double {

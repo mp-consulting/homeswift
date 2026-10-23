@@ -175,7 +175,33 @@ the instance's accessories (services, characteristics, values) to its cache file
 are back on the bridge before the plugin starts, so the Home app shows them at once instead of dropping
 them while the plugin reaches its devices. A cached accessory serves its last values and accepts writes
 without a handler until the plugin adds the same id and replaces it. A cached accessory the plugin no
-longer adds stays until the plugin calls `context.remove(id:)`; `context.accessories` lists them.
+longer adds stays until the plugin calls `context.remove(id:)`; `context.accessories` lists them. The
+controller states (`context.configureController`) of accessories that are no longer in the cache are dropped
+when the cache is restored, as HAP-NodeJS's ControllerStorage purges them.
+
+**Security controls.** Lock Target State, Target Door State, Security System Target State and Lock Control
+Point unlock, open or disarm, and the bridge's own surfaces guard them: the MCP server and the Assistant write
+them only through `set_security_accessory`, after the user confirmed, and the web UI asks before it writes. A
+characteristic of yours that does the same, such as a switch whose On unlocks a door, gets the same treatment
+when you mark it; HomeKit itself is not affected:
+
+```swift
+let trigger = Service(.switch, name: "Unlock Front Door", subtype: "lock-trigger")
+trigger.characteristic(.on).securityControl().onWrite { value in try await door.unlock() }
+// or: trigger.characteristic(.on).isSecurityControl = true
+```
+
+**Confidential values.** A characteristic whose value is for HomeKit only (`isConfidential`) is read and
+written by controllers as usual, but the MCP server, the web UI and its event stream show it as null, the
+accessory cache keeps no value, and the `HAP_DEBUG` trace prints only its size. Setup Endpoints (its value
+holds the SRTP master keys of a live stream), Setup Data Stream Transport, Setup Transfer Transport and the
+pairing characteristics are confidential by default; set it on a characteristic of your own that carries a
+key or a token.
+
+**Numbers from devices.** `Int(someDouble)` traps on NaN, infinity and values beyond `Int`'s range, and a
+device, a cloud or a config file can send any of them. Convert with `Int(saturating:)` (rounds toward zero,
+clamps, nil for NaN; `Int(saturating: x, in: 0...100)` clamps to a range), `JSONValue.saturatingIntValue`
+for JSON, `Int(clamping:)` for a wider integer, and `x.finite` to drop NaN and infinity from a reading.
 
 ### Web pages
 

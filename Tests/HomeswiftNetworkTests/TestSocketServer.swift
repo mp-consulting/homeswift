@@ -244,6 +244,10 @@ final class TestBroker: Sendable {
         var pingreqs = 0
         var mutePings = false
         var credentials: (username: String, password: String)?
+        /// CONNACK goes out this long after CONNECT.
+        var connackDelay: Duration?
+        /// CONNACK goes out with a packet a broker never sends right behind it, in the same write.
+        var connackThenGarbage = false
     }
 
     let state = NIOLockedValueBox(State())
@@ -291,16 +295,25 @@ final class TestBroker: Sendable {
         guard let session = state.withLockedValue({ $0.sessions[id] }) else { return }
         switch packet {
         case .connect(let connect):
-            let credentials = state.withLockedValue { state in
+            let (credentials, delay, garbage) = state.withLockedValue { state in
                 state.connects.append(connect)
                 state.sessions[id]?.connect = connect
-                return state.credentials
+                return (state.credentials, state.connackDelay, state.connackThenGarbage)
             }
             if let credentials, connect.username != credentials.username || connect.password != credentials.password {
                 session.write(MQTTPacket.connack(sessionPresent: false, returnCode: 4).encode())
                 session.close()
             } else {
-                session.write(MQTTPacket.connack(sessionPresent: false, returnCode: 0).encode())
+                let connack = MQTTPacket.connack(sessionPresent: false, returnCode: 0).encode() + (garbage ? MQTTPacket.pingreq.encode() : [])
+                if let delay {
+                    let write = session.write
+                    Task {
+                        try? await Task.sleep(for: delay)
+                        write(connack)
+                    }
+                } else {
+                    session.write(connack)
+                }
             }
         case .subscribe(let packetID, let subscriptions):
             state.withLockedValue { state in

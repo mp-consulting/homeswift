@@ -247,7 +247,7 @@ public final class UIServer: Sendable {
 
     private func cookie(_ token: String?) -> String {
         let value = token ?? ""
-        let age = token == nil ? 0 : Int(sessions.lifetime)
+        let age = token == nil ? 0 : Int(saturating: sessions.lifetime) ?? 0
         return "\(Self.cookieName)=\(value); Path=/; HttpOnly; SameSite=Strict; Max-Age=\(age)\(configuration.https ? "; Secure" : "")"
     }
 
@@ -666,7 +666,7 @@ final class EventHub: Sendable {
             // Nothing is looked up while no page listens: `payload` is only built for a listener.
             broadcast(event: "accessory", payload: {
                 let service = accessory.services.first { $0.characteristics.contains { $0 === characteristic } }
-                var payload: [String: JSONValue] = ["id": .string(accessory.id), "characteristic": .string(characteristic.type.name), "value": HomeswiftCatalog.json(value)]
+                var payload: [String: JSONValue] = ["id": .string(accessory.id), "characteristic": .string(characteristic.type.name), "value": characteristic.isConfidential ? .null : HomeswiftCatalog.json(value)]
                 if let service {
                     payload["service"] = .string(service.type.name)
                     if let subtype = service.subtype { payload["subtype"] = .string(subtype) }

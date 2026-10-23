@@ -206,7 +206,7 @@ public final class EveHistory: Sendable {
             setTemp: Double? = nil, valvePosition: Double? = nil, lux: Double? = nil, waterAmount: Double? = nil
         ) {
             self.init(
-                unixTime: Int(time.timeIntervalSince1970.rounded()), temp: temp, humidity: humidity, pressure: pressure, ppm: ppm, voc: voc,
+                unixTime: Int(saturating: time.timeIntervalSince1970.rounded()) ?? 0, temp: temp, humidity: humidity, pressure: pressure, ppm: ppm, voc: voc,
                 power: power, status: status, contact: contact, motion: motion, currentTemp: currentTemp, setTemp: setTemp,
                 valvePosition: valvePosition, lux: lux, waterAmount: waterAmount
             )
@@ -237,6 +237,14 @@ public final class EveHistory: Sendable {
         static func marker(time: Int) -> Entry {
             var entry = Entry(unixTime: time)
             entry.setRefTime = 1
+            return entry
+        }
+
+        /// The entry with NaN and infinite readings left out: JSON cannot hold them, and one would stop the history
+        /// from being saved.
+        var finite: Entry {
+            var entry = self
+            for key in Self.averagedKeys where entry[keyPath: key]?.isFinite == false { entry[keyPath: key] = nil }
             return entry
         }
 
@@ -283,7 +291,9 @@ public final class EveHistory: Sendable {
                 if let entry = try? array.decode(Entry.self) {
                     history.append(entry)
                 } else {
-                    _ = try? array.decode(String?.self)
+                    // "noValue", null, or an element that is not an entry: a failed decode does not move on, so
+                    // skip it explicitly (or this loops for ever).
+                    _ = try? array.decode(Skipped.self)
                     history.append(nil)
                 }
             }
@@ -305,6 +315,11 @@ public final class EveHistory: Sendable {
         }
 
         enum CodingKeys: String, CodingKey { case firstEntry, lastEntry, usedMemory, refTime, initialTime, history, extra }
+
+        /// Decodes from any element without reading it, to step over one.
+        struct Skipped: Decodable {
+            init(from decoder: any Decoder) throws {}
+        }
     }
 
     struct State {
@@ -417,6 +432,7 @@ public final class EveHistory: Sendable {
 
     /// Records a reading, through the averaging timer like fakegato's `addEntry`.
     public func add(_ entry: Entry) {
+        let entry = entry.finite
         guard averaging else {
             switch kind {
             case .door, .motion, .switch: record(Entry(unixTime: entry.time, status: entry.status))
@@ -474,7 +490,12 @@ public final class EveHistory: Sendable {
             guard let last = state.withLockedValue({ $0.backLog.first }) else { return }
             record(Entry(unixTime: time, status: last.status))
         case .weather, .room, .room2, .energy, .custom:
-            let (backLog, previous) = state.withLockedValue { ($0.backLog, $0.previousAverage) }
+            // Taken and cleared at once: a reading added while this averages goes into the next period. An empty
+            // average (no reading had a value) records nothing, and its backlog had nothing to keep.
+            let (backLog, previous) = state.withLockedValue { state in
+                defer { state.backLog = [] }
+                return (state.backLog, state.previousAverage)
+            }
             var average = Entry(unixTime: time)
             var keys = 0
             for key in Entry.averagedKeys {
@@ -483,17 +504,15 @@ public final class EveHistory: Sendable {
                     // JavaScript's Math.round: halves round up.
                     var value = ((values.reduce(0, +) / Double(values.count)) * 100 + 0.5).rounded(.down) / 100
                     if key == \Entry.voc { value = (value + 0.5).rounded(.down) }
-                    average[keyPath: key] = value
+                    // Huge readings can average to infinity: left out, as a NaN reading is.
+                    if value.isFinite { average[keyPath: key] = value }
                 } else if repeatsLastData, let previous, let value = previous[keyPath: key] {
                     average[keyPath: key] = value
                 }
                 if average[keyPath: key] != nil { keys += 1 }
             }
             state.withLockedValue { $0.previousAverage = average }
-            if keys > 0 {
-                record(average)
-                state.withLockedValue { $0.backLog = [] }
-            }
+            if keys > 0 { record(average) }
         case .aqua, .thermo:
             return
         }
@@ -501,6 +520,8 @@ public final class EveHistory: Sendable {
 
     /// fakegato's `_addEntry`: stores the entry in the ring and updates S2R1.
     func record(_ entry: Entry) {
+        // An average of huge readings can overflow to infinity.
+        let entry = entry.finite
         let status = state.withLockedValue { state -> String in
             let size = memorySize
             if state.usedMemory < size {

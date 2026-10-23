@@ -31,7 +31,9 @@ with a new code).
 - **Accessories**: every accessory with its services. Switches for on/off, sliders for brightness, colour
   temperature and the like, menus for lock, door and alarm targets, text for everything else. Values
   update live when a device changes elsewhere. Locks, garage doors and alarms can be operated here, as in
-  the Home app, since the user signed in. Each card's **⋯** menu identifies the accessory, shows its log,
+  the Home app, since the user signed in; a change to one of them, or to a characteristic a plugin marked as a
+  security control (a switch that unlocks a door), asks first. Values that carry keys (a camera's Setup
+  Endpoints) are not shown. Each card's **⋯** menu identifies the accessory, shows its log,
   asks the Assistant about it, and opens its plugin's settings.
 - **Addresses** are paths: `/status`, `/accessories`, `/plugins`, `/plugins/<slug>` and its `/expert`,
   `/plugins/add/<platform>`, `/config`, `/account`, and `/logs/<accessory>?bridge=<bridge or all>&since=24h&level=warning&q=text`

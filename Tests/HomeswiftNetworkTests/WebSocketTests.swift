@@ -28,6 +28,15 @@ struct WebSocketTests {
         await socket.close()
     }
 
+    @Test func requestsThePathAsItIsEncoded() async throws {
+        let server = try await TestSocketServer(mode: .webSocket)
+        defer { Task { await server.stop() } }
+        // Decoded, `%20` would put a space in the request line and `%2F` would become a separator.
+        let socket = try await WebSocket.connect(to: URL(string: "ws://127.0.0.1:\(server.port)/a%20b/c%2Fd?x=%2F")!)
+        #expect(server.webSocket.requests.first?.uri == "/a%20b/c%2Fd?x=%2F")
+        await socket.close()
+    }
+
     @Test func reassemblesFragmentsAndAnswersPings() async throws {
         let server = try await TestSocketServer(mode: .webSocket)
         defer { Task { await server.stop() } }

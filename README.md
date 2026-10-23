@@ -142,7 +142,10 @@ written for the Homebridge version of a plugin works unchanged:
 
 `homeswift plugins` lists the plugins compiled in, `-U <dir>` uses another directory, `-D` logs debug output.
 A block with `_bridge` runs on its own child bridge, with its own pairing. Accessories are cached, so they
-are back in the Home app at the next launch before the plugin has reached its devices.
+are back in the Home app at the next launch before the plugin has reached its devices. On macOS the
+`homeswift` binary carries an Info.plist (`Sources/HomeswiftCLI/Info.plist`, linked into its `__info_plist`
+section) with the Bluetooth usage description CoreBluetooth requires, so the Govee plugin can reach devices
+over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (the terminal, or launchd).
 
 | Plugin | Platform | Devices |
 |---|---|---|

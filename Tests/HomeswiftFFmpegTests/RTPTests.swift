@@ -93,8 +93,28 @@ import Testing
         let demuxer = await RtpDemuxer(ipFamily: .ipv4, inputPort: taken.port, rtcpPort: 9, rtpPort: 9, log: log.logger)
         #expect(!demuxer.isRunning)
         #expect(log.messages(.error).first?.hasPrefix("RtpDemuxer Error:") == true)
+        // It closed as the TypeScript demuxer does on a socket error: a talkback waiter added now is woken at once.
+        let woken = NIOLockedValueBox(false)
+        demuxer.rtpEvents.once { woken.withLockedValue { $0 = true } }
+        #expect(woken.withLockedValue { $0 })
+        #expect(await demuxer.rtpEvents.next() != nil)
         demuxer.close()
         await taken.close()
+    }
+
+    @Test func refusesPortsOutsideTheUDPRange() async {
+        let log = LogRecorder()
+        // A failed reservation's -1 used to trap in NIO's address conversion.
+        let demuxer = await RtpDemuxer(ipFamily: .ipv4, inputPort: 0, rtcpPort: -1, rtpPort: 65536, log: log.logger)
+        #expect(!demuxer.isRunning)
+        #expect(log.messages(.error) == ["RtpDemuxer Error: invalid UDP port -1"])
+        #expect(await demuxer.rtpEvents.next() != nil)
+    }
+
+    @Test func wakesWaitersThatComeAfterTheClose() async {
+        let demuxer = await RtpDemuxer(ipFamily: .ipv4, inputPort: 0, rtcpPort: 9, rtpPort: 9, log: Logger(label: "test"))
+        demuxer.close()
+        #expect(await demuxer.rtpEvents.next() != nil)
     }
 }
 
