@@ -147,6 +147,8 @@ do {
     fail("\(error)")
 }
 
+// The Status page's memory, CPU and latency history, a week of it under metrics/.
+let metrics = Metrics(directory: storagePath.appendingPathComponent("metrics"))
 let mcpServer = NIOLockedValueBox<MCPHTTPServer?>(nil)
 let uiServer = NIOLockedValueBox<UIServer?>(nil)
 /// Stops the servers, then the plugins and bridges: the signal handler exits afterwards, a restart execs.
@@ -154,6 +156,7 @@ let shutdown: @Sendable () async -> Void = { [host, mcpServer, uiServer] in
     await uiServer.withLockedValue { $0 }?.stop()
     await mcpServer.withLockedValue { $0 }?.stop()
     await host.stop()
+    metrics.stop()
     logBuffer.archive?.flush()
 }
 let main = Task {
@@ -162,6 +165,7 @@ let main = Task {
     } catch {
         fail("could not start: \(error)")
     }
+    metrics.start(following: host)
     // The control surface the MCP server and the web UI share; its restart hook execs a fresh copy of this
     // process, and a saved HomeswiftUI or HomeswiftAiKit block restarts the servers it configures in place.
     let catalogBox = NIOLockedValueBox<HomeswiftCatalog?>(nil)
@@ -169,7 +173,7 @@ let main = Task {
     // The web UI's settings as last started, to fall back on when new ones cannot start.
     let uiConfiguration = NIOLockedValueBox(configuration)
     let catalog = HomeswiftCatalog(
-        host: host, logs: logBuffer, configURL: configURL, allowSecrets: ProcessInfo.processInfo.environment["HOMESWIFT_ALLOW_SECRETS"] == "true",
+        host: host, logs: logBuffer, metrics: metrics, configURL: configURL, allowSecrets: ProcessInfo.processInfo.environment["HOMESWIFT_ALLOW_SECRETS"] == "true",
         restart: { Task.detached { await shutdown(); Restart.exec() } },
         reloadServices: { [mcpServer, uiServer] next, platforms in
             guard let catalog = catalogBox.withLockedValue({ $0 }) else { return }

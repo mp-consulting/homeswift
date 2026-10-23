@@ -45,11 +45,25 @@ public final class HAPServer: @unchecked Sendable {
     /// Called when a characteristic's value changes, from HomeKit or from the accessory's own code.
     public typealias ChangeObserver = @Sendable (_ accessory: Accessory, _ characteristic: Characteristic, _ value: HAPValue) -> Void
 
+    /// How long a call took: a controller's read or write of `/characteristics` (`request`), or an accessory's
+    /// read or write handler, the plugin reaching its device (`handler`).
+    public struct Timing: Sendable {
+        public enum Kind: String, Sendable { case request, handler }
+        public let kind: Kind
+        /// The accessories it was about: those a request read or wrote, or the one whose handler ran.
+        public let accessories: [Accessory]
+        public let duration: Duration
+    }
+
+    /// Called after every timed call (`Timing`).
+    public typealias TimingObserver = @Sendable (Timing) -> Void
+
     struct State {
         var persisted: PersistedState
         var accessories: [Int: Accessory] = [:]
         var connections: [ObjectIdentifier: HAPConnection] = [:]
         var changeObservers: [ChangeObserver] = []
+        var timingObservers: [TimingObserver] = []
         var pairSetupOwner: ObjectIdentifier?
         var failedPairSetupAttempts = 0
         var serverChannel: (any Channel)?
@@ -188,6 +202,23 @@ public final class HAPServer: @unchecked Sendable {
     /// Registers an observer of characteristic changes on every accessory of this server.
     public func observeChanges(_ observer: @escaping ChangeObserver) {
         state.withLockedValue { $0.changeObservers.append(observer) }
+    }
+
+    /// Registers an observer of how long controllers' requests and the accessories' handlers take.
+    public func observeTimings(_ observer: @escaping TimingObserver) {
+        state.withLockedValue { $0.timingObservers.append(observer) }
+    }
+
+    /// Tells the timing observers that a call about the accessories `aids` began at `start` and ended now.
+    func recordTiming(_ kind: Timing.Kind, aids: some Sequence<Int>, since start: ContinuousClock.Instant) {
+        let duration = ContinuousClock.now - start
+        let (observers, accessories) = state.withLockedValue { state -> ([TimingObserver], [Accessory]) in
+            guard !state.timingObservers.isEmpty else { return ([], []) }
+            return (state.timingObservers, aids.compactMap { state.accessories[$0] })
+        }
+        guard !observers.isEmpty else { return }
+        let timing = Timing(kind: kind, accessories: accessories, duration: duration)
+        for observer in observers { observer(timing) }
     }
 
     /// Forgets every pairing and disconnects all controllers, so the accessory can be added again.

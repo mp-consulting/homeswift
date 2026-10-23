@@ -226,12 +226,12 @@ public final class Characteristic: @unchecked Sendable {
         guard !isUnavailable else { throw HAPStatusError(.serviceCommunicationFailure) }
         guard let coerced = type.coerce(value) else { throw HAPStatusError(.invalidValueInRequest) }
         if let respond = state.withLockedValue({ $0.onWriteResponse }) {
-            let response = try await respond(coerced)
+            let response = try await timed { try await respond(coerced) }
             // As HAP-NodeJS: a write response replaces the value without a change event.
             state.withLockedValue { $0.value = type.coerce(response) ?? response }
             return response
         }
-        try await writeHandler(for: coerced)?(coerced)
+        if let handler = writeHandler(for: coerced) { try await timed { try await handler(coerced) } }
         update(coerced, origin: origin, force: false, reason: .write, context: context, notify: notify)
         return coerced
     }
@@ -241,8 +241,16 @@ public final class Characteristic: @unchecked Sendable {
     func writeFromController(_ value: HAPValue, context: ObjectIdentifier, notify: Bool) async throws {
         guard !isUnavailable else { throw HAPStatusError(.serviceCommunicationFailure) }
         let coerced = type.coerce(value) ?? value
-        try await state.withLockedValue { $0.onWrite }?(coerced)
+        if let handler = state.withLockedValue({ $0.onWrite }) { try await timed { try await handler(coerced) } }
         update(coerced, origin: nil, force: false, reason: .write, context: context, notify: notify)
+    }
+
+    /// Runs one of the accessory's handlers, the plugin reaching its device, timed for the server's observers.
+    func timed<Result>(_ handler: () async throws -> Result) async rethrows -> Result {
+        let (server, aid) = state.withLockedValue { ($0.server, $0.aid) }
+        let start = ContinuousClock.now
+        defer { server?.recordTiming(.handler, aids: [aid], since: start) }
+        return try await handler()
     }
 
     /// Sets the value with a reason and context, with or without an event.

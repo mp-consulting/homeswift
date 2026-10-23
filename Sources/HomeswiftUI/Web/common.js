@@ -225,7 +225,7 @@
   };
 
   /// The UI's API, with the session cookie: `body` is an object, sent as JSON; a refusal carries the server's
-  /// message, and a signed-out visitor goes to the sign-in page. `stream: true` answers the Response itself,
+  /// message and its `status`, and a signed-out visitor goes to the sign-in page. `stream: true` answers the Response itself,
   /// for a body read as it arrives.
   async function api(path, { method = "GET", body, stream = false } = {}) {
     const options = { method, credentials: "same-origin", headers: {} };
@@ -236,7 +236,7 @@
     const text = await response.text();
     let json = null;
     try { json = text ? JSON.parse(text) : null; } catch { json = { error: text }; }
-    if (!response.ok) throw new Error((json && json.error) || `HTTP ${response.status}`);
+    if (!response.ok) throw Object.assign(new Error((json && json.error) || `HTTP ${response.status}`), { status: response.status });
     return json;
   }
 

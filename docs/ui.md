@@ -27,8 +27,15 @@ with a new code).
 
 - **Status**: each bridge with its device ID, port, pairing state and platforms, and, for a bridge that is
   not paired yet, the setup code and its QR code for the Home app's camera; the Assistant's provider;
-  version, uptime, machine; a **Restart homeswift** button.
-- **Accessories**: every accessory with its services. Switches for on/off, sliders for brightness, colour
+  version, uptime, machine; a **Restart homeswift** button. **Activity** charts the homeswift process's
+  memory and CPU, how long the bridge takes to answer the Home app's reads and writes, and how long plugins
+  take to reach their devices (average and longest), over the Logs page's time ranges (from the last hour
+  to 7 days, or a custom range) and, for the durations, for every server, one bridge or one accessory. A
+  range that ends now refreshes every minute; a gap is a time homeswift was not running; **Show as a table**
+  lists the values. The bridge samples memory and CPU every 10 seconds and keeps a record per minute under
+  `metrics/` next to config.json (a file per day, 8 days), so the charts survive a restart. The view is
+  `/status?since=24h&bridge=<bridge>&accessory=<accessory>`.
+- **Accessories**: every accessory with its services, a section per plugin. Switches for on/off, sliders for brightness, colour
   temperature and the like, menus for lock, door and alarm targets, text for everything else. Values
   update live when a device changes elsewhere. Locks, garage doors and alarms can be operated here, as in
   the Home app, since the user signed in; a change to one of them, or to a characteristic a plugin marked as a
@@ -69,7 +76,8 @@ with a new code).
   the keys, and applies it.
 - **Logs**: the live log, filtered by level, text, time and what the lines are about. That last is one menu:
   every line; the bridges' own lines (their servers' connections, pairings and controllers), every bridge's or
-  one's; or an accessory's (those of its own server and those that name it, its id or its address). The time: the latest lines, the last hour, 6 or 24 hours, today,
+  one's; or an accessory's (those of its own server and those that name it, its id or its address), the
+  accessories grouped by plugin. The time: the latest lines, the last hour, 6 or 24 hours, today,
   yesterday, the last 7 days, or a custom range. The bridge keeps its log on disk for that, under `logs/`
   next to config.json: segments of 8 MB at most, a new one each day, the oldest removed past 64 MB or 7
   days, written in batches once a second so logging never waits for the disk. **Copy** puts the lines shown

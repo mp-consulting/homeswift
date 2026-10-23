@@ -126,8 +126,18 @@ All notable changes to this project are documented here. The format follows
 - **`GET /api/cameras/<id>/snapshot`** and **`/live`** in the web UI, for signed-in users: a JPEG, and a chunked
   `video/mp4` stream (`X-Camera-Mime-Type` carries its codecs) that stops when the browser disconnects, four
   viewers per camera at most. Both refuse while the camera is off in the Home app.
+- **Activity on the Status page**: charts of the process's memory and CPU, of how long the bridge takes to answer
+  the Home app's reads and writes, and of how long plugins take to reach their devices (average and longest),
+  with the Logs page's time range and bridge or accessory menu, a crosshair and tooltip, and a table view. A
+  record per minute is kept for 8 days under `metrics/` (`Metrics`, `GET /api/metrics`).
+- **`HAPServer.observeTimings`** and **`PluginHost.observeTimings`**: how long each controller request to
+  `/characteristics` and each accessory read or write handler took, with the accessories it was about.
 
 ### Changed
+
+- The Accessories page shows a section per plugin rather than per server (a card's foot still names its
+  server), and the Logs page's menu groups the accessories by plugin.
+- A paused plugin's pill has a colour of its own, and its card's ⋯ button keeps its size beside the paused note.
 
 - The accessory JSON (web UI, MCP) marks what only HomeKit uses as `"internal": true`: a camera's RTP stream,
   recording and data stream services, and the operating mode's snapshot settings. TLV8 and data values are
