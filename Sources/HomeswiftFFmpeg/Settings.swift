@@ -1,5 +1,7 @@
 // Settings and constants for the HomeKit FFmpeg utilities, with the names of homebridge-plugin-utils' settings.ts so a
 // ported plugin keeps its references. Durations are in milliseconds unless the name says otherwise.
+//
+// HomeswiftFFmpeg is ported from HJD's homebridge-plugin-utils (ISC); the notice is in THIRD-PARTY-NOTICES.md.
 
 /// HomeKit prefers an I-frame interval of 5 seconds when livestreaming.
 public let HOMEKIT_IDR_INTERVAL = 5

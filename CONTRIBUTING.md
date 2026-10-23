@@ -28,11 +28,14 @@ says why).
    - you have the hardware, or someone who has it will test the port.
 2. **Create the skeleton** once the proposal is accepted:
    ```bash
-   swift Scripts/new-plugin.swift <Name> <platform> "<Display Name>"
+   swift Scripts/new-plugin.swift <Name> <platform> "<Display Name>" --service lightbulb:brightness,colorTemperature --service battery
    ```
-   `<Name>` names the directory and the targets, `<platform>` is the Homebridge plugin's `pluginAlias`. The script
-   writes `Plugins/<Name>/` (a plugin that polls a fake API, with its tests), adds its targets to `Package.swift`
-   and registers it in `Sources/HomeswiftCLI/Plugins.swift`.
+   `<Name>` names the directory and the targets, `<platform>` is the Homebridge plugin's `pluginAlias`. Each
+   `--service` is a HAP service every device gets, with its required characteristics and the optional ones listed
+   (`all` for every one); the first is the primary one. `--list` shows the services, `--list <service>` their
+   characteristics. The script writes `Plugins/<Name>/`: the device state and the changes HomeKit can ask for, typed
+   from those characteristics, a plugin that polls a fake API and shows them, and tests for a write and a device
+   change. It adds the targets to `Package.swift` and registers the plugin in `Sources/HomeswiftCLI/Plugins.swift`.
 3. **Port the plugin** following [docs/plugins.md](docs/plugins.md). `Plugins/ElgatoKeyLights` is the reference;
    `Plugins/PhilipsAmbilightTV` publishes a television on its own, `Plugins/UniFiProtect` has cameras.
 4. **Open the pull request.** Its template lists what is checked below.
@@ -51,7 +54,9 @@ says why).
 - **No secrets in the log:** tokens, passwords, keys and setup codes are never logged, at any level.
 - **Generated files current:** after editing `config.schema.json` or `Web/`, run
   `swift Scripts/embed-assets.swift plugin Plugins/<Name> <Name>Plugin` (and the `web` command for a page).
-- **Credit:** the README names the plugin it ports and its license, and keeps its copyright notice.
+- **Credit:** the README names the plugin it ports, its authors and its license, and its copyright and permission
+  notice goes in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). A translation into Swift is still a copy for
+  copyright: the notice is owed even when no line is the same.
 - **A maintainer:** the README names who maintains the plugin, and says how it was tested on real devices.
 
 ## Maintaining a plugin

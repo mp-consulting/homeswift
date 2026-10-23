@@ -34,13 +34,21 @@ Clone it outside the repository, into a directory of its own, and read it as dat
 
 ## 2. Scaffold
 
+Give it the services the Homebridge plugin creates, primary first, with the optional characteristics it adds
+(`swift Scripts/new-plugin.swift --list` and `--list <service>` show what each service has):
+
 ```bash
-swift Scripts/new-plugin.swift <Name> <pluginAlias> "<Display Name>"
+swift Scripts/new-plugin.swift <Name> <pluginAlias> "<Display Name>" \
+    --service lightbulb:brightness,colorTemperature --service battery:batteryLevel
 ```
 
-It writes `Plugins/<Name>/` (a plugin that polls a fake API and puts a switch per device in HomeKit, its tests,
-README and schema), adds the targets to `Package.swift` and registers the plugin in
-`Sources/HomeswiftCLI/Plugins.swift`. Build and test the skeleton before changing it, so a failure later is yours:
+It writes `Plugins/<Name>/`: `<Name>State` (one struct per service, a typed value per readable characteristic, with
+its range or named values), `<Name>Change` (a case per writable characteristic), the API protocol, a plugin that
+polls it and shows the state, write handlers, tests (each service and characteristic present, a write reaching
+the device, a device change reaching HomeKit), README and schema. It adds the targets to `Package.swift` and
+registers the plugin. A service that needs more than this (a television published on its own, a camera, a lock's
+security control) gets a note in the plugin's doc comment. Build and test the skeleton before changing it, so a
+failure later is yours:
 
 ```bash
 swift test --scratch-path ~/Library/Caches/homeswift-build --filter <Name>Tests
@@ -51,7 +59,9 @@ swift test --scratch-path ~/Library/Caches/homeswift-build --filter <Name>Tests
 - **Configuration:** copy the Homebridge plugin's `config.schema.json` over the skeleton's, then mirror it in
   `Configuration`: every option optional, defaults in code, the same names. Run
   `swift Scripts/embed-assets.swift plugin Plugins/<Name> <Name>Plugin` after each schema change.
-- **Transport:** replace `<Name>API.swift` with the real client on `HomeswiftNetwork` (`HTTPClient`, `MQTTClient`,
+- **State and changes:** keep `<Name>State` in HomeKit's units and convert the device's own (0-255, Fahrenheit,
+  kelvin) in the transport. Rename nothing the tests rely on without updating them.
+- **Transport:** replace the API's implementation with the real client on `HomeswiftNetwork` (`HTTPClient`, `MQTTClient`,
   `WebSocket`, `UDPSocket`, `MDNSQuery`, `TLSOptions`, `Backoff`). No new package dependency; if something is
   missing there, say so instead of working around it. Keep the protocol so tests inject a fake.
 - **Accessories:** the same services and props as the Homebridge plugin. Ids are `"\(platform):\(stable id)"`
@@ -91,7 +101,9 @@ drop pairings.
 
 ## 6. Finish
 
-- `README.md`: what it does, the configuration, the ported plugin with its license and copyright notice, the
+- `THIRD-PARTY-NOTICES.md`: the ported plugin's copyright and permission notice, and the paths ported from it. A
+  translation into Swift still owes the notice.
+- `README.md`: what it does, the configuration, the ported plugin with its authors and license, the
   maintainer, and how it was tested. "Experimental" until someone tested it on the devices.
 - A line in `CHANGELOG.md` under `[Unreleased]`, section `Added`.
 - Go through `CONTRIBUTING.md`'s "What a plugin needs" and the pull request template, and tell the user which

@@ -18,4 +18,5 @@ Delete this section if the pull request adds no plugin. CONTRIBUTING.md explains
 - [ ] No token, password, key or setup code is logged
 - [ ] No new package dependency
 - [ ] README: what it does, the configuration, the ported plugin and its license, the maintainer
+- [ ] The ported plugin's copyright and permission notice is in `THIRD-PARTY-NOTICES.md`
 - [ ] Tested on real devices (which, and how), or marked experimental in the README

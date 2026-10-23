@@ -5,8 +5,9 @@ mode, Adaptive Lighting), plugs and power strips (shown as switches, outlets, pu
 taps, valves or TV-type accessories), thermo-hygrometers, leak, presence, contact and air quality sensors,
 heaters, fans, humidifiers, dehumidifiers, purifiers, diffusers, kettles and ice makers.
 
-A port of [`@mp-consulting/homebridge-govee`](https://github.com/mp-consulting/homebridge-govee). The platform
-block is the same, so a Homebridge configuration works unchanged.
+A port of [`@mp-consulting/homebridge-govee`](https://github.com/mp-consulting/homebridge-govee), originally by Ben Potter
+(bwp91), under the MIT license; its Linux Bluetooth follows noble's hci-socket bindings (MIT, Sandeep Mistry). The
+notices are in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md). The platform block is the same, so a Homebridge configuration works unchanged.
 
 ## How it reaches the devices
 

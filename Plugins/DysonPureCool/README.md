@@ -2,7 +2,8 @@
 
 Dyson Pure Cool, Hot+Cool, Humidify+Cool, Big+Quiet purifiers and the Dyson Cool fan in HomeKit, over each
 device's local MQTT broker. The Homeswift port of
-[`@mp-consulting/homebridge-dyson-pure-cool`](https://github.com/mp-consulting/homebridge-dyson-pure-cool):
+[`@mp-consulting/homebridge-dyson-pure-cool`](https://github.com/mp-consulting/homebridge-dyson-pure-cool), originally by
+Lukas Rogner, under the MIT license (notice in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md)):
 same platform name (`DysonPureCool`), same `config.json` block, same settings wizard.
 
 ## What it does

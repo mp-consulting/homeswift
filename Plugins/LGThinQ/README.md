@@ -2,7 +2,8 @@
 
 LG ThinQ appliances in HomeKit through LG's cloud, ported from
 [homebridge-lg-thinq](https://github.com/mp-consulting/homebridge-lg-thinq) (platform `LGThinQ`, same
-configuration). ThinQ v2 devices are pushed over AWS IoT MQTT, with a REST reconciliation every five minutes;
+configuration), originally by nVuln, under the Apache License 2.0 (notice and changes in
+[THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md)). ThinQ v2 devices are pushed over AWS IoT MQTT, with a REST reconciliation every five minutes;
 older ThinQ v1 devices are polled. The API is not official: it is what LG's ThinQ app uses.
 
 | Device | HomeKit | Control | ThinQ2 | ThinQ1 |

@@ -300,8 +300,13 @@ All notable changes to this project are documented here. The format follows
   (`assistantBackground`), with Homeswift's files and the errors the ports log.
 - **Contributing plugins:** `CONTRIBUTING.md` (proposing a plugin, what it needs), a plugin proposal issue form and
   a pull request template; `Scripts/new-plugin.swift` creates a plugin that builds and passes its tests and
-  registers it; the `homeswift-plugin` skill for Claude Code and Codex ports a Homebridge plugin and checks it on a
+  registers it, its device state, changes, write handlers and tests typed from the HAP services and
+  characteristics given with `--service` (`--list` shows them); the `homeswift-plugin` skill for Claude Code and Codex ports a Homebridge plugin and checks it on a
   throwaway bridge over MCP; `AGENTS.md` for other coding agents.
+- **THIRD-PARTY-NOTICES.md**: the copyright and permission notices of the projects Homeswift ports (HJD's UniFi
+  plugins and homebridge-plugin-utils under ISC; the Elgato, Govee, eWeLink and Dyson plugins and noble under MIT;
+  the LG ThinQ, Daikin Cloud and Philips TV plugins and HAP-NodeJS under Apache-2.0, in `LICENSES/Apache-2.0.txt`),
+  with the parts of the repository each one became; every ported plugin's README names its original author.
 
 ### Changed
 
