@@ -300,6 +300,14 @@ actor TVDevice {
             await stopLongPoll()
             longPollRetry?.cancel()
             reflectAmbilightOff()
+            // As the Homebridge plugin does: a TV in standby is not muted and its Ambilight+hue is off. Mute
+            // goes false so the next report after waking reaches the sensor again.
+            if muted {
+                muted = false
+                observer?(.mute(false))
+            }
+            hueLampOn = false
+            observer?(.hueLamp(false))
             observer?(.input(identifier: currentIdentifier, id: nil))
         }
     }
@@ -459,6 +467,8 @@ actor TVDevice {
             throw HAPStatusError(.serviceCommunicationFailure)
         }
         self.muted = muted
+        // The mute sensor follows at once (the Homebridge plugin's handleSetMute); polls report only differences.
+        observer?(.mute(muted))
     }
 
     /// `VolumeSelector`: 0 is up, 1 is down.
@@ -513,6 +523,7 @@ actor TVDevice {
             // Already true: a request would only time out against a sleeping TV.
             styleRetry?.cancel()
             ambilight.on = false
+            observer?(.ambilight(ambilight))
             return
         }
         do {
@@ -532,11 +543,14 @@ actor TVDevice {
             }
             lastAmbilightAction = .now
             logger.info("Ambilight \(on ? "on" : "off")")
+            // The Ambilight sensor follows the write: polls are ignored for a while after it.
+            observer?(.ambilight(ambilight))
         } catch {
             if !on, !isOn {
                 // A scene switching the TV and Ambilight off together: the TV reached standby first, and
                 // Ambilight is off either way.
                 ambilight.on = false
+                observer?(.ambilight(ambilight))
                 return
             }
             logger.warning("Could not switch Ambilight \(on ? "on" : "off"): \(error)")
@@ -573,13 +587,21 @@ actor TVDevice {
     }
 
     /// A colour temperature becomes a hue and saturation; the Home app's Hue and Saturation follow.
-    func setAmbilightColorTemperature(_ mireds: Int) async throws {
+    /// `adaptiveLighting`: an Adaptive Lighting schedule is running. It sends a temperature every minute
+    /// by itself, which must not turn Ambilight following the picture into a fixed colour: only a colour
+    /// the user picked follows it.
+    func setAmbilightColorTemperature(_ mireds: Int, adaptiveLighting: Bool = false) async throws {
         ambilight.colorTemperature = mireds
         let (hue, saturation) = ColorConversion.hueAndSaturation(mireds: mireds)
         ambilight.hue = hue
         ambilight.saturation = saturation
         observer?(.ambilight(ambilight))
-        if ambilight.on { try await writeColor() }
+        guard ambilight.on else { return }
+        if adaptiveLighting, !isShowingColor {
+            logger.debug("Adaptive Lighting update ignored: Ambilight is not showing a colour")
+            return
+        }
+        try await writeColor()
     }
 
     /// Sends hue, saturation and brightness as one `FOLLOW_COLOR` command: a colour pick writes them as
@@ -745,11 +767,12 @@ actor TVDevice {
     }
 
     /// Learns the TV's apps: new ones become inputs, placeholder names become the real labels, apps the TV
-    /// stopped reporting twice in a row go, unless the user asked for them.
-    func fetchAppsFromTV() async {
-        guard !catalog.hasUserInputs, isOn else { return }
+    /// stopped reporting twice in a row go, unless the user asked for them. False when the TV listed none.
+    @discardableResult
+    func fetchAppsFromTV() async -> Bool {
+        guard !catalog.hasUserInputs, isOn else { return false }
         lastAppFetch = .now
-        guard let applications = try? await client.applications(), !applications.isEmpty else { return }
+        guard let applications = try? await client.applications(), !applications.isEmpty else { return false }
         var changed = false
         let discovered = catalog.appsFromTV(applications)
         let reported = Set(applications.compactMap(\.packageName))
@@ -800,6 +823,7 @@ actor TVDevice {
             // The app in front may be one that just became an input.
             if let currentApp { applyCurrentApp(currentApp) }
         }
+        return true
     }
 
     /// A rename from the Home app. tvOS writes its own "Input N" placeholder back sometimes; that is ignored.

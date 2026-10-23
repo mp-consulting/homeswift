@@ -61,6 +61,7 @@ enum JointSpacePairing {
         }
         let device = Device(name: String(deviceName.prefix(64)))
         let response = try await post(ip: ip, path: "pair/request", body: Body(device: device), transport: transport, authorization: nil)
+        guard response.isSuccess else { throw JointSpaceError.pairingRefused(status: response.status) }
         let answer: Answer
         do {
             answer = try JSONDecoder().decode(Answer.self, from: response.body)
@@ -96,8 +97,8 @@ enum JointSpacePairing {
         if response.status == 401, let challenge = response.header("WWW-Authenticate"), digest.accept(challenge: challenge) {
             response = try await post(ip: session.ip, path: "pair/grant", body: body, transport: transport, authorization: digest.authorization(method: "POST", uri: "/\(JointSpace.version)/pair/grant"))
         }
-        guard response.status != 401 else { throw JointSpaceError.unauthorized }
-        guard response.isSuccess else { throw JointSpaceError.httpStatus(response.status) }
+        // Answered with the Digest response, a 401 is the PIN (and its signature) being turned down.
+        guard response.isSuccess else { throw JointSpaceError.pairingRefused(status: response.status) }
         if let answer = try? JSONDecoder().decode(Answer.self, from: response.body), let error = answer.error_id, error != "SUCCESS" {
             throw JointSpaceError.invalidResponse("pair/grant: \(error) \(answer.error_text ?? "")")
         }

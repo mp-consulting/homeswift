@@ -17,8 +17,9 @@ show a PIN, and turns the PIN into the TV's entry for the block, with the `usern
 handed out, the fingerprint of its certificate and its MAC address (from the TV's `network/devices`, else from
 this machine's ARP table, as the Homebridge plugin reads it). **Add TV** writes the entry into this block and
 the plugin reloads with it at once, no restart; the entry can also be copied to paste by hand. The settings page of the Homebridge
-plugin produces the same keys. A TV that does not answer while pairing can be woken from there when it is
-already configured, and with the Assistant on, **Explain** sits next to errors.
+plugin produces the same keys. A TV that does not answer while pairing can be woken from there (by its MAC
+address in the ARP table when it is not configured yet); a wrong PIN says so, with the Homebridge plugin's
+words for each status the TV answers. With the Assistant on, **Explain** sits next to errors.
 
 ## The web page
 
@@ -26,8 +27,9 @@ The page does what the Homebridge plugin's settings page does. Each TV has a car
 remote, and:
 
 - **Inputs**: the order of the input wheel by drag and drop (or Alt and an arrow key), inputs hidden or
-  shown, renamed in place; it writes the `sources` keys.
-- **Edit**: General (name, address, MAC, Ambilight style, Wake-on-LAN, polling), Remote (the keys of the
+  shown, renamed in place; it writes the `sources` keys. **Refresh from TV** reads the TV's apps at once
+  rather than at the next hourly refresh.
+- **Edit**: General (name, address, MAC with **Get MAC**, Ambilight style, Wake-on-LAN, polling), Remote (the keys of the
   Info, Back and Play/Pause buttons), Automations (source switches, the Ambilight+hue switch, state
   sensors), Apps (custom apps, with **Detect from TV** reading the app in the foreground) and Buttons
   (custom buttons), and **Pair again** after a reset of the TV.
@@ -64,7 +66,7 @@ line in the log. The options:
 | Option | Default | What it does |
 |---|---|---|
 | `certFingerprint` | | SHA-256 of the TV's certificate, recorded at pairing: connections are refused when the TV presents another. Without it the first certificate seen is pinned for the run, and the log says the value to add |
-| `pollingInterval` | `10000` | Milliseconds between state polls, 1000 to 60000. Once the TV's own push channel delivers, polls slow to once a minute |
+| `pollingInterval` | `10000` | Milliseconds between state polls, 1000 to 60000 (outside, the default with a warning). Once the TV's own push channel delivers, polls slow to once a minute |
 | `wakeOnLanEnabled` | `true` | Send a Wake-on-LAN packet before switching on; a TV in deep standby hears nothing else |
 | `ambilightMode` | `FOLLOW_VIDEO/NATURAL` | The style (and algorithm) Ambilight takes when switched on from HomeKit |
 | `ambilightOnStart` | `false` | Switch Ambilight on whenever the TV comes on |
@@ -72,10 +74,10 @@ line in the log. The options:
 | `inputs` | discovered | An explicit list of inputs (`name`, `type` of `app`, `source` or `channel`, `identifier`, `displayOrder`); with one, apps are not discovered |
 | `customApps` | `[]` | Apps the TV does not list (`name`, `packageName`, optional `className` and `action`) |
 | `sources` | `[]` | Per input, by `id`: `order` in the wheel, `visible`, `customName` |
-| `sourceSwitches` | `false` | One Switch per input, for scenes and automations; exactly one is on |
+| `sourceSwitches` | `false` | One Switch per input shown in the Home app, for scenes and automations; exactly one is on |
 | `ambilightHueSwitch` | `false` | A Switch for the TV's Ambilight+hue feature (`HueLamp/power`) |
 | `customButtons` | `[]` | Momentary switches that send a key (`name`, `key`); one per key |
-| `stateSensors` | `[]` | Motion sensors mirroring `power`, `ambilight` and `mute`, for automations |
+| `stateSensors` | `[]` | Motion sensors mirroring `power`, `ambilight` and `mute`, for automations; they follow HomeKit's writes at once, and standby clears them |
 
 ## In the Home app
 
@@ -88,7 +90,9 @@ Ambilight is a lightbulb: on switches the TV's configured style on (the TV reass
 seconds after waking, so the style is re-applied twice), a colour pick sends one `FOLLOW_COLOR` command for
 the hue, saturation and brightness that arrive together, and brightness while Ambilight follows the picture or
 the sound sets the TV's menu brightness instead of forcing a colour. Colour temperature is turned into a hue
-and saturation. Adaptive Lighting is not ported.
+and saturation. Adaptive Lighting works on it: while Ambilight shows a colour the schedule's temperature
+follows the day; while it follows the picture or the sound the schedule leaves it alone. The schedule survives
+restarts (`controllers/`, as for any plugin).
 
 A selection made while the TV is off or still booting is held and applied once the TV is up, with the TV's
 own report checked, because a Philips set acknowledges a launch it is not ready for and drops it. The wheel and
@@ -110,6 +114,3 @@ then by the WatchTV key.
 The accessory id is `PhilipsAmbilightTV:<MAC>`; its HAP state lives in `external/` next to the bridge's.
 The plugin's own files (`inputs-<mac>.json`, `switch-names-<mac>.json`) are in its storage directory. The
 HTTP client, Digest authentication and Wake-on-LAN are `HomeswiftNetwork`, shared with other plugins.
-
-Not ported: Adaptive Lighting on the Ambilight light, and the sources editor's **Refresh from TV** (the
-plugin learns the TV's apps by itself whenever the TV is on).

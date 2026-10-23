@@ -128,6 +128,8 @@ enum JointSpaceError: Error, CustomStringConvertible, Equatable {
     case unauthorized
     case invalidResponse(String)
     case certificateMismatch(expected: String, observed: String)
+    /// The TV turned a pairing step down with an HTTP status; 401 at the grant is a wrong PIN.
+    case pairingRefused(status: Int)
 
     var description: String {
         switch self {
@@ -137,8 +139,19 @@ enum JointSpaceError: Error, CustomStringConvertible, Equatable {
         case .unauthorized: "the TV refused the credentials: pair it again"
         case .invalidResponse(let detail): "unexpected answer from the TV: \(detail)"
         case .certificateMismatch(let expected, let observed): "the TV's certificate (\(observed)) is not the pinned one (\(expected))"
+        case .pairingRefused(let status): Self.pairingMessages[status] ?? "the TV answered HTTP \(status)"
         }
     }
+
+    /// What the Homebridge plugin says for each status a pairing step can get (its `ERROR_MESSAGES`).
+    static let pairingMessages: [Int: String] = [
+        401: "Invalid PIN code. Please check the PIN on your TV screen and try again.",
+        403: "Access denied. The TV rejected the pairing request.",
+        404: "Pairing endpoint not found. Your TV may not support this pairing method.",
+        408: "Request timeout. The TV took too long to respond.",
+        500: "TV internal error. Please try again.",
+        503: "TV is temporarily unavailable. Please try again later.",
+    ]
 }
 
 /// Reaches a TV: the real client over the network, or a fake TV in tests. A fresh transport per TLS mode,

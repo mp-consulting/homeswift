@@ -236,6 +236,24 @@ All notable changes to this project are documented here. The format follows
 - UniFi Access: the Support screen has the Homebridge plugin's other links (about, installation, Discord, a
   support request) and Homeswift's issue tracker.
 
+### Fixed
+
+- Philips Ambilight TV: the mute and Ambilight state sensors follow a mute or Ambilight switched from HomeKit
+  at once, as the Homebridge plugin's do, instead of waiting for a change the TV reports.
+- Philips Ambilight TV: source switches only for the inputs shown in the Home app, as the Homebridge plugin
+  builds them.
+- Philips Ambilight TV: a `pollingInterval` out of 1000 to 60000 falls back to 10000 with a warning, as the
+  Homebridge plugin does, instead of leaving the TV out.
+- Philips Ambilight TV: standby clears the mute and Ambilight sensors and turns the Ambilight+hue switch off.
+- Philips Ambilight TV: Adaptive Lighting on the Ambilight light (`AdaptiveLightingController`, its schedule
+  kept across restarts); a schedule changes the colour only while Ambilight shows one.
+- Philips Ambilight TV page: **Refresh from TV** in the inputs editor, **Get MAC** on the confirm and edit
+  screens (the TV, else the ARP table), and Wake-on-LAN to any MAC address, so a TV being paired can be woken.
+- Philips Ambilight TV: pairing errors in the Homebridge plugin's words; a 401 at the grant is a wrong PIN.
+- Philips Ambilight TV: the Television service has Current Media State (interrupted), as the Homebridge
+  plugin sets it.
+- Philips Ambilight TV: `assistantBackground`, the Homebridge plugin's background for the Assistant, for the port.
+
 ## [0.3.0] - 2026-10-21
 
 ### Added
