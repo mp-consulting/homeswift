@@ -85,6 +85,9 @@ nav a.active { background: linear-gradient(180deg, var(--accent-2), var(--accent
 .page-note { display: flex; align-items: center; gap: 14px; justify-content: space-between; margin: 0 0 14px; padding: 12px 16px 12px 18px; }
 .page-note p { margin: 0; font-size: 0.875rem; }
 .page-note .button, .danger-zone button { flex: none; white-space: nowrap; }
+/* A plugin page's Expert part, last: the block as a form or as JSON, in the UI's own settings view. */
+.expert .page-note { flex-wrap: wrap; }
+.expert-links { display: flex; gap: 8px; flex: none; }
 .settings-bar {
   position: sticky; bottom: 14px; z-index: 3; display: flex; align-items: center; gap: 10px; margin: 14px 0 0;
   padding: 8px 8px 8px 20px; border-radius: 999px;
@@ -247,8 +250,6 @@ label > input, label > select { margin-top: 5px; }
 
 /* Breadcrumb, on plugin pages: where the page sits, each level a way back. */
 .breadcrumb { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 2px 0 10px; }
-.breadcrumb > a { font-size: 0.8125rem; color: var(--accent); text-decoration: none; font-weight: 500; }
-.breadcrumb > a:hover { text-decoration: underline; }
 .breadcrumb ol { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 0.8125rem; color: var(--muted); }
 .breadcrumb li { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .breadcrumb li + li::before { content: "›"; color: var(--muted); }

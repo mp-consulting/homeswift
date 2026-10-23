@@ -541,9 +541,10 @@ enum WebAssets {
           el("span", { class: `pill status ${kind}`, text: state })),
         instance ? el("div", { class: "facts" }, fact("Bridge", instance.bridge), fact("Accessories", instance.accessories), fact("Platform", block.platform))
           : el("p", { class: "muted note", text: block.system ? "A block of the runtime itself." : plugin ? "It did not start: the log says why." : "No plugin compiled into this homeswift provides this platform." }),
-        el("div", { class: "actions" },
-          plugin && plugin.hasPages && instance ? el("a", { class: "button primary", href: pluginPage(block), text: "Open" }) : null,
-          el("a", { class: "button", href: settingsLink(block), text: "Settings" })));
+        el("div", { class: "actions" }, plugin && plugin.hasPages && instance
+          ? [el("a", { class: "button primary", href: pluginPage(block), text: "Open" }), el("a", { class: "button", href: expertLink(block), text: "Expert" })]
+          : block.system ? el("a", { class: "button", href: settingsLink(block), text: "Settings" })
+          : el("a", { class: "button", href: expertLink(block), text: "Expert" })));
     };
 
     const catalog = el("div", { class: "grid" }, plugins.plugins.map((plugin) => {
@@ -552,16 +553,16 @@ enum WebAssets {
         el("div", { class: "server-head" }, tile("plugin", "orange"),
           el("div", { class: "who" }, el("strong", { text: plugin.name }), el("div", { class: "muted", text: plugin.platform })),
           used ? el("span", { class: "pill status standby", text: "In use" }) : null),
-        el("div", { class: "actions" }, plugin.hasPages && !used
+        el("div", { class: "actions" }, plugin.hasPages
           // A plugin with its own page sets itself up there (pairing a TV, finding lights), as Homebridge's
           // custom UIs do: Add writes an empty block and opens the page.
-          ? el("button", { class: "primary", text: "Add", onclick: (event) => addWithPage(plugin, event.currentTarget) })
+          ? el("button", { class: used ? "" : "primary", text: used ? "Add another" : "Add", onclick: (event) => addWithPage(plugin, event.currentTarget) })
           : el("a", { class: `button ${used ? "" : "primary"}`, href: `#settings/new/${encodeURIComponent(plugin.platform)}`, text: used ? "Add another" : "Add" })));
     }));
 
     async function addWithPage(plugin, button) {
       button.disabled = true;
-      const block = { platform: plugin.platform, name: plugin.name };
+      const block = { platform: plugin.platform, name: uniqueName(plugin.name, plugins.blocks) };
       try {
         await api(`/api/config/block/${encodeURIComponent(block.platform)}/${encodeURIComponent(block.name)}`, { method: "POST", body: {} });
         location.href = pluginPage(block);
@@ -579,7 +580,10 @@ enum WebAssets {
       catalog);
   };
 
+  /// A block's settings: its plugin's own page when it has one, else the form. `expertLink` is always the form
+  /// (or the JSON), the whole block as config.json keeps it.
   const settingsLink = (block) => `#settings/${encodeURIComponent(block.platform)}/${encodeURIComponent(block.name)}`;
+  const expertLink = (block, mode = "form") => `${settingsLink(block)}/${mode}`;
   const pluginPage = (block) => `/plugins/${encodeURIComponent(block.platform)}/index.html?name=${encodeURIComponent(block.name)}`;
 
   /// Where a page sits, each level a way back; the last is the page itself.
@@ -589,11 +593,12 @@ enum WebAssets {
   }
 
   // ---- A plugin's settings: its own page ------------------------------------
-  // #settings/<platform>/<name> for a block of config.json, #settings/new/<platform> to add one. The form comes
-  // from the plugin's config.schema.json (or the runtime's own for the web UI's block), JSON otherwise; the save
-  // bar stays in view, and leaving with unsaved changes asks first.
+  // #settings/<platform>/<name> for a block of config.json, #settings/new/<platform> to add one. A running plugin
+  // with its own page opens that page: the form is its Expert part, at #settings/<platform>/<name>/form (or
+  // /json). The form comes from the plugin's config.schema.json (or the runtime's own for the web UI's block),
+  // JSON otherwise; the save bar stays in view, and leaving with unsaved changes asks first.
 
-  views.settings = async (main, [first, second]) => {
+  views.settings = async (main, [first, second, view]) => {
     const isNew = first === "new";
     const [plugins, config] = await Promise.all([api("/api/plugins"), api("/api/config", { raw: true }).then(JSON.parse)]);
     const platform = isNew ? second : first;
@@ -607,6 +612,8 @@ enum WebAssets {
     if (isNew && !plugin) throw new Error(`No plugin provides ${platform}.`);
     const block = found ?? { index: plugins.blocks.length, platform, name: uniqueName(plugin.name, plugins.blocks), system: false };
     const instance = plugins.platforms.find((p) => p.platform === block.platform && p.name === block.name);
+    const hasPage = Boolean(!isNew && plugin && plugin.hasPages && instance);
+    if (hasPage && !view) { location.replace(pluginPage(block)); return; }
     const current = isNew ? { platform, name: block.name } : (config.platforms || [])[block.index] || { platform, name: block.name };
 
     let schema = null;
@@ -622,11 +629,11 @@ enum WebAssets {
     if (schema) {
       // The form first; the block as JSON one tap away, for what the form does not show. Each view starts
       // from the other's value, and Save takes the one on screen.
+      let mode = view === "json" ? "json" : "form";
       let form = buildForm(schema, current);
-      const formView = el("div", {}, form.element);
-      const jsonView = el("div", { class: "hidden" }, el("p", { class: "muted", text: "The block as config.json keeps it." }), editor);
+      const formView = el("div", { class: mode === "form" ? "" : "hidden" }, form.element);
+      const jsonView = el("div", { class: mode === "json" ? "" : "hidden" }, el("p", { class: "muted", text: "The block as config.json keeps it." }), editor);
       const switchError = el("p", { class: "error" });
-      let mode = "form";
       const tabs = el("div", { class: "group view-switch", role: "tablist", "aria-label": "Edit as" },
         [["form", "Form"], ["json", "JSON"]].map(([value, text]) => el("button", { type: "button", role: "tab", text, class: value === mode ? "on" : "", "aria-selected": String(value === mode), onclick: () => {
           if (value === mode) return;
@@ -697,7 +704,7 @@ enum WebAssets {
         }
         // A new block, or a renamed one, lives at its own address now.
         const name = value.name || platform;
-        if (isNew || name !== block.name) { leaveGuard = null; location.hash = settingsLink({ platform, name }); return; }
+        if (isNew || name !== block.name) { leaveGuard = null; location.hash = (hasPage ? expertLink : settingsLink)({ platform, name }); return; }
         update();
       } catch (e) { message.className = "error"; message.textContent = e.message; save.disabled = false; }
     });
@@ -715,7 +722,7 @@ enum WebAssets {
     leaveGuard = () => !dirty() || isNew || confirm("Leave without saving your changes?");
     leaveGuard.quiet = () => isNew || !dirty();
     show(main,
-      breadcrumb(["Plugins", "#plugins"], [block.name, isNew ? "#plugins" : settingsLink(block)], [isNew ? "Add" : "Settings"]),
+      breadcrumb(["Plugins", "#plugins"], [block.name, isNew ? "#plugins" : hasPage ? pluginPage(block) : settingsLink(block)], [isNew ? "Add" : hasPage ? "Expert" : "Settings"]),
       el("div", { class: "page-head settings-head" },
         tile(block.system ? "gear" : "plugin", block.system ? "grey" : "orange"),
         el("div", { class: "who" },
@@ -724,9 +731,9 @@ enum WebAssets {
             instance ? [`${instance.accessories} ${instance.accessories === 1 ? "accessory" : "accessories"} on ${instance.bridge}`] : []).join(" · ") })),
         el("div", { class: "tools" }, el("span", { class: `pill status ${kind}`, text: state }))),
       // A plugin with its own page does the everyday work there (pairing, devices); this is the raw block.
-      plugin && plugin.hasPages && instance ? el("div", { class: "card page-note" },
-        el("p", { text: `${plugin.name} has its own page for its devices, and it is the easier place for everyday changes. This form is the whole block, as config.json keeps it.` }),
-        el("a", { class: "button primary", href: pluginPage(block), text: "Open its page" })) : null,
+      hasPage ? el("div", { class: "card page-note" },
+        el("p", {}, el("strong", { text: "Expert. " }), `Every setting of the block, as config.json keeps it, including what ${plugin.name}'s page does not show. A save reloads the plugin.`),
+        el("a", { class: "button", href: pluginPage(block), text: "Back to its page" })) : null,
       body,
       el("div", { class: "settings-bar" }, message, revert, save),
       remove);
@@ -2377,9 +2384,18 @@ enum WebAssets {
   }
   const main = $("main");
   if (main) {
-    main.prepend(el("nav", { class: "breadcrumb", "aria-label": "Breadcrumb" }, trail,
-      el("a", { href: `/#settings/${encodeURIComponent(platform)}/${encodeURIComponent(name)}`, text: "Settings", title: "This plugin's block of config.json" })));
+    main.prepend(el("nav", { class: "breadcrumb", "aria-label": "Breadcrumb" }, trail));
     breadcrumb(null);
+    // Expert, last on the page once the page's own script has laid it out: the whole block as config.json
+    // keeps it, as a form or as JSON, for what the page itself does not set.
+    const expert = (mode) => `/#settings/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/${mode}`;
+    const section = el("section", { class: "expert", "aria-labelledby": "expert-title" },
+      el("div", { class: "section-head" }, el("h2", { id: "expert-title", text: "Expert" })),
+      el("div", { class: "card page-note" },
+        el("p", { class: "muted", text: "Every setting of this plugin's block, as config.json keeps it, including what this page does not show." }),
+        el("div", { class: "expert-links" }, el("a", { class: "button", href: expert("form"), text: "Form" }), el("a", { class: "button", href: expert("json"), text: "JSON" }))));
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => main.append(section));
+    else main.append(section);
   }
 
   // ---- This instance's block of config.json -------------------------------------------------------------
@@ -2690,6 +2706,9 @@ nav a.active { background: linear-gradient(180deg, var(--accent-2), var(--accent
 .page-note { display: flex; align-items: center; gap: 14px; justify-content: space-between; margin: 0 0 14px; padding: 12px 16px 12px 18px; }
 .page-note p { margin: 0; font-size: 0.875rem; }
 .page-note .button, .danger-zone button { flex: none; white-space: nowrap; }
+/* A plugin page's Expert part, last: the block as a form or as JSON, in the UI's own settings view. */
+.expert .page-note { flex-wrap: wrap; }
+.expert-links { display: flex; gap: 8px; flex: none; }
 .settings-bar {
   position: sticky; bottom: 14px; z-index: 3; display: flex; align-items: center; gap: 10px; margin: 14px 0 0;
   padding: 8px 8px 8px 20px; border-radius: 999px;
@@ -2852,8 +2871,6 @@ label > input, label > select { margin-top: 5px; }
 
 /* Breadcrumb, on plugin pages: where the page sits, each level a way back. */
 .breadcrumb { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 2px 0 10px; }
-.breadcrumb > a { font-size: 0.8125rem; color: var(--accent); text-decoration: none; font-weight: 500; }
-.breadcrumb > a:hover { text-decoration: underline; }
 .breadcrumb ol { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 0.8125rem; color: var(--muted); }
 .breadcrumb li { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .breadcrumb li + li::before { content: "›"; color: var(--muted); }
