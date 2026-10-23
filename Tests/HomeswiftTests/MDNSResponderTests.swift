@@ -161,17 +161,25 @@ import Testing
     @Test func renamesWhenAnotherDeviceHasTheName() async throws {
         let (responder, wire) = try makeResponder()
         _ = try await responder.register(name: "Homeswift", port: 51826, txt: txt("1"), interfaces: [], logger: testLogger).get()
-        // Another bridge answers for the name being probed, with its own port.
+        // Another bridge has the name and answers every probe for it, with its own port: as a real device
+        // defends its name, whenever this test gets to run.
+        let original = DNSName(["Homeswift", "_hap", "_tcp", "local"])
         let theirs = DNSRecord(
-            name: DNSName(["Homeswift", "_hap", "_tcp", "local"]),
-            data: .srv(priority: 0, weight: 0, port: 40000, target: DNSName(dotted: "Other.local")), ttl: 120, cacheFlush: true)
-        try deliver(DNSMessage(isResponse: true, answers: [theirs]), to: responder)
+            name: original, data: .srv(priority: 0, weight: 0, port: 40000, target: DNSName(dotted: "Other.local")), ttl: 120, cacheFlush: true)
         let renamed = DNSRecord.Data.ptr(DNSName(["Homeswift (2)", "_hap", "_tcp", "local"]))
-        try await wire.wait { $0.contains { $0.message.isResponse && $0.message.answers.contains { $0.data == renamed } } }
-        let announcement = try #require(wire.take().first { $0.message.isResponse && $0.message.answers.contains { $0.data == renamed } })
-        #expect(!announcement.message.answers.contains { $0.data == .ptr(DNSName(["Homeswift", "_hap", "_tcp", "local"])) })
-        #expect(announcement.message.answers.contains { $0.data == .ptr(DNSName(["Homeswift (2)", "_hap", "_tcp", "local"])) })
-        #expect(announcement.message.answers.contains { $0.name == DNSName(dotted: "Homeswift-2.local") && $0.type == DNSType.a })
+        var announcement: DNSMessage?
+        let deadline = ContinuousClock.now + .seconds(10)
+        while announcement == nil, ContinuousClock.now < deadline {
+            let sent = wire.take()
+            if sent.contains(where: { !$0.message.isResponse && $0.message.questions.contains { $0.name == original } }) {
+                try deliver(DNSMessage(isResponse: true, answers: [theirs]), to: responder)
+            }
+            announcement = sent.first { $0.message.isResponse && $0.message.answers.contains { $0.data == renamed } }?.message
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let renamedAnnouncement = try #require(announcement)
+        #expect(!renamedAnnouncement.answers.contains { $0.data == .ptr(original) })
+        #expect(renamedAnnouncement.answers.contains { $0.name == DNSName(dotted: "Homeswift-2.local") && $0.type == DNSType.a })
     }
 
     @Test func ourOwnAnnouncementLoopedBackIsNoConflict() async throws {
