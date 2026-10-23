@@ -58,6 +58,11 @@ public protocol HomeswiftPlugin: Sendable {
     /// `handleWebRequest` described for a model (find devices, check an address, pair). Defaults to none.
     static var assistantActions: [AssistantAction] { get }
 
+    /// What the Assistant should know about the plugin's devices and services to explain their errors: what
+    /// the error messages mean, quotas, ports, the usual fixes. It goes with every request the plugin's pages and
+    /// its `context.assistant` make, so keep it to a paragraph or two, and never ask for secrets in it. Defaults to nil.
+    static var assistantBackground: String? { get }
+
     /// Creates the instance. Throw for settings the plugin cannot work with; the runtime logs the error
     /// and leaves this block out, the other plugins keep running.
     init(configuration: Configuration, context: PluginContext) async throws
@@ -88,6 +93,7 @@ extension HomeswiftPlugin {
     public static var configurationSchemaJSON: String? { nil }
     public static var webFiles: [String: WebFile] { [:] }
     public static var assistantActions: [AssistantAction] { [] }
+    public static var assistantBackground: String? { nil }
     public func stop() async {}
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse { .error(404, "\(Self.name) has no web API") }
     public func liveFeed(accessoryID: String) async throws -> CameraLiveFeed? { nil }
@@ -237,7 +243,14 @@ public final class PluginContext: @unchecked Sendable {
     /// write a configuration block. nil otherwise, so plugins must work without it. Requests carry the
     /// plugin's name so answers can refer to it; inputs are redacted before they reach the provider.
     public var assistant: (any Assistant)? {
-        assistantBox.withLockedValue { $0 }?.withContext("The requests come from the Homeswift plugin \"\(name)\" (platform \(platform)).")
+        assistantBox.withLockedValue { $0 }?.withContext(Self.assistantContext(name: name, platform: platform, background: assistantBackground))
+    }
+
+    /// Who is asking, and the plugin's `assistantBackground`: the Assistant's instructions for a plugin's requests.
+    public static func assistantContext(name: String, platform: String, background: String?) -> String {
+        let who = "The requests come from the Homeswift plugin \"\(name)\" (platform \(platform))."
+        guard let background = background?.trimmingCharacters(in: .whitespacesAndNewlines), !background.isEmpty else { return who }
+        return "\(who)\n\nBackground on the plugin:\n\(background)"
     }
 
     let key: String
@@ -246,6 +259,7 @@ public final class PluginContext: @unchecked Sendable {
     let externals: ExternalAccessories
     private let storageURL: URL
     private let assistantBox: NIOLockedValueBox<AssistantService?>
+    private let assistantBackground: String?
     // Mutable state is behind the lock; the class is otherwise immutable.
     private let list = NIOLockedValueBox<Entries>(Entries())
 
@@ -265,8 +279,9 @@ public final class PluginContext: @unchecked Sendable {
 
     init(
         platform: String, name: String, key: String, logger: Logger, bridge: PluginHost.Bridge, cache: AccessoryCache, storageURL: URL,
-        assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories
+        assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories, assistantBackground: String? = nil
     ) {
+        self.assistantBackground = assistantBackground
         self.platform = platform
         self.name = name
         self.key = key

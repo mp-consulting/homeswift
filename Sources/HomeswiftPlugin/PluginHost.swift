@@ -426,7 +426,7 @@ public final class PluginHost: @unchecked Sendable {
         if let child = block.childBridge {
             bridge = try Self.makeBridge(child.bridge(named: block.name), storageName: "child-bridges/\(key)", isChild: true, storageDirectory: storageDirectory, options: options)
         }
-        let context = Self.makeContext(block: block, key: key, bridge: bridge, storageDirectory: storageDirectory, logLevel: logger.logLevel, assistant: assistantBox, externals: externals)
+        let context = Self.makeContext(block: block, key: key, bridge: bridge, storageDirectory: storageDirectory, logLevel: logger.logLevel, assistant: assistantBox, externals: externals, assistantBackground: entry.assistantBackground)
         return Instance(entry: entry, block: block, context: context)
     }
 
@@ -450,7 +450,7 @@ public final class PluginHost: @unchecked Sendable {
 
     private static func makeContext(
         block: HomeswiftConfiguration.Platform, key: String, bridge: Bridge, storageDirectory: URL, logLevel: Logger.Level,
-        assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories
+        assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories, assistantBackground: String?
     ) -> PluginContext {
         var pluginLogger = Logger(label: block.name)
         pluginLogger.logLevel = logLevel
@@ -458,7 +458,7 @@ public final class PluginHost: @unchecked Sendable {
             platform: block.platform, name: block.name, key: key, logger: pluginLogger, bridge: bridge,
             cache: AccessoryCache(url: storageDirectory.appendingPathComponent("accessories").appendingPathComponent("\(key).json")),
             storageURL: storageDirectory.appendingPathComponent("plugins").appendingPathComponent(key),
-            assistant: assistant, externals: externals)
+            assistant: assistant, externals: externals, assistantBackground: assistantBackground)
     }
 
     private func launch(_ instance: Instance, as verb: String = "Started") async {
