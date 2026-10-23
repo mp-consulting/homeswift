@@ -25,6 +25,11 @@ All notable changes to this project are documented here. The format follows
   keeps that schedule, saved with its state). `PUT /api/accessories/<id>/adaptive-lighting`; lights with it say so
   in `/api/accessories`. The Elgato Key Lights and Philips Ambilight TV plugins now have Adaptive Lighting, which
   stops when the light is set elsewhere (the Control Center app, Ambilight following video again).
+- **Update notices**: the Status page says when GitHub has a newer Homeswift, with its notes and how to upgrade
+  this install (the NAS's `.spk`, the image tag, `brew upgrade`, the tag to check out). The bridge asks a minute
+  after it starts, then twice a day (`ReleaseWatcher`); `"checkForUpdates": false` in the `HomeswiftUI` block
+  turns it off. The Synology package and the container image say what they are (`HOMESWIFT_INSTALL`).
+- The Synology install wizard asks for HTTPS or HTTP for the web UI, and DSM's link follows it.
 - **Paused plugins on the Accessories page**: their accessories are drawn striped, "Paused · *plugin*", their
   controls out of reach, with **Resume** in their menu; `/api/accessories` marks them `paused`.
 - A shutter's small tile slides to a position (a finger holds it a moment first, so a swipe still scrolls), and
@@ -261,11 +266,6 @@ All notable changes to this project are documented here. The format follows
 - `PluginContext.remove(id:)` is async: removing an external accessory stops its server.
 - Every accessory a server publishes carries the Protocol Information service; bridges no longer add it themselves.
 
-## [0.3.0] - 2026-10-21
-
-### Added
-
-- **Plugins** (`HomeswiftPlugin`): the `HomeswiftPlugin` protocol and `PluginContext`. `PluginHost` runs the
 ### Fixed
 
 - A write the device refuses or never answers reads as a sentence ("Desk Lamp did not answer…", "eWeLink is
@@ -273,7 +273,18 @@ All notable changes to this project are documented here. The format follows
 - Govee: a bridge restart no longer turns Adaptive Lighting off. The light's first colour report after launch was
   compared with an empty cache (0 K) and taken for a colour set elsewhere; it now only fills the cache.
 - The Adaptive swatch's ring is no longer cut on its left in a medium light widget.
+- The Assistant answered nothing but `HTTP 400` from Claude on a bridge with UniFi Protect or UniFi Access: their
+  tools were named after a platform with a space (`UniFi Protect_discover`). A plugin action's tool name now
+  keeps letters, digits, `_` and `-` (`UniFi_Protect_discover`).
+- On a phone: the chat's field and voice picker are 16px, so Safari no longer zooms into the page, and the
+  chat sheet sits on the on-screen keyboard instead of behind it; widget swatches and steps keep their shapes,
+  the widgets' menus have a larger target, and All controls rises from the bottom edge.
 
+## [0.3.0] - 2026-10-21
+
+### Added
+
+- **Plugins** (`HomeswiftPlugin`): the `HomeswiftPlugin` protocol and `PluginContext`. `PluginHost` runs the
   plugins of a Homebridge-shaped `config.json` on one bridge, restores each platform's accessories from a
   cache before its plugin starts (aids and iids kept), and runs a block with `_bridge` on its own child
   bridge. `docs/plugins.md` explains how to write one and how to port a Homebridge plugin.

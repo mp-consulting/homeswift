@@ -25,6 +25,9 @@ public final class UIServer: Sendable {
         public var hashIterations = UserStore.defaultIterations
         /// A checkout to serve the web files from, live, instead of the copies compiled in (`HOMESWIFT_WEB_ROOT`).
         public var webRoot: URL?
+        /// What the Status page says about a newer release; the CLI's, kept across restarts of the UI. Libraries
+        /// and tests have none.
+        public var releases: ReleaseWatcher?
         public init() {}
     }
 
@@ -669,6 +672,7 @@ public final class UIServer: Sendable {
         var status = catalog.statusJSON(includePairing: true).objectValue ?? [:]
         status["username"] = .string(username)
         status["system"] = HomeswiftCatalog.systemJSON()
+        if let update = options.releases?.json() { status["update"] = update }
         return .object(status)
     }
 

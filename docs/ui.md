@@ -34,7 +34,11 @@ with a new code).
   range that ends now refreshes every minute; a gap is a time homeswift was not running; **Show as a table**
   lists the values. The bridge samples memory and CPU every 10 seconds and keeps a record per minute under
   `metrics/` next to config.json (a file per day, 8 days), so the charts survive a restart. The view is
-  `/status?since=24h&bridge=<bridge>&accessory=<accessory>`.
+  `/status?since=24h&bridge=<bridge>&accessory=<accessory>`. When GitHub has a newer release, a card under the summary says
+  so, with its notes and how to upgrade this install: the `.spk` to download on a Synology NAS, the image tag
+  to pull in Docker, `brew upgrade` or the tag to check out. The bridge asks GitHub's API a minute after it
+  starts and then twice a day, sending only its version (`ReleaseWatcher`); `"checkForUpdates": false` in the
+  `HomeswiftUI` block turns it off. It never upgrades itself.
 - **Accessories**: a wall of widgets (`widgets.js`), each accessory drawn by the widget of its kind, in a fixed
   box of the size chosen for it: small (1×1, a tile a tap acts on), medium (2×1) or large (2×2). A widget's
   **⋯** menu (a right click on a tile) sets its size or its kind's, opens **All controls** (every control in a

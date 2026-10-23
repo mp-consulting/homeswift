@@ -27,10 +27,11 @@ public struct UIConfiguration: Sendable, Equatable {
               "allowedHosts": { "title": "Other names", "type": "array", "items": { "type": "string" }, "description": "Names the UI answers to besides IP addresses, localhost and this machine's name: a DNS name, a reverse proxy's host. * allows every name." },
               "https": { "title": "HTTPS", "type": "boolean", "default": false, "description": "Serve the UI over HTTPS, which browsers need for the Assistant's microphone away from this machine. Without a certificate below, the bridge makes a self-signed one: the browser warns once, or install it from /homeswift-ui.crt to trust it." },
               "certificate": { "title": "Certificate file", "type": "string", "placeholder": "~/certs/homeswift.pem", "x-schema-form": { "type": "file", "accept": ".pem,.crt,.cer" }, "description": "A PEM certificate (with its chain) to use instead of the self-signed one: a path, or drop the file." },
-              "privateKey": { "title": "Private key file", "type": "string", "placeholder": "~/certs/homeswift-key.pem", "x-schema-form": { "type": "file", "accept": ".pem,.key" }, "description": "The certificate's PEM private key: a path, or drop the file." }
+              "privateKey": { "title": "Private key file", "type": "string", "placeholder": "~/certs/homeswift-key.pem", "x-schema-form": { "type": "file", "accept": ".pem,.key" }, "description": "The certificate's PEM private key: a path, or drop the file." },
+              "checkForUpdates": { "title": "Check for updates", "type": "boolean", "default": true, "description": "Ask GitHub twice a day whether a newer Homeswift is out, and say so on the Status page with how to upgrade this install. The request carries only the version." }
             }
           },
-          "layout": ["port", "host", "auth", "sessionDays", "allowedHosts", "https", "certificate", "privateKey"]
+          "layout": ["port", "host", "auth", "sessionDays", "allowedHosts", "https", "certificate", "privateKey", "checkForUpdates"]
         }
         """#
 
@@ -53,6 +54,8 @@ public struct UIConfiguration: Sendable, Equatable {
     public var https = false
     public var certificate: String?
     public var privateKey: String?
+    /// Whether the Status page says when a newer Homeswift is out (`ReleaseWatcher`, GitHub twice a day).
+    public var checkForUpdates = true
 
     public var scheme: String { https ? "https" : "http" }
 
@@ -81,6 +84,10 @@ public struct UIConfiguration: Sendable, Equatable {
         if let https = block["https"], !https.isNull {
             guard let value = https.boolValue else { throw UIConfigurationError.invalid(key: "https", expected: "true or false") }
             self.https = value
+        }
+        if let check = block["checkForUpdates"], !check.isNull {
+            guard let value = check.boolValue else { throw UIConfigurationError.invalid(key: "checkForUpdates", expected: "true or false") }
+            checkForUpdates = value
         }
         certificate = block["certificate"]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty
         privateKey = block["privateKey"]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty

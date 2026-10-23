@@ -13,6 +13,7 @@
 
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   const phone = matchMedia("(max-width: 640px)");
+  const touch = matchMedia("(pointer: coarse)");
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   // ---- A spring, after Apple's damping ratio and response (no mass, stiffness, damping to tune) ----------
@@ -112,7 +113,24 @@
     });
     if (Recognition) setUpMic();
     setUpDrag();
+    setUpKeyboard();
     renderControls();
+  }
+
+  /// Safari keeps the layout viewport, and so a fixed sheet's bottom, under the on-screen keyboard: the phone
+  /// sheet sits on the keyboard instead (`--keyboard`, what it covers) and fits in what is left above it.
+  function setUpKeyboard() {
+    const view = window.visualViewport;
+    if (!view) return;
+    const fit = () => {
+      const covered = phone.matches ? Math.max(0, Math.round(window.innerHeight - view.height - view.offsetTop)) : 0;
+      panel.sheet.style.setProperty("--keyboard", `${covered}px`);
+      panel.sheet.style.setProperty("--visible", `${Math.round(view.height)}px`);
+      panel.sheet.classList.toggle("keyboard", covered > 80);
+    };
+    view.addEventListener("resize", fit);
+    view.addEventListener("scroll", fit);
+    fit();
   }
 
   /// The text field grows with what is typed, up to a few lines.
@@ -152,7 +170,8 @@
       scrim.hidden = !phone.matches;
       if (openness.value === 0) draw(0);
       load();
-      setTimeout(() => panel.input.focus({ preventScroll: true }), 50);
+      // A touch screen keeps its keyboard down until the field is tapped: up at once, it would cover the sheet.
+      if (!touch.matches) setTimeout(() => panel.input.focus({ preventScroll: true }), 50);
     } else if (listening) {
       stopListening(true);
     }
