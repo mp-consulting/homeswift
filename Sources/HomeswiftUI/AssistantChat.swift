@@ -10,11 +10,18 @@ import NIOConcurrencyHelpers
 /// in `ui-chats.json` (owner-only) when the server has a directory, so a reload, another browser or a restart
 /// finds them; **New chat** files the conversation away, and one can be opened again (Glass UI's chat history).
 /// The Assistant acts through the MCP server's tools (`ChatToolbox`), so a change asks the user first, on
-/// the page, and lands in the MCP audit log.
+/// the page, and lands in the MCP audit log. An administrator's chat has every tool; another user's, as Glass
+/// UI's, only the read-only ones, without those reading what the web UI keeps for administrators.
 final class AssistantChat: Sendable {
     let server: MCPServer
     let store: ChatStore?
-    private let conversations = NIOLockedValueBox<[String: Task<ChatConversation, Never>]>([:])
+    private let conversations = NIOLockedValueBox<[String: (admin: Bool, task: Task<ChatConversation, Never>)]>([:])
+
+    /// Read-only tools that show what only an administrator sees in the web UI: config.json and its backups, the
+    /// log, the cached accessories, the pairings and the child bridges' health.
+    static let administratorReads: Set<String> = [
+        "get_config", "list_config_backups", "get_recent_logs", "search_logs", "get_cached_accessories", "get_pairing_info", "get_child_bridge_health",
+    ]
 
     init(catalog: HomeswiftCatalog, storeURL: URL? = nil, logger: Logger) {
         var options = MCPServer.Options(version: PluginHost.version, instructions: HomeswiftCatalog.instructions)
@@ -24,20 +31,27 @@ final class AssistantChat: Sendable {
         store = storeURL.map { ChatStore(url: $0, logger: logger) }
     }
 
-    /// The user's conversation: the one in memory, else the one they had open last, else a new one.
-    func conversation(for user: String) async -> ChatConversation {
-        let task = conversations.withLockedValue { conversations in
-            if let task = conversations[user] { return task }
+    /// The user's conversation, with the tools of their role: the one in memory, else the one they had open last,
+    /// else a new one. A conversation started under another role (an administrator's role was taken away, or
+    /// given) ends, and goes on with the new role's tools.
+    func conversation(for user: String, admin: Bool = true) async -> ChatConversation {
+        let (task, replaced) = conversations.withLockedValue { conversations -> (Task<ChatConversation, Never>, Task<ChatConversation, Never>?) in
+            if let existing = conversations[user], existing.admin == admin { return (existing.task, nil) }
             let (server, store) = (server, store)
+            let replaced = conversations[user]?.task
             let task = Task {
-                ChatConversation(toolbox: await ChatToolbox(server: server, user: user), record: store?.chats(of: user).current) { conversation in
+                // The conversation as it stood under the other role, else the one kept.
+                let record = await replaced?.value.record ?? store?.chats(of: user).current
+                let toolbox = await ChatToolbox(server: server, user: user, scope: admin ? .admin : .read)
+                return ChatConversation(toolbox: toolbox, hidden: admin ? [] : Self.administratorReads, readOnly: !admin, record: record) { conversation in
                     // Kept after every answer.
                     store?.update(user) { $0.current = conversation.record.isEmpty ? nil : conversation.record }
                 }
             }
-            conversations[user] = task
-            return task
+            conversations[user] = (admin, task)
+            return (task, replaced)
         }
+        if let replaced { await replaced.value.close() }
         return await task.value
     }
 
@@ -67,7 +81,7 @@ final class AssistantChat: Sendable {
     func remove(user: String, id: String) async -> Bool {
         guard let store else { return false }
         let current = store.chats(of: user).current?.id
-        let inMemory = await conversations.withLockedValue({ $0[user] })?.value.id
+        let inMemory = await conversations.withLockedValue({ $0[user] })?.task.value.id
         if id == inMemory || id == current {
             _ = await closeCurrent(of: user)
             store.update(user) { $0.current = nil }
@@ -84,7 +98,7 @@ final class AssistantChat: Sendable {
     /// The user's conversations, the open one first, then the earlier ones, newest first: `id`, `title`,
     /// `updated`, `messages`, `current`.
     func list(user: String) async -> JSONValue {
-        let open = await conversations.withLockedValue({ $0[user] })?.value.record
+        let open = await conversations.withLockedValue({ $0[user] })?.task.value.record
         let chats = store?.chats(of: user) ?? ChatStore.UserChats()
         let current = open ?? chats.current
         let entries = ([current].compactMap { $0 }.filter { !$0.isEmpty }.map { ($0, true) }) + chats.recent.filter { $0.id != current?.id }.map { ($0, false) }
@@ -96,8 +110,8 @@ final class AssistantChat: Sendable {
 
     /// Stops and forgets the conversation in memory; answers it as it stood.
     private func closeCurrent(of user: String) async -> ChatRecord? {
-        guard let task = conversations.withLockedValue({ $0.removeValue(forKey: user) }) else { return nil }
-        let conversation = await task.value
+        guard let entry = conversations.withLockedValue({ $0.removeValue(forKey: user) }) else { return nil }
+        let conversation = await entry.task.value
         await conversation.close()
         return conversation.record
     }
@@ -105,7 +119,7 @@ final class AssistantChat: Sendable {
     func close() async {
         let tasks = conversations.withLockedValue { conversations in
             defer { conversations = [:] }
-            return Array(conversations.values)
+            return conversations.values.map(\.task)
         }
         for task in tasks { await task.value.close() }
     }
@@ -146,13 +160,17 @@ final class ChatConversation: Sendable {
     let toolbox: ChatToolbox
     let id: String
     let created: Date
+    /// The user is not an administrator: the model is told it can change nothing.
+    let readOnly: Bool
     private let usage = UsageTracker()
     private let state = NIOLockedValueBox(State())
     private let onFinish: (@Sendable (ChatConversation) -> Void)?
 
-    /// `record`, an earlier conversation to go on with; `onFinish` runs after each answer (to keep it).
-    init(toolbox: ChatToolbox, record: ChatRecord? = nil, onFinish: (@Sendable (ChatConversation) -> Void)? = nil) {
+    /// `hidden`: tools the user's scope allows that the conversation still leaves out. `record`, an earlier
+    /// conversation to go on with; `onFinish` runs after each answer (to keep it).
+    init(toolbox: ChatToolbox, hidden: Set<String> = [], readOnly: Bool = false, record: ChatRecord? = nil, onFinish: (@Sendable (ChatConversation) -> Void)? = nil) {
         self.toolbox = toolbox
+        self.readOnly = readOnly
         self.onFinish = onFinish
         id = record?.id ?? UUID().uuidString
         created = record?.created ?? Date()
@@ -164,7 +182,7 @@ final class ChatConversation: Sendable {
             }
         }
         // Built once: the tools and the user's scope do not change while the conversation lasts.
-        let tools = toolbox.agentTools { [weak self] confirmation in await self?.ask(confirmation) ?? false }
+        let tools = toolbox.agentTools { [weak self] confirmation in await self?.ask(confirmation) ?? false }.filter { !hidden.contains($0.definition.name) }
         state.withLockedValue { $0.tools = tools }
     }
 
@@ -184,6 +202,11 @@ final class ChatConversation: Sendable {
             return ChatRecord(id: id, created: created, updated: state.updated, messages: state.messages, items: items)
         }
     }
+
+    /// The names of the tools the model may call.
+    var toolNames: [String] { state.withLockedValue { $0.tools.map(\.definition.name) } }
+
+    var isRunning: Bool { state.withLockedValue { $0.run != nil } }
 
     /// The conversation's events from now on, after a snapshot; ends with the run (at once when none runs).
     func subscribe() -> AsyncStream<Data> {
@@ -220,6 +243,9 @@ final class ChatConversation: Sendable {
         let (history, tools) = state.withLockedValue { (Self.fitting($0.messages, budget: assistant.budget(120_000)), $0.tools) }
         var context = "The user is signed in as \(user). Today is \(Date().formatted(date: .complete, time: .omitted))."
         if let page { context += " They have the web UI's \(page) page open." }
+        if readOnly {
+            context += " They are not an administrator: only read-only tools are available, so explain what an administrator would need to do for any change."
+        }
         do {
             let turn = try await assistant.converse(history: history, tools: tools, vault: toolbox.vault, context: context) { [weak self] event in
                 self?.apply(event)

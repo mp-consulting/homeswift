@@ -7,14 +7,48 @@ import Homeswift
 import HomeswiftAI
 import NIOConcurrencyHelpers
 
-/// The UI's users, in `ui-users.json` next to config.json: a salted PBKDF2-HMAC-SHA256 hash per user.
+/// The UI's users, in `ui-users.json` next to config.json (owner-only): a salted PBKDF2-HMAC-SHA256 hash per
+/// user, whether they are an administrator, and their two-factor secret. As Glass UI's: an administrator does
+/// everything; any other user sees the bridge and controls accessories, nothing more. There is always an
+/// administrator: the last one can be neither removed nor demoted. A file from before roles loads with its
+/// users as administrators (there was one account, the administrator).
 public final class UserStore: Sendable {
     public struct User: Codable, Sendable, Equatable {
         public var username: String
+        /// The name shown in the UI; the username unless one was given.
+        public var name: String
+        public var admin: Bool
         var salt: Data
         var hash: Data
         var iterations: Int
-        var created: Date
+        public var created: Date
+        /// The TOTP secret: waiting for its first code while `otpActive` is false, asked at every login once true.
+        var otpSecret: Data?
+        public var otpActive: Bool
+
+        init(username: String, name: String, admin: Bool, salt: Data, hash: Data, iterations: Int, created: Date) {
+            self.username = username
+            self.name = name
+            self.admin = admin
+            self.salt = salt
+            self.hash = hash
+            self.iterations = iterations
+            self.created = created
+            otpActive = false
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            username = try container.decode(String.self, forKey: .username)
+            name = try container.decodeIfPresent(String.self, forKey: .name) ?? username
+            admin = try container.decodeIfPresent(Bool.self, forKey: .admin) ?? true
+            salt = try container.decode(Data.self, forKey: .salt)
+            hash = try container.decode(Data.self, forKey: .hash)
+            iterations = try container.decode(Int.self, forKey: .iterations)
+            created = try container.decode(Date.self, forKey: .created)
+            otpSecret = try container.decodeIfPresent(Data.self, forKey: .otpSecret)
+            otpActive = try container.decodeIfPresent(Bool.self, forKey: .otpActive) ?? false
+        }
     }
 
     public static let defaultIterations = 210_000
@@ -22,6 +56,8 @@ public final class UserStore: Sendable {
     public let url: URL
     let iterations: Int
     private let state: NIOLockedValueBox<[User]>
+    /// The latest TOTP step each user signed in with, by lower-cased username: a code works once (RFC 6238 §5.2).
+    private let usedSteps = NIOLockedValueBox<[String: UInt64]>([:])
 
     /// Loads the file, or starts empty. `iterations` is for new users (tests lower it).
     public init(url: URL, iterations: Int = UserStore.defaultIterations) {
@@ -33,68 +69,189 @@ public final class UserStore: Sendable {
 
     public var isEmpty: Bool { state.withLockedValue { $0.isEmpty } }
     public var usernames: [String] { state.withLockedValue { $0.map(\.username) } }
+    /// Every user, in the order they were added.
+    public var users: [User] { state.withLockedValue { $0 } }
 
     public func contains(_ username: String) -> Bool { user(named: username) != nil }
 
     /// Usernames are matched without regard to case or surrounding spaces.
-    private func user(named username: String) -> User? {
-        let name = username.trimmingCharacters(in: .whitespaces).lowercased()
+    public func user(named username: String) -> User? {
+        let name = Self.key(username)
         return state.withLockedValue { $0.first { $0.username.lowercased() == name } }
     }
 
+    public func isAdmin(_ username: String) -> Bool { user(named: username)?.admin == true }
+
+    static func key(_ username: String) -> String { username.trimmingCharacters(in: .whitespaces).lowercased() }
+
     /// Adds a user. The username must be new; the password must pass `PasswordPolicy`.
-    public func create(username: String, password: String) throws {
-        try add(username: username, password: password, onlyWhenEmpty: false)
+    @discardableResult
+    public func create(username: String, password: String, name: String? = nil, admin: Bool = false) throws -> User {
+        try add(username: username, password: password, name: name, admin: admin, onlyWhenEmpty: false)
     }
 
-    /// Adds the first user, refusing when one exists: the check and the write happen under one lock, so two
-    /// first visits cannot both create an account.
-    public func createFirst(username: String, password: String) throws {
-        try add(username: username, password: password, onlyWhenEmpty: true)
+    /// Adds the first user, an administrator, refusing when one exists: the check and the write happen under one
+    /// lock, so two first visits cannot both create an account.
+    @discardableResult
+    public func createFirst(username: String, password: String) throws -> User {
+        try add(username: username, password: password, name: nil, admin: true, onlyWhenEmpty: true)
     }
 
-    private func add(username: String, password: String, onlyWhenEmpty: Bool) throws {
-        let name = username.trimmingCharacters(in: .whitespaces)
-        guard (1...64).contains(name.count), !name.contains(where: { $0.isWhitespace || $0 == ":" }) else { throw AuthError.invalidUsername }
-        try PasswordPolicy.check(password, username: name)
+    private func add(username: String, password: String, name: String?, admin: Bool, onlyWhenEmpty: Bool) throws -> User {
+        let username = username.trimmingCharacters(in: .whitespaces)
+        guard (1...64).contains(username.count), !username.contains(where: { $0.isWhitespace || $0 == ":" }) else { throw AuthError.invalidUsername }
+        let shown = try Self.displayName(name, username: username)
+        try PasswordPolicy.check(password, username: username)
         let salt = Secrets.randomBytes(16)
-        let user = User(username: name, salt: salt, hash: Self.pbkdf2(password: password, salt: salt, iterations: iterations), iterations: iterations, created: Date())
+        let user = User(username: username, name: shown, admin: admin, salt: salt, hash: Self.pbkdf2(password: password, salt: salt, iterations: iterations), iterations: iterations, created: Date())
         try state.withLockedValue { users in
             guard !onlyWhenEmpty || users.isEmpty else { throw AuthError.setupDone }
-            guard !users.contains(where: { $0.username.lowercased() == name.lowercased() }) else { throw AuthError.userExists }
+            guard !users.contains(where: { $0.username.lowercased() == username.lowercased() }) else { throw AuthError.userExists }
             users.append(user)
             try save(users)
         }
+        return user
+    }
+
+    /// A display name: trimmed, 1 to 64 characters without control characters; the username when empty.
+    static func displayName(_ name: String?, username: String) throws -> String {
+        let shown = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if shown.isEmpty { return username }
+        guard shown.count <= 64, !shown.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) else { throw AuthError.invalidName }
+        return shown
     }
 
     /// Whether the password is the user's. Every call does the full hash, so timing says nothing about users.
     public func verify(username: String, password: String) -> Bool {
+        authenticate(username: username, password: password) != nil
+    }
+
+    /// The user, when the password is theirs (a full hash either way, as `verify`).
+    public func authenticate(username: String, password: String) -> User? {
         // No password is that long; hashing megabytes 210,000 times would only slow the bridge down. The hash of
         // an empty one keeps the timing of a refusal.
         guard password.utf8.count <= PasswordPolicy.maximumBytes else {
             _ = Self.pbkdf2(password: "", salt: Data(count: 16), iterations: iterations)
-            return false
+            return nil
         }
         let user = user(named: username)
         let salt = user?.salt ?? Data(count: 16)
         let expected = user?.hash ?? Data(count: 32)
         let computed = Self.pbkdf2(password: password, salt: salt, iterations: user?.iterations ?? iterations)
-        return Secrets.constantTimeEqual(computed, expected) && user != nil
+        return Secrets.constantTimeEqual(computed, expected) ? user : nil
     }
 
     /// Replaces a user's password once the current one checks out (a full hash either way, as `verify`).
     public func changePassword(username: String, current: String, new password: String) throws {
         guard verify(username: username, password: current) else { throw AuthError.wrongPassword }
+        try setPassword(username: username, password)
+    }
+
+    private func setPassword(username: String, _ password: String) throws {
         try PasswordPolicy.check(password, username: username)
         let salt = Secrets.randomBytes(16)
         let hash = Self.pbkdf2(password: password, salt: salt, iterations: iterations)
-        let name = username.trimmingCharacters(in: .whitespaces).lowercased()
+        try change(username) { user in
+            user.salt = salt
+            user.hash = hash
+            user.iterations = iterations
+        }
+    }
+
+    /// An administrator's change to a user: the name shown, the role, a new password (no current one needed).
+    /// The last administrator keeps the role.
+    @discardableResult
+    public func update(username: String, name: String? = nil, admin: Bool? = nil, password: String? = nil) throws -> User {
+        guard let existing = user(named: username) else { throw AuthError.noSuchUser }
+        let shown = try name.map { try Self.displayName($0, username: existing.username) }
+        // Everything is checked before anything changes: a refused role leaves the password as it was.
+        if let password { try PasswordPolicy.check(password, username: existing.username) }
+        var updated = try modify(existing.username) { user, users in
+            if let admin, admin != user.admin, !admin, users.filter(\.admin).count < 2 { throw AuthError.lastAdmin }
+            if let shown { user.name = shown }
+            if let admin { user.admin = admin }
+        }
+        if let password {
+            try setPassword(username: existing.username, password)
+            updated = user(named: existing.username) ?? updated
+        }
+        return updated
+    }
+
+    /// Removes a user; never the last administrator.
+    public func delete(username: String) throws {
+        let name = Self.key(username)
         try state.withLockedValue { users in
-            guard let index = users.firstIndex(where: { $0.username.lowercased() == name }) else { throw AuthError.badCredentials }
-            users[index].salt = salt
-            users[index].hash = hash
-            users[index].iterations = iterations
+            guard let index = users.firstIndex(where: { $0.username.lowercased() == name }) else { throw AuthError.noSuchUser }
+            if users[index].admin, users.filter(\.admin).count < 2 { throw AuthError.lastAdmin }
+            users.remove(at: index)
             try save(users)
+        }
+        _ = usedSteps.withLockedValue { $0.removeValue(forKey: name) }
+    }
+
+    // MARK: Two-factor authentication
+
+    /// Starts setting up TOTP: a new secret, kept until a code from it turns it on (`activateTwoFactor`). Refused
+    /// while it is on: turning it off first takes the password.
+    public func beginTwoFactor(username: String) throws -> Data {
+        let secret = TOTP.newSecret()
+        try change(username) { user in
+            guard !user.otpActive else { throw AuthError.twoFactorActive }
+            user.otpSecret = secret
+        }
+        return secret
+    }
+
+    /// Turns TOTP on once a code from the new secret checks out: the app has it.
+    public func activateTwoFactor(username: String, code: String, at date: Date = Date()) throws {
+        try change(username) { user in
+            guard !user.otpActive else { throw AuthError.twoFactorActive }
+            guard let secret = user.otpSecret else { throw AuthError.twoFactorNotSetUp }
+            guard let step = TOTP.matchingStep(code, secret: secret, at: date) else { throw AuthError.wrongCode }
+            user.otpActive = true
+            usedSteps.withLockedValue { $0[user.username.lowercased()] = step }
+        }
+    }
+
+    /// Turns TOTP off, with the password (a full hash either way).
+    public func disableTwoFactor(username: String, password: String) throws {
+        guard verify(username: username, password: password) else { throw AuthError.wrongPassword }
+        try change(username) { user in
+            user.otpActive = false
+            user.otpSecret = nil
+        }
+    }
+
+    /// Whether the code is the user's for now, and not one already used: each step's code signs in once.
+    public func checkTwoFactor(username: String, code: String, at date: Date = Date()) -> Bool {
+        guard let user = user(named: username), user.otpActive, let secret = user.otpSecret,
+              let step = TOTP.matchingStep(code, secret: secret, at: date) else { return false }
+        let key = user.username.lowercased()
+        return usedSteps.withLockedValue { used in
+            if let last = used[key], step <= last { return false }
+            used[key] = step
+            return true
+        }
+    }
+
+    /// Changes one user under the lock and saves.
+    @discardableResult
+    private func change(_ username: String, _ apply: (inout User) throws -> Void) throws -> User {
+        try modify(username) { user, _ in try apply(&user) }
+    }
+
+    /// The same, the closure seeing every user (for the last administrator's check).
+    @discardableResult
+    private func modify(_ username: String, _ apply: (inout User, [User]) throws -> Void) throws -> User {
+        let name = Self.key(username)
+        return try state.withLockedValue { users in
+            guard let index = users.firstIndex(where: { $0.username.lowercased() == name }) else { throw AuthError.noSuchUser }
+            var user = users[index]
+            try apply(&user, users)
+            users[index] = user
+            try save(users)
+            return user
         }
     }
 
@@ -159,6 +316,16 @@ public enum AuthError: Error, CustomStringConvertible, Sendable, Equatable {
     case wrongSetupCode
     case badCredentials
     case wrongPassword
+    case invalidName
+    case noSuchUser
+    /// The last administrator cannot be removed nor lose the role.
+    case lastAdmin
+    case twoFactorActive
+    case twoFactorNotSetUp
+    case wrongCode
+    case invalidTokenName
+    case invalidExpiry
+    case noSuchToken
 
     public var description: String {
         switch self {
@@ -169,6 +336,15 @@ public enum AuthError: Error, CustomStringConvertible, Sendable, Equatable {
         case .wrongSetupCode: "wrong set-up code: it is in the bridge's output, next to the web UI address"
         case .badCredentials: "wrong username or password"
         case .wrongPassword: "the current password is not right"
+        case .invalidName: "the name must be 1 to 64 characters"
+        case .noSuchUser: "there is no such user"
+        case .lastAdmin: "this is the last administrator: make another user an administrator first"
+        case .twoFactorActive: "two-factor authentication is already on; turn it off first"
+        case .twoFactorNotSetUp: "set up two-factor authentication first"
+        case .wrongCode: "that code is not right: type the 6 digits your authenticator app shows now"
+        case .invalidTokenName: "the token needs a name of 1 to 64 characters"
+        case .invalidExpiry: "a token expires after 1 to \(APITokenStore.maximumDays) days, or never"
+        case .noSuchToken: "there is no such token"
         }
     }
 }

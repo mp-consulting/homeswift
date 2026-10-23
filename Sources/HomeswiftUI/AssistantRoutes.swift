@@ -74,7 +74,7 @@ extension UIServer {
             return .json(await catalog.assistantUsageJSON())
         case (.POST, ["test"]):
             // The settings form's block, saved or not, or the saved one: does its provider answer?
-            if let refused = limitAssistant(username) { return refused }
+            if let refused = limitAssistant(for: username) { return refused }
             let block = body["block"].flatMap { $0.objectValue == nil ? nil : $0 }
             return .json(await catalog.testAssistantConnection(block: block, user: username))
         case (.GET, ["digest"]):
@@ -130,16 +130,9 @@ extension UIServer {
         return assistant
     }
 
-    /// Glass UI's limit, 20 requests a minute per user: a 429 with Retry-After past it.
-    func limitAssistant(_ username: String) -> Reply? {
-        let result = assistantLimiter.consume(username)
-        guard !result.allowed else { return nil }
-        return .json(["error": .string(SlidingWindowRateLimiter.refusal)], status: 429, headers: ["Retry-After": "\(Int(result.retryAfter.rounded(.up)))"])
-    }
-
     /// Runs `work`: streamed when the body has a `requestId`, else answered as JSON.
     func runAssistant(_ body: JSONValue, username: String, work: @escaping AssistantRuns.Work) async -> Reply {
-        if let refused = limitAssistant(username) { return refused }
+        if let refused = limitAssistant(for: username) { return refused }
         if let id = body["requestId"]?.stringValue, !id.isEmpty, id.count <= 100 {
             return .events(runs.stream(key: Self.runKey(username, id), requestId: id, work: work, failure: Self.assistantFailure))
         }
