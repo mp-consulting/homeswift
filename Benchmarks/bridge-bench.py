@@ -10,6 +10,7 @@ Standard library only. Each endpoint gets warm-up requests, then timed ones on o
 throughput runs open several connections and divide the server's CPU time by the requests served.
 """
 import argparse
+import atexit
 import http.client
 import json
 import os
@@ -54,7 +55,7 @@ def footprint(pid):
 class Client:
     def __init__(self, port):
         self.port = port
-        self.connection = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
+        self.connection = http.client.HTTPConnection("127.0.0.1", port, timeout=120)
 
     def request(self, method, path, body=None, headers=None):
         headers = dict(headers or {})
@@ -95,18 +96,29 @@ class MCP:
         return self.client.request("POST", "/mcp", message, self.headers())
 
 
+# Seconds one endpoint may take: a slow one (the log tools before they were fast, on 300 accessories) gets
+# fewer samples, at least five, instead of holding the run for an hour.
+BUDGET = 15.0
+
+
 def time_endpoint(results, name, send, requests, warmup):
     sizes = []
     samples = []
     status = None
-    for index in range(warmup + requests):
+    start = time.perf_counter()
+    index = 0
+    while index < warmup and time.perf_counter() - start < BUDGET / 3:
+        status, _, _, _ = send(index)
+        index += 1
+    start = time.perf_counter()
+    while len(samples) < requests and (len(samples) < 5 or time.perf_counter() - start < BUDGET):
         status, _, payload, elapsed = send(index)
-        if index >= warmup:
-            samples.append(elapsed * 1000)
-            sizes.append(len(payload))
+        index += 1
+        samples.append(elapsed * 1000)
+        sizes.append(len(payload))
     results[name] = {
         "p50": percentile(samples, 50), "p90": percentile(samples, 90), "p99": percentile(samples, 99),
-        "max": max(samples), "bytes": int(sum(sizes) / len(sizes)), "status": status}
+        "max": max(samples), "bytes": int(sum(sizes) / len(sizes)), "status": status, "samples": len(samples)}
     print(f"  {name:<44} p50 {results[name]['p50']:8.3f} ms  p99 {results[name]['p99']:8.3f} ms  {results[name]['bytes']:>8} B  {status}", flush=True)
 
 
@@ -182,6 +194,8 @@ def run(arguments):
                MCP_PORT=str(arguments.mcp_port), MCP_TOKEN=TOKEN, TICK_MS=str(arguments.tick_ms), LOG_LINES=str(arguments.log_lines))
     started = time.perf_counter()
     process = subprocess.Popen([arguments.server], env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    # Never left running, holding the ports, when the script stops early.
+    atexit.register(process.kill)
     ready = None
     for line in process.stdout:
         if line.startswith("READY"):
