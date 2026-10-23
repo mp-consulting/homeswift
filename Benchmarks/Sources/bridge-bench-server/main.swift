@@ -9,9 +9,10 @@ import Logging
 // A whole bridge the way the `homeswift` CLI runs it: the plugin runtime, the web UI and the MCP server over one
 // catalog, with a synthetic home instead of real devices, for `bridge-bench.py` to measure every endpoint.
 //
-// Environment: STORAGE (a directory, required), ACCESSORIES (default 60), PORT (HAP, 0 for any), UI_PORT
-// (8591), MCP_PORT (8592), MCP_TOKEN, TICK_MS (a sensor changes and a line is logged that often, default 1000;
-// 0 for none), LOG_LINES (lines logged before the server is ready, default 5000).
+// Environment: STORAGE (a directory, required), ACCESSORIES (default 60), PORT (HAP), UI_PORT and MCP_PORT (each
+// 0, any free port, by default: READY says which were bound, so runs side by side never collide), MCP_TOKEN, TICK_MS
+// (a sensor changes and a line is logged that often, default 1000; 0 for none), LOG_LINES (lines logged before the
+// server is ready, default 5000).
 
 let env = ProcessInfo.processInfo.environment
 guard let storagePath = env["STORAGE"] else {
@@ -20,8 +21,8 @@ guard let storagePath = env["STORAGE"] else {
 }
 let storage = URL(fileURLWithPath: storagePath)
 let count = Int(env["ACCESSORIES"] ?? "60") ?? 60
-let uiPort = Int(env["UI_PORT"] ?? "8591") ?? 8591
-let mcpPort = Int(env["MCP_PORT"] ?? "8592") ?? 8592
+let uiPort = Int(env["UI_PORT"] ?? "0") ?? 0
+let mcpPort = Int(env["MCP_PORT"] ?? "0") ?? 0
 let token = env["MCP_TOKEN"] ?? "bench-token-0123456789abcdef0123456789abcdef"
 let tickMilliseconds = Int(env["TICK_MS"] ?? "1000") ?? 1000
 
@@ -101,6 +102,12 @@ actor BenchHomePlugin: HomeswiftPlugin {
         ticker?.cancel()
     }
 
+    /// The plugin's own web API, as a plugin page reaches it: `devices` lists its accessories.
+    func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
+        guard request.method == "GET", request.path == "devices" else { return .error(404, "no such route") }
+        return PluginWebResponse(["devices": .array(context.accessories.map { ["id": .string($0.id), "name": .string($0.name), "category": .string("\($0.category)")] })])
+    }
+
     /// The accessory at `index`, and the characteristic the ticker moves when it has one.
     static func makeAccessory(_ index: Int) -> (Accessory, Characteristic?) {
         let id = "BenchHome:\(String(format: "%04d", index))"
@@ -153,8 +160,8 @@ try FileManager.default.createDirectory(at: storage, withIntermediateDirectories
 let config: [String: Any] = [
     "bridge": ["name": "Bench Bridge", "username": "0E:BE:AC:00:00:01", "pin": "031-45-154", "port": Int(env["PORT"] ?? "0") ?? 0],
     "platforms": [
-        ["platform": "HomeswiftUI", "host": "127.0.0.1", "port": uiPort, "auth": "none"],
-        ["platform": "HomeswiftAiKit", "enabled": false, "mcp": ["http": ["enabled": true, "port": mcpPort, "token": token, "auditLog": false]]],
+        ["platform": "HomeswiftUI", "host": "127.0.0.1", "port": 8591, "auth": "none"],
+        ["platform": "HomeswiftAiKit", "enabled": false, "mcp": ["http": ["enabled": true, "port": 8592, "token": token, "auditLog": false]]],
         ["platform": "BenchHome", "name": "Bench Home", "accessories": count, "tickMilliseconds": tickMilliseconds],
     ],
 ]
@@ -169,15 +176,21 @@ hostOptions.systemPlatforms.insert(UIConfiguration.platform)
 let host = try PluginHost(configuration: configuration, registry: registry, storageDirectory: storage, options: hostOptions)
 
 let main = Task {
+  do {
     // The log the endpoints read: as full as a bridge's after a while.
     let filler = Logger(label: "Bench Home")
     for index in 0..<(Int(env["LOG_LINES"] ?? "5000") ?? 5000) {
         filler.info("Warm-up line", metadata: ["index": "\(index)", "accessory": "Lamp \(index % max(1, count))"])
     }
     try await host.start()
-    let catalog = HomeswiftCatalog(host: host, logs: logBuffer, configURL: configURL, logger: logger)
+    // The Status page's history, sampled every second so a run has some.
+    let metrics = Metrics(directory: storage.appendingPathComponent("metrics"), interval: .seconds(1))
+    metrics.start(following: host)
+    let catalog = HomeswiftCatalog(host: host, logs: logBuffer, metrics: metrics, configURL: configURL, logger: logger)
 
-    let mcp = try MCPConfiguration(block: try configuration.block(for: AIConfiguration.platform) ?? [:])
+    // The ports config.json takes are 1-65535; 0, any free port, is set here. READY says which were bound.
+    var mcp = try MCPConfiguration(block: try configuration.block(for: AIConfiguration.platform) ?? [:])
+    mcp.port = mcpPort
     let server = MCPServer(
         options: MCPServer.Options(version: PluginHost.version, instructions: HomeswiftCatalog.instructions), tools: catalog.tools,
         resources: catalog.resources, templates: catalog.templates, prompts: catalog.prompts, audit: nil)
@@ -188,13 +201,19 @@ let main = Task {
     transport.onStop { observations.forEach { $0.cancel() } }
     try await transport.start()
 
-    let ui = try UIConfiguration(block: try configuration.block(for: UIConfiguration.platform) ?? [:])
+    var ui = try UIConfiguration(block: try configuration.block(for: UIConfiguration.platform) ?? [:])
+    ui.port = uiPort
     let uiServer = UIServer(configuration: ui, catalog: catalog, usersURL: storage.appendingPathComponent("ui-users.json"))
     try await uiServer.start()
     // The driver waits for this line.
     print("READY hap=\(host.mainBridge.server.port ?? 0) ui=\(uiServer.port ?? 0) mcp=\(transport.port ?? 0) pid=\(getpid())")
     fflush(stdout)
     while !Task.isCancelled { try? await Task.sleep(for: .seconds(3600)) }
+  } catch {
+    // A port in use, say: the driver sees the process end instead of waiting for READY forever.
+    FileHandle.standardError.write(Data("bridge-bench-server: \(error)\n".utf8))
+    exit(1)
+  }
 }
 
 let signals = [SIGINT, SIGTERM].map { number in

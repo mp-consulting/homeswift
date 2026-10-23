@@ -193,7 +193,8 @@ def run(arguments):
     env = dict(os.environ, STORAGE=storage, ACCESSORIES=str(arguments.accessories), UI_PORT=str(arguments.ui_port),
                MCP_PORT=str(arguments.mcp_port), MCP_TOKEN=TOKEN, TICK_MS=str(arguments.tick_ms), LOG_LINES=str(arguments.log_lines))
     started = time.perf_counter()
-    process = subprocess.Popen([arguments.server], env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    errors = open(os.path.join(storage, "stderr.txt"), "w+")
+    process = subprocess.Popen([arguments.server], env=env, stdout=subprocess.PIPE, stderr=errors, text=True)
     # Never left running, holding the ports, when the script stops early.
     atexit.register(process.kill)
     ready = None
@@ -203,7 +204,8 @@ def run(arguments):
             break
     startup = (time.perf_counter() - started) * 1000
     if ready is None:
-        sys.exit("bridge-bench-server did not start")
+        errors.seek(0)
+        sys.exit("bridge-bench-server did not start: " + errors.read().strip())
     pid = process.pid
     ui_port, mcp_port = int(ready["ui"]), int(ready["mcp"])
     results = {"name": arguments.name, "accessories": arguments.accessories, "startup_ms": startup, "endpoints": {}, "throughput": {}}
@@ -231,6 +233,8 @@ def run(arguments):
         ("GET /api/logs", "/api/logs"), ("GET /api/logs?accessory=", "/api/logs?accessory=" + urllib.parse.quote(lamp, safe="")),
         ("GET /api/logs?bridge=all", "/api/logs?bridge=all"), ("GET /api/logs?from=1h", "/api/logs?from=" + since),
         ("GET /api/qr/0.svg", "/api/qr/0.svg"), ("GET /api/assistant", "/api/assistant"),
+        ("GET /api/metrics", "/api/metrics"), ("GET /api/metrics?accessory=", "/api/metrics?accessory=" + urllib.parse.quote(lamp, safe="")),
+        ("GET /api/layout", "/api/layout"), ("GET /api/plugins/…/devices (a plugin's API)", "/api/plugins/BenchHome/" + urllib.parse.quote("Bench Home") + "/devices"),
     ]
     for name, path in gets:
         time_endpoint(endpoints, name, lambda _, path=path: ui.request("GET", path), requests, warmup)
@@ -348,8 +352,8 @@ def main():
     parser.add_argument("--idle-seconds", type=float, default=10)
     parser.add_argument("--tick-ms", type=int, default=1000)
     parser.add_argument("--log-lines", type=int, default=5000)
-    parser.add_argument("--ui-port", type=int, default=8591)
-    parser.add_argument("--mcp-port", type=int, default=8592)
+    parser.add_argument("--ui-port", type=int, default=0, help="0: any free port")
+    parser.add_argument("--mcp-port", type=int, default=0, help="0: any free port")
     parser.add_argument("--output", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "results"))
     run(parser.parse_args())
 
