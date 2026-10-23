@@ -1155,21 +1155,28 @@ enum WebAssets {
   const passwordPolicy = { minimumLength: 12, minimumBits: 85, scaleBits: 128 };
   const strengthLabels = { strongToVeryStrong: "Strong to very strong", mediumToStrong: "Medium to strong", lowToMedium: "Low to medium", veryWeak: "Very weak" };
 
-  /// A live gauge under a password field: the ANSSI's bands along 0 to 128 bits, the 85-bit bar marked, and the
-  /// two rules ticking as they are met. `username()` gives the name the password must not lean on.
-  /// `gauge.acceptable()` answers, once the server has, whether the password as typed passes.
+  /// The ANSSI's bands, from the bits where each starts: the scale under the gauge.
+  const strengthBands = [[0, "Weak"], [65, "Low"], [85, "Medium"], [100, "Strong"]];
+
+  /// A live gauge under a password field: the ANSSI's bands along 0 to 128 bits as one gradient, lit up to the
+  /// password's entropy, the 85-bit bar marked, and the two rules ticking as they are met. `username()` gives the
+  /// name the password must not lean on. `gauge.acceptable()` answers, once the server has, whether the password as
+  /// typed passes. Its classes are `strength-*`: the widgets' dial is `.gauge`.
   function strengthGauge(input, username = () => "") {
-    const fill = el("div", { class: "gauge-fill" });
-    const label = el("strong", {});
-    const bits = el("span", { class: "muted" });
+    const percent = (bits) => `${(Math.min(bits, passwordPolicy.scaleBits) / passwordPolicy.scaleBits) * 100}%`;
+    const fill = el("div", { class: "strength-fill" });
+    const label = el("strong", { class: "strength-level" });
+    const bits = el("span", { class: "strength-bits" });
     const ruleLength = el("li", { text: `At least ${passwordPolicy.minimumLength} characters` });
     const ruleBits = el("li", { text: `At least ${passwordPolicy.minimumBits} bits of entropy (ANSSI: medium to strong)` });
-    const hint = el("p", { class: "help gauge-hint" });
-    const track = el("div", { class: "gauge-track", role: "meter", "aria-label": "Password strength", "aria-valuemin": "0", "aria-valuemax": String(passwordPolicy.scaleBits) },
+    const hint = el("p", { class: "help strength-hint" });
+    const track = el("div", { class: "strength-track", role: "meter", "aria-label": "Password strength", "aria-valuemin": "0", "aria-valuemax": String(passwordPolicy.scaleBits) },
       fill,
-      ...[65, 85, 100].map((at) => el("span", { class: "gauge-tick", style: `left:${(at / passwordPolicy.scaleBits) * 100}%` })),
-      el("span", { class: "gauge-mark", title: `Required: ${passwordPolicy.minimumBits} bits`, style: `left:${(passwordPolicy.minimumBits / passwordPolicy.scaleBits) * 100}%` }));
-    const gauge = el("div", { class: "gauge" }, track, el("div", { class: "gauge-legend" }, label, bits), el("ul", { class: "gauge-rules" }, ruleLength, ruleBits), hint);
+      ...strengthBands.slice(1).map(([at]) => el("span", { class: "strength-tick", style: `left:${percent(at)}` })),
+      el("span", { class: "strength-mark", title: `Required: ${passwordPolicy.minimumBits} bits`, style: `left:${percent(passwordPolicy.minimumBits)}` }));
+    const scale = el("div", { class: "strength-scale", "aria-hidden": "true" },
+      ...strengthBands.map(([at, text], index) => el("span", { text, style: `left:${percent(at)};width:${percent((strengthBands[index + 1]?.[0] ?? passwordPolicy.scaleBits) - at)}` })));
+    const gauge = el("div", { class: "strength" }, el("div", { class: "strength-head" }, label, bits), track, scale, el("ul", { class: "strength-rules" }, ruleLength, ruleBits), hint);
 
     // One request per password and username as typed; an answer that is no longer the latest is dropped.
     let latest = null;
@@ -1181,7 +1188,7 @@ enum WebAssets {
     };
     const draw = (s) => {
       gauge.dataset.level = s ? s.level : "";
-      fill.style.width = `${Math.min(s?.bits ?? 0, passwordPolicy.scaleBits) / passwordPolicy.scaleBits * 100}%`;
+      fill.style.setProperty("--lit", percent(s?.bits ?? 0));
       track.setAttribute("aria-valuenow", String(s?.bits ?? 0));
       track.setAttribute("aria-valuetext", s ? `${strengthLabels[s.level]}, ${s.bits} bits` : "empty");
       label.textContent = s ? strengthLabels[s.level] : "Strength";
@@ -1225,6 +1232,7 @@ enum WebAssets {
     const message = el("p", { class: "status-line muted", role: "status" });
     const submit = el("button", { class: "primary", type: "submit", text: "Change password" });
     const fail = (text) => { message.className = "status-line error"; message.textContent = text; };
+    const days = state.sessionDays ?? 7;
     const form = el("form", { class: "card account-form", onsubmit: async (event) => {
       event.preventDefault();
       if (!(await gauge.acceptable())) { next.focus(); return fail("The new password is not strong enough yet: the gauge says what is missing."); }
@@ -1241,16 +1249,24 @@ enum WebAssets {
       submit.disabled = false;
     } },
       el("h2", { text: "Change your password" }),
-      field("Current password", current),
-      el("label", { class: "field" }, el("span", { class: "field-title", text: "New password" }), next, gauge),
-      field("New password again", again),
-      el("div", { class: "actions" }, submit), message);
-    show(main,
-      pageHead("Account", `Signed in as ${state.username}. Logins last ${state.sessionDays ?? 7} days without activity.`),
-      el("div", { class: "account" }, form,
-        el("div", { class: "card" }, el("h2", { text: "Sign out" }),
-          el("p", { class: "muted", text: "Ends this browser's session. Changing the password ends the others." }),
-          el("button", { text: "Sign out", onclick: () => $("#logout").click() }))));
+      el("p", { class: "muted account-lead", text: "A phrase of several random words is long, strong and easy to remember." }),
+      // The fields on one side, the new password's entropy beside them as it is typed.
+      el("div", { class: "account-password" },
+        el("div", { class: "account-fields" },
+          field("Current password", current),
+          field("New password", next),
+          field("New password again", again),
+          el("div", { class: "actions" }, submit), message),
+        el("aside", { class: "strength-panel", "aria-label": "Strength of the new password" },
+          el("span", { class: "field-title", text: "Entropy of the new password" }), gauge)));
+    // Who is signed in, with the one thing to do about it.
+    const profile = el("section", { class: "card account-profile" },
+      el("span", { class: "account-avatar", "aria-hidden": "true", text: (state.username || "?").slice(0, 1).toUpperCase() }),
+      el("div", { class: "account-who" },
+        el("h2", { text: state.username }),
+        el("p", { class: "muted", text: `Signed in on this browser. Logins last ${days} day${days === 1 ? "" : "s"} without activity; changing the password signs the others out.` })),
+      el("button", { text: "Sign out", onclick: () => $("#logout").click() }));
+    show(main, pageHead("Account", "Your sign-in to this bridge's web UI."), el("div", { class: "account" }, profile, form));
   };
 
   // ---- Config --------------------------------------------------------------
@@ -3728,31 +3744,70 @@ button.busy::after {
 }
 @media (max-width: 640px) { .panel-columns { grid-template-columns: 1fr; } }
 
-/* The password gauge: the ANSSI's bands along 0 to 128 bits, the 80-bit bar marked; the fill eases to its
-   width as you type and takes the band's colour. */
-.gauge { margin-top: 10px; }
-.gauge-track { position: relative; height: 8px; border-radius: 4px; background: var(--material-thin); border: 1px solid var(--line); overflow: visible; }
-.gauge-fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 4px; background: var(--error); transition: width var(--normal) var(--ease-out), background-color var(--normal) var(--ease-out); }
-.gauge[data-level="lowToMedium"] .gauge-fill { background: var(--warn); }
-.gauge[data-level="mediumToStrong"] .gauge-fill { background: #37b26c; }
-.gauge[data-level="strongToVeryStrong"] .gauge-fill { background: var(--ok); }
-.gauge-tick { position: absolute; top: 1px; bottom: 1px; width: 1px; background: var(--line); }
-.gauge-mark { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--text); opacity: 0.55; }
-.gauge-legend { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
-.gauge[data-level="veryWeak"] .gauge-legend strong { color: var(--error); }
-.gauge[data-level="lowToMedium"] .gauge-legend strong { color: var(--warn); }
-.gauge[data-level="mediumToStrong"] .gauge-legend strong, .gauge[data-level="strongToVeryStrong"] .gauge-legend strong { color: var(--ok); }
-.gauge-rules { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 3px; font-size: 0.8125rem; color: var(--muted); }
-.gauge-rules li::before { content: "○"; display: inline-block; width: 1.3em; }
-.gauge-rules li.met { color: var(--ok); }
-.gauge-rules li.met::before { content: "✓"; }
-.gauge-hint { margin: 6px 0 0; min-height: 1em; }
-@media (prefers-reduced-motion: reduce) { .gauge-fill { transition: none; } }
-.account { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+/* The password strength: the ANSSI's bands along 0 to 128 bits as one gradient, from red through amber to green,
+   lit up to the password's entropy as you type; the 85-bit bar marked. Its own names: the widgets' dial is .gauge. */
+:root { --entropy: linear-gradient(90deg, #ff453a 0%, #ff6a2b 30%, #ff9f0a 50.8%, #ffd60a 66.4%, #30d158 78.1%, #20c4a8 100%); }
+.strength { margin-top: 10px; display: grid; gap: 6px; }
+.strength-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-variant-numeric: tabular-nums; }
+.strength-level { font-size: 0.9375rem; font-weight: 600; transition: color var(--normal) var(--ease-out); }
+.strength-bits { font-size: 0.8125rem; color: var(--muted); }
+.strength-track { position: relative; height: 12px; border-radius: 999px; background: var(--material-thin); box-shadow: inset 0 0 0 1px var(--line); }
+/* The whole scale shows faintly; the fill is the same gradient, cut at the entropy, so each band keeps its colour. */
+.strength-track::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--entropy); opacity: 0.2; }
+.strength-fill {
+  position: absolute; inset: 0; border-radius: inherit; background: var(--entropy);
+  clip-path: inset(0 calc(100% - var(--lit, 0%)) 0 0 round 999px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  transition: clip-path var(--normal) var(--ease-out);
+}
+.strength-tick { position: absolute; top: 3px; bottom: 3px; width: 1px; background: rgba(255, 255, 255, 0.75); mix-blend-mode: overlay; }
+.strength-mark { position: absolute; top: -5px; bottom: -5px; width: 3px; margin-left: -1.5px; border-radius: 2px; background: var(--text); box-shadow: 0 0 0 2px var(--material-solid); }
+.strength-scale { position: relative; height: 1.2em; font-size: 0.6875rem; color: var(--muted); }
+.strength-scale span { position: absolute; top: 0; text-align: center; white-space: nowrap; }
+.strength[data-level="veryWeak"] .strength-level { color: var(--error); }
+.strength[data-level="lowToMedium"] .strength-level { color: var(--warn); }
+.strength[data-level="mediumToStrong"] .strength-level, .strength[data-level="strongToVeryStrong"] .strength-level { color: var(--ok); }
+.strength-rules { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 3px; font-size: 0.8125rem; color: var(--muted); }
+.strength-rules li::before { content: "○"; display: inline-block; width: 1.3em; }
+.strength-rules li.met { color: var(--ok); }
+.strength-rules li.met::before { content: "✓"; }
+.strength-hint { margin: 2px 0 0; min-height: 1em; }
+@media (prefers-reduced-motion: reduce) { .strength-fill, .strength-level { transition: none; } }
+
+/* Account: who is signed in, then the password form with the new password's entropy beside its fields. */
+.account { display: grid; gap: 14px; max-width: 920px; }
 .account .card { margin: 0; }
-.account h2 { margin-top: 0; }
-.account-form .field { max-width: 420px; }
-@media (max-width: 640px) { .account { grid-template-columns: 1fr; } }
+.account h2 { margin: 0; }
+.account-profile { display: flex; align-items: center; gap: 16px; }
+.account-avatar {
+  flex: none; display: grid; place-items: center; width: 52px; height: 52px; border-radius: 50%;
+  font-size: 1.375rem; font-weight: 600; color: var(--accent-text);
+  background: linear-gradient(145deg, var(--accent-2), var(--accent));
+  box-shadow: 0 8px 20px rgba(255, 122, 26, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+.account-who { flex: 1; min-width: 0; }
+.account-who p { margin: 3px 0 0; }
+.account-lead { margin: 4px 0 0; }
+.account-password { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 22px; align-items: start; margin-top: 16px; }
+.account-fields .field:first-child { margin-top: 0; }
+.strength-panel {
+  padding: 16px 18px; border-radius: calc(var(--radius) - 6px);
+  background: var(--material-thin); box-shadow: inset 0 0 0 1px var(--line);
+}
+.strength-panel .strength { margin-top: 10px; gap: 8px; }
+.strength-panel .strength-level { font-size: 1.25rem; letter-spacing: -0.01em; }
+.strength-panel .strength-bits { font-size: 0.9375rem; }
+.strength-panel .strength-track { height: 14px; }
+@media (max-width: 720px) {
+  /* One column, the entropy right under the new password, where the eyes are while typing it. */
+  .account-password { grid-template-columns: 1fr; gap: 0; }
+  .account-fields { display: contents; }
+  .account-fields > :nth-child(-n+2) { order: 1; }
+  .strength-panel { order: 2; margin: 8px 0 4px; }
+  .account-fields > :nth-child(n+3) { order: 3; }
+  .account-profile { flex-wrap: wrap; }
+  .account-profile > button { width: 100%; }
+}
 main { max-width: 1100px; margin: 0 auto; padding: 22px 12px 40px; }
 
 /* Type: the system font with its optical sizes, sizes in rem so the reader's text size applies, tracking
