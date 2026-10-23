@@ -311,7 +311,7 @@ final class DoorbellLcdMessages {
 
     private func currentMessageJSON() -> String {
         guard let message = doorbell.ufp.json.at("lcdMessage"), message.objectValue != nil else { return "" }
-        let duration = message.double("resetAt").map { Int((($0 - Date().timeIntervalSince1970 * 1000) / 1000).rounded()) } ?? 0
+        let duration = message.double("resetAt").flatMap { Int(saturating: (($0 - Date().timeIntervalSince1970 * 1000) / 1000).rounded()) } ?? 0
         return JSONValue.object(["duration": .number(Double(duration)), "message": .string(message.string("text") ?? "")]).text()
     }
 
@@ -345,7 +345,7 @@ final class DoorbellLcdMessages {
     /// Milliseconds from an MQTT duration in seconds: the default when missing or negative.
     nonisolated static func mqttDuration(_ seconds: Double?, default defaultDuration: Int) -> Int {
         guard let seconds, seconds >= 0 else { return defaultDuration }
-        return Int(seconds * 1000)
+        return protectMilliseconds(seconds: seconds) ?? defaultDuration
     }
 
     /// The controller's saved messages changed: our copy of its message list first (the controller does
@@ -384,7 +384,7 @@ final class DoorbellLcdMessages {
             entry.state = true
             entry.service[.on]?.value = .bool(true)
             messageSwitches[key] = entry
-            let remaining = payload.double("resetAt").map { " (\(Int((($0 - Date().timeIntervalSince1970 * 1000) / 1000).rounded())) seconds)" } ?? ""
+            let remaining = payload.double("resetAt").flatMap { Int(saturating: (($0 - Date().timeIntervalSince1970 * 1000) / 1000).rounded()) }.map { " (\($0) seconds)" } ?? ""
             doorbell.log.info("Doorbell message set\(remaining): \(text).")
             doorbell.publish("message", JSONValue.object(["duration": .number(Double(entry.duration) / 1000), "message": .string(entry.text)]).text())
         }
@@ -394,7 +394,7 @@ final class DoorbellLcdMessages {
     func messages() -> [(duration: Int, text: String, type: String)] {
         guard doorbell.nvr.ufp.at("doorbellSettings") != nil, isMessagesEnabled else { return [] }
         var result: [(duration: Int, text: String, type: String)] = doorbell.nvr.config.doorbellMessages.map { entry in
-            let duration = entry.duration.flatMap { $0 >= 0 && !$0.isNaN ? Int($0 * 1000) : nil } ?? defaultMessageDuration
+            let duration = entry.duration.flatMap { $0 >= 0 ? protectMilliseconds(seconds: $0) : nil } ?? defaultMessageDuration
             return (duration, entry.message, "CUSTOM_MESSAGE")
         }
         if isMessagesFromControllerEnabled {
@@ -443,7 +443,7 @@ final class DoorbellChimes {
 
     init(doorbell: ProtectDoorbell) {
         self.doorbell = doorbell
-        chimeDigitalDuration = Self.clampDigitalDuration(doorbell.getFeatureNumber("Doorbell.PhysicalChime.Duration.Digital").map { Int($0) })
+        chimeDigitalDuration = Self.clampDigitalDuration(doorbell.getFeatureInt("Doorbell.PhysicalChime.Duration.Digital", in: 0...Int(Int32.max)))
     }
 
     /// A digital chime rings between one and ten seconds.
@@ -488,13 +488,14 @@ final class DoorbellChimes {
         guard let bootstrap = await doorbell.api.bootstrap, payload.string("nvrMac") == doorbell.nvr.mac,
               payload.strings("cameraIds").contains(doorbell.ufp.id), payload.has("ringSettings") else { return }
         guard let chime = bootstrap.array("chimes").first(where: { $0.string("id") == packet.id }) else { return }
+        // The packet's id names the chime; an update payload carries only what changed, usually without it.
         let merged = chime.shallowMerged(payload)
-        let payloadID = payload.string("id")
+        let chimeID = packet.id
         await doorbell.api.updateBootstrap { bootstrap in
-            bootstrap = bootstrap.setting("chimes", .array(bootstrap.array("chimes").filter { $0.string("id") != payloadID } + [merged]))
+            bootstrap = bootstrap.setting("chimes", .array(bootstrap.array("chimes").filter { $0.string("id") != chimeID } + [merged]))
         }
         if let ring = payload.array("ringSettings").first(where: { $0.string("cameraId") == doorbell.ufp.id }), let volume = ring.double("volume") {
-            volumeService?[.brightness]?.value = .int(Int(volume))
+            volumeService?[.brightness]?.value = .int(Int(saturating: volume, in: 0...100) ?? 0)
             volumeService?[.on]?.value = .bool(volume > 0)
         }
     }
@@ -551,13 +552,13 @@ final class DoorbellChimes {
             guard value.boolValue != true else { return }
             try await self?.setChimeVolume(0)
         }
-        service[.brightness]?.onRead { [weak self] in .int(Int(await self?.currentChimeVolume() ?? 0)) }
+        service[.brightness]?.onRead { [weak self] in .int(Int(saturating: await self?.currentChimeVolume() ?? 0, in: 0...100) ?? 0) }
         service[.brightness]?.onWrite { @ProtectActor [weak self] value in try await self?.setChimeVolume(value.intValue ?? 0) }
         Task { @ProtectActor [weak self] in
             guard let self else { return }
             let volume = await self.currentChimeVolume()
             service[.on]?.value = .bool(volume > 0)
-            service[.brightness]?.value = .int(Int(volume))
+            service[.brightness]?.value = .int(Int(saturating: volume, in: 0...100) ?? 0)
         }
         doorbell.log.info("Enabling Protect chime volume control.")
         return true

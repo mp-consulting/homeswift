@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftPlugin
 
 /// The controller's JSON as it comes: the bootstrap, devices and event payloads stay `JSONValue`, as the
@@ -36,7 +37,8 @@ extension JSONValue {
     func string(_ path: String) -> String? { at(path)?.stringValue }
     func bool(_ path: String) -> Bool { at(path)?.boolValue ?? false }
     func double(_ path: String) -> Double? { at(path)?.doubleValue }
-    func int(_ path: String) -> Int? { at(path)?.doubleValue.map { Int($0) } }
+    /// A number truncated toward zero and clamped to `Int`, so a 1e300 from the controller never traps.
+    func int(_ path: String) -> Int? { at(path)?.saturatingIntValue }
     func array(_ path: String) -> [JSONValue] { at(path)?.arrayValue ?? [] }
     func strings(_ path: String) -> [String] { array(path).compactMap(\.stringValue) }
 
@@ -134,6 +136,19 @@ struct ProtectLiveview: Sendable, Equatable {
         name = json.string("name") ?? ""
         cameras = json.array("slots").flatMap { $0.strings("cameras") }
     }
+}
+
+/// A number as JavaScript prints it: whole numbers without a fraction, any value (1e300, infinity) without
+/// trapping.
+func jsNumber(_ value: Double) -> String {
+    if let whole = Int(exactly: value) { return String(whole) }
+    return String(value)
+}
+
+/// Milliseconds of a duration in seconds from a device, MQTT or the configuration, saturated rather than
+/// trapping (`seconds * 1000`); nil for NaN.
+func protectMilliseconds(seconds: Double) -> Int? {
+    Int(saturating: seconds * 1000)
 }
 
 /// The plugin's own `toCamelCase`: the first letter of each word upper-cased.

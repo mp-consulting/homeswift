@@ -51,6 +51,9 @@ enum ProtectSettings {
     static let m3uPlaylistPort = 10110
     /// Default seconds of a motion event.
     static let motionDuration = 10
+    /// The seconds a duration option may give (motion, occupancy, removal delay): a year at most, so their
+    /// timers never overflow.
+    static let durationRange = 0...31_536_000
     /// Default MQTT base topic.
     static let mqttTopic = "unifi/protect"
     /// Default seconds of an occupancy event.

@@ -132,11 +132,18 @@ final class ProtectTestEnvironment: @unchecked Sendable {
 
     /// FFmpeg, when a test wants video.
     let ffmpeg: (any ProtectFfmpegKit)?
+    /// The clock of snapshot budgets.
+    let snapshotClock: any ProtectClock
+    /// The consoles discovery finds.
+    let discovered: [UbiquitiDiscovery.Console]
 
-    init(controller: FakeController = FakeController(), timeScale: Double = 0.01, ffmpeg: (any ProtectFfmpegKit)? = nil) {
+    init(controller: FakeController = FakeController(), timeScale: Double = 0.01, ffmpeg: (any ProtectFfmpegKit)? = nil,
+         snapshotClock: any ProtectClock = SystemProtectClock(), discovered: [UbiquitiDiscovery.Console] = []) {
         self.controller = controller
         self.timeScale = timeScale
         self.ffmpeg = ffmpeg
+        self.snapshotClock = snapshotClock
+        self.discovered = discovered
     }
 
     var plugin: UniFiProtectPlugin? { plugins.withLockedValue { $0.last } }
@@ -152,10 +159,12 @@ final class ProtectTestEnvironment: @unchecked Sendable {
         let ffmpegFactory: (@Sendable (String?, Bool, Logger) -> any ProtectFfmpegKit)?
         if let ffmpeg { ffmpegFactory = { _, _, _ in ffmpeg } } else { ffmpegFactory = nil }
         let mqtt = self.mqtt
+        let discovered = self.discovered
         registry.register(platform: UniFiProtectPlugin.platform, name: UniFiProtectPlugin.name) { json, context in
             let configuration = try JSONDecoder().decode(UniFiProtectPlugin.Configuration.self, from: json)
-            let dependencies = ProtectDependencies(transport: self.controller, webSockets: self.webSockets.factory, mqtt: { _ in mqtt }, timeScale: self.timeScale,
-                                                   discover: { _ in [] }, resolve: { _ in ["192.168.1.1"] }, ffmpeg: ffmpegFactory, allowPlaylistServer: false, logger: self.logs.logger)
+            var dependencies = ProtectDependencies(transport: self.controller, webSockets: self.webSockets.factory, mqtt: { _ in mqtt }, timeScale: self.timeScale,
+                                                   discover: { _ in discovered }, resolve: { _ in ["192.168.1.1"] }, ffmpeg: ffmpegFactory, allowPlaylistServer: false, logger: self.logs.logger)
+            dependencies.snapshotClock = self.snapshotClock
             let plugin = UniFiProtectPlugin(configuration: configuration, context: context, dependencies: dependencies)
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
@@ -204,5 +213,15 @@ extension Accessory {
     var summary: [String] {
         services.filter { ![ServiceType.accessoryInformation.uuid, ServiceType.protocolInformation.uuid].contains($0.type.uuid) }
             .map { "\($0.type.name)|\($0.subtype ?? "")|\($0[.name]?.value.stringValue ?? "")" }.sorted()
+    }
+}
+
+/// A clock that stands still: budgets never run out and timeouts never strike, however loaded the machine.
+struct FrozenClock: ProtectClock {
+    let now = ContinuousClock.now
+
+    func sleep(for duration: Duration) async {
+        // Until cancelled.
+        try? await Task.sleep(for: .seconds(3600))
     }
 }

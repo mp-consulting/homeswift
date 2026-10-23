@@ -70,6 +70,11 @@ actor ProtectAPI {
     private var events: (any WebSocketConnection)?
     private var eventsTasks: [Task<Void, Never>] = []
     private var reconnectTask: Task<Void, Never>?
+    /// The events WebSocket being opened: a second caller waits for it rather than opening another.
+    private var connectingEvents: Task<Bool, Never>?
+    /// Bumped by each `logout()`: work that began before one (a login, a bootstrap, an events connection, a
+    /// reconnect) does not bring the session or the events back after it.
+    private var sessionGeneration = 0
 
     init(log: ProtectLog, options: Options = Options()) {
         self.log = log
@@ -154,7 +159,7 @@ actor ProtectAPI {
         nvrAddress = address
         self.username = username
         self.password = password
-        logout()
+        dropSession()
         return await sessionLogin()
     }
 
@@ -162,6 +167,7 @@ actor ProtectAPI {
     /// home page when the login is refused without it.
     func sessionLogin() async -> Bool {
         if isLoggedIn { return true }
+        let generation = sessionGeneration
         let body = JSONValue.object(["password": .string(password), "rememberMe": true, "token": "", "username": .string(username)]).encoded()
         var response = await retrieve(endpoint(.login), method: "POST", body: body)
         if !(response?.isSuccess ?? false), headers["x-csrf-token"] == nil {
@@ -171,8 +177,10 @@ actor ProtectAPI {
                 response = await retrieve(endpoint(.login), method: "POST", body: body)
             }
         }
+        // Logged out meanwhile: the session this login opens is not wanted any more.
+        guard generation == sessionGeneration else { return false }
         guard let response, response.isSuccess else {
-            logout()
+            dropSession()
             return false
         }
         let csrf = response.header("X-Updated-CSRF-Token") ?? response.header("X-CSRF-Token")
@@ -181,7 +189,7 @@ actor ProtectAPI {
             headers["x-csrf-token"] = csrf
             return true
         }
-        logout()
+        dropSession()
         return false
     }
 
@@ -191,8 +199,15 @@ actor ProtectAPI {
         closeEvents()
     }
 
-    /// Drops the session, keeping the CSRF token for the next login.
+    /// Ends the session for good, keeping the CSRF token for a later `login`: work still in flight (a login,
+    /// a bootstrap, an events connection or its reconnection) does not bring it back.
     func logout() {
+        sessionGeneration += 1
+        dropSession()
+    }
+
+    /// Drops the session (a refused request, a new login), keeping the CSRF token for the next login.
+    private func dropSession() {
         reset()
         isAdminUser = false
         headers = Self.baseHeaders(csrf: headers["x-csrf-token"])
@@ -213,7 +228,11 @@ actor ProtectAPI {
 
     private func bootstrapController(retry: Bool) async -> Bool {
         guard await sessionLogin() else { return retry ? await bootstrapController(retry: false) : false }
-        guard let response = await retrieve(endpoint(.bootstrap)), response.isSuccess else {
+        let generation = sessionGeneration
+        let fetched = await retrieve(endpoint(.bootstrap))
+        // Logged out meanwhile (the controller is stopping): no bootstrap, no events.
+        guard generation == sessionGeneration else { return false }
+        guard let response = fetched, response.isSuccess else {
             logRetry("Unable to retrieve the UniFi Protect controller configuration.", isRetry: retry)
             return retry ? await bootstrapController(retry: false) : false
         }
@@ -394,7 +413,7 @@ actor ProtectAPI {
         if !decodeResponse { return response }
         breaker.recordFailure()
         if response.status == 401 {
-            logout()
+            dropSession()
             logError("Invalid login credentials given. Please check your login and password.")
             return nil
         }
@@ -519,7 +538,18 @@ actor ProtectAPI {
     /// Connects the events WebSocket with our session, from the last update the bootstrap knows so nothing
     /// is missed. True when it is (or already was) connected.
     func connectEvents() async -> Bool {
-        guard await sessionLogin() else { return false }
+        if events != nil { return true }
+        if let connecting = connectingEvents { return await connecting.value }
+        let generation = sessionGeneration
+        let connecting = Task { await self.openEvents(generation) }
+        connectingEvents = connecting
+        let connected = await connecting.value
+        if connectingEvents == connecting { connectingEvents = nil }
+        return connected
+    }
+
+    private func openEvents(_ generation: Int) async -> Bool {
+        guard generation == sessionGeneration, await sessionLogin(), generation == sessionGeneration else { return false }
         if events != nil { return true }
         let query = URLEncoding.form([("lastUpdateId", bootstrap?.string("lastUpdateId") ?? "")])
         guard let url = URL(string: "wss://" + nvrAddress + "/proxy/protect/ws/updates?" + query) else { return false }
@@ -531,6 +561,11 @@ actor ProtectAPI {
             if case .certificateMismatch(_, let observed) = error as? HTTPClientError { pin?.reportMismatch(host: url.host ?? nvrAddress, observed: observed) }
             log.error("\(name): API error: Events API error: \(error)")
             return false
+        }
+        // Logged out while connecting, or another socket won: this one goes.
+        guard generation == sessionGeneration, events == nil else {
+            await socket.close()
+            return events != nil
         }
         if policy == .any { pin?.accept(host: url.host ?? nvrAddress, presented: (socket as? WebSocket)?.certificateFingerprint) }
         events = socket
@@ -585,15 +620,18 @@ actor ProtectAPI {
         eventsTasks = []
         guard isLoggedIn, reconnectTask == nil else { return }
         let delay = Duration.milliseconds(Int(Double(Self.eventsReconnectDelay) * timeScale))
+        let generation = sessionGeneration
         reconnectTask = Task { [weak self] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
-            await self?.reconnectEvents()
+            await self?.reconnectEvents(generation)
         }
     }
 
-    private func reconnectEvents() async {
+    /// Reconnects, unless the session it was scheduled for ended: a logout must not log back in.
+    private func reconnectEvents(_ generation: Int) async {
         reconnectTask = nil
+        guard generation == sessionGeneration, isLoggedIn else { return }
         _ = await connectEvents()
     }
 

@@ -18,7 +18,7 @@ enum ProtectPlaylist {
         var lines = ["#EXTM3U"]
         guard let bootstrap else { return lines.joined(separator: "\n") + "\n" }
         let host = bootstrap.string("nvr.host") ?? ""
-        let port = bootstrap.at("nvr.ports.rtsp").map { $0.doubleValue.map { String(Int($0)) } ?? $0.stringValue ?? "" } ?? "undefined"
+        let port = bootstrap.at("nvr.ports.rtsp").map { $0.doubleValue.map(jsNumber) ?? $0.stringValue ?? "" } ?? "undefined"
         let logo = ProtectSettings.playlistLogoURL
         let cameras = bootstrap.array("cameras").map(ProtectDeviceConfig.init)
             .filter { $0.videoCodec != "av1" && $0.channels.contains(where: \.isRtspEnabled) }
@@ -63,6 +63,8 @@ actor ProtectPlaylistServer {
     let token: String?
     private var channel: (any Channel)?
     private var retryTask: Task<Void, Never>?
+    /// `close()` ran: a bind still in flight closes what it opens, and no retry starts.
+    private var isClosed = false
 
     init(api: ProtectAPI, log: ProtectLog, address: String?, port: Int?, token: String?) {
         self.api = api
@@ -76,6 +78,7 @@ actor ProtectPlaylistServer {
     var listeningPort: Int? { channel?.localAddress?.port }
 
     func start() async {
+        guard !isClosed, channel == nil else { return }
         let api = api, token = token
         let bootstrap = ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton)
             .serverChannelOption(.backlog, value: 16)
@@ -86,7 +89,13 @@ actor ProtectPlaylistServer {
                 }
             }
         do {
-            channel = try await bootstrap.bind(host: address ?? "0.0.0.0", port: port).get()
+            let bound = try await bootstrap.bind(host: address ?? "0.0.0.0", port: port).get()
+            // Closed while binding: let the port go at once.
+            guard !isClosed else {
+                try? await bound.close()
+                return
+            }
+            channel = bound
             log.info("Publishing an M3U playlist of Protect camera livestream URLs on \(address ?? "all interfaces,") port \(listeningPort ?? port).")
             if token == nil {
                 log.warning("The M3U playlist is available to anyone who can reach this Homeswift server\(address == nil ? " on your network" : ""), exposing camera livestream URLs. "
@@ -94,20 +103,29 @@ actor ProtectPlaylistServer {
             }
         } catch let error as IOError where error.errnoCode == EADDRINUSE {
             log.error("The address and port we are attempting to use is already in use by something else. Will retry again shortly.")
+            guard !isClosed else { return }
             retryTask = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(5))
                 guard !Task.isCancelled else { return }
-                await self?.start()
+                await self?.retry()
             }
         } catch {
             log.error("M3U playlist publisher error: \(error)")
         }
     }
 
+    private func retry() async {
+        retryTask = nil
+        await start()
+    }
+
     func close() async {
+        isClosed = true
         retryTask?.cancel()
-        try? await channel?.close()
+        retryTask = nil
+        let open = channel
         channel = nil
+        try? await open?.close()
     }
 }
 

@@ -25,6 +25,8 @@ public actor UniFiProtectPlugin: HomeswiftPlugin {
     private var platformState: ProtectPlatform?
     private var controllers: [ProtectNVR] = []
     private var launches: [Task<Void, Never>] = []
+    /// `stop()` ran: a start still awaiting starts nothing more.
+    private var isStopped = false
 
     public init(configuration: Configuration, context: PluginContext) {
         self.init(configuration: configuration, context: context, dependencies: ProtectDependencies())
@@ -39,6 +41,7 @@ public actor UniFiProtectPlugin: HomeswiftPlugin {
     public func start() async throws {
         let platform = await ProtectPlatform(configuration: configuration, logger: logger, host: context, storageDirectory: context.storageDirectory,
                                              dependencies: dependencies)
+        guard !isStopped else { return }
         platformState = platform
         guard !configuration.controllers.isEmpty else {
             logger.info("No UniFi Protect controllers have been configured.")
@@ -55,7 +58,9 @@ public actor UniFiProtectPlugin: HomeswiftPlugin {
                 logger.info("No UniFi Protect login credentials have been configured.")
                 continue
             }
-            controllers.append(await ProtectNVR(platform: platform, config: controller))
+            let nvr = await ProtectNVR(platform: platform, config: controller)
+            guard !isStopped else { return }
+            controllers.append(nvr)
         }
         let controllers = self.controllers
         launches.append(Task {
@@ -71,6 +76,7 @@ public actor UniFiProtectPlugin: HomeswiftPlugin {
     }
 
     public func stop() async {
+        isStopped = true
         launches.forEach { $0.cancel() }
         for controller in controllers { await controller.stop() }
         await platformState?.timers.cancelAll()
@@ -148,10 +154,18 @@ public actor UniFiProtectPlugin: HomeswiftPlugin {
         let recorder = ErrorRecorder()
         var errorLogger = Logger(label: logger.label) { _ in recorder }
         errorLogger.logLevel = .error
+        let verifyTls = body.bool("verifyTls")
+        let username = body.string("username") ?? ""
+        // A configured controller's devices need no password from the page: the block's own is used.
+        let configured = configuration.controllers.first { $0.address.trimmingCharacters(in: .whitespaces).lowercased() == address.lowercased() }
+        var password = body.string("password") ?? ""
+        if password.isEmpty, let configured, configured.username == username { password = configured.password }
+        // The certificate this controller is pinned to, as the running plugin trusts it: the password goes to
+        // nobody else.
+        let pinned = verifyTls ? nil : platformState?.tlsPins.get(address)
         let api = ProtectAPI(log: ProtectLog(logger: errorLogger), options: .init(
-            verifyTls: body.bool("verifyTls"), transport: dependencies.transport, webSockets: dependencies.webSockets, timeScale: dependencies.timeScale,
-            connectsEvents: false))
-        let username = body.string("username") ?? "", password = body.string("password") ?? ""
+            verifyTls: verifyTls, pin: ProtectTLSPin.Options(pinnedFingerprint: pinned), transport: dependencies.transport, webSockets: dependencies.webSockets,
+            timeScale: dependencies.timeScale, connectsEvents: false))
         let work = Task { () -> Bool in
             guard await api.login(address: address, username: username, password: password) else { return false }
             return await api.getBootstrap()
@@ -241,7 +255,8 @@ extension ProtectNVR {
     /// The controller as the page lists it.
     func statusJSON() async -> JSONValue {
         let devices = deviceList.map { device -> JSONValue in
-            ["name": .string(device.accessoryName), "modelKey": .string(device.ufp.modelKey), "mac": .string(device.ufp.mac), "online": .bool(device.isOnline)]
+            ["name": .string(device.accessoryName), "accessoryID": .string(device.accessory.id), "modelKey": .string(device.ufp.modelKey), "mac": .string(device.ufp.mac),
+             "online": .bool(device.isOnline)]
         }
         return [
             "address": .string(config.address), "name": .string(ufp.string("name") ?? config.name ?? config.address),

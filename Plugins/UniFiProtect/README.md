@@ -79,7 +79,9 @@ security system...).
 With the web UI on, the Plugins page has an **Open** button for this plugin: the Homebridge plugin's settings
 page. It finds consoles on the network, checks an address and the credentials before saving, lists a
 controller's devices, edits the feature options with their scopes, sets up third-party cameras (ONVIF
-discovery of their RTSP and snapshot URLs, a snapshot preview), and saves the block. `Web/` holds the page;
+discovery of their RTSP and snapshot URLs, a snapshot preview), and saves the block. The Assistant (the web UI's
+chat, MCP clients) can read the running controllers and their devices, the feature option catalog, discover
+consoles and check an address (`AssistantActions.swift`); the routes that take a password stay the page's. `Web/` holds the page;
 `Sources/WebFiles.swift` is generated from it (`swift Scripts/embed-assets.swift web Plugins/UniFiProtect/Web
 Plugins/UniFiProtect/Sources/WebFiles.swift UniFiProtectPlugin`).
 
@@ -97,6 +99,12 @@ Video goes through FFmpeg, which the plugin checks at launch (no FFmpeg, no cont
   (`Video.Transcode.HighLatency`).
 - **Snapshots** come from the timeshift buffer, the RTSP stream, then the controller's snapshot API, with a
   recent image as the last resort; identical requests share one FFmpeg.
+- **Third-party cameras** with URLs of their own (`cameraOverrides`) are reached directly: snapshots from the
+  snapshot URL, else a frame of the RTSP stream; live streams from the RTSP stream; and in the web UI a live
+  view that FFmpeg remuxes from the RTSP stream to fragmented MP4 (video only, not transcoded, one FFmpeg per
+  viewer).
+- **The web UI's live view** of a Protect camera reads the livestream API's fMP4 of its lowest channel, sharing the
+  session with HomeKit's streams and the timeshift buffer.
 - **HomeKit Secure Video** keeps the last ten seconds of the livestream API in memory and hands an event's
   video, from before the motion, to FFmpeg, which makes HomeKit's fMP4 fragments.
 - **Two-way audio** decodes HomeKit's microphone and sends it to the camera through the controller's talkback
@@ -116,3 +124,14 @@ the same code with the real controller and FFmpeg in memory.
 - The accessory information shows no hardware revision; HomeKit categories are set for every accessory.
 - Liveview switches and the security system are cleaned up for this controller only, and a removed doorbell
   message switch really goes away.
+- A third-party camera with an RTSP or snapshot URL override gets snapshots and live streams even when Protect
+  reports it disconnected (Protect often does for such cameras, and the Homebridge plugin then gives no picture);
+  its RTSP URL is grabbed for snapshots even without `Video.HighResSnapshots`, and a transcoded stream uses it at any
+  size rather than failing when the host's pixel limit leaves no channel.
+- Credentials in a snapshot URL override (`http://user:password@camera/...`) go as Basic authentication, as in the
+  Homebridge plugin, and also as Digest when the camera answers with a Digest challenge (the Homebridge plugin
+  stops at the 401).
+- Feature option numbers, configuration numbers and controller or MQTT values that do not fit (`1e300`) are clamped
+  rather than taken as is; duration options stop at a year, `ringDelay` at a day.
+- The settings page's device listing uses the certificate the running plugin pinned for that controller, and the
+  saved password when the page sends none.

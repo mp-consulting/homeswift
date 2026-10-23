@@ -35,6 +35,13 @@ enum RtspSelection {
 }
 
 extension ProtectCamera {
+    /// A third-party camera streamed from its own RTSP URL (`cameraOverrides`), not through the controller.
+    var hasDirectStream: Bool { !hints.rtspOverride.isEmpty }
+
+    /// A camera with an RTSP or snapshot URL of its own: its video does not depend on what the controller says
+    /// of its connection, which Protect often reports down for third-party cameras.
+    var hasDirectSource: Bool { hasDirectStream || !hints.snapshotUrlOverride.isEmpty }
+
     /// Works out the streams HomeKit may ask for from the camera's RTSP channels (or the configured RTSP URL
     /// of a third-party camera), and sets up the streaming delegate once.
     @discardableResult

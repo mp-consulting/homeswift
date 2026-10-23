@@ -130,6 +130,6 @@ private extension JSONValue {
     /// A number as JavaScript's `toString()` writes it.
     func number(_ path: String) -> String {
         guard let value = double(path) else { return "undefined" }
-        return value == value.rounded() ? String(Int(value)) : String(value)
+        return jsNumber(value)
     }
 }

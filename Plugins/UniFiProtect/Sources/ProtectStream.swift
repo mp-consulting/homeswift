@@ -131,10 +131,13 @@ final class ProtectStreamingDelegate: CameraStreamingDelegate {
     }
 
     /// The state of feeding one stream from the livestream API.
-    private final class FeedState {
+    @ProtectActor private final class FeedState {
         var seenInitSegment = false
         var fetchingInit = false
         var waiting: [Data] = []
+        /// The manager counts this consumer: its end must be told to the manager, once.
+        var subscribed = false
+        var exited = false
     }
 
     private struct OngoingSession {
@@ -155,6 +158,8 @@ final class ProtectStreamingDelegate: CameraStreamingDelegate {
     private var snapshot: ProtectSnapshot!
     private var talkback: ProtectTalkback!
     private var abTest = false
+    /// The session whose start turned the package camera's flashlight on.
+    private var flashlightSession: String?
     var verboseFfmpeg = false
 
     init(camera: ProtectCamera, resolutions: [VideoResolution], ffmpeg: any ProtectFfmpegKit) {
@@ -333,41 +338,70 @@ final class ProtectStreamingDelegate: CameraStreamingDelegate {
         }
     }
 
+    /// Starts a prepared session. A failure, or a stop that comes while it starts, leaves nothing behind: the
+    /// session's FFmpeg, livestream, demuxer, flashlight and ports go with it.
     private func startStream(_ request: StartStreamRequest) async throws {
-        guard let session = pendingSessions[request.sessionID] else {
+        let sessionID = request.sessionID
+        guard let session = pendingSessions[sessionID] else {
             throw ProtectStreamError(description: camera.accessoryName + ": Unable to start a stream for a session that was never prepared.")
         }
-        let plan = try planStream(request)
-        let flashlight = activatePackageFlashlight()
+        let plan: StreamPlan
+        do {
+            plan = try planStream(request)
+        } catch {
+            stopStream(sessionID)
+            throw error
+        }
+        let flashlight = activatePackageFlashlight(sessionID)
         // The timeshift buffer gives FFmpeg the last seconds at once: it starts without waiting to analyze.
         let tsBuffer = plan.useTsb ? hksv?.timeshift.getLast(ProtectSettings.livestreamAPIIDRInterval * 1000) : nil
         let arguments = buildStreamArguments(request, session: session, plan: plan)
         host.isApiLivestreaming = camera.hints.tsbStreaming && isRecording
         let twoWay = session.hasAudioSupport && camera.hints.twoWayAudio
-        let ffmpeg = self.ffmpeg.startStreaming(delegate: host, sessionID: request.sessionID, options: ffmpegOptions, arguments: arguments,
+        let ffmpeg = self.ffmpeg.startStreaming(delegate: host, sessionID: sessionID, options: ffmpegOptions, arguments: arguments,
                                                 returnPort: twoWay ? nil : FfmpegReturnPort(addressVersion: session.addressVersion, port: session.videoReturnPort))
+        // The session is ongoing from here, so a stop during the waits below ends this FFmpeg.
+        ongoingSessions[sessionID] = OngoingSession(ffmpeg: [ffmpeg], rtpDemuxer: session.rtpDemuxer,
+                                                    rtpPortReservations: session.rtpPortReservations, toggleLight: flashlight)
+        pendingSessions[sessionID] = nil
         if plan.useTsb {
-            guard await feedFromLivestream(ffmpeg, entry: plan.rtspEntry, tsBuffer: tsBuffer) else {
+            let fed = await feedFromLivestream(ffmpeg, entry: plan.rtspEntry, tsBuffer: tsBuffer)
+            guard isOngoing(sessionID, ffmpeg) else {
                 ffmpeg.stop()
+                throw ProtectStreamError(description: camera.accessoryName + ": The streaming session was stopped while it started.")
+            }
+            guard fed else {
+                stopStream(sessionID)
                 throw ProtectStreamError(description: camera.accessoryName + ": Unable to access the Protect livestream API.")
             }
         }
-        ongoingSessions[request.sessionID] = OngoingSession(ffmpeg: [ffmpeg], rtpDemuxer: session.rtpDemuxer,
-                                                            rtpPortReservations: session.rtpPortReservations, toggleLight: flashlight)
-        pendingSessions[request.sessionID] = nil
         if twoWay {
-            let sessionID = request.sessionID
             let talkbackSession = ProtectTalkback.Session(address: session.address, audioIncomingRtpPort: session.audioIncomingRtpPort,
                                                           audioSRTP: session.audioSRTP, rtpDemuxer: session.rtpDemuxer, talkBack: session.talkBack)
             let host = self.host
             let talkback = self.talkback!
             Task { @ProtectActor [weak self] in
                 await talkback.start(request, session: talkbackSession, sdpIpVersion: session.addressVersion == .ipv6 ? "IP6" : "IP4", host: host) { [weak self] process in
-                    self?.ongoingSessions[sessionID]?.ffmpeg.append(process)
+                    // The session may have ended while the return audio started.
+                    guard let self, self.ongoingSessions[sessionID] != nil else {
+                        process.stop()
+                        return
+                    }
+                    self.ongoingSessions[sessionID]?.ffmpeg.append(process)
                 }
             }
         }
-        try await ffmpeg.waitForStart()
+        do {
+            try await ffmpeg.waitForStart()
+        } catch {
+            if isOngoing(sessionID, ffmpeg) { stopStream(sessionID) }
+            throw error
+        }
+    }
+
+    /// Whether this FFmpeg still serves the session (no stop came, nor a new start of the same id).
+    private func isOngoing(_ sessionID: String, _ ffmpeg: any ProtectFfmpegStreamingProcess) -> Bool {
+        ongoingSessions[sessionID]?.ffmpeg.first === ffmpeg
     }
 
     /// Feeds FFmpeg from the livestream API: the initialization segment (or the timeshift buffer), then each
@@ -415,12 +449,24 @@ final class ProtectStreamingDelegate: CameraStreamingDelegate {
         let manager = camera.livestream
         ffmpeg.onExit {
             Task { @ProtectActor in
-                manager.stop(entry)
+                state.exited = true
                 listener.cancel()
+                // Only a consumer the manager counted leaves it: a failed or unfinished start was never counted.
+                if state.subscribed {
+                    state.subscribed = false
+                    manager.stop(entry)
+                }
             }
         }
         guard await manager.start(entry) else {
             listener.cancel()
+            return false
+        }
+        state.subscribed = true
+        // FFmpeg ended while the session started (the stream was stopped): leave at once.
+        if state.exited {
+            state.subscribed = false
+            manager.stop(entry)
             return false
         }
         return true
@@ -428,7 +474,8 @@ final class ProtectStreamingDelegate: CameraStreamingDelegate {
 
     /// How to answer a request: transcoding or not, the livestream API or RTSP, which stream, what bit rate.
     func planStream(_ request: StartStreamRequest) throws -> StreamPlan {
-        guard camera.isOnline else {
+        // A camera with an RTSP URL of its own streams from there, whatever the controller says of it.
+        guard camera.isOnline || camera.hasDirectStream else {
             let message = "Unable to start video stream: the camera is offline or unavailable."
             log.error(message)
             throw ProtectStreamError(description: camera.accessoryName + ": " + message)
@@ -461,6 +508,10 @@ final class ProtectStreamingDelegate: CameraStreamingDelegate {
             let maxHeight = request.video.height * ProtectSettings.transcodeMaxDownscaleRatio
             let maxPixels = min(ffmpegOptions.hostSystemMaxPixels, maxWidth * maxHeight)
             rtspEntry = rtspEntry ?? camera.findRtsp(width: request.video.width, height: request.video.height, biasHigher: true, maxPixels: maxPixels)
+            // A camera's own RTSP URL is its one source, whatever its size: transcode from it rather than fail.
+            if rtspEntry == nil, camera.hasDirectStream {
+                rtspEntry = camera.findRtsp(width: request.video.width, height: request.video.height, biasHigher: true)
+            }
             if isHighLatency, hints.transcodeHighLatencyBitrate > 0 {
                 targetBitrate = hints.transcodeHighLatencyBitrate
             } else if !isHighLatency, hints.transcodeBitrate > 0 {
@@ -495,10 +546,13 @@ final class ProtectStreamingDelegate: CameraStreamingDelegate {
 
     /// The package camera's flashlight, turned on for a stream in the dark unless it is on already. Returned
     /// so the end of the session turns it off.
-    private func activatePackageFlashlight() -> Service? {
-        guard camera.context.packageCamera != nil,
+    /// The light is claimed by one session at a time: the Homebridge plugin's synchronous `setCharacteristic`
+    /// makes a second viewer see it on already; here the write is asynchronous, so the claim says so.
+    private func activatePackageFlashlight(_ sessionID: String) -> Service? {
+        guard camera.context.packageCamera != nil, flashlightSession == nil,
               let service = camera.accessory.service(.lightbulb, subtype: ProtectReservedNames.lightbulbPackageFlashlight),
               camera.ufp.json.bool("isDark"), service[.on]?.value.boolValue != true else { return nil }
+        flashlightSession = sessionID
         Task { try? await service[.on]?.write(.bool(true)) }
         return service
     }
@@ -581,7 +635,9 @@ final class ProtectStreamingDelegate: CameraStreamingDelegate {
             log.info("Stopped video streaming session.")
             for port in session.rtpPortReservations { ffmpeg.cancelPort(port) }
         }
+        if flashlightSession == sessionID { flashlightSession = nil }
         if let pending = pendingSessions[sessionID] {
+            pending.rtpDemuxer?.close()
             for port in pending.rtpPortReservations { ffmpeg.cancelPort(port) }
         }
         pendingSessions[sessionID] = nil
@@ -590,6 +646,6 @@ final class ProtectStreamingDelegate: CameraStreamingDelegate {
 
     /// Stops every FFmpeg process and livestream of the camera.
     func shutdown() {
-        for sessionID in ongoingSessions.keys { stopStream(sessionID) }
+        for sessionID in Array(ongoingSessions.keys) + Array(pendingSessions.keys) { stopStream(sessionID) }
     }
 }

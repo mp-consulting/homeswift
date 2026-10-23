@@ -20,6 +20,9 @@ final class ProtectRecordingDelegate {
     private var timeshiftedSegments = 0
     private var transmittedSegments = 0
     private var queue: ProtectSegmentQueue?
+    /// The recording stream HomeKit has open; a close (or a newer request) clears it, and the production of
+    /// a stream that is no longer open stops at its next step.
+    private var activeStreamID: Int?
     /// The controller's RecordingAudioActive, once the controller exists.
     var recordingAudioActive: () -> Bool = { false }
 
@@ -71,23 +74,39 @@ final class ProtectRecordingDelegate {
         }
     }
 
+    typealias Packets = AsyncThrowingStream<RecordingPacket, any Error>
+
     /// A home hub asks for an event: the buffer and the livestream through FFmpeg, as fMP4 fragments. A
     /// single zero byte marked last tells HomeKit there is nothing to send.
-    func handleRecordingStreamRequest(streamID: Int) -> AsyncStream<RecordingPacket> {
-        let (packets, continuation) = AsyncStream.makeStream(of: RecordingPacket.self)
-        let task = Task { @ProtectActor in
-            await self.produce(continuation)
-            continuation.finish()
-        }
-        continuation.onTermination = { _ in task.cancel() }
+    func handleRecordingStreamRequest(streamID: Int) -> Packets {
+        let (packets, continuation) = Packets.makeStream()
+        beginRecordingStream(streamID: streamID, continuation)
         return packets
     }
 
-    private func produce(_ continuation: AsyncStream<RecordingPacket>.Continuation) async {
+    /// Produces a stream's packets into HomeKit's own stream (no buffer of ours in between). Called in order
+    /// with the stream's acknowledgement and close, so a close that comes first is seen.
+    func beginRecordingStream(streamID: Int, _ continuation: Packets.Continuation) {
+        activeStreamID = streamID
+        let task = Task { @ProtectActor in
+            await self.produce(streamID: streamID, continuation)
+            continuation.finish()
+        }
+        continuation.onTermination = { _ in task.cancel() }
+    }
+
+    /// Whether HomeKit still wants this stream: not closed, not replaced, its reader still there.
+    private func isOpen(_ streamID: Int) -> Bool {
+        !Task.isCancelled && activeStreamID == streamID
+    }
+
+    private func produce(streamID: Int, _ continuation: Packets.Continuation) async {
+        guard isOpen(streamID) else { return }
         transmittedSegments = 0
         // Recording was turned on before the camera had a configuration: set it up now.
         if !isRecordingDisabled, isRecording, !isInitialized {
             await updateRecordingActive(isRecording)
+            guard isOpen(streamID) else { return }
         }
         var ready = !isRecordingDisabled && isInitialized && !timeshift.isRestarting && camera.isOnline
             && timeshift.time >= (recordingConfiguration?.prebufferLength ?? -1)
@@ -98,10 +117,21 @@ final class ProtectRecordingDelegate {
             continuation.yield(RecordingPacket(data: Data([0]), isLast: true))
             return
         }
+        // Closed while FFmpeg started: it serves nobody.
+        guard isOpen(streamID) else {
+            if ffmpegStream === ffmpeg { stopTransmitting() }
+            return
+        }
         for await segment in ffmpeg.segments() {
-            if !isTransmitting || Task.isCancelled { break }
+            if !isTransmitting || !isOpen(streamID) { break }
             transmittedSegments += 1
-            continuation.yield(RecordingPacket(data: segment, isLast: false))
+            if case .terminated = continuation.yield(RecordingPacket(data: segment, isLast: false)) { break }
+        }
+        // HomeKit closed the stream or stopped reading: nothing is wrong with the livestream, and the FFmpeg of
+        // this event goes.
+        guard isOpen(streamID) else {
+            if ffmpegStream === ffmpeg { stopTransmitting() }
+            return
         }
         // FFmpeg timed out, or nothing came: the livestream needs a new connection.
         if ffmpegStream?.isTimedOut == true || transmittedSegments == 0 {
@@ -117,6 +147,7 @@ final class ProtectRecordingDelegate {
     }
 
     func closeRecordingStream(streamID: Int, reason: HDSProtocolSpecificErrorReason?) {
+        if activeStreamID == streamID { activeStreamID = nil }
         stopTransmitting(reason: reason)
     }
 

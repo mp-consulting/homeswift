@@ -20,6 +20,12 @@ final class ProtectLivestreamManager {
     private var subscribers: [String: Int] = [:]
     private var startTime: [String: ContinuousClock.Instant] = [:]
     private var watchdogs: Set<String> = []
+    /// When each session last delivered a segment: the watchdog looks at it when it fires rather than
+    /// being re-armed (a new task) for every segment.
+    private var lastSegment: [String: ContinuousClock.Instant] = [:]
+    /// A first start in flight, which consumers arriving meanwhile wait for instead of starting the
+    /// session again (and killing the first one's).
+    private var starting: [String: Task<Bool, Never>] = [:]
 
     init(camera: ProtectCamera) {
         self.camera = camera
@@ -49,53 +55,90 @@ final class ProtectLivestreamManager {
     /// The number of consumers of an entry's session.
     func subscriberCount(_ entry: RtspEntry) -> Int { subscribers[Self.index(entry).index] ?? 0 }
 
-    /// Starts the session for its first consumer and counts the others.
+    /// Starts the session for its first consumer and counts the others. Consumers that come while the first
+    /// start is under way share it.
     func start(_ entry: RtspEntry, segmentLength: Int = ProtectSettings.segmentResolution) async -> Bool {
-        guard let camera else { return false }
-        let (channel, index, lens) = Self.index(entry)
-        guard let livestream = livestreams[index] else { return false }
+        let index = Self.index(entry).index
+        guard livestreams[index] != nil else { return false }
         if (subscribers[index] ?? 0) == 0 {
-            let options = ProtectLivestream.Options(chunkSize: 16384, emitTimestamps: true, lens: lens ?? 0, requestId: camera.name + ":" + index, segmentLength: segmentLength)
-            guard await livestream.start(cameraID: camera.ufp.id, channel: channel, options: options) else {
-                camera.log.error("Unable to access the Protect livestream API: this is typically due to the Protect controller or camera rebooting.")
-                return false
+            let first: Task<Bool, Never>
+            if let pending = starting[index] {
+                first = pending
+            } else {
+                first = Task { await self.startSession(entry, segmentLength: segmentLength) }
+                starting[index] = first
             }
-        }
-        if (subscribers[index] ?? 0) == 0 {
-            if generation[index] == nil { generation[index] = 0 }
-            restartDelay[index] = ProtectSettings.livestreamRestartInterval
-            restarting[index] = false
-            startTime[index] = ContinuousClock.now
-            listeners[index]?.cancel()
-            listeners[index] = ProtectLivestreamListener(livestream) { [weak self] event in
-                guard case .segment = event else { return }
-                self?.segmentArrived(index, entry: entry, segmentLength: segmentLength)
-            }
-            armWatchdog(index, entry: entry, segmentLength: segmentLength)
+            let started = await first.value
+            if starting[index] == first { starting[index] = nil }
+            guard started, livestreams[index] != nil else { return false }
         }
         subscribers[index, default: 0] += 1
         return true
     }
 
-    /// A segment arrived: a session healthy for a while resets the backoff, and the watchdog is pushed back.
-    private func segmentArrived(_ index: String, entry: RtspEntry, segmentLength: Int) {
+    /// The first start of a session: the livestream, its listener and its watchdog.
+    private func startSession(_ entry: RtspEntry, segmentLength: Int) async -> Bool {
+        guard let camera else { return false }
+        let (channel, index, lens) = Self.index(entry)
+        guard let livestream = livestreams[index] else { return false }
+        let options = ProtectLivestream.Options(chunkSize: 16384, emitTimestamps: true, lens: lens ?? 0, requestId: camera.name + ":" + index, segmentLength: segmentLength)
+        guard await livestream.start(cameraID: camera.ufp.id, channel: channel, options: options) else {
+            camera.log.error("Unable to access the Protect livestream API: this is typically due to the Protect controller or camera rebooting.")
+            return false
+        }
+        // Shut down while it started.
+        guard livestreams[index] === livestream else {
+            livestream.stop()
+            return false
+        }
+        if generation[index] == nil { generation[index] = 0 }
+        restartDelay[index] = ProtectSettings.livestreamRestartInterval
+        restarting[index] = false
+        startTime[index] = ContinuousClock.now
+        lastSegment[index] = ContinuousClock.now
+        listeners[index]?.cancel()
+        listeners[index] = ProtectLivestreamListener(livestream) { [weak self] event in
+            guard case .segment = event else { return }
+            self?.segmentArrived(index)
+        }
+        armWatchdog(index, entry: entry, segmentLength: segmentLength)
+        return true
+    }
+
+    /// A segment arrived: a session healthy for a while resets the backoff, and the watchdog learns it was
+    /// alive at this time.
+    private func segmentArrived(_ index: String) {
         guard let camera else { return }
-        if let start = startTime[index], ContinuousClock.now - start > camera.timers.duration(milliseconds: ProtectSettings.livestreamOfflineRetryInterval) {
+        let now = ContinuousClock.now
+        lastSegment[index] = now
+        if let start = startTime[index], now - start > camera.timers.duration(milliseconds: ProtectSettings.livestreamOfflineRetryInterval) {
             restartCount = 0
             restartDelay[index] = ProtectSettings.livestreamRestartInterval
         }
-        if watchdogs.contains(index) {
-            armWatchdog(index, entry: entry, segmentLength: segmentLength)
-        }
     }
 
-    /// Arms, or re-arms, the watchdog that restarts a session that went quiet.
+    /// Arms the watchdog that restarts a session that went quiet. When it fires after a segment came, it
+    /// waits again for what is left of the timeout from that segment: the effect of re-arming on every
+    /// segment, with one timer per timeout instead of one per segment.
     private func armWatchdog(_ index: String, entry: RtspEntry, segmentLength: Int, delay: Int = ProtectSettings.livestreamTimeout, retry: Bool = false) {
         guard let camera else { return }
         watchdogs.insert(index)
+        let armed = ContinuousClock.now
         camera.timers.reset(watchdogKey(camera, index), after: delay) { [weak self] in
-            self?.watchdogs.remove(index)
-            Task { await self?.restart(index, entry: entry, segmentLength: segmentLength, retry: retry) }
+            guard let self, let camera = self.camera else { return }
+            // A healthy session, on the regular watchdog: wait for the rest of the timeout from its last segment.
+            if !retry, let last = self.lastSegment[index], last > armed {
+                let timeout = camera.timers.duration(milliseconds: ProtectSettings.livestreamTimeout)
+                let left = timeout - (ContinuousClock.now - last)
+                if left > .zero {
+                    let milliseconds = Int(left.components.seconds * 1000) + Int(left.components.attoseconds / 1_000_000_000_000_000)
+                    self.armWatchdog(index, entry: entry, segmentLength: segmentLength,
+                                     delay: max(1, Int((Double(milliseconds) / camera.timers.timeScale).rounded(.up))))
+                    return
+                }
+            }
+            self.watchdogs.remove(index)
+            Task { await self.restart(index, entry: entry, segmentLength: segmentLength, retry: retry) }
         }
     }
 
@@ -150,6 +193,7 @@ final class ProtectLivestreamManager {
             return
         }
         startTime[index] = ContinuousClock.now
+        lastSegment[index] = nil
         armWatchdog(index, entry: entry, segmentLength: segmentLength)
         let interval = ProtectSettings.livestreamRestartInterval
         restartDelay[index] = min((restartDelay[index] ?? interval) + interval / 2, interval * 3)
@@ -159,6 +203,8 @@ final class ProtectLivestreamManager {
     /// One consumer is done; the last one stops the session.
     func stop(_ entry: RtspEntry) {
         let index = Self.index(entry).index
+        // Nobody counted: a stray stop must not end the session of the others.
+        guard (subscribers[index] ?? 0) > 0 else { return }
         let remaining = (subscribers[index] ?? 0) - 1
         subscribers[index] = remaining
         guard remaining <= 0 else { return }
@@ -167,6 +213,7 @@ final class ProtectLivestreamManager {
         listeners.removeValue(forKey: index)?.cancel()
         if let camera { camera.timers.cancel(watchdogKey(camera, index)) }
         watchdogs.remove(index)
+        lastSegment[index] = nil
         subscribers[index] = 0
     }
 
@@ -187,6 +234,7 @@ final class ProtectLivestreamManager {
         restartDelay = [:]
         restarting = [:]
         startTime = [:]
+        lastSegment = [:]
         subscribers = [:]
     }
 }

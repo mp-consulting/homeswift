@@ -20,6 +20,8 @@ struct ProtectDependencies: Sendable {
     var ffmpeg: (@Sendable (_ videoProcessor: String?, _ verbose: Bool, _ logger: Logger) -> any ProtectFfmpegKit)? = {
         HomeswiftFfmpegKit(videoProcessor: $0, verbose: $1, logger: $2)
     }
+    /// The clock of snapshot budgets and timeouts; tests stop it.
+    var snapshotClock: any ProtectClock = SystemProtectClock()
     /// Whether the M3U playlist may listen (tests leave the port alone).
     var allowPlaylistServer = true
     /// Logs here instead of the instance's logger (tests read the lines).

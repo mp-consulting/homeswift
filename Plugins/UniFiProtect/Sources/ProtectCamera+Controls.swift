@@ -17,8 +17,14 @@ extension ProtectCamera {
         configureAccessFeatures()
     }
 
+    /// The Camera Operating Mode service, which the camera controller owns (HomeKit Secure Video's): it is not
+    /// among the accessory's own services.
+    var operatingModeService: Service? {
+        accessory.cameraController?.services.first { $0.type.uuid == ServiceType.cameraOperatingMode.uuid }
+    }
+
     func updateControls() {
-        let operatingMode = accessory.firstService(.cameraOperatingMode)
+        let operatingMode = operatingModeService
         if hints.ledStatus { operatingMode?[.cameraOperatingModeIndicator]?.value = .bool(statusLed) }
         if hints.nightVision { operatingMode?[.nightVision]?.value = .bool(nightVision) }
         if hints.nightVisionDimmer, let dimmer = accessory.service(.lightbulb, subtype: ProtectReservedNames.lightbulbNightVision) {
@@ -40,28 +46,25 @@ extension ProtectCamera {
     }
 
     /// The status light and night vision characteristics of the camera operating mode service, which the
-    /// camera controller adds for HomeKit Secure Video.
+    /// camera controller adds for HomeKit Secure Video. The controller is made once per device, with neither
+    /// characteristic, so they are only ever added (`addCharacteristic`), before the accessory is published.
     private func configureCameraDetails() {
-        guard var service = accessory.firstService(.cameraOperatingMode) else { return }
-        if !isHksvCapable || !hints.ledStatus {
-            service = accessory.reshape(service, removing: [.cameraOperatingModeIndicator])
-        } else {
-            service = accessory.reshape(service, adding: [.cameraOperatingModeIndicator])
-            service[.cameraOperatingModeIndicator]?.onRead { [weak self] in .bool(await self?.statusLed ?? false) }
-            service[.cameraOperatingModeIndicator]?.onWrite { @ProtectActor [weak self] value in try await self?.writeStatusLed(value.boolValue ?? false) }
-            service[.cameraOperatingModeIndicator]?.value = .bool(statusLed)
+        guard isHksvCapable, let service = operatingModeService else { return }
+        if hints.ledStatus {
+            let indicator = service.characteristic(adding: .cameraOperatingModeIndicator)
+            indicator.onRead { [weak self] in .bool(await self?.statusLed ?? false) }
+            indicator.onWrite { @ProtectActor [weak self] value in try await self?.writeStatusLed(value.boolValue ?? false) }
+            indicator.value = .bool(statusLed)
         }
-        if !isHksvCapable || !hints.nightVision {
-            accessory.reshape(service, removing: [.nightVision])
-        } else {
-            service = accessory.reshape(service, adding: [.nightVision])
-            service[.nightVision]?.onRead { [weak self] in .bool(await self?.nightVision ?? false) }
-            service[.nightVision]?.onWrite { @ProtectActor [weak self] value in
+        if hints.nightVision {
+            let characteristic = service.characteristic(adding: .nightVision)
+            characteristic.onRead { [weak self] in .bool(await self?.nightVision ?? false) }
+            characteristic.onWrite { @ProtectActor [weak self] value in
                 let mode = value.boolValue == true ? "auto" : "off"
                 try await self?.writeDevice(["ispSettings": ["irLedMode": .string(mode)]],
                     "Unable to set night vision to \(mode). Please ensure this username has the Administrator role in UniFi Protect.")
             }
-            service[.nightVision]?.value = .bool(nightVision)
+            characteristic.value = .bool(nightVision)
         }
     }
 

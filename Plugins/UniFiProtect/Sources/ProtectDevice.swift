@@ -146,8 +146,8 @@ class ProtectDevice: ProtectBase {
     func configureHints() {
         hints.enabled = hasFeature("Device")
         hints.logMotion = hasFeature("Log.Motion")
-        hints.motionDuration = getFeatureNumber("Motion.Duration").map { Int($0) } ?? ProtectSettings.motionDuration
-        hints.occupancyDuration = getFeatureNumber("Motion.OccupancySensor.Duration").map { Int($0) } ?? ProtectSettings.occupancyDuration
+        hints.motionDuration = getFeatureInt("Motion.Duration", in: ProtectSettings.durationRange) ?? ProtectSettings.motionDuration
+        hints.occupancyDuration = getFeatureInt("Motion.OccupancySensor.Duration", in: ProtectSettings.durationRange) ?? ProtectSettings.occupancyDuration
         hints.smartOccupancy = []
         hints.standalone = hasFeature("Device.Standalone")
         hints.syncName = hasFeature("Device.SyncName")
@@ -369,6 +369,11 @@ class ProtectDevice: ProtectBase {
 
     func getFeatureNumber(_ option: String) -> Double? {
         platform.featureOptions.getInteger(option, device: ufp.mac, controllers: nvr.controllerScopes).orNil
+    }
+
+    /// An integer option, truncated and clamped to `range`: a `1e300` in the configuration never traps.
+    func getFeatureInt(_ option: String, in range: ClosedRange<Int>) -> Int? {
+        getFeatureNumber(option).flatMap { Int(saturating: $0, in: range) }
     }
 
     func getFeatureValue(_ option: String) -> String? {

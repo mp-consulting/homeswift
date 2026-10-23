@@ -10,7 +10,7 @@ struct FeatureOptionEntry: Sendable, Equatable {
 
         var text: String {
             switch self {
-            case .number(let value): value == value.rounded() ? String(Int(value)) : String(value)
+            case .number(let value): jsNumber(value)
             case .text(let value): value
             }
         }
