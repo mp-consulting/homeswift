@@ -124,11 +124,12 @@ final class MCPTestEnvironment: @unchecked Sendable {
     var configURL: URL { directory.appendingPathComponent("config.json") }
     var auditURL: URL { directory.appendingPathComponent("audit.jsonl") }
 
-    init(elicitation: Bool = true, allowSecrets: Bool = false) throws {
+    /// `config` replaces the default config.json.
+    init(elicitation: Bool = true, allowSecrets: Bool = false, config custom: String? = nil) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let configURL = directory.appendingPathComponent("config.json")
         let auditURL = directory.appendingPathComponent("audit.jsonl")
-        let config = """
+        let config = custom ?? """
             {
               "bridge": { "name": "Test Bridge", "username": "0E:11:22:33:44:55", "pin": "031-45-154", "port": 0 },
               "platforms": [

@@ -153,6 +153,30 @@ All notable changes to this project are documented here. The format follows
   record per minute is kept for 8 days under `metrics/` (`Metrics`, `GET /api/metrics`).
 - **`HAPServer.observeTimings`** and **`PluginHost.observeTimings`**: how long each controller request to
   `/characteristics` and each accessory read or write handler took, with the accessories it was about.
+- **MCP: child bridges**: `list_child_bridges`, `get_child_bridge_health` (status, uptime, restarts, plugins
+  that did not start), `restart_child_bridge`, `stop_child_bridge` and `start_child_bridge`, and the
+  `homeswift://child-bridge/{id}` resource; `PluginHost.stopChildBridge`, `startChildBridge`, `restartChildBridge`.
+- **MCP: accessory caches**: `get_cached_accessories` (with what its plugin has not added again, and the files of
+  blocks no longer configured), `remove_cached_accessory` and `reset_cached_accessories`, which starts the plugins
+  again on empty caches; `PluginHost.cachedAccessories`, `removeCachedAccessory`, `resetCachedAccessories`.
+- **MCP: pairings**: `get_pairing_info` (paired or not and how many controllers, per bridge, child bridge and
+  external accessory; never the setup code or URI) and `reset_pairings`, which calls `HAPServer.resetPairings`.
+- **MCP: `get_accessory_history`**: the Eve history a plugin keeps for an accessory, per characteristic min, max,
+  time-weighted average, last value and averaged points (`EveHistory.histories(of:)`, `entries(since:)`).
+- **MCP: `search_logs` filters**: `since`/`until` (ISO or `1h`, `2d`; the archive on disk), minimum `level`,
+  `plugin`, `caseSensitive`, `context` lines, and a 5-second limit on regular expressions; `pattern` is optional
+  when a filter is given.
+- **MCP: accessory filters**: `list_accessories` by `type`, `name`, `manufacturer` and `excludeManufacturer`, and
+  `set_accessories` with one characteristic on the accessories `ids` or `filter` pick, refused beyond
+  `maxTargets` (25). There is no `room` filter: HomeKit keeps the rooms.
+- **MCP: `get_system_info`** adds the load average, the process's CPU and memory, and each network interface's
+  throughput.
+- **MCP: `outputSchema`** on the tools with structured answers (for clients on protocol 2025-06-18), and the
+  `scene-builder` prompt, which has the user save the scene in the Home app.
+- **MCP sessions**: at most `maxSessions` (32), the least recently used idle one making room, and
+  `sessionIdleMinutes` (30); `homebridge-ai-kit`'s environment variables (`HOMEBRIDGE_AI_MCP_MAX_SESSIONS`,
+  `…_SESSION_IDLE_MINUTES`, `HOMEBRIDGE_READ_ONLY`, `HOMEBRIDGE_AI_MCP_TOKENS`, `…_ALLOWED_ORIGINS`,
+  `HOMEBRIDGE_AI_AUDIT_LOG`) and their `HOMESWIFT_` names override the block.
 
 ### Changed
 
