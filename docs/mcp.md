@@ -66,6 +66,8 @@ Door State, Security System Target State, Lock Control Point) change only throug
 controls (`isSecurityControl`, such as UniFi Access's Lock Trigger switches, whose On unlocks a door):
 `get_accessory` lists them with `"security": true`. Values that carry keys (Setup Endpoints holds a live
 stream's SRTP keys) are listed as null with `"confidential": true`, and left out of `list_accessories`.
+What only HomeKit uses is `"internal": true`: a camera's RTP stream, recording and data stream services and
+its snapshot settings. TLV8 and data values mean nothing as text: they are null with their size in `bytes`.
 
 ## Confirmations
 

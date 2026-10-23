@@ -142,20 +142,31 @@ public struct HomeswiftCatalog: Sendable {
             object["platform"] = .string(platform.platform)
             object["platformName"] = .string(platform.name)
         }
+        if let camera = accessory.cameraController {
+            // The web UI gives it a camera card: live video or snapshots, from /api/cameras/<id>/…
+            object["camera"] = true
+            if camera is DoorbellController || accessory.services.contains(where: { $0.type.uuid == ServiceType.doorbell.uuid }) { object["doorbell"] = true }
+        }
         object["services"] = .array(accessory.services.filter { $0.type.uuid != ServiceType.accessoryInformation.uuid }.map { service in
             var entry: [String: JSONValue] = ["type": .string(service.type.name)]
             if let subtype = service.subtype { entry["subtype"] = .string(subtype) }
             if let name = service[.name]?.value.stringValue { entry["name"] = .string(name) }
             if service.isPrimary { entry["primary"] = true }
+            if isInternal(service) { entry["internal"] = true }
             if detailed {
                 entry["characteristics"] = .array(service.characteristics.map { characteristic in
                     let type = characteristic.type
                     var detail: [String: JSONValue] = [
-                        "type": .string(type.name), "value": value(of: characteristic), "format": .string(type.format.rawValue),
+                        "type": .string(type.name), "value": isOpaque(characteristic) ? .null : value(of: characteristic), "format": .string(type.format.rawValue),
                         "permissions": .array(type.permissions.map(\.rawValue).sorted().map(JSONValue.string)),
                     ]
                     if characteristic.isSecurityControl { detail["security"] = true }
                     if characteristic.isConfidential { detail["confidential"] = true }
+                    if isInternal(characteristic) { detail["internal"] = true }
+                    if isOpaque(characteristic), !characteristic.isConfidential, let base64 = characteristic.value.stringValue {
+                        // The size says whether HomeKit configured it; the bytes mean nothing as text.
+                        detail["bytes"] = .number(Double(Data(base64Encoded: base64)?.count ?? 0))
+                    }
                     if let unit = type.unit { detail["unit"] = .string(unit.rawValue) }
                     if let minimum = type.minValue { detail["minValue"] = .number(minimum) }
                     if let maximum = type.maxValue { detail["maxValue"] = .number(maximum) }
@@ -165,12 +176,39 @@ public struct HomeswiftCatalog: Sendable {
                 })
             } else {
                 entry["values"] = .object(service.characteristics
-                    .filter { $0.type.permissions.contains(.pairedRead) && $0.type.uuid != CharacteristicType.name.uuid && !$0.isConfidential }
+                    .filter { $0.type.permissions.contains(.pairedRead) && $0.type.uuid != CharacteristicType.name.uuid && !$0.isConfidential && !isOpaque($0) }
                     .reduce(into: [:]) { $0[$1.type.name] = json($1.value) })
             }
             return .object(entry)
         })
         return .object(object)
+    }
+
+    /// Services HomeKit runs a camera with, which a person neither reads nor changes: the RTP stream setups, the
+    /// HomeKit Secure Video configuration and its data stream. Marked `internal` in the accessory JSON; the web UI
+    /// leaves them off its cards (a camera card shows Recording from the recording management service itself).
+    static let internalServices: Set<HAPUUID> = [
+        ServiceType.cameraRTPStreamManagement.uuid, ServiceType.cameraRecordingManagement.uuid, ServiceType.dataStreamTransportManagement.uuid,
+    ]
+
+    /// Characteristics of the camera operating mode that only HomeKit uses: its snapshot settings, third-party
+    /// camera state, the field of view it draws with.
+    static let internalCharacteristics: Set<HAPUUID> = [
+        CharacteristicType.eventSnapshotsActive.uuid, CharacteristicType.periodicSnapshotsActive.uuid, CharacteristicType.thirdPartyCameraActive.uuid,
+        CharacteristicType.manuallyDisabled.uuid, CharacteristicType.diagonalFieldOfView.uuid,
+    ]
+
+    public static func isInternal(_ service: Service) -> Bool { internalServices.contains(service.type.uuid) }
+
+    /// HomeKit-only: a TLV8 or data value (stream and recording configurations, transition curves), or one of
+    /// `internalCharacteristics`.
+    public static func isInternal(_ characteristic: Characteristic) -> Bool {
+        isOpaque(characteristic) || internalCharacteristics.contains(characteristic.type.uuid)
+    }
+
+    /// TLV8 and data values are base64 of binary structures: no surface shows them as text (`bytes` gives the size).
+    static func isOpaque(_ characteristic: Characteristic) -> Bool {
+        characteristic.type.format == .tlv8 || characteristic.type.format == .data
     }
 
     /// A characteristic's value for the bridge's own surfaces (MCP, the web UI, its event stream): null for a
@@ -451,7 +489,7 @@ public struct HomeswiftCatalog: Sendable {
             },
             MCPTool(
                 name: "get_accessory", title: "Get accessory",
-                description: "One accessory with every characteristic: value, format, permissions and range.",
+                description: "One accessory with every characteristic: value, format, permissions and range. \"internal\" marks what only HomeKit uses (a camera's stream and recording setup); TLV8 and data values are null, with their size in bytes.",
                 inputSchema: ["type": "object", "required": ["id"], "properties": ["id": idSchema]],
                 scope: .read, idempotent: true
             ) { call in
