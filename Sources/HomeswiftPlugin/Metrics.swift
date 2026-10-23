@@ -115,8 +115,7 @@ public final class Metrics: @unchecked Sendable {
     public func start(following host: PluginHost) {
         let observation = host.observeTimings { [weak self] bridge, timing in self?.record(timing, server: bridge.server.deviceID) }
         let interval = interval
-        // The first sample before returning: the Status page (and a test) asking at once has a value, however long
-        // the task takes to run on a loaded machine.
+        // The first sample before returning, so the Status page has memory and CPU from the start.
         sample()
         let sampler = Task { [weak self] in
             while !Task.isCancelled {
@@ -257,7 +256,7 @@ public final class Metrics: @unchecked Sendable {
         let line = Self.entry(minute) + [0x0A]
         let name = "\(Self.prefix)\(Self.days().string(from: minute.start)).jsonl"
         let days = days
-        queue.async { [line] in
+        queue.async {
             let manager = FileManager.default
             let url = directory.appendingPathComponent(name)
             if !manager.fileExists(atPath: url.path) {
