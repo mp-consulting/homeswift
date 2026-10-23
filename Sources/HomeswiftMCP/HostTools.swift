@@ -267,9 +267,9 @@ extension HomeswiftCatalog {
             ? logs.lines(from: query.since ?? .distantPast, to: query.until ?? Date(), limit: 200_000)
             : logs.all
         // Shown: the line (with its payload when asked); searched: its label, text and payload, secrets masked so a
-        // secret's value never matches.
-        let texts = source.map { Self.logText($0, details: query.details) }
-        let haystacks = source.map { Self.safe($0.searchable) }
+        // secret's value never matches. Each is made for the lines that need it, the shown ones and those the level
+        // and plugin leave: making both for every line in memory had doubled a search's time.
+        let haystack = { (index: Int) in Self.safe(source[index].searchable) }
         let plugin = query.plugin?.lowercased()
         var candidates = source.indices.filter { index in
             let line = source[index]
@@ -283,7 +283,7 @@ extension HomeswiftCatalog {
                 let deadline = ContinuousClock.now + budget
                 var kept: [Int] = []
                 for index in candidates {
-                    let text = haystacks[index]
+                    let text = haystack(index)
                     var matched = false
                     var late = false
                     // reportProgress calls back during a long match, so a runaway pattern stops at the deadline.
@@ -301,19 +301,22 @@ extension HomeswiftCatalog {
                 }
                 candidates = kept
             } else if query.caseSensitive {
-                candidates = candidates.filter { haystacks[$0].contains(pattern) }
+                candidates = candidates.filter { haystack($0).contains(pattern) }
             } else {
                 // An ASCII pattern is prepared once for the thousands of lines.
                 let needle = TextSearch.isASCII(pattern) ? TextSearch.Needle(pattern, caseless: true) : nil
                 candidates = candidates.filter { index in
-                    let text = haystacks[index]
+                    let text = haystack(index)
                     if let needle, TextSearch.isASCII(text) { return TextSearch.contains(text, needle) }
                     return TextSearch.contains(text, caseless: pattern)
                 }
             }
         }
         let taken = Array(candidates.suffix(max(1, query.limit)))
-        let text = query.context > 0 ? Self.withContext(texts, matches: taken, context: query.context) : taken.map { texts[$0] }.joined(separator: "\n")
+        let shown = { (index: Int) in Self.logText(source[index], details: query.details) }
+        let text = query.context > 0
+            ? Self.withContext(count: source.count, matches: taken, context: query.context, text: shown)
+            : taken.map(shown).joined(separator: "\n")
         return [
             "total": .number(Double(candidates.count)), "shown": .number(Double(taken.count)),
             "matches": .array(taken.map { index in
@@ -325,16 +328,16 @@ extension HomeswiftCatalog {
     }
 
     /// grep -C: matched lines marked `>`, context lines indented, separate groups split by `--`.
-    static func withContext(_ lines: [String], matches: [Int], context: Int) -> String {
+    static func withContext(count: Int, matches: [Int], context: Int, text: (Int) -> String) -> String {
         let hit = Set(matches)
         var out: [String] = []
         var shownUntil = -1
         for index in matches {
             let from = max(index - context, shownUntil + 1)
-            let to = min(index + context, lines.count - 1)
+            let to = min(index + context, count - 1)
             if !out.isEmpty, from > shownUntil + 1 { out.append("--") }
             if from <= to {
-                for line in from...to { out.append("\(hit.contains(line) ? ">" : " ") \(lines[line])") }
+                for line in from...to { out.append("\(hit.contains(line) ? ">" : " ") \(text(line))") }
             }
             shownUntil = max(shownUntil, to)
         }
