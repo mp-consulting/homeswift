@@ -71,9 +71,9 @@ with `Authorization: Bearer <token>`.
 
 | Scope | Tools |
 |---|---|
-| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info` |
-| `control` | Plus `set_accessory`, `set_accessories` (with `dryRun`), `set_security_accessory`, `identify_accessory` |
-| `admin` | Plus `update_config`, `patch_config`, `restore_config`, `put_list_entry`, `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings` |
+| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `get_accessory_layout`, `list_scenes` |
+| `control` | Plus `set_accessory`, `set_accessories` (with `dryRun`), `set_security_accessory`, `identify_accessory`, `run_scene` |
+| `admin` | Plus `update_config`, `patch_config`, `restore_config`, `put_list_entry`, `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `set_accessory_layout`, `save_scene` (with `dryRun`), `send_test_notification` |
 
 A token sees only the tools its scope allows. Locks, garage doors and alarms (Lock Target State, Target
 Door State, Security System Target State, Lock Control Point) change only through `set_security_accessory`;
@@ -88,11 +88,25 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
 
 - **Accessories.** `list_accessories` takes filters, all of which must match: `platform`, `type` (a category
   such as `lightbulb`, or a service type such as `Switch`), `name` (part of the accessory's or a service's
-  name), `manufacturer` and `excludeManufacturer`. Homeswift has no rooms (HomeKit keeps them and a bridge
-  never learns them), so there is no `room` filter: names often carry the room. `set_accessories` takes a
+  name), `manufacturer`, `excludeManufacturer` and `room`, a room of the web UI's layout, case aside (an unknown
+  room is an error that lists them). `set_accessories` takes a
   list of `changes`, or one `characteristic` and `value` for the accessories that `ids` or `filter` (the same
   filters) pick; it refuses when more than `maxTargets` (25 by default, at most 200) would change, and skips
   and reports accessories without the characteristic and security controls.
+- **Rooms.** The Home app's rooms never reach a bridge; these are the web UI's (Glass UI's accessory layout,
+  `accessory-layout.json`). `get_accessory_layout` lists the rooms with their accessories (and `displayName`,
+  `hidden`, `favourite`) and those in no room; `set_accessory_layout` puts accessories in rooms (a new name adds
+  the room), hides them, names them for the web UI or makes them Quick Controls, and orders (`rooms`), renames
+  (`renameRoom`) or removes (`removeRooms`) rooms. HomeKit is not changed.
+- **Scenes.** `list_scenes` lists the web UI's scenes with their actions, triggers, conditions and last run, and
+  `"security": true` on one that changes a lock, a garage door or an alarm. `run_scene` (an id or a name) runs a
+  scene and answers per action; it refuses a scene with a security action, as homebridge-mcp-server's does: those
+  go through `set_security_accessory`, which asks, or the web UI, where the signed-in user confirms. `save_scene`
+  makes a scene from the current values of `ids` (only `characteristics`, when given), never capturing a security
+  control; `dryRun` lists the actions. The `scene-builder` prompt ends with it.
+- **Notifications.** `send_test_notification` sends a test through the channels that are on (`channel` for one:
+  `webhook`, `ntfy`, `pushover`, `telegram`, `browser`) and answers per channel, 5 a minute at most. The channels
+  are set up on the web UI's Notifications page, in a file of their own that no tool reads.
 - **History.** `get_accessory_history` reads the Eve history a plugin keeps for an accessory (`EveHistory`:
   temperature, humidity, air quality, power, light level, contact, motion; ten-minute averages for four
   weeks): per characteristic the min and max with when, the time-weighted average, the last value and the
@@ -151,9 +165,9 @@ the log grows. Log lines also arrive as `notifications/message`, warnings and er
 asks for more with `logging/setLevel`.
 
 Prompts: `diagnose-logs` (`focus?`), `troubleshoot-device` (`device`, `symptom?`), `audit-config`,
-`nightly-health-check` (`hours?`) and `scene-builder` (`description`, `area?`). Homeswift keeps no scenes:
-`scene-builder` finds the accessories, proposes values, sets them with `set_accessories` (a dry run first)
-and has the user save the scene in the Home app, which records the accessories' current state.
+`nightly-health-check` (`hours?`) and `scene-builder` (`description`, `area?`). `scene-builder` finds
+the accessories (by room when the area is one), proposes values, sets them with `set_accessories` (a dry run
+first) and saves them as a Homeswift scene with `save_scene`, which the web UI can then schedule.
 `homebridge-ai-kit`'s `plan-upgrade` is not ported: it plans npm upgrades of plugins, and Homeswift's
 plugins are compiled into the binary.
 
