@@ -355,8 +355,8 @@ struct HostToolTests {
         let prompt = try await client.call("prompts/get", ["name": "scene-builder", "arguments": ["description": "movie night", "area": "Living Room"]])
         let text = prompt["messages"]?[0]?["content"]?["text"]?.stringValue ?? ""
         #expect(text.contains("\"movie night\""))
-        #expect(text.contains("with name \"Living Room\""))
-        #expect(text.contains("Home app"))
+        #expect(text.contains("with room \"Living Room\""))
+        #expect(text.contains("save_scene"))
         await #expect(throws: JSONRPCError.self) { try await client.call("prompts/get", ["name": "scene-builder"]) }
     }
 }

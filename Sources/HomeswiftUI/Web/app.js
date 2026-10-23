@@ -277,6 +277,7 @@
         el("div", { class: "stat" }, el("b", { text: plugins.size }), el("span", { text: plugins.size === 1 ? "Plugin" : "Plugins" })),
         el("div", { class: "stat" }, el("b", { text: main0 ? main0.controllers : 0 }), el("span", { text: "Home app controllers" })),
         el("div", { class: "stat" }, el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: "Up" })))],
+      quick: () => window.HomeswiftHome?.quickSection(accessories),
       digest: () => status.assistant ? digestWidget() : null,
       activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
       bridges: () => [el("h2", { text: status.bridges.length === 1 ? "Bridge" : "Bridges and accessories" }),
@@ -292,7 +293,7 @@
         el("div", { class: "fact wide" }, el("span", { text: "Configuration" }), el("b", { class: "mono", text: status.configPath, title: status.configPath })),
         // Changes apply without one; this is for a plugin that misbehaves.
         el("div", { class: "actions" }, el("button", { class: "link", text: "Restart homeswift…", onclick: restartBridge }),
-          el("a", { class: "link", href: "/settings", text: "Settings, pairings and backups" })))],
+          el("a", { class: "link", href: "/settings", text: "Settings, pairings and backups" }), el("a", { class: "link", href: "/notifications", text: "Notifications" })))],
     };
     const layout = dashboardLayout();
     show(main,
@@ -309,7 +310,7 @@
   // ---- The Status page's widgets: which show, in which order ----------------------------------------------
   // Each user's own, kept on the server with their other preferences (/api/preferences, `dashboard`).
 
-  const dashboardWidgets = [["overview", "Overview", "Health, accessories, plugins, uptime"], ["digest", "Daily digest", "The Assistant's summary of the day"],
+  const dashboardWidgets = [["overview", "Overview", "Health, accessories, plugins, uptime"], ["quick", "Quick controls", "Favourite accessories and scenes"], ["digest", "Daily digest", "The Assistant's summary of the day"],
     ["activity", "Activity", "Memory, CPU and response times"], ["bridges", "Bridges", "Pairing codes and what each bridge runs"], ["system", "System", "The machine, and Restart"]];
 
   /// The widgets in the user's order (new ones last), and those hidden.
@@ -734,10 +735,10 @@
       : el("div", { class: "controls" }, el("div", { class: "service-name", text: shortName(service) }), rows));
     const names = others.map(({ service }) => shortName(service));
     const subtitle = describeModel(accessory);
-    const card = el("div", { class: "card accessory-card", "data-search": `${accessory.name} ${accessory.platformName || ""} ${accessory.model || ""}`.toLowerCase() },
+    const card = el("div", { class: "card accessory-card", "data-search": searchText(accessory) },
       el("div", { class: "server-head" },
         tile(iconName, tone),
-        el("div", { class: "who" }, el("strong", { text: accessory.name }), el("div", { class: "muted", text: subtitle })),
+        el("div", { class: "who" }, el("strong", { text: accessory.displayName || accessory.name, title: accessory.displayName ? `${accessory.name} in the Home app` : null }), el("div", { class: "muted", text: subtitle })),
         power ? powerSwitch(accessory, primary, power) : null),
       primary ? el("div", { class: "controls" }, controlRows(accessory, primary, power, remoteKey)) : null,
       remoteKey ? el("div", { class: "card-remote" }, televisionRemote(accessory, primary, remoteKey)) : null,
@@ -779,7 +780,7 @@
     const more = groups.filter((group) => !cameraFirst.has(group.service.type));
     const names = more.map(({ service }) => shortName(service));
     const subtitle = describeModel(accessory);
-    return el("div", { class: "card accessory-card camera-card", "data-search": `${accessory.name} ${accessory.platformName || ""} ${accessory.model || ""}`.toLowerCase() },
+    return el("div", { class: "card accessory-card camera-card", "data-search": searchText(accessory) },
       view.element,
       subtitle ? el("div", { class: "camera-meta muted", text: subtitle }) : null,
       first.length ? el("div", { class: "controls" }, first.map(node)) : null,
@@ -791,6 +792,9 @@
         menuButton(`Actions for ${accessory.name}`, () => accessoryActions(accessory))));
   }
 
+  /// What the search box looks in: the names, the room, the plugin and the model.
+  const searchText = (accessory) => [accessory.name, accessory.displayName, accessory.room, accessory.platformName, accessory.model].filter(Boolean).join(" ").toLowerCase();
+
   /// What the menu of an accessory's card offers.
   function accessoryActions(accessory) {
     return [
@@ -798,16 +802,33 @@
       { label: "Show its log", icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` },
       window.HomeswiftChat?.available() ? { label: "Ask the Assistant", icon: sparkle(), onSelect: () => HomeswiftChat.ask(`About ${accessory.name}: `) } : null,
       accessory.platform ? { label: "Plugin settings", icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
+      ...(window.HomeswiftHome?.layoutActions(accessory) ?? []),
       accessory.history ? { label: "History", icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
     ];
   }
 
+  // /accessories?group=room|plugin&hidden=1: sections per room (once there are rooms) or per plugin; hidden
+  // accessories only with hidden=1.
   views.accessories = async (main) => {
-    const accessories = withSlugs(await api("/api/accessories"), "accessory");
+    const [all, layout] = await Promise.all([api("/api/accessories").then((list) => withSlugs(list, "accessory")), api("/api/layout").catch(() => ({ rooms: [] }))]);
+    const params = new URLSearchParams(location.search);
+    const rooms = layout.rooms.map((room) => room.name);
+    const byRoom = (params.get("group") || (rooms.length ? "room" : "plugin")) === "room";
+    const showHidden = params.get("hidden") === "1";
+    const accessories = showHidden ? all : all.filter((accessory) => !accessory.hidden);
+    const hiddenCount = all.length - all.filter((accessory) => !accessory.hidden).length;
     const servers = new Set(accessories.map((accessory) => accessory.bridge)).size;
-    // A section per plugin; a card's foot names its server.
+    // A section per room or per plugin; a card's foot names its server.
     const search = el("input", { type: "search", class: "search", placeholder: "Search accessories", "aria-label": "Search accessories" });
-    const sections = groupByPlugin(accessories).map(([name, list]) => el("section", { class: "accessory-section" },
+    const viewWith = (key, value) => { const next = new URLSearchParams(location.search); if (value === null) next.delete(key); else next.set(key, value); const query = next.toString(); navigate(`/accessories${query ? `?${query}` : ""}`, { replace: true }); };
+    const grouping = el("select", { "aria-label": "Group by", onchange: (event) => viewWith("group", event.target.value) },
+      el("option", { value: "room", text: "By room", selected: byRoom }), el("option", { value: "plugin", text: "By plugin", selected: !byRoom }));
+    const hiddenToggle = hiddenCount ? el("label", { class: "toggle compact" }, el("input", { type: "checkbox", checked: showHidden, onchange: (event) => viewWith("hidden", event.target.checked ? "1" : null) }),
+      el("span", { text: `Show hidden (${hiddenCount})` })) : null;
+    const suggest = window.HomeswiftChat?.available() && accessories.length
+      ? el("button", { class: "ai-button", onclick: () => HomeswiftHome.suggestRooms(main.querySelector(".accessory-sections"), all) }, sparkle(), "Suggest rooms") : null;
+    const groups = byRoom ? HomeswiftHome.groupByRoom(accessories, rooms) : groupByPlugin(accessories);
+    const sections = groups.map(([name, list]) => el("section", { class: "accessory-section" },
       el("div", { class: "section-head" }, el("h2", { text: name }), el("span", { class: "muted", text: `${list.length} ${list.length === 1 ? "accessory" : "accessories"}` })),
       el("div", { class: "grid" }, list.map(accessoryCard))));
     const none = el("p", { class: "muted hidden", text: "No accessory matches." });
@@ -827,8 +848,9 @@
       none.classList.toggle("hidden", shown > 0);
     });
     show(main,
-      pageHead("Accessories", accessories.length ? `${accessories.length} on ${servers} ${servers === 1 ? "server" : "servers"}, as the Home app sees them. Changes here reach your devices.` : "", accessories.length ? search : null),
-      accessories.length ? [...sections, none] : el("div", { class: "card empty" }, el("p", { class: "muted", text: "No accessories yet. Plugins add them once they reach their devices." })));
+      pageHead("Accessories", accessories.length ? `${accessories.length} on ${servers} ${servers === 1 ? "server" : "servers"}, as the Home app sees them. Changes here reach your devices.` : "",
+        accessories.length ? search : null, all.length ? grouping : null, hiddenToggle, suggest),
+      el("div", { class: "accessory-sections" }, accessories.length ? [...sections, none] : el("div", { class: "card empty" }, el("p", { class: "muted", text: all.length ? "Every accessory is hidden." : "No accessories yet. Plugins add them once they reach their devices." }))));
   };
 
   /// Accessories by plugin: [name, accessories] pairs by the plugin's name, each list by name; those of no
@@ -2171,9 +2193,11 @@
     if (!(auth && auth.authenticated)) return;
     if (document.hidden) { closeEvents(); return; }
     openEvents();
-    if (["/", "/status", "/accessories"].includes(location.pathname)) route();
+    if (["/", "/status", "/accessories", "/quick"].includes(location.pathname)) route();
   });
 
+  // The views of home.js: rooms, Quick Controls, scenes, notifications.
+  window.HomeswiftHome?.install({ views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(), enumLabels, labelFor, withSlugs });
   // The Settings pages (admin.js) draw with the same helpers.
   window.HomeswiftApp = { api, navigate, route, pageHead, breadcrumb, show, savedText, waitForRestart, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage };
 

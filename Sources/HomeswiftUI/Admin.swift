@@ -232,9 +232,12 @@ extension UIServer {
         do {
             let result = try await catalog.createInstanceBackup()
             let removed = catalog.instanceBackups.prune(keepingDays: configuration.scheduledBackupDays)
-            logger.info("Scheduled backup done", metadata: ["file": "\(result["backup"]?["fileName"]?.stringValue ?? "?")", "removed": "\(removed.count)"])
+            let file = result["backup"]?["fileName"]?.stringValue ?? "?"
+            logger.info("Scheduled backup done", metadata: ["file": "\(file)", "removed": "\(removed.count)"])
+            await catalog.notify(.backupSucceeded, title: "Scheduled backup done", message: "The scheduled instance backup \(file) was saved.", path: "/settings/backups", subject: file)
         } catch {
             logger.warning("Scheduled backup failed", metadata: ["error": "\(error)"])
+            await catalog.notify(.backupFailed, title: "Scheduled backup failed", message: "The scheduled instance backup failed: \(Redaction.redactText("\(error)"))", urgent: true, path: "/settings/backups")
         }
     }
 
