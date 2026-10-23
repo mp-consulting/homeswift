@@ -189,34 +189,39 @@ public enum JSONValue: Sendable, Hashable, Codable, CustomStringConvertible {
 
     private static func quote(_ string: String, to bytes: inout [UInt8]) {
         bytes.append(UInt8(ascii: "\""))
-        // Nearly every string has nothing to escape: one copy instead of a switch per byte.
-        let plain = string.utf8.withContiguousStorageIfAvailable { utf8 -> Bool in
-            var index = 0
-            while index < utf8.count {
-                let byte = utf8[index]
-                if byte < 0x20 || byte == UInt8(ascii: "\"") || byte == UInt8(ascii: "\\") { return false }
-                index += 1
-            }
-            bytes.append(contentsOf: utf8)
-            return true
-        } ?? false
-        if !plain {
-            let hex = Array("0123456789abcdef".utf8)
-            for byte in string.utf8 {
-                switch byte {
-                case UInt8(ascii: "\""): bytes.append(contentsOf: [UInt8(ascii: "\\"), UInt8(ascii: "\"")])
-                case UInt8(ascii: "\\"): bytes.append(contentsOf: [UInt8(ascii: "\\"), UInt8(ascii: "\\")])
-                case 0x0A: bytes.append(contentsOf: [UInt8(ascii: "\\"), UInt8(ascii: "n")])
-                case 0x0D: bytes.append(contentsOf: [UInt8(ascii: "\\"), UInt8(ascii: "r")])
-                case 0x09: bytes.append(contentsOf: [UInt8(ascii: "\\"), UInt8(ascii: "t")])
-                case 0x08: bytes.append(contentsOf: [UInt8(ascii: "\\"), UInt8(ascii: "b")])
-                case 0x0C: bytes.append(contentsOf: [UInt8(ascii: "\\"), UInt8(ascii: "f")])
-                case 0..<0x20: bytes.append(contentsOf: [UInt8(ascii: "\\"), UInt8(ascii: "u"), UInt8(ascii: "0"), UInt8(ascii: "0"), hex[Int(byte >> 4)], hex[Int(byte & 0xF)]])
-                default: bytes.append(byte)
-                }
-            }
+        if string.utf8.withContiguousStorageIfAvailable({ escape($0, to: &bytes) }) == nil {
+            Array(string.utf8).withUnsafeBufferPointer { escape($0, to: &bytes) }
         }
         bytes.append(UInt8(ascii: "\""))
+    }
+
+    /// The runs between escapes are copied whole, the escapes written a byte at a time: a string of JSON (an MCP tool's
+    /// text) has a quote every few bytes, and an array made for each escape had been most of writing it.
+    private static func escape(_ utf8: UnsafeBufferPointer<UInt8>, to bytes: inout [UInt8]) {
+        let hex: StaticString = "0123456789abcdef"
+        var run = 0
+        for index in 0..<utf8.count {
+            let byte = utf8[index]
+            guard byte < 0x20 || byte == UInt8(ascii: "\"") || byte == UInt8(ascii: "\\") else { continue }
+            if run < index { bytes.append(contentsOf: UnsafeBufferPointer(rebasing: utf8[run..<index])) }
+            run = index + 1
+            bytes.append(UInt8(ascii: "\\"))
+            switch byte {
+            case UInt8(ascii: "\""), UInt8(ascii: "\\"): bytes.append(byte)
+            case 0x0A: bytes.append(UInt8(ascii: "n"))
+            case 0x0D: bytes.append(UInt8(ascii: "r"))
+            case 0x09: bytes.append(UInt8(ascii: "t"))
+            case 0x08: bytes.append(UInt8(ascii: "b"))
+            case 0x0C: bytes.append(UInt8(ascii: "f"))
+            default:
+                bytes.append(UInt8(ascii: "u"))
+                bytes.append(UInt8(ascii: "0"))
+                bytes.append(UInt8(ascii: "0"))
+                bytes.append(hex.utf8Start[Int(byte >> 4)])
+                bytes.append(hex.utf8Start[Int(byte & 0xF)])
+            }
+        }
+        if run < utf8.count { bytes.append(contentsOf: UnsafeBufferPointer(rebasing: utf8[run..<utf8.count])) }
     }
 
     public var description: String { text() }
