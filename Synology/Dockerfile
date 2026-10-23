@@ -17,9 +17,11 @@ COPY Sources Sources
 COPY Plugins Plugins
 COPY Tests Tests
 # DT_RPATH (--disable-new-dtags), not RUNPATH: it also finds lib/ for the libraries' own dependencies (dns_sd
-# needs avahi-client). The cache keeps .build between local builds.
+# needs avahi-client). The cache keeps .build between local builds; the build plan is made again each time, as
+# a stale one in the cache names targets that are no longer there.
 RUN --mount=type=cache,target=/src/.build \
-    swift build -c release --static-swift-stdlib --product homeswift \
+    rm -f .build/*.yaml .build/*/release/description.json \
+    && swift build -c release --static-swift-stdlib --product homeswift \
         -Xlinker --disable-new-dtags -Xlinker -rpath -Xlinker '$ORIGIN/../lib' \
     && install -D "$(swift build -c release --show-bin-path)/homeswift" /out/bin/homeswift \
     && strip --strip-debug /out/bin/homeswift
