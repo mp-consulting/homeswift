@@ -175,6 +175,8 @@ public struct HomeswiftCatalog: Sendable {
             object["camera"] = true
             if camera is DoorbellController || accessory.services.contains(where: { $0.type.uuid == ServiceType.doorbell.uuid }) { object["doorbell"] = true }
         }
+        // Its plugin records an Eve history: get_accessory_history, and the web UI's History, have something to show.
+        if !EveHistory.histories(of: accessory).isEmpty { object["history"] = true }
         object["services"] = .array(accessory.services.filter { $0.type.uuid != ServiceType.accessoryInformation.uuid }.map { service in
             var entry: [String: JSONValue] = ["type": .string(service.type.name)]
             if let subtype = service.subtype { entry["subtype"] = .string(subtype) }
@@ -740,8 +742,7 @@ public struct HomeswiftCatalog: Sendable {
             ) { call in
                 let backup = try call.string("backup")
                 guard catalog.backups().contains(backup) else { return .error("No such backup") }
-                let config = try JSONValue(data: Data(contentsOf: catalog.backupsDirectory.appendingPathComponent(backup)))
-                return .json(try await catalog.applyConfig(config, dryRun: false))
+                return .json(try await catalog.restoreConfigBackup(backup))
             },
             MCPTool(
                 name: "put_list_entry", title: "Add or change a device entry",
@@ -776,7 +777,7 @@ public struct HomeswiftCatalog: Sendable {
                     block[list] = .array(entries)
                 })
             },
-        ] + hostTools + pluginActionTools
+        ] + hostTools + adminTools + pluginActionTools
     }
 
     /// `set_accessories` with `ids` or `filter`: one characteristic and value on every target.
