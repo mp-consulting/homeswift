@@ -411,6 +411,7 @@ class CookingAppliance: BaseDevice {
     // MARK: Building
 
     /// The status board, whose Active the subclass decides.
+    @discardableResult
     func createBoard(configuredName: String, inputs: Int) -> Service {
         let tv = createTelevision(name: config.name ?? device.name, subtype: "NicoCataGaTa-OvenOven7", configuredName: configuredName, inputs: inputs)
         tv.characteristic(.active).onGet { [weak self] in .int(self?.boardActive() ?? 0) }
@@ -567,6 +568,7 @@ class CookingAppliance: BaseDevice {
 
     /// The thermostat of the cook: heating on pauses refreshes for the user, off stops the cook; a target
     /// temperature is part of the pending cook.
+    @discardableResult
     func addTemperatureControl(_ name: String, subtype: String, current: ClosedRange<Double>, targetMax: Double) -> Service {
         let control = addService(.thermostat, name: name, subtype: subtype, optional: [
             CharacteristicType.targetHeatingCoolingState.valid([0, 1]),

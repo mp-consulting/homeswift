@@ -55,7 +55,10 @@ final class OnectaSocketServer: Sendable {
             switch frame.opcode {
             case .ping: context.writeAndFlush(wrapOutboundOut(WebSocketFrame(fin: true, opcode: .pong, data: payload)), promise: nil)
             case .text where payload.readString(length: payload.readableBytes) == "drop": context.close(promise: nil)
-            case .connectionClose: context.writeAndFlush(wrapOutboundOut(WebSocketFrame(fin: true, opcode: .connectionClose, data: payload))).whenComplete { _ in context.close(promise: nil) }
+            case .connectionClose:
+                // The channel, which is Sendable, closes once the reply is out; the context stays on its event loop.
+                let channel = context.channel
+                context.writeAndFlush(wrapOutboundOut(WebSocketFrame(fin: true, opcode: .connectionClose, data: payload))).whenComplete { _ in channel.close(promise: nil) }
             default: break
             }
         }
