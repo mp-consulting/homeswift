@@ -53,6 +53,12 @@
     star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>',
     eye: '<path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7z"/><circle cx="12" cy="12" r="2.5"/>',
     bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/>',
+    chart: '<path d="M4 4v16h16"/><path d="m7 15 4-5 3 3 5-6"/>',
+    archive: '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/>',
+    key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l2 2M15 8l2 2"/>',
+    shield: '<path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/><path d="m9 12 2 2 4-4"/>',
+    download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+    restore: '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/>',
   };
 
   /// An icon as an SVG element.
@@ -302,6 +308,36 @@
     return wrapper;
   }
 
+  /// Two JSON values as pretty JSON with sorted keys, line by line: `{ kind: "same" | "add" | "remove", text }`, from a
+  /// longest common subsequence. A plugin block against the Assistant's suggestion, a config.json backup against the file.
+  function jsonDiff(before, after) {
+    const sortKeys = (value) => Array.isArray(value) ? value.map(sortKeys)
+      : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortKeys(value[key])])) : value;
+    const a = JSON.stringify(sortKeys(before ?? {}), null, 2).split("\n");
+    const b = JSON.stringify(sortKeys(after ?? {}), null, 2).split("\n");
+    // The lines both ends share are the same: only the middle needs the table, which grows with its square.
+    let start = 0;
+    while (start < a.length && start < b.length && a[start] === b[start]) start++;
+    let endA = a.length, endB = b.length;
+    while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) { endA--; endB--; }
+    const x = a.slice(start, endA), y = b.slice(start, endB);
+    const lengths = Array.from({ length: x.length + 1 }, () => new Uint32Array(y.length + 1));
+    for (let i = x.length - 1; i >= 0; i--) for (let j = y.length - 1; j >= 0; j--) {
+      lengths[i][j] = x[i] === y[j] ? lengths[i + 1][j + 1] + 1 : Math.max(lengths[i + 1][j], lengths[i][j + 1]);
+    }
+    const out = a.slice(0, start).map((text) => ({ kind: "same", text }));
+    let i = 0, j = 0;
+    while (i < x.length && j < y.length) {
+      if (x[i] === y[j]) { out.push({ kind: "same", text: x[i] }); i++; j++; }
+      else if (lengths[i + 1][j] >= lengths[i][j + 1]) out.push({ kind: "remove", text: x[i++] });
+      else out.push({ kind: "add", text: y[j++] });
+    }
+    while (i < x.length) out.push({ kind: "remove", text: x[i++] });
+    while (j < y.length) out.push({ kind: "add", text: y[j++] });
+    for (const text of a.slice(endA)) out.push({ kind: "same", text });
+    return out;
+  }
+
   /// A labelled value in a `.facts` grid: the label small, the value bold with its full text as a tooltip.
   const fact = (label, value, attrs = {}) =>
     el("div", { class: "fact" }, el("span", { text: label }), el("b", { text: String(value), title: String(value), ...attrs }));
@@ -350,5 +386,5 @@
     return api(path, { method: "PUT", body: block });
   }
 
-  window.HomeswiftCommon = { $, el, icon, tile, fact, markdown, sparkle, api, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, sections, tabBar, setPaused, slug, withSlugs };
+  window.HomeswiftCommon = { $, el, icon, tile, fact, markdown, sparkle, api, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, sections, tabBar, setPaused, slug, withSlugs, jsonDiff };
 })();

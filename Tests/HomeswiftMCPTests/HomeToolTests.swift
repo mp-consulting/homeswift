@@ -338,6 +338,9 @@ struct NotificationTests {
         #expect(first?.count == 2)
         #expect(again == nil)
         #expect(await catalog.notify(.pluginError, title: "x", message: "y") == nil)
+        // A successful backup waits to be turned on; a failed one goes.
+        #expect(await catalog.notify(.backupSucceeded, title: "Backup", message: "saved") == nil)
+        #expect(await catalog.notify(.backupFailed, title: "Backup", message: "failed")?.count == 2)
         // At most 5 tests a minute.
         for _ in 0..<3 { _ = try await catalog.sendTestNotification() }
         await #expect(throws: CatalogError.self) { try await catalog.sendTestNotification() }

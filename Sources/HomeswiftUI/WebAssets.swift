@@ -6,6 +6,526 @@ import HomeswiftPlugin
 enum WebAssets {
     /// The UI's pages, as written.
     static let files: [String: WebFile] = [
+        "admin.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
+// The Settings pages, after the Homebridge UI's settings, child bridges, config editor backups, restart and power
+// options: the bridge block and this machine's network, HomeKit pairings, cached accessories, child bridges,
+// whole-instance and config.json backups, the schedules, and the audit log; and an accessory's recorded history.
+// app.js routes /settings[/<page>] here and lends its helpers (HomeswiftApp) when a view is drawn.
+(() => {
+  "use strict";
+
+  const { $, el, tile, fact, menuButton, withSlugs, jsonDiff } = HomeswiftCommon;
+  const app = () => window.HomeswiftApp;
+  const api = (...args) => app().api(...args);
+
+  const pages = [["", "Bridge", "bridge"], ["child-bridges", "Child bridges", "child"], ["backups", "Backups", "archive"], ["audit", "Audit log", "shield"]];
+
+  const dateTime = new Intl.DateTimeFormat([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+  const fullDate = new Intl.DateTimeFormat([], { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  const when = (iso) => (iso ? dateTime.format(new Date(iso)) : "–");
+  const size = (bytes) => bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : bytes >= 1024 ? `${Math.round(bytes / 1024)} KB` : `${bytes} B`;
+
+  /// The pages of Settings as a row of links, the current one lit.
+  function subnav(current) {
+    return el("nav", { class: "group subnav", "aria-label": "Settings pages" }, pages.map(([path, text]) =>
+      el("a", { href: `/settings${path ? `/${path}` : ""}`, text, class: path === current ? "on" : "", "aria-current": path === current ? "page" : null })));
+  }
+
+  /// A modal question for what cannot be undone: `typed`, when given, must be typed before the button works.
+  /// Resolves true when confirmed.
+  function confirmAction({ title, text, confirmLabel = "Continue", typed = null, danger = true }) {
+    return new Promise((resolve) => {
+      const input = typed ? el("input", { type: "text", autocomplete: "off", spellcheck: false, "aria-label": `Type ${typed} to confirm` }) : null;
+      const ok = el("button", { class: danger ? "danger" : "primary", text: confirmLabel, disabled: Boolean(typed), value: "ok" });
+      const cancel = el("button", { text: "Cancel", value: "cancel", type: "button" });
+      const dialog = el("dialog", { class: "admin-dialog card", "aria-labelledby": "confirm-title" },
+        el("form", { method: "dialog" },
+          el("h2", { id: "confirm-title", text: title }),
+          ...[text].flat().filter(Boolean).map((paragraph) => el("p", { text: paragraph })),
+          input ? el("label", { class: "field" }, el("span", { class: "field-title" }, "Type ", el("strong", { class: "mono", text: typed }), " to confirm"), input) : null,
+          el("div", { class: "actions" }, cancel, ok)));
+      input?.addEventListener("input", () => { ok.disabled = input.value.trim() !== typed; });
+      cancel.addEventListener("click", () => dialog.close("cancel"));
+      dialog.addEventListener("close", () => { dialog.remove(); resolve(dialog.returnValue === "ok"); });
+      document.body.append(dialog);
+      dialog.showModal();
+      (input ?? cancel).focus();
+    });
+  }
+
+  /// Runs `work` with the button pressed: disabled, a spinner; errors go to `report`.
+  async function busy(button, work, report = (e) => alert(e.message)) {
+    if (button) { button.disabled = true; button.classList.add("busy"); }
+    try { return await work(); } catch (e) { report(e); } finally { if (button) { button.disabled = false; button.classList.remove("busy"); } }
+  }
+
+  const sectionHead = (title, note, ...tools) => el("div", { class: "section-head" }, el("h2", { text: title }), note ? el("span", { class: "muted", text: note }) : null, ...tools);
+
+  async function view(main, [page = ""] = []) {
+    const draw = { "": bridgePage, "child-bridges": childBridgesPage, backups: backupsPage, audit: auditPage }[page];
+    if (!draw) { app().show(main, app().pageHead("Settings", "No such page."), subnav(null)); return; }
+    await draw(main);
+  }
+
+  // ---- Bridge: its block, the network, pairings, caches, schedules -----------------------------------------
+
+  async function bridgePage(main) {
+    const [settings, pairings, caches, plugins] = await Promise.all([
+      api("/api/settings/bridge"), api("/api/pairings"), api("/api/cached-accessories"), api("/api/plugins").catch(() => null)]);
+    const bridge = settings.bridge || {};
+    const uiBlock = plugins?.blocks.find((block) => block.platform === "HomeswiftUI");
+    app().show(main,
+      app().pageHead("Settings", "The bridge, its pairings and cached accessories, child bridges, backups and the audit log."),
+      subnav(""),
+      bridgeForm(settings, bridge, pairings.bridges.find((one) => one.kind === "main")),
+      networkCard(settings),
+      sectionHead("HomeKit pairings", "Who the Home app knows each server by"),
+      el("div", { class: "grid" }, pairings.bridges.map(pairingCard)),
+      cachesSection(caches),
+      schedulesCard(uiBlock));
+  }
+
+  /// The bridge block of config.json as a form. Saving restarts homeswift: the block is its HomeKit identity.
+  function bridgeForm(settings, bridge, main) {
+    const input = (key, attrs = {}) => el("input", { type: "text", value: bridge[key] ?? "", name: key, ...attrs });
+    const fields = {
+      name: input("name", { required: true }),
+      port: input("port", { type: "number", min: 1, max: 65535, placeholder: settings.listeningPort ? `Automatic (now ${settings.listeningPort})` : "Automatic" }),
+      pin: input("pin", { class: "mono", placeholder: "031-45-154", pattern: "\\d{3}-\\d{2}-\\d{3}", autocomplete: "off", spellcheck: false }),
+      manufacturer: input("manufacturer", { placeholder: "Homeswift" }),
+      model: input("model", { placeholder: "Homeswift" }),
+      firmwareRevision: input("firmwareRevision", { placeholder: "The homeswift version" }),
+    };
+    const field = (title, control, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: title }), control, help ? el("span", { class: "help", text: help }) : null);
+    const message = el("p", { class: "status-line muted", role: "status" });
+    const save = el("button", { class: "primary", type: "submit", text: "Save and restart" });
+    const read = () => Object.fromEntries(Object.entries(fields).map(([key, control]) => {
+      const value = control.value.trim();
+      return [key, value === "" ? null : key === "port" ? Number(value) : value];
+    }));
+    const initial = JSON.stringify(read());
+    const form = el("form", { class: "card form-card", onsubmit: async (event) => {
+      event.preventDefault();
+      const next = read();
+      if (JSON.stringify(next) === initial) { message.className = "status-line muted"; message.textContent = "Nothing changed."; return; }
+      if (!(await confirmAction({ title: "Restart homeswift with these settings?", danger: false, confirmLabel: "Save and restart",
+        text: ["The bridge block is the bridge's HomeKit identity: homeswift restarts to apply it, and every connection drops for a few seconds.",
+          next.pin !== (bridge.pin ?? null) ? "A new setup code applies to new pairings only: the Home app keeps the bridge." : ""] }))) return;
+      await busy(save, async () => {
+        const result = await api("/api/settings/bridge", { method: "PUT", body: { settings: next } });
+        message.className = "status-line ok";
+        message.textContent = app().savedText(result);
+      }, (e) => { message.className = "status-line error"; message.textContent = e.message; });
+    } },
+      el("div", { class: "server-head" }, tile("bridge", "orange"),
+        el("div", { class: "who" }, el("strong", { text: "Bridge" }), el("div", { class: "muted", text: "config.json's bridge block" }))),
+      el("div", { class: "facts lead" }, fact("Device ID", settings.deviceId, { class: "mono" }), fact("Listening on port", settings.listeningPort ?? "?"),
+        fact("Home app", main?.paired ? `Paired · ${main.controllers}` : "Not paired")),
+      el("div", { class: "fields" },
+        field("Name", fields.name, "What the Home app calls the bridge when it is added."),
+        field("Port", fields.port, "The HomeKit server's port; empty picks a free one and keeps it."),
+        field("Setup code", fields.pin, "The code the Home app asks for, as XXX-XX-XXX. It is never logged."),
+        field("Manufacturer", fields.manufacturer), field("Model", fields.model), field("Firmware revision", fields.firmwareRevision)),
+      el("p", { class: "help", text: "The device ID stays: a new one is a new bridge to the Home app. To pair again from scratch, reset the bridge's pairings below." }),
+      el("div", { class: "actions" }, save), message);
+    return form;
+  }
+
+  /// What this machine runs the bridge with: its addresses and the advertiser. Homeswift listens on every
+  /// interface and has no setting for the interfaces to bind or advertise on, nor another mDNS backend.
+  function networkCard(settings) {
+    return el("div", { class: "card server" },
+      el("div", { class: "server-head" }, tile("system", "grey"),
+        el("div", { class: "who" }, el("strong", { text: "Network" }), el("div", { class: "muted", text: "Where the Home app finds the bridge" }))),
+      el("div", { class: "facts" }, fact("Advertised with", settings.advertiser), fact("Interfaces", "Every one"), fact("Port", settings.listeningPort ?? "?")),
+      settings.addresses?.length ? el("div", { class: "chips" }, settings.addresses.map((address) => el("span", { class: "chip mono", text: address }))) : null,
+      el("p", { class: "muted note", text: "Homeswift listens and advertises on every interface, with the system's mDNS: there is no interface or mDNS backend to choose, as Homebridge's bind and advertiser settings do." }));
+  }
+
+  /// A server's pairing state, and a menu to forget its controllers.
+  function pairingCard(bridge) {
+    const kind = { main: ["bridge", "orange", "Main bridge"], child: ["child", "violet", "Child bridge"], external: ["accessory", "blue", "Accessory of its own"] }[bridge.kind] ?? ["bridge", "grey", bridge.kind];
+    return el("div", { class: "card server" },
+      el("div", { class: "server-head" }, tile(kind[0], kind[1]),
+        el("div", { class: "who" }, el("strong", { text: bridge.name }), el("div", { class: "muted", text: kind[2] })),
+        el("span", { class: `pill status ${bridge.paired ? "on" : "away"}`, text: bridge.paired ? `Paired · ${bridge.controllers}` : "Not paired" })),
+      el("div", { class: "facts" }, fact("Device ID", bridge.deviceId, { class: "mono" }), fact("Controllers", bridge.controllers), fact("Admins", bridge.admins)),
+      el("div", { class: "card-foot" },
+        el("span", { class: "muted", text: bridge.paired ? "In the Home app" : "Waiting to be added (setup code on the Status page)" }),
+        menuButton(`Actions for ${bridge.name}`, () => [
+          { label: "Reset pairings…", icon: "key", danger: true, onSelect: () => resetPairings(bridge) },
+        ])));
+  }
+
+  async function resetPairings(bridge) {
+    const ok = await confirmAction({
+      title: `Reset the pairings of ${bridge.name}?`, confirmLabel: "Reset pairings", typed: bridge.name,
+      text: ["Every Home app controller paired with it is forgotten and disconnected. The Home app loses it with its accessories, their rooms, scenes and automations.",
+        "Add it again afterwards with its setup code, as a new bridge."],
+    });
+    if (!ok) return;
+    await busy(null, async () => { await api("/api/pairings/reset", { method: "POST", body: { bridge: bridge.deviceId, confirm: true } }); app().route(); });
+  }
+
+  /// The accessory caches: what each plugin's cache brings back at start, the stale ones first.
+  function cachesSection(caches) {
+    const list = [...caches.accessories].sort((a, b) => (b.orphaned || b.restoredOnly) - (a.orphaned || a.restoredOnly) || a.name.localeCompare(b.name));
+    const row = (cached) => el("div", { class: "row" },
+      el("div", { class: "who" }, el("strong", { text: cached.name }),
+        el("div", { class: "muted", text: [cached.instance ?? cached.platform ?? cached.cacheFile, cached.bridge, cached.manufacturer, cached.model].filter(Boolean).join(" · ") })),
+      cached.orphaned ? el("span", { class: "pill status away", text: "No block", title: "Its block is no longer in config.json" })
+        : cached.restoredOnly ? el("span", { class: "pill status away", text: "Stale", title: "Back from the cache, not added again by its plugin" }) : el("span", { class: "pill status on", text: "Current" }),
+      menuButton(`Actions for ${cached.name}`, () => [
+        { label: "Remove from the cache…", icon: "trash", danger: true, onSelect: () => removeCached(cached) },
+      ]));
+    const reset = menuButton("Actions for every cache", () => [
+      { label: "Reset every cache…", icon: "trash", danger: true, onSelect: resetCaches },
+    ]);
+    return el("section", {},
+      sectionHead("Cached accessories", `${list.length} in ${new Set(list.map((c) => c.cacheFile)).size} cache file(s)`, reset),
+      list.length ? el("div", { class: "card rows" }, list.map(row)) : el("div", { class: "card empty" }, el("p", { class: "muted", text: "No cached accessory." })));
+  }
+
+  async function removeCached(cached) {
+    const ok = await confirmAction({
+      title: `Remove ${cached.name} from the cache?`, confirmLabel: "Remove",
+      text: "It leaves HomeKit now. A plugin that still has the device adds it again, under the same ids, so rooms and automations come back with it.",
+    });
+    if (!ok) return;
+    await busy(null, async () => { await api("/api/cached-accessories/remove", { method: "POST", body: { id: cached.id, cacheFile: cached.cacheFile } }); app().route(); });
+  }
+
+  async function resetCaches() {
+    const ok = await confirmAction({
+      title: "Reset every accessory cache?", confirmLabel: "Reset the caches", typed: "RESET",
+      text: ["Every plugin's accessories leave HomeKit, and the plugins start again on empty caches, adding the devices they reach.",
+        "Their ids stay, so rooms and automations come back with the devices; accessories of devices that are gone do not."],
+    });
+    if (!ok) return;
+    await busy(null, async () => { await api("/api/cached-accessories/reset", { method: "POST", body: { confirm: true } }); app().route(); });
+  }
+
+  /// The schedules and the reverse proxy: settings of the web UI's own block, edited in its form.
+  function schedulesCard(uiBlock) {
+    return el("section", {},
+      sectionHead("Schedules and proxy", "In the web UI's settings"),
+      el("div", { class: "card page-note" },
+        el("p", { text: "A scheduled restart (a cron expression), the daily backup (its folder and how long it is kept) and the reverse proxies trusted for X-Forwarded-For and X-Forwarded-Proto are settings of the HomeswiftUI block." }),
+        uiBlock ? el("a", { class: "button", href: `/plugins/${uiBlock.slug}`, text: "Open its settings" }) : null));
+  }
+
+  // ---- Child bridges -------------------------------------------------------------------------------------
+
+  async function childBridgesPage(main) {
+    const [{ childBridges }, status] = await Promise.all([api("/api/child-bridges"), api("/api/status")]);
+    const slugs = new Map(withSlugs(status.bridges, "bridge").map((bridge) => [bridge.deviceId, bridge.slug]));
+    const tone = { ok: "on", degraded: "away", stopped: "paused" };
+    const card = (bridge) => {
+      const failures = Object.entries(bridge.failedPlugins ?? {});
+      return el("div", { class: "card server" },
+        el("div", { class: "server-head" }, tile("child", "violet"),
+          el("div", { class: "who" }, el("strong", { text: bridge.name }), el("div", { class: "muted", text: bridge.plugins.join(", ") || "No plugin" })),
+          el("span", { class: `pill status ${tone[bridge.status] ?? "standby"}`, text: bridge.status === "stopped" && bridge.stoppedManually ? "Stopped by hand" : { ok: "Running", degraded: "Degraded", stopped: "Stopped" }[bridge.status] ?? bridge.status })),
+        el("div", { class: "facts lead" }, fact("Device ID", bridge.id, { class: "mono" }), fact("Port", bridge.port ?? "–"), fact("Accessories", bridge.accessories)),
+        el("div", { class: "facts" }, fact("Up", bridge.uptimeSeconds == null ? "–" : app().formatDuration(bridge.uptimeSeconds)), fact("Restarts", bridge.restarts),
+          fact("Pairing", bridge.paired ? `Paired · ${bridge.controllers}` : "Not paired")),
+        bridge.instances.length ? el("div", { class: "chips" }, bridge.instances.map((name) => el("span", { class: "chip", text: name }))) : null,
+        failures.length ? el("div", { class: "notice-list" }, failures.map(([plugin, reason]) => el("p", { class: "error", text: `${plugin} did not start: ${reason}` }))) : null,
+        bridge.setupCode ? el("div", { class: "setup" },
+          el("img", { class: "qr", src: `/api/qr/${bridge.qrIndex}.svg`, alt: "Pairing QR code", width: 148, height: 148 }),
+          el("div", {}, el("p", { text: "In the Home app: Add Accessory, then scan this code, or choose More options and type it." }), el("div", { class: "code", text: bridge.setupCode }))) : null,
+        el("div", { class: "card-foot" },
+          el("span", { class: "muted", text: bridge.running ? "Runs inside homeswift" : "Its accessories show No Response" }),
+          menuButton(`Actions for ${bridge.name}`, () => [
+            { label: "Restart", icon: "restore", onSelect: () => control(bridge, "restart") },
+            bridge.running ? { label: "Stop", icon: "pause", onSelect: () => control(bridge, "stop") } : { label: "Start", icon: "play", onSelect: () => control(bridge, "start") },
+            { label: "Show its log", icon: "logs", href: `/logs?bridge=${encodeURIComponent(slugs.get(bridge.id) ?? "all")}` },
+            { label: "Reset pairings…", icon: "key", danger: true, onSelect: () => resetPairings({ name: bridge.name, deviceId: bridge.id }) },
+          ])));
+    };
+    app().show(main,
+      app().pageHead("Child bridges", "Plugins on HomeKit bridges of their own (a block with _bridge), inside this process: one can restart without the others."),
+      subnav("child-bridges"),
+      childBridges.length ? el("div", { class: "servers" }, childBridges.map(card))
+        : el("div", { class: "card empty" }, el("p", { class: "muted", text: "No child bridge. Give a plugin's block a \"_bridge\" object (its Expert JSON) to run it on a bridge of its own." })));
+  }
+
+  async function control(bridge, action) {
+    if (action !== "start" && !(await confirmAction({ title: `${action === "stop" ? "Stop" : "Restart"} ${bridge.name}?`, confirmLabel: action === "stop" ? "Stop" : "Restart", danger: action === "stop",
+      text: action === "stop" ? "Its plugins stop and its accessories show No Response until it starts again, or homeswift restarts." : "Its accessories are unavailable for a moment; pairings stay." }))) return;
+    await busy(null, async () => { await api(`/api/child-bridges/${encodeURIComponent(bridge.id)}/${action}`, { method: "POST" }); app().route(); });
+  }
+
+  // ---- Backups -------------------------------------------------------------------------------------------
+
+  async function backupsPage(main) {
+    const [backups, configBackups] = await Promise.all([api("/api/backups"), api("/api/config/backups")]);
+    const message = el("p", { class: "status-line muted", role: "status" });
+    const report = (e) => { message.className = "status-line error"; message.textContent = e.message; };
+    const now = el("button", { text: "Back up now", onclick: (event) => busy(event.currentTarget, async () => {
+      const result = await api("/api/backups", { method: "POST" });
+      message.className = "status-line ok";
+      message.textContent = `Kept ${result.backup.fileName} (${size(result.backup.bytes)}).`;
+      setTimeout(() => app().route(), 1200);
+    }, report) });
+    const instance = el("div", { class: "card server" },
+      el("div", { class: "server-head" }, tile("archive", "green"),
+        el("div", { class: "who" }, el("strong", { text: "Back up this bridge" }),
+          el("div", { class: "muted", text: "config.json, each bridge's HomeKit identity and pairings, accessory caches, plugin files, the web UI's users" }))),
+      el("div", { class: "facts" },
+        fact("Daily backup", backups.scheduled ? (backups.nextBackup ? `Next ${when(backups.nextBackup)}` : "On") : "Off"),
+        fact("Kept", `${backups.retentionDays} days`),
+        fact("Scheduled restart", backups.restartCron ? `${backups.restartCron}${backups.nextRestart ? ` · next ${when(backups.nextRestart)}` : ""}` : "None")),
+      el("div", { class: "fact wide" }, el("span", { text: "Folder" }), el("b", { class: "mono", text: backups.folder, title: backups.folder })),
+      el("div", { class: "actions" },
+        el("a", { class: "button primary", href: "/api/backups/download", download: "", text: "Download a backup" }), now),
+      message);
+    app().show(main,
+      app().pageHead("Backups", "The whole instance, to move it or start over, and each saved config.json."),
+      subnav("backups"),
+      instance,
+      restoreCard(backups),
+      sectionHead("Kept backups", backups.backups.length ? `${backups.backups.length}, newest first` : ""),
+      backups.backups.length ? el("div", { class: "card rows" }, backups.backups.map((backup) => backupRow(backup, backups.instance)))
+        : el("div", { class: "card empty" }, el("p", { class: "muted", text: "None yet: the daily backup and Back up now keep them here." })),
+      sectionHead("config.json backups", `The file before each of its last ${configBackups.kept} saves`),
+      configBackups.backups.length ? el("div", { class: "card rows" }, configBackups.backups.map(configBackupRow))
+        : el("div", { class: "card empty" }, el("p", { class: "muted", text: "None yet: each save of config.json keeps the file it replaces." })));
+  }
+
+  /// A file to restore, dropped or chosen: checked by the bridge, staged, and applied as homeswift restarts.
+  function restoreCard(backups) {
+    const picker = el("input", { type: "file", accept: ".tar,application/x-tar", class: "hidden" });
+    const zone = el("div", { class: "drop-zone", role: "button", tabIndex: 0, "aria-label": "Drop or choose a backup to restore" },
+      "Drop a backup (.tar) here, or ", el("strong", { text: "choose it" }), picker);
+    const result = el("div", {});
+    const take = async (file) => {
+      if (!file) return;
+      if (file.size > backups.maxRestoreBytes) { zone.replaceChildren(`${file.name} is larger than ${size(backups.maxRestoreBytes)}.`, picker); return; }
+      await restoreArchive(file.name, () => fetch("/api/backups/restore", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-tar" }, body: file }), result);
+    };
+    zone.addEventListener("click", (event) => { if (event.target !== picker) picker.click(); });
+    zone.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); picker.click(); } });
+    picker.addEventListener("change", () => { take(picker.files[0]); picker.value = ""; });
+    zone.addEventListener("dragover", (event) => { event.preventDefault(); zone.classList.add("over"); });
+    zone.addEventListener("dragleave", () => zone.classList.remove("over"));
+    zone.addEventListener("drop", (event) => { event.preventDefault(); zone.classList.remove("over"); take(event.dataTransfer.files[0]); });
+    return el("div", { class: "card" },
+      el("h2", { text: "Restore a backup" }),
+      el("p", { class: "muted", text: "A backup made by Download a backup or kept below replaces this bridge's files as homeswift restarts: its pairings, accessories and plugin settings come back; this machine's bridge and web UI ports stay. Files it does not have stay as they are." }),
+      backups.pendingRestore ? el("p", { class: "ok", text: "A restore is staged: it applies when homeswift next starts." }) : null,
+      zone, result);
+  }
+
+  /// Asks, sends the archive (`send` answers the fetch's Response), and waits for the restart.
+  async function restoreArchive(name, send, result) {
+    const ok = await confirmAction({
+      title: `Restore ${name}?`, confirmLabel: "Restore and restart", typed: "RESTORE",
+      text: ["homeswift restarts on the backup's files: config.json, the bridges' HomeKit identities and pairings, accessory caches, plugin files and the web UI's users. What changed since it was made is lost.",
+        "Run one homeswift per backup: two bridges with the same identity make the Home app drop them."],
+    });
+    if (!ok) return;
+    result.replaceChildren(el("p", { class: "muted", text: "Checking the backup…" }));
+    try {
+      const response = await send();
+      const answer = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(answer.error || `HTTP ${response.status}`);
+      result.replaceChildren(el("p", { class: "ok", text: `${answer.files} files from ${answer.created ? fullDate.format(new Date(answer.created)) : "the backup"} are staged. ${answer.note}` }),
+        answer.skipped?.length ? el("p", { class: "muted", text: `Left out: ${answer.skipped.join(", ")}.` }) : null);
+      if (answer.restarting) app().waitForRestart();
+    } catch (e) {
+      result.replaceChildren(el("p", { class: "error", text: e.message }));
+    }
+  }
+
+  function backupRow(backup) {
+    const result = el("div", {});
+    return el("div", { class: "row-block" },
+      el("div", { class: "row" },
+        el("div", { class: "who" }, el("strong", { text: fullDate.format(new Date(backup.date)) }), el("div", { class: "muted mono", text: backup.fileName })),
+        el("span", { class: "muted", text: size(backup.bytes) }),
+        menuButton(`Actions for the backup of ${when(backup.date)}`, () => [
+          { label: "Download", icon: "download", href: `/api/backups/${encodeURIComponent(backup.id)}/download` },
+          { label: "Restore…", icon: "restore", onSelect: () => restoreArchive(fullDate.format(new Date(backup.date)),
+            () => fetch(`/api/backups/${encodeURIComponent(backup.id)}/restore`, { method: "POST", credentials: "same-origin" }), result) },
+          { label: "Delete…", icon: "trash", danger: true, onSelect: async () => {
+            if (!(await confirmAction({ title: "Delete this backup?", confirmLabel: "Delete", text: `${backup.fileName} is removed from the folder.` }))) return;
+            await busy(null, async () => { await api(`/api/backups/${encodeURIComponent(backup.id)}`, { method: "DELETE" }); app().route(); });
+          } },
+        ])),
+      result);
+  }
+
+  /// A saved config.json: compared with the file as it is, as a diff, and restored.
+  function configBackupRow(backup) {
+    const detail = el("div", { class: "row-detail hidden" });
+    const compare = async () => {
+      if (!detail.classList.contains("hidden")) { detail.classList.add("hidden"); return; }
+      detail.classList.remove("hidden");
+      detail.replaceChildren(el("p", { class: "muted", text: "Comparing…" }));
+      try {
+        const [then, now] = await Promise.all([
+          api(`/api/config/backups/${encodeURIComponent(backup.name)}`, { raw: true }), api("/api/config", { raw: true })]);
+        detail.replaceChildren(diffView(jsonDiff(JSON.parse(then), JSON.parse(now)), "this backup", "config.json now"));
+      } catch (e) { detail.replaceChildren(el("p", { class: "error", text: e.message })); }
+    };
+    const restore = async () => {
+      if (!(await confirmAction({ title: "Restore this config.json?", confirmLabel: "Restore", text: "It replaces config.json (which is kept as a backup first) and applies at once, as a save does: plugins reload, and the bridge block restarts homeswift." }))) return;
+      await busy(null, async () => {
+        const result = await api(`/api/config/backups/${encodeURIComponent(backup.name)}/restore`, { method: "POST" });
+        detail.classList.remove("hidden");
+        detail.replaceChildren(el("p", { class: "ok", text: `Changed: ${result.changes.join(", ") || "nothing"}. ${app().savedText(result)}` }));
+      });
+    };
+    return el("div", { class: "row-block" },
+      el("div", { class: "row" },
+        el("div", { class: "who" }, el("strong", { text: backup.date ? fullDate.format(new Date(backup.date)) : backup.name }), el("div", { class: "muted mono", text: backup.name })),
+        el("button", { class: "link", text: "Compare", onclick: compare }),
+        menuButton(`Actions for ${backup.name}`, () => [
+          { label: "Compare with config.json", icon: "code", onSelect: compare },
+          { label: "Restore…", icon: "restore", danger: true, onSelect: restore },
+        ])),
+      detail);
+  }
+
+  /// A diff of `jsonDiff` lines: the changes with three lines around them, the rest folded.
+  function diffView(lines, before, after) {
+    if (!lines.some((line) => line.kind !== "same")) return el("p", { class: "muted", text: "The same as config.json now." });
+    const keep = new Set();
+    lines.forEach((line, index) => { if (line.kind !== "same") for (let k = index - 3; k <= index + 3; k++) keep.add(k); });
+    const nodes = [];
+    let folded = 0;
+    lines.forEach((line, index) => {
+      if (!keep.has(index)) { folded++; return; }
+      if (folded) { nodes.push(el("span", { class: "diff-fold", text: `  … ${folded} unchanged line${folded === 1 ? "" : "s"}\n` })); folded = 0; }
+      nodes.push(el("span", { class: `diff-${line.kind}`, text: `${line.kind === "add" ? "+ " : line.kind === "remove" ? "- " : "  "}${line.text}\n` }));
+    });
+    if (folded) nodes.push(el("span", { class: "diff-fold", text: `  … ${folded} unchanged line${folded === 1 ? "" : "s"}\n` }));
+    return el("div", {}, el("p", { class: "muted", text: `− ${before}   + ${after}` }), el("pre", { class: "diff" }, nodes));
+  }
+
+  // ---- Audit log -----------------------------------------------------------------------------------------
+
+  const outcomes = [["", "Every outcome"], ["ok", "Done"], ["failed", "Failed"], ["notConfirmed", "Not confirmed"]];
+  const spans = [["24h", "Last 24 hours"], ["7d", "Last 7 days"], ["30d", "Last 30 days"], ["", "Everything kept"]];
+
+  async function auditPage(main) {
+    const params = new URLSearchParams(location.search);
+    const tool = el("input", { type: "search", class: "search", placeholder: "Tool or route", value: params.get("tool") ?? "", "aria-label": "Filter by tool" });
+    const client = el("input", { type: "search", class: "search", placeholder: "Client or user", value: params.get("client") ?? "", "aria-label": "Filter by client" });
+    const select = (choices, value, label) => el("select", { class: "popup", "aria-label": label }, choices.map(([v, text]) => el("option", { value: v, text, selected: v === value })));
+    const outcome = select(outcomes, params.get("outcome") ?? "", "Outcome");
+    const since = select(spans, params.has("since") ? params.get("since") : "7d", "Time range");
+    const count = el("span", { class: "muted count" });
+    const body = el("div", {});
+    async function load() {
+      const query = new URLSearchParams();
+      if (tool.value.trim()) query.set("tool", tool.value.trim());
+      if (client.value.trim()) query.set("client", client.value.trim());
+      if (outcome.value) query.set("outcome", outcome.value);
+      query.set("since", since.value);
+      window.history.replaceState(null, "", `/settings/audit?${query}`);
+      if (!since.value) query.delete("since");
+      count.textContent = "Loading…";
+      let found;
+      try { found = await api(`/api/audit?${query}`); } catch (e) { count.textContent = e.message; return; }
+      if (!found.enabled) {
+        count.textContent = "";
+        body.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: "The audit log is off: the HomeswiftAiKit block's mcp.http says auditLog: false." })));
+        return;
+      }
+      count.textContent = `${found.entries.length} of ${found.total}`;
+      body.replaceChildren(found.entries.length ? el("div", { class: "card" }, el("div", { class: "table-scroll" }, el("table", { class: "data-table" },
+        el("thead", {}, el("tr", {}, ["Time", "Who", "What", "Outcome", "Details"].map((text) => el("th", { text })))),
+        el("tbody", {}, found.entries.map(auditRow)))), el("p", { class: "muted note", text: found.path }))
+        : el("div", { class: "card empty" }, el("p", { class: "muted", text: "Nothing in this range matches." })));
+    }
+    let typing = null;
+    for (const input of [tool, client]) input.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(load, 250); });
+    for (const choice of [outcome, since]) choice.addEventListener("change", load);
+    app().show(main,
+      app().pageHead("Audit log", "Every change made through the MCP server, the Assistant's chat and this web UI, with who made it."),
+      subnav("audit"),
+      el("div", { class: "filter-bar" }, since, outcome, tool, client, el("span", { class: "spacer" }), count),
+      body);
+    await load();
+  }
+
+  function auditRow(entry) {
+    const [text, kind] = entry.notConfirmed ? ["Not confirmed", "away"] : entry.ok ? ["Done", "on"] : ["Failed", "away"];
+    const args = entry.args && Object.keys(entry.args).length ? JSON.stringify(entry.args) : "";
+    return el("tr", {},
+      el("td", { text: entry.ts ? dateTime.format(new Date(entry.ts)) : "–", title: entry.ts ?? "" }),
+      el("td", {}, el("strong", { text: entry.principal ?? "?" }), el("div", { class: "muted", text: `${entry.client ?? "?"} · ${entry.scope ?? ""}` })),
+      el("td", { class: "mono", text: `${entry.tool}${entry.dryRun ? " (dry run)" : ""}` }),
+      el("td", {}, el("span", { class: `pill status ${kind}`, text })),
+      el("td", { class: "audit-details" }, entry.error ? el("div", { class: "error", text: entry.error }) : null, args ? el("code", { text: args, title: args }) : null));
+  }
+
+  // ---- An accessory's history -----------------------------------------------------------------------------
+
+  const historyUnits = { celsius: "°C", percentage: "%", W: "W", lux: "lx", hPa: "hPa", ppm: "ppm", "µg/m³": "µg/m³" };
+  const historyLabels = {
+    CurrentTemperature: "Temperature", TargetTemperature: "Target temperature", CurrentRelativeHumidity: "Humidity", AirPressure: "Air pressure",
+    AirQuality: "Air quality", VOCDensity: "VOC density", CurrentConsumption: "Power", CurrentAmbientLightLevel: "Light level", On: "On",
+    ContactSensorState: "Contact", MotionDetected: "Motion", ValvePosition: "Valve position", WaterAmount: "Water",
+  };
+
+  /// A sheet with the accessory's recorded values (its Eve history) as charts, over a day, a week or four weeks.
+  function showHistory(accessory) {
+    const ranges = [[24, "24 hours"], [168, "7 days"], [672, "4 weeks"]];
+    let hours = 24;
+    const charts = el("div", { class: "chart-grid" });
+    const note = el("p", { class: "muted" });
+    const group = el("div", { class: "group", role: "group", "aria-label": "Time range" }, ranges.map(([value, text]) =>
+      el("button", { type: "button", text, class: value === hours ? "on" : "", "aria-pressed": String(value === hours), onclick: (event) => {
+        hours = value;
+        for (const button of group.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
+        load();
+      } })));
+    const close = el("button", { type: "button", text: "Done", class: "primary" });
+    const dialog = el("dialog", { class: "admin-dialog card wide", "aria-labelledby": "history-title" },
+      el("div", { class: "page-head" }, el("div", { class: "who" }, el("h2", { id: "history-title", text: accessory.name }), el("p", { class: "muted", text: "Recorded values, as Eve shows them" })),
+        el("div", { class: "tools" }, group)),
+      charts, note, el("div", { class: "actions" }, close));
+    close.addEventListener("click", () => dialog.close());
+    dialog.addEventListener("close", () => dialog.remove());
+    document.body.append(dialog);
+    dialog.showModal();
+
+    async function load() {
+      charts.classList.add("loading");
+      let found;
+      try { found = await api(`/api/accessories/${encodeURIComponent(accessory.id)}/history?hours=${hours}&points=240`); }
+      catch (e) { note.className = "error"; note.textContent = e.message; return; }
+      charts.classList.remove("loading");
+      note.className = "muted";
+      note.textContent = found.note ?? "Ten-minute averages, kept four weeks; each point here averages those in its span.";
+      const from = new Date(found.from).getTime(), to = new Date(found.to).getTime();
+      charts.replaceChildren(...found.series.map((series) => {
+        const unit = historyUnits[series.unit] ?? series.unit ?? "";
+        const format = (value) => `${Math.abs(value) < 10 && value % 1 ? value.toFixed(1) : Math.round(value * 10) / 10}${unit ? ` ${unit}` : ""}`;
+        const points = series.points.map(([time, value]) => ({ time: new Date(time).getTime(), value }));
+        const gaps = points.slice(1).map((point, index) => point.time - points[index].time).sort((a, b) => a - b);
+        const step = Math.max(gaps[Math.floor(gaps.length / 2)] ?? 600000, 600000);
+        const body = el("div", { class: "chart-body" });
+        const card = el("div", { class: "card chart-card" },
+          el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: historyLabels[series.type] ?? series.type }),
+            el("div", { class: "muted", text: `Lowest ${format(series.min.value)} · highest ${format(series.max.value)} · average ${format(series.avg)}` })),
+          el("b", { class: "chart-figure", text: format(series.last.value), title: `Last, ${when(series.last.at)}` })),
+          body);
+        HomeswiftChart.lineChart(body, { title: historyLabels[series.type] ?? series.type, series: [{ label: historyLabels[series.type] ?? series.type, tone: 1, value: (point) => point.value }],
+          format, points, from, to, step });
+        return card;
+      }));
+    }
+    load();
+  }
+
+  window.HomeswiftAdmin = { view, history: showHistory, confirmAction };
+})();
+
+"""#),
         "app.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // Homeswift web UI: one page, plain JavaScript, no dependencies. Talks to /api/* with the session cookie.
 (() => {
@@ -168,7 +688,7 @@ enum WebAssets {
       link.classList.toggle("active", current);
       if (current) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
     }
-    const view = name === "plugins" && args.length ? views.settings : views[name] || views.status;
+    const view = name === "plugins" && args.length ? views.settings : name === "settings" ? HomeswiftAdmin.view : views[name] || views.status;
     const main = $("#view");
     leaveGuard = null;
     shownPath = location.pathname + location.search;
@@ -293,7 +813,8 @@ enum WebAssets {
           fact("Machine up", formatDuration(status.system.systemUptimeSeconds ?? 0))),
         el("div", { class: "fact wide" }, el("span", { text: "Configuration" }), el("b", { class: "mono", text: status.configPath, title: status.configPath })),
         // Changes apply without one; this is for a plugin that misbehaves.
-        el("div", { class: "actions" }, el("button", { class: "link", text: "Restart homeswift…", onclick: restartBridge }), el("a", { class: "button", href: "/notifications", text: "Notifications…" }))));
+        el("div", { class: "actions" }, el("button", { class: "link", text: "Restart homeswift…", onclick: restartBridge }),
+          el("a", { class: "link", href: "/settings", text: "Settings, pairings and backups" }), el("a", { class: "link", href: "/notifications", text: "Notifications" }))));
   };
 
   /// The Status page's charts: the process's memory and CPU, and how long the Home app's requests and the plugins'
@@ -685,6 +1206,7 @@ enum WebAssets {
       window.HomeswiftChat?.available() ? { label: "Ask the Assistant", icon: sparkle(), onSelect: () => HomeswiftChat.ask(`About ${accessory.name}: `) } : null,
       accessory.platform ? { label: "Plugin settings", icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
       ...(window.HomeswiftHome?.layoutActions(accessory) ?? []),
+      accessory.history ? { label: "History", icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
     ];
   }
 
@@ -1051,26 +1573,10 @@ enum WebAssets {
     return card;
   }
 
-  /// Two blocks as pretty JSON with sorted keys, line by line: same, add or remove (a longest common subsequence).
+  /// Two blocks as pretty JSON with sorted keys, line by line: same, add or remove (common.js's jsonDiff, which the
+  /// Settings pages' config.json backups use too).
   function blockDiff(before, after) {
-    const sortKeys = (value) => Array.isArray(value) ? value.map(sortKeys)
-      : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortKeys(value[key])])) : value;
-    const a = JSON.stringify(sortKeys(before ?? {}), null, 2).split("\n");
-    const b = JSON.stringify(sortKeys(after ?? {}), null, 2).split("\n");
-    const lengths = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
-    for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) {
-      lengths[i][j] = a[i] === b[j] ? lengths[i + 1][j + 1] + 1 : Math.max(lengths[i + 1][j], lengths[i][j + 1]);
-    }
-    const out = [];
-    let i = 0, j = 0;
-    while (i < a.length && j < b.length) {
-      if (a[i] === b[j]) { out.push({ kind: "same", text: a[i] }); i++; j++; }
-      else if (lengths[i + 1][j] >= lengths[i][j + 1]) out.push({ kind: "remove", text: a[i++] });
-      else out.push({ kind: "add", text: b[j++] });
-    }
-    while (i < a.length) out.push({ kind: "remove", text: a[i++] });
-    while (j < b.length) out.push({ kind: "add", text: b[j++] });
-    return out;
+    return HomeswiftCommon.jsonDiff(before, after);
   }
 
   /// A place to drop a file for a path field (a certificate, its key), or to choose it: the bridge keeps the
@@ -1822,6 +2328,8 @@ enum WebAssets {
 
   // The views of home.js: rooms, Quick Controls, scenes, notifications.
   window.HomeswiftHome?.install({ views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(), enumLabels, labelFor, withSlugs });
+  // The Settings pages (admin.js) draw with the same helpers.
+  window.HomeswiftApp = { api, navigate, route, pageHead, breadcrumb, show, savedText, waitForRestart, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; } };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();
@@ -3001,6 +3509,12 @@ enum WebAssets {
     star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>',
     eye: '<path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7z"/><circle cx="12" cy="12" r="2.5"/>',
     bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/>',
+    chart: '<path d="M4 4v16h16"/><path d="m7 15 4-5 3 3 5-6"/>',
+    archive: '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/>',
+    key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l2 2M15 8l2 2"/>',
+    shield: '<path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/><path d="m9 12 2 2 4-4"/>',
+    download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+    restore: '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/>',
   };
 
   /// An icon as an SVG element.
@@ -3250,6 +3764,36 @@ enum WebAssets {
     return wrapper;
   }
 
+  /// Two JSON values as pretty JSON with sorted keys, line by line: `{ kind: "same" | "add" | "remove", text }`, from a
+  /// longest common subsequence. A plugin block against the Assistant's suggestion, a config.json backup against the file.
+  function jsonDiff(before, after) {
+    const sortKeys = (value) => Array.isArray(value) ? value.map(sortKeys)
+      : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortKeys(value[key])])) : value;
+    const a = JSON.stringify(sortKeys(before ?? {}), null, 2).split("\n");
+    const b = JSON.stringify(sortKeys(after ?? {}), null, 2).split("\n");
+    // The lines both ends share are the same: only the middle needs the table, which grows with its square.
+    let start = 0;
+    while (start < a.length && start < b.length && a[start] === b[start]) start++;
+    let endA = a.length, endB = b.length;
+    while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) { endA--; endB--; }
+    const x = a.slice(start, endA), y = b.slice(start, endB);
+    const lengths = Array.from({ length: x.length + 1 }, () => new Uint32Array(y.length + 1));
+    for (let i = x.length - 1; i >= 0; i--) for (let j = y.length - 1; j >= 0; j--) {
+      lengths[i][j] = x[i] === y[j] ? lengths[i + 1][j + 1] + 1 : Math.max(lengths[i + 1][j], lengths[i][j + 1]);
+    }
+    const out = a.slice(0, start).map((text) => ({ kind: "same", text }));
+    let i = 0, j = 0;
+    while (i < x.length && j < y.length) {
+      if (x[i] === y[j]) { out.push({ kind: "same", text: x[i] }); i++; j++; }
+      else if (lengths[i + 1][j] >= lengths[i][j + 1]) out.push({ kind: "remove", text: x[i++] });
+      else out.push({ kind: "add", text: y[j++] });
+    }
+    while (i < x.length) out.push({ kind: "remove", text: x[i++] });
+    while (j < y.length) out.push({ kind: "add", text: y[j++] });
+    for (const text of a.slice(endA)) out.push({ kind: "same", text });
+    return out;
+  }
+
   /// A labelled value in a `.facts` grid: the label small, the value bold with its full text as a tooltip.
   const fact = (label, value, attrs = {}) =>
     el("div", { class: "fact" }, el("span", { text: label }), el("b", { text: String(value), title: String(value), ...attrs }));
@@ -3298,7 +3842,7 @@ enum WebAssets {
     return api(path, { method: "PUT", body: block });
   }
 
-  window.HomeswiftCommon = { $, el, icon, tile, fact, markdown, sparkle, api, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, sections, tabBar, setPaused, slug, withSlugs };
+  window.HomeswiftCommon = { $, el, icon, tile, fact, markdown, sparkle, api, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, sections, tabBar, setPaused, slug, withSlugs, jsonDiff };
 })();
 
 """#),
@@ -4002,6 +4546,7 @@ enum WebAssets {
       <a href="/plugins">Plugins</a>
       <a href="/config">Config</a>
       <a href="/logs">Logs</a>
+      <a href="/settings">Settings</a>
     </nav>
     <span class="spacer"></span>
     <a id="user" href="/account" title="Your account: change the password"></a>
@@ -4016,6 +4561,7 @@ enum WebAssets {
 <script src="/charts.js"></script>
 <script src="/chat.js"></script>
 <script src="/home.js"></script>
+<script src="/admin.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>
@@ -5490,6 +6036,48 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .scene-editor .actions > button { flex: none; white-space: nowrap; }
 .scene-editor .actions > select { width: auto; flex: 0 1 auto; min-width: 0; }
 @media (max-width: 640px) { .editor-row { padding: 8px; } .editor-row select { flex: 1 1 40%; } }
+
+/* Settings (admin.js): its pages as a segmented row of links, lists of rows in one card, the confirmation and
+   history sheets, the audit table. */
+a.link { color: var(--accent); text-decoration: none; padding: 4px 6px; }
+a.button.primary { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); border-color: rgba(255, 255, 255, 0.4); box-shadow: 0 8px 20px rgba(255, 122, 26, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
+a.link:hover { text-decoration: underline; }
+.subnav { margin: -6px 0 18px; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.subnav::-webkit-scrollbar { display: none; }
+.group a { color: var(--text); text-decoration: none; padding: 5px 13px; border-radius: 999px; white-space: nowrap; transition: background-color var(--fast) var(--ease-out); }
+.group a:hover:not(.on) { background: var(--material-thin); }
+.group a.on { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); }
+.card.rows { padding: 4px 0; }
+.rows > .row, .rows > .row-block > .row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; min-width: 0; }
+.rows > * + * { border-top: 1px solid var(--line); }
+.rows .row > .who { flex: 1; min-width: 0; }
+.rows .row > .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-detail { padding: 0 16px 12px; }
+.row-detail:empty { display: none; }
+.row-block > div:not(.row):not(:empty) { padding: 0 16px 12px; }
+pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
+.notice-list p { margin: 4px 0; font-size: 0.875rem; }
+.admin-dialog { margin: auto; width: min(520px, calc(100% - 24px)); max-height: calc(100% - 48px); overflow: auto; padding: 20px 22px; color: var(--text); background-color: var(--material-solid); }
+.admin-dialog.wide { width: min(980px, calc(100% - 24px)); }
+.admin-dialog::backdrop { background: rgba(10, 14, 24, 0.35); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+.admin-dialog h2 { margin: 0 0 10px; }
+.admin-dialog p { margin: 0 0 10px; }
+.admin-dialog .actions { justify-content: flex-end; }
+.admin-dialog .page-head { margin: 0 0 14px; }
+.admin-dialog .chart-grid.loading { opacity: 0.55; }
+.data-table { border-collapse: collapse; font-size: 0.8125rem; width: 100%; }
+.data-table th, .data-table td { padding: 6px 12px 6px 0; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+.data-table th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--material-solid); }
+.data-table td:first-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.card > .table-scroll { overflow-x: auto; max-height: 70vh; overflow-y: auto; }
+.audit-details { max-width: 420px; }
+.audit-details code { display: block; font: 0.75rem/1.4 var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (prefers-reduced-transparency: reduce) { .admin-dialog::backdrop { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(10, 14, 24, 0.6); } }
+@media (max-width: 640px) {
+  .rows > .row, .rows > .row-block > .row { padding: 10px 12px; }
+  .admin-dialog { padding: 16px; }
+  .audit-details { max-width: 240px; }
+}
 
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""

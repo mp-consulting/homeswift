@@ -24,6 +24,10 @@ public enum NotificationEvent: String, CaseIterable, Sendable, Codable {
     case accessoryOffline
     /// An automation ran a scene and some of its actions failed.
     case sceneFailed
+    /// The daily instance backup (the web UI's Settings › Backups) failed.
+    case backupFailed
+    /// The daily instance backup was saved; every day, so it waits to be turned on.
+    case backupSucceeded
     /// dailyDigest: the Assistant's digest of the day, at `dailyDigestTime`.
     case dailyDigest
     case test
@@ -36,14 +40,17 @@ public enum NotificationEvent: String, CaseIterable, Sendable, Codable {
         case .pluginError: "A plugin reported an error"
         case .accessoryOffline: "An accessory stopped responding"
         case .sceneFailed: "An automation failed"
+        case .backupFailed: "The scheduled backup failed"
+        case .backupSucceeded: "The scheduled backup was saved"
         case .dailyDigest: "Daily digest from the Assistant"
         case .test: "Test"
         }
     }
 
     static let configurable: [NotificationEvent] = allCases.filter { $0 != .test }
-    /// On unless turned off; the digest uses the Assistant's quota, so it waits to be turned on.
-    var onByDefault: Bool { self != .dailyDigest }
+    /// On unless turned off; the digest uses the Assistant's quota and a successful backup comes every day, so
+    /// they wait to be turned on.
+    var onByDefault: Bool { self != .dailyDigest && self != .backupSucceeded }
 }
 
 public enum NotificationChannel: String, CaseIterable, Sendable {

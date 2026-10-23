@@ -159,7 +159,7 @@
       link.classList.toggle("active", current);
       if (current) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
     }
-    const view = name === "plugins" && args.length ? views.settings : views[name] || views.status;
+    const view = name === "plugins" && args.length ? views.settings : name === "settings" ? HomeswiftAdmin.view : views[name] || views.status;
     const main = $("#view");
     leaveGuard = null;
     shownPath = location.pathname + location.search;
@@ -284,7 +284,8 @@
           fact("Machine up", formatDuration(status.system.systemUptimeSeconds ?? 0))),
         el("div", { class: "fact wide" }, el("span", { text: "Configuration" }), el("b", { class: "mono", text: status.configPath, title: status.configPath })),
         // Changes apply without one; this is for a plugin that misbehaves.
-        el("div", { class: "actions" }, el("button", { class: "link", text: "Restart homeswift…", onclick: restartBridge }), el("a", { class: "button", href: "/notifications", text: "Notifications…" }))));
+        el("div", { class: "actions" }, el("button", { class: "link", text: "Restart homeswift…", onclick: restartBridge }),
+          el("a", { class: "link", href: "/settings", text: "Settings, pairings and backups" }), el("a", { class: "link", href: "/notifications", text: "Notifications" }))));
   };
 
   /// The Status page's charts: the process's memory and CPU, and how long the Home app's requests and the plugins'
@@ -676,6 +677,7 @@
       window.HomeswiftChat?.available() ? { label: "Ask the Assistant", icon: sparkle(), onSelect: () => HomeswiftChat.ask(`About ${accessory.name}: `) } : null,
       accessory.platform ? { label: "Plugin settings", icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
       ...(window.HomeswiftHome?.layoutActions(accessory) ?? []),
+      accessory.history ? { label: "History", icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
     ];
   }
 
@@ -1042,26 +1044,10 @@
     return card;
   }
 
-  /// Two blocks as pretty JSON with sorted keys, line by line: same, add or remove (a longest common subsequence).
+  /// Two blocks as pretty JSON with sorted keys, line by line: same, add or remove (common.js's jsonDiff, which the
+  /// Settings pages' config.json backups use too).
   function blockDiff(before, after) {
-    const sortKeys = (value) => Array.isArray(value) ? value.map(sortKeys)
-      : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortKeys(value[key])])) : value;
-    const a = JSON.stringify(sortKeys(before ?? {}), null, 2).split("\n");
-    const b = JSON.stringify(sortKeys(after ?? {}), null, 2).split("\n");
-    const lengths = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
-    for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) {
-      lengths[i][j] = a[i] === b[j] ? lengths[i + 1][j + 1] + 1 : Math.max(lengths[i + 1][j], lengths[i][j + 1]);
-    }
-    const out = [];
-    let i = 0, j = 0;
-    while (i < a.length && j < b.length) {
-      if (a[i] === b[j]) { out.push({ kind: "same", text: a[i] }); i++; j++; }
-      else if (lengths[i + 1][j] >= lengths[i][j + 1]) out.push({ kind: "remove", text: a[i++] });
-      else out.push({ kind: "add", text: b[j++] });
-    }
-    while (i < a.length) out.push({ kind: "remove", text: a[i++] });
-    while (j < b.length) out.push({ kind: "add", text: b[j++] });
-    return out;
+    return HomeswiftCommon.jsonDiff(before, after);
   }
 
   /// A place to drop a file for a path field (a certificate, its key), or to choose it: the bridge keeps the
@@ -1813,6 +1799,8 @@
 
   // The views of home.js: rooms, Quick Controls, scenes, notifications.
   window.HomeswiftHome?.install({ views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(), enumLabels, labelFor, withSlugs });
+  // The Settings pages (admin.js) draw with the same helpers.
+  window.HomeswiftApp = { api, navigate, route, pageHead, breadcrumb, show, savedText, waitForRestart, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; } };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();
