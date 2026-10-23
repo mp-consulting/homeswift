@@ -180,76 +180,101 @@ public struct HomeswiftCatalog: Sendable {
         name.lowercased().filter { $0.isLetter || $0.isNumber }
     }
 
-    public static func accessoryJSON(_ located: Located, detailed: Bool) -> JSONValue {
+    public static func accessoryJSON(_ located: Located, detailed: Bool, lastRing: String? = nil) -> JSONValue {
+        var builder = JSONValueBuilder()
+        writeAccessory(located, detailed: detailed, lastRing: lastRing, to: &builder)
+        return builder.result
+    }
+
+    /// The accessory's JSON, once for both builders: `accessoryJSON` makes the value the MCP tools use, the web UI
+    /// writes its list straight to bytes (`JSONBytesWriter`), a tree it would only encode costing more than the
+    /// rest of the request. Keys go in the order `JSONValue` sorts them to, so both are the same JSON.
+    /// `lastRing` is a doorbell's last ring, for the web UI's camera card.
+    public static func writeAccessory<Builder: JSONBuilding>(_ located: Located, detailed: Bool, lastRing: String? = nil, to json: inout Builder) {
         let accessory = located.accessory
         let information = accessory.information
-        // Each dictionary is made at the size it ends up: growing them key by key was most of building the list.
-        var object = [String: JSONValue](minimumCapacity: 12)
-        object["id"] = .string(accessory.id)
-        object["aid"] = .number(Double(accessory.aid))
-        object["name"] = .string(accessory.name)
-        object["category"] = .string("\(accessory.category)")
-        object["bridge"] = .string(located.bridge.name)
-        object["manufacturer"] = json(information[.manufacturer]?.value ?? .null)
-        object["model"] = json(information[.model]?.value ?? .null)
-        object["serialNumber"] = json(information[.serialNumber]?.value ?? .null)
-        if let platform = located.platform {
-            object["platform"] = .string(platform.platform)
-            object["platformName"] = .string(platform.name)
-            // Its plugin does not run: the accessory answers No Response until it is resumed.
-            if platform.paused { object["paused"] = true }
-        }
-        if let layout = located.layout {
-            if let room = layout.room { object["room"] = .string(room) }
-            if let name = layout.name { object["displayName"] = .string(name) }
-            if layout.hidden == true { object["hidden"] = true }
-            if layout.favourite == true { object["favourite"] = true }
-        }
-        if let camera = accessory.cameraController {
-            // The web UI gives it a camera card: live video or snapshots, from /api/cameras/<id>/…
-            object["camera"] = true
-            if camera is DoorbellController || accessory.services.contains(where: { $0.type.uuid == ServiceType.doorbell.uuid }) { object["doorbell"] = true }
-        }
-        // Its plugin records an Eve history: get_accessory_history, and the web UI's History, have something to show.
-        if !EveHistory.histories(of: accessory).isEmpty { object["history"] = true }
-        object["services"] = .array(accessory.services.filter { $0.type.uuid != ServiceType.accessoryInformation.uuid }.map { service in
-            var entry = [String: JSONValue](minimumCapacity: 6)
-            entry["type"] = .string(service.type.name)
-            if let subtype = service.subtype { entry["subtype"] = .string(subtype) }
-            if let name = service[.name]?.value.stringValue { entry["name"] = .string(name) }
-            if service.isPrimary { entry["primary"] = true }
-            if isInternal(service) { entry["internal"] = true }
-            if let controller = service.adaptiveLighting { entry["adaptiveLighting"] = adaptiveLightingJSON(controller) }
-            if detailed {
-                entry["characteristics"] = .array(service.characteristics.map { characteristic in
-                    let type = characteristic.type
-                    var detail = [String: JSONValue](minimumCapacity: 12)
-                    detail["type"] = .string(type.name)
-                    detail["value"] = isOpaque(characteristic) ? .null : value(of: characteristic)
-                    detail["format"] = .string(type.format.rawValue)
-                    detail["permissions"] = .array(type.permissions.map(\.rawValue).sorted().map(JSONValue.string))
-                    if characteristic.isSecurityControl { detail["security"] = true }
-                    if characteristic.isConfidential { detail["confidential"] = true }
-                    if isInternal(characteristic) { detail["internal"] = true }
-                    if isOpaque(characteristic), !characteristic.isConfidential, let base64 = characteristic.value.stringValue {
-                        // The size says whether HomeKit configured it; the bytes mean nothing as text.
-                        detail["bytes"] = .number(Double(Data(base64Encoded: base64)?.count ?? 0))
-                    }
-                    if let unit = type.unit { detail["unit"] = .string(unit.rawValue) }
-                    if let minimum = type.minValue { detail["minValue"] = .number(minimum) }
-                    if let maximum = type.maxValue { detail["maxValue"] = .number(maximum) }
-                    if let step = type.minStep { detail["minStep"] = .number(step) }
-                    if let values = type.validValues { detail["validValues"] = .array(values.map { .number(Double($0)) }) }
-                    return .object(detail)
-                })
-            } else {
-                entry["values"] = .object(service.characteristics
-                    .filter { $0.type.permissions.contains(.pairedRead) && $0.type.uuid != CharacteristicType.name.uuid && !$0.isConfidential && !isOpaque($0) }
-                    .reduce(into: [:]) { $0[$1.type.name] = json($1.value) })
+        json.object { json in
+            // Keys in order, as JSONValue writes them.
+            let layout = located.layout
+            json.field("aid", .number(Double(accessory.aid)))
+            json.field("bridge", .string(located.bridge.name))
+            // The web UI gives a camera a card: live video or snapshots, from /api/cameras/<id>/…
+            if accessory.cameraController != nil { json.field("camera", true) }
+            json.field("category", .string("\(accessory.category)"))
+            // The room, name, favourite and hidden flags the web UI's rooms give it (`AccessoryLayout`).
+            if let name = layout?.name { json.field("displayName", .string(name)) }
+            if let camera = accessory.cameraController,
+               camera is DoorbellController || accessory.services.contains(where: { $0.type.uuid == ServiceType.doorbell.uuid }) {
+                json.field("doorbell", true)
             }
-            return .object(entry)
-        })
-        return .object(object)
+            if layout?.favourite == true { json.field("favourite", true) }
+            if layout?.hidden == true { json.field("hidden", true) }
+            // Its plugin records an Eve history: get_accessory_history, and the web UI's History, have something to show.
+            if !EveHistory.histories(of: accessory).isEmpty { json.field("history", true) }
+            json.field("id", .string(accessory.id))
+            if let lastRing { json.field("lastRing", .string(lastRing)) }
+            json.field("manufacturer", Self.json(information[.manufacturer]?.value ?? .null))
+            json.field("model", Self.json(information[.model]?.value ?? .null))
+            json.field("name", .string(accessory.name))
+            if let platform = located.platform {
+                // Its plugin does not run: the accessory answers No Response until it is resumed.
+                if platform.paused { json.field("paused", true) }
+                json.field("platform", .string(platform.platform))
+                json.field("platformName", .string(platform.name))
+            }
+            if let room = layout?.room { json.field("room", .string(room)) }
+            json.field("serialNumber", Self.json(information[.serialNumber]?.value ?? .null))
+            json.key("services")
+            json.array { json in
+                for service in accessory.services where service.type.uuid != ServiceType.accessoryInformation.uuid {
+                    writeService(service, detailed: detailed, to: &json)
+                }
+            }
+        }
+    }
+
+    private static func writeService<Builder: JSONBuilding>(_ service: Service, detailed: Bool, to json: inout Builder) {
+        json.object { json in
+            if let controller = service.adaptiveLighting { json.field("adaptiveLighting", adaptiveLightingJSON(controller)) }
+            if detailed {
+                json.key("characteristics")
+                json.array { json in
+                    for characteristic in service.characteristics { writeCharacteristic(characteristic, to: &json) }
+                }
+            }
+            if isInternal(service) { json.field("internal", true) }
+            if let name = service[.name]?.value.stringValue { json.field("name", .string(name)) }
+            if service.isPrimary { json.field("primary", true) }
+            if let subtype = service.subtype { json.field("subtype", .string(subtype)) }
+            json.field("type", .string(service.type.name))
+            if !detailed {
+                json.field("values", .object(service.characteristics
+                    .filter { $0.type.permissions.contains(.pairedRead) && $0.type.uuid != CharacteristicType.name.uuid && !$0.isConfidential && !isOpaque($0) }
+                    .reduce(into: [:]) { $0[$1.type.name] = Self.json($1.value) }))
+            }
+        }
+    }
+
+    private static func writeCharacteristic<Builder: JSONBuilding>(_ characteristic: Characteristic, to json: inout Builder) {
+        let type = characteristic.type
+        json.object { json in
+            if isOpaque(characteristic), !characteristic.isConfidential, let base64 = characteristic.value.stringValue {
+                // The size says whether HomeKit configured it; the bytes mean nothing as text.
+                json.field("bytes", .number(Double(Data(base64Encoded: base64)?.count ?? 0)))
+            }
+            if characteristic.isConfidential { json.field("confidential", true) }
+            json.field("format", .string(type.format.rawValue))
+            if isInternal(characteristic) { json.field("internal", true) }
+            if let maximum = type.maxValue { json.field("maxValue", .number(maximum)) }
+            if let step = type.minStep { json.field("minStep", .number(step)) }
+            if let minimum = type.minValue { json.field("minValue", .number(minimum)) }
+            json.field("permissions", .array(type.permissions.map(\.rawValue).sorted().map(JSONValue.string)))
+            if characteristic.isSecurityControl { json.field("security", true) }
+            json.field("type", .string(type.name))
+            if let unit = type.unit { json.field("unit", .string(unit.rawValue)) }
+            if let values = type.validValues { json.field("validValues", .array(values.map { .number(Double($0)) })) }
+            json.field("value", isOpaque(characteristic) ? .null : value(of: characteristic))
+        }
     }
 
     /// Services HomeKit runs a camera with, which a person neither reads nor changes: the RTP stream setups, the

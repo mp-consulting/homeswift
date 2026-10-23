@@ -109,6 +109,11 @@ public enum JSONValue: Sendable, Hashable, Codable, CustomStringConvertible {
         return String(decoding: bytes, as: UTF8.self)
     }
 
+    /// Appends the compact JSON, as `encoded()` writes it: for `JSONBytesWriter`.
+    func writeCompact(to bytes: inout [UInt8]) {
+        write(to: &bytes, pretty: false, depth: 0)
+    }
+
     private func write(to bytes: inout [UInt8], pretty: Bool, depth: Int) {
         func indent(_ level: Int) {
             bytes.append(0x0A)

@@ -167,54 +167,100 @@ public enum Redaction {
         return restored
     }
 
-    /// What ASCII text must contain for `secretPair` to match: a keyword of its key and a separator.
-    private static let pairKeywords = ["pass", "pin", "setup", "secret", "token", "api", "private", "credential"].map { Array($0.utf8) }
+    /// What one pass over a text finds of what the expressions need, for ASCII text: a separator and a keyword of a
+    /// secret's key for `secretPair`, and the fixed part of each of `secretShapes`. Sixteen searches of each line
+    /// had become most of a log search's time.
+    struct Hints: OptionSet {
+        let rawValue: UInt16
+        static let nonASCII = Hints(rawValue: 1 << 0)
+        static let separator = Hints(rawValue: 1 << 1)
+        static let keyword = Hints(rawValue: 1 << 2)
+        static let bearer = Hints(rawValue: 1 << 3)
+        static let openAI = Hints(rawValue: 1 << 4)
+        static let homebridge = Hints(rawValue: 1 << 5)
+        static let google = Hints(rawValue: 1 << 6)
+        static let jwt = Hints(rawValue: 1 << 7)
+        static let setupURI = Hints(rawValue: 1 << 8)
+        static let setupCode = Hints(rawValue: 1 << 9)
+        static let shortSetupCode = Hints(rawValue: 1 << 10)
+    }
 
-    private static let needles = (
-        bearer: TextSearch.Needle("Bearer"), basic: TextSearch.Needle("Basic"), openAI: TextSearch.Needle("sk-"), homebridge: TextSearch.Needle("hbg_"),
-        google: TextSearch.Needle("AIza"), jwt: TextSearch.Needle("eyJ"), setupURI: TextSearch.Needle("X-HM://"))
+    /// What each of `secretShapes` needs, in the same order.
+    private static let shapeHints: [Hints] = [.bearer, .openAI, .homebridge, .google, .jwt, .setupURI, .setupCode, .shortSetupCode]
 
-    /// What ASCII text must contain for each of `secretShapes` to match, in the same order.
-    private static let shapeHints: [@Sendable (String) -> Bool] = [
-        { TextSearch.contains($0, needles.bearer) || TextSearch.contains($0, needles.basic) },
-        { TextSearch.contains($0, needles.openAI) },
-        { TextSearch.contains($0, needles.homebridge) },
-        { TextSearch.contains($0, needles.google) },
-        { TextSearch.contains($0, needles.jwt) },
-        { TextSearch.contains($0, needles.setupURI) },
-        { hasDigitGroups($0, [3, 2, 3]) },
-        { hasDigitGroups($0, [4, 4]) },
-    ]
+    /// The keywords of `secretPair`'s key (password, passwd, passphrase and pass all start `pass`), lower case.
+    private static let keywords = ["pass", "pin", "setup", "secret", "token", "api", "private", "credential"].map { Array($0.utf8) }
 
-    /// Whether ASCII text has groups of exactly these many digits joined by dashes, between word boundaries:
-    /// `\b\d{3}-\d{2}-\d{3}\b` for `[3, 2, 3]`. Every log line starts with a date, which a looser test lets through.
-    private static func hasDigitGroups(_ text: String, _ groups: [Int]) -> Bool {
+    /// The shapes' fixed parts, case as written.
+    private static let fixed = (
+        openAI: Array("sk-".utf8), google: Array("AIza".utf8), bearer: Array("Bearer".utf8), basic: Array("Basic".utf8),
+        homebridge: Array("hbg_".utf8), jwt: Array("eyJ".utf8), setupURI: Array("X-HM://".utf8))
+
+    static func hints(_ text: String) -> Hints {
         TextSearch.withBytes(text) { bytes in
-            func digit(_ index: Int) -> Bool { index < bytes.count && bytes[index] &- UInt8(ascii: "0") < 10 }
+            var hints: Hints = []
+            func at(_ start: Int, _ needle: [UInt8], caseless: Bool) -> Bool {
+                guard start + needle.count <= bytes.count else { return false }
+                for offset in needle.indices where (caseless ? TextSearch.lower(bytes[start + offset]) : bytes[start + offset]) != needle[offset] { return false }
+                return true
+            }
             func word(_ index: Int) -> Bool {
                 guard index >= 0, index < bytes.count else { return false }
                 let byte = bytes[index]
                 return byte &- UInt8(ascii: "0") < 10 || (byte | 0x20) &- UInt8(ascii: "a") < 26 || byte == UInt8(ascii: "_")
             }
-            var start = 0
-            while start < bytes.count {
-                if digit(start), !word(start - 1) {
-                    var position = start
-                    var matched = true
-                    for (index, count) in groups.enumerated() {
-                        if index > 0 {
-                            guard position < bytes.count, bytes[position] == UInt8(ascii: "-") else { matched = false; break }
-                            position += 1
-                        }
-                        guard (position..<(position + count)).allSatisfy(digit) else { matched = false; break }
-                        position += count
+            for index in bytes.indices {
+                let byte = bytes[index]
+                // Other text takes every expression: nothing more to find.
+                if byte >= 0x80 { return [.nonASCII] }
+                if byte == UInt8(ascii: ":") || byte == UInt8(ascii: "=") { hints.insert(.separator); continue }
+                if byte &- UInt8(ascii: "0") < 10 {
+                    if !word(index - 1) {
+                        if digitGroups(at: index, in: bytes, [3, 2, 3], word: word) { hints.insert(.setupCode) }
+                        if digitGroups(at: index, in: bytes, [4, 4], word: word) { hints.insert(.shortSetupCode) }
                     }
-                    if matched, !word(position) { return true }
+                    continue
                 }
-                start += 1
+                switch TextSearch.lower(byte) {
+                case UInt8(ascii: "p"), UInt8(ascii: "t"), UInt8(ascii: "c"):
+                    if keywords.contains(where: { at(index, $0, caseless: true) }) { hints.insert(.keyword) }
+                case UInt8(ascii: "s"):
+                    if keywords.contains(where: { at(index, $0, caseless: true) }) { hints.insert(.keyword) }
+                    if at(index, fixed.openAI, caseless: false) { hints.insert(.openAI) }
+                case UInt8(ascii: "a"):
+                    if keywords.contains(where: { at(index, $0, caseless: true) }) { hints.insert(.keyword) }
+                    if at(index, fixed.google, caseless: false) { hints.insert(.google) }
+                case UInt8(ascii: "b"):
+                    if at(index, fixed.bearer, caseless: false) || at(index, fixed.basic, caseless: false) { hints.insert(.bearer) }
+                case UInt8(ascii: "h"):
+                    if at(index, fixed.homebridge, caseless: false) { hints.insert(.homebridge) }
+                case UInt8(ascii: "e"):
+                    if at(index, fixed.jwt, caseless: false) { hints.insert(.jwt) }
+                case UInt8(ascii: "x"):
+                    if at(index, fixed.setupURI, caseless: false) { hints.insert(.setupURI) }
+                default:
+                    break
+                }
             }
-            return false
+            return hints
         }
+    }
+
+    /// Whether groups of exactly these many digits joined by dashes start at `start` and end at a word boundary:
+    /// `\d{3}-\d{2}-\d{3}\b` for `[3, 2, 3]` (the caller checks the boundary before). Every log line starts with a
+    /// date, which a looser test lets through.
+    private static func digitGroups(at start: Int, in bytes: UnsafeBufferPointer<UInt8>, _ groups: [Int], word: (Int) -> Bool) -> Bool {
+        func digit(_ index: Int) -> Bool { index < bytes.count && bytes[index] &- UInt8(ascii: "0") < 10 }
+        var position = start
+        for (index, count) in groups.enumerated() {
+            if index > 0 {
+                guard position < bytes.count, bytes[position] == UInt8(ascii: "-") else { return false }
+                position += 1
+            }
+            guard (position..<(position + count)).allSatisfy(digit) else { return false }
+            position += count
+        }
+        return !word(position)
     }
 
     /// Best-effort redaction of free text such as log lines or error messages: values of secret-named
@@ -229,9 +275,9 @@ public enum Redaction {
     /// `prefilter: false` runs every expression: what the tests compare the shortcut with.
     static func redactText(_ text: String, prefilter: Bool) -> String {
         var out = text
-        let ascii = prefilter && TextSearch.isASCII(text)
-        let mayHoldPair = !ascii || TextSearch.withBytes(text) { $0.contains { $0 == UInt8(ascii: ":") || $0 == UInt8(ascii: "=") } }
-            && TextSearch.containsAny(text, caseless: pairKeywords)
+        var hints = prefilter ? Self.hints(text) : .nonASCII
+        let ascii = !hints.contains(.nonASCII)
+        let mayHoldPair = !ascii || hints.contains([.separator, .keyword])
         let pairs = mayHoldPair ? secretPair.matches(in: out, range: NSRange(out.startIndex..., in: out)) : []
         for match in pairs.reversed() {
             guard let whole = Range(match.range, in: out), let keyRange = Range(match.range(at: 2), in: out) else { continue }
@@ -243,10 +289,12 @@ public enum Redaction {
             let valueQuote = Range(match.range(at: 4), in: out).map { String(out[$0]) } ?? ""
             out.replaceSubrange(whole, with: "\(quote)\(key)\(quote)\(separator)\(valueQuote)\(placeholder)\(valueQuote)")
         }
+        // Replacements keep ASCII text ASCII; the hints look at the text as each expression will see it.
+        if ascii, !pairs.isEmpty { hints = Self.hints(out) }
         for (shape, hint) in zip(secretShapes, shapeHints) {
-            // Replacements keep ASCII text ASCII; the hint looks at the text as the expression would see it.
-            if ascii, !hint(out) { continue }
+            if ascii, !hints.contains(hint) { continue }
             let found = shape.matches(in: out, range: NSRange(out.startIndex..., in: out))
+            defer { if ascii, !found.isEmpty { hints = Self.hints(out) } }
             for match in found.reversed() {
                 guard let range = Range(match.range, in: out) else { continue }
                 let matched = String(out[range])
