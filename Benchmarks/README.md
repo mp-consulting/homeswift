@@ -372,6 +372,26 @@ payloads, filters and context lines) came in between the two builds, and made th
 every line in memory. It makes them now for the lines that need them: 3.4 ms at 60 and at 300 accessories, back to
 back.
 
+### Where it ends
+
+The heaviest routes left, on the latest build (`87860ed`, quiet machine), and what they cost per item:
+
+| Route, p50 | 60 accessories | 300 accessories | per item |
+|---|---:|---:|---|
+| `GET /api/accessories` | 0.62 ms (72 KB) | 2.7 ms (365 KB) | 9 µs an accessory |
+| MCP `list_accessories` / `resources/read accessories` | 1.2 / 0.93 ms | 5.3 / 4.1 ms | 14–18 µs an accessory |
+| `GET /api/logs?from=` (an hour, 5 000 lines, 600 KB) | 4.8 ms | 4.8 ms | 1 µs a line |
+| MCP `search_logs` (5 000 lines) | 3.3 ms | 3.4 ms | 0.7 µs a line |
+| `GET /api/logs?accessory=` (5 000 lines) | 3.0 ms | 3.0 ms | 0.6 µs a line |
+
+These are where the work itself is: each log line is read, masked for secrets and written once, and each
+accessory's characteristics are read and written once. What could still go is a constant factor, not a quadratic
+or a repeated step: the MCP accessory tools still build the generic `JSONValue` tree that `/api/accessories` no
+longer does, and an hour of log could be kept parsed in memory rather than read back from disk. Neither shows where
+it is felt. The answers are larger than they are slow: the hour of log is 600 KB and the 300 accessories 365 KB,
+which a phone on Wi-Fi takes 10–50 ms to receive, more than the bridge takes to make them, and the browser takes
+longer still to lay them out. A home of 50 accessories gets its accessory list in about half a millisecond.
+
 ### Adding accessories
 
 A plugin adds its accessories one at a time. Each add rewrote the whole accessory cache with `JSONEncoder`, and
