@@ -91,6 +91,9 @@ struct PlatformTests {
     /// Another client signing in to the account ends this session each time: the backoff keeps growing
     /// instead of starting over after every login, and starts over once a connection lasts.
     @Test func aSessionTakenOverAgainAndAgainBacksOff() async throws {
+        // A connection lasting a minute of plugin time counts as stable: at testClock's scale that is 600 ms, which a
+        // loaded runner can spend between two drops of the loop. 2.4 s leaves room.
+        let environment = EWeLinkTestEnvironment(clock: EWeLinkClock(scale: 0.04))
         let host = try await environment.start(devices: [device("1000aaaaaa", uiid: 1)], settings: ["mode": "wan"])
         #expect(await environment.socketReady())
         for attempt in 1...3 {
@@ -99,8 +102,8 @@ struct PlatformTests {
             #expect(await environment.socketReady())
             #expect(await environment.platform()?.socket?.reconnectAttempts == attempt)
         }
-        // A minute of plugin time (600 ms here) connected: the next drop starts over.
-        try await Task.sleep(for: .milliseconds(Timing.socketStableConnection / 100 + 200))
+        // A minute of plugin time connected: the next drop starts over.
+        try await Task.sleep(for: .milliseconds(Int(Double(Timing.socketStableConnection) * environment.clock.scale) + 200))
         environment.socket.current?.drop()
         #expect(await eventually { environment.socket.connections == 5 })
         #expect(await environment.platform()?.socket?.reconnectAttempts == 1)
