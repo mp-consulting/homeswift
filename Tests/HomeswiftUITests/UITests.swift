@@ -68,14 +68,17 @@ final class UITestEnvironment: @unchecked Sendable {
     let server: UIServer
     var configURL: URL { directory.appendingPathComponent("config.json") }
 
-    init(auth: UIConfiguration.AuthMode = .form, webRoot: URL? = nil, https: Bool = false, metrics: Metrics? = nil) throws {
+    /// `assistant`: a HomeswiftAiKit block whose provider nothing answers for (it is never reached in the tests).
+    init(auth: UIConfiguration.AuthMode = .form, webRoot: URL? = nil, https: Bool = false, metrics: Metrics? = nil, assistant: Bool = false,
+         options configure: (inout UIServer.Options) -> Void = { _ in }) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let ai = assistant ? #",{ "platform": "HomeswiftAiKit", "provider": "openai-compatible", "model": "llama3.1", "baseUrl": "http://127.0.0.1:9/v1" }"# : ""
         let config = """
             {
               "bridge": { "name": "UI Bridge", "username": "0E:11:22:33:44:66", "pin": "031-45-154", "port": 0 },
               "platforms": [
                 { "platform": "Lamps", "name": "Lamps" },
-                { "platform": "HomeswiftUI", "port": 0 }
+                { "platform": "HomeswiftUI", "port": 0 }\(ai)
               ]
             }
             """
@@ -99,6 +102,7 @@ final class UITestEnvironment: @unchecked Sendable {
         serverOptions.hashIterations = 1000
         serverOptions.logger = testLogger
         serverOptions.webRoot = webRoot
+        configure(&serverOptions)
         server = UIServer(configuration: configuration, catalog: catalog, usersURL: directory.appendingPathComponent("ui-users.json"), options: serverOptions)
     }
 

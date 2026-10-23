@@ -572,6 +572,7 @@ enum WebAssets {
     $("input[name=password]", $("#auth-form")).autocomplete = setup ? "new-password" : "current-password";
     $("#auth-setup-code").classList.toggle("hidden", !setup);
     $("input[name=setupCode]", $("#auth-form")).required = !!setup;
+    askCode(false);
     const form = $("#auth-form");
     if (setup && !setupGauge) {
       setupGauge = strengthGauge(form.password, () => form.username.value);
@@ -581,6 +582,17 @@ enum WebAssets {
     setupGauge?.classList.toggle("hidden", !setup);
   }
   let setupGauge = null;
+
+  /// The login's second step: with two-factor authentication on, the bridge asks for the authenticator app's code.
+  function askCode(asked) {
+    const form = $("#auth-form");
+    $("#auth-otp").classList.toggle("hidden", !asked);
+    form.otp.required = asked;
+    if (!asked) form.otp.value = "";
+    else form.otp.focus();
+  }
+  // Another username or password starts over: the code is only asked once those are right.
+  for (const name of ["username", "password"]) $("#auth-form")[name].addEventListener("input", () => askCode(false));
 
   $("#auth-form").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -593,17 +605,21 @@ enum WebAssets {
     submit.disabled = true;
     submit.classList.add("busy");
     submit.textContent = auth && auth.setupNeeded ? "Creating the account…" : "Signing in…";
+    const body = { username: form.username.value, password: form.password.value };
     try {
-      const body = { username: form.username.value, password: form.password.value };
       if (auth && auth.setupNeeded) {
         if (setupGauge && !(await setupGauge.acceptable())) throw new Error("The password is not strong enough yet: the gauge says what is missing.");
         body.setupCode = form.setupCode.value;
       }
+      if (!$("#auth-otp").classList.contains("hidden")) body.otp = form.otp.value;
       await api(auth && auth.setupNeeded ? "/api/auth/setup" : "/api/auth/login", { method: "POST", body });
       form.password.value = "";
+      askCode(false);
       await loadAuth();
     } catch (e) {
+      if (e.status === 412) { askCode(true); return; }
       error.textContent = e.message;
+      if (body.otp !== undefined) { form.otp.value = ""; form.otp.focus(); }
     } finally {
       submit.disabled = false;
       submit.classList.remove("busy");
@@ -666,10 +682,28 @@ enum WebAssets {
     $("#app").classList.remove("hidden");
     $("#user").textContent = auth.username || "";
     HomeswiftCommon.tabBar({ parent: $("#app") });
+    showSections();
     HomeswiftChat.mount();
     $("#logout").classList.toggle("hidden", auth.mode !== "form");
     openEvents();
     route();
+  }
+
+  // ---- Roles -----------------------------------------------------------------
+  // As Glass UI's: a user who is not an administrator sees Status and Accessories (and controls accessories); the
+  // plugins, config.json, the log and the users are an administrator's. The server refuses the rest anyway.
+
+  const adminSections = new Set(["plugins", "config", "logs", "settings", "users"]);
+  const isAdmin = () => Boolean(auth && auth.admin);
+
+  /// Shows the header's and the tab bar's sections the user may open.
+  function showSections() {
+    for (const link of document.querySelectorAll("nav a")) {
+      const section = (link.getAttribute("href") || "").split("/")[1];
+      const users = section === "users";
+      link.classList.toggle("hidden", adminSections.has(section) && (!isAdmin() || (users && auth.mode !== "form")));
+    }
+    $("#user").textContent = auth.name && auth.name !== auth.username ? auth.name : auth.username || "";
   }
 
   // ---- Routing -------------------------------------------------------------
@@ -682,7 +716,12 @@ enum WebAssets {
   let shownPath = null;
   function route() {
     const decode = (part) => { try { return decodeURIComponent(part); } catch { return part; } };
-    const [name = "status", ...args] = location.pathname.split("/").filter(Boolean).map(decode);
+    let [name = "status", ...args] = location.pathname.split("/").filter(Boolean).map(decode);
+    if (adminSections.has(name) && !isAdmin()) {
+      // An administrator's view, from a link or a bookmark: Status instead.
+      history.replaceState(null, "", "/status");
+      [name, args] = ["status", []];
+    }
     for (const link of document.querySelectorAll("nav a")) {
       const current = link.getAttribute("href") === `/${name}`;
       link.classList.toggle("active", current);
@@ -760,7 +799,7 @@ enum WebAssets {
       api("/api/status"),
       api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
     ]);
-    $("#banner").classList.toggle("hidden", !status.restartNeeded);
+    $("#banner").classList.toggle("hidden", !status.restartNeeded || !isAdmin());
     const waiting = status.bridges.filter((bridge) => !bridge.paired);
     const [health, healthKind] = status.restartNeeded ? ["Running; some changes need a restart", "away"]
       : waiting.length ? [`Running; ${waiting.length === 1 ? "one server waits" : `${waiting.length} servers wait`} to be added in the Home app`, "away"]
@@ -813,8 +852,8 @@ enum WebAssets {
           fact("Machine up", formatDuration(status.system.systemUptimeSeconds ?? 0))),
         el("div", { class: "fact wide" }, el("span", { text: "Configuration" }), el("b", { class: "mono", text: status.configPath, title: status.configPath })),
         // Changes apply without one; this is for a plugin that misbehaves.
-        el("div", { class: "actions" }, el("button", { class: "link", text: "Restart homeswift…", onclick: restartBridge }),
-          el("a", { class: "link", href: "/settings", text: "Settings, pairings and backups" }), el("a", { class: "link", href: "/notifications", text: "Notifications" }))));
+        isAdmin() ? el("div", { class: "actions" }, el("button", { class: "link", text: "Restart homeswift…", onclick: restartBridge }),
+          el("a", { class: "link", href: "/settings", text: "Settings, pairings and backups" }), el("a", { class: "link", href: "/notifications", text: "Notifications" })) : null));
   };
 
   /// The Status page's charts: the process's memory and CPU, and how long the Home app's requests and the plugins'
@@ -1202,10 +1241,10 @@ enum WebAssets {
   function accessoryActions(accessory) {
     return [
       { label: "Identify", icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) },
-      { label: "Show its log", icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` },
+      isAdmin() ? { label: "Show its log", icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
       window.HomeswiftChat?.available() ? { label: "Ask the Assistant", icon: sparkle(), onSelect: () => HomeswiftChat.ask(`About ${accessory.name}: `) } : null,
-      accessory.platform ? { label: "Plugin settings", icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
-      ...(window.HomeswiftHome?.layoutActions(accessory) ?? []),
+      accessory.platform && isAdmin() ? { label: "Plugin settings", icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
+      ...(isAdmin() ? window.HomeswiftHome?.layoutActions(accessory) ?? [] : []),
       accessory.history ? { label: "History", icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
     ];
   }
@@ -2014,12 +2053,207 @@ enum WebAssets {
       field("New password again", again),
       el("div", { class: "actions" }, submit), message);
     show(main,
-      pageHead("Account", `Signed in as ${state.username}. Logins last ${state.sessionDays ?? 7} days without activity.`),
-      el("div", { class: "account" }, form,
-        el("div", { class: "card" }, el("h2", { text: "Sign out" }),
-          el("p", { class: "muted", text: "Ends this browser's session. Changing the password ends the others." }),
-          el("button", { text: "Sign out", onclick: () => $("#logout").click() }))));
+      pageHead("Account", `Signed in as ${state.username}${state.admin ? ", an administrator" : ""}. Logins last ${state.sessionDays ?? 7} days without activity.`),
+      el("div", { class: "account" }, el("div", { class: "stack" }, form, twoFactorCard(state)),
+        el("div", { class: "stack" },
+          el("div", { class: "card" }, el("h2", { text: "Sign out" }),
+            el("p", { class: "muted", text: "Ends this browser's session. Changing the password, or turning two-factor authentication on or off, ends the others." }),
+            el("button", { text: "Sign out", onclick: () => $("#logout").click() })),
+          state.admin ? el("div", { class: "card" }, el("h2", { text: "Users and API tokens" }),
+            el("p", { class: "muted", text: "Add people who may use this web UI, choose who administers it, and make tokens for scripts." }),
+            el("a", { class: "button", href: "/users", text: "Open Users" })) : null)));
   };
+
+  /// Two-factor authentication (TOTP, RFC 6238): on, it can be turned off with the password; off, setting it up
+  /// shows a QR code and the secret for an authenticator app, and a first code from the app turns it on.
+  function twoFactorCard(state) {
+    const card = el("div", { class: "card account-form" });
+    const message = el("p", { class: "status-line muted", role: "status" });
+    const say = (text, kind = "error") => { message.className = `status-line ${kind}`; message.textContent = text; };
+    const field = (label, input) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input);
+    const reload = () => route();
+    if (state.twoFactor) {
+      const password = el("input", { type: "password", autocomplete: "current-password", required: true });
+      const submit = el("button", { type: "submit", text: "Turn off" });
+      card.append(el("h2", {}, "Two-factor authentication ", el("span", { class: "pill status on", text: "On" })),
+        el("p", { class: "muted", text: "Signing in asks for the code your authenticator app shows, after the password." }),
+        el("form", { onsubmit: async (event) => {
+          event.preventDefault();
+          submit.disabled = true;
+          try { await api("/api/account/otp/disable", { method: "POST", body: { password: password.value } }); reload(); }
+          catch (e) { say(e.message); password.focus(); submit.disabled = false; }
+        } }, field("Password, to turn it off", password), el("div", { class: "actions" }, submit)), message);
+      return card;
+    }
+    const start = el("button", { class: "primary", text: "Set up" });
+    card.append(el("h2", {}, "Two-factor authentication ", el("span", { class: "pill status standby", text: "Off" })),
+      el("p", { class: "muted", text: "Ask for a code from an authenticator app (Passwords on iPhone and Mac, Google Authenticator, 1Password…) after the password, so a password alone no longer signs in." }),
+      el("div", { class: "actions" }, start), message);
+    start.addEventListener("click", async () => {
+      start.disabled = true;
+      let setup;
+      try { setup = await api("/api/account/otp/setup", { method: "POST", body: {} }); }
+      catch (e) { say(e.message); start.disabled = false; return; }
+      const code = el("input", { inputMode: "numeric", autocomplete: "one-time-code", required: true, maxLength: 9, placeholder: "123 456", spellcheck: false });
+      const confirmButton = el("button", { class: "primary", type: "submit", text: "Turn on" });
+      const secret = el("code", { class: "mono secret", text: setup.secret.replace(/(.{4})/g, "$1 ").trim() });
+      start.closest(".actions").replaceWith(
+        el("div", { class: "setup" },
+          setup.qr ? el("img", { class: "qr", src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(setup.qr)}`, alt: "QR code for an authenticator app", width: 148, height: 148 }) : null,
+          el("div", {},
+            el("p", { text: "Scan this code with your authenticator app, or open the link on this device; or type the key by hand." }),
+            el("p", {}, secret, " ", el("button", { type: "button", class: "link", text: "Copy", onclick: () => copyText(setup.secret) }),
+              " · ", el("a", { href: setup.uri, text: "Open in the app" })))),
+        el("form", { onsubmit: async (event) => {
+          event.preventDefault();
+          confirmButton.disabled = true;
+          try { await api("/api/account/otp/activate", { method: "POST", body: { code: code.value } }); reload(); }
+          catch (e) { say(e.message); code.select(); confirmButton.disabled = false; }
+        } }, field("The code the app shows now", code), el("div", { class: "actions" }, confirmButton)));
+      code.focus();
+    });
+    return card;
+  }
+
+  // ---- Users ---------------------------------------------------------------
+  // Glass UI's Users page: the accounts of this web UI, each a card whose ⋯ menu edits it (name, role, a new
+  // password) or removes it, and the API tokens for scripts. An administrator's; the last one stays one.
+
+  views.users = async (main) => {
+    if (auth.mode !== "form") {
+      show(main, pageHead("Users", "This web UI has no sign-in: its HomeswiftUI block says auth none, so there are no users."));
+      return;
+    }
+    const [users, tokens] = await Promise.all([api("/api/users"), api("/api/tokens")]);
+    const admins = users.filter((user) => user.admin).length;
+    const when = (iso) => iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "Never";
+    const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);
+    const checkbox = (label, checked, help) => {
+      const input = el("input", { type: "checkbox", checked });
+      return [el("label", { class: "check" }, input, el("span", { text: label })), help ? el("p", { class: "help", text: help }) : null, input];
+    };
+    const roleHelp = "An administrator changes settings, plugins and users; anyone else sees the bridge and controls accessories.";
+
+    /// The form that adds a user, or changes one (`user`): name, role, and a password (a new one, for a user).
+    function userForm(user, done) {
+      const username = el("input", { autocomplete: "off", required: true, maxLength: 64, spellcheck: false, value: user?.username ?? "" });
+      const name = el("input", { autocomplete: "off", maxLength: 64, value: user && user.name !== user.username ? user.name : "", placeholder: user?.username ?? "The username" });
+      const password = el("input", { type: "password", autocomplete: "new-password", required: !user });
+      const gauge = strengthGauge(password, () => username.value);
+      const [roleLabel, roleNote, admin] = checkbox("Administrator", user ? user.admin : false, roleHelp);
+      if (user?.admin && admins < 2) { admin.disabled = true; roleNote.textContent = "The last administrator stays one: make another user an administrator first."; }
+      const message = el("p", { class: "status-line muted", role: "status" });
+      const submit = el("button", { class: "primary", type: "submit", text: user ? "Save" : "Add user" });
+      const form = el("form", { class: "card account-form", onsubmit: async (event) => {
+        event.preventDefault();
+        if (password.value && !(await gauge.acceptable())) { message.className = "status-line error"; message.textContent = "The password is not strong enough yet: the gauge says what is missing."; return; }
+        submit.disabled = true;
+        try {
+          if (user) {
+            const body = { name: name.value, admin: admin.checked };
+            if (password.value) body.password = password.value;
+            await api(`/api/users/${encodeURIComponent(user.username)}`, { method: "PUT", body });
+          } else {
+            await api("/api/users", { method: "POST", body: { username: username.value, name: name.value, password: password.value, admin: admin.checked } });
+          }
+          done(true);
+        } catch (e) { message.className = "status-line error"; message.textContent = e.message; submit.disabled = false; }
+      } },
+        el("h2", { text: user ? `Edit ${user.name}` : "Add a user" }),
+        user ? null : field("Username", username, "What they sign in with: no spaces or colons."),
+        field("Name", name, "Shown in the web UI; the username when empty."),
+        el("label", { class: "field" }, el("span", { class: "field-title", text: user ? "New password" : "Password" }), password,
+          user ? el("span", { class: "help", text: "Leave empty to keep theirs. A new one signs them out everywhere." }) : null, gauge),
+        roleLabel, roleNote,
+        el("div", { class: "actions" }, submit, el("button", { type: "button", text: "Cancel", onclick: () => done(false) })), message);
+      return form;
+    }
+
+    const list = el("div", { class: "grid" });
+    const formSlot = el("div", {});
+    const closeForm = (changed) => { formSlot.replaceChildren(); if (changed) route(); };
+    const openForm = (user) => { formSlot.replaceChildren(userForm(user, closeForm)); formSlot.scrollIntoView({ block: "nearest", behavior: "smooth" }); $("input", formSlot)?.focus(); };
+
+    for (const user of users) {
+      const lastAdmin = user.admin && admins < 2;
+      list.append(el("div", { class: "card" },
+        el("div", { class: "server-head" },
+          tile(user.admin ? "key" : "user", user.admin ? "orange" : "blue"),
+          el("div", { class: "who" }, el("strong", { text: user.name }), el("div", { class: "muted mono", text: user.username })),
+          user.you ? el("span", { class: "pill", text: "You" }) : null),
+        el("div", { class: "facts" },
+          fact("Role", user.admin ? "Administrator" : "User"),
+          fact("Two-factor", user.twoFactor ? "On" : "Off"),
+          fact("Added", new Date(user.created).toLocaleDateString())),
+        el("div", { class: "card-foot" },
+          el("span", { class: "muted", text: user.you ? "Your own password and two-factor: Account" : lastAdmin ? "The last administrator" : "" }),
+          menuButton(`Actions for ${user.name}`, () => [
+            { label: "Edit", icon: "edit", onSelect: () => openForm(user) },
+            user.you ? { label: "Your account", icon: "user", href: "/account" } : null,
+            lastAdmin ? null : { label: user.you ? "Remove your account" : "Remove", icon: "trash", danger: true, onSelect: async () => {
+              if (!confirm(`Remove ${user.name} (${user.username})? They are signed out at once.${user.you ? " That is you: this browser is signed out too." : ""}`)) return;
+              try { await api(`/api/users/${encodeURIComponent(user.username)}`, { method: "DELETE" }); if (user.you) await loadAuth(); else route(); } catch (e) { alert(e.message); }
+            } },
+          ]))));
+    }
+
+    show(main,
+      pageHead("Users", "Who may use this web UI. Administrators change settings, plugins and users; other users see the bridge and control accessories.",
+        el("button", { class: "primary", text: "Add user", onclick: () => openForm(null) })),
+      formSlot, list,
+      apiTokens(tokens, when));
+  };
+
+  /// The API tokens: for scripts, sent as `Authorization: Bearer hst_…` on /api/*. A read token reads; an admin
+  /// token does what an administrator does. Shown once, when made; the bridge keeps only a hash.
+  function apiTokens(tokens, when) {
+    const name = el("input", { required: true, maxLength: 64, placeholder: "Backup script", autocomplete: "off" });
+    const scope = el("select", {}, el("option", { value: "read", text: "Read: status, accessories, metrics" }), el("option", { value: "admin", text: "Admin: everything an administrator does" }));
+    const expiry = el("select", {}, ...[["", "Never"], ["30", "In 30 days"], ["90", "In 90 days"], ["365", "In a year"]].map(([value, text]) => el("option", { value, text })));
+    const message = el("p", { class: "status-line muted", role: "status" });
+    const created = el("div", {});
+    const submit = el("button", { class: "primary", type: "submit", text: "Create token" });
+    const form = el("form", { class: "card account-form", onsubmit: async (event) => {
+      event.preventDefault();
+      submit.disabled = true;
+      try {
+        const token = await api("/api/tokens", { method: "POST", body: { name: name.value, scope: scope.value, expiresInDays: expiry.value ? Number(expiry.value) : null } });
+        form.reset();
+        message.textContent = "";
+        created.replaceChildren(el("div", { class: "card token-once" },
+          el("h2", { text: `Token “${token.name}”` }),
+          el("p", { class: "muted", text: "Copy it now: it is shown once. Send it as Authorization: Bearer <token>." }),
+          el("p", {}, el("code", { class: "mono secret", text: token.token }), " ", el("button", { type: "button", class: "link", text: "Copy", onclick: () => copyText(token.token) })),
+          el("div", { class: "actions" }, el("button", { type: "button", text: "Done", onclick: () => route() }))));
+      } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
+      submit.disabled = false;
+    } },
+      el("h2", { text: "Create an API token" }),
+      el("div", { class: "fields" },
+        el("label", { class: "field" }, el("span", { class: "field-title", text: "Name" }), name),
+        el("label", { class: "field" }, el("span", { class: "field-title", text: "Scope" }), scope),
+        el("label", { class: "field" }, el("span", { class: "field-title", text: "Expires" }), expiry)),
+      el("div", { class: "actions" }, submit), message);
+    const cards = tokens.map((token) => el("div", { class: "card" },
+      el("div", { class: "server-head" },
+        tile("key", token.scope === "admin" ? "orange" : "teal"),
+        el("div", { class: "who" }, el("strong", { text: token.name }), el("div", { class: "muted", text: token.createdBy ? `Made by ${token.createdBy}` : "" })),
+        el("span", { class: "pill", text: token.scope === "admin" ? "Admin" : "Read" })),
+      el("div", { class: "facts" }, fact("Created", when(token.created)), fact("Last used", when(token.lastUsed)), fact("Expires", token.expires ? when(token.expires) : "Never")),
+      el("div", { class: "card-foot" },
+        el("span", { class: "muted", text: token.expires && new Date(token.expires) < new Date() ? "Expired" : "" }),
+        menuButton(`Actions for the token ${token.name}`, () => [
+          { label: "Revoke", icon: "trash", danger: true, onSelect: async () => {
+            if (!confirm(`Revoke the token “${token.name}”? Scripts using it are refused at once.`)) return;
+            try { await api(`/api/tokens/${encodeURIComponent(token.id)}`, { method: "DELETE" }); route(); } catch (e) { alert(e.message); }
+          } },
+        ]))));
+    return el("section", {},
+      el("h2", { text: "API tokens" }),
+      el("p", { class: "muted", text: "For scripts and other programs: send a token as Authorization: Bearer <token> to /api/*. A read token reads the status, accessories and metrics; an admin token does what an administrator does, but cannot manage users or tokens." }),
+      created, form,
+      tokens.length ? el("div", { class: "grid" }, cards) : el("p", { class: "muted", text: "No token yet." }));
+  }
 
   // ---- Config --------------------------------------------------------------
 
@@ -3509,6 +3743,7 @@ enum WebAssets {
     star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>',
     eye: '<path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7z"/><circle cx="12" cy="12" r="2.5"/>',
     bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/>',
+    user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
     chart: '<path d="M4 4v16h16"/><path d="m7 15 4-5 3 3 5-6"/>',
     archive: '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/>',
     key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l2 2M15 8l2 2"/>',
@@ -4531,6 +4766,7 @@ enum WebAssets {
     <p id="auth-text"></p>
     <label>Username <input name="username" autocomplete="username" required></label>
     <label>Password <input name="password" type="password" autocomplete="current-password" required minlength="1"></label>
+    <label id="auth-otp" class="hidden">Code from your authenticator app <input name="otp" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" placeholder="123 456" maxlength="9"></label>
     <label id="auth-setup-code" class="hidden">Set-up code <input name="setupCode" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX"></label>
     <p class="error" id="auth-error"></p>
     <button type="submit" id="auth-submit">Sign in</button>
@@ -4547,6 +4783,7 @@ enum WebAssets {
       <a href="/config">Config</a>
       <a href="/logs">Logs</a>
       <a href="/settings">Settings</a>
+      <a href="/users">Users</a>
     </nav>
     <span class="spacer"></span>
     <a id="user" href="/account" title="Your account: change the password"></a>
@@ -5146,6 +5383,9 @@ button.busy::after {
 .account h2 { margin-top: 0; }
 .account-form .field { max-width: 420px; }
 @media (max-width: 640px) { .account { grid-template-columns: 1fr; } }
+.stack { display: grid; gap: 14px; align-content: start; min-width: 0; }
+.check { display: flex; gap: 8px; align-items: center; margin: 14px 0 4px; font-weight: 500; }
+.secret { word-break: break-all; user-select: all; }
 main { max-width: 1100px; margin: 0 auto; padding: 22px 12px 40px; }
 
 /* Type: the system font with its optical sizes, sizes in rem so the reader's text size applies, tracking
