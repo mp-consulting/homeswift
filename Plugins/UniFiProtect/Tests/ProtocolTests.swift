@@ -76,7 +76,11 @@ import Testing
         let message = Self.livePacket(249) + Self.livePacket(251, moof1) + Self.livePacket(251, moof2) + Self.livePacket(254, mdat) + Self.livePacket(252, video)
             + Self.livePacket(253, audio) + Self.livePacket(255)
         let outputs = try parser.feed(message)
-        #expect(outputs == [.segment(moof1 + moof2 + mdat + video + audio, moof: moof1 + moof2, mdat: mdat)])
+        // Typed step by step: one expression of Data sums inside #expect takes the compiler too long on CI.
+        let moof: Data = moof1 + moof2
+        let segment: Data = moof + mdat + video + audio
+        let expected: [ProtectLivestreamParser.Output] = [.segment(segment, moof: moof, mdat: mdat)]
+        #expect(outputs == expected)
     }
 
     @Test func reassemblesSplitPackets() throws {

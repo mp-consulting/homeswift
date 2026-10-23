@@ -180,11 +180,17 @@ let forestParam = "AyYAAQAKAgH/GQG0CgoCyBQF//8AAP//////AP//lP8AFAGWAAAAACMAAg8FA
     }
 
     @Test func continuationFramesAreNumbered() {
-        let payload = (0..<(14 + 17 + 17 + 5)).map { UInt8($0 & 0xFF) }
+        // Typed step by step: the compiler on CI gives up on these as single expressions.
+        let length: Int = 14 + 17 + 17 + 5
+        let payload: [UInt8] = (0..<length).map { (index: Int) -> UInt8 in UInt8(index & 0xFF) }
         let frames = SceneCodes.multiPacketFrames(SceneCodes.protocolMulti, header: [0x02], payload: payload)
         #expect(frames.count == 4)
         #expect(frames.map { $0[1] } == [0x00, 0x01, 0x02, 0xFF])
-        #expect(frames.allSatisfy { $0.count == 20 && $0[0] == 0xA3 && $0[19] == $0[0..<19].reduce(0, ^) })
+        let checksummed: Bool = frames.allSatisfy { (frame: [UInt8]) -> Bool in
+            let sum: UInt8 = frame[0..<19].reduce(UInt8(0), ^)
+            return frame.count == 20 && frame[0] == 0xA3 && frame[19] == sum
+        }
+        #expect(checksummed)
         for length in [5, 14, 31, 48, 103, 400] {
             let frames = SceneCodes.multiPacketFrames(SceneCodes.protocolMulti, header: [0x02], payload: [UInt8](repeating: 0xAB, count: length))
             #expect(Int(frames[0][3]) == frames.count)
