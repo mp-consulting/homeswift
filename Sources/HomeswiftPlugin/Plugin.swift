@@ -339,6 +339,23 @@ public final class PluginContext: @unchecked Sendable {
         saveCache()
     }
 
+    /// Removes the accessories of this instance whose id is not in `ids` (devices gone from the account or the
+    /// configuration), logging each one; a failure is logged and the others still go. Returns the ids removed.
+    @discardableResult
+    public func removeAccessories(keeping ids: Set<String>, message: String = "Removing stale accessory") async -> [String] {
+        var removed: [String] = []
+        for accessory in accessories where !ids.contains(accessory.id) {
+            logger.info("\(message): \(accessory.name)")
+            do {
+                try await remove(id: accessory.id)
+                removed.append(accessory.id)
+            } catch {
+                logger.warning("Could not remove \(accessory.name): \(error)")
+            }
+        }
+        return removed
+    }
+
     /// Puts the cached accessories back on the bridge, or on their own servers, before the plugin starts.
     /// Returns the servers it created for external accessories, which the host starts when it already runs.
     @discardableResult

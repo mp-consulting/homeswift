@@ -75,11 +75,25 @@ public final class MemoryStorage: HAPStorage, @unchecked Sendable {
 /// bridge keeps (state, config.json, caches, users, sessions, the audit log) is written through here.
 public enum OwnerOnlyFile {
     public static func write(_ data: Data, to url: URL) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let directory = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        #if os(Windows)
         try data.write(to: url, options: .atomic)
-        #if !os(Windows)
-        // Best effort: a file system without POSIX permissions must not stop the bridge from saving.
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        #else
+        // A temporary file created 0600, so the contents are never readable by others, then renamed over the file.
+        let temporary = directory.appendingPathComponent(".\(url.lastPathComponent).tmp-\(UUID().uuidString)")
+        let descriptor = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        do {
+            try handle.write(contentsOf: data)
+            try handle.close()
+            guard rename(temporary.path, url.path) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        } catch {
+            try? handle.close()
+            unlink(temporary.path)
+            throw error
+        }
         #endif
     }
 }

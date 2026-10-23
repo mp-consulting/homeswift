@@ -302,7 +302,7 @@ public final class HAPServer: @unchecked Sendable {
         let structure = database(accessories: state.accessories, includeValues: false)
         var json = JSONWriter(capacity: 64 * 1024)
         structure.write(to: &json)
-        let hash = SHA256.hash(data: json.bytes).map { String(format: "%02x", $0) }.joined()
+        let hash = Secrets.hex(SHA256.hash(data: json.bytes))
         if !state.persisted.databaseHash.isEmpty, state.persisted.databaseHash != hash {
             state.persisted.configurationNumber = state.persisted.configurationNumber % 65535 + 1
         }

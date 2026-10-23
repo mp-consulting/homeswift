@@ -5,7 +5,8 @@ public final class Service: @unchecked Sendable {
     public let type: ServiceType
     /// Distinguishes several services of the same type on one accessory (e.g. two outlets).
     public let subtype: String?
-    public let characteristics: [Characteristic]
+    private let characteristicsBox: NIOLockedValueBox<[Characteristic]>
+    public var characteristics: [Characteristic] { characteristicsBox.withLockedValue { $0 } }
     public let isPrimary: Bool
     public let isHidden: Bool
 
@@ -20,10 +21,12 @@ public final class Service: @unchecked Sendable {
         set { linkedBox.withLockedValue { $0 = newValue } }
     }
 
-    /// Creates a service with its required characteristics, plus the `optional` ones you list.
+    /// Creates a service with its required characteristics, plus the `optional` ones you list; an optional type the
+    /// service already has (a required one with other bounds, say) replaces it.
     ///
     /// Pass `name` to add a Name characteristic. Extra characteristics (custom types, or types not
-    /// listed in the definition) go in `extra`. `linked` names the services this one groups.
+    /// listed in the definition) go in `extra`; one whose type the service already has replaces it, to give a
+    /// required characteristic other props or a value. `linked` names the services this one groups.
     public init(
         _ type: ServiceType,
         name: String? = nil,
@@ -45,20 +48,61 @@ public final class Service: @unchecked Sendable {
             characteristics.append(Characteristic(.name, value: .string(name)))
             seen.insert(CharacteristicType.name.uuid)
         }
-        for optionalType in optional where !seen.contains(optionalType.uuid) {
-            characteristics.append(Characteristic(optionalType))
-            seen.insert(optionalType.uuid)
+        // An optional type already there with other props replaces it in place, so
+        // `optional: [.targetTemperature.with(minValue: 30)]` works as setProps; the value carries over when it fits.
+        for optionalType in optional {
+            if let index = characteristics.firstIndex(where: { $0.type.uuid == optionalType.uuid }) {
+                let existing = characteristics[index]
+                if existing.type != optionalType {
+                    characteristics[index] = Characteristic(optionalType, value: existing.value)
+                }
+            } else {
+                characteristics.append(Characteristic(optionalType))
+                seen.insert(optionalType.uuid)
+            }
         }
-        for characteristic in extra where !seen.contains(characteristic.type.uuid) {
-            characteristics.append(characteristic)
-            seen.insert(characteristic.type.uuid)
+        // An extra of a type already there replaces it in place, so `extra` can change the props of a required or
+        // optional characteristic (HAP-NodeJS's setProps).
+        for characteristic in extra {
+            if let index = characteristics.firstIndex(where: { $0.type.uuid == characteristic.type.uuid }) {
+                characteristics[index] = characteristic
+            } else {
+                characteristics.append(characteristic)
+                seen.insert(characteristic.type.uuid)
+            }
         }
-        self.characteristics = characteristics
+        characteristicsBox = NIOLockedValueBox(characteristics)
     }
 
     /// The characteristic of the given type, if the service has it.
     public subscript(type: CharacteristicType) -> Characteristic? {
         characteristics.first { $0.type.uuid == type.uuid }
+    }
+
+    /// The characteristic of the given type, added when the service does not have it yet (HAP-NodeJS's
+    /// `getCharacteristic`). Add characteristics before the accessory goes on a server: iids are given then.
+    @discardableResult
+    public func characteristic(adding type: CharacteristicType) -> Characteristic {
+        characteristicsBox.withLockedValue { list in
+            if let existing = list.first(where: { $0.type.uuid == type.uuid }) { return existing }
+            let added = Characteristic(type)
+            list.append(added)
+            return added
+        }
+    }
+
+    /// Copies the values another service (the same one on a cached accessory) had, when they still fit: readable
+    /// characteristics only, not Name (the accessory's own name wins), nor an empty Configured Name, nor a value the
+    /// new bounds reject.
+    public func takeValues(from old: Service) {
+        for characteristic in characteristics
+        where characteristic.type.permissions.contains(.pairedRead) && characteristic.type.uuid != CharacteristicType.name.uuid {
+            guard let previous = old[characteristic.type]?.value, previous != .null, let value = characteristic.type.coerce(previous) else {
+                continue
+            }
+            if characteristic.type.uuid == CharacteristicType.configuredName.uuid, value.stringValue?.isEmpty != false { continue }
+            characteristic.value = value
+        }
     }
 
     /// The characteristic of the given type. Traps if the service does not have it.

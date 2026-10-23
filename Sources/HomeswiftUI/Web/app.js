@@ -2,7 +2,7 @@
 (() => {
   "use strict";
 
-  const { $, el, tile, sparkle, menuButton, copyText, jsonEditor } = HomeswiftCommon;
+  const { $, el, tile, sparkle, menuButton, copyText, jsonEditor, fact } = HomeswiftCommon;
 
   const show = (main, ...nodes) => main.replaceChildren(...nodes.flat().filter(Boolean));
 
@@ -202,7 +202,6 @@
   const pageHead = (title, subtitle, ...tools) => el("div", { class: "page-head" },
     el("div", { class: "who" }, el("h1", { text: title }), subtitle ? el("p", { class: "muted", text: subtitle }) : null),
     tools.filter(Boolean).length ? el("div", { class: "tools" }, ...tools) : null);
-  const fact = (label, value, attrs = {}) => el("div", { class: "fact" }, el("span", { text: label }), el("b", { text: String(value), title: String(value), ...attrs }));
 
   views.status = async (main) => {
     const status = await api("/api/status");

@@ -1,0 +1,322 @@
+// THIS FILE IS GENERATED from ../config.schema.json by Scripts/embed-assets.swift - DO NOT EDIT.
+// swiftlint:disable all
+
+extension DaikinCloudPlugin {
+    /// The plugin's config.schema.json, as written, for settings forms and the config copilot.
+    public static let configurationSchemaJSON: String? = #"""
+{
+  "pluginAlias": "DaikinCloud",
+  "pluginType": "platform",
+  "singular": true,
+  "customUi": true,
+  "headerDisplay": "Use the plugin's page (**Open** on the Plugins page) to authenticate with Daikin Cloud. Choose your authentication method below.",
+  "footerDisplay": "For help, visit the [GitHub repository](https://github.com/mp-consulting/homebridge-daikin-cloud).",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "required": true,
+        "default": "Daikin Cloud",
+        "description": "Plugin name as displayed in the log"
+      },
+      "authMode": {
+        "title": "Authentication Method",
+        "description": "Choose how to authenticate with Daikin Cloud",
+        "type": "string",
+        "default": "developer_portal",
+        "oneOf": [
+          {"title": "Developer Portal (200 API calls/day)", "enum": ["developer_portal"]},
+          {"title": "Mobile App (3000 API calls/day + WebSocket)", "enum": ["mobile_app"]}
+        ]
+      },
+      "clientId": {
+        "title": "Client ID",
+        "description": "From your Daikin Developer Portal application",
+        "type": "string",
+        "x-schema-form": {
+          "placeholder": "Enter your Client ID",
+          "condition": "model.authMode !== 'mobile_app'"
+        }
+      },
+      "clientSecret": {
+        "title": "Client Secret",
+        "description": "Keep this secret and never share it",
+        "type": "string",
+        "x-schema-form": {
+          "type": "password",
+          "placeholder": "Enter your Client Secret",
+          "condition": "model.authMode !== 'mobile_app'"
+        }
+      },
+      "callbackServerExternalAddress": {
+        "title": "Callback Server Address",
+        "description": "Your Homebridge server's external IP or domain (not localhost)",
+        "type": "string",
+        "x-schema-form": {
+          "placeholder": "e.g., 192.168.1.100",
+          "condition": "model.authMode !== 'mobile_app'"
+        }
+      },
+      "callbackServerPort": {
+        "title": "Callback Server Port",
+        "description": "Port for the OAuth callback server (1-65535)",
+        "type": "integer",
+        "required": false,
+        "default": 8582,
+        "minimum": 1,
+        "maximum": 65535,
+        "x-schema-form": {
+          "placeholder": "8582",
+          "condition": "model.authMode !== 'mobile_app'"
+        }
+      },
+      "oidcCallbackServerBindAddr": {
+        "title": "Callback Server Bind Address",
+        "description": "Network interface the temporary OAuth callback server listens on during authentication. The browser you log in with must be able to reach it: use 0.0.0.0 unless that browser runs on the Homebridge host itself, in which case 127.0.0.1 keeps the server off the network.",
+        "type": "string",
+        "required": false,
+        "default": "0.0.0.0",
+        "enum": ["0.0.0.0", "127.0.0.1"],
+        "x-schema-form": {
+          "titleMap": {
+            "0.0.0.0": "0.0.0.0 (all network interfaces)",
+            "127.0.0.1": "127.0.0.1 (localhost only - browser on the Homebridge host)"
+          },
+          "condition": "model.authMode !== 'mobile_app'"
+        }
+      },
+      "daikinEmail": {
+        "title": "Daikin Account Email",
+        "description": "Your Daikin Onecta account email address",
+        "type": "string",
+        "x-schema-form": {
+          "placeholder": "your@email.com",
+          "condition": "model.authMode === 'mobile_app'"
+        }
+      },
+      "daikinPassword": {
+        "title": "Daikin Account Password",
+        "description": "Your Daikin Onecta account password",
+        "type": "string",
+        "x-schema-form": {
+          "type": "password",
+          "placeholder": "Enter your password",
+          "condition": "model.authMode === 'mobile_app'"
+        }
+      },
+      "showExtraFeatures": {
+        "title": "Show Extra Features",
+        "type": "boolean",
+        "required": false,
+        "default": false,
+        "description": "Expose extra features like Streamer, Econo, and Powerful modes as HomeKit switches (only if supported by your device)"
+      },
+      "showPowerfulMode": {
+        "title": "Powerful Mode Switch",
+        "type": "boolean",
+        "required": false,
+        "description": "Boost heating/cooling performance (only if supported by your device). When not set, follows 'Show Extra Features'."
+      },
+      "showEconoMode": {
+        "title": "Econo Mode Switch",
+        "type": "boolean",
+        "required": false,
+        "description": "Energy-saving operation (only if supported by your device). When not set, follows 'Show Extra Features'."
+      },
+      "showStreamerMode": {
+        "title": "Streamer Mode Switch",
+        "type": "boolean",
+        "required": false,
+        "description": "Air purification (Streamer) (only if supported by your device). When not set, follows 'Show Extra Features'."
+      },
+      "showOutdoorSilentMode": {
+        "title": "Outdoor Silent Mode Switch",
+        "type": "boolean",
+        "required": false,
+        "description": "Reduce outdoor unit noise (only if supported by your device). When not set, follows 'Show Extra Features'."
+      },
+      "showIndoorSilentMode": {
+        "title": "Indoor Silent Mode Switch",
+        "type": "boolean",
+        "required": false,
+        "description": "Quiet indoor fan operation (only if supported by your device). When not set, follows 'Show Extra Features'."
+      },
+      "showAutoFanMode": {
+        "title": "Auto Fan Mode Switch",
+        "type": "boolean",
+        "required": false,
+        "description": "Automatic fan speed as a switch (only if supported by your device). When not set, follows 'Show Extra Features'."
+      },
+      "showDryMode": {
+        "title": "Dry Mode Switch",
+        "type": "boolean",
+        "required": false,
+        "description": "Dehumidification mode as a switch (only if supported by your device). When not set, follows 'Show Extra Features'."
+      },
+      "showFanOnlyMode": {
+        "title": "Fan Only Mode Switch",
+        "type": "boolean",
+        "required": false,
+        "description": "Fan without heating/cooling as a switch (only if supported by your device). When not set, follows 'Show Extra Features'."
+      },
+      "showOscillationSwitch": {
+        "title": "Show Oscillation Switch",
+        "type": "boolean",
+        "required": false,
+        "description": "Expose fan oscillation (swing) as a separate HomeKit switch. Useful because the built-in swing control disappears when the accessory is grouped into a single tile in the Home app. When not set, follows 'Show Extra Features'."
+      },
+      "showSeparateFanControl": {
+        "title": "Show Separate Fan Tile",
+        "type": "boolean",
+        "required": false,
+        "default": false,
+        "description": "Expose fan speed and oscillation as a standalone Fan tile (in addition to the air conditioner). The fan slider and oscillation stay visible even when the accessory is grouped into a single tile in the Home app."
+      },
+      "showHolidayMode": {
+        "title": "Show Holiday Mode Switch",
+        "type": "boolean",
+        "required": false,
+        "description": "Expose holiday (away) mode as a separate HomeKit switch (only if supported by your device). Turn it on to put the unit into holiday mode and off to resume normal operation. When not set, follows 'Show Extra Features'."
+      },
+      "showFirmwareUpdateSwitch": {
+        "title": "Show Firmware Update Switch",
+        "type": "boolean",
+        "required": false,
+        "default": false,
+        "description": "Expose gateway firmware updates as a HomeKit switch (only if supported by your device). The plugin logs when Daikin stages an update; turn the switch on to install it \u2014 the unit is unavailable while updating. Not included in \u2018Show Extra Features\u2019: it must be enabled explicitly."
+      },
+      "httpTransport": {
+        "title": "HTTP Transport",
+        "type": "string",
+        "required": false,
+        "default": "node",
+        "oneOf": [
+          { "title": "Built-in client (default)", "enum": ["node"] },
+          { "title": "curl subprocess (WAF fingerprint workaround)", "enum": ["curl"] }
+        ],
+        "description": "How the plugin talks to the Daikin cloud. Use 'curl subprocess' only if authentication times out on your network while curl works (some WAFs drop a client's TLS fingerprint \u2014 see issue #6). Requires the curl binary. WebSocket connections still use the built-in TLS."
+      },
+      "excludedDevicesByDeviceId": {
+        "title": "Excluded Devices",
+        "type": "array",
+        "items": {
+          "title": "Device ID",
+          "type": "string",
+          "x-schema-form": {
+            "placeholder": "Device UUID"
+          }
+        },
+        "description": "Exclude specific devices by their ID (found in Homebridge logs)"
+      },
+      "updateIntervalInMinutes": {
+        "title": "Update Interval (minutes)",
+        "type": "integer",
+        "default": 15,
+        "minimum": 1,
+        "maximum": 60,
+        "description": "How often to poll the Daikin API. Developer Portal: 15+ min recommended (200 calls/day limit). Mobile App: 1-5 min recommended (3000 calls/day)."
+      },
+      "forceUpdateDelay": {
+        "title": "Force Update Delay (ms)",
+        "type": "integer",
+        "minimum": 5000,
+        "maximum": 300000,
+        "default": 60000,
+        "description": "Delay after a change before refreshing data from API. Developer Portal: 60s recommended. Mobile App: 10s recommended."
+      },
+      "enableWebSocket": {
+        "title": "Enable WebSocket (Mobile App only)",
+        "type": "boolean",
+        "default": true,
+        "description": "Enable real-time updates via WebSocket. Only available with Mobile App authentication. Provides instant device state updates."
+      }
+    }
+  },
+  "layout": [
+    "name",
+    {
+      "type": "fieldset",
+      "title": "Authentication Method",
+      "description": "Choose your authentication method",
+      "expandable": false,
+      "items": [
+        "authMode"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Mobile App Authentication",
+      "description": "Use your Daikin Onecta account credentials (same as the mobile app). Benefits: 3000 API calls/day + real-time WebSocket updates.",
+      "expandable": false,
+      "condition": "model.authMode === 'mobile_app'",
+      "items": [
+        "daikinEmail",
+        "daikinPassword"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Developer Portal Authentication",
+      "description": "Daikin Developer Portal credentials",
+      "expandable": false,
+      "condition": "model.authMode !== 'mobile_app'",
+      "items": [
+        "clientId",
+        "clientSecret"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Callback Server",
+      "description": "OAuth callback server configuration",
+      "expandable": true,
+      "expanded": true,
+      "condition": "model.authMode !== 'mobile_app'",
+      "items": [
+        "callbackServerExternalAddress",
+        "callbackServerPort",
+        "oidcCallbackServerBindAddr"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Features",
+      "description": "Optional feature configuration",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "showExtraFeatures",
+        "showPowerfulMode",
+        "showEconoMode",
+        "showStreamerMode",
+        "showOutdoorSilentMode",
+        "showIndoorSilentMode",
+        "showAutoFanMode",
+        "showDryMode",
+        "showFanOnlyMode",
+        "showOscillationSwitch",
+        "showSeparateFanControl",
+        "showHolidayMode",
+        "showFirmwareUpdateSwitch"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Advanced",
+      "description": "Advanced settings",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "enableWebSocket",
+        "httpTransport",
+        "updateIntervalInMinutes",
+        "forceUpdateDelay",
+        "excludedDevicesByDeviceId"
+      ]
+    }
+  ]
+}
+"""#
+}

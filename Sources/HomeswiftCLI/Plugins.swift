@@ -1,6 +1,14 @@
+import HomeswiftDaikinCloud
+import HomeswiftDolphinPoolCleaner
+import HomeswiftDysonPureCool
+import HomeswiftEWeLink
 import HomeswiftElgatoKeyLights
+import HomeswiftGovee
+import HomeswiftLGThinQ
 import HomeswiftPhilipsAmbilightTV
 import HomeswiftPlugin
+import HomeswiftUniFiAccess
+import HomeswiftUniFiProtect
 
 /// The plugins compiled into this binary.
 ///
@@ -11,5 +19,13 @@ func builtInPlugins() -> PluginRegistry {
     var registry = PluginRegistry()
     registry.register(ElgatoKeyLightsPlugin.self)
     registry.register(PhilipsAmbilightTVPlugin.self)
+    registry.register(DolphinPoolCleanerPlugin.self)
+    registry.register(DysonPureCoolPlugin.self)
+    registry.register(UniFiAccessPlugin.self)
+    registry.register(DaikinCloudPlugin.self)
+    registry.register(EWeLinkPlugin.self)
+    registry.register(LGThinQPlugin.self)
+    registry.register(GoveePlugin.self)
+    registry.register(UniFiProtectPlugin.self)
     return registry
 }

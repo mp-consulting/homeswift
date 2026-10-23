@@ -1,0 +1,946 @@
+{
+  "pluginAlias": "Govee",
+  "pluginType": "platform",
+  "singular": true,
+  "strictValidation": false,
+  "customUi": true,
+  "schema": {
+    "type": "object",
+    "required": ["name"],
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "default": "Govee"
+      },
+      "username": {
+        "title": "Govee Account Email",
+        "type": "string",
+        "format": "email",
+        "description": "Your Govee account email address."
+      },
+      "password": {
+        "title": "Govee Account Password",
+        "type": "string",
+        "description": "Your Govee account password.",
+        "x-schema-form": {
+          "type": "password"
+        }
+      },
+      "code": {
+        "title": "Verification Code",
+        "type": "string",
+        "description": "Only needed the first time this plugin logs in (or after Govee flags a new device). If the connection test reports that a code was emailed to you, paste the code from that email here, then test again. Once login succeeds you can leave it in place; it is ignored on subsequent logins."
+      },
+      "ignoreMatter": {
+        "title": "Ignore Matter Devices",
+        "type": "boolean",
+        "default": false,
+        "description": "If enabled, Matter-enabled devices will be ignored."
+      },
+      "disableDeviceLogging": {
+        "title": "Disable Device Logging",
+        "type": "boolean",
+        "default": false,
+        "description": "If enabled, device state changes will not be logged."
+      },
+      "debug": {
+        "title": "Debug Logging",
+        "type": "boolean",
+        "default": false,
+        "description": "If enabled, verbose debug logging will be output to the log."
+      },
+      "httpRefreshTime": {
+        "title": "HTTP Refresh Time (seconds)",
+        "type": "integer",
+        "minimum": 30,
+        "default": 30,
+        "description": "How often to poll the Govee API for device updates."
+      },
+      "awsDisable": {
+        "title": "Disable AWS IoT Connection",
+        "type": "boolean",
+        "default": false,
+        "description": "If enabled, the AWS IoT connection will be disabled."
+      },
+      "bleDisable": {
+        "title": "Disable Bluetooth (BLE)",
+        "type": "boolean",
+        "default": false,
+        "description": "If enabled, Bluetooth Low Energy control will be disabled."
+      },
+      "bleRefreshTime": {
+        "title": "BLE Refresh Time (seconds)",
+        "type": "integer",
+        "minimum": 60,
+        "default": 300,
+        "description": "How often to scan for BLE sensor readings."
+      },
+      "bleControlInterval": {
+        "title": "BLE Control Interval (ms)",
+        "type": "integer",
+        "minimum": 500,
+        "default": 500,
+        "description": "Minimum interval between BLE commands."
+      },
+      "lanDisable": {
+        "title": "Disable LAN Control",
+        "type": "boolean",
+        "default": false,
+        "description": "If enabled, LAN control will be disabled."
+      },
+      "lanRefreshTime": {
+        "title": "LAN Refresh Time (seconds)",
+        "type": "integer",
+        "minimum": 15,
+        "default": 30,
+        "description": "How often to poll LAN devices for state updates."
+      },
+      "lanScanInterval": {
+        "title": "LAN Scan Interval (seconds)",
+        "type": "integer",
+        "minimum": 30,
+        "default": 60,
+        "description": "How often to scan for new LAN devices."
+      },
+      "colourSafeMode": {
+        "title": "Colour Safe Mode",
+        "type": "boolean",
+        "default": false,
+        "description": "If enabled, uses a slower but more reliable method for setting colours."
+      },
+      "lightDevices": {
+        "title": "Light Devices",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "title": "Label",
+              "type": "string",
+              "description": "Custom name for this device."
+            },
+            "deviceId": {
+              "title": "Device ID",
+              "type": "string",
+              "required": true,
+              "description": "The Govee device ID."
+            },
+            "ignoreDevice": {
+              "title": "Ignore Device",
+              "type": "boolean",
+              "default": false,
+              "description": "If enabled, this device will not be exposed to HomeKit."
+            },
+            "showAs": {
+              "title": "Show As",
+              "type": "string",
+              "default": "default",
+              "oneOf": [
+                { "title": "Light (default)", "enum": ["default"] },
+                { "title": "Switch", "enum": ["switch"] }
+              ],
+              "description": "How to expose this device in HomeKit."
+            },
+            "customAddress": {
+              "title": "Custom BLE Address",
+              "type": "string",
+              "description": "Override the BLE address for this device."
+            },
+            "customIPAddress": {
+              "title": "Custom IP Address",
+              "type": "string",
+              "description": "Override the LAN IP address for this device."
+            },
+            "adaptiveLightingShift": {
+              "title": "Adaptive Lighting Shift",
+              "type": "integer",
+              "minimum": -1,
+              "default": 0,
+              "description": "Shift the adaptive lighting curve (in mired). Set to -1 to disable adaptive lighting."
+            },
+            "awsBrightnessNoScale": {
+              "title": "AWS Brightness No Scale",
+              "type": "boolean",
+              "default": false,
+              "description": "If enabled, brightness is sent as 0-100 instead of 0-255."
+            },
+            "awsColourMode": {
+              "title": "AWS Colour Mode",
+              "type": "string",
+              "default": "default",
+              "oneOf": [
+                { "title": "Default", "enum": ["default"] },
+                { "title": "RGB", "enum": ["rgb"] },
+                { "title": "Red/Green/Blue", "enum": ["redgreenblue"] }
+              ]
+            },
+            "brightnessStep": {
+              "title": "Brightness Step",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 1,
+              "description": "Step size for brightness adjustments."
+            },
+            "scenes": {
+              "title": "Scenes",
+              "type": "array",
+              "description": "Scenes picked from the Govee scene library. Each one becomes its own switch in HomeKit. Use the 'Browse Govee Scenes' button in the plugin settings UI to choose them.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": { "title": "Name", "type": "string", "required": true, "description": "Name shown in HomeKit." },
+                  "sceneCode": { "title": "Scene Code", "type": "string", "required": true, "description": "Comma-separated base64 command frames." },
+                  "bleCode": { "title": "BLE Code", "type": "string", "description": "Optional Bluetooth override; defaults to the scene code." },
+                  "sceneId": { "title": "Govee Scene ID", "type": "integer" },
+                  "variantId": { "title": "Variant ID", "type": "integer" },
+                  "iconUrl": { "title": "Icon URL", "type": "string" },
+                  "iconUrlDark": { "title": "Icon URL (dark)", "type": "string" },
+                  "kind": {
+                    "title": "Kind",
+                    "type": "string",
+                    "default": "scene",
+                    "oneOf": [
+                      { "title": "Scene", "enum": ["scene"] },
+                      { "title": "DIY Effect", "enum": ["diy"] }
+                    ]
+                  }
+                }
+              }
+            },
+            "musicModeLive": {
+              "title": "Music Mode (live)",
+              "type": "object",
+              "description": "Expose music mode as its own HomeKit tile whose brightness controls microphone sensitivity, instead of a fixed pasted code.",
+              "properties": {
+                "enabled": { "title": "Enable", "type": "boolean", "default": false },
+                "effect": {
+                  "title": "Effect",
+                  "type": "string",
+                  "default": "rhythm",
+                  "oneOf": [
+                    { "title": "Rhythm", "enum": ["rhythm"] },
+                    { "title": "Energic", "enum": ["energic"] },
+                    { "title": "Rolling", "enum": ["rolling"] },
+                    { "title": "Spectrum", "enum": ["spectrum"] }
+                  ]
+                },
+                "sensitivity": { "title": "Default Sensitivity", "type": "integer", "minimum": 0, "maximum": 100, "default": 50 },
+                "autoColour": { "title": "Auto Colour", "type": "boolean", "default": true, "description": "Let the light choose colours. Turn off to control the music colour from HomeKit." },
+                "soft": { "title": "Soft Variant", "type": "boolean", "default": false, "description": "Rhythm only: the gentler of the two rhythm styles." },
+                "protocol": {
+                  "title": "Protocol",
+                  "type": "string",
+                  "default": "modern",
+                  "description": "Older Govee lights use an earlier music command. Switch to Legacy if music mode does nothing.",
+                  "oneOf": [
+                    { "title": "Modern", "enum": ["modern"] },
+                    { "title": "Legacy", "enum": ["legacy"] }
+                  ]
+                }
+              }
+            },
+            "scene": {
+              "title": "Scene 1",
+              "type": "object",
+              "properties": {
+                "sceneCode": { "title": "Scene Code", "type": "string" },
+                "bleCode": { "title": "BLE Code", "type": "string" },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+              }
+            },
+            "sceneTwo": {
+              "title": "Scene 2",
+              "type": "object",
+              "properties": {
+                "sceneCode": { "title": "Scene Code", "type": "string" },
+                "bleCode": { "title": "BLE Code", "type": "string" },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+              }
+            },
+            "sceneThree": {
+              "title": "Scene 3",
+              "type": "object",
+              "properties": {
+                "sceneCode": { "title": "Scene Code", "type": "string" },
+                "bleCode": { "title": "BLE Code", "type": "string" },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+              }
+            },
+            "sceneFour": {
+              "title": "Scene 4",
+              "type": "object",
+              "properties": {
+                "sceneCode": { "title": "Scene Code", "type": "string" },
+                "bleCode": { "title": "BLE Code", "type": "string" },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+              }
+            },
+            "musicMode": {
+              "title": "Music Mode 1",
+              "type": "object",
+              "properties": {
+                "sceneCode": { "title": "Scene Code", "type": "string" },
+                "bleCode": { "title": "BLE Code", "type": "string" },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+              }
+            },
+            "musicModeTwo": {
+              "title": "Music Mode 2",
+              "type": "object",
+              "properties": {
+                "sceneCode": { "title": "Scene Code", "type": "string" },
+                "bleCode": { "title": "BLE Code", "type": "string" },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+              }
+            },
+            "videoMode": {
+              "title": "Video Mode 1",
+              "type": "object",
+              "properties": {
+                "sceneCode": { "title": "Scene Code", "type": "string" },
+                "bleCode": { "title": "BLE Code", "type": "string" },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+              }
+            },
+            "videoModeTwo": {
+              "title": "Video Mode 2",
+              "type": "object",
+              "properties": {
+                "sceneCode": { "title": "Scene Code", "type": "string" },
+                "bleCode": { "title": "BLE Code", "type": "string" },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+              }
+            },
+            "diyMode": {
+              "title": "DIY Mode 1",
+              "type": "object",
+              "properties": {
+                "sceneCode": { "title": "Scene Code", "type": "string" },
+                "bleCode": { "title": "BLE Code", "type": "string" },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+              }
+            },
+            "diyModeTwo": {
+              "title": "DIY Mode 2",
+              "type": "object",
+              "properties": {
+                "sceneCode": { "title": "Scene Code", "type": "string" },
+                "bleCode": { "title": "BLE Code", "type": "string" },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+              }
+            },
+            "diyModeThree": {
+              "title": "DIY Mode 3",
+              "type": "object",
+              "properties": {
+                "sceneCode": { "title": "Scene Code", "type": "string" },
+                "bleCode": { "title": "BLE Code", "type": "string" },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+              }
+            },
+            "diyModeFour": {
+              "title": "DIY Mode 4",
+              "type": "object",
+              "properties": {
+                "sceneCode": { "title": "Scene Code", "type": "string" },
+                "bleCode": { "title": "BLE Code", "type": "string" },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+              }
+            },
+            "segmented": {
+              "title": "Segment 1",
+              "type": "object",
+              "properties": {
+                "sceneCode": { "title": "Segment Code", "type": "string" },
+                "bleCode": { "title": "BLE Code", "type": "string" },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+              }
+            },
+            "segmentedTwo": {
+              "title": "Segment 2",
+              "type": "object",
+              "properties": {
+                "sceneCode": { "title": "Segment Code", "type": "string" },
+                "bleCode": { "title": "BLE Code", "type": "string" },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+              }
+            },
+            "segmentedThree": {
+              "title": "Segment 3",
+              "type": "object",
+              "properties": {
+                "sceneCode": { "title": "Segment Code", "type": "string" },
+                "bleCode": { "title": "BLE Code", "type": "string" },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+              }
+            },
+            "segmentedFour": {
+              "title": "Segment 4",
+              "type": "object",
+              "properties": {
+                "sceneCode": { "title": "Segment Code", "type": "string" },
+                "bleCode": { "title": "BLE Code", "type": "string" },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+              }
+            }
+          }
+        }
+      },
+      "switchDevices": {
+        "title": "Switch/Outlet Devices",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "title": "Label",
+              "type": "string",
+              "description": "Custom name for this device."
+            },
+            "deviceId": {
+              "title": "Device ID",
+              "type": "string",
+              "required": true,
+              "description": "The Govee device ID."
+            },
+            "ignoreDevice": {
+              "title": "Ignore Device",
+              "type": "boolean",
+              "default": false
+            },
+            "showAs": {
+              "title": "Show As",
+              "type": "string",
+              "default": "default",
+              "oneOf": [
+                { "title": "Default (Switch)", "enum": ["default"] },
+                { "title": "Outlet", "enum": ["outlet"] },
+                { "title": "Switch", "enum": ["switch"] },
+                { "title": "Air Purifier", "enum": ["purifier"] },
+                { "title": "Heater", "enum": ["heater"] },
+                { "title": "Cooler", "enum": ["cooler"] },
+                { "title": "Tap/Faucet", "enum": ["tap"] },
+                { "title": "Valve", "enum": ["valve"] },
+                { "title": "Audio Receiver", "enum": ["audio"] },
+                { "title": "Set-Top Box", "enum": ["box"] },
+                { "title": "Streaming Stick", "enum": ["stick"] }
+              ]
+            },
+            "temperatureSource": {
+              "title": "Temperature Source",
+              "type": "string",
+              "description": "Device ID of a temperature sensor to use for heater/cooler simulation."
+            }
+          }
+        }
+      },
+      "leakDevices": {
+        "title": "Leak Sensor Devices",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "title": "Label",
+              "type": "string"
+            },
+            "deviceId": {
+              "title": "Device ID",
+              "type": "string",
+              "required": true
+            },
+            "ignoreDevice": {
+              "title": "Ignore Device",
+              "type": "boolean",
+              "default": false
+            },
+            "lowBattThreshold": {
+              "title": "Low Battery Threshold (%)",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          }
+        }
+      },
+      "thermoDevices": {
+        "title": "Temperature/Humidity Sensor Devices",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "title": "Label",
+              "type": "string"
+            },
+            "deviceId": {
+              "title": "Device ID",
+              "type": "string",
+              "required": true
+            },
+            "ignoreDevice": {
+              "title": "Ignore Device",
+              "type": "boolean",
+              "default": false
+            },
+            "lowBattThreshold": {
+              "title": "Low Battery Threshold (%)",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "showExtraSwitch": {
+              "title": "Show Extra Switch",
+              "type": "boolean",
+              "default": false,
+              "description": "Show an extra switch for alert control."
+            }
+          }
+        }
+      },
+      "fanDevices": {
+        "title": "Fan Devices",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "title": "Label",
+              "type": "string"
+            },
+            "deviceId": {
+              "title": "Device ID",
+              "type": "string",
+              "required": true
+            },
+            "ignoreDevice": {
+              "title": "Ignore Device",
+              "type": "boolean",
+              "default": false
+            },
+            "hideLight": {
+              "title": "Hide Light",
+              "type": "boolean",
+              "default": false,
+              "description": "Hide the light control if the fan has one."
+            }
+          }
+        }
+      },
+      "heaterDevices": {
+        "title": "Heater Devices",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "title": "Label",
+              "type": "string"
+            },
+            "deviceId": {
+              "title": "Device ID",
+              "type": "string",
+              "required": true
+            },
+            "ignoreDevice": {
+              "title": "Ignore Device",
+              "type": "boolean",
+              "default": false
+            },
+            "tempReporting": {
+              "title": "Temperature Reporting",
+              "type": "boolean",
+              "default": false,
+              "description": "Enable temperature reporting from the heater."
+            }
+          }
+        }
+      },
+      "humidifierDevices": {
+        "title": "Humidifier Devices",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "title": "Label",
+              "type": "string"
+            },
+            "deviceId": {
+              "title": "Device ID",
+              "type": "string",
+              "required": true
+            },
+            "ignoreDevice": {
+              "title": "Ignore Device",
+              "type": "boolean",
+              "default": false
+            }
+          }
+        }
+      },
+      "dehumidifierDevices": {
+        "title": "Dehumidifier Devices",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "title": "Label",
+              "type": "string"
+            },
+            "deviceId": {
+              "title": "Device ID",
+              "type": "string",
+              "required": true
+            },
+            "ignoreDevice": {
+              "title": "Ignore Device",
+              "type": "boolean",
+              "default": false
+            }
+          }
+        }
+      },
+      "purifierDevices": {
+        "title": "Air Purifier Devices",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "title": "Label",
+              "type": "string"
+            },
+            "deviceId": {
+              "title": "Device ID",
+              "type": "string",
+              "required": true
+            },
+            "ignoreDevice": {
+              "title": "Ignore Device",
+              "type": "boolean",
+              "default": false
+            }
+          }
+        }
+      },
+      "diffuserDevices": {
+        "title": "Diffuser Devices",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "title": "Label",
+              "type": "string"
+            },
+            "deviceId": {
+              "title": "Device ID",
+              "type": "string",
+              "required": true
+            },
+            "ignoreDevice": {
+              "title": "Ignore Device",
+              "type": "boolean",
+              "default": false
+            }
+          }
+        }
+      },
+      "kettleDevices": {
+        "title": "Kettle Devices",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "title": "Label",
+              "type": "string"
+            },
+            "deviceId": {
+              "title": "Device ID",
+              "type": "string",
+              "required": true
+            },
+            "ignoreDevice": {
+              "title": "Ignore Device",
+              "type": "boolean",
+              "default": false
+            },
+            "hideModeGreenTea": {
+              "title": "Hide Green Tea Mode",
+              "type": "boolean",
+              "default": false
+            },
+            "hideModeOolongTea": {
+              "title": "Hide Oolong Tea Mode",
+              "type": "boolean",
+              "default": false
+            },
+            "hideModeCoffee": {
+              "title": "Hide Coffee Mode",
+              "type": "boolean",
+              "default": false
+            },
+            "hideModeBlackTea": {
+              "title": "Hide Black Tea Mode",
+              "type": "boolean",
+              "default": false
+            },
+            "showCustomMode1": {
+              "title": "Show Custom Mode 1",
+              "type": "boolean",
+              "default": false
+            },
+            "showCustomMode2": {
+              "title": "Show Custom Mode 2",
+              "type": "boolean",
+              "default": false
+            }
+          }
+        }
+      },
+      "iceMakerDevices": {
+        "title": "Ice Maker Devices",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "title": "Label",
+              "type": "string"
+            },
+            "deviceId": {
+              "title": "Device ID",
+              "type": "string",
+              "required": true
+            },
+            "ignoreDevice": {
+              "title": "Ignore Device",
+              "type": "boolean",
+              "default": false
+            }
+          }
+        }
+      }
+    }
+  },
+  "layout": [
+    "name",
+    {
+      "type": "fieldset",
+      "title": "Account Settings",
+      "items": [
+        "username",
+        "password"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "General Settings",
+      "expandable": true,
+      "items": [
+        "ignoreMatter",
+        "disableDeviceLogging",
+        "colourSafeMode",
+        "debug"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Connection Settings",
+      "expandable": true,
+      "items": [
+        "awsDisable",
+        "httpRefreshTime",
+        "lanDisable",
+        "lanRefreshTime",
+        "lanScanInterval",
+        "bleDisable",
+        "bleRefreshTime",
+        "bleControlInterval"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Device Configuration",
+      "expandable": true,
+      "items": [
+        {
+          "key": "lightDevices",
+          "type": "array",
+          "title": "Light Devices",
+          "expandable": true,
+          "expanded": false,
+          "items": [
+            "lightDevices[].deviceId",
+            "lightDevices[].label",
+            "lightDevices[].ignoreDevice",
+            "lightDevices[].showAs",
+            {
+              "type": "fieldset",
+              "title": "Advanced Settings",
+              "expandable": true,
+              "items": [
+                "lightDevices[].customAddress",
+                "lightDevices[].customIPAddress",
+                "lightDevices[].adaptiveLightingShift",
+                "lightDevices[].brightnessStep",
+                "lightDevices[].awsBrightnessNoScale",
+                "lightDevices[].awsColourMode"
+              ]
+            },
+            {
+              "type": "fieldset",
+              "title": "Scenes",
+              "expandable": true,
+              "items": [
+                "lightDevices[].scene",
+                "lightDevices[].sceneTwo",
+                "lightDevices[].sceneThree",
+                "lightDevices[].sceneFour"
+              ]
+            },
+            {
+              "type": "fieldset",
+              "title": "Music & Video Modes",
+              "expandable": true,
+              "items": [
+                "lightDevices[].musicMode",
+                "lightDevices[].musicModeTwo",
+                "lightDevices[].videoMode",
+                "lightDevices[].videoModeTwo"
+              ]
+            },
+            {
+              "type": "fieldset",
+              "title": "DIY Modes",
+              "expandable": true,
+              "items": [
+                "lightDevices[].diyMode",
+                "lightDevices[].diyModeTwo",
+                "lightDevices[].diyModeThree",
+                "lightDevices[].diyModeFour"
+              ]
+            },
+            {
+              "type": "fieldset",
+              "title": "Segmented Control",
+              "expandable": true,
+              "items": [
+                "lightDevices[].segmented",
+                "lightDevices[].segmentedTwo",
+                "lightDevices[].segmentedThree",
+                "lightDevices[].segmentedFour"
+              ]
+            }
+          ]
+        },
+        {
+          "key": "switchDevices",
+          "type": "array",
+          "title": "Switch/Outlet Devices",
+          "expandable": true,
+          "expanded": false,
+          "items": [
+            "switchDevices[].deviceId",
+            "switchDevices[].label",
+            "switchDevices[].ignoreDevice",
+            "switchDevices[].showAs",
+            {
+              "key": "switchDevices[].temperatureSource",
+              "condition": {
+                "functionBody": "return ['heater', 'cooler'].includes(model.switchDevices[arrayIndex].showAs)"
+              }
+            }
+          ]
+        },
+        {
+          "key": "fanDevices",
+          "type": "array",
+          "title": "Fan Devices",
+          "expandable": true,
+          "expanded": false,
+          "items": ["fanDevices[].deviceId", "fanDevices[].label", "fanDevices[].ignoreDevice", "fanDevices[].hideLight"]
+        },
+        {
+          "key": "heaterDevices",
+          "type": "array",
+          "title": "Heater Devices",
+          "expandable": true,
+          "expanded": false,
+          "items": ["heaterDevices[].deviceId", "heaterDevices[].label", "heaterDevices[].ignoreDevice", "heaterDevices[].tempReporting"]
+        },
+        {
+          "key": "thermoDevices",
+          "type": "array",
+          "title": "Temperature/Humidity Sensors",
+          "expandable": true,
+          "expanded": false,
+          "items": ["thermoDevices[].deviceId", "thermoDevices[].label", "thermoDevices[].ignoreDevice", "thermoDevices[].lowBattThreshold", "thermoDevices[].showExtraSwitch"]
+        },
+        {
+          "key": "leakDevices",
+          "type": "array",
+          "title": "Leak Sensors",
+          "expandable": true,
+          "expanded": false,
+          "items": ["leakDevices[].deviceId", "leakDevices[].label", "leakDevices[].ignoreDevice", "leakDevices[].lowBattThreshold"]
+        },
+        {
+          "key": "humidifierDevices",
+          "type": "array",
+          "title": "Humidifier Devices",
+          "expandable": true,
+          "expanded": false,
+          "items": ["humidifierDevices[].deviceId", "humidifierDevices[].label", "humidifierDevices[].ignoreDevice"]
+        },
+        {
+          "key": "dehumidifierDevices",
+          "type": "array",
+          "title": "Dehumidifier Devices",
+          "expandable": true,
+          "expanded": false,
+          "items": ["dehumidifierDevices[].deviceId", "dehumidifierDevices[].label", "dehumidifierDevices[].ignoreDevice"]
+        },
+        {
+          "key": "purifierDevices",
+          "type": "array",
+          "title": "Air Purifier Devices",
+          "expandable": true,
+          "expanded": false,
+          "items": ["purifierDevices[].deviceId", "purifierDevices[].label", "purifierDevices[].ignoreDevice"]
+        },
+        {
+          "key": "diffuserDevices",
+          "type": "array",
+          "title": "Diffuser Devices",
+          "expandable": true,
+          "expanded": false,
+          "items": ["diffuserDevices[].deviceId", "diffuserDevices[].label", "diffuserDevices[].ignoreDevice"]
+        },
+        {
+          "key": "kettleDevices",
+          "type": "array",
+          "title": "Kettle Devices",
+          "expandable": true,
+          "expanded": false,
+          "items": ["kettleDevices[].deviceId", "kettleDevices[].label", "kettleDevices[].ignoreDevice"]
+        },
+        {
+          "key": "iceMakerDevices",
+          "type": "array",
+          "title": "Ice Maker Devices",
+          "expandable": true,
+          "expanded": false,
+          "items": ["iceMakerDevices[].deviceId", "iceMakerDevices[].label", "iceMakerDevices[].ignoreDevice"]
+        }
+      ]
+    }
+  ]
+}

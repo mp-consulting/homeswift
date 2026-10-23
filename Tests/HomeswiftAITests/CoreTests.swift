@@ -25,6 +25,7 @@ import Testing
         let text = "connect ECONNREFUSED 192.168.1.5:9123 from 3C:7A:AA:F3:D5:B0, [fe80::1], studio-light.local"
         #expect(Redaction.scrubAddresses(text) == "connect ECONNREFUSED <IP>:9123 from <MAC>, <IP>, <hostname>.local")
         #expect(Redaction.scrubAddresses(["model": "Key Light", "ip": "10.0.0.2"]) == ["model": "Key Light", "ip": "<IP>"])
+        #expect(Redaction.scrubAddresses("login failed for jane.doe+home@mail.example.co.uk (user@studio.local)") == "login failed for <email> (<email>)")
     }
 
     @Test func redactsSecretKeysAndRestoresThem() throws {

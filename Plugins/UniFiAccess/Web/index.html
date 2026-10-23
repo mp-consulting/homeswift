@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UniFi Access</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+<style>
+  /* The Homebridge plugin's screens on the UI's materials: the controllers, discovery, adding or editing a
+     controller, and the feature options editor with its scope cascade, one screen showing at a time. */
+
+  .screen { animation: fade var(--normal) var(--ease-out); }
+  .page-head { align-items: center; }
+  .controllers { display: grid; gap: 10px; }
+  .controller { margin: 0; display: grid; gap: 10px; }
+  .controller-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .controller-head .who { flex: 1; min-width: 0; }
+  .controller-head strong { display: block; font-size: 1.0625rem; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+  .controller-head .muted { font-size: 0.8125rem; overflow-wrap: anywhere; }
+  .controller-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .controller-live { font-size: 0.8125rem; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .found { display: grid; gap: 8px; margin: 14px 0 0; }
+  .found .item { display: flex; align-items: center; gap: 12px; margin: 0; padding: 10px 10px 10px 14px; cursor: pointer; }
+  .found .item div { flex: 1; min-width: 0; }
+  .found .item .muted { font-size: 0.8125rem; }
+  .note-box { margin: 14px 0 0; padding: 10px 14px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); font-size: 0.875rem; }
+  .form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; }
+  .form .wide { grid-column: 1 / -1; }
+  .check { display: flex; align-items: flex-start; gap: 12px; margin: 14px 0 0; }
+  .check label { margin: 0; }
+  details.advanced { margin-top: 16px; }
+  details.advanced > summary { color: var(--accent); font-weight: 500; cursor: pointer; }
+  .status-line.error { color: var(--error); }
+  .status-line.ok { color: var(--ok); }
+
+  /* Feature options: the scope on the left, the options on the right. */
+  .options-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2.2fr); gap: 16px; align-items: start; }
+  .scope-side { position: sticky; top: 12px; display: grid; gap: 12px; }
+  .scope-side .card { margin: 0; padding: 14px 16px; }
+  .scope-side label { margin: 0 0 6px; font-size: 0.8125rem; color: var(--muted); }
+  .cascade { display: grid; gap: 0; }
+  .level { display: flex; align-items: center; gap: 10px; padding: 6px 0; opacity: 0.35; transition: opacity var(--normal) var(--ease-out); }
+  .level.active, .level.inherited { opacity: 1; }
+  .level .dot { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 0.75rem; font-weight: 700; background: var(--material-thin); border: 1px solid var(--edge); }
+  .level.active .dot { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); border-color: transparent; }
+  .level .label { font-weight: 600; font-size: 0.875rem; }
+  .level .hint { font-size: 0.75rem; color: var(--muted); }
+  .connector { width: 2px; height: 10px; margin-left: 13px; background: var(--line); }
+  .connector.active { background: var(--accent); }
+  .facts.info { grid-template-columns: 1fr; }
+  .legend { display: grid; gap: 4px; font-size: 0.75rem; }
+  .legend span { display: inline-flex; align-items: center; gap: 8px; }
+  .bar { display: inline-block; width: 14px; height: 4px; border-radius: 2px; }
+  .bar.global, .option.scope-global { --scope: #e0a800; }
+  .bar.controller, .option.scope-controller { --scope: #198754; }
+  .bar.device, .option.scope-device { --scope: #0aa2c0; }
+  .bar { background: var(--scope); }
+  .option-tools { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .option-tools input[type=search] { flex: 1; min-width: 180px; }
+  .category { margin: 0 0 12px; padding: 0; overflow: hidden; }
+  .category-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; cursor: pointer; user-select: none; }
+  .category-head .title { flex: 1; font-weight: 600; }
+  .category-icon { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; color: #fff; font-size: 0.75rem; font-weight: 700; background: var(--category); }
+  .progress { width: 60px; height: 5px; border-radius: 3px; background: var(--material-thin); border: 1px solid var(--line); overflow: hidden; }
+  .progress span { display: block; height: 100%; width: calc(var(--progress, 0) * 100%); background: var(--category); }
+  .count { font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .chevron { transition: transform var(--normal) var(--ease-out); color: var(--muted); }
+  .category.open .chevron { transform: rotate(90deg); }
+  .category-body { display: none; border-top: 1px solid var(--line); }
+  .category.open .category-body { display: block; }
+  .option { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; border-top: 1px solid var(--line); border-left: 3px solid var(--scope, transparent); }
+  .option:first-child { border-top: 0; }
+  .option.grouped { padding-left: 34px; }
+  .option .text { flex: 1; min-width: 0; }
+  .option .name { font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .option .description { font-size: 0.8125rem; color: var(--muted); margin-top: 2px; }
+  .option .value-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 0.8125rem; }
+  .option .value-row input { width: 110px; }
+  .badge { font-size: 0.6875rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .badge.default-on { color: var(--ok); }
+  .badge.scope { color: #fff; border-color: transparent; background: var(--scope, var(--muted)); }
+  .badge.inherited { color: var(--scope, var(--muted)); border-color: var(--scope, var(--line)); background: none; }
+  .reset { padding: 4px 10px; font-size: 0.8125rem; }
+  .modified { color: var(--warn); font-weight: 600; }
+  .support a { color: var(--accent); }
+  .support li { margin: 6px 0; }
+
+  @media (prefers-reduced-motion: reduce) { .screen { animation: none; } .level, .chevron { transition: none; } }
+  @media (max-width: 760px) {
+    .options-layout { grid-template-columns: 1fr; }
+    .scope-side { position: static; }
+    .form { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header><a class="brand" href="/#status"><img src="/icon.svg" class="logo" alt="">Homeswift</a></header>
+<main>
+  <div class="page-head">
+    <span class="tile large accessory" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 21V4a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v17"/><path d="M3 21h18"/><circle cx="15" cy="12.5" r="1"/></svg></span>
+    <div>
+      <h1>UniFi Access</h1>
+      <p class="muted">Manage your UniFi Access controllers and devices in HomeKit.</p>
+    </div>
+  </div>
+
+  <!-- Controllers -->
+  <section id="controllers-screen" class="screen hidden">
+    <div class="section-head"><h2>Configured controllers</h2><span class="muted" id="controllers-note"></span></div>
+    <div id="controllers" class="controllers"></div>
+    <div class="actions" style="margin-top: 14px">
+      <button class="primary" id="add-controller">Add controller</button>
+      <button id="open-support">Support</button>
+    </div>
+  </section>
+
+  <!-- Discovery -->
+  <section id="discovery-screen" class="screen hidden">
+    <div class="card">
+      <h2 style="margin-top: 0">Discover your controller</h2>
+      <p class="muted">Scan your network for UniFi Access controllers, or enter the address manually.</p>
+      <p class="note-box">Make sure your UniFi console is powered on and connected to the same network.</p>
+      <div class="actions" style="margin-top: 14px">
+        <button class="primary" id="discover">Discover controllers</button>
+        <button id="manual-entry">Manual entry</button>
+        <button class="link" id="cancel-discovery">Cancel</button>
+      </div>
+      <div id="discovered"></div>
+    </div>
+  </section>
+
+  <!-- Add or edit a controller -->
+  <section id="setup-screen" class="screen hidden">
+    <form class="card" id="setup-form" novalidate>
+      <h2 style="margin-top: 0" id="setup-title">Add a UniFi Access controller</h2>
+      <p class="muted" id="setup-subtitle">Enter your UniFi Access controller details and login credentials.</p>
+      <div class="form">
+        <label class="wide">Controller<input id="address" placeholder="Hostname or IP (e.g. unvr.local)" autocomplete="off" spellcheck="false"><span class="help">The address of your UniFi Access controller.</span></label>
+        <label>Username<input id="username" autocomplete="username" placeholder="Local user account username"></label>
+        <label>Password<input id="password" type="password" autocomplete="current-password" placeholder="Local user account password"></label>
+      </div>
+      <details class="advanced" id="advanced">
+        <summary>Advanced settings</summary>
+        <div class="form">
+          <label class="wide">Name<input id="ctrl-name" placeholder="Defaults to the controller's name"><span class="help">Used to identify this controller in the log.</span></label>
+        </div>
+        <div class="check">
+          <input type="checkbox" id="verify-tls">
+          <label for="verify-tls">Verify the controller's TLS certificate against trusted certificate authorities<span class="help">Leave this off unless your controller uses a CA-signed certificate. When off, the controller's self-signed certificate is pinned the first time Homeswift connects, and any later change is refused.</span></label>
+        </div>
+        <div class="form">
+          <label>MQTT broker<input id="mqtt-url" placeholder="e.g. mqtt://user:password@1.2.3.4" spellcheck="false"><span class="help">MQTT support is enabled only when a broker URL is provided.</span></label>
+          <label>MQTT topic<input id="mqtt-topic" placeholder="unifi/access" spellcheck="false"></label>
+        </div>
+        <div class="check">
+          <input type="checkbox" id="mqtt-verify-tls" checked>
+          <label for="mqtt-verify-tls">Verify the MQTT broker's TLS certificate<span class="help">Only turn this off if your mqtts:// broker uses a self-signed certificate.</span></label>
+        </div>
+      </details>
+      <p class="note-box"><strong>Local account required.</strong> Ubiquiti.com and UI.com accounts are not supported. Create one in the <em>Admins &amp; Users</em> tab of your UniFi console.</p>
+      <p class="status-line" id="setup-status"></p>
+      <div id="setup-explain"></div>
+      <div class="save-bar">
+        <span class="muted">Homeswift logs in to check the details before saving them.</span>
+        <button type="button" id="cancel-setup">Cancel</button>
+        <button type="submit" class="primary" id="save-controller">Save controller</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- Feature options -->
+  <section id="options-screen" class="screen hidden">
+    <div class="section-head"><h2 id="options-title">Feature options</h2><button class="link" id="back-from-options">Back</button></div>
+    <div class="options-layout">
+      <aside class="scope-side">
+        <div class="card"><label for="scope">Scope</label><select id="scope"></select></div>
+        <div class="card cascade" id="cascade">
+          <div class="level" data-scope="global"><span class="dot">G</span><div><div class="label">Global</div><div class="hint">All devices</div></div></div>
+          <div class="connector"></div>
+          <div class="level" data-scope="controller"><span class="dot">C</span><div><div class="label">Controller</div><div class="hint">Overrides global</div></div></div>
+          <div class="connector"></div>
+          <div class="level" data-scope="device"><span class="dot">D</span><div><div class="label">Device</div><div class="hint">Final value</div></div></div>
+        </div>
+        <div class="card hidden" id="device-info"></div>
+        <div class="card legend">
+          <strong>Legend</strong>
+          <span><i class="bar global"></i>Set at global</span>
+          <span><i class="bar controller"></i>Set at controller</span>
+          <span><i class="bar device"></i>Set at device</span>
+        </div>
+      </aside>
+      <div>
+        <div class="option-tools">
+          <input type="search" id="search" placeholder="Search options…" aria-label="Search options">
+          <label class="toggle compact"><span class="switch"><input type="checkbox" id="modified-only"><span></span></span><span class="muted">Modified <span id="modified-count"></span></span></label>
+        </div>
+        <p class="muted" id="options-loading">Loading options…</p>
+        <div id="options-problem"></div>
+        <div id="device-problem"></div>
+        <div id="options"></div>
+        <div class="card save-bar hidden" id="options-save">
+          <span class="dirty">Unsaved changes to the feature options.</span>
+          <button id="discard-options">Discard</button>
+          <button class="primary" id="save-options">Save</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Support -->
+  <section id="support-screen" class="screen hidden">
+    <div class="section-head"><h2>Support</h2><button class="link" id="back-from-support">Back</button></div>
+    <div class="card support">
+      <h2 style="margin-top: 0">Getting started</h2>
+      <ul>
+        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-access/blob/main/docs/FeatureOptions.md">Feature options</a>: options to set per controller or device.</li>
+        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-access/blob/main/docs/MQTT.md">MQTT</a>: the topics published and accepted.</li>
+        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-access/blob/main/CHANGELOG.md">Changelog</a> of the Homebridge plugin this one follows.</li>
+      </ul>
+      <h2>Get help</h2>
+      <ul>
+        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-access/issues/new/choose">Open an issue</a> on GitHub.</li>
+        <li>The Homeswift log (the Logs page) shows what the plugin sees; feature option <code>Log.*</code> entries turn event logging on and off.</li>
+      </ul>
+    </div>
+  </section>
+</main>
+<script src="/common.js"></script>
+<script src="/plugin.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -55,11 +55,13 @@ public enum Redaction {
         string == placeholder || SecretVault.isHandle(string)
     }
 
-    /// Masks network addresses in text for a provider: MAC addresses, IPv4, bracketed IPv6 and `.local` host
-    /// names, as the Homebridge UIs' `scrubAddresses` does. A device's address helps nobody explain its error.
+    /// Masks addresses in text for a provider: e-mail addresses (cloud account logins), MAC addresses, IPv4,
+    /// bracketed IPv6 and `.local` host names, as the Homebridge UIs' `scrubAddresses` does. A device's address
+    /// helps nobody explain its error.
     public static func scrubAddresses(_ text: String) -> String {
         var result = text
         let patterns: [(String, String)] = [
+            (#"[\w.+-]+@[\w-]+(?:\.[\w-]+)+"#, "<email>"),
             (#"\b(?:[0-9A-Fa-f]{1,2}[:-]){5}[0-9A-Fa-f]{1,2}\b"#, "<MAC>"),
             (#"\b\d{1,3}(?:\.\d{1,3}){3}\b"#, "<IP>"),
             (#"\[[0-9A-Fa-f:]*:[0-9A-Fa-f:]*\]"#, "<IP>"),

@@ -12,8 +12,17 @@ let package = Package(
         .library(name: "HomeswiftMCP", targets: ["HomeswiftMCP"]),
         .library(name: "HomeswiftUI", targets: ["HomeswiftUI"]),
         .library(name: "HomeswiftNetwork", targets: ["HomeswiftNetwork"]),
+        .library(name: "HomeswiftFFmpeg", targets: ["HomeswiftFFmpeg"]),
         .library(name: "HomeswiftElgatoKeyLights", targets: ["HomeswiftElgatoKeyLights"]),
         .library(name: "HomeswiftPhilipsAmbilightTV", targets: ["HomeswiftPhilipsAmbilightTV"]),
+        .library(name: "HomeswiftDolphinPoolCleaner", targets: ["HomeswiftDolphinPoolCleaner"]),
+        .library(name: "HomeswiftDysonPureCool", targets: ["HomeswiftDysonPureCool"]),
+        .library(name: "HomeswiftUniFiAccess", targets: ["HomeswiftUniFiAccess"]),
+        .library(name: "HomeswiftDaikinCloud", targets: ["HomeswiftDaikinCloud"]),
+        .library(name: "HomeswiftEWeLink", targets: ["HomeswiftEWeLink"]),
+        .library(name: "HomeswiftLGThinQ", targets: ["HomeswiftLGThinQ"]),
+        .library(name: "HomeswiftGovee", targets: ["HomeswiftGovee"]),
+        .library(name: "HomeswiftUniFiProtect", targets: ["HomeswiftUniFiProtect"]),
         .executable(name: "homeswift", targets: ["HomeswiftCLI"]),
         .executable(name: "homeswift-demo", targets: ["homeswift-demo"]),
     ],
@@ -86,8 +95,9 @@ let package = Package(
             ],
             exclude: ["Web"]
         ),
-        // What plugins need to reach devices on the LAN: an HTTP client that can trust a self-signed certificate and
-        // pin it, HTTP Digest authentication, Wake-on-LAN. On NIO and NIOSSL so it works the same on Linux, where
+        // What plugins need to reach devices and clouds: an HTTP client that can trust a self-signed certificate and
+        // pin it, HTTP Digest authentication, Wake-on-LAN, a WebSocket client, an MQTT 3.1.1 client (TCP, TLS with a
+        // client certificate, WebSocket) and AWS Signature Version 4. On NIO and NIOSSL so it works the same on Linux, where
         // URLSession cannot accept a certificate the system does not trust.
         .target(
             name: "HomeswiftNetwork",
@@ -96,7 +106,21 @@ let package = Package(
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "NIOHTTP1", package: "swift-nio"),
                 .product(name: "NIOSSL", package: "swift-nio-ssl"),
+                .product(name: "NIOWebSocket", package: "swift-nio"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "Logging", package: "swift-log"),
+            ]
+        ),
+        // FFmpeg for camera plugins (a port of homebridge-plugin-utils' ffmpeg library): capability probing, encoder arguments per
+        // host and hardware accelerator, the process wrapper, RTP ports and demuxing, live streams and HKSV recordings in fMP4.
+        .target(
+            name: "HomeswiftFFmpeg",
+            dependencies: [
+                "Homeswift",
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
             ]
         ),
@@ -116,12 +140,105 @@ let package = Package(
             ],
             path: "Plugins/PhilipsAmbilightTV/Sources"
         ),
+        .target(
+            name: "HomeswiftDolphinPoolCleaner",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/DolphinPoolCleaner/Sources"
+        ),
+        .target(
+            name: "HomeswiftDysonPureCool",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork",
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "_CryptoExtras", package: "swift-crypto"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/DysonPureCool/Sources"
+        ),
+        .target(
+            name: "HomeswiftUniFiAccess",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork",
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/UniFiAccess/Sources"
+        ),
+        .target(
+            name: "HomeswiftDaikinCloud",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork",
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOHTTP1", package: "swift-nio"),
+                .product(name: "NIOSSL", package: "swift-nio-ssl"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/DaikinCloud/Sources"
+        ),
+        .target(
+            name: "HomeswiftEWeLink",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork",
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "_CryptoExtras", package: "swift-crypto"),
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/EWeLink/Sources"
+        ),
+        .target(
+            name: "HomeswiftLGThinQ",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork",
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "_CryptoExtras", package: "swift-crypto"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/LGThinQ/Sources"
+        ),
+        .target(
+            name: "HomeswiftGovee",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork",
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOSSL", package: "swift-nio-ssl"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/Govee/Sources"
+        ),
+        .target(
+            name: "HomeswiftUniFiProtect",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftFFmpeg",
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOHTTP1", package: "swift-nio"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/UniFiProtect/Sources"
+        ),
         // The `homeswift` bridge: reads config.json and runs the plugins compiled in (Plugins.swift lists them).
         // The target is not named "homeswift": that is "Homeswift" on a case-insensitive file system.
         .executableTarget(
             name: "HomeswiftCLI",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftElgatoKeyLights", "HomeswiftPhilipsAmbilightTV",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftElgatoKeyLights", "HomeswiftPhilipsAmbilightTV", "HomeswiftDolphinPoolCleaner", "HomeswiftDysonPureCool", "HomeswiftUniFiAccess", "HomeswiftDaikinCloud", "HomeswiftEWeLink", "HomeswiftLGThinQ", "HomeswiftGovee", "HomeswiftUniFiProtect",
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
             ]
@@ -168,14 +285,22 @@ let package = Package(
             ],
             path: "Plugins/ElgatoKeyLights/Tests"
         ),
+        // In-memory fakes of the network clients (an MQTT broker, a WebSocket) for plugin tests.
+        .target(
+            name: "HomeswiftNetworkTestSupport",
+            dependencies: ["HomeswiftNetwork", .product(name: "NIOConcurrencyHelpers", package: "swift-nio")],
+            path: "Tests/HomeswiftNetworkTestSupport"
+        ),
         .testTarget(
             name: "HomeswiftNetworkTests",
             dependencies: [
-                "HomeswiftNetwork",
+                "HomeswiftNetwork", "HomeswiftNetworkTestSupport",
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "NIOHTTP1", package: "swift-nio"),
                 .product(name: "NIOSSL", package: "swift-nio-ssl"),
+                .product(name: "NIOWebSocket", package: "swift-nio"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
             ]
         ),
@@ -187,6 +312,99 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
             ],
             path: "Plugins/PhilipsAmbilightTV/Tests"
+        ),
+        .testTarget(
+            name: "HomeswiftFFmpegTests",
+            dependencies: [
+                "HomeswiftFFmpeg", "Homeswift",
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            resources: [.copy("Fixtures")]
+        ),
+        .testTarget(
+            name: "DolphinPoolCleanerTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftDolphinPoolCleaner",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/DolphinPoolCleaner/Tests"
+        ),
+        .testTarget(
+            name: "DysonPureCoolTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftDysonPureCool",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/DysonPureCool/Tests"
+        ),
+        .testTarget(
+            name: "UniFiAccessTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftUniFiAccess", "HomeswiftNetworkTestSupport",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/UniFiAccess/Tests"
+        ),
+        .testTarget(
+            name: "DaikinCloudTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftDaikinCloud",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "NIOSSL", package: "swift-nio-ssl"),
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOHTTP1", package: "swift-nio"),
+                .product(name: "NIOWebSocket", package: "swift-nio"),
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/DaikinCloud/Tests",
+            exclude: ["Fixtures"]
+        ),
+        .testTarget(
+            name: "EWeLinkTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftEWeLink", "HomeswiftNetwork", "HomeswiftNetworkTestSupport",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/EWeLink/Tests"
+        ),
+        .testTarget(
+            name: "LGThinQTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftLGThinQ",
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "_CryptoExtras", package: "swift-crypto"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/LGThinQ/Tests",
+            exclude: ["Fixtures"]
+        ),
+        .testTarget(
+            name: "GoveeTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftGovee",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/Govee/Tests"
+        ),
+        .testTarget(
+            name: "UniFiProtectTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftFFmpeg", "HomeswiftUniFiProtect",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/UniFiProtect/Tests"
         ),
     ]
 )

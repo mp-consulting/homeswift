@@ -56,6 +56,9 @@ final class TestController: @unchecked Sendable {
 
     var isConnected: Bool { channel.isActive }
 
+    /// The pair-verify shared secret of the current session (HomeKit Data Stream keys derive from it).
+    var sharedSecret: Data? { session?.sharedSecret }
+
     // MARK: HTTP
 
     func request(_ method: String, _ target: String, body: Data = Data(), contentType: String = "application/hap+json") async throws -> Message {

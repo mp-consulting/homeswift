@@ -1,0 +1,229 @@
+// The eWeLink page, after the Homebridge plugin's settings UI: connect the account (or reuse the plugin's
+// session), the account's devices with their LAN and RF details (an mDNS scan runs while the cloud answers),
+// the connection settings, and saving them into this instance's block, which reloads the plugin. The session
+// stays in the plugin: the browser never sees a token.
+(() => {
+  "use strict";
+  const { $, el, request, name, explain, api, fact } = homeswift;
+  /// The button busy while `work` runs; errors go to the caller.
+  const act = (button, work) => homeswift.act(button, work, null);
+
+  const steps = { login: $("#step-login"), devices: $("#step-devices"), complete: $("#step-complete") };
+  const showStep = (step) => Object.entries(steps).forEach(([key, node]) => node.classList.toggle("hidden", key !== step));
+
+  let devices = [];
+  let region = null;
+  let config = {};
+  // Account fields typed in this page, saved with the settings.
+  let pendingAccount = null;
+
+  // MARK: config.json: this instance's block, read and written through the signed-in UI.
+
+  async function readBlock() {
+    config = (await homeswift.readBlock()) || {};
+    return config;
+  }
+
+  // MARK: Problems, with the Assistant's explanation when it is set up
+
+  /// What the Assistant may see: no credentials, tokens or IP addresses.
+  const assistantContext = (extra) => [extra, `Connection mode: ${config.mode || "auto"}.`,
+    config.countryCode ? `Account country code: ${config.countryCode}.` : "", region ? `API region: ${region}.` : ""].filter(Boolean).join(" ");
+
+  function showProblem(container, message, context) {
+    container.classList.remove("hidden");
+    container.replaceChildren(el("p", { text: message }), explain({ error: message, context: assistantContext(context) }));
+  }
+
+  function clearProblem(container) {
+    container.classList.add("hidden");
+    container.replaceChildren();
+  }
+
+  /// Why a device needs attention, or null.
+  function deviceProblem(device) {
+    if (!device.online) return "The eWeLink cloud reports this device as offline.";
+    if (device.lanEnabled && !device.lanIp) return "LAN control is enabled for this device, but it was not found on the local network (no IP address over mDNS).";
+    return null;
+  }
+
+  // MARK: Devices
+
+  function deviceRow(device) {
+    const badges = [];
+    if (device.isRfSubdevice) badges.push(el("span", { class: "pill rf", text: "RF" }));
+    if (device.lanEnabled && device.lanIp) badges.push(el("span", { class: "pill lan", text: `LAN: ${device.lanIp}` }));
+    else if (device.lanEnabled) badges.push(el("span", { class: "pill lan-warn", text: "LAN: No IP" }));
+    else badges.push(el("span", { class: "pill", text: "Cloud" }));
+    badges.push(el("span", { class: `pill status ${device.online ? "on" : "away"}`, text: device.online ? "Online" : "Offline" }));
+    const problem = deviceProblem(device);
+    return el("li", { class: `device ${device.isRfSubdevice ? "rf" : ""}` },
+      el("div", { class: "info" },
+        el("div", { class: "name", text: device.name }),
+        el("div", { class: "meta" },
+          el("span", { class: "mono", text: `ID: ${device.deviceId}` }),
+          el("span", { text: `${device.brand || "Unknown"} — ${device.model || "Unknown"} (UIID: ${device.uiid ?? "N/A"})` })),
+        device.buttons && device.buttons.length ? el("div", { class: "buttons" }, device.buttons.map((button) => el("span", { text: button }))) : null),
+      el("div", { class: "badges" }, badges),
+      problem ? explain({
+        error: problem,
+        context: assistantContext("The user is looking at the device list of the eWeLink plugin settings."),
+        device: {
+          name: device.name, deviceId: device.deviceId, brand: device.brand, model: device.model, uiid: device.uiid, online: !!device.online,
+          lanEnabled: !!device.lanEnabled, lanAddressFound: !!device.lanIp, rfSubdevice: !!device.isRfSubdevice, parentDeviceId: device.parentDeviceId,
+        },
+      }) : null);
+  }
+
+  function renderDevices() {
+    $("#device-count").textContent = String(devices.length);
+    $("#devices").replaceChildren(...(devices.length ? devices.map(deviceRow)
+      : [el("li", { class: "empty" }, el("p", { text: "No devices found" }), el("p", { class: "muted", text: "Connect your eWeLink account and click Refresh." }))]));
+  }
+
+  async function loadDevices() {
+    const button = $("#refresh");
+    await act(button, async () => {
+      clearProblem($("#devices-problem"));
+      try {
+        const answer = await request("devices");
+        devices = answer.devices || [];
+        renderDevices();
+      } catch (e) {
+        showProblem($("#devices-problem"), e.message || "Failed to load devices",
+          "Loading the device list from the eWeLink cloud (plus a 3 second mDNS LAN scan) failed in the plugin settings.");
+      }
+    });
+    await loadStatus();
+  }
+
+  async function loadStatus() {
+    try {
+      const status = await request("status");
+      $("#status").replaceChildren(
+        fact("Cloud", status.websocket ? "Connected" : status.retrying ? "Retrying" : status.initialized ? "Reconnecting" : "Not connected"),
+        fact("On the LAN", `${status.lanDevices ?? 0} device${status.lanDevices === 1 ? "" : "s"}`),
+        fact("In HomeKit", `${status.accessories ?? 0} accessor${status.accessories === 1 ? "y" : "ies"}`));
+    } catch { $("#status").replaceChildren(); }
+  }
+
+  // MARK: Settings
+
+  function prefillSettings() {
+    $("#mode").value = config.mode || "auto";
+    $("#debug").checked = !!config.debug;
+    $("#offline-as-off").checked = !!config.offlineAsOff;
+  }
+
+  function prefillLogin() {
+    if (config.username) $("#username").value = config.username;
+    if (config.password) $("#password").value = config.password;
+    if (config.countryCode) $("#countryCode").value = config.countryCode;
+  }
+
+  async function saveConfiguration(button) {
+    await act(button, async () => {
+      try {
+        let block;
+        const result = await homeswift.updateBlock((current) => {
+          block = { ...current, ...(pendingAccount || {}), platform: "eWeLink", name: current.name || name || "eWeLink", mode: $("#mode").value };
+          if ($("#debug").checked) block.debug = true; else delete block.debug;
+          if ($("#offline-as-off").checked) block.offlineAsOff = true; else delete block.offlineAsOff;
+          return block;
+        });
+        config = block;
+        pendingAccount = null;
+        const pending = result.restartNeeded || [];
+        $("#restart").classList.toggle("hidden", pending.length === 0);
+        $("#complete-text").replaceChildren(el("strong", { text: "All done!" }), pending.length
+          ? ` The configuration is saved. Restart Homeswift to apply the rest (${pending.join("; ")}).`
+          : " The configuration is saved and the plugin reloaded with it.");
+        $("#restart-status").textContent = "";
+        showStep("complete");
+      } catch (e) {
+        alert(e.message || "Failed to save configuration");
+      }
+    });
+  }
+
+  async function restart() {
+    await api("/api/restart", { method: "POST" });
+    $("#restart-status").textContent = "Restarting…";
+    for (let tries = 0; tries < 60; tries++) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      try { await request("status"); break; } catch { /* not back yet */ }
+    }
+    $("#restart-status").textContent = "Homeswift restarted.";
+    $("#restart").classList.add("hidden");
+  }
+
+  // MARK: Events
+
+  $("#login").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = $("#connect");
+    if (button.disabled) return;
+    const username = $("#username").value.trim();
+    const password = $("#password").value;
+    const countryCode = $("#countryCode").value;
+    if (!username || !password) {
+      showProblem($("#login-problem"), "Please enter your username and password", "The login form of the eWeLink plugin settings was submitted empty.");
+      return;
+    }
+    await act(button, async () => {
+      clearProblem($("#login-problem"));
+      try {
+        const answer = await request("login", { method: "POST", body: { username, password, countryCode } });
+        region = answer.region;
+        pendingAccount = { username, password, countryCode };
+        showStep("devices");
+        await loadDevices();
+      } catch (e) {
+        showProblem($("#login-problem"), e.message || "Login failed",
+          `Logging in to the eWeLink cloud from the plugin settings failed. Selected country code: ${countryCode}.`);
+      }
+    });
+  });
+
+  $("#new-login").addEventListener("click", () => {
+    $("#session").classList.add("hidden");
+    showStep("login");
+  });
+
+  const tabs = [["#tab-devices", "#pane-devices"], ["#tab-settings", "#pane-settings"]];
+  for (const [tab, pane] of tabs) {
+    $(tab).addEventListener("click", () => {
+      for (const [otherTab, otherPane] of tabs) {
+        const selected = otherTab === tab;
+        $(otherTab).classList.toggle("on", selected);
+        $(otherTab).setAttribute("aria-selected", String(selected));
+        $(otherPane).classList.toggle("hidden", !selected);
+      }
+    });
+  }
+
+  $("#refresh").addEventListener("click", loadDevices);
+  $("#save").addEventListener("click", (event) => saveConfiguration(event.currentTarget));
+  $("#save-settings").addEventListener("click", (event) => saveConfiguration(event.currentTarget));
+  $("#back").addEventListener("click", () => { showStep("devices"); loadDevices(); });
+  $("#restart").addEventListener("click", (event) => act(event.currentTarget, restart).catch((e) => alert(e.message)));
+
+  // MARK: Start: the block, then the plugin's session if it has one.
+
+  (async () => {
+    try { await readBlock(); } catch (e) { alert(e.message); }
+    prefillLogin();
+    prefillSettings();
+    try {
+      const session = await request("session");
+      if (session.success) {
+        region = session.region;
+        $("#session").classList.remove("hidden");
+        showStep("devices");
+        await loadDevices();
+        return;
+      }
+    } catch { /* no session: log in */ }
+    showStep("login");
+  })();
+})();

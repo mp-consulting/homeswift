@@ -22,6 +22,8 @@ public final class Accessory: @unchecked Sendable {
     public var services: [Service] { servicesBox.withLockedValue { $0 } }
 
     let aidBox = NIOLockedValueBox(0)
+    /// The camera that answers snapshot requests (`configureController`).
+    let cameraControllerBox = NIOLockedValueBox<CameraController?>(nil)
     public var aid: Int { aidBox.withLockedValue { $0 } }
 
     public init(
@@ -62,6 +64,18 @@ public final class Accessory: @unchecked Sendable {
     /// The first service of the given type.
     public func service(_ type: ServiceType, subtype: String? = nil) -> Service? {
         services.first { $0.type.uuid == type.uuid && (subtype == nil || $0.subtype == subtype) }
+    }
+
+    /// Copies the values of a cached accessory onto this one, rebuilt from the device, so the Home app keeps showing the
+    /// last readings and the names it was given until the device answers. Services match on type and subtype,
+    /// characteristics on type; Accessory Information is left alone (`Service.takeValues(from:)` has the rule).
+    public func takeValues(from cached: Accessory) {
+        for service in services where service.type.uuid != ServiceType.accessoryInformation.uuid {
+            guard let old = cached.services.first(where: { $0.type.uuid == service.type.uuid && $0.subtype == service.subtype }) else {
+                continue
+            }
+            service.takeValues(from: old)
+        }
     }
 
     func identify() async {

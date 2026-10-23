@@ -24,8 +24,8 @@ services and characteristics, react to writes from the Home app, set values when
 Homeswift takes care of pairing, encryption, Bonjour and keeping the accessory's identity across launches.
 
 It is also a Homebridge written in Swift: the `homeswift` bridge reads a Homebridge-style `config.json` and
-runs the plugins compiled into it, one small binary, no Node.js, no npm. Elgato Key Lights and Philips Ambilight TVs are the first plugins;
-[docs/plugins.md](docs/plugins.md) explains how to write or port one.
+runs the plugins compiled into it, one small binary, no Node.js, no npm. Ten plugins come with it, from Elgato Key
+Lights to UniFi Protect cameras; [docs/plugins.md](docs/plugins.md) explains how to write or port one.
 
 ## What it does
 
@@ -146,8 +146,16 @@ are back in the Home app at the next launch before the plugin has reached its de
 
 | Plugin | Platform | Devices |
 |---|---|---|
+| [Daikin Cloud](Plugins/DaikinCloud) | `DaikinCloud` | Daikin air conditioners and Altherma heat pumps, through the Onecta cloud |
+| [Dolphin Pool Cleaner](Plugins/DolphinPoolCleaner) | `DolphinPoolCleaner` | Maytronics Dolphin pool robots, through the MyDolphin Plus cloud |
+| [Dyson Pure Cool](Plugins/DysonPureCool) | `DysonPureCool` | Dyson purifiers, Hot+Cool, Humidify+Cool and fans, over each device's local MQTT |
+| [eWeLink](Plugins/EWeLink) | `eWeLink` | SONOFF and other eWeLink devices: switches, outlets, lights, curtains, sensors, RF Bridge, Zigbee (cloud and LAN) |
 | [Elgato Key Lights](Plugins/ElgatoKeyLights) | `ElgatoKeyLights` | Key Light, Key Light Air, Key Light Mini, Ring Light |
+| [Govee](Plugins/Govee) | `Govee` | Govee lights, plugs, heaters, purifiers, humidifiers and sensors (cloud, AWS IoT, LAN, Bluetooth) |
+| [LG ThinQ](Plugins/LGThinQ) | `LGThinQ` | LG ThinQ appliances: air conditioners, purifiers, washers, dryers, fridges, ovens, dishwashers |
 | [Philips Ambilight TV](Plugins/PhilipsAmbilightTV) | `PhilipsAmbilightTV` | Philips Android TVs with Ambilight (JointSpace API, paired from the web UI) |
+| [UniFi Access](Plugins/UniFiAccess) | `UniFi Access` | UniFi Access hubs and readers: door locks, doorbells, sensors, followed through the controller's events |
+| [UniFi Protect](Plugins/UniFiProtect) | `UniFi Protect` | UniFi Protect cameras and doorbells (live video, HomeKit Secure Video), sensors, lights, chimes |
 
 ## The Assistant
 
@@ -206,11 +214,14 @@ request. Its state lives in `~/.homeswift/homeswift-demo.json`.
 | Crypto: TLV8, SRP-6a over a C Montgomery multiplication (`CHAPMath`), HKDF and ChaCha20-Poly1305 | `Sources/Homeswift/Crypto` |
 | Pairing: setup code, pair setup (M1–M6), pair verify (M1–M4), pairings | `Sources/Homeswift/Pairing` |
 | Server: SwiftNIO listener, HTTP and EVENT messages, encrypted sessions, endpoints, storage, Bonjour advertising and browsing | `Sources/Homeswift/Server` |
+| Cameras (streams, HomeKit Secure Video), HomeKit Data Stream, Adaptive Lighting | `Sources/Homeswift/Camera`, `DataStream`, `Controllers` |
 | Plugin API and runtime: `HomeswiftPlugin`, `PluginContext`, `PluginHost`, config.json, the accessory cache, child bridges | `Sources/HomeswiftPlugin` |
 | The `homeswift` bridge: command line, logging, the plugins compiled in | `Sources/HomeswiftCLI` |
 | The Assistant: chat providers over plain HTTP, Apple's on-device model, redaction, prompts, schema-checked JSON | `Sources/HomeswiftAI` |
 | The MCP server: JSON-RPC, sessions, scopes, elicitation, the audit log, tools over the bridge, Streamable HTTP on NIO, the stdio proxy | `Sources/HomeswiftMCP` |
 | The web UI: login and sessions, the JSON API over the same control surface, the pages (`Web/`, embedded) | `Sources/HomeswiftUI` |
+| Transports for plugins: HTTP with self-signed certificates, Digest, Wake-on-LAN, UDP, WebSocket, MQTT, AWS Signature V4 | `Sources/HomeswiftNetwork` |
+| FFmpeg for camera plugins: options per host and accelerator, the process, RTP, fMP4 recordings | `Sources/HomeswiftFFmpeg` |
 | Plugins, one directory each with sources, tests, README and config schema | `Plugins/` |
 
 Each connection handles its requests in order on one task; handlers are `async`, so a slow device never blocks

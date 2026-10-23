@@ -24,6 +24,8 @@ final class HAPConnection: @unchecked Sendable {
         var controllerID: String?
         var isAdmin = false
         var subscriptions: Set<CharacteristicKey> = []
+        var closeHandlers: [@Sendable () -> Void] = []
+        var closed = false
     }
 
     final class InboundHandler: ChannelInboundHandler, Sendable {
@@ -86,11 +88,42 @@ final class HAPConnection: @unchecked Sendable {
             }
         }
         server.unregister(self)
+        let handlers = shared.withLockedValue { shared in
+            shared.closed = true
+            defer { shared.closeHandlers = [] }
+            return shared.closeHandlers
+        }
+        for handler in handlers { handler() }
         server.logger.debug("Connection closed", metadata: ["controller": "\(controllerID ?? "-")"])
     }
 
     func close() {
         channel.close(promise: nil)
+    }
+
+    /// Runs `handler` once the connection has closed (at once when it already has): camera streams and data
+    /// streams end with the controller connection that set them up.
+    func onClose(_ handler: @escaping @Sendable () -> Void) {
+        let closed = shared.withLockedValue { shared in
+            if !shared.closed { shared.closeHandlers.append(handler) }
+            return shared.closed
+        }
+        if closed { handler() }
+    }
+
+    /// What handlers may know of this connection while they serve one of its requests.
+    var requestContext: HAPRequestContext {
+        HAPRequestContext(
+            connectionID: id, controllerID: controllerID,
+            localAddress: Self.plainAddress(channel.localAddress?.ipAddress), remoteAddress: Self.plainAddress(channel.remoteAddress?.ipAddress),
+            sharedSecret: session?.sharedSecret, connection: self)
+    }
+
+    /// An IPv4 client of the dual-stack socket shows as `::ffff:a.b.c.d`; streams want the IPv4 address.
+    static func plainAddress(_ address: String?) -> String? {
+        guard let address else { return nil }
+        if address.lowercased().hasPrefix("::ffff:"), address.contains(".") { return String(address.dropFirst(7)) }
+        return address
     }
 
     func sendEvent(_ response: HTTPResponse) {
@@ -188,6 +221,8 @@ final class HAPConnection: @unchecked Sendable {
             return (await handleWrite(request.body), .none)
         case ("PUT", "/prepare"):
             return (handlePrepare(request.body), .none)
+        case (_, "/resource"):
+            return (await handleResource(request), .none)
         default:
             return (HTTPResponse(status: 404), .none)
         }

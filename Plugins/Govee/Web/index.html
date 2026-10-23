@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Govee</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header><a class="brand" href="/#status"><img src="/icon.svg" class="logo" alt="">Homeswift</a></header>
+<main>
+  <div class="page-head">
+    <span class="tile large light" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></svg></span>
+    <div class="who">
+      <h1>Govee</h1>
+      <p class="muted">Your Govee account, the devices it brings to the Home app and how each one appears, scenes and music mode for lights, and the connections the plugin uses.</p>
+    </div>
+  </div>
+
+  <div class="group tabs main-tabs" role="tablist">
+    <button role="tab" data-tab="devices" class="on" aria-selected="true">Devices</button>
+    <button role="tab" data-tab="settings" aria-selected="false">Settings</button>
+    <button role="tab" data-tab="tools" aria-selected="false">Tools</button>
+  </div>
+
+  <section id="tab-devices" class="tab-pane">
+    <div class="card discover">
+      <div class="discover-head">
+        <p class="muted">Discover all devices linked to your Govee account and add them to the lists below. Enter your credentials in the <strong>Settings</strong> tab first.</p>
+        <button id="discover" class="primary">Discover Devices</button>
+      </div>
+      <div id="discover-result"></div>
+    </div>
+    <div id="device-types"></div>
+    <div id="editor" class="card editor hidden"></div>
+  </section>
+
+  <section id="tab-settings" class="tab-pane hidden">
+    <div class="card">
+      <h2>Account</h2>
+      <div class="fields">
+        <label class="field"><span class="field-title">Email</span>
+          <input type="email" id="username" placeholder="your-email@example.com" autocomplete="username">
+          <span class="help">The email address you use to log in to the Govee app. Required for cloud control and device discovery.</span></label>
+        <label class="field"><span class="field-title">Password</span>
+          <span class="password"><input type="password" id="password" autocomplete="current-password"><button type="button" id="toggle-password">Show</button></span>
+          <span class="help">Your Govee account password. Stored in config.json and used only to authenticate with Govee's servers.</span></label>
+        <label class="field"><span class="field-title">Verification Code</span>
+          <input type="text" id="code" placeholder="e.g. 1234" autocomplete="one-time-code" inputmode="numeric">
+          <span class="help">Only needed the first time, or when Govee flags a new device. If Test Connection reports that a code was emailed to you, paste it here and test again. Ignored once login succeeds.</span></label>
+      </div>
+      <div class="actions"><button id="test-login">Test Connection</button></div>
+      <div id="login-result"></div>
+    </div>
+
+    <div class="card">
+      <h2>General</h2>
+      <div id="general"></div>
+    </div>
+
+    <div class="card">
+      <h2>Connection</h2>
+      <div class="connections">
+        <div><h3>AWS IoT</h3><div id="connection-aws"></div></div>
+        <div><h3>LAN</h3><div id="connection-lan"></div></div>
+        <div><h3>Bluetooth (BLE)</h3><div id="connection-ble"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-tools" class="tab-pane hidden">
+    <div class="card">
+      <h2>Cache Management</h2>
+      <p class="muted">Clear the plugin's cache if device discovery misbehaves or data looks stale: the saved login and IoT certificate, the discovered devices, the devices' saved state. Restart Homeswift afterwards.</p>
+      <div class="actions"><button id="clear-cache" class="danger">Clear Cache</button><button id="restart" class="hidden">Restart Homeswift</button></div>
+      <div id="clear-result"></div>
+    </div>
+    <div class="card">
+      <h2>Documentation</h2>
+      <p>The options are described in the plugin's README; the connections are tried in this order:</p>
+      <ul class="docs">
+        <li><strong>LAN:</strong> local network control (faster, works without internet), for models with the LAN API turned on in the Govee app.</li>
+        <li><strong>AWS IoT:</strong> real-time control through Govee's cloud (requires credentials).</li>
+        <li><strong>BLE:</strong> Bluetooth control for nearby devices (requires a Bluetooth adapter).</li>
+      </ul>
+    </div>
+  </section>
+
+  <div class="card save-card">
+    <div class="save-bar"><span id="save-state" class="muted">Changes are kept once you save.</span><button id="save" class="primary">Save Configuration</button></div>
+  </div>
+</main>
+<script src="/common.js"></script>
+<script src="/plugin.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

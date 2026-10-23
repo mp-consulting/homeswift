@@ -107,11 +107,11 @@ public struct DigestAuthentication: Sendable {
     }
 
     static func md5(_ string: String) -> String {
-        Insecure.MD5.hash(data: Data(string.utf8)).map { String(format: "%02x", $0) }.joined()
+        hexString(Insecure.MD5.hash(data: Data(string.utf8)))
     }
 
     static func randomHex(_ bytes: Int) -> String {
-        (0..<bytes).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined()
+        hexString((0..<bytes).map { _ in UInt8.random(in: 0...255) })
     }
 
     private static func quote(_ value: String) -> String {

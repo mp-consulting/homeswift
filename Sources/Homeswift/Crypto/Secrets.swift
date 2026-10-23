@@ -9,8 +9,26 @@ public enum Secrets {
 
     /// 32 random bytes as URL-safe base64 without padding: an MCP client token, a session cookie.
     public static func randomToken() -> String {
-        randomBytes(32).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        base64URL(randomBytes(32))
     }
+
+    /// URL-safe base64 without padding (RFC 4648 §5).
+    public static func base64URL(_ data: some DataProtocol) -> String {
+        Data(data).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+    }
+
+    /// Lowercase hexadecimal, two digits a byte: a digest, a fingerprint.
+    public static func hex(_ bytes: some Sequence<UInt8>) -> String {
+        var digits: [UInt8] = []
+        digits.reserveCapacity(bytes.underestimatedCount * 2)
+        for byte in bytes {
+            digits.append(hexDigits[Int(byte >> 4)])
+            digits.append(hexDigits[Int(byte & 0x0F)])
+        }
+        return String(decoding: digits, as: UTF8.self)
+    }
+
+    private static let hexDigits = Array("0123456789abcdef".utf8)
 
     /// Equal, in a time that does not depend on where the first difference is: the whole of the longer
     /// value is always compared.

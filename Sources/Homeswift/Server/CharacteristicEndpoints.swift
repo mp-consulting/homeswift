@@ -13,6 +13,8 @@ extension HAPConnection {
 
         var results: [CharacteristicJSON] = []
         var failed = false
+        // Built once for the request, not for each characteristic.
+        let requestContext = requestContext
         for pair in ids.split(separator: ",") {
             let parts = pair.split(separator: ".")
             guard parts.count == 2, let aid = Int(parts[0]), let iid = Int(parts[1]) else {
@@ -30,7 +32,8 @@ extension HAPConnection {
             }
             do {
                 if let read = characteristic.readHandler {
-                    characteristic.update(try await read(), origin: id, force: false)
+                    let value = try await HAPRequestContext.$current.withValue(requestContext) { try await read() }
+                    characteristic.update(value, origin: id, force: false, reason: .read)
                 }
                 var entry = CharacteristicJSON(
                     describing: characteristic, includeValue: true, includeMeta: meta, includePerms: perms, includeType: type)
@@ -64,6 +67,7 @@ extension HAPConnection {
 
         var results: [CharacteristicJSON] = []
         var needsBody = false
+        let requestContext = requestContext
         for item in request.characteristics {
             let key = CharacteristicKey(aid: item.aid, iid: item.iid)
             guard let characteristic = server.characteristic(aid: item.aid, iid: item.iid) else {
@@ -91,9 +95,11 @@ extension HAPConnection {
                         if characteristic.type.uuid == CharacteristicType.identify.uuid {
                             server.logger.info("Identify requested", metadata: ["aid": "\(item.aid)", "accessory": "\(server.accessory(aid: item.aid)?.name ?? "?")"])
                         }
-                        try await characteristic.write(value, origin: id)
+                        let stored = try await HAPRequestContext.$current.withValue(requestContext) {
+                            try await characteristic.write(value, origin: id)
+                        }
                         if item.r == true, permissions.contains(.writeResponse) {
-                            readBack = characteristic.value
+                            readBack = stored
                         }
                     } catch {
                         status = self.status(for: error)
@@ -128,5 +134,35 @@ extension HAPConnection {
 
     private func status(for error: any Error) -> HAPStatus {
         (error as? HAPStatusError)?.status ?? .serviceCommunicationFailure
+    }
+}
+
+extension HAPConnection {
+    /// `POST /resource`: a camera snapshot, `{"resource-type": "image", "image-width": w, "image-height": h}` with
+    /// an optional `aid` (bridged cameras) and `reason` (HAP-NodeJS's HAPServer and Accessory.handleResource).
+    func handleResource(_ request: HTTPRequest) async -> HTTPResponse {
+        guard request.method == "POST", !request.body.isEmpty,
+            let object = try? JSONSerialization.jsonObject(with: request.body) as? [String: Any]
+        else { return .hapStatus(400, .invalidValueInRequest) }
+        guard object["resource-type"] as? String == "image" else {
+            server.logger.debug("Request for an unsupported resource type", metadata: ["type": "\(object["resource-type"] ?? "-")"])
+            return .hapStatus(404, .resourceDoesNotExist)
+        }
+        let accessory = (object["aid"] as? Int).flatMap(server.accessory(aid:)) ?? (object["aid"] == nil ? server.primary : nil)
+        guard let accessory, let camera = accessory.cameraController else {
+            server.logger.debug("Snapshot request though no camera controller is associated")
+            return .hapStatus(404, .resourceDoesNotExist)
+        }
+        let width = object["image-width"] as? Int ?? 0
+        let height = object["image-height"] as? Int ?? 0
+        let reason = (object["reason"] as? Int).flatMap(ResourceRequestReason.init(rawValue:))
+        do {
+            let image = try await HAPRequestContext.$current.withValue(requestContext) {
+                try await camera.handleSnapshotRequest(height: height, width: width, accessoryName: accessory.name, reason: reason)
+            }
+            return HTTPResponse(status: 200, contentType: "image/jpeg", body: image)
+        } catch {
+            return .hapStatus(207, (error as? HAPStatusError)?.status ?? .serviceCommunicationFailure)
+        }
     }
 }
