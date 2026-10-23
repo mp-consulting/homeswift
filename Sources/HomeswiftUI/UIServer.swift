@@ -25,6 +25,8 @@ public final class UIServer: Sendable {
         public var hashIterations = UserStore.defaultIterations
         /// A checkout to serve the web files from, live, instead of the copies compiled in (`HOMESWIFT_WEB_ROOT`).
         public var webRoot: URL?
+        /// How many Assistant requests (an explanation, a block written, a chat message) each user may make.
+        public var assistantRateLimiter = SlidingWindowRateLimiter.assistant()
         public init() {}
     }
 
@@ -32,6 +34,8 @@ public final class UIServer: Sendable {
     public let catalog: HomeswiftCatalog
     public let users: UserStore
     public let sessions: SessionStore
+    /// API tokens for scripts (`Authorization: Bearer`), in `ui-api-tokens.json`.
+    public let tokens: APITokenStore
     /// With `auth: form` and no account yet: what the first visitor must type to create one. The bridge's banner
     /// prints it; it is never logged, so a client of the MCP log tools cannot claim the UI.
     public let setupCode: String?
@@ -68,6 +72,7 @@ public final class UIServer: Sendable {
             isKnownUser: { users.contains($0) })
         setupCode = configuration.auth == .form && users.isEmpty ? Self.makeSetupCode() : nil
         allowedHosts = Self.allowedHosts(for: configuration)
+        tokens = APITokenStore(url: usersURL.deletingLastPathComponent().appendingPathComponent("ui-api-tokens.json"))
         live = options.webRoot.map(LiveWebFiles.init(root:))
         chat = AssistantChat(catalog: catalog, logger: options.logger)
         directory = usersURL.deletingLastPathComponent()
@@ -174,10 +179,16 @@ public final class UIServer: Sendable {
         guard parts.first == "api" else { return page(for: parts, request) }
         let route = Array(parts.dropFirst())
         if route.first == "auth" { return await auth(route.dropFirst().first ?? "", request) }
-        guard let username = authenticatedUser(request) else { return .error(401, "sign in first") }
-        if request.method != .GET, let refused = refuseCrossSite(request) { return refused }
+        guard let caller = self.caller(request, bearer: true) else { return .error(401, "sign in first") }
+        // A cookie rides along with any request the browser makes, so a mutation must come from the page itself;
+        // a bearer token is only sent by what holds it, which a page from another site cannot read.
+        if request.method != .GET, let refused = refuseCrossSite(request, checkOrigin: caller.token == nil) { return refused }
+        let needed = Self.requiredScope(request.method, route)
+        guard caller.scope >= needed else {
+            return .error(403, caller.token?.scope == .read ? "this API token can only read" : "only an administrator can do this")
+        }
         do {
-            return try await api(route, request, username: username)
+            return try await api(route, request, caller: caller)
         } catch let error as JSONRPCError {
             return .error(400, error.message)
         } catch {
@@ -195,10 +206,10 @@ public final class UIServer: Sendable {
         var name: String
         var platform: String?
         var instance: (slug: String, name: String)?
-        if parts.first == "plugins", parts.count >= 2, authenticatedUser(request) != nil, let target = pluginPage(slug: parts[1]),
+        if parts.first == "plugins", parts.count >= 2, caller(request, bearer: false)?.scope == .admin, let target = pluginPage(slug: parts[1]),
                   parts.count > 2 ? parts.last?.contains(".") == true : target.hasPage {
-            // An instance's page, or one of its files, by its slug, for a signed-in user; anyone else gets the UI's
-            // page, which signs them in and then shows it.
+            // An instance's page, or one of its files, by its slug, for a signed-in administrator; anyone else gets
+            // the UI's page, which signs them in and then shows it (or, to a user who is not an administrator, Status).
             platform = target.platform
             files = catalog.host.registry.entry(for: target.platform)?.webFiles ?? [:]
             name = parts.count == 2 ? "index.html" : parts.dropFirst(2).joined(separator: "/")
@@ -267,10 +278,57 @@ public final class UIServer: Sendable {
 
     // MARK: Authentication
 
-    func authenticatedUser(_ request: Request) -> String? {
-        if configuration.auth == .none { return "local" }
-        guard let token = request.cookies[Self.cookieName] else { return nil }
-        return sessions.username(for: token)
+    /// Who makes a request, and what they may do: an administrator (`admin`), a user who is not one (`control`:
+    /// they see the bridge and control accessories), or a read-only API token (`read`). The role is read from the
+    /// users on every request, so a change applies at once.
+    struct Caller: Sendable {
+        var username: String
+        var scope: Scope
+        /// The API token the request came with; nil for a browser's session.
+        var token: APITokenStore.Token?
+        /// The session cookie, for a browser.
+        var session: String?
+        var isAdmin: Bool { scope == .admin }
+    }
+
+    /// The request's caller: by its session cookie, or, with `bearer`, by an `Authorization: Bearer` API token
+    /// (which, when present, is the only thing looked at). With `auth: none`, everyone is the administrator.
+    func caller(_ request: Request, bearer: Bool) -> Caller? {
+        if configuration.auth == .none { return Caller(username: "local", scope: .admin) }
+        if bearer, let header = request.headers["authorization"] {
+            guard header.count > 7, header.prefix(7).lowercased() == "bearer " else { return nil }
+            guard let token = tokens.validate(header.dropFirst(7).trimmingCharacters(in: .whitespaces)) else { return nil }
+            return Caller(username: "api-token:\(token.name)", scope: token.scope == .admin ? .admin : .read, token: token)
+        }
+        guard let session = request.cookies[Self.cookieName], let username = sessions.username(for: session),
+              let user = users.user(named: username) else { return nil }
+        return Caller(username: user.username, scope: user.admin ? .admin : .control, session: session)
+    }
+
+    func authenticatedUser(_ request: Request) -> String? { caller(request, bearer: false)?.username }
+
+    /// What a route needs, after Glass UI's guards: reading the bridge's state and accessories is for anyone signed
+    /// in (and read tokens), controlling accessories and the Assistant's chat for any user, and everything else
+    /// (config.json, plugins' settings and pages, the log, pairing codes, restarts, users and tokens) for an
+    /// administrator. A route not listed needs an administrator.
+    static func requiredScope(_ method: HTTPMethod, _ route: [String]) -> Scope {
+        switch method {
+        case .GET:
+            if [["status"], ["accessories"], ["plugins"], ["metrics"], ["events"], ["assistant"]].contains(route) { return .read }
+            if route.count == 3, route[0] == "cameras" { return .read }
+            if route == ["assistant", "chat"] { return .control }
+        case .PUT:
+            if route.count == 2, route[0] == "accessories" { return .control }
+        case .POST:
+            if route.count == 3, route[0] == "accessories", route[2] == "identify" { return .control }
+            if route.count >= 2, route[0] == "assistant", route[1] == "chat" { return .control }
+            if route.first == "account" { return .control }
+        case .DELETE:
+            if route == ["assistant", "chat"] { return .control }
+        default:
+            break
+        }
+        return .admin
     }
 
     private func cookie(_ token: String?) -> String {
@@ -279,12 +337,13 @@ public final class UIServer: Sendable {
         return "\(Self.cookieName)=\(value); Path=/; HttpOnly; SameSite=Strict; Max-Age=\(age)\(configuration.https ? "; Secure" : "")"
     }
 
-    /// A browser sends `Origin` on cross-site and on same-site mutations; it must name this server.
-    func refuseCrossSite(_ request: Request) -> Reply? {
-        if let site = request.headers["sec-fetch-site"], site != "same-origin", site != "none" {
+    /// A browser sends `Origin` on cross-site and on same-site mutations; it must name this server. Bodies are JSON
+    /// (which a form on another site cannot send without asking first), API tokens' too.
+    func refuseCrossSite(_ request: Request, checkOrigin: Bool = true) -> Reply? {
+        if checkOrigin, let site = request.headers["sec-fetch-site"], site != "same-origin", site != "none" {
             return .error(403, "cross-site request refused")
         }
-        if let origin = request.headers["origin"], let host = request.headers["host"] {
+        if checkOrigin, let origin = request.headers["origin"], let host = request.headers["host"] {
             let url = URL(string: origin)
             let same = url?.host.map(HostName.of) == HostName.of(host) && url?.port == HostName.port(of: host)
             if !same { return .error(403, "origin \(origin) does not match the host") }
@@ -303,11 +362,13 @@ public final class UIServer: Sendable {
     private func auth(_ action: String, _ request: Request) async -> Reply {
         switch (request.method, action) {
         case (.GET, "state"):
-            let user = authenticatedUser(request)
+            let caller = self.caller(request, bearer: false)
+            let account = caller.flatMap { users.user(named: $0.username) }
             let state: JSONValue = [
                 "mode": .string(configuration.auth.rawValue), "setupNeeded": .bool(configuration.auth == .form && users.isEmpty),
-                "authenticated": .bool(user != nil), "username": user.map(JSONValue.string) ?? .null, "version": .string(PluginHost.version),
+                "authenticated": .bool(caller != nil), "username": caller.map { .string($0.username) } ?? .null, "version": .string(PluginHost.version),
                 "liveWebFiles": .bool(live != nil), "sessionDays": .number(Double(configuration.sessionDays)),
+                "admin": .bool(caller?.isAdmin == true), "name": account.map { .string($0.name) } ?? .null, "twoFactor": .bool(account?.otpActive == true),
             ]
             return .json(state)
         case (.POST, "setup"):
@@ -339,13 +400,24 @@ public final class UIServer: Sendable {
             guard let (username, password) = credentials(request) else { return .error(400, "username and password are required") }
             let delay = throttle.delay(for: request.remote)
             if delay > .zero { try? await Task.sleep(for: delay) }
-            guard users.verify(username: username, password: password) else {
+            guard let user = users.authenticate(username: username, password: password) else {
                 throttle.failed(request.remote)
                 logger.warning("Web UI login failed", metadata: ["remote": "\(request.remote)"])
                 return .error(401, AuthError.badCredentials.description)
             }
+            if user.otpActive {
+                // Asking for the code is not a failed attempt; a wrong code is, like a wrong password.
+                guard let code = (try? JSONValue(data: request.body))?["otp"]?.stringValue, !code.isEmpty else {
+                    return .json(["error": "type the code from your authenticator app", "twoFactor": true], status: 412)
+                }
+                guard users.checkTwoFactor(username: user.username, code: code) else {
+                    throttle.failed(request.remote)
+                    logger.warning("Web UI login failed: wrong two-factor code", metadata: ["remote": "\(request.remote)"])
+                    return .json(["error": .string(AuthError.wrongCode.description), "twoFactor": true], status: 401)
+                }
+            }
             throttle.succeeded(request.remote)
-            return .json(["username": .string(username)], headers: ["Set-Cookie": cookie(sessions.create(username: username))])
+            return .json(["username": .string(user.username)], headers: ["Set-Cookie": cookie(sessions.create(username: user.username))])
         case (.POST, "password-strength"):
             // The gauge under a new password: the server's PasswordPolicy, the one that decides, while typing.
             // No session needed: the first account is created before there is one. evaluate caps the size.
@@ -368,8 +440,12 @@ public final class UIServer: Sendable {
 
     // MARK: API
 
-    private func api(_ route: [String], _ request: Request, username: String) async throws -> Reply {
+    private func api(_ route: [String], _ request: Request, caller: Caller) async throws -> Reply {
+        let username = caller.username
         let body = request.body.isEmpty ? JSONValue.null : try JSONValue(data: request.body)
+        if route.first == "account" || route.first == "users" || route.first == "tokens" {
+            return try await accounts(route, request, body: body, caller: caller)
+        }
         if route.count >= 4, route[0] == "plugins" {
             // A plugin page talking to its instance: /api/plugins/<platform>/<name>/<path>.
             let pluginRequest = PluginWebRequest(method: request.method.rawValue, path: route.dropFirst(3).joined(separator: "/"), query: request.query, body: body, user: username)
@@ -382,7 +458,7 @@ public final class UIServer: Sendable {
         case .GET:
             switch route {
             case ["status"]:
-                return .json(status(username: username))
+                return .json(status(username: username, admin: caller.isAdmin))
             case ["assistant"]:
                 // Whether pages may offer "Explain": the HomeswiftAiKit block's Assistant, when one works.
                 guard let assistant = catalog.host.assistant else { return .json(["enabled": false]) }
@@ -390,7 +466,7 @@ public final class UIServer: Sendable {
             case ["assistant", "chat"]:
                 guard catalog.host.assistant != nil else { return .error(404, "the Assistant is off: add a HomeswiftAiKit block") }
                 // The conversation so far, then the run going on, if any, as it goes.
-                return .events(await chat.conversation(for: username).subscribe())
+                return .events(await chat.conversation(for: username, admin: caller.isAdmin).subscribe())
             case ["accessories"]:
                 let rings = events.lastRings
                 return .json(.array(catalog.located().map { located in
@@ -447,7 +523,8 @@ public final class UIServer: Sendable {
                     ?? request.query["bridge"].flatMap { $0 == "all" ? nil : "bridge:\($0)" } ?? Metrics.allSeries
                 return .json(Self.metricsJSON(metrics.history(from: from, to: to, series: series), latest: metrics.latest))
             case ["events"]:
-                return .events(events.stream())
+                // The log is for administrators, as Glass UI's restrictLogsToAdmins.
+                return .events(events.stream(logs: caller.isAdmin))
             default:
                 if route.count == 2, route[0] == "qr", route[1].hasSuffix(".svg") {
                     // The pairing QR code of a bridge, for the Home app's camera: the setup URI, which the status page shows anyway.
@@ -504,29 +581,11 @@ public final class UIServer: Sendable {
                 return .json(result)
             }
         case .POST:
-            if route == ["account", "password"] {
-                // The signed-in user's own password: the current one first, slowed down after mistakes like a login.
-                guard configuration.auth == .form else { return .error(400, "this web UI has no passwords: auth is none") }
-                guard let current = body["current"]?.stringValue, let new = body["new"]?.stringValue else { return .error(400, "the current and the new password are required") }
-                let delay = throttle.delay(for: request.remote)
-                if delay > .zero { try? await Task.sleep(for: delay) }
-                do {
-                    try users.changePassword(username: username, current: current, new: new)
-                } catch AuthError.wrongPassword {
-                    throttle.failed(request.remote)
-                    logger.warning("Web UI password change refused: wrong current password", metadata: ["user": "\(username)", "remote": "\(request.remote)"])
-                    return .error(403, AuthError.wrongPassword.description)
-                } catch let error as AuthError {
-                    return .error(400, error.description)
-                }
-                throttle.succeeded(request.remote)
-                sessions.revokeAll(of: username, keeping: request.cookies[Self.cookieName])
-                logger.info("Web UI password changed; the user's other sessions are signed out", metadata: ["user": "\(username)"])
-                return .json(["changed": true])
-            }
             if route == ["assistant", "explain"] {
                 guard var assistant = catalog.host.assistant else { return .error(404, "the Assistant is off: add a HomeswiftAiKit block") }
                 guard let error = body["error"]?.stringValue, !error.isEmpty else { return .error(400, "an error to explain is required") }
+                if let refused = limitAssistant(for: username) { return refused }
+                assistant = assistant.forUser(username)
                 // A plugin's page: the Assistant gets the plugin's background (what its errors mean).
                 if let platform = body["plugin"]?.stringValue, let entry = catalog.host.registry.entry(for: platform) {
                     assistant = assistant.withContext(PluginContext.assistantContext(name: entry.name, platform: platform, background: entry.assistantBackground))
@@ -547,11 +606,12 @@ public final class UIServer: Sendable {
                 guard let wish = body["request"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !wish.isEmpty else {
                     return .error(400, "say what the block should do")
                 }
+                if let refused = limitAssistant(for: username) { return refused }
                 let schema = try JSONValue(data: Data(schemaText.utf8))
                 var current = body["current"]
                 if case .object(var block)? = current { block["platform"] = nil; current = .object(block) }
                 do {
-                    let suggestion = try await assistant
+                    let suggestion = try await assistant.forUser(username)
                         .withContext(PluginContext.assistantContext(name: entry.name, platform: platform, background: entry.assistantBackground))
                         .generateConfiguration(request: wish, schema: schema, current: current == .null ? nil : current, pluginName: entry.name, onChunk: nil)
                     return .json(["config": suggestion.config, "explanation": .string(suggestion.explanation), "model": .string(assistant.model)])
@@ -572,7 +632,7 @@ public final class UIServer: Sendable {
                 return .json(result, status: 201)
             }
             if route.first == "assistant", route.count >= 2, route[1] == "chat" {
-                return try await chatAction(Array(route.dropFirst(2)), body: body, username: username)
+                return try await chatAction(Array(route.dropFirst(2)), body: body, caller: caller)
             }
             if route == ["restart"] {
                 guard catalog.scheduleRestart(requestedBy: "web UI user \(username)") else { return .error(501, "this process cannot restart itself; restart homeswift by hand") }
@@ -622,17 +682,182 @@ public final class UIServer: Sendable {
         return .json(["path": .string(url.path), "kind": .string(isKey ? "key" : "certificate")])
     }
 
+    /// Counts an Assistant request for the user: nil when there is room, else a 429 with when to try again.
+    func limitAssistant(for username: String) -> Reply? {
+        let result = options.assistantRateLimiter.consume(username)
+        guard !result.allowed else { return nil }
+        logger.warning("Web UI Assistant request refused: rate limit", metadata: ["user": "\(username)"])
+        return .json(["error": .string(SlidingWindowRateLimiter.refusal)], status: 429, headers: ["Retry-After": "\(max(1, Int(result.retryAfter.rounded(.up))))"])
+    }
+
+    // MARK: Accounts, users and API tokens
+
+    /// `account/…`: the signed-in user's own password and two-factor authentication. `users/…` and `tokens/…`:
+    /// an administrator's, as Glass UI's Users page. A browser's session only: an API token names no account,
+    /// and cannot mint or revoke tokens (Glass UI's UserSessionGuard).
+    private func accounts(_ route: [String], _ request: Request, body: JSONValue, caller: Caller) async throws -> Reply {
+        guard configuration.auth == .form else { return .error(400, "this web UI has no accounts: its auth is none") }
+        guard caller.token == nil, let user = users.user(named: caller.username) else {
+            return .error(403, "an API token cannot manage accounts or tokens; sign in to the web UI")
+        }
+        switch (request.method, route) {
+        case (.POST, ["account", "password"]):
+            // The signed-in user's own password: the current one first, slowed down after mistakes like a login.
+            guard let current = body["current"]?.stringValue, let new = body["new"]?.stringValue else { return .error(400, "the current and the new password are required") }
+            if let refused = await checkingPassword(request, user: user, { try users.changePassword(username: user.username, current: current, new: new) }) { return refused }
+            sessions.revokeAll(of: user.username, keeping: caller.session)
+            logger.info("Web UI password changed; the user's other sessions are signed out", metadata: ["user": "\(user.username)"])
+            return .json(["changed": true])
+        case (.POST, ["account", "otp", "setup"]):
+            // A new secret, shown once as text, as an otpauth:// URI and as its QR code; it waits for a code.
+            let secret: Data
+            do { secret = try users.beginTwoFactor(username: user.username) } catch let error as AuthError { return .error(409, error.description) }
+            // The app lists it under the bridge's name, when the QR code can carry it; else plain Homeswift. A QR code
+            // too long for the encoder (a very long username) leaves the key and the link.
+            let uris = [TOTP.uri(secret: secret, account: user.username, issuer: "Homeswift (\(catalog.host.configuration.bridge.name))"),
+                        TOTP.uri(secret: secret, account: user.username, issuer: "Homeswift")]
+            let shown = uris.lazy.compactMap { uri in (try? QRCode(uri)).map { (uri, $0.svg()) } }.first
+            return .json(["secret": .string(Base32.encode(secret)), "uri": .string(shown?.0 ?? uris[0]), "qr": shown.map { .string($0.1) } ?? .null])
+        case (.POST, ["account", "otp", "activate"]):
+            guard let code = body["code"]?.stringValue else { return .error(400, "the code is required") }
+            let delay = throttle.delay(for: request.remote)
+            if delay > .zero { try? await Task.sleep(for: delay) }
+            do {
+                try users.activateTwoFactor(username: user.username, code: code)
+            } catch AuthError.wrongCode {
+                throttle.failed(request.remote)
+                return .error(400, AuthError.wrongCode.description)
+            } catch let error as AuthError {
+                return .error(409, error.description)
+            }
+            throttle.succeeded(request.remote)
+            // Sessions opened without the code end, as Glass UI's; this one stays.
+            sessions.revokeAll(of: user.username, keeping: caller.session)
+            logger.info("Web UI two-factor authentication turned on; the user's other sessions are signed out", metadata: ["user": "\(user.username)"])
+            return .json(["twoFactor": true])
+        case (.POST, ["account", "otp", "disable"]):
+            guard let password = body["password"]?.stringValue else { return .error(400, "the password is required") }
+            if let refused = await checkingPassword(request, user: user, { try users.disableTwoFactor(username: user.username, password: password) }) { return refused }
+            sessions.revokeAll(of: user.username, keeping: caller.session)
+            logger.info("Web UI two-factor authentication turned off; the user's other sessions are signed out", metadata: ["user": "\(user.username)"])
+            return .json(["twoFactor": false])
+        default:
+            break
+        }
+        // Users and tokens: an administrator's (requiredScope already said so; checked again here).
+        guard user.admin else { return .error(403, "only an administrator can do this") }
+        switch (request.method, route) {
+        case (.GET, ["users"]):
+            return .json(.array(users.users.map { Self.userJSON($0, you: $0.username == user.username) }))
+        case (.POST, ["users"]):
+            guard let username = body["username"]?.stringValue, let password = body["password"]?.stringValue else { return .error(400, "a username and a password are required") }
+            let created: UserStore.User
+            do {
+                created = try users.create(username: username, password: password, name: body["name"]?.stringValue, admin: body["admin"]?.boolValue ?? false)
+            } catch AuthError.userExists {
+                return .error(409, AuthError.userExists.description)
+            } catch let error as AuthError {
+                return .error(400, error.description)
+            }
+            logger.info("Web UI user added", metadata: ["user": "\(created.username)", "admin": "\(created.admin)", "by": "\(user.username)"])
+            return .json(Self.userJSON(created, you: false), status: 201)
+        case (.PUT, let path) where path.count == 2 && path[0] == "users":
+            let password = body["password"]?.stringValue
+            let updated: UserStore.User
+            do {
+                updated = try users.update(username: path[1], name: body["name"]?.stringValue, admin: body["admin"]?.boolValue, password: password)
+            } catch AuthError.noSuchUser {
+                return .error(404, AuthError.noSuchUser.description)
+            } catch let error as AuthError {
+                return .error(400, error.description)
+            }
+            // A new password ends the user's sessions (this browser's stays when it is their own).
+            if password != nil { sessions.revokeAll(of: updated.username, keeping: caller.session) }
+            logger.info("Web UI user changed", metadata: ["user": "\(updated.username)", "admin": "\(updated.admin)", "password": "\(password != nil ? "reset" : "kept")", "by": "\(user.username)"])
+            return .json(Self.userJSON(updated, you: updated.username == user.username))
+        case (.DELETE, let path) where path.count == 2 && path[0] == "users":
+            let target = users.user(named: path[1])?.username ?? path[1]
+            do {
+                try users.delete(username: target)
+            } catch AuthError.noSuchUser {
+                return .error(404, AuthError.noSuchUser.description)
+            } catch let error as AuthError {
+                return .error(400, error.description)
+            }
+            sessions.revokeAll(of: target, keeping: nil)
+            await chat.reset(user: target)
+            logger.info("Web UI user removed", metadata: ["user": "\(target)", "by": "\(user.username)"])
+            return .json(JSONValue.object([:]))
+        case (.GET, ["tokens"]):
+            return .json(.array(tokens.tokens.map(Self.tokenJSON)))
+        case (.POST, ["tokens"]):
+            guard let scope = body["scope"]?.stringValue.flatMap(APITokenStore.Scope.init(rawValue:)) else { return .error(400, "the scope is read or admin") }
+            let days = body["expiresInDays"].flatMap { $0.isNull ? nil : $0 }
+            guard days == nil || days?.intValue != nil else { return .error(400, AuthError.invalidExpiry.description) }
+            do {
+                let (token, value) = try tokens.create(name: body["name"]?.stringValue ?? "", scope: scope, expiresInDays: days?.intValue, createdBy: user.username)
+                logger.info("Web UI API token created", metadata: ["token": "\(token.name)", "scope": "\(token.scope.rawValue)", "by": "\(user.username)"])
+                var json = Self.tokenJSON(token).objectValue ?? [:]
+                json["token"] = .string(value)
+                return .json(.object(json), status: 201)
+            } catch let error as AuthError {
+                return .error(400, error.description)
+            }
+        case (.DELETE, let path) where path.count == 2 && path[0] == "tokens":
+            do {
+                let revoked = try tokens.revoke(id: path[1])
+                logger.info("Web UI API token revoked", metadata: ["token": "\(revoked.name)", "by": "\(user.username)"])
+                return .json(JSONValue.object([:]))
+            } catch {
+                return .error(404, AuthError.noSuchToken.description)
+            }
+        default:
+            return .error(404, "unknown API route")
+        }
+    }
+
+    /// Runs a change that checks the user's password, slowed down after mistakes like a login; a refusal's reply.
+    private func checkingPassword(_ request: Request, user: UserStore.User, _ change: () throws -> Void) async -> Reply? {
+        let delay = throttle.delay(for: request.remote)
+        if delay > .zero { try? await Task.sleep(for: delay) }
+        do {
+            try change()
+        } catch AuthError.wrongPassword {
+            throttle.failed(request.remote)
+            logger.warning("Web UI change refused: wrong password", metadata: ["user": "\(user.username)", "remote": "\(request.remote)"])
+            return .error(403, AuthError.wrongPassword.description)
+        } catch {
+            return .error(400, "\(error)")
+        }
+        throttle.succeeded(request.remote)
+        return nil
+    }
+
+    static func userJSON(_ user: UserStore.User, you: Bool) -> JSONValue {
+        ["username": .string(user.username), "name": .string(user.name), "admin": .bool(user.admin), "twoFactor": .bool(user.otpActive),
+         "created": .string(Timestamp.iso8601(user.created)), "you": .bool(you)]
+    }
+
+    static func tokenJSON(_ token: APITokenStore.Token) -> JSONValue {
+        ["id": .string(token.id), "name": .string(token.name), "scope": .string(token.scope.rawValue), "created": .string(Timestamp.iso8601(token.created)),
+         "expires": token.expires.map { .string(Timestamp.iso8601($0)) } ?? .null, "lastUsed": token.lastUsed.map { .string(Timestamp.iso8601($0)) } ?? .null,
+         "createdBy": token.createdBy.map(JSONValue.string) ?? .null]
+    }
+
     /// `POST assistant/chat` sends a message and streams the run; `…/confirm` answers a confirmation card;
     /// `…/stop` stops the run.
-    private func chatAction(_ action: [String], body: JSONValue, username: String) async throws -> Reply {
-        let conversation = await chat.conversation(for: username)
+    private func chatAction(_ action: [String], body: JSONValue, caller: Caller) async throws -> Reply {
+        let username = caller.username
+        let conversation = await chat.conversation(for: username, admin: caller.isAdmin)
         switch action {
         case []:
             guard let assistant = catalog.host.assistant else { return .error(404, "the Assistant is off: add a HomeswiftAiKit block") }
             guard let text = body["text"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return .error(400, "a message is required") }
             guard text.count <= 4000 else { return .error(400, "the message is too long: 4000 characters at most") }
             let page = body["page"]?.stringValue.map { String($0.prefix(100)) }
-            guard conversation.send(text, page: page, user: username, assistant: assistant, logger: logger) else {
+            if conversation.isRunning { return .error(409, "the Assistant is still answering; stop it first") }
+            if let refused = limitAssistant(for: username) { return refused }
+            guard conversation.send(text, page: page, user: username, assistant: assistant.forUser(username), logger: logger) else {
                 return .error(409, "the Assistant is still answering; stop it first")
             }
             return .events(conversation.subscribe())
@@ -648,8 +873,9 @@ public final class UIServer: Sendable {
         }
     }
 
-    private func status(username: String) -> JSONValue {
-        var status = catalog.statusJSON(includePairing: true).objectValue ?? [:]
+    /// The setup codes (the pairing QR codes) only for an administrator, as Glass UI's `/server/pairing`.
+    private func status(username: String, admin: Bool) -> JSONValue {
+        var status = catalog.statusJSON(includePairing: admin).objectValue ?? [:]
         status["username"] = .string(username)
         status["system"] = HomeswiftCatalog.systemJSON()
         return .object(status)
@@ -750,7 +976,8 @@ public final class UIServer: Sendable {
 /// `close()`, so a web UI restarted in the process leaves nothing behind; the host's feed brings the servers
 /// it adds later.
 final class EventHub: Sendable {
-    private let listeners = NIOLockedValueBox<[UUID: AsyncStream<Data>.Continuation]>([:])
+    /// Each open stream, and whether it gets log lines (an administrator's).
+    private let listeners = NIOLockedValueBox<[UUID: (continuation: AsyncStream<Data>.Continuation, logs: Bool)]>([:])
     private let observations = NIOLockedValueBox<[Observation]?>(nil)
     private let rings = NIOLockedValueBox<[String: Date]>([:])
 
@@ -782,10 +1009,10 @@ final class EventHub: Sendable {
         observations.withLockedValue { $0 = [changes, log] }
     }
 
-    func stream() -> AsyncStream<Data> {
+    func stream(logs: Bool = true) -> AsyncStream<Data> {
         let id = UUID()
         return AsyncStream(bufferingPolicy: .bufferingNewest(500)) { continuation in
-            listeners.withLockedValue { $0[id] = continuation }
+            listeners.withLockedValue { $0[id] = (continuation, logs) }
             continuation.yield(SSE.frame(event: "hello", data: "{}"))
             continuation.onTermination = { _ in _ = self.listeners.withLockedValue { $0.removeValue(forKey: id) } }
         }
@@ -793,7 +1020,8 @@ final class EventHub: Sendable {
 
     /// Nothing is encoded while no page listens: this runs inside every log call.
     func broadcast(event: String, payload: @autoclosure () -> JSONValue) {
-        let targets = listeners.withLockedValue { Array($0.values) }
+        let isLog = event == "log"
+        let targets = listeners.withLockedValue { $0.values.filter { !isLog || $0.logs }.map(\.continuation) }
         guard !targets.isEmpty else { return }
         let data = SSE.frame(event: event, data: payload().text())
         for continuation in targets { continuation.yield(data) }
@@ -801,7 +1029,7 @@ final class EventHub: Sendable {
 
     func close() {
         observations.withLockedValue { $0 ?? [] }.forEach { $0.cancel() }
-        for continuation in listeners.withLockedValue({ Array($0.values) }) { continuation.finish() }
+        for listener in listeners.withLockedValue({ Array($0.values) }) { listener.continuation.finish() }
     }
 }
 

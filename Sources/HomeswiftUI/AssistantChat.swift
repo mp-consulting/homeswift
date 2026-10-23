@@ -7,10 +7,17 @@ import NIOConcurrencyHelpers
 
 /// The web UI's chat with the Assistant: a conversation per signed-in user, kept while the process runs.
 /// The Assistant acts through the MCP server's tools (`ChatToolbox`), so a change asks the user first, on
-/// the page, and lands in the MCP audit log.
+/// the page, and lands in the MCP audit log. An administrator's chat has every tool; another user's, as Glass
+/// UI's, only the read-only ones, without those reading what the web UI keeps for administrators.
 final class AssistantChat: Sendable {
     let server: MCPServer
-    private let conversations = NIOLockedValueBox<[String: Task<ChatConversation, Never>]>([:])
+    private let conversations = NIOLockedValueBox<[String: (admin: Bool, task: Task<ChatConversation, Never>)]>([:])
+
+    /// Read-only tools that show what only an administrator sees in the web UI: config.json and its backups, the
+    /// log, the cached accessories, the pairings and the child bridges' health.
+    static let administratorReads: Set<String> = [
+        "get_config", "list_config_backups", "get_recent_logs", "search_logs", "get_cached_accessories", "get_pairing_info", "get_child_bridge_health",
+    ]
 
     init(catalog: HomeswiftCatalog, logger: Logger) {
         var options = MCPServer.Options(version: PluginHost.version, instructions: HomeswiftCatalog.instructions)
@@ -19,28 +26,34 @@ final class AssistantChat: Sendable {
         server = MCPServer(options: options, tools: catalog.tools, audit: mcp.makeAuditLog(configDirectory: catalog.configURL.deletingLastPathComponent(), logger: logger))
     }
 
-    /// The user's conversation, started on first use.
-    func conversation(for user: String) async -> ChatConversation {
-        let task = conversations.withLockedValue { conversations in
-            if let task = conversations[user] { return task }
+    /// The user's conversation, started on first use, with the tools of their role. A conversation started under
+    /// another role (an administrator's role was taken away, or given) ends, and a new one starts.
+    func conversation(for user: String, admin: Bool = true) async -> ChatConversation {
+        let (task, replaced) = conversations.withLockedValue { conversations -> (Task<ChatConversation, Never>, Task<ChatConversation, Never>?) in
+            if let existing = conversations[user], existing.admin == admin { return (existing.task, nil) }
             let server = server
-            let task = Task { ChatConversation(toolbox: await ChatToolbox(server: server, user: user)) }
-            conversations[user] = task
-            return task
+            let task = Task {
+                let toolbox = await ChatToolbox(server: server, user: user, scope: admin ? .admin : .read)
+                return ChatConversation(toolbox: toolbox, hidden: admin ? [] : Self.administratorReads, readOnly: !admin)
+            }
+            let replaced = conversations[user]?.task
+            conversations[user] = (admin, task)
+            return (task, replaced)
         }
+        if let replaced { await replaced.value.close() }
         return await task.value
     }
 
     /// Ends the user's conversation: a run stops, and the next message starts afresh.
     func reset(user: String) async {
-        guard let task = conversations.withLockedValue({ $0.removeValue(forKey: user) }) else { return }
-        await task.value.close()
+        guard let entry = conversations.withLockedValue({ $0.removeValue(forKey: user) }) else { return }
+        await entry.task.value.close()
     }
 
     func close() async {
         let tasks = conversations.withLockedValue { conversations in
             defer { conversations = [:] }
-            return Array(conversations.values)
+            return conversations.values.map(\.task)
         }
         for task in tasks { await task.value.close() }
     }
@@ -78,17 +91,26 @@ final class ChatConversation: Sendable {
     }
 
     let toolbox: ChatToolbox
+    /// The user is not an administrator: the model is told it can change nothing.
+    let readOnly: Bool
     private let usage = UsageTracker()
     private let state = NIOLockedValueBox(State())
 
-    init(toolbox: ChatToolbox) {
+    /// `hidden`: tools the user's scope allows that the conversation still leaves out.
+    init(toolbox: ChatToolbox, hidden: Set<String> = [], readOnly: Bool = false) {
         self.toolbox = toolbox
+        self.readOnly = readOnly
         // Built once: the tools and the user's scope do not change while the conversation lasts.
-        let tools = toolbox.agentTools { [weak self] confirmation in await self?.ask(confirmation) ?? false }
+        let tools = toolbox.agentTools { [weak self] confirmation in await self?.ask(confirmation) ?? false }.filter { !hidden.contains($0.definition.name) }
         state.withLockedValue { $0.tools = tools }
     }
 
     var snapshot: JSONValue { state.withLockedValue(\.snapshot) }
+
+    /// The names of the tools the model may call.
+    var toolNames: [String] { state.withLockedValue { $0.tools.map(\.definition.name) } }
+
+    var isRunning: Bool { state.withLockedValue { $0.run != nil } }
 
     /// The conversation's events from now on, after a snapshot; ends with the run (at once when none runs).
     func subscribe() -> AsyncStream<Data> {
@@ -124,6 +146,9 @@ final class ChatConversation: Sendable {
         let (history, tools) = state.withLockedValue { (Self.fitting($0.messages, budget: assistant.budget(120_000)), $0.tools) }
         var context = "The user is signed in as \(user). Today is \(Date().formatted(date: .complete, time: .omitted))."
         if let page { context += " They have the web UI's \(page) page open." }
+        if readOnly {
+            context += " They are not an administrator: only read-only tools are available, so explain what an administrator would need to do for any change."
+        }
         do {
             let turn = try await assistant.converse(history: history, tools: tools, vault: toolbox.vault, context: context) { [weak self] event in
                 self?.apply(event)

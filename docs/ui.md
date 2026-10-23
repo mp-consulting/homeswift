@@ -21,7 +21,7 @@ reduced-transparency and increased-contrast settings.
 Restart the bridge; the banner prints the URL and, until an account exists, a set-up code. The first visit
 asks for that code, a username and a password, and creates the administrator account (the users live in
 `ui-users.json` next to config.json, as salted PBKDF2 hashes; delete the file and restart to start over,
-with a new code).
+with a new code). More users are added on the **Users** page (see below).
 
 ## Pages
 
@@ -51,7 +51,7 @@ with a new code).
   has four live viewers at most, and one turned off in the Home app, or whose plugin is paused, shows nothing.
   Plugin pages can show the same view: load `/camera.js` and call `HomeswiftCamera.view({ id, name })`.
 - **Addresses** are paths: `/status`, `/accessories`, `/plugins`, `/plugins/<slug>` and its `/expert`,
-  `/plugins/add/<platform>`, `/config`, `/account`, and `/logs/<accessory>?bridge=<bridge or all>&since=24h&level=warning&q=text`
+  `/plugins/add/<platform>`, `/config`, `/account`, `/users`, and `/logs/<accessory>?bridge=<bridge or all>&since=24h&level=warning&q=text`
   (the accessory by its name's slug; `since` is `1h`, `6h`, `24h`, `today`, `yesterday`, `7d` or `custom` with
   `from` and `to`). A link changes the view in place, Back and Forward work, and an address can be kept or
   shared; the Logs view writes its choices into its own.
@@ -89,6 +89,50 @@ with a new code).
   days, written in batches once a second so logging never waits for the disk. **Copy** puts the lines shown
   on the clipboard as text.
 
+## Users, roles and API tokens
+
+As in Glass UI, a user is an **administrator** or not. An administrator does everything. Any other user sees
+**Status** (without the pairing codes and the restart button) and **Accessories**, controls accessories
+(locks, garage doors and alarms included, asking first as for everyone), uses the Assistant's chat with its
+read-only tools, and changes their own password and two-factor authentication; the plugins, their pages and
+settings, config.json, the log, pairing codes, restarts, users and tokens are refused with a 403, whatever the
+page shows. The role is read at every request, so a change applies at once. The first account is an
+administrator, and so is the account of a `ui-users.json` from before roles.
+
+**Users** (`/users`, in the header for administrators, and from **Account**) shows a card per user: their name,
+username, role, whether two-factor authentication is on, and a **⋯** menu to edit them (the name shown, the
+role, a new password, which signs them out everywhere) or remove them (signed out at once). **Add user** asks
+for a username, a name and a password (the same rules as everyone's). The last administrator can be neither
+removed nor demoted.
+
+**Two-factor authentication**, under **Account**: **Set up** shows a QR code and the key for an authenticator
+app (Passwords on iPhone and Mac, Google Authenticator, 1Password…; TOTP after RFC 6238: SHA-1, 6 digits,
+30 seconds), and the app's first code turns it on; the user's other browsers are then signed out. Signing in
+then asks for the app's code after the password; each code works once, and one step of clock drift either way
+is allowed. **Turn off** takes the password. The secret is kept with the user in `ui-users.json`
+(owner-only) and never logged. As in Glass UI, only its user turns it off: someone who lost the app is removed
+and added again by an administrator, and the last administrator deletes `ui-users.json` and restarts.
+
+**API tokens**, on the Users page, are for scripts: a name, a scope and an expiry (never, 30 or 90 days, a
+year). The token (`hst_…`) is shown once; the bridge keeps its SHA-256 in `ui-api-tokens.json` (owner-only),
+with when it was made, by whom and when it was last used. Send it as `Authorization: Bearer hst_…` to `/api/*`:
+
+```sh
+curl -H "Authorization: Bearer $HOMESWIFT_TOKEN" http://bridge.local:8581/api/accessories
+```
+
+A `read` token reads what any user may (status, accessories, plugins list, metrics, cameras, events); an
+`admin` token does what an administrator does, except managing accounts: a token names no account, so it
+cannot change passwords, two-factor authentication, users or tokens. Requests with a token need no `Origin`
+(no cookie rides along, so no other site can make them), but bodies are still JSON. **⋯ › Revoke** refuses
+the token at once.
+
+The Assistant (Explain, Describe your setup, the chat) takes 20 requests a minute per user, as Glass UI's
+limit; past that the bridge answers 429 with a `Retry-After`. Its usage (`ai-usage.json`, `homeswift usage`)
+is counted per user.
+
+User management is not an MCP tool: a model never creates accounts or tokens.
+
 ## The Assistant's chat
 
 With a `HomeswiftAiKit` block that names a provider, a sparkle **Assistant** button in the header opens a
@@ -123,14 +167,15 @@ Logins survive a restart: sessions are kept in `ui-sessions.json` next to config
 
 ## Security
 
-- Every API call needs the session cookie (`HttpOnly`, `SameSite=Strict`). Mutations must be JSON and come
-  from the page: a request whose `Origin` names another site, or whose `Sec-Fetch-Site` is not the page's
-  own, is refused. Pages carry a content security policy (scripts, styles and media from the UI itself; `blob:`
+- Every API call needs the session cookie (`HttpOnly`, `SameSite=Strict`) or an API token. Mutations must be
+  JSON and, with the cookie, come from the page: a request whose `Origin` names another site, or whose
+  `Sec-Fetch-Site` is not the page's own, is refused. Pages carry a content security policy (scripts, styles and media from the UI itself; `blob:`
   for the camera cards' Media Source), no-store, no framing.
 - The first account needs the set-up code, so nobody else on the network can claim the bridge before its
   owner does. The code is printed at startup, never logged: the MCP log tools cannot see it.
 - Passwords are hashed with PBKDF2-HMAC-SHA256 (210,000 iterations, a random salt), and verified in
-  constant time. Five failed logins or set-up codes from an address slow the next attempts down.
+  constant time. Five failed logins, two-factor codes, current passwords or set-up codes from an address slow
+  the next attempts down; being asked for the code is not a failure.
 - Requests are answered only when their `Host` is an IP address, localhost, this machine's name or an
   `allowedHosts` entry (421 otherwise), so a page that rebinds its own name to this address gets nothing,
   with `auth: none` too.
@@ -143,8 +188,8 @@ Logins survive a restart: sessions are kept in `ui-sessions.json` next to config
   Trust), or install it on an iPhone and turn it on under Settings › General › About › Certificate Trust
   Settings. Without `https`, keep the UI on the home network or behind a reverse proxy with TLS. With
   `auth: none`, set `host` to `127.0.0.1`.
-- The account is an administrator: the Config page shows config.json as it is, secrets included, the way
-  Config UI X does. The MCP server's redaction rules are for models, not for the person who owns the file.
+- An administrator's Config page shows config.json as it is, secrets included, the way Config UI X does. The
+  MCP server's redaction rules are for models, not for the person who owns the file. Other users never get it.
 
 ## For plugin authors
 

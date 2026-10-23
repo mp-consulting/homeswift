@@ -8,6 +8,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Users, roles, two-factor authentication and API tokens** in the web UI, after Glass UI's: a **Users** page
+  (administrators) lists, adds, edits (name, role, a new password) and removes users; the last administrator
+  stays one. A user who is not an administrator sees Status and Accessories and controls accessories; config,
+  plugins, the log, pairing codes, restarts and users are refused (403) on every route, and their Assistant chat
+  has the read-only tools only. Two-factor authentication (TOTP, RFC 6238: SHA-1, 6 digits, 30 s) from
+  **Account**: a QR code and the key for an authenticator app, a first code turns it on, the password turns it off;
+  the login then asks for the code, each code works once. API tokens (`hst_…`, `read` or `admin`, optional
+  expiry) for scripts as `Authorization: Bearer` on `/api/*`, shown once, kept as SHA-256 hashes in
+  `ui-api-tokens.json`. Each user gets 20 Assistant requests a minute (429 past that), counted per user in the
+  usage. An existing `ui-users.json` loads with its account as an administrator.
 - **Plugin backgrounds for the Assistant**: `HomeswiftPlugin.assistantBackground`, the troubleshooting notes
   each Homebridge plugin sent with its Assistant requests (`*_AI_CONTEXT`), goes with every Explain from a
   plugin's page and with `context.assistant`.
