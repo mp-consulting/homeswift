@@ -1,6 +1,32 @@
 import HomeswiftPlugin
 
 extension GoveePlugin {
+    /// The Homebridge plugin's `GOVEE_AI_CONTEXT` (`homebridge-ui/assistant.js`), for Homeswift's files and logs.
+    public static let assistantBackground: String? = [
+        "The plugin bridges Govee lights, plugs, sensors, fans, heaters, humidifiers, purifiers, diffusers, kettles and ice makers to",
+        "HomeKit. It has four connections, tried in this order for commands: LAN, AWS IoT (cloud), then Bluetooth (BLE); HTTP polling of",
+        "the Govee cloud's device list (\"httpRefreshTime\", default and minimum 30 s) refreshes sensors. LAN uses the Govee LAN API:",
+        "multicast discovery on 239.255.255.250 (scan port 4001, replies on 4002, commands to port 4003); it needs the device on the same",
+        "network or a \"customIPAddress\" plus a DHCP reservation across VLANs, and only models with LAN control turned on in the Govee app.",
+        "LAN and BLE work without Govee credentials; the cloud needs the Govee account email and password. The first login triggers",
+        "Govee's new-device check (app status 454): Govee emails a one-time verification code to enter in \"code\" (Verification Code),",
+        "then restart; \"the Govee verification code was not accepted\" means a wrong or expired code (clear it to get a new one). A login",
+        "Homebridge kept in its govee_cache is imported at the first start (homebridgeStoragePath, else ~/.homebridge), so Govee does",
+        "not ask again. \"Govee login failed: <message> (HTTP n)\" or \"without an account token\" usually means wrong credentials, or the",
+        "account needs attention in the Govee Home app (verification, new terms). \"account token was rejected, logging in again\" is",
+        "normal token renewal. \"Unable to reach Govee, retrying in 30 seconds\" is a network problem to app2.govee.com. \"not connected",
+        "to AWS\" means the AWS IoT session is down (awsDisable, or the IoT certificate govee.pfx is missing from the plugin's directory,",
+        "plugins/Govee-<name>/ under the Homeswift config directory; Clear Cache removes it with credentials.json, the discovered devices",
+        "and the devices' state, then restart Homeswift). \"no connection method available\" means a device has no working LAN, AWS or",
+        "BLE path. BLE on macOS goes through CoreBluetooth and finds devices by the name they advertise; homeswift must run on its own",
+        "(launchd, brew services) or from a terminal app that declares Bluetooth use, or BLE is disabled and the log names the app. On",
+        "Linux it uses the adapter hci0 (NOBLE_HCI_DEVICE_ID picks another) through a raw HCI socket, which needs root or CAP_NET_RAW,",
+        "and finds devices by MAC address; \"Bluetooth not available on this system\" disables it. \"ignoreMatter\" skips Matter-capable",
+        "models. Devices are identified by deviceId (colon-separated hex) and model (SKU such as H6159); \"is not currently supported\"",
+        "means an unknown model. The Scene Library falls back to a bundled catalogue without credentials. Never ask the user for their",
+        "password, verification code, tokens or API keys.",
+    ].joined(separator: " ")
+
     /// The page's routes for the Assistant: the instance's devices, the account's, scenes and DIY effects for a
     /// light, and clearing the kept login. Logins use the instance's account, so no password goes through the model.
     public static let assistantActions: [AssistantAction] = [

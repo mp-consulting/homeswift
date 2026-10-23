@@ -48,6 +48,8 @@ final class FakeDyson: @unchecked Sendable {
         /// Refuses CONNECTs whose client id is not the serial (Big+Quiet firmware) with this code.
         var refuseLongClientIDs: UInt8?
         var refuseAll: (any Error)?
+        /// Refuses every other protocol version as a broker does ("unacceptable protocol version").
+        var onlyVersion: MQTTProtocolVersion?
         var reachableHosts: Set<String>?
         var answersStateRequests = true
         var echoesCommands = true
@@ -74,6 +76,7 @@ final class FakeDyson: @unchecked Sendable {
 
     func set(refuseLongClientIDs code: UInt8?) { store.withLockedValue { $0.refuseLongClientIDs = code } }
     func set(refuseAll error: (any Error)?) { store.withLockedValue { $0.refuseAll = error } }
+    func set(onlyVersion version: MQTTProtocolVersion?) { store.withLockedValue { $0.onlyVersion = version } }
     /// nil: every host answers.
     func set(reachableHosts: Set<String>?) { store.withLockedValue { $0.reachableHosts = reachableHosts } }
     func set(answersStateRequests: Bool) { store.withLockedValue { $0.answersStateRequests = answersStateRequests } }
@@ -93,6 +96,7 @@ final class FakeDyson: @unchecked Sendable {
                 return DysonMQTTError.unreachable("connect ECONNREFUSED \(configuration.host):1883")
             }
             if let error = store.refuseAll { return error }
+            if let version = store.onlyVersion, configuration.protocolVersion != version { return MQTTError.connectionRefused(code: 1) }
             if let code = store.refuseLongClientIDs, configuration.clientID != configuration.username { return MQTTError.connectionRefused(code: code) }
             store.connections.append(connection)
             return nil

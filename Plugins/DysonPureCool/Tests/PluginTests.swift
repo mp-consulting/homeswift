@@ -521,3 +521,16 @@ struct EmbeddedFilesTests {
         }
     }
 }
+
+struct AssistantBackgroundTests {
+    @Test func backgroundIsAboutHomeswift() throws {
+        let background = try #require(DysonPureCoolPlugin.assistantBackground)
+        #expect(background.count > 500)
+        #expect(background.contains("Homeswift"))
+        #expect(!background.contains("Homebridge"))
+        // The strings the port logs, word for word.
+        #expect(background.contains("Timeout waiting for device state"))
+        #expect(background.contains(DysonMQTTError.refused(code: 5).description))
+        #expect(background.contains(DysonMQTTError.refused(code: 4).description))
+    }
+}

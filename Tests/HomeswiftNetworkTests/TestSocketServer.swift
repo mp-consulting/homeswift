@@ -223,7 +223,7 @@ private final class EchoWebSocketHandler: ChannelInboundHandler {
     }
 }
 
-/// A small MQTT 3.1.1 broker: checks credentials, routes publishes to matching subscriptions, acknowledges
+/// A small MQTT 3.1.1 and 5 broker: checks credentials, routes publishes to matching subscriptions, acknowledges
 /// QoS 1, answers pings unless muted, and records what clients sent.
 final class TestBroker: Sendable {
     struct Session {
@@ -231,6 +231,7 @@ final class TestBroker: Sendable {
         var close: @Sendable () -> Void
         var subscriptions: [String] = []
         var connect: MQTTConnect?
+        var version: MQTTProtocolVersion { connect?.version ?? .v3_1_1 }
     }
 
     struct State {
@@ -248,6 +249,12 @@ final class TestBroker: Sendable {
         var connackDelay: Duration?
         /// CONNACK goes out with a packet a broker never sends right behind it, in the same write.
         var connackThenGarbage = false
+        /// Answers an MQTT 5 CONNECT as a 3.1.1-only broker does: a 3.1.1 CONNACK with return code 1.
+        var only311 = false
+        /// MQTT 5: the properties of a successful CONNACK.
+        var connackProperties = MQTTProperties()
+        /// MQTT 5: the properties of every PUBLISH the broker sends.
+        var publishProperties = MQTTProperties()
     }
 
     let state = NIOLockedValueBox(State())
@@ -276,35 +283,54 @@ final class TestBroker: Sendable {
         for close in sessions { close() }
     }
 
+    /// MQTT 5: sends every client DISCONNECT with a reason code and string, then closes.
+    func disconnectAll(reasonCode: UInt8, reason: String) {
+        let sessions = state.withLockedValue { Array($0.sessions.values) }
+        for session in sessions {
+            session.write(MQTTPacket.disconnect(reasonCode: reasonCode, properties: [(MQTTProperties.reasonString, .string(reason))]).encode(version: session.version))
+            session.close()
+        }
+    }
+
     /// Publishes to every client subscribed to a matching filter.
     func publish(_ message: MQTTMessage) {
-        let targets = state.withLockedValue { state -> [(@Sendable ([UInt8]) -> Void, UInt16?)] in
-            state.sessions.values.filter { $0.subscriptions.contains { MQTTTopic.matches(filter: $0, topic: message.topic) } }.map { session in
+        let (targets, properties) = state.withLockedValue { state -> ([(@Sendable ([UInt8]) -> Void, UInt16?, MQTTProtocolVersion)], MQTTProperties) in
+            let targets = state.sessions.values.filter { $0.subscriptions.contains { MQTTTopic.matches(filter: $0, topic: message.topic) } }.map { session in
                 var id: UInt16?
                 if message.qos != .atMostOnce {
                     state.nextPacketID += 1
                     id = state.nextPacketID
                 }
-                return (session.write, id)
+                return (session.write, id, session.version)
             }
+            return (targets, state.publishProperties)
         }
-        for (write, id) in targets { write(MQTTPacket.publish(message, packetID: id, duplicate: false).encode()) }
+        for (write, id, version) in targets {
+            write(MQTTPacket.publish(message, packetID: id, duplicate: false, properties: properties).encode(version: version))
+        }
     }
 
     func handle(_ packet: MQTTPacket, session id: Int) {
-        guard let session = state.withLockedValue({ $0.sessions[id] }) else { return }
+        guard var session = state.withLockedValue({ $0.sessions[id] }) else { return }
+        if case .connect(let connect) = packet { session.connect = connect }
+        let version = session.version
+        let v5 = version == .v5
         switch packet {
         case .connect(let connect):
-            let (credentials, delay, garbage) = state.withLockedValue { state in
+            let (credentials, delay, garbage, only311, properties) = state.withLockedValue { state in
                 state.connects.append(connect)
                 state.sessions[id]?.connect = connect
-                return (state.credentials, state.connackDelay, state.connackThenGarbage)
+                return (state.credentials, state.connackDelay, state.connackThenGarbage, state.only311, state.connackProperties)
             }
-            if let credentials, connect.username != credentials.username || connect.password != credentials.password {
-                session.write(MQTTPacket.connack(sessionPresent: false, returnCode: 4).encode())
+            if only311, v5 {
+                session.write(MQTTPacket.connack(sessionPresent: false, returnCode: 1).encode())
+                session.close()
+            } else if let credentials, connect.username != credentials.username || connect.password != credentials.password {
+                session.write(MQTTPacket.connack(sessionPresent: false, returnCode: v5 ? 0x86 : 4).encode(version: version))
                 session.close()
             } else {
-                let connack = MQTTPacket.connack(sessionPresent: false, returnCode: 0).encode() + (garbage ? MQTTPacket.pingreq.encode() : [])
+                let connack = MQTTPacket.connack(sessionPresent: false, returnCode: 0, properties: properties).encode(version: version)
+                    + (garbage ? MQTTPacket.pingreq.encode() : [])
                 if let delay {
                     let write = session.write
                     Task {
@@ -322,23 +348,28 @@ final class TestBroker: Sendable {
                     state.sessions[id]?.subscriptions.append(subscription.topic)
                 }
             }
-            let codes = subscriptions.map { $0.topic.hasPrefix("forbidden") ? 0x80 : min($0.qos.rawValue, 1) }
-            session.write(MQTTPacket.suback(packetID: packetID, returnCodes: codes).encode())
+            // MQTT 5 refuses with "Not authorized" (0x87).
+            let codes = subscriptions.map { $0.topic.hasPrefix("forbidden") ? (v5 ? 0x87 : 0x80) : min($0.qos.rawValue, 1) }
+            session.write(MQTTPacket.suback(packetID: packetID, returnCodes: codes).encode(version: version))
         case .unsubscribe(let packetID, let topics):
             state.withLockedValue { $0.sessions[id]?.subscriptions.removeAll { topics.contains($0) } }
-            session.write(MQTTPacket.unsuback(packetID).encode())
-        case .publish(let message, let packetID, _):
-            state.withLockedValue { $0.published.append(message) }
-            if message.qos == .atLeastOnce, let packetID { session.write(MQTTPacket.puback(packetID).encode()) }
-            publish(MQTTMessage(topic: message.topic, payload: message.payload, qos: message.qos, retain: false))
-        case .puback(let packetID):
+            session.write(MQTTPacket.unsuback(packetID, reasonCodes: v5 ? topics.map { _ in 0 } : []).encode(version: version))
+        case .publish(let message, let packetID, _, _):
+            // MQTT 5 can refuse a QoS 1 message in its PUBACK; a topic starting with "forbidden" is.
+            let refused = v5 && message.topic.hasPrefix("forbidden")
+            if !refused { state.withLockedValue { $0.published.append(message) } }
+            if message.qos == .atLeastOnce, let packetID {
+                session.write(MQTTPacket.puback(packetID, reasonCode: refused ? 0x87 : 0).encode(version: version))
+            }
+            if !refused { publish(MQTTMessage(topic: message.topic, payload: message.payload, qos: message.qos, retain: false)) }
+        case .puback(let packetID, _):
             state.withLockedValue { $0.pubacks.append(packetID) }
         case .pingreq:
             let mute = state.withLockedValue { state in
                 state.pingreqs += 1
                 return state.mutePings
             }
-            if !mute { session.write(MQTTPacket.pingresp.encode()) }
+            if !mute { session.write(MQTTPacket.pingresp.encode(version: version)) }
         case .disconnect:
             session.close()
         default:
@@ -367,7 +398,11 @@ private final class BrokerTCPHandler: ChannelInboundHandler {
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         parser.append(unwrapInboundIn(data).readableBytesView)
-        while let packet = try? parser.next() { broker.handle(packet, session: session) }
+        while let packet = try? parser.next() {
+            // The CONNECT says which protocol version the rest of the connection speaks.
+            if case .connect(let connect) = packet { parser.version = connect.version }
+            broker.handle(packet, session: session)
+        }
     }
 
     func channelInactive(context: ChannelHandlerContext) {
@@ -399,7 +434,11 @@ private final class BrokerWebSocketHandler: ChannelInboundHandler {
         switch frame.opcode {
         case .binary, .continuation:
             parser.append(frame.unmaskedData.readableBytesView)
-            while let packet = try? parser.next() { broker.handle(packet, session: session) }
+            while let packet = try? parser.next() {
+            // The CONNECT says which protocol version the rest of the connection speaks.
+            if case .connect(let connect) = packet { parser.version = connect.version }
+            broker.handle(packet, session: session)
+        }
         case .ping:
             context.writeAndFlush(wrapOutboundOut(WebSocketFrame(fin: true, opcode: .pong, data: frame.unmaskedData)), promise: nil)
         case .connectionClose:

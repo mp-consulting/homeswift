@@ -3,7 +3,7 @@ import HomeswiftNetwork
 
 enum DysonMQTTError: Error, CustomStringConvertible, Equatable {
     /// CONNACK with a non-zero return code (MQTT 3.1.1 numbering: 1 protocol, 2 identifier, 3 server,
-    /// 4 user name or password, 5 not authorized).
+    /// 4 user name or password, 5 not authorized; MQTT 5 reason codes from 0x80).
     case refused(code: Int)
     case timeout(Duration)
     case unreachable(String)
@@ -19,7 +19,12 @@ enum DysonMQTTError: Error, CustomStringConvertible, Equatable {
             case 3: "Connection refused: Server unavailable"
             case 4: "Connection refused: Bad username or password"
             case 5: "Connection refused: Not authorized"
-            default: "Connection refused: return code \(code)"
+            default:
+                if let name = UInt8(exactly: code).flatMap(MQTTError.reasonName) {
+                    "Connection refused: \(name)"
+                } else {
+                    "Connection refused: return code \(code)"
+                }
             }
         case .timeout(let duration): "Connection timeout after \(duration.components.seconds * 1000)ms"
         case .unreachable(let reason): reason
@@ -125,11 +130,15 @@ actor DysonMQTTClient {
         }
     }
 
-    /// CONNACK refusals mean "wrong CONNECT shape, try another"; timeouts and network errors do not climb
-    /// the ladder.
+    /// The CONNACK refusals that mean "wrong CONNECT shape, try another", matched on the mqtt.js texts as the
+    /// plugin's `RECOVERABLE_CONNACK_PATTERNS` are. Other refusals (server unavailable, MQTT 5's "Client
+    /// Identifier not valid"), timeouts and network errors do not climb the ladder.
+    static let recoverablePatterns = ["identifier rejected", "unacceptable protocol", "bad user name or password", "bad username or password", "not authorized"]
+
     static func isRecoverable(_ error: any Error) -> Bool {
-        if case DysonMQTTError.refused = error { return true }
-        return false
+        guard case DysonMQTTError.refused = error else { return false }
+        let message = "\(error)".lowercased()
+        return recoverablePatterns.contains { message.contains($0) }
     }
 
     /// Connects, trying the variants in order from the one that worked last.
@@ -159,15 +168,12 @@ actor DysonMQTTClient {
     /// One CONNECT. A `disconnect()` while it is in flight (`epoch` changed) closes the new connection and
     /// throws `notConnected`, so a session opened after a stop does not stay up.
     private func connect(with variant: Variant, epoch: Int) async throws {
-        let version: MQTTProtocolVersion
-        switch variant.protocolLevel {
-        case 3: version = .v3_1
-        case 4: version = .v3_1_1
-        default:
-            // MQTT 3.1 and 3.1.1 only. Answering as the broker would ("unacceptable protocol version") lets the
-            // ladder move on to the next combination.
-            throw DysonMQTTError.refused(code: 1)
-        }
+        let version: MQTTProtocolVersion =
+            switch variant.protocolLevel {
+            case 3: .v3_1
+            case 5: .v5
+            default: .v3_1_1
+            }
         let timeout = settings.timeout
         let opened: any MQTTConnection
         do {

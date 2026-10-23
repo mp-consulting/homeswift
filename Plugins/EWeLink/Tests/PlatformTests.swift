@@ -278,6 +278,11 @@ struct PlatformTests {
         let test = try await call("POST", "test-device", ["deviceId": "1000aaaaaa"])
         #expect(test.json["success"] == true)
         #expect(try await call("GET", "status").json["configured"] == true)
+        // The instance's accessories, as Homebridge's /getCachedAccessories.
+        let accessories = try #require(try await call("GET", "accessories").json.arrayValue)
+        let ids = accessories.compactMap { $0["id"]?.stringValue }
+        #expect(ids.contains("eWeLink:1000aaaaaa"))
+        #expect(accessories.allSatisfy { $0["platform"] == "eWeLink" && $0["context"]?.objectValue != nil && $0["displayName"]?.stringValue != nil })
         #expect(try await call("GET", "nothing").status == 404)
         await host.stop()
     }
@@ -519,5 +524,16 @@ struct AccessoryTests {
         #expect(await eventually { simulated[.contactSensorState]?.value == 1 })
         #expect(simulated[EveCharacteristic.lastActivation] != nil)
         await host.stop()
+    }
+}
+
+struct AssistantBackgroundTests {
+    @Test func backgroundIsAboutHomeswift() throws {
+        let background = try #require(EWeLinkPlugin.assistantBackground)
+        #expect(background.count > 500)
+        #expect(background.contains("Homeswift"))
+        #expect(!background.contains("Homebridge"))
+        #expect(background.contains("ewelink-tokens.json"))
+        #expect(background.contains(SocketAuthenticationError(code: 406).description))
     }
 }
