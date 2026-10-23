@@ -1,0 +1,39 @@
+[
+    {
+        "step_title": "Web UI account",
+        "items": [
+            {
+                "type": "textfield",
+                "desc": "Homeswift's web UI, on port 8581, configures the bridge and its plugins and shows the code to add it in the Home app. Choose the administrator account it signs in with.",
+                "subitems": [
+                    {
+                        "key": "wizard_username",
+                        "desc": "Username",
+                        "defaultValue": "admin",
+                        "validator": {
+                            "allowBlank": false,
+                            "regex": {
+                                "expr": "/^[^\\s:]{1,64}$/",
+                                "errorText": "1 to 64 characters, without spaces or colons"
+                            }
+                        }
+                    }
+                ]
+            },
+            {
+                "type": "password",
+                "desc": "At least 12 characters, and neither a common word nor the username: a few unrelated words make a good one. If you forget it, <b>sudo homeswift users password &lt;username&gt;</b> over SSH sets a new one.",
+                "subitems": [
+                    {
+                        "key": "wizard_password",
+                        "desc": "Password",
+                        "validator": {
+                            "allowBlank": false,
+                            "minLength": 12
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+]

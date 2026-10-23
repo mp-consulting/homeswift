@@ -28,10 +28,16 @@ public struct HomeswiftConfiguration: Sendable {
         public var manufacturer: String?
         public var model: String?
         public var firmwareRevision: String?
+        /// Homebridge's mDNS advertiser: `ciao` is the built-in responder; `bonjour-hap`, `avahi` and
+        /// `resolved` are the system's dns_sd, which falls back to the built-in responder when unavailable.
+        public var advertiser: String?
+        /// The interfaces (names or IPv4 addresses) the built-in responder advertises on; a string or a list.
+        public var bind: [String]?
 
         public init(
             name: String = "Homeswift", username: String? = nil, port: Int? = nil, pin: String? = nil,
-            manufacturer: String? = nil, model: String? = nil, firmwareRevision: String? = nil
+            manufacturer: String? = nil, model: String? = nil, firmwareRevision: String? = nil,
+            advertiser: String? = nil, bind: [String]? = nil
         ) {
             self.name = name
             self.username = username
@@ -40,6 +46,8 @@ public struct HomeswiftConfiguration: Sendable {
             self.manufacturer = manufacturer
             self.model = model
             self.firmwareRevision = firmwareRevision
+            self.advertiser = advertiser
+            self.bind = bind
         }
 
         public init(from decoder: any Decoder) throws {
@@ -51,6 +59,21 @@ public struct HomeswiftConfiguration: Sendable {
             manufacturer = try container.decodeIfPresent(String.self, forKey: .manufacturer)
             model = try container.decodeIfPresent(String.self, forKey: .model)
             firmwareRevision = try container.decodeIfPresent(String.self, forKey: .firmwareRevision)
+            advertiser = try container.decodeIfPresent(String.self, forKey: .advertiser)
+            if let one = try? container.decodeIfPresent(String.self, forKey: .bind) {
+                bind = [one]
+            } else {
+                bind = try container.decodeIfPresent([String].self, forKey: .bind)
+            }
+        }
+
+        /// The advertiser `advertiser` names; nil for a name Homeswift does not know.
+        public var advertiserChoice: HAPServer.Options.Advertiser? {
+            switch advertiser?.lowercased() {
+            case nil, "bonjour-hap", "bonjour", "avahi", "resolved": .system
+            case "ciao": .builtIn
+            default: nil
+            }
         }
     }
 

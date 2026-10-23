@@ -1,0 +1,11 @@
+#!/bin/sh
+# Checks the install wizard's password before anything is installed, so a weak one is refused with the reason
+# and the wizard can be run again, instead of leaving a bridge without an account.
+
+if [ "$SYNOPKG_PKG_STATUS" = INSTALL ] && [ -n "$wizard_username" ]; then
+    if ! reason=$(printf '%s\n' "$wizard_password" | "$SYNOPKG_PKGINST_TEMP_DIR/bin/homeswift" users check "$wizard_username" 2>&1); then
+        echo "${reason#homeswift: }" > "$SYNOPKG_TEMP_LOGFILE"
+        exit 1
+    fi
+fi
+exit 0

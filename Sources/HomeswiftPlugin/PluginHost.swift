@@ -26,6 +26,9 @@ public final class PluginHost: @unchecked Sendable {
         public var makeStorage: (@Sendable (_ name: String) -> any HAPStorage)?
         /// Platform names the runtime itself handles (the Assistant, the web UI): no plugin, no warning.
         public var systemPlatforms: Set<String> = [AIConfiguration.platform]
+        /// How every server is advertised, and on which interfaces; `init` takes them from the bridge block.
+        public var advertiser: HAPServer.Options.Advertiser = .system
+        public var interfaces: [String] = []
 
         public init(advertise: Bool = true, logger: Logger = Logger(label: "homeswift"), makeStorage: (@Sendable (_ name: String) -> any HAPStorage)? = nil) {
             self.advertise = advertise
@@ -151,6 +154,13 @@ public final class PluginHost: @unchecked Sendable {
     /// Prepares the bridges and the plugins' contexts and restores the accessory caches. Nothing listens
     /// until `start()`.
     public init(configuration: HomeswiftConfiguration, registry: PluginRegistry, storageDirectory: URL, options: Options = Options()) throws {
+        var options = options
+        if let advertiser = configuration.bridge.advertiserChoice {
+            options.advertiser = advertiser
+        } else {
+            options.logger.warning("Unknown advertiser \"\(configuration.bridge.advertiser ?? "")\" in the bridge block; using Bonjour (\"ciao\" is the built-in responder)")
+        }
+        options.interfaces = configuration.bridge.bind ?? []
         configurationBox = NIOLockedValueBox(configuration)
         self.storageDirectory = storageDirectory
         self.registry = registry
@@ -489,6 +499,8 @@ public final class PluginHost: @unchecked Sendable {
         var serverLogger = Logger(label: settings.name)
         serverLogger.logLevel = options.logger.logLevel
         var serverOptions = HAPServer.Options(port: settings.port, advertise: options.advertise, logger: serverLogger)
+        serverOptions.advertiser = options.advertiser
+        serverOptions.interfaces = options.interfaces
         if let pin = settings.pin {
             guard let code = SetupCode(pin) else { throw ConfigurationError.invalidSetupCode(pin) }
             serverOptions.setupCode = code

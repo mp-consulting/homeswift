@@ -1,0 +1,52 @@
+name: Synology
+
+# Builds the Synology packages (Synology/build.sh) for x86_64 and aarch64, each on a runner of its own
+# architecture, and attaches them to the release of the tag; run by hand, they are the run's artifacts.
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: synology-${{ github.ref }}
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build the package
+        run: Synology/build.sh ${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: homeswift-${{ matrix.arch }}-spk
+          path: .build/synology/*.spk
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The release is created with the tag (CLAUDE.md, "Releases"); give it a minute if it lags.
+          for attempt in 1 2 3 4 5 6; do
+            gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 && break
+            sleep 10
+          done
+          gh release upload "$GITHUB_REF_NAME" .build/synology/*.spk --clobber

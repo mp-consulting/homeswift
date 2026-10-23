@@ -11,7 +11,7 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `Sources/Homeswift/Model` | `Accessory`, `Service`, `Characteristic`, `HAPValue`, `CharacteristicType`; `Definitions.swift` is generated |
 | `Sources/Homeswift/Crypto` | TLV8, `ModularField` (Montgomery arithmetic), SRP-6a, HKDF/ChaCha20 helpers, `Secrets` (random tokens, constant-time compares) |
 | `Sources/Homeswift/Pairing` | Setup code and URI, pair setup, pair verify, pairings |
-| `Sources/Homeswift/Server` | `HAPServer`, `HAPConnection` (one task per connection), HTTP, sessions, endpoints, storage, Bonjour advertiser and `BonjourBrowser` |
+| `Sources/Homeswift/Server` | `HAPServer`, `HAPConnection` (one task per connection), HTTP, sessions, endpoints, storage, Bonjour advertiser and `BonjourBrowser`, `MDNSResponder` (the built-in responder, ciao's counterpart; `MDNSMessage` is the wire format) |
 | `Sources/Homeswift/Camera` | `CameraController`/`DoorbellController` (HAP-NodeJS's API), `RTPStreamManagement` (setup endpoints, SRTP, selected stream), `RecordingManagement` (HomeKit Secure Video, `dataSend` streams), `CameraTypes` (options, requests, delegates) |
 | `Sources/Homeswift/DataStream` | HomeKit Data Stream: `HDSCodec` (HAP-NodeJS's DataStreamParser), `HDSFrame` (keys, ChaCha20 frames), `DataStreamServer`/`DataStreamConnection` (TCP on NIO), `DataStreamManagement` (the service) |
 | `Sources/Homeswift/Controllers` | `AdaptiveLightingController`, `ColorUtils`, `SerializableController` (state saved by `PluginContext.configureController`) |
@@ -38,6 +38,7 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `Tests/HomeswiftNetworkTests` | The HTTP client against a NIO server, plain and with a self-signed certificate (trust, pin, mismatch), the RFC 2617 Digest vector, Wake-on-LAN packets over UDP, WebSocket and MQTT against a NIO server (`TestSocketServer`), AWS Signature V4 vectors, URL encodings byte for byte, the fakes |
 | `Tests/HomeswiftNetworkTestSupport` | A library target for plugin tests: `FakeMQTTConnection` and `FakeWebSocket`, in memory, no broker |
 | `Tests/HomeswiftFFmpegTests` | FFmpeg options and codecs per host, the process wrapper against a shell, RTP, fMP4 parsing on fixtures |
+| `Synology` | The Synology package: `build.sh` makes an `.spk` per architecture with Docker (`Dockerfile`: the binary on Amazon Linux 2, glibc 2.26 as on DSM 7.0; `bundle-libraries.sh` puts Avahi's dns_sd beside it), `conf/` (privilege, resources, the systemd unit), `scripts/`, the install wizard, `package/` (the `homeswift` command, `start.sh`); `.github/workflows/synology.yml` attaches them to releases |
 | `Benchmarks` | A separate package: `hap-bench`, a HomeKit controller that measures a server (pairing, requests, events, load, memory), `hap-bench-server` (a Homeswift bridge with N lightbulbs) and the same bridge on HAP-NodeJS under `hap-nodejs/`; `run.sh` compares them, `README.md` has the numbers |
 
 ## Commands

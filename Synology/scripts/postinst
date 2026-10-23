@@ -1,0 +1,32 @@
+#!/bin/sh
+# A first install: config.json with the web UI on port 8581, and the administrator account the wizard asked
+# for. The bridge generates its HomeKit identity and setup code on its first start. An upgrade keeps all of it:
+# it lives in the shared folder, not in the package.
+
+. "$SYNOPKG_PKGDEST/app/environment.sh"
+
+if [ ! -f "$HOMESWIFT_DATA/config.json" ]; then
+    umask 077
+    cat > "$HOMESWIFT_DATA/config.json" <<'JSON'
+{
+  "bridge": {
+    "name": "Homeswift",
+    "port": 51826
+  },
+  "accessories": [],
+  "platforms": [
+    { "platform": "HomeswiftUI" }
+  ]
+}
+JSON
+fi
+
+if [ "$SYNOPKG_PKG_STATUS" = INSTALL ] && [ -n "$wizard_username" ]; then
+    if ! [ -s "$HOMESWIFT_DATA/ui-users.json" ] || [ "$(cat "$HOMESWIFT_DATA/ui-users.json")" = "[]" ]; then
+        if ! result=$(printf '%s\n' "$wizard_password" | "$HOMESWIFT_BINARY" -U "$HOMESWIFT_DATA" users add "$wizard_username" 2>&1); then
+            # The package still installs: the account can be made over SSH, `sudo homeswift users add <name>`.
+            echo "The web UI account was not created: ${result#homeswift: }. Over SSH: sudo homeswift users add $wizard_username" > "$SYNOPKG_TEMP_LOGFILE"
+        fi
+    fi
+fi
+exit 0

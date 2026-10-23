@@ -26,6 +26,8 @@ let usage = """
            homeswift explain <error message>
            homeswift diagnose [<log file>]
            homeswift mcp [--url <url>] [--token <token>] | --generate-token | --snippets
+           homeswift users list | add <username> | password <username> | check <username>
+           homeswift logs [-n <lines>] [-f]
 
     Runs a HomeKit bridge with the plugins listed in <path>/config.json and prints its setup code.
     The file has Homebridge's shape: a "bridge" block and "platforms" blocks (see docs/plugins.md).
@@ -45,6 +47,8 @@ let usage = """
       diagnose                        have the Assistant diagnose a log file, or the log piped in
       mcp                             stdio MCP server for Claude Desktop, Claude Code or Cursor, proxied to the
                                       bridge's HTTP MCP server (docs/mcp.md); --generate-token, --snippets
+      users                           the web UI's accounts; passwords are read from standard input
+      logs                            the last lines of the bridge's log (logs/), and the new ones with -f
 
     Environment:
       HAP_DEBUG                       log every request (trace level)
@@ -73,7 +77,7 @@ while let argument = arguments.next() {
         exit(0)
     case "plugins":
         command = "plugins"
-    case "ask", "explain", "diagnose", "mcp":
+    case "ask", "explain", "diagnose", "mcp", "users", "logs":
         command = argument
         // Everything after the command is the question, the error or the file.
         while let rest = arguments.next() { commandArguments.append(rest) }
@@ -98,6 +102,19 @@ if command == "plugins" {
         say(entry.platform.padding(toLength: width + 2, withPad: " ", startingAt: 0) + entry.name)
     }
     exit(0)
+}
+
+if command == "users" || command == "logs" {
+    do {
+        if command == "users" {
+            try UsersCommands.run(arguments: commandArguments, storagePath: storagePath)
+        } else {
+            try LogsCommand.run(arguments: commandArguments, storagePath: storagePath)
+        }
+        exit(0)
+    } catch {
+        fail("\(error)")
+    }
 }
 
 let configURL = storagePath.appendingPathComponent("config.json")
