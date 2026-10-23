@@ -112,8 +112,6 @@ final class ProtectLivestream: @unchecked Sendable {
         case codec(String)
         case initSegment(Data)
         case segment(Data)
-        case moof(Data)
-        case mdat(Data)
         case timestamps([UInt64])
         case close
     }
@@ -253,7 +251,18 @@ final class ProtectLivestream: @unchecked Sendable {
                 }
             }
         }
-        state.withLockedValue { $0.session.tasks = [reader, heartbeat] }
+        // Stopped (or ended by the controller) since the socket opened: the session is dead, and says so.
+        let alive = state.withLockedValue { state -> Bool in
+            guard state.session.generation == generation, state.isActive else { return false }
+            state.session.tasks = [reader, heartbeat]
+            return true
+        }
+        guard alive else {
+            reader.cancel()
+            heartbeat.cancel()
+            await socket.close()
+            return false
+        }
         return true
     }
 
@@ -310,15 +319,12 @@ final class ProtectLivestream: @unchecked Sendable {
             } else {
                 observers.forEach { $0(.initSegment(segment)) }
             }
-        case .segment(let segment, let moof, let mdat):
+        case .segment(let segment, _, _):
+            // The Homebridge plugin also emits a segment's MOOF and MDAT apart; nothing here listens to them.
             if useStream {
                 continuation?.yield(segment)
             } else {
-                observers.forEach {
-                    $0(.segment(segment))
-                    $0(.moof(moof))
-                    $0(.mdat(mdat))
-                }
+                observers.forEach { $0(.segment(segment)) }
             }
         case .timestamps(let stamps):
             observers.forEach { $0(.timestamps(stamps)) }

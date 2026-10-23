@@ -80,12 +80,14 @@ final class ProtectNVR {
         for _ in 0..<5 where await api.bootstrap == nil && !isStopped {
             await bootstrapNVR()
         }
+        guard !isStopped else { return }
         guard let bootstrap = await api.bootstrap else {
             log.error("Unable to initialize. This may be due to the Protect controller rebooting or becoming unavailable.")
             return
         }
         ufp = bootstrap.at("nvr") ?? .object([:])
         let controllerName = await api.name
+        guard !isStopped else { return }
         name = config.name ?? controllerName
         log = platform.log.named(name)
         let version = ufp.string("version") ?? "0"
@@ -107,14 +109,18 @@ final class ProtectNVR {
 
         liveviews = ProtectLiveviews(nvr: self)
         systemInfo = await ProtectNvrSystemInfo.make(nvr: self)
+        // `stop()` may have run during any await of the start-up: nothing more starts, and what started
+        // after it is undone (`abandonStartup`).
+        guard !isStopped else { return await abandonStartup() }
         if mqtt == nil, let url = config.mqttUrl {
             mqtt = ProtectMQTTClient(brokerURL: url, topicPrefix: config.mqttTopic, log: log, verifyTLS: config.mqttVerifyTls != false, connect: platform.dependencies.mqtt)
         }
         if hasFeature("Nvr.Service.Playlist"), platform.dependencies.allowPlaylistServer {
-            playlist = ProtectPlaylistServer(api: api, log: log, address: config.playlistAddress, port: getFeatureNumber("Nvr.Service.Playlist").map(Int.init),
+            playlist = ProtectPlaylistServer(api: api, log: log, address: config.playlistAddress, port: getFeatureInt("Nvr.Service.Playlist", in: 0...65535),
                                              token: config.playlistToken)
             await playlist?.start()
         }
+        guard !isStopped else { return await abandonStartup() }
 
         let devices = [ufp] + Self.deviceCategories.flatMap { bootstrap.array($0 + "s") }
         for device in devices {
@@ -124,6 +130,7 @@ final class ProtectNVR {
         }
 
         await syncUfpHomeKit()
+        guard !isStopped else { return await abandonStartup() }
         let packets = api.packets
         tasks.add { @ProtectActor [weak self] in
             for await packet in packets {
@@ -141,10 +148,21 @@ final class ProtectNVR {
         }
     }
 
-    /// Stops the streams, timers and connections of this controller.
+    /// Stops the streams, timers and connections of this controller. A start-up still running notices at its
+    /// next step and undoes what it started after this.
     func stop() async {
         tasks.cancelAll()
-        for device in configuredDevices.values { device.cleanup() }
+        await shutDown()
+    }
+
+    /// The start-up went on while `stop()` ran: stop what it started since.
+    private func abandonStartup() async {
+        await shutDown()
+    }
+
+    private func shutDown() async {
+        let devices = Array(configuredDevices.values)
+        for device in devices { device.cleanup() }
         systemInfo?.cleanup()
         await playlist?.close()
         await mqtt?.end()
@@ -202,9 +220,15 @@ final class ProtectNVR {
             log.info("\(ProtectAPI.deviceName(device)): Adding \(config.modelKey) to HomeKit\(standalone ? " as a standalone device" : "").")
         }
         guard let protectDevice = await makeDevice(device, id: id) else { return false }
+        // Stopped while the device was set up: it goes nowhere, and starts nothing.
+        guard !isStopped else {
+            protectDevice.cleanup()
+            return false
+        }
         configuredDevices[id] = protectDevice
         devicesByID[config.id] = protectDevice
         await protectDevice.accessory.publish()
+        guard !isStopped else { return false }
         if let doorbell = protectDevice as? ProtectDoorbell { await doorbell.packageCamera?.accessory.publish() }
         return true
     }
@@ -246,13 +270,14 @@ final class ProtectNVR {
             return false
         }
         for category in Self.deviceCategories {
-            for device in bootstrap.array(category + "s") { await addHomeKitDevice(device) }
+            for device in bootstrap.array(category + "s") where !isStopped { await addHomeKitDevice(device) }
         }
+        guard !isStopped else { return false }
         await cleanupDevices(bootstrap: bootstrap)
         for chime in devices("chime") { await (chime as? ProtectChime)?.updateDevice() }
         await liveviews?.configureLiveviews()
         for viewer in devices("viewer") { _ = await (viewer as? ProtectViewer)?.updateDevice() }
-        for device in deviceList {
+        for device in deviceList where !isStopped {
             device.configureInfo()
             await device.accessory.publish()
             if let doorbell = device as? ProtectDoorbell { await doorbell.packageCamera?.accessory.publish() }
@@ -298,7 +323,7 @@ final class ProtectNVR {
         if context.mac == nil {
             guard let parent = context.packageCamera, !host.accessoryIDs.contains(where: { platform.contexts[$0].mac == parent }) else { return }
         }
-        let delay = getFeatureNumber("Nvr.DelayDeviceRemoval").map { Int($0) } ?? 0
+        let delay = getFeatureInt("Nvr.DelayDeviceRemoval", in: ProtectSettings.durationRange) ?? 0
         if !noRemovalDelay, delay > 0 {
             guard let queued = deviceRemovalQueue[id] else {
                 deviceRemovalQueue[id] = ContinuousClock.now
@@ -339,6 +364,11 @@ final class ProtectNVR {
 
     func getFeatureNumber(_ option: String) -> Double? {
         featureOptions.getInteger(option, device: nil, controllers: controllerScopes).orNil
+    }
+
+    /// An integer option, truncated and clamped to `range`.
+    func getFeatureInt(_ option: String, in range: ClosedRange<Int>) -> Int? {
+        getFeatureNumber(option).flatMap { Int(saturating: $0, in: range) }
     }
 
     func getFeatureFloat(_ option: String) -> Double? {

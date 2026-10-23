@@ -80,6 +80,8 @@ protocol ProtectFfmpegKit: Sendable {
     /// `FfmpegRecordingProcess`, started.
     func startRecording(options: any ProtectFfmpegOptions, configuration: CameraRecordingConfiguration, fMp4Options: FMp4RecordingOptions,
                         verbose: Bool) -> any ProtectFfmpegRecording
+    /// `FfmpegProcess`, started: FFmpeg with this command line, its standard output to read (a live view's fMP4).
+    func startProcess(options: any ProtectFfmpegOptions, arguments: [String]) -> any ProtectFfmpegProcess
     /// `FfmpegExec`: runs FFmpeg to the end with `stdin`, killed after `timeout` milliseconds. nil when it did not run.
     func exec(options: any ProtectFfmpegOptions, arguments: [String], stdin: Data?, timeout: Int?, logErrors: Bool) async -> (exitCode: Int32?, stdout: Data)?
 }

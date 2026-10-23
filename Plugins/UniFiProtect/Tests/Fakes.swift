@@ -69,6 +69,8 @@ final class FakeController: ProtectHTTPTransport, @unchecked Sendable {
         var scripted: [String: [Int]] = [:]
         var patchStatus = 200
         var lux = 42.0
+        /// Requests whose path ends so wait this long before their answer (a slow controller).
+        var delays: [String: Duration] = [:]
     }
 
     let state: NIOLockedValueBox<State>
@@ -88,10 +90,13 @@ final class FakeController: ProtectHTTPTransport, @unchecked Sendable {
         if case .pinned(let pinned) = tls, HTTPClient.normalizeFingerprint(pinned) != certificate {
             throw HTTPClientError.certificateMismatch(expected: HTTPClient.normalizeFingerprint(pinned), observed: certificate)
         }
-        if tls == .system { throw HTTPClientError.cannotConnect(host: request.url.host ?? "", port: 443, code: nil, reason: "certificate verify failed") }
+        if tls == .system, request.url.scheme == "https" {
+            throw HTTPClientError.cannotConnect(host: request.url.host ?? "", port: 443, code: nil, reason: "certificate verify failed")
+        }
         var headers: [String: String] = [:]
         for (name, value) in request.headers { headers[name.lowercased()] = value }
         let seen = Seen(method: request.method, path: request.url.path.isEmpty ? "/" : request.url.path, query: request.url.query, headers: headers, body: request.body, tls: tls)
+        let delay = state.withLockedValue { state in state.delays.first { seen.path.hasSuffix($0.key) }?.value }
         var response = state.withLockedValue { state -> HomeswiftNetwork.HTTPResponse in
             state.requests.append(seen)
             if let status = state.failEverything { return HomeswiftNetwork.HTTPResponse(status: status) }
@@ -103,6 +108,8 @@ final class FakeController: ProtectHTTPTransport, @unchecked Sendable {
             return route(seen, &state)
         }
         response.certificateFingerprint = certificate
+        // Recorded at once, answered late.
+        if let delay { try await Task.sleep(for: delay) }
         return response
     }
 
@@ -116,6 +123,13 @@ final class FakeController: ProtectHTTPTransport, @unchecked Sendable {
             let body = request.body.flatMap { try? JSONValue(data: $0) }
             guard body?.string("password") == state.password else { return HomeswiftNetwork.HTTPResponse(status: 401) }
             return HomeswiftNetwork.HTTPResponse(status: 200, headers: [("Set-Cookie", "TOKEN=session-cookie; path=/; HttpOnly"), ("X-Updated-CSRF-Token", "csrf-2")], body: Data("{}".utf8))
+        case ("GET", "/camera-snapshot"):
+            // A third-party camera's own snapshot URL, behind Digest authentication.
+            if let authorization = request.headers["authorization"], authorization.hasPrefix("Digest "), authorization.contains("username=\"viewer\""),
+               authorization.contains("uri=\"/camera-snapshot?channel=1\"") {
+                return HomeswiftNetwork.HTTPResponse(status: 200, headers: [("Content-Type", "image/jpeg")], body: Data([0xFF, 0xD8, 0xCA]))
+            }
+            return HomeswiftNetwork.HTTPResponse(status: 401, headers: [("WWW-Authenticate", "Digest realm=\"camera\", nonce=\"n1\", qop=\"auth\"")])
         default:
             break
         }

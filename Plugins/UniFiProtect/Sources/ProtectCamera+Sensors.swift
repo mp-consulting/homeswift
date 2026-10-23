@@ -57,7 +57,7 @@ extension ProtectCamera {
     }
 
     nonisolated static func number(_ value: Double) -> String {
-        value == value.rounded() && abs(value) < 1e15 ? String(Int(value)) : String(value)
+        value.isFinite && abs(value) < 1e15 ? jsNumber(value) : String(value)
     }
 
     /// Contact sensors for each smart detection type (`Motion.SmartDetect.ObjectSensors`) and for each

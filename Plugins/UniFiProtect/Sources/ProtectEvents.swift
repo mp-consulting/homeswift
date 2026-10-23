@@ -80,6 +80,12 @@ final class ProtectEvents {
     /// Merges an update into the JSON of the NVR or the device; a bootstrap refresh replaces it whole.
     func ufpUpdates(_ packet: ProtectEventPacket) {
         let payload = packet.payload
+        // An update is a part of the device's JSON: anything but an object (a null, an array) is not one,
+        // and merging it would replace the device's whole JSON.
+        guard payload.objectValue != nil else {
+            nvr.log.debug("Ignoring an update for \(packet.modelKey) \(packet.id) whose payload is not an object.")
+            return
+        }
         switch packet.modelKey {
         case "nvr":
             nvr.ufp = nvr.ufp.merging(payload)
@@ -149,7 +155,8 @@ final class ProtectEvents {
         }
         timers.reset(key, after: device.hints.motionDuration * 1000) { [weak self, weak device] in
             guard let self, let device else { return }
-            motionService[.motionDetected]?.value = .bool(false)
+            // The sensor as it is now: a reconfiguration may have rebuilt it since the event.
+            device.accessory.firstService(.motionSensor)?[.motionDetected]?.value = .bool(false)
             device.accessory.service(.switch, subtype: ProtectReservedNames.switchMotionTrigger)?[.on]?.value = .bool(false)
             device.log.debug("Resetting motion event.")
             self.nvr.publish(device.ufp.mac, "motion", "false")
@@ -191,7 +198,7 @@ final class ProtectEvents {
         var attributes: [String] = []
         func percent(_ value: Double?) -> String {
             guard let value else { return "undefined" }
-            return value == value.rounded() ? String(Int(value)) : String(value)
+            return jsNumber(value)
         }
         if let name = event.name, !name.isEmpty { attributes.append("license plate: \(name) [\(percent(event.confidence))% confidence]") }
         for attribute in ["color", "vehicleType"] {
@@ -213,6 +220,7 @@ final class ProtectEvents {
     private func handleOccupancy(_ device: ProtectDevice, _ detectedObjects: [String]) {
         guard !device.hints.smartDetect || detectedObjects.contains(where: { device.hints.smartOccupancy.contains($0) }) else { return }
         guard let occupancy = device.accessory.firstService(.occupancySensor) else { return }
+        let accessory = device.accessory
         let key = device.id + ".Motion.OccupancySensor"
         if occupancy[.occupancyDetected]?.value.intValue != HAPConstants.OccupancyDetected.occupancyDetected {
             occupancy[.occupancyDetected]?.value = .int(HAPConstants.OccupancyDetected.occupancyDetected)
@@ -223,7 +231,7 @@ final class ProtectEvents {
         }
         timers.reset(key, after: device.hints.occupancyDuration * 1000) { [weak self, weak device] in
             guard let self, let device else { return }
-            occupancy[.occupancyDetected]?.value = .int(HAPConstants.OccupancyDetected.occupancyNotDetected)
+            accessory.firstService(.occupancySensor)?[.occupancyDetected]?.value = .int(HAPConstants.OccupancyDetected.occupancyNotDetected)
             self.nvr.publish(device.ufp.mac, "occupancy", "false")
             if device.hints.logMotion { device.log.info("Occupancy no longer detected.") }
         }
@@ -244,7 +252,7 @@ final class ProtectEvents {
             trigger[.on]?.value = .bool(true)
             timers.reset(camera.id + ".Doorbell.Ring.Trigger", after: ProtectSettings.doorbellTriggerDuration) { [weak self, weak camera] in
                 camera?.isRinging = false
-                trigger[.on]?.value = .bool(false)
+                camera?.accessory.service(.switch, subtype: ProtectReservedNames.switchDoorbellTrigger)?[.on]?.value = .bool(false)
                 self?.nvr.log.debug("Resetting doorbell ring trigger.")
             }
         }

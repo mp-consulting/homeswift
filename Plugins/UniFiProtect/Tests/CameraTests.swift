@@ -119,6 +119,7 @@ final class FakeFfmpegKit: ProtectFfmpegKit, @unchecked Sendable {
         var execs: [(arguments: [String], stdin: Data?)] = []
         var execResult: Data? = Data([0xFF, 0xD8, 0xFF, 0xE0])
         var demuxers: [FakeDemuxer] = []
+        var processes: [FakeProcess] = []
         var probes = 0
     }
 
@@ -136,6 +137,7 @@ final class FakeFfmpegKit: ProtectFfmpegKit, @unchecked Sendable {
     }
 
     var streams: [FakeProcess] { state.withLockedValue { $0.streams } }
+    var processes: [FakeProcess] { state.withLockedValue { $0.processes } }
     var execs: [(arguments: [String], stdin: Data?)] { state.withLockedValue { $0.execs } }
 
     func probe() async -> Bool {
@@ -172,6 +174,12 @@ final class FakeFfmpegKit: ProtectFfmpegKit, @unchecked Sendable {
                         verbose: Bool) -> any ProtectFfmpegRecording {
         let process = FakeProcess(arguments: [])
         state.withLockedValue { $0.recordings.append((process, fMp4Options)) }
+        return process
+    }
+
+    func startProcess(options: any ProtectFfmpegOptions, arguments: [String]) -> any ProtectFfmpegProcess {
+        let process = FakeProcess(arguments: arguments)
+        state.withLockedValue { $0.processes.append(process) }
         return process
     }
 
@@ -370,6 +378,8 @@ final class FakeFfmpegKit: ProtectFfmpegKit, @unchecked Sendable {
         environment.update("camera", id: "camera-id", ["isConnected": false])
         _ = await eventually { await self.stream(environment.device("camera-id"))?.camera.isOnline == false }
         await #expect(throws: ProtectStreamError.self) { try await stream.handleStreamRequest(start("session-2")) }
+        // The failed start released what the session had reserved.
+        #expect(ffmpeg.state.withLockedValue { $0.cancelled }.sorted() == [50000, 50001, 50002, 50003])
     }
 
     @Test func highLatencyAndCopy() async throws {
@@ -393,7 +403,8 @@ final class FakeFfmpegKit: ProtectFfmpegKit, @unchecked Sendable {
 
     @Test func snapshots() async throws {
         let ffmpeg = FakeFfmpegKit()
-        let environment = ProtectTestEnvironment(ffmpeg: ffmpeg)
+        // The budgets are real time; a clock that stands still keeps a loaded machine from running them out.
+        let environment = ProtectTestEnvironment(ffmpeg: ffmpeg, snapshotClock: FrozenClock())
         let host = try await environment.start()
         defer { Task { await host.stop() } }
         _ = await controller(environment, host, Self.cameraID)
@@ -457,7 +468,7 @@ final class FakeFfmpegKit: ProtectFfmpegKit, @unchecked Sendable {
         event.process.fragment(Data("fragment-2".utf8))
         var iterator = packets.makeAsyncIterator()
         for fragment in ["fragment-1", "fragment-2"] {
-            let packet = await iterator.next()
+            let packet = try await iterator.next()
             #expect(packet?.data == Data(fragment.utf8) && packet?.isLast == false)
         }
         await recording.closeRecordingStream(streamID: 1, reason: .normal)
@@ -478,9 +489,9 @@ final class FakeFfmpegKit: ProtectFfmpegKit, @unchecked Sendable {
         let recording = try #require(await recording(environment.device("camera-id")))
         // Not configured: HomeKit gets a single empty packet.
         var iterator = await recording.handleRecordingStreamRequest(streamID: 1).makeAsyncIterator()
-        let packet = await iterator.next()
+        let packet = try await iterator.next()
         #expect(packet?.data == Data([0]) && packet?.isLast == true)
-        #expect(await iterator.next() == nil)
+        #expect(try await iterator.next() == nil)
     }
 
     @Test func liveFromTheLivestreamAPI() async throws {

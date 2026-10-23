@@ -15,10 +15,9 @@ struct RtspEntry: Sendable, Equatable {
 func buildAudioFilterPipeline(fftNr: Double, highpass: Double?, lowpass: Double?) -> [String] {
     var filters: [String] = []
     let nr = max(0.01, min(97, fftNr))
-    func number(_ value: Double) -> String { value == value.rounded() ? String(Int(value)) : String(value) }
-    if let highpass { filters.append("highpass=p=2:f=" + number(highpass)) }
-    if let lowpass { filters.append("lowpass=p=2:f=" + number(lowpass)) }
-    filters.append("asendcmd=c='1.0 afftdn sn start ; 3.0 afftdn sn stop', afftdn=nt=c:tn=1:nr=" + number(nr))
+        if let highpass { filters.append("highpass=p=2:f=" + jsNumber(highpass)) }
+    if let lowpass { filters.append("lowpass=p=2:f=" + jsNumber(lowpass)) }
+    filters.append("asendcmd=c='1.0 afftdn sn start ; 3.0 afftdn sn stop', afftdn=nt=c:tn=1:nr=" + jsNumber(nr))
     return filters
 }
 
@@ -73,9 +72,9 @@ class ProtectCamera: ProtectDevice {
         hints.smartDetect = ufp.feature("hasSmartDetect") && hasFeature("Motion.SmartDetect")
         hints.smartDetectSensors = hints.smartDetect && hasFeature("Motion.SmartDetect.ObjectSensors")
         hints.transcode = hasFeature("Video.Transcode")
-        hints.transcodeBitrate = getFeatureNumber("Video.Transcode.Bitrate").map { Int($0) } ?? ProtectSettings.transcodeBitrate
+        hints.transcodeBitrate = getFeatureInt("Video.Transcode.Bitrate", in: 0...Int(Int32.max)) ?? ProtectSettings.transcodeBitrate
         hints.transcodeHighLatency = hasFeature("Video.Transcode.HighLatency")
-        hints.transcodeHighLatencyBitrate = getFeatureNumber("Video.Transcode.HighLatency.Bitrate").map { Int($0) } ?? ProtectSettings.transcodeHighLatencyBitrate
+        hints.transcodeHighLatencyBitrate = getFeatureInt("Video.Transcode.HighLatency.Bitrate", in: 0...Int(Int32.max)) ?? ProtectSettings.transcodeHighLatencyBitrate
         hints.statusLedSwitch = hasFeature("Device.StatusLed.Switch")
         hints.twoWayAudio = ufp.feature("hasSpeaker") && hasFeature("Audio") && hasFeature("Audio.TwoWay")
         hints.twoWayAudioDirect = ufp.feature("hasSpeaker") && hasFeature("Audio") && hasFeature("Audio.TwoWay.Direct")
@@ -279,8 +278,7 @@ class ProtectCamera: ProtectDevice {
         let width = clamp(getFeatureNumber("Video.Crop.Width") ?? 100, 100)
         let x = clamp(getFeatureNumber("Video.Crop.X") ?? 0, 0)
         let y = clamp(getFeatureNumber("Video.Crop.Y") ?? 0, 0)
-        func text(_ value: Double) -> String { value == value.rounded() ? String(Int(value)) : String(value) }
-        log.info("Cropping the video stream to \(text(width))x\(text(height))% starting at \(text(x))x\(text(y))%.")
+        log.info("Cropping the video stream to \(jsNumber(width))x\(jsNumber(height))% starting at \(jsNumber(x))x\(jsNumber(y))%.")
         hints.cropOptions = (height: height / 100, width: width / 100, x: x / 100, y: y / 100)
     }
 

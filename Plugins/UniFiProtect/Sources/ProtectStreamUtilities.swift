@@ -10,7 +10,7 @@ func formatBps(_ value: Double) -> String {
     func formatted(_ amount: Double) -> String {
         amount.truncatingRemainder(dividingBy: 1) == 0 ? String(format: "%.0f", amount) : String(format: "%.1f", amount)
     }
-    if value < 1000 { return (value == value.rounded() ? String(Int(value)) : String(value)) + " bps" }
+    if value < 1000 { return jsNumber(value) + " bps" }
     if value < 1_000_000 { return formatted(value / 1000) + " kbps" }
     return formatted(value / 1_000_000) + " Mbps"
 }
@@ -21,9 +21,8 @@ func formatRecordingDuration(_ recordedSeconds: Double) -> (time: String, unit: 
     let hours = Int((recordedSeconds / 3600).rounded(.down))
     let minutes = Int((recordedSeconds.truncatingRemainder(dividingBy: 3600) / 60).rounded(.down))
     let seconds = Int(recordedSeconds.truncatingRemainder(dividingBy: 3600).truncatingRemainder(dividingBy: 60).rounded(.down))
-    func javaScript(_ value: Double) -> String { value == value.rounded() ? String(Int(value)) : String(value) }
-    if recordedSeconds < 1 {
-        recordedTime = javaScript(recordedSeconds)
+        if recordedSeconds < 1 {
+        recordedTime = jsNumber(recordedSeconds)
     } else if recordedSeconds < 60 {
         recordedTime = String(Int(recordedSeconds.rounded(.toNearestOrAwayFromZero)))
     } else {
@@ -42,7 +41,7 @@ func formatRecordingDuration(_ recordedSeconds: Double) -> (time: String, unit: 
         if !recordedTime.isEmpty, seconds < 10 {
             recordedTime += "0" + String(seconds)
         } else {
-            recordedTime += seconds != 0 ? String(seconds) : javaScript(recordedSeconds)
+            recordedTime += seconds != 0 ? String(seconds) : jsNumber(recordedSeconds)
         }
     }
     let unit = switch recordedTime.split(separator: ":", omittingEmptySubsequences: false).count - 1 {
@@ -53,9 +52,23 @@ func formatRecordingDuration(_ recordedSeconds: Double) -> (time: String, unit: 
     return (recordedTime, unit)
 }
 
-/// `runWithTimeout`: the operation's result, or nil when it takes longer than `milliseconds`. The operation
-/// is not cancelled, as in the Homebridge plugin: it finishes on its own.
-func protectTimeout<T: Sendable>(milliseconds: Int, _ operation: @escaping @Sendable () async -> T?) async -> T? {
+/// The time of the code that budgets real time (snapshots); tests replace it with one that stands still, so a
+/// loaded machine does not run their budgets out (`ProtectDependencies.snapshotClock`).
+protocol ProtectClock: Sendable {
+    var now: ContinuousClock.Instant { get }
+    /// Returns after `duration`, or when the task is cancelled.
+    func sleep(for duration: Duration) async
+}
+
+/// The real clock.
+struct SystemProtectClock: ProtectClock {
+    var now: ContinuousClock.Instant { .now }
+    func sleep(for duration: Duration) async { try? await Task.sleep(for: duration) }
+}
+
+/// `runWithTimeout`: the operation's result, or nil when it takes longer than `milliseconds` on `clock`. The
+/// operation is not cancelled, as in the Homebridge plugin: it finishes on its own.
+func protectTimeout<T: Sendable>(milliseconds: Int, clock: any ProtectClock = SystemProtectClock(), _ operation: @escaping @Sendable () async -> T?) async -> T? {
     await withCheckedContinuation { (continuation: CheckedContinuation<T?, Never>) in
         let resumed = NIOLockedValueBox(false)
         let resume: @Sendable (T?) -> Void = { value in
@@ -66,7 +79,7 @@ func protectTimeout<T: Sendable>(milliseconds: Int, _ operation: @escaping @Send
             if first { continuation.resume(returning: value) }
         }
         let timeout = Task {
-            try? await Task.sleep(for: .milliseconds(max(milliseconds, 0)))
+            await clock.sleep(for: .milliseconds(max(milliseconds, 0)))
             resume(nil)
         }
         Task {

@@ -49,6 +49,12 @@ final class HomeswiftFfmpegKit: ProtectFfmpegKit {
         return process
     }
 
+    func startProcess(options: any ProtectFfmpegOptions, arguments: [String]) -> any ProtectFfmpegProcess {
+        let process = FfmpegProcess(Self.native(options), commandLineArgs: arguments)
+        process.start()
+        return process
+    }
+
     func exec(options: any ProtectFfmpegOptions, arguments: [String], stdin: Data?, timeout: Int?, logErrors: Bool) async -> (exitCode: Int32?, stdout: Data)? {
         guard let result = await FfmpegExec(Self.native(options), commandLineArgs: arguments, logErrors: logErrors).exec(stdin, timeout: timeout) else { return nil }
         return (result.exitCode, result.stdout)
@@ -69,6 +75,8 @@ extension FfmpegProcess {
         if !onceExit({ _ in handler() }) { handler() }
     }
 }
+
+extension FfmpegProcess: ProtectFfmpegProcess {}
 
 extension FfmpegStreamingProcess: ProtectFfmpegStreamingProcess {}
 
@@ -113,14 +121,12 @@ final class RecordingBridge: CameraRecordingDelegate {
         calls.yield { delegate.updateRecordingConfiguration(configuration) }
     }
 
+    /// The delegate produces straight into HomeKit's stream, in order with the stream's acknowledgement and
+    /// close: a close that comes before production starts stops it.
     func handleRecordingStreamRequest(streamID: Int) -> AsyncThrowingStream<RecordingPacket, any Error> {
         let delegate = self.delegate
         let (packets, continuation) = AsyncThrowingStream.makeStream(of: RecordingPacket.self)
-        let task = Task { @ProtectActor in
-            for await packet in delegate.handleRecordingStreamRequest(streamID: streamID) { continuation.yield(packet) }
-            continuation.finish()
-        }
-        continuation.onTermination = { _ in task.cancel() }
+        calls.yield { delegate.beginRecordingStream(streamID: streamID, continuation) }
         return packets
     }
 

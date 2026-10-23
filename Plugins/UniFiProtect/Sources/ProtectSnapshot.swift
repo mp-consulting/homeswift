@@ -7,6 +7,11 @@ import HomeswiftNetwork
 /// snapshot API (first for package cameras, whose low frame rate makes FFmpeg slow), and a recent image when
 /// all of them fail. Identical requests in flight share one attempt, and an image a few seconds old serves
 /// again while nothing happened on the camera.
+///
+/// A third-party camera with a URL of its own (`cameraOverrides`) is reached directly, whatever the
+/// controller says of it: Protect often reports such cameras disconnected, and its snapshot API has nothing
+/// for them. The RTSP URL is then grabbed with FFmpeg even without `Video.HighResSnapshots`, being their only
+/// source of pixels.
 @ProtectActor
 final class ProtectSnapshot {
     private struct Cached {
@@ -23,12 +28,15 @@ final class ProtectSnapshot {
     private let options: any ProtectFfmpegOptions
     private var cached: Cached?
     private var pending: [String: Task<Data?, Never>] = [:]
+    /// The time the budget, the freshness of a cached image and the timeouts go by; tests stop it.
+    private let clock: any ProtectClock
 
     init(camera: ProtectCamera, stream: ProtectStreamingDelegate, ffmpeg: any ProtectFfmpegKit, options: any ProtectFfmpegOptions) {
         self.camera = camera
         self.stream = stream
         self.ffmpeg = ffmpeg
         self.options = options
+        clock = camera.platform.dependencies.snapshotClock
     }
 
     private var log: ProtectLog { camera.log }
@@ -36,18 +44,21 @@ final class ProtectSnapshot {
     /// A snapshot, or nil when none could be had.
     func getSnapshot(_ request: SnapshotRequest?) async -> Data? {
         let api = camera.api
-        guard await api.bootstrap != nil, !(await api.isThrottled), camera.isOnline else { return nil }
+        let connected = await api.bootstrap != nil
+        let throttled = await api.isThrottled
+        let controllerUsable = connected && !throttled && camera.isOnline
+        guard controllerUsable || camera.hasDirectSource else { return nil }
         if let fresh = freshSnapshot(request) { return fresh }
         let cachedSnapshot = cachedImage
-        let deadline = ContinuousClock.now + .milliseconds(ProtectSettings.snapshotTimeout)
+        let deadline = clock.now + .milliseconds(ProtectSettings.snapshotTimeout)
         let key = request.map { "\($0.width)x\($0.height)" } ?? "default"
         if let pending = pending[key] {
-            let shared = await protectTimeout(milliseconds: ProtectSettings.snapshotTimeout) { await pending.value }
+            let shared = await protectTimeout(milliseconds: ProtectSettings.snapshotTimeout, clock: clock) { await pending.value }
             return shared ?? fallback(cachedSnapshot)
         }
-        let attempt = Task { @ProtectActor in await self.takeSnapshot(request, deadline: deadline) }
+        let attempt = Task { @ProtectActor in await self.takeSnapshot(request, deadline: deadline, controllerUsable: controllerUsable) }
         pending[key] = attempt
-        let result = await protectTimeout(milliseconds: ProtectSettings.snapshotTimeout) { [weak self] in
+        let result = await protectTimeout(milliseconds: ProtectSettings.snapshotTimeout, clock: clock) { [weak self] in
             let image = await attempt.value
             await self?.finished(key, attempt)
             return image
@@ -59,16 +70,17 @@ final class ProtectSnapshot {
         if pending[key] == attempt { pending[key] = nil }
     }
 
-    private func takeSnapshot(_ request: SnapshotRequest?, deadline: ContinuousClock.Instant) async -> Data? {
+    /// `controllerUsable`: the controller answers and has the camera online, so its snapshot API may be tried.
+    private func takeSnapshot(_ request: SnapshotRequest?, deadline: ContinuousClock.Instant, controllerUsable: Bool) async -> Data? {
         var image = await snapFromURLOverride()
         if image == nil { image = await snapFromTimeshift(budget(deadline, hasFallback: true), request) }
         if image == nil {
             if camera.context.packageCamera != nil {
-                image = await snapFromAPI(budget(deadline, hasFallback: true), usePackageCamera: true, request)
+                if controllerUsable { image = await snapFromAPI(budget(deadline, hasFallback: true), usePackageCamera: true, request) }
                 if image == nil { image = await snapFromRTSP(budget(deadline, hasFallback: false), request) }
             } else {
-                image = await snapFromRTSP(budget(deadline, hasFallback: true), request)
-                if image == nil { image = await snapFromAPI(budget(deadline, hasFallback: false), usePackageCamera: false, request) }
+                image = await snapFromRTSP(budget(deadline, hasFallback: controllerUsable), request)
+                if image == nil, controllerUsable { image = await snapFromAPI(budget(deadline, hasFallback: false), usePackageCamera: false, request) }
             }
         }
         guard var snapshot = image else { return nil }
@@ -78,7 +90,7 @@ final class ProtectSnapshot {
             snapshot = cropped ?? snapshot
         }
         let markers = eventMarkers
-        cached = Cached(image: snapshot, lastMotion: markers.lastMotion, lastRing: markers.lastRing, request: request, time: .now)
+        cached = Cached(image: snapshot, lastMotion: markers.lastMotion, lastRing: markers.lastRing, request: request, time: clock.now)
         return snapshot
     }
 
@@ -93,22 +105,46 @@ final class ProtectSnapshot {
 
     /// Milliseconds a source may take, keeping a reserve for the source after it.
     private func budget(_ deadline: ContinuousClock.Instant, hasFallback: Bool) -> Int {
-        let left = ContinuousClock.now.duration(to: deadline)
+        let left = clock.now.duration(to: deadline)
         let milliseconds = Int(left.components.seconds * 1000) + Int(left.components.attoseconds / 1_000_000_000_000_000)
         return milliseconds - (hasFallback ? ProtectSettings.snapshotFallbackReserve : 0)
     }
 
     /// The camera's own snapshot URL (`snapshotUrl` of a camera override): any certificate, at most 10 MB.
+    /// Credentials in the URL (`http://user:password@camera/…`) go as Basic authentication, or Digest when the
+    /// camera asks for it, and never in the request line.
     private func snapFromURLOverride() async -> Data? {
         let override = camera.hints.snapshotUrlOverride
         guard !override.isEmpty else { return nil }
-        guard let url = URL(string: override) else {
+        guard var components = URLComponents(string: override) else {
+            log.warning("Snapshot URL override request failed: invalid URL.")
+            return nil
+        }
+        let user = components.user.map { $0.removingPercentEncoding ?? $0 }
+        let password = components.password.map { $0.removingPercentEncoding ?? $0 } ?? ""
+        components.user = nil
+        components.password = nil
+        guard let url = components.url else {
             log.warning("Snapshot URL override request failed: invalid URL.")
             return nil
         }
         do {
-            let request = HTTPRequest(method: "GET", url: url, timeout: .milliseconds(ProtectSettings.snapshotTimeout))
-            let response = try await camera.platform.dependencies.transport.send(request, tls: override.hasPrefix("https://") ? .any : .system)
+            let transport = camera.platform.dependencies.transport
+            let tls: HTTPClient.TLS = override.lowercased().hasPrefix("https://") ? .any : .system
+            var request = HTTPRequest(method: "GET", url: url, timeout: .milliseconds(ProtectSettings.snapshotTimeout))
+            if let user, !user.isEmpty {
+                request.setHeader("Authorization", "Basic " + Data((user + ":" + password).utf8).base64EncodedString())
+            }
+            var response = try await transport.send(request, tls: tls)
+            if response.status == 401, let user, !user.isEmpty, let challenge = response.header("www-authenticate") {
+                var digest = DigestAuthentication(username: user, password: password)
+                let uri = (components.percentEncodedPath.isEmpty ? "/" : components.percentEncodedPath)
+                    + (components.percentEncodedQuery.map { "?" + $0 } ?? "")
+                if digest.accept(challenge: challenge), let authorization = digest.authorization(method: "GET", uri: uri) {
+                    request.setHeader("Authorization", authorization)
+                    response = try await transport.send(request, tls: tls)
+                }
+            }
             guard response.status == 200 else {
                 log.warning("Snapshot URL override returned HTTP \(response.status).")
                 return nil
@@ -142,9 +178,16 @@ final class ProtectSnapshot {
     }
 
     private func snapFromRTSP(_ budget: Int, _ request: SnapshotRequest?) async -> Data? {
-        guard camera.hints.highResSnapshots, let stream, let entry = camera.findRtsp(width: 3840, height: 2160, biasHigher: true) else { return nil }
-        let input = ["-avioflags", "direct", "-r", String(entry.channel.fps), "-probesize", String(stream.probesize), "-rtsp_transport", "tcp", "-i", entry.url]
-        return await snapFromFfmpeg(input, budget: budget, request)
+        guard camera.hints.highResSnapshots || camera.hasDirectStream, let stream,
+              let entry = camera.findRtsp(width: 3840, height: 2160, biasHigher: true) else { return nil }
+        return await snapFromFfmpeg(Self.rtspInput(entry, probesize: stream.probesize), budget: budget, request)
+    }
+
+    /// FFmpeg's input options for an RTSP snapshot. A frame rate the controller does not know (0, which a
+    /// third-party camera can report) is left to FFmpeg: `-r 0` would fail.
+    nonisolated static func rtspInput(_ entry: RtspEntry, probesize: Int) -> [String] {
+        ["-avioflags", "direct"] + (entry.channel.fps > 0 ? ["-r", String(entry.channel.fps)] : [])
+            + ["-probesize", String(probesize), "-rtsp_transport", "tcp", "-i", entry.url]
     }
 
     /// The FFmpeg command line of a snapshot: one key frame, scaled down (never up) to the request with
@@ -184,7 +227,7 @@ final class ProtectSnapshot {
     /// An image from the last five seconds that answers this request, taken after the camera's last motion
     /// and ring.
     private func freshSnapshot(_ request: SnapshotRequest?) -> Data? {
-        guard let cached, ContinuousClock.now - cached.time <= .seconds(ProtectSettings.snapshotCacheFreshness) else { return nil }
+        guard let cached, clock.now - cached.time <= .seconds(ProtectSettings.snapshotCacheFreshness) else { return nil }
         let markers = eventMarkers
         guard markers.lastMotion == cached.lastMotion, markers.lastRing == cached.lastRing else { return nil }
         guard let request else { return cached.request == nil ? cached.image : nil }
@@ -198,7 +241,7 @@ final class ProtectSnapshot {
 
     /// The last image when it is at most 90 seconds old.
     private var cachedImage: Data? {
-        guard let cached, ContinuousClock.now - cached.time <= .seconds(ProtectSettings.snapshotCacheMaxAge) else {
+        guard let cached, clock.now - cached.time <= .seconds(ProtectSettings.snapshotCacheMaxAge) else {
             cached = nil
             return nil
         }

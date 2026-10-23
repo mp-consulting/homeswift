@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 
 extension UniFiProtectPlugin {
     /// The `UniFi Protect` platform block of `homebridge-unifi-protect`, key for key. Decoding is lenient as
@@ -127,7 +128,8 @@ extension UniFiProtectPlugin {
             controllers = (try? container.decode([Lenient<Controller>].self, forKey: .controllers))?.compactMap(\.value) ?? []
             debug = container.lenientBool(.debug) ?? false
             options = (try? container.decode([Lenient<String>].self, forKey: .options))?.compactMap(\.value) ?? []
-            ringDelay = max(0, container.lenientInt(.ringDelay) ?? 0)
+            // Seconds; a day at most, so the ring timer never overflows.
+            ringDelay = min(max(0, container.lenientInt(.ringDelay) ?? 0), 86_400)
             verboseFfmpeg = container.lenientBool(.verboseFfmpeg) ?? false
             videoProcessor = container.lenientString(.videoProcessor)?.trimmingCharacters(in: .whitespaces).nonEmpty
         }
@@ -179,7 +181,7 @@ extension KeyedDecodingContainer {
     }
 
     func lenientInt(_ key: Key) -> Int? {
-        lenientDouble(key).flatMap { $0.isFinite ? Int($0) : nil }
+        lenientDouble(key).flatMap { $0.isFinite ? Int(saturating: $0) : nil }
     }
 
     func lenientBool(_ key: Key) -> Bool? {
