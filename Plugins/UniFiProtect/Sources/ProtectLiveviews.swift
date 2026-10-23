@@ -175,7 +175,8 @@ final class ProtectSecuritySystem: ProtectBase {
     private func configureDevice() {
         let saved = context.securityState ?? HAPConstants.SecuritySystemCurrentState.stayArm
         context = ProtectAccessoryContext(nvr: nvr.mac, securityState: saved)
-        accessory.setInformation(manufacturer: "github.com/mp-consulting", model: "UniFi Protect Liveview Security System", serialNumber: nvr.mac + ".Security")
+        accessory.setInformation(manufacturer: "github.com/mp-consulting", model: "UniFi Protect Liveview Security System", serialNumber: nvr.mac + ".Security",
+                                 hardwareRevision: ProtectDeviceConfig(nvr.ufp).hardwareRevision)
         configureMqtt()
         configureSecuritySystem()
         configureSecurityAlarm()
@@ -347,7 +348,8 @@ final class ProtectNvrSystemInfo: ProtectBase {
         self.accessory = accessory
         platform.contexts[id] = ProtectAccessoryContext(nvr: nvr.mac, systemInfo: true)
         let device = ProtectDeviceConfig(nvr.ufp)
-        accessory.setInformation(manufacturer: "Ubiquiti Inc.", model: device.marketName ?? device.type, serialNumber: device.mac, firmwareRevision: device.firmwareVersion)
+        accessory.setInformation(manufacturer: "Ubiquiti Inc.", model: device.marketName ?? device.type, serialNumber: device.mac, firmwareRevision: device.firmwareVersion,
+                                 hardwareRevision: device.hardwareRevision)
         let enabled = updateDevice(configureHandler: true)
         log.info(enabled.isEmpty ? "No system information sensors enabled." : "Enabled system information sensor\(enabled.count > 1 ? "s" : ""): \(enabled.joined(separator: ", ")).")
         await accessory.publish()

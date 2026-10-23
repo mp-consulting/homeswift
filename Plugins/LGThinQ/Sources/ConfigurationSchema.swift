@@ -326,7 +326,7 @@ extension LGThinQPlugin {
                 "devices[].air_fast_mode"
               ],
               "condition": {
-                "functionBody": "return model.devices && model.devices[arrayIndices] && ['AIR_PURIFIER'].includes(model.devices[arrayIndices].type);"
+                "functionBody": "return model.devices && model.devices[arrayIndices] && ['AIR_PURIFIER', 'AERO_TOWER'].includes(model.devices[arrayIndices].type);"
               }
             },
             {

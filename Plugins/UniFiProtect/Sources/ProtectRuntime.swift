@@ -143,6 +143,8 @@ final class ProtectAccessory {
     var model = "UniFi Protect"
     var serialNumber: String?
     var firmwareRevision = "1.0.0"
+    /// The Hardware Revision characteristic of the information service, when Protect reports one.
+    var hardwareRevision: String?
     /// Published on a server of its own (`Device.Standalone`) rather than on the bridge.
     var isStandalone = false
     private(set) var services: [Service] = []
@@ -171,11 +173,12 @@ final class ProtectAccessory {
         isDirty = true
     }
 
-    func setInformation(manufacturer: String? = nil, model: String? = nil, serialNumber: String? = nil, firmwareRevision: String? = nil) {
+    func setInformation(manufacturer: String? = nil, model: String? = nil, serialNumber: String? = nil, firmwareRevision: String? = nil, hardwareRevision: String? = nil) {
         if let manufacturer, manufacturer != self.manufacturer { self.manufacturer = manufacturer; isDirty = true }
         if let model, !model.isEmpty, model != self.model { self.model = model; isDirty = true }
         if let serialNumber, !serialNumber.isEmpty, serialNumber != self.serialNumber { self.serialNumber = serialNumber; isDirty = true }
         if let firmwareRevision, !firmwareRevision.isEmpty, firmwareRevision != self.firmwareRevision { self.firmwareRevision = firmwareRevision; isDirty = true }
+        if let hardwareRevision, !hardwareRevision.isEmpty, hardwareRevision != self.hardwareRevision { self.hardwareRevision = hardwareRevision; isDirty = true }
     }
 
     func service(_ type: ServiceType, subtype: String? = nil) -> Service? {
@@ -270,6 +273,7 @@ final class ProtectAccessory {
         let accessory = Accessory(
             id: id, name: name, manufacturer: manufacturer, model: model, serialNumber: serialNumber, firmwareRevision: firmwareRevision,
             category: category, services: services.filter { service in !cameraServices.contains { $0 === service } })
+        if let hardwareRevision { accessory.information.characteristic(adding: .hardwareRevision).value = .string(hardwareRevision) }
         if let cameraController { accessory.configureController(cameraController) }
         do {
             if isStandalone {

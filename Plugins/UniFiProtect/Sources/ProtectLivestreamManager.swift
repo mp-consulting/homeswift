@@ -1,4 +1,5 @@
 import Foundation
+import HomeswiftFFmpeg
 import HomeswiftPlugin
 
 /// The livestream API sessions of a camera, shared by their consumers (`LivestreamManager`): the timeshift
@@ -6,8 +7,8 @@ import HomeswiftPlugin
 /// last. A watchdog restarts a session that stops delivering segments, with a growing backoff, and, with
 /// `Device.SelfHealing`, reboots a camera whose livestream keeps failing.
 ///
-/// The Homebridge plugin's debug-only `Debug.Video.HKSV.UseRtsp` (an FFmpeg process reading RTSP instead of
-/// the livestream API) is not ported.
+/// With the debug-only `Debug.Video.HKSV.UseRtsp` and an HKSV recording configuration, a session is FFmpeg
+/// reading the channel's RTSP stream instead of the livestream API, restarted the same way.
 @ProtectActor
 final class ProtectLivestreamManager {
     private weak var camera: ProtectCamera?
@@ -45,7 +46,15 @@ final class ProtectLivestreamManager {
         let index = Self.index(entry).index
         if let livestream = livestreams[index] { return livestream }
         subscribers[index] = 0
-        let livestream = camera.api.createLivestream(log: camera.log)
+        let livestream: ProtectLivestream
+        if camera.hasFeature("Debug.Video.HKSV.UseRtsp"), let stream = camera.stream, let hksv = stream.hksv, let configuration = hksv.recordingConfiguration {
+            let process = stream.ffmpeg.makeLivestream(
+                options: stream.ffmpegOptions, configuration: configuration,
+                livestreamOptions: FMp4LivestreamOptions(url: entry.url, codec: camera.ufp.videoCodec, enableAudio: hksv.isAudioActive), verbose: false)
+            livestream = ProtectLivestream(rtsp: process, api: camera.api, log: camera.log)
+        } else {
+            livestream = camera.api.createLivestream(log: camera.log)
+        }
         livestreams[index] = livestream
         return livestream
     }
@@ -81,10 +90,14 @@ final class ProtectLivestreamManager {
         guard let camera else { return false }
         let (channel, index, lens) = Self.index(entry)
         guard let livestream = livestreams[index] else { return false }
-        let options = ProtectLivestream.Options(chunkSize: 16384, emitTimestamps: true, lens: lens ?? 0, requestId: camera.name + ":" + index, segmentLength: segmentLength)
-        guard await livestream.start(cameraID: camera.ufp.id, channel: channel, options: options) else {
-            camera.log.error("Unable to access the Protect livestream API: this is typically due to the Protect controller or camera rebooting.")
-            return false
+        if livestream.isRtsp {
+            guard livestream.startRtsp(segmentLength: segmentLength) else { return false }
+        } else {
+            let options = ProtectLivestream.Options(chunkSize: 16384, emitTimestamps: true, lens: lens ?? 0, requestId: camera.name + ":" + index, segmentLength: segmentLength)
+            guard await livestream.start(cameraID: camera.ufp.id, channel: channel, options: options) else {
+                camera.log.error("Unable to access the Protect livestream API: this is typically due to the Protect controller or camera rebooting.")
+                return false
+            }
         }
         // Shut down while it started.
         guard livestreams[index] === livestream else {
@@ -180,14 +193,18 @@ final class ProtectLivestreamManager {
                 }
             }
         }
-        camera.log.warning("Reconnecting to the livestream API.")
+        camera.log.warning("Reconnecting to the \(livestream.isRtsp ? "RTSP stream" : "livestream API").")
         // Time for a reboot or a stuck session on the controller to clear.
         let delay = (Double.random(in: 0..<3) + Double(restartDelay[index] ?? ProtectSettings.livestreamRestartInterval)) * 1000
         await camera.timers.sleep(Int(delay))
         if isStale() { return }
         let (channel, _, lens) = Self.index(entry)
-        _ = await livestream.start(cameraID: camera.ufp.id, channel: channel,
-                                   options: .init(lens: lens ?? 0, requestId: camera.name + ":" + index, segmentLength: segmentLength))
+        if livestream.isRtsp {
+            _ = livestream.startRtsp(segmentLength: segmentLength)
+        } else {
+            _ = await livestream.start(cameraID: camera.ufp.id, channel: channel,
+                                       options: .init(lens: lens ?? 0, requestId: camera.name + ":" + index, segmentLength: segmentLength))
+        }
         if isStale() {
             livestream.stop()
             return

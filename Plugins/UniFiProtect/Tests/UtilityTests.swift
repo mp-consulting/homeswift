@@ -187,6 +187,16 @@ import Glibc
         #expect(ProtectCamera.homeKitResolutions(for: []) == nil)
     }
 
+    // MARK: Assistant (homebridge-ui/assistant.js)
+
+    @Test func assistantBackground() throws {
+        let background = try #require(UniFiProtectPlugin.assistantBackground)
+        #expect(background.count > 1000 && background.contains("Homeswift") && !background.contains("Homebridge"))
+        // The files and messages the port has.
+        #expect(background.contains(ProtectSettings.tlsPinFile) && background.contains("plugins/"))
+        #expect(background.contains("Invalid login credentials given") && background.contains("Throttling API calls"))
+    }
+
     // MARK: Playlist (protect-playlist.test.ts, playlist-filter.test.ts)
 
     @Test func playlist() {
