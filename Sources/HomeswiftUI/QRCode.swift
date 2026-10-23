@@ -1,7 +1,8 @@
 import Foundation
 
-/// A QR code (ISO/IEC 18004) for short text: byte mode, versions 1 to 6, error correction level M. Enough
-/// for a HomeKit setup URI, which the Home app's camera reads; `svg()` draws it.
+/// A QR code (ISO/IEC 18004) for short text: byte mode, versions 1 to 9, error correction level M. Enough
+/// for a HomeKit setup URI, which the Home app's camera reads, and an authenticator app's `otpauth://` URI;
+/// `svg()` draws it.
 public struct QRCode: Sendable, Equatable {
     public enum Error: Swift.Error, Equatable { case tooLong(maximum: Int) }
 
@@ -12,11 +13,12 @@ public struct QRCode: Sendable, Equatable {
     /// `modules[row][column]`, true for dark.
     public let modules: [[Bool]]
 
-    /// Level M, versions 1 to 6: data codewords, EC codewords per block, and the number of equal blocks.
+    /// Level M, versions 1 to 9: data codewords, EC codewords per block, and the number of blocks. When the data
+    /// does not divide evenly (versions 8 and 9), the last blocks carry one codeword more.
     private static let table: [(data: Int, ec: Int, blocks: Int)] = [
-        (16, 10, 1), (28, 16, 1), (44, 26, 1), (64, 18, 2), (86, 24, 2), (108, 16, 4),
+        (16, 10, 1), (28, 16, 1), (44, 26, 1), (64, 18, 2), (86, 24, 2), (108, 16, 4), (124, 18, 4), (154, 22, 4), (182, 22, 5),
     ]
-    private static let alignment: [[Int]] = [[], [6, 18], [6, 22], [6, 26], [6, 30], [6, 34]]
+    private static let alignment: [[Int]] = [[], [6, 18], [6, 22], [6, 26], [6, 30], [6, 34], [6, 22, 38], [6, 24, 42], [6, 26, 46]]
 
     /// The most bytes a version can carry in byte mode.
     static func capacity(version: Int) -> Int {
@@ -77,17 +79,25 @@ public struct QRCode: Sendable, Equatable {
         return bits.bytes
     }
 
-    /// Splits the data into equal blocks, appends each block's Reed-Solomon codewords, and interleaves them.
+    /// Splits the data into blocks (the longer ones last), appends each block's Reed-Solomon codewords, and
+    /// interleaves them: a codeword of each block in turn, the longer blocks' extra one at the end.
     static func interleave(_ data: [UInt8], version: Int) -> [UInt8] {
         let entry = table[version - 1]
-        let length = entry.data / entry.blocks
-        let blocks = (0..<entry.blocks).map { Array(data[$0 * length..<($0 + 1) * length]) }
+        let short = entry.data / entry.blocks
+        let longer = entry.data % entry.blocks
+        var blocks: [[UInt8]] = []
+        var start = 0
+        for index in 0..<entry.blocks {
+            let length = short + (index >= entry.blocks - longer ? 1 : 0)
+            blocks.append(Array(data[start..<start + length]))
+            start += length
+        }
         let divisor = ReedSolomon.divisor(degree: entry.ec)
         let ecs = blocks.map { ReedSolomon.remainder(of: $0, divisor: divisor) }
         var result: [UInt8] = []
         result.reserveCapacity(entry.data + entry.blocks * entry.ec)
-        for index in 0..<length {
-            for block in blocks { result.append(block[index]) }
+        for index in 0..<(short + (longer > 0 ? 1 : 0)) {
+            for block in blocks where index < block.count { result.append(block[index]) }
         }
         for index in 0..<entry.ec {
             for ec in ecs { result.append(ec[index]) }
@@ -181,7 +191,22 @@ public struct QRCode: Sendable, Equatable {
                     }
                 }
             }
+            if version >= 7 { drawVersion(version) }
             drawFormat(mask: 0)   // reserves the modules; the final bits come with the chosen mask
+        }
+
+        /// From version 7: the version, BCH(18, 6)-coded, in a 6×3 block above the bottom-left finder and its
+        /// mirror left of the top-right one.
+        private mutating func drawVersion(_ version: Int) {
+            var remainder = version
+            for _ in 0..<12 { remainder = (remainder << 1) ^ ((remainder >> 11) * 0x1F25) }
+            let bits = version << 12 | remainder
+            for index in 0..<18 {
+                let dark = (bits >> index) & 1 == 1
+                let a = size - 11 + index % 3, b = index / 3
+                setFunction(a, b, dark)
+                setFunction(b, a, dark)
+            }
         }
 
         private mutating func drawFinder(_ x: Int, _ y: Int) {
