@@ -392,6 +392,13 @@ it is felt. The answers are larger than they are slow: the hour of log is 600 KB
 which a phone on Wi-Fi takes 10–50 ms to receive, more than the bridge takes to make them, and the browser takes
 longer still to lay them out. A home of 50 accessories gets its accessory list in about half a millisecond.
 
+The MCP accessory tools were then profiled rather than set aside: building the accessories was a fifth of
+`list_accessories`, writing the answer the rest, since MCP carries the JSON twice (as pretty text inside a string, and
+as structured content) and that text, full of quotes and newlines, was escaped a byte at a time with an array per
+escape. Commit `06f2526` copies the runs between escapes whole:
+`list_accessories` 5.4 → 4.7 ms and `resources/read accessories` 4.5 → 3.4 ms with 300 accessories, 1.7 → 1.5 and
+1.3 → 0.9 ms with 60, back to back. What is left there is that double carriage, which the protocol asks for.
+
 ### Adding accessories
 
 A plugin adds its accessories one at a time. Each add rewrote the whole accessory cache with `JSONEncoder`, and
