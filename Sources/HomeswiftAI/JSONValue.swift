@@ -77,10 +77,10 @@ public enum JSONValue: Sendable, Hashable, Codable, CustomStringConvertible {
         self = try JSONValueParser.parse(bytes)
     }
 
-    /// The members of a JSON object, in order, parsed in place without building a dictionary (duplicate keys are
-    /// all there): cheaper for many small objects whose keys are read once.
-    public static func members(of bytes: UnsafeRawBufferPointer) throws -> [(key: String, value: JSONValue)] {
-        try JSONValueParser.members(bytes).map { (key: $0.0, value: $0.1) }
+    /// Calls `body` with each member of a JSON object, in order, parsed in place without a dictionary or an array
+    /// (duplicate keys come each time): for many small objects whose keys are read once, the log archive's rows.
+    public static func forEachMember(of bytes: UnsafeRawBufferPointer, _ body: (_ key: String, _ value: JSONValue) -> Void) throws {
+        try JSONValueParser.forEachMember(bytes, body)
     }
 
     /// Appends `string` as JSON, escaped as `encoded()` escapes it: for answers written a piece at a time.
@@ -355,34 +355,34 @@ struct JSONValueParser {
 
     /// The members of the object `raw` holds, in order, without a dictionary: for many small objects read a key at a
     /// time (the log archive's rows).
-    static func members(_ raw: UnsafeRawBufferPointer) throws -> [(String, JSONValue)] {
+    /// Each member of the object `raw` holds, in order, without a dictionary or an array of them.
+    static func forEachMember(_ raw: UnsafeRawBufferPointer, _ body: (String, JSONValue) -> Void) throws {
         var parser = JSONValueParser(bytes: raw.bindMemory(to: UInt8.self))
         parser.skipWhitespace()
         guard parser.index < parser.bytes.count, parser.bytes[parser.index] == UInt8(ascii: "{") else { throw parser.error("expected an object") }
-        let members = try parser.members()
+        try parser.members(body)
         parser.skipWhitespace()
         guard parser.index == parser.bytes.count else { throw parser.error("unexpected text after the value") }
-        return members
     }
 
     private mutating func object() throws -> JSONValue {
         // The members first, then a dictionary of the right size: growing one member at a time cost more than
         // the rest of parsing.
-        let members = try members()
+        var members: [(String, JSONValue)] = []
+        try self.members { members.append(($0, $1)) }
         var object = [String: JSONValue](minimumCapacity: members.count)
         for (key, value) in members { object[key] = value }
         return .object(object)
     }
 
-    private mutating func members() throws -> [(String, JSONValue)] {
+    private mutating func members(_ body: (String, JSONValue) -> Void) throws {
         try nest()
         index += 1
-        var members: [(String, JSONValue)] = []
         skipWhitespace()
         if index < bytes.count, bytes[index] == UInt8(ascii: "}") {
             index += 1
             depth -= 1
-            return members
+            return
         }
         while true {
             skipWhitespace()
@@ -391,7 +391,7 @@ struct JSONValueParser {
             skipWhitespace()
             guard index < bytes.count, bytes[index] == UInt8(ascii: ":") else { throw error("expected :") }
             index += 1
-            members.append((key, try value()))
+            body(key, try value())
             skipWhitespace()
             guard index < bytes.count else { throw error("unexpected end") }
             if bytes[index] == UInt8(ascii: ",") {
@@ -399,7 +399,7 @@ struct JSONValueParser {
             } else if bytes[index] == UInt8(ascii: "}") {
                 index += 1
                 depth -= 1
-                return members
+                return
             } else {
                 throw error("expected , or }")
             }
@@ -450,9 +450,20 @@ struct JSONValueParser {
             for position in integer..<index { value = value * 10 + Int64(bytes[position] - UInt8(ascii: "0")) }
             return negative ? -Double(value) : Double(value)
         }
+        var fraction = 0
         if index < bytes.count, bytes[index] == UInt8(ascii: ".") {
             index += 1
-            guard digits() > 0 else { throw error("expected a digit") }
+            fraction = digits()
+            guard fraction > 0 else { throw error("expected a digit") }
+        }
+        // A decimal of at most 15 digits, no exponent (a log row's time): its digits and a power of ten are exact as
+        // Doubles, so one division rounds as strtod does (Clinger's fast path), with no text to make.
+        let whole = index - fraction - 1 - integer
+        if fraction > 0, whole + fraction <= 15, index == bytes.count || bytes[index] | 0x20 != UInt8(ascii: "e") {
+            var mantissa: Int64 = 0
+            for position in integer..<index where bytes[position] != UInt8(ascii: ".") { mantissa = mantissa * 10 + Int64(bytes[position] - UInt8(ascii: "0")) }
+            let value = Double(mantissa) / Self.powersOfTen[fraction]
+            return negative ? -value : value
         }
         if index < bytes.count, bytes[index] == UInt8(ascii: "e") || bytes[index] == UInt8(ascii: "E") {
             index += 1
@@ -465,6 +476,9 @@ struct JSONValueParser {
         }
         return value
     }
+
+    /// 1e0 to 1e15, exact as Doubles.
+    private static let powersOfTen: [Double] = [1, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15]
 
     private mutating func hex4() throws -> UInt32 {
         guard index + 4 <= bytes.count else { throw error("short \\u escape") }
