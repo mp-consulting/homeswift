@@ -177,16 +177,16 @@ public struct HomeswiftCatalog: Sendable {
     public static func accessoryJSON(_ located: Located, detailed: Bool) -> JSONValue {
         let accessory = located.accessory
         let information = accessory.information
-        var object: [String: JSONValue] = [
-            "id": .string(accessory.id),
-            "aid": .number(Double(accessory.aid)),
-            "name": .string(accessory.name),
-            "category": .string("\(accessory.category)"),
-            "bridge": .string(located.bridge.name),
-            "manufacturer": json(information[.manufacturer]?.value ?? .null),
-            "model": json(information[.model]?.value ?? .null),
-            "serialNumber": json(information[.serialNumber]?.value ?? .null),
-        ]
+        // Each dictionary is made at the size it ends up: growing them key by key was most of building the list.
+        var object = [String: JSONValue](minimumCapacity: 12)
+        object["id"] = .string(accessory.id)
+        object["aid"] = .number(Double(accessory.aid))
+        object["name"] = .string(accessory.name)
+        object["category"] = .string("\(accessory.category)")
+        object["bridge"] = .string(located.bridge.name)
+        object["manufacturer"] = json(information[.manufacturer]?.value ?? .null)
+        object["model"] = json(information[.model]?.value ?? .null)
+        object["serialNumber"] = json(information[.serialNumber]?.value ?? .null)
         if let platform = located.platform {
             object["platform"] = .string(platform.platform)
             object["platformName"] = .string(platform.name)
@@ -199,7 +199,8 @@ public struct HomeswiftCatalog: Sendable {
             if camera is DoorbellController || accessory.services.contains(where: { $0.type.uuid == ServiceType.doorbell.uuid }) { object["doorbell"] = true }
         }
         object["services"] = .array(accessory.services.filter { $0.type.uuid != ServiceType.accessoryInformation.uuid }.map { service in
-            var entry: [String: JSONValue] = ["type": .string(service.type.name)]
+            var entry = [String: JSONValue](minimumCapacity: 6)
+            entry["type"] = .string(service.type.name)
             if let subtype = service.subtype { entry["subtype"] = .string(subtype) }
             if let name = service[.name]?.value.stringValue { entry["name"] = .string(name) }
             if service.isPrimary { entry["primary"] = true }
@@ -208,10 +209,11 @@ public struct HomeswiftCatalog: Sendable {
             if detailed {
                 entry["characteristics"] = .array(service.characteristics.map { characteristic in
                     let type = characteristic.type
-                    var detail: [String: JSONValue] = [
-                        "type": .string(type.name), "value": isOpaque(characteristic) ? .null : value(of: characteristic), "format": .string(type.format.rawValue),
-                        "permissions": .array(type.permissions.map(\.rawValue).sorted().map(JSONValue.string)),
-                    ]
+                    var detail = [String: JSONValue](minimumCapacity: 12)
+                    detail["type"] = .string(type.name)
+                    detail["value"] = isOpaque(characteristic) ? .null : value(of: characteristic)
+                    detail["format"] = .string(type.format.rawValue)
+                    detail["permissions"] = .array(type.permissions.map(\.rawValue).sorted().map(JSONValue.string))
                     if characteristic.isSecurityControl { detail["security"] = true }
                     if characteristic.isConfidential { detail["confidential"] = true }
                     if isInternal(characteristic) { detail["internal"] = true }
