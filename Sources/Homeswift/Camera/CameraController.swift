@@ -309,6 +309,30 @@ public class CameraController: SerializableController, @unchecked Sendable {
         return image
     }
 
+    /// Whether the camera is on in the Home app (HomeKit Camera Active of Camera Operating Mode). A camera without
+    /// HomeKit Secure Video has no such switch and is always on.
+    public var isHomeKitCameraActive: Bool {
+        (recordingManagement?.operatingModeService[.homeKitCameraActive]?.value.intValue ?? 1) != 0
+    }
+
+    /// A snapshot for the bridge's own pages (the web UI's camera cards): the delegate's image, or
+    /// `operationTimedOut` after `timeout`. Refused, as HomeKit's requests are, while the camera is off in the Home
+    /// app; the settings of HomeKit's event and periodic snapshots do not apply.
+    public func previewSnapshot(width: Int, height: Int, timeout: Duration = .seconds(10)) async throws -> Data {
+        guard isHomeKitCameraActive else { throw HAPStatusError(.notAllowedInCurrentState) }
+        let delegate = options.delegate
+        let request = SnapshotRequest(height: height, width: width, reason: nil)
+        let first: Data? = try await Self.first(
+            { try await delegate.handleSnapshotRequest(request) },
+            {
+                try await Task.sleep(for: timeout)
+                return nil
+            })
+        guard let image = first else { throw HAPStatusError(.operationTimedOut) }
+        guard !image.isEmpty else { throw HAPStatusError(.serviceCommunicationFailure) }
+        return image
+    }
+
     /// The result of whichever operation finishes first, in unstructured tasks: returns then even when the other
     /// ignores cancellation (it is cancelled). Cancelling the caller throws `CancellationError` at once.
     static func first<T: Sendable>(_ operations: (@Sendable () async throws -> T)...) async throws -> T {

@@ -516,6 +516,62 @@ final class FakeFfmpegKit: ProtectFfmpegKit, @unchecked Sendable {
         #expect(!socket.isClosed)
     }
 
+    /// An ISO BMFF box.
+    static func box(_ type: String, _ body: Data) -> Data {
+        let size = UInt32(8 + body.count)
+        return Data([UInt8(size >> 24), UInt8(size >> 16 & 0xFF), UInt8(size >> 8 & 0xFF), UInt8(size & 0xFF)]) + Data(type.utf8) + body
+    }
+
+    /// An initialization segment with one H.264 track whose avcC says Main at level 4.0.
+    static let liveInitSegment: Data = box("ftyp", Data("isom".utf8)) + box("moov", box("trak", box("mdia", box("minf", box("stbl",
+        box("stsd", Data([0, 0, 0, 0, 0, 0, 0, 1]) + box("avc1", Data(count: 78) + box("avcC", Data([1, 0x4D, 0x40, 0x28, 0xFF])))))))))
+
+    @ProtectActor func liveFeedEntry(_ device: ProtectDevice?) -> RtspEntry? { (device as? ProtectCamera)?.liveFeedEntry }
+
+    @Test func liveFeedForTheWebUI() async throws {
+        let environment = ProtectTestEnvironment(timeScale: 1, ffmpeg: FakeFfmpegKit())
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        _ = await controller(environment, host, Self.cameraID)
+        let plugin = try #require(environment.plugin)
+        #expect(try await plugin.liveFeed(accessoryID: ProtectPlatform.accessoryID(Fixtures.lightMAC)) == nil)
+
+        let pending = Task { try await plugin.liveFeed(accessoryID: Self.cameraID) }
+        let socket = try #require(await eventually { environment.webSockets.connections.contains { $0.path.contains("livestream") } }
+            ? environment.webSockets.connections.last { $0.path.contains("livestream") } : nil)
+        // The channel with the fewest pixels: Low, which is light on the controller.
+        let request = try #require(environment.controller.requests("/proxy/protect/api/ws/livestream").last)
+        #expect(URLComponents(string: "https://x/?" + (request.query ?? ""))?.queryItems?.first { $0.name == "channel" }?.value == "2")
+        socket.push(ProtocolTests.livePacket(248, Data("avc1.640028,mp4a.40.2".utf8)) + ProtocolTests.livePacket(250, Self.liveInitSegment))
+        let feed = try #require(try await pending.value)
+        // The codecs of the segment itself, over what the API announced.
+        #expect(feed.mimeType == #"video/mp4; codecs="avc1.4d4028""#)
+        #expect(feed.initSegment == Self.liveInitSegment)
+        let segment = { (byte: UInt8) in
+            ProtocolTests.livePacket(249) + ProtocolTests.livePacket(251, Data([byte])) + ProtocolTests.livePacket(254, Data([byte + 1])) + ProtocolTests.livePacket(255)
+        }
+        socket.push(segment(1) + segment(3))
+        var fragments = feed.fragments.makeAsyncIterator()
+        #expect(try await fragments.next() == Data([1, 2]))
+        #expect(try await fragments.next() == Data([3, 4]))
+
+        // A second viewer joins the session: the initialization segment at once, one WebSocket.
+        let second = try #require(try await plugin.liveFeed(accessoryID: Self.cameraID))
+        #expect(second.initSegment == Self.liveInitSegment)
+        let entry = try #require(await liveFeedEntry(environment.device("camera-id")))
+        #expect(await livestreamSubscribers(environment.device("camera-id"), entry) == 2)
+        #expect(environment.webSockets.connections.filter { $0.path.contains("livestream") }.count == 1)
+
+        // Leaving releases the session; the last viewer stops it.
+        feed.cancel()
+        #expect(try await fragments.next() == nil)
+        #expect(await eventually { await self.livestreamSubscribers(environment.device("camera-id"), entry) == 1 })
+        #expect(!socket.isClosed)
+        second.cancel()
+        #expect(await eventually { await self.livestreamSubscribers(environment.device("camera-id"), entry) == 0 })
+        #expect(await eventually { socket.isClosed })
+    }
+
     @Test func twoWayAudio() async throws {
         let ffmpeg = FakeFfmpegKit()
         let controller = FakeController()

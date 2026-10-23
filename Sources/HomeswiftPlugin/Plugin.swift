@@ -74,6 +74,13 @@ public protocol HomeswiftPlugin: Sendable {
     /// Answers a request from the plugin's own pages (`homeswift.request()` in their script), which the
     /// web UI sends to `/api/plugins/<platform>/<name>/<path>` for a signed-in user. Defaults to 404.
     func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse
+
+    /// The live video of one of the plugin's cameras for the web UI's camera cards: fMP4 for Media Source
+    /// Extensions, its initialization segment first (`CameraLiveFeed`). The UI asks when a card comes into view
+    /// and cancels the feed when it leaves; share the camera's source with HomeKit's own streams where it can, and
+    /// prefer a low-bandwidth channel. Defaults to nil: the card shows the camera's snapshots instead, from its
+    /// `CameraController`.
+    func liveFeed(accessoryID: String) async throws -> CameraLiveFeed?
 }
 
 extension HomeswiftPlugin {
@@ -83,6 +90,7 @@ extension HomeswiftPlugin {
     public static var assistantActions: [AssistantAction] { [] }
     public func stop() async {}
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse { .error(404, "\(Self.name) has no web API") }
+    public func liveFeed(accessoryID: String) async throws -> CameraLiveFeed? { nil }
 }
 
 /// One route of a plugin's `handleWebRequest` that the Assistant may call, as the tool
