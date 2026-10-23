@@ -306,5 +306,18 @@ and looks for a free iid only when one is needed. With 300 accessories the bridg
 3.1 s (the Process table above); the rest is the first launch's own work, adding 300 accessories and logging
 5 000 lines.
 
-The HAP side (`hap-bench`) measured as in the tables above; its request path was not changed here.
+That first launch was still N²: every accessory with new ids rehashed the database and re-encoded the persisted
+state, its iid map included, with `JSONEncoder`. The ids are still saved with every such accessory; the state is
+written with the server's own JSON writer, and the number goes up without a hash (new ids change the database
+whatever it hashes to), the hash caught up a quarter of a second after the burst, or at `stop()`. Measured on a
+quiet machine (load average 35), no warm-up log lines (`LOG_LINES=0`), CPU time to 0.6 s after ready:
+
+| Startup, to ready | `7c45fef` | after | |
+|---|---:|---:|---:|
+| 300 accessories, a restart (cached accessories replaced by the plugin's) | 7 867 ms (7.8 s CPU) | 71 ms (0.12 s CPU) | 110× |
+| 300 accessories, first launch | 4 020 ms (4.0 s CPU) | 298 ms (0.36 s CPU) | 13× |
+| 60 accessories, a restart | 360 ms | 27 ms | 13× |
+| 60 accessories, first launch | 218 ms | 51 ms | 4× |
+
+The HAP side (`hap-bench`): see "Found along the way" above for its request path.
 
