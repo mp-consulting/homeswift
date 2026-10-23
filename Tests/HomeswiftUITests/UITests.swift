@@ -68,7 +68,7 @@ final class UITestEnvironment: @unchecked Sendable {
     let server: UIServer
     var configURL: URL { directory.appendingPathComponent("config.json") }
 
-    init(auth: UIConfiguration.AuthMode = .form, webRoot: URL? = nil, https: Bool = false) throws {
+    init(auth: UIConfiguration.AuthMode = .form, webRoot: URL? = nil, https: Bool = false, metrics: Metrics? = nil) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let config = """
             {
@@ -88,7 +88,8 @@ final class UITestEnvironment: @unchecked Sendable {
         options.systemPlatforms.insert(UIConfiguration.platform)
         host = try PluginHost(configuration: try HomeswiftConfiguration.decode(Data(config.utf8)), registry: registry, storageDirectory: directory, options: options)
         let restarts = self.restarts
-        let catalog = HomeswiftCatalog(host: host, logs: logs, configURL: directory.appendingPathComponent("config.json"), restart: { restarts.withLockedValue { $0 += 1 } }, logger: testLogger)
+        let catalog = HomeswiftCatalog(
+            host: host, logs: logs, metrics: metrics, configURL: directory.appendingPathComponent("config.json"), restart: { restarts.withLockedValue { $0 += 1 } }, logger: testLogger)
         var configuration = UIConfiguration()
         configuration.host = "127.0.0.1"
         configuration.port = 0
@@ -394,6 +395,36 @@ struct LogFilterTests {
     }
 }
 
+/// The Status page's charts: the history of the whole process, or of one accessory's calls.
+@Suite(.timeLimit(.minutes(1)))
+struct MetricsAPITests {
+    @Test func servesTheHistory() async throws {
+        let metrics = Metrics(directory: nil, interval: .seconds(60))
+        let environment = try UITestEnvironment(auth: .none, metrics: metrics)
+        let base = try await environment.start()
+        defer { Task { metrics.stop(); await environment.stop() } }
+        metrics.start(following: environment.host)
+        let lamp = try #require(environment.server.catalog.find(id: "Lamps:lamp")?.accessory)
+        try await #require(lamp.service(.lightbulb)?[.brightness]).write(.int(30))
+
+        let browser = Browser(base: base)
+        let all = try #require(try await browser.get("/api/metrics").json)
+        #expect(all["step"]?.doubleValue == 60)
+        #expect(all["latest"]?["memory"]?.doubleValue ?? 0 > 0)
+        #expect(all["points"]?.arrayValue?.last?["handlers"]?["count"]?.doubleValue == 1)
+        let one = try #require(try await browser.get("/api/metrics?accessory=Lamps:lock").json)
+        #expect(one["points"]?.arrayValue?.last?["handlers"] == .null)
+        #expect(try await browser.get("/api/metrics?from=2030-01-01T00:00:00Z&to=2029-01-01T00:00:00Z").status == 400)
+    }
+
+    @Test func answersNotFoundWithoutARecorder() async throws {
+        let environment = try UITestEnvironment(auth: .none)
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        #expect(try await Browser(base: base).get("/api/metrics").status == 404)
+    }
+}
+
 @Suite(.timeLimit(.minutes(1)))
 struct UIServerTests {
     @Test func servesPagesAndTheAPIBehindALogin() async throws {
@@ -594,7 +625,6 @@ struct UIServerTests {
         #expect(try await browser.get("/api/status").status == 200)
         #expect(try await browser.post("/api/auth/login", ["username": "x", "password": "y"]).status == 400)
     }
-}
 
     @Test func revalidatesScriptsAndStylesButNotPages() async throws {
         let environment = try UITestEnvironment(auth: .none)
@@ -614,3 +644,4 @@ struct UIServerTests {
         #expect(page.headers["cache-control"] == "no-store")
         #expect(page.headers["etag"] == nil)
     }
+}

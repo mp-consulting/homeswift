@@ -37,3 +37,22 @@ final class ChangeFeed: Sendable {
         return Observation { [self] in _ = observers.withLockedValue { $0.removeValue(forKey: id) } }
     }
 }
+
+/// How long requests and handlers take on every HAP server the host runs (`HAPServer.Timing`), with the server's
+/// bridge, followed the way `ChangeFeed` follows changes.
+final class TimingFeed: Sendable {
+    private let observers = NIOLockedValueBox<[UUID: @Sendable (PluginHost.Bridge, HAPServer.Timing) -> Void]>([:])
+
+    func follow(_ bridge: PluginHost.Bridge) {
+        bridge.server.observeTimings { [self, weak bridge] timing in
+            guard let bridge else { return }
+            for observer in observers.withLockedValue({ Array($0.values) }) { observer(bridge, timing) }
+        }
+    }
+
+    func add(_ observer: @escaping @Sendable (PluginHost.Bridge, HAPServer.Timing) -> Void) -> Observation {
+        let id = UUID()
+        observers.withLockedValue { $0[id] = observer }
+        return Observation { [self] in _ = observers.withLockedValue { $0.removeValue(forKey: id) } }
+    }
+}

@@ -436,6 +436,16 @@ public final class UIServer: Sendable {
                     return .json(.array(lines.map(Self.logJSON)))
                 }
                 return .json(.array(catalog.logs.recent(2000, matching: matching).map(Self.logJSON)))
+            case ["metrics"]:
+                // `from` and `to` (now when left out) as ISO 8601, the last hour without them; `bridge` (a device ID,
+                // or `all`) or `accessory`: whose request and handler durations. Memory and CPU are the process's.
+                guard let metrics = catalog.metrics else { return .error(404, "this homeswift records no metrics") }
+                let to = request.query["to"].flatMap(Self.date(iso:)) ?? Date()
+                let from = request.query["from"].flatMap(Self.date(iso:)) ?? to.addingTimeInterval(-3600)
+                guard from < to else { return .error(400, "from must be before to") }
+                let series = request.query["accessory"].flatMap { catalog.find(id: $0) }.map { "accessory:\($0.accessory.id)" }
+                    ?? request.query["bridge"].flatMap { $0 == "all" ? nil : "bridge:\($0)" } ?? Metrics.allSeries
+                return .json(Self.metricsJSON(metrics.history(from: from, to: to, series: series), latest: metrics.latest))
             case ["events"]:
                 return .events(events.stream())
             default:
@@ -684,6 +694,21 @@ public final class UIServer: Sendable {
         if let date = formatter.date(from: text) { return date }
         formatter.formatOptions = [.withInternetDateTime]
         return formatter.date(from: text)
+    }
+
+    /// A history for the Status page's charts: `step` in seconds, then a point per step with something recorded,
+    /// its durations in milliseconds.
+    static func metricsJSON(_ history: Metrics.History, latest: (memory: UInt64?, cpu: Double?)) -> JSONValue {
+        func durations(_ durations: Metrics.Durations) -> JSONValue {
+            guard let average = durations.average else { return .null }
+            return ["count": .number(Double(durations.count)), "average": .number(average), "longest": .number(durations.longest)]
+        }
+        let points = history.points.map { point -> JSONValue in
+            ["time": .string(Timestamp.iso8601(point.start)), "memory": point.memory.map { .number(Double($0)) } ?? .null,
+             "cpu": point.cpu.map(JSONValue.number) ?? .null, "requests": durations(point.requests), "handlers": durations(point.handlers)]
+        }
+        return ["step": .number(history.step), "points": .array(points),
+                "latest": ["memory": latest.memory.map { .number(Double($0)) } ?? .null, "cpu": latest.cpu.map(JSONValue.number) ?? .null]]
     }
 
     static func logJSON(_ line: LogBuffer.Line) -> JSONValue {

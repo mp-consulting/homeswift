@@ -14,7 +14,9 @@
   --shadow-thick: 0 10px 30px rgba(25, 34, 56, 0.16); --shadow: 0 12px 36px rgba(25, 34, 56, 0.12); --shadow-control: 0 2px 8px rgba(25, 34, 56, 0.08);
   --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0) 45%);
   --text: #15171c; --muted: #596170; --line: rgba(20, 30, 50, 0.1);
-  --accent: #ff7a1a; --accent-2: #ffb15c; --accent-text: #ffffff; --ok: #1f9d55; --warn: #c9731a; --error: #d0383b;
+  --accent: #ff7a1a; --accent-2: #ffb15c; --accent-text: #ffffff; --ok: #1f9d55; --warn: #c9731a; --error: #d0383b; --paused: #5856d6;
+  /* Chart series, slots 1 and 2 of a palette checked for colour-blind separation and contrast, each mode its own step. */
+  --series-1: #2a78d6; --series-2: #eb6834;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --radius: 22px; --blur-thick: 32px; --blur: 20px;
@@ -32,7 +34,8 @@
     --shadow-thick: 0 10px 30px rgba(0, 0, 0, 0.5); --shadow: 0 14px 40px rgba(0, 0, 0, 0.42); --shadow-control: 0 2px 8px rgba(0, 0, 0, 0.3);
     --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0) 45%);
     --text: #f3f4f7; --muted: #a2a9b5; --line: rgba(255, 255, 255, 0.1);
-    --warn: #e9a04a;
+    --warn: #e9a04a; --paused: #8e8cff;
+    --series-1: #3987e5; --series-2: #d95926;
   }
 }
 * { box-sizing: border-box; }
@@ -240,6 +243,7 @@ label > input, label > select { margin-top: 5px; }
 .pill.status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .pill.status.standby { color: var(--muted); }
 .pill.status.away { color: var(--warn); border-color: rgba(201, 115, 26, 0.35); }
+.pill.status.paused { color: var(--paused); border-color: rgba(88, 86, 214, 0.35); }
 
 /* Tiles: an icon on a colour, like the Home app's (common.js's tile()): the accent by default, and tone-* classes
    that no control's class can collide with. */
@@ -425,7 +429,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
    menus of cards side by side line up whatever each card holds. */
 .server:has(> .card-foot), .accessory-card, .server.catalog { display: flex; flex-direction: column; }
 .card > .card-foot, .server.catalog > .actions { margin-top: auto; }
-.bridge-section + .bridge-section { margin-top: 8px; }
+.accessory-section + .accessory-section { margin-top: 8px; }
 
 /* Plugins: a card per block; the settings form opens across the grid. */
 .server .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -453,7 +457,7 @@ textarea.short { min-height: 220px; }
 .editor-bar .popup { max-width: 240px; }
 
 /* A menu of actions (common.js menu()): thick material over the page, out of its button. */
-.menu-button { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
+.menu-button { flex: none; width: 32px; height: 32px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
 .menu-button svg { width: 18px; height: 18px; fill: currentColor; stroke: none; }
 .menu-button[aria-expanded="true"] { background: var(--material-thin); }
 .menu {
@@ -515,6 +519,49 @@ textarea.short { min-height: 220px; }
 }
 .stat b { display: block; font-size: 1.5rem; line-height: 1.1; letter-spacing: -0.02em; font-weight: 650; font-variant-numeric: tabular-nums; }
 .stat span { color: var(--muted); font-size: 0.8125rem; letter-spacing: 0.01em; }
+/* The Status page's activity charts: the filters in one row above them, two charts a row, one on a phone. */
+.activity { transition: opacity var(--normal) var(--ease-out); }
+.activity.loading .chart-grid { opacity: 0.55; }
+.filter-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }
+.filter-bar .popup { max-width: 260px; }
+.chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 14px; transition: opacity var(--normal) var(--ease-out); }
+.chart-card { margin: 0; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.chart-head .muted { font-size: 0.8125rem; }
+.chart-figure { font-size: 1.375rem; line-height: 1.1; font-weight: 650; letter-spacing: -0.02em; white-space: nowrap; }
+.chart-detail { font-size: 0.8125rem; font-variant-numeric: tabular-nums; min-height: 1.2em; }
+.chart-body { min-width: 0; }
+.chart-frame { position: relative; }
+.chart { display: block; max-width: 100%; overflow: visible; border-radius: 8px; }
+.chart:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.chart .grid { stroke: var(--line); stroke-width: 1; shape-rendering: crispEdges; }
+.chart .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .area { stroke: none; opacity: 0.1; }
+.chart .dot { stroke: var(--material-solid); stroke-width: 2; }
+.chart .crosshair { stroke: var(--muted); stroke-width: 1; opacity: 0.6; }
+.chart .line.tone-1 { stroke: var(--series-1); }
+.chart .line.tone-2 { stroke: var(--series-2); }
+.chart .area.tone-1, .chart .dot.tone-1 { fill: var(--series-1); }
+.chart .area.tone-2, .chart .dot.tone-2 { fill: var(--series-2); }
+.chart-legend { display: flex; gap: 14px; font-size: 0.8125rem; color: var(--muted); }
+.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.chart-legend .key, .chart-tooltip .key { display: inline-block; width: 12px; height: 2px; border-radius: 1px; }
+.key.tone-1 { background: var(--series-1); }
+.key.tone-2 { background: var(--series-2); }
+.chart-tooltip {
+  position: absolute; top: 4px; z-index: 2; pointer-events: none; padding: 8px 10px; border-radius: 12px; min-width: 132px;
+  background: var(--material-solid); border: 1px solid var(--edge); box-shadow: var(--shadow-control); font-size: 0.8125rem;
+}
+.chart-tooltip .chart-time { color: var(--muted); margin-bottom: 4px; white-space: nowrap; }
+.chart-tooltip .chart-row { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.chart-tooltip b { font-variant-numeric: tabular-nums; }
+.chart-table { margin-top: 12px; }
+.chart-table .table-scroll { overflow-x: auto; max-height: 360px; overflow-y: auto; margin-top: 8px; }
+.chart-table table { border-collapse: collapse; font-size: 0.8125rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chart-table th, .chart-table td { padding: 4px 12px 4px 0; text-align: right; border-bottom: 1px solid var(--line); }
+.chart-table th:first-child, .chart-table td:first-child { text-align: left; }
+.chart-table th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--material-solid); }
 .servers { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 14px; }
 .server { margin: 0; display: grid; gap: 14px; align-content: start; }
 .servers .server, .card.server { animation: materialize var(--normal) var(--ease-out); }

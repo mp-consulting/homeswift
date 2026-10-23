@@ -157,6 +157,40 @@ struct ServerTests {
         await server.stop()
     }
 
+    @Test func timesRequestsAndHandlers() async throws {
+        let timings = TimingLog()
+        server.observeTimings { timings.append($0) }
+        let on = lightbulb.characteristic(.on)
+        on.onRead {
+            try await Task.sleep(for: .milliseconds(20))
+            return .bool(true)
+        }
+        let brightness = lightbulb.characteristic(.brightness)
+        brightness.onWrite { _ in }
+        let controller = try await pairedController()
+
+        // A read: the handler of the one characteristic that has one, then the request, both about the lamp.
+        let read = try await controller.request("GET", "/characteristics?id=2.\(on.iid),2.\(brightness.iid)")
+        #expect(read.status == 200)
+        var seen = timings.take()
+        #expect(seen.map(\.kind) == [.handler, .request])
+        #expect(seen.allSatisfy { $0.accessories.map(\.id) == ["lamp-1"] })
+        #expect(seen.allSatisfy { $0.duration >= .milliseconds(20) })
+
+        // A subscription alone is not timed; a write is, its handler and its request.
+        _ = try await controller.json("PUT", "/characteristics", ["characteristics": [["aid": 2, "iid": brightness.iid, "ev": true]]])
+        #expect(timings.take().isEmpty)
+        _ = try await controller.json("PUT", "/characteristics", ["characteristics": [["aid": 2, "iid": brightness.iid, "value": 30]]])
+        seen = timings.take()
+        #expect(seen.map(\.kind) == [.handler, .request])
+
+        // A write from outside HomeKit (an automation, the web UI) times the handler only.
+        try await brightness.write(.int(31))
+        #expect(timings.take().map(\.kind) == [.handler])
+        await controller.close()
+        await server.stop()
+    }
+
     @Test func identifiesBridgedAccessories() async throws {
         let identified = WriteLog()
         let sensor = Service(.temperatureSensor, name: "Sensor")
@@ -309,4 +343,20 @@ struct ServerTests {
 actor WriteLog {
     var values: [HAPValue] = []
     func append(_ value: HAPValue) { values.append(value) }
+}
+
+/// The timings a server reports, as they come.
+final class TimingLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var timings: [HAPServer.Timing] = []
+
+    func append(_ timing: HAPServer.Timing) { lock.withLock { timings.append(timing) } }
+
+    /// The timings so far, emptying the log.
+    func take() -> [HAPServer.Timing] {
+        lock.withLock {
+            defer { timings.removeAll() }
+            return timings
+        }
+    }
 }

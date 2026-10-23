@@ -233,8 +233,13 @@ enum WebAssets {
     el("div", { class: "who" }, el("h1", { text: title }), subtitle ? el("p", { class: "muted", text: subtitle }) : null),
     tools.filter(Boolean).length ? el("div", { class: "tools" }, ...tools) : null);
 
+  // /status?since=24h&bridge=<bridge>&accessory=<accessory>: the activity charts' range and whose durations they show,
+  // as on the Logs page.
   views.status = async (main) => {
-    const status = await api("/api/status");
+    const [status, accessories] = await Promise.all([
+      api("/api/status"),
+      api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
+    ]);
     $("#banner").classList.toggle("hidden", !status.restartNeeded);
     const waiting = status.bridges.filter((bridge) => !bridge.paired);
     const [health, healthKind] = status.restartNeeded ? ["Running; some changes need a restart", "away"]
@@ -274,6 +279,7 @@ enum WebAssets {
         el("div", { class: "stat" }, el("b", { text: plugins.size }), el("span", { text: plugins.size === 1 ? "Plugin" : "Plugins" })),
         el("div", { class: "stat" }, el("b", { text: main0 ? main0.controllers : 0 }), el("span", { text: "Home app controllers" })),
         el("div", { class: "stat" }, el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: "Up" }))),
+      activity(accessories, withSlugs(status.bridges, "bridge")),
       el("h2", { text: status.bridges.length === 1 ? "Bridge" : "Bridges and accessories" }),
       el("div", { class: "servers" }, ...bridges),
       el("h2", { text: "System" }),
@@ -288,6 +294,131 @@ enum WebAssets {
         // Changes apply without one; this is for a plugin that misbehaves.
         el("div", { class: "actions" }, el("button", { class: "link", text: "Restart homeswift…", onclick: restartBridge }))));
   };
+
+  /// The Status page's charts: the process's memory and CPU, and how long the Home app's requests and the plugins'
+  /// calls to their devices take, over the range and for the bridge or accessory the filters above them choose (the
+  /// Logs page's). A range that ends now refreshes every minute; while new data loads the charts stay, faded.
+  function activity(accessories, bridges) {
+    const params = new URLSearchParams(location.search);
+    const range = rangeFilter(params, { changed: () => load() });
+    const sources = sourceFilter(accessories, bridges, initialSource(accessories, bridges, params.get("accessory"), params.get("bridge")), {
+      label: "Whose requests", everything: "All servers", changed: () => load() });
+    const byID = new Map(accessories.map((accessory) => [accessory.id, accessory]));
+    const durations = (key) => [
+      { label: "Average", tone: 1, value: (point) => point[key]?.average ?? null },
+      { label: "Longest", tone: 2, value: (point) => point[key]?.longest ?? null },
+    ];
+    const charts = [
+      { title: "Memory", note: "The homeswift process, at its highest in each point", series: [{ label: "Memory", tone: 1, value: (point) => point.memory }], format: formatBytes,
+        unit: (max) => 1024 ** (max >= 1024 ** 3 ? 3 : 2) },
+      { title: "CPU", note: "The homeswift process; 100% is one core busy", series: [{ label: "CPU", tone: 1, value: (point) => point.cpu }], format: formatPercent },
+      { title: "Home app requests", note: "How long the bridge takes to answer reads and writes", series: durations("requests"), format: formatMilliseconds, key: "requests" },
+      { title: "Plugin device calls", note: "How long plugins take to reach their devices or clouds", series: durations("handlers"), format: formatMilliseconds, key: "handlers" },
+    ].map((chart) => {
+      const figure = el("b", { class: "chart-figure" });
+      const detail = el("div", { class: "muted chart-detail" });
+      const body = el("div", { class: "chart-body" });
+      const card = el("div", { class: "card chart-card" },
+        el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: chart.title }), el("div", { class: "muted", text: chart.note })), figure),
+        body, detail);
+      return { ...chart, card, figure, detail, body, view: null };
+    });
+    const table = el("details", { class: "more chart-table" }, el("summary", { text: "Show as a table" }));
+    table.addEventListener("toggle", () => { if (table.open) fillTable(); });
+    const section = el("section", { class: "activity" },
+      el("h2", { text: "Activity" }),
+      el("div", { class: "filter-bar" }, range.picker, sources.picker, range.customRow),
+      el("div", { class: "chart-grid" }, charts.map((chart) => chart.card)),
+      table);
+    let shown = null;   // the last history loaded, for the table
+    let refresh = null;
+
+    function keepAddress() {
+      const query = new URLSearchParams();
+      range.address(query);
+      const { kind, value } = sources.source();
+      if (kind === "bridge") query.set("bridge", bridges.find((bridge) => bridge.deviceId === value)?.slug ?? value);
+      if (kind === "accessory") query.set("accessory", byID.get(value)?.slug ?? value);
+      const path = `${location.pathname}${query.size ? `?${query}` : ""}`;
+      if (path !== location.pathname + location.search) history.replaceState(null, "", path);
+    }
+    async function load() {
+      clearTimeout(refresh);
+      keepAddress();
+      const [from, end] = range.span() ?? [new Date(Date.now() - 3600000), null];
+      const to = end ?? new Date();
+      const query = new URLSearchParams({ from: from.toISOString(), to: to.toISOString() });
+      const { kind, value } = sources.source();
+      if (kind) query.set(kind, value);
+      section.classList.add("loading");
+      let history;
+      try {
+        history = await api(`/api/metrics?${query}`);
+      } catch (e) {
+        // A homeswift that records nothing (a library, a test) has no charts.
+        if (e.status === 404) { section.remove(); return; }
+        for (const chart of charts) chart.detail.textContent = e.message;
+        section.classList.remove("loading");
+        return;
+      }
+      section.classList.remove("loading");
+      const points = history.points.map((point) => ({ ...point, time: new Date(point.time).getTime() }));
+      shown = { points, latest: history.latest };
+      for (const chart of charts) {
+        if (chart.view) chart.view.update(points, from.getTime(), to.getTime(), history.step * 1000);
+        else chart.view = HomeswiftChart.lineChart(chart.body, { title: chart.title, series: chart.series, format: chart.format, unit: chart.unit, points, from: from.getTime(), to: to.getTime(), step: history.step * 1000 });
+        describe(chart, points, history.latest, !end);
+      }
+      if (table.open) fillTable();
+      // A range that ends now moves on with it.
+      if (!end) refresh = setTimeout(() => { if (section.isConnected && !document.hidden) load(); }, 60000);
+    }
+
+    /// The figure beside a chart's title and the line under it: the latest memory and CPU, the average and count
+    /// of the calls in the range.
+    function describe(chart, points, latest, live) {
+      if (!chart.key) {
+        const values = points.map(chart.series[0].value).filter((value) => value != null);
+        const now = chart.title === "Memory" ? latest.memory : latest.cpu;
+        chart.figure.textContent = live && now != null ? chart.format(now) : values.length ? chart.format(values.at(-1)) : "–";
+        chart.detail.textContent = values.length ? `Highest ${chart.format(Math.max(...values))} · lowest ${chart.format(Math.min(...values))}` : "";
+        return;
+      }
+      const calls = points.map((point) => point[chart.key]).filter(Boolean);
+      const count = calls.reduce((sum, one) => sum + one.count, 0);
+      const average = count ? calls.reduce((sum, one) => sum + one.average * one.count, 0) / count : null;
+      chart.figure.textContent = average == null ? "–" : chart.format(average);
+      chart.detail.textContent = count ? `Average of ${count.toLocaleString()} ${count === 1 ? "call" : "calls"} · longest ${chart.format(Math.max(...calls.map((one) => one.longest)))}` : "No calls in this range";
+    }
+
+    function fillTable() {
+      if (!shown) return;
+      const time = new Intl.DateTimeFormat([], { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+      const cell = (value, format) => el("td", { text: value == null ? "–" : format(value) });
+      const calls = (one) => [cell(one?.average, formatMilliseconds), cell(one?.longest, formatMilliseconds), cell(one?.count, (n) => n.toLocaleString())];
+      const head = ["Time", "Memory", "CPU", "Requests, average", "longest", "count", "Device calls, average", "longest", "count"];
+      table.replaceChildren(table.firstChild, el("div", { class: "table-scroll" }, el("table", {},
+        el("thead", {}, el("tr", {}, head.map((text) => el("th", { text })))),
+        el("tbody", {}, [...shown.points].reverse().map((point) => el("tr", {},
+          el("td", { text: time.format(point.time) }), cell(point.memory, formatBytes), cell(point.cpu, formatPercent),
+          calls(point.requests), calls(point.handlers)))))));
+    }
+
+    load();
+    return section;
+  }
+
+  /// Bytes as MB, or GB from 1 GB; `top`, the axis's highest, keeps a chart's ticks in one unit.
+  function formatBytes(bytes, top = bytes) {
+    const gigabytes = top >= 1024 ** 3;
+    const value = bytes / 1024 ** (gigabytes ? 3 : 2);
+    return `${value.toFixed(gigabytes || (value > 0 && value < 10) ? 1 : 0)} ${gigabytes ? "GB" : "MB"}`;
+  }
+  function formatPercent(value) { return `${value > 0 && value < 10 ? value.toFixed(1) : Math.round(value)}%`; }
+  function formatMilliseconds(ms) {
+    if (ms >= 1000) return `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)} s`;
+    return `${ms > 0 && ms < 10 ? ms.toFixed(1) : Math.round(ms)} ms`;
+  }
 
   function formatDuration(seconds) {
     const d = Math.floor(seconds / 86400), h = Math.floor(seconds % 86400 / 3600), m = Math.floor(seconds % 3600 / 60);
@@ -484,7 +615,7 @@ enum WebAssets {
       ? el("div", { class: "control" }, el("span", { text: shortName(service) }), rows[0].lastChild)
       : el("div", { class: "controls" }, el("div", { class: "service-name", text: shortName(service) }), rows));
     const names = others.map(({ service }) => shortName(service));
-    const subtitle = [...new Set([describeModel(accessory), accessory.platformName].filter(Boolean))].join(" · ");
+    const subtitle = describeModel(accessory);
     const card = el("div", { class: "card accessory-card", "data-search": `${accessory.name} ${accessory.platformName || ""} ${accessory.model || ""}`.toLowerCase() },
       el("div", { class: "server-head" },
         tile(iconName, tone),
@@ -529,7 +660,7 @@ enum WebAssets {
     const first = groups.filter((group) => cameraFirst.has(group.service.type));
     const more = groups.filter((group) => !cameraFirst.has(group.service.type));
     const names = more.map(({ service }) => shortName(service));
-    const subtitle = [...new Set([describeModel(accessory), accessory.platformName].filter(Boolean))].join(" · ");
+    const subtitle = describeModel(accessory);
     return el("div", { class: "card accessory-card camera-card", "data-search": `${accessory.name} ${accessory.platformName || ""} ${accessory.model || ""}`.toLowerCase() },
       view.element,
       subtitle ? el("div", { class: "camera-meta muted", text: subtitle }) : null,
@@ -554,14 +685,11 @@ enum WebAssets {
 
   views.accessories = async (main) => {
     const accessories = withSlugs(await api("/api/accessories"), "accessory");
-    const byBridge = new Map();
-    for (const accessory of accessories) {
-      if (!byBridge.has(accessory.bridge)) byBridge.set(accessory.bridge, []);
-      byBridge.get(accessory.bridge).push(accessory);
-    }
+    const servers = new Set(accessories.map((accessory) => accessory.bridge)).size;
+    // A section per plugin; a card's foot names its server.
     const search = el("input", { type: "search", class: "search", placeholder: "Search accessories", "aria-label": "Search accessories" });
-    const sections = [...byBridge].map(([bridge, list]) => el("section", { class: "bridge-section" },
-      el("div", { class: "section-head" }, el("h2", { text: bridge }), el("span", { class: "muted", text: `${list.length} ${list.length === 1 ? "accessory" : "accessories"}` })),
+    const sections = groupByPlugin(accessories).map(([name, list]) => el("section", { class: "accessory-section" },
+      el("div", { class: "section-head" }, el("h2", { text: name }), el("span", { class: "muted", text: `${list.length} ${list.length === 1 ? "accessory" : "accessories"}` })),
       el("div", { class: "grid" }, list.map(accessoryCard))));
     const none = el("p", { class: "muted hidden", text: "No accessory matches." });
     search.addEventListener("input", () => {
@@ -580,9 +708,16 @@ enum WebAssets {
       none.classList.toggle("hidden", shown > 0);
     });
     show(main,
-      pageHead("Accessories", accessories.length ? `${accessories.length} on ${byBridge.size} ${byBridge.size === 1 ? "server" : "servers"}, as the Home app sees them. Changes here reach your devices.` : "", accessories.length ? search : null),
+      pageHead("Accessories", accessories.length ? `${accessories.length} on ${servers} ${servers === 1 ? "server" : "servers"}, as the Home app sees them. Changes here reach your devices.` : "", accessories.length ? search : null),
       accessories.length ? [...sections, none] : el("div", { class: "card empty" }, el("p", { class: "muted", text: "No accessories yet. Plugins add them once they reach their devices." })));
   };
+
+  /// Accessories by plugin: [name, accessories] pairs by the plugin's name, each list by name; those of no
+  /// plugin last, as "Other accessories".
+  function groupByPlugin(accessories) {
+    const groups = Map.groupBy([...accessories].sort((a, b) => a.name.localeCompare(b.name)), (accessory) => accessory.platformName ?? "");
+    return [...groups].sort(([a], [b]) => !a - !b || a.localeCompare(b)).map(([name, list]) => [name || "Other accessories", list]);
+  }
 
   function describeModel(accessory) {
     const manufacturer = accessory.manufacturer || "";
@@ -680,7 +815,7 @@ enum WebAssets {
   };
 
   /// A block's state pill: its label and tone.
-  const blockState = (block, plugin, instance) => block.system ? ["Built in", "standby"] : instance?.paused ? ["Paused", "standby"]
+  const blockState = (block, plugin, instance) => block.system ? ["Built in", "standby"] : instance?.paused ? ["Paused", "paused"]
     : instance ? ["Running", "on"] : plugin ? ["Not running", "away"] : ["No plugin", "away"];
 
   /// Takes a block out of config.json, after asking: its accessories leave the Home app.
@@ -1206,6 +1341,86 @@ enum WebAssets {
   const levelChoices = [["trace", "All"], ["info", "Info"], ["warning", "Warnings"], ["error", "Errors"]];
   let logState = null;
 
+  // The Logs and Status pages' filters, in one row above what they scope.
+  const rangeChoices = [["latest", "Latest lines"], ["1h", "Last hour"], ["6h", "Last 6 hours"], ["24h", "Last 24 hours"],
+    ["today", "Today"], ["yesterday", "Yesterday"], ["7d", "Last 7 days"], ["custom", "Custom range…"]];
+
+  /// A time range menu whose first choice is the default (`latest`, the Logs page's latest lines, only when asked
+  /// for), with the From and To of a custom range in `customRow`. `changed` runs on a choice.
+  function rangeFilter(params, { latest = false, changed }) {
+    const choices = rangeChoices.filter(([value]) => latest || value !== "latest");
+    const fallback = choices[0][0];
+    const since = choices.some(([value]) => value === params.get("since")) ? params.get("since") : fallback;
+    const picker = el("select", { class: `popup ${since === fallback ? "" : "chosen"}`, "aria-label": "Time range" }, choices.map(([value, text]) => el("option", { value, text, selected: value === since })));
+    const localInput = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    const fromInput = el("input", { type: "datetime-local", "aria-label": "From", value: params.get("from") ?? localInput(new Date(Date.now() - 3600000)) });
+    const toInput = el("input", { type: "datetime-local", "aria-label": "To", value: params.get("to") ?? localInput(new Date()) });
+    const customRow = el("div", { class: `log-range ${since === "custom" ? "" : "hidden"}` },
+      el("label", {}, "From", fromInput), el("label", {}, "To", toInput),
+      el("button", { text: "Show", onclick: () => changed() }));
+    picker.addEventListener("change", () => {
+      customRow.classList.toggle("hidden", picker.value !== "custom");
+      picker.classList.toggle("chosen", picker.value !== fallback);
+      if (picker.value === "custom") fromInput.focus(); else changed();
+    });
+    return {
+      picker, customRow,
+      /// The span chosen, `[from, to]` with `to` null when it ends now; null for the latest lines.
+      span() {
+        const now = new Date();
+        const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        switch (picker.value) {
+        case "1h": return [new Date(now - 3600000), null];
+        case "6h": return [new Date(now - 6 * 3600000), null];
+        case "24h": return [new Date(now - 86400000), null];
+        case "today": return [midnight, null];
+        case "yesterday": return [new Date(midnight - 86400000), midnight];
+        case "7d": return [new Date(now - 7 * 86400000), null];
+        case "custom": {
+          const from = new Date(fromInput.value), to = new Date(toInput.value);
+          return isNaN(from) ? null : [from, isNaN(to) || to > now ? null : to];
+        }
+        default: return null;
+        }
+      },
+      /// Adds the choice to a page's address: `since`, and `from` and `to` for a custom range.
+      address(query) {
+        if (picker.value !== fallback) query.set("since", picker.value);
+        if (picker.value === "custom") { query.set("from", fromInput.value); if (toInput.value) query.set("to", toInput.value); }
+      },
+    };
+  }
+
+  /// What the data is about, one menu: everything (`everything` names it); the bridges, every bridge's own lines
+  /// (`allBridges`) or one's; or one accessory, grouped by plugin. Values: "", "bridge:all", "bridge:<device ID>",
+  /// "accessory:<id>". `changed` runs on a choice; `source()` reads it as a kind and a value.
+  function sourceFilter(accessories, bridges, initial, { label, everything, allBridges = false, changed }) {
+    const option = (value, text) => el("option", { value, text, selected: value === initial });
+    const picker = el("select", { class: `popup ${initial ? "chosen" : ""}`, "aria-label": label },
+      option("", everything),
+      bridges.length ? el("optgroup", { label: "Bridges" }, allBridges ? option("bridge:all", "Bridges only") : null,
+        bridges.map((bridge) => option(`bridge:${bridge.deviceId}`, bridge.external ? `${bridge.name} · its own server` : bridge.childBridge ? `${bridge.name} · child bridge` : bridge.name))) : null,
+      groupByPlugin(accessories).map(([name, list]) => el("optgroup", { label: name },
+        list.map((accessory) => option(`accessory:${accessory.id}`, accessory.name)))));
+    picker.addEventListener("change", () => { picker.classList.toggle("chosen", Boolean(picker.value)); changed(); });
+    return {
+      picker,
+      source() {
+        const [kind, ...rest] = picker.value.split(":");
+        return { kind, value: rest.join(":") };
+      },
+    };
+  }
+
+  /// The source menu's value for an address: an accessory by its slug or id, a bridge by its slug, or `all`.
+  function initialSource(accessories, bridges, accessory, bridge) {
+    const found = accessory && accessories.find((one) => one.slug === accessory || one.id === accessory);
+    if (found) return `accessory:${found.id}`;
+    if (bridge === "all") return "bridge:all";
+    const one = bridge && bridges.find((candidate) => candidate.slug === bridge);
+    return one ? `bridge:${one.deviceId}` : "";
+  }
+
   // /logs/<accessory>?bridge=<bridge>&since=24h&level=warning&q=text: the accessory by its slug (a plugin's page
   // may give its id), the bridge by its slug,
   // the range (latest, 1h, 6h, 24h, today, yesterday, 7d, or custom with from= and to=), the lowest level and the
@@ -1215,16 +1430,15 @@ enum WebAssets {
       api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
       api("/api/status").then((status) => withSlugs(status.bridges, "bridge")).catch(() => []),
     ]);
-    const accessoryID = accessories.find((accessory) => accessory.slug === wanted || accessory.id === wanted)?.id ?? "";
     const params = new URLSearchParams(location.search);
     const output = el("div", { class: "log", role: "log", "aria-live": "off" });
     const filter = el("input", { type: "search", class: "search", placeholder: "Filter text", "aria-label": "Filter the log" });
     const follow = el("input", { type: "checkbox", checked: true });
     const count = el("span", { class: "muted count" });
-    // What the lines are about, one menu: every line; the bridges' own lines (their servers': connections, pairings,
-    // controllers), every bridge's or one's; or one accessory's (those of its own server and those naming it, its id
-    // or its address). The server picks them before its limit (UIServer.logMatcher), so a week of one accessory
-    // is not cut short by the others'. Values: "", "bridge:all", "bridge:<device ID>", "accessory:<id>".
+    // What the lines are about (sourceFilter): every line; the bridges' own lines (their servers': connections,
+    // pairings, controllers), every bridge's or one's; or one accessory's (those of its own server and those naming
+    // it, its id or its address). The server picks them before its limit (UIServer.logMatcher), so a week of one
+    // accessory is not cut short by the others'.
     const byID = new Map(accessories.map((accessory) => [accessory.id, accessory]));
     const termsFor = (id) => {
       const accessory = byID.get(id);
@@ -1240,32 +1454,19 @@ enum WebAssets {
       const labels = new Set(chosen.map((bridge) => bridge.name));
       return (line) => labels.has(line.label);
     };
-    const wantedBridge = params.get("bridge") === "all" ? "all" : bridges.find((bridge) => bridge.slug === params.get("bridge"))?.deviceId;
-    const initial = accessoryID ? `accessory:${accessoryID}` : wantedBridge ? `bridge:${wantedBridge}` : "";
-    const option = (value, text) => el("option", { value, text, selected: value === initial });
-    const sourcePicker = el("select", { class: "popup", "aria-label": "What the lines are about" },
-      option("", "All lines"),
-      bridges.length ? el("optgroup", { label: "Bridges" }, option("bridge:all", "Bridges only"),
-        bridges.map((bridge) => option(`bridge:${bridge.deviceId}`, bridge.external ? `${bridge.name} · its own server` : bridge.childBridge ? `${bridge.name} · child bridge` : bridge.name))) : null,
-      accessories.length ? el("optgroup", { label: "Accessories" }, [...accessories].sort((a, b) => a.name.localeCompare(b.name)).map((accessory) =>
-        option(`accessory:${accessory.id}`, accessory.platformName ? `${accessory.name} · ${accessory.platformName}` : accessory.name))) : null);
-    /// The picker's choice: its kind and value.
-    const source = () => {
-      const [kind, ...rest] = sourcePicker.value.split(":");
-      return { kind, value: rest.join(":") };
-    };
+    const sources = sourceFilter(accessories, bridges, initialSource(accessories, bridges, wanted, params.get("bridge")), {
+      label: "What the lines are about", everything: "All lines", allBridges: true, changed: () => { choose(); load(); } });
+    const source = sources.source;
     const choose = () => {
       const { kind, value } = source();
       logState.accessory = kind === "accessory" ? termsFor(value) : null;
       logState.bridge = kind === "bridge" ? bridgeFor(value) : null;
-      sourcePicker.classList.toggle("chosen", Boolean(sourcePicker.value));
     };
     // `live`: new lines join the page (not while a span in the past is shown); `cap`: how many it keeps.
     filter.value = params.get("q") ?? "";
     const level = levelChoices.some(([value]) => value === params.get("level")) ? params.get("level") : "info";
     logState = { output, level, filter, follow, count, lines: [], accessory: null, bridge: null, live: true, cap: latestLines, capped: false };
     choose();
-    sourcePicker.addEventListener("change", () => { choose(); load(); });
     const levels = el("div", { class: "group", role: "group", "aria-label": "Lowest level shown" }, levelChoices.map(([level, text]) =>
       el("button", { text, class: level === logState.level ? "on" : "", "aria-pressed": String(level === logState.level), onclick: (event) => {
         logState.level = level;
@@ -1285,40 +1486,13 @@ enum WebAssets {
     filter.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => { render(); keepAddress(); }, 120); });
     follow.addEventListener("change", () => { if (follow.checked) output.scrollTop = output.scrollHeight; });
 
-    // A time range: the latest lines from memory, or a span from the log the bridge keeps on disk (rotated, a
-    // week at most). A span that ends now keeps following; one in the past stays as it is.
-    const ranges = [["latest", "Latest lines"], ["1h", "Last hour"], ["6h", "Last 6 hours"], ["24h", "Last 24 hours"],
-      ["today", "Today"], ["yesterday", "Yesterday"], ["7d", "Last 7 days"], ["custom", "Custom range…"]];
-    const since = ranges.some(([value]) => value === params.get("since")) ? params.get("since") : "latest";
-    const rangePicker = el("select", { class: `popup ${since === "latest" ? "" : "chosen"}`, "aria-label": "Time range" }, ranges.map(([value, text]) => el("option", { value, text, selected: value === since })));
-    const localInput = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    const fromInput = el("input", { type: "datetime-local", "aria-label": "From", value: params.get("from") ?? localInput(new Date(Date.now() - 3600000)) });
-    const toInput = el("input", { type: "datetime-local", "aria-label": "To", value: params.get("to") ?? localInput(new Date()) });
-    const customRow = el("div", { class: `log-range ${since === "custom" ? "" : "hidden"}` },
-      el("label", {}, "From", fromInput), el("label", {}, "To", toInput),
-      el("button", { text: "Show", onclick: () => load() }));
-    const span = (choice) => {
-      const now = new Date();
-      const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      switch (choice) {
-      case "1h": return [new Date(now - 3600000), null];
-      case "6h": return [new Date(now - 6 * 3600000), null];
-      case "24h": return [new Date(now - 86400000), null];
-      case "today": return [midnight, null];
-      case "yesterday": return [new Date(midnight - 86400000), midnight];
-      case "7d": return [new Date(now - 7 * 86400000), null];
-      case "custom": {
-        const from = new Date(fromInput.value), to = new Date(toInput.value);
-        return isNaN(from) ? null : [from, isNaN(to) || to > now ? null : to];
-      }
-      default: return null;
-      }
-    };
+    // A time range (rangeFilter): the latest lines from memory, or a span from the log the bridge keeps on disk
+    // (rotated, a week at most). A span that ends now keeps following; one in the past stays as it is.
+    const range = rangeFilter(params, { latest: true, changed: () => load() });
     /// The address of what is shown, in place: no new history entry per choice.
     function keepAddress() {
       const query = new URLSearchParams();
-      if (rangePicker.value !== "latest") query.set("since", rangePicker.value);
-      if (rangePicker.value === "custom") { query.set("from", fromInput.value); if (toInput.value) query.set("to", toInput.value); }
+      range.address(query);
       if (logState.level !== "info") query.set("level", logState.level);
       if (filter.value) query.set("q", filter.value);
       const { kind, value } = source();
@@ -1330,7 +1504,7 @@ enum WebAssets {
     }
     async function load() {
       keepAddress();
-      const chosen = span(rangePicker.value);
+      const chosen = range.span();
       const query = new URLSearchParams();
       if (chosen) query.set("from", chosen[0].toISOString());
       if (chosen?.[1]) query.set("to", chosen[1].toISOString());
@@ -1365,17 +1539,12 @@ enum WebAssets {
       }
       setTimeout(() => { copy.textContent = "Copy"; copy.title = "Copy the lines shown"; }, 1800);
     } });
-    rangePicker.addEventListener("change", () => {
-      customRow.classList.toggle("hidden", rangePicker.value !== "custom");
-      rangePicker.classList.toggle("chosen", rangePicker.value !== "latest");
-      if (rangePicker.value === "custom") fromInput.focus(); else load();
-    });
     show(main,
       pageHead("Logs", "This homeswift's log, live, and up to a week back."),
       el("div", { class: "card log-card" },
-        el("div", { class: "editor-bar" }, levels, rangePicker, sourcePicker, filter, el("span", { class: "spacer" }), count, copy,
+        el("div", { class: "editor-bar" }, levels, range.picker, sources.picker, filter, el("span", { class: "spacer" }), count, copy,
           el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: "Follow" })),
-          customRow),
+          range.customRow),
         output));
     await load();
   };
@@ -1741,6 +1910,223 @@ enum WebAssets {
   }
 
   window.HomeswiftCamera = { view, event, supported: !!MediaSourceType };
+})();
+
+"""#),
+        "charts.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
+// Line charts over time for the Status page: memory, CPU, request durations. One axis each, 2px lines, an area wash
+// under a single series, a legend once there are two, hairline grid. A crosshair snaps to the nearest point and a
+// tooltip lists every series there, on hover and with the arrow keys once the chart has focus. Points further apart
+// than a step and a half leave a gap: nothing was recorded (homeswift was not running); a point without a value for a
+// series (a minute without requests) is passed over without one. It redraws at its width.
+(() => {
+  "use strict";
+
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = (tag, attrs = {}) => {
+    const node = document.createElementNS(ns, tag);
+    for (const [key, value] of Object.entries(attrs)) if (value != null) node.setAttribute(key, value);
+    return node;
+  };
+  const html = (tag, className, text) => {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text != null) node.textContent = text;
+    return node;
+  };
+
+  const height = 168, pad = { top: 10, right: 14, bottom: 24, left: 52 };
+
+  /// The highest tick at or above `max`, over four steps of 1, 2, 2.5 or 5 times a power of ten of `unit` (bytes
+  /// step in whole megabytes).
+  function niceMax(max, unit = 1) {
+    if (!(max > 0)) return unit;
+    const raw = max / unit / 4;
+    const power = 10 ** Math.floor(Math.log10(raw));
+    const step = [1, 2, 2.5, 5, 10].map((m) => m * power).find((s) => s >= raw);
+    return step * 4 * unit;
+  }
+
+  /// Times along the x axis: whole minutes, hours or days, about `count` of them.
+  function timeTicks(from, to, count) {
+    const span = to - from;
+    const steps = [60e3, 300e3, 900e3, 1800e3, 3600e3, 2 * 3600e3, 3 * 3600e3, 6 * 3600e3, 12 * 3600e3, 86400e3];
+    const step = steps.find((s) => span / s <= count) ?? 86400e3;
+    const first = new Date(Math.ceil(from / step) * step);
+    // Day and half-day steps fall on local midnight and noon, not UTC's.
+    if (step >= 12 * 3600e3) {
+      const local = new Date(from);
+      local.setHours(step >= 86400e3 ? 0 : Math.ceil(local.getHours() / 12) * 12, 0, 0, 0);
+      if (local < from) local.setTime(local.getTime() + step);
+      first.setTime(local.getTime());
+    }
+    const ticks = [];
+    for (let t = first.getTime(); t <= to; t += step) ticks.push(t);
+    return ticks;
+  }
+  /// A tick's label: the day at midnight, else the time.
+  const tickLabel = (time) => {
+    const date = new Date(time);
+    return date.getHours() === 0 && date.getMinutes() === 0 ? dayName.format(date) : hourMinute.format(date);
+  };
+
+  const hourMinute = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  const dayName = new Intl.DateTimeFormat([], { weekday: "short", day: "numeric" });
+  const fullTime = new Intl.DateTimeFormat([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+
+  /// A chart in `container`: `series` are `{ label, value(point), tone }` (tone 1 or 2, the palette's slots),
+  /// `points` have `time` (a Date), `from` and `to` bound the x axis, `step` is the points' spacing in ms and
+  /// `format` writes a value with its unit and `unit(max)` is the size of that unit, so ticks fall on round values
+  /// of it. Returns `update(points, from, to, step)`.
+  function lineChart(container, { title, series, format, unit = () => 1, points, from, to, step }) {
+    const frame = html("div", "chart-frame");
+    const tooltip = html("div", "chart-tooltip hidden");
+    tooltip.setAttribute("role", "status");
+    frame.append(tooltip);
+    container.append(frame);
+    if (series.length > 1) {
+      const legend = html("div", "chart-legend");
+      for (const one of series) {
+        const item = html("span", "", null);
+        item.append(html("i", `key tone-${one.tone}`), document.createTextNode(one.label));
+        legend.append(item);
+      }
+      container.append(legend);
+    }
+    let state = { points, from, to, step };
+    let chosen = null;   // the index the crosshair is on, kept between redraws
+    let drawn = null;
+
+    function draw() {
+      const width = Math.max(frame.clientWidth, 240);
+      const { points, from, to, step } = state;
+      const plotWidth = width - pad.left - pad.right, plotHeight = height - pad.top - pad.bottom;
+      const values = points.flatMap((point) => series.map((one) => one.value(point))).filter((v) => v != null);
+      const highest = Math.max(0, ...values);
+      const top = niceMax(highest, unit(highest));
+      const x = (time) => pad.left + (time - from) / Math.max(to - from, 1) * plotWidth;
+      const y = (value) => pad.top + plotHeight - value / top * plotHeight;
+
+      const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": `${title}, ${points.length ? "drawn over time" : "nothing recorded"}` });
+      root.setAttribute("tabindex", "0");
+      for (let i = 0; i <= 4; i++) {
+        const value = top / 4 * i, at = y(value);
+        root.append(svg("line", { x1: pad.left, x2: width - pad.right, y1: at, y2: at, class: "grid" }));
+        const label = svg("text", { x: pad.left - 8, y: at + 4, class: "tick", "text-anchor": "end" });
+        label.textContent = format(value, top);
+        root.append(label);
+      }
+      for (const tick of timeTicks(from, to, Math.max(2, Math.floor(plotWidth / 90)))) {
+        const label = svg("text", { x: x(tick), y: height - 6, class: "tick", "text-anchor": "middle" });
+        label.textContent = tickLabel(tick);
+        root.append(label);
+      }
+
+      // A run of points closer than a step and a half to each other is drawn as one line.
+      const runs = (one) => {
+        const all = [];
+        let run = [];
+        let last = null;
+        for (const point of points) {
+          if (last != null && point.time - last > step * 1.5 && run.length) { all.push(run); run = []; }
+          last = point.time;
+          const value = one.value(point);
+          if (value != null) run.push([x(point.time), y(value)]);
+        }
+        if (run.length) all.push(run);
+        return all;
+      };
+      for (const one of series) {
+        for (const run of runs(one)) {
+          const line = run.map(([px, py], i) => `${i ? "L" : "M"}${px.toFixed(1)},${py.toFixed(1)}`).join("");
+          if (series.length === 1 && run.length > 1) {
+            const base = y(0).toFixed(1);
+            root.append(svg("path", { d: `${line}L${run.at(-1)[0].toFixed(1)},${base}L${run[0][0].toFixed(1)},${base}Z`, class: `area tone-${one.tone}` }));
+          }
+          root.append(svg("path", { d: line, class: `line tone-${one.tone}` }));
+          // A lone point (one recorded step between gaps) shows as a dot.
+          if (run.length === 1) root.append(svg("circle", { cx: run[0][0], cy: run[0][1], r: 3, class: `dot tone-${one.tone}` }));
+        }
+        const end = [...points].reverse().find((point) => one.value(point) != null);
+        if (end) root.append(svg("circle", { cx: x(end.time), cy: y(one.value(end)), r: 4, class: `dot tone-${one.tone}` }));
+      }
+      if (!points.length) {
+        const empty = svg("text", { x: pad.left + plotWidth / 2, y: pad.top + plotHeight / 2, class: "tick", "text-anchor": "middle" });
+        empty.textContent = "Nothing recorded in this range";
+        root.append(empty);
+      }
+      const cross = svg("line", { y1: pad.top, y2: pad.top + plotHeight, class: "crosshair hidden" });
+      const marks = series.map((one) => svg("circle", { r: 4, class: `dot tone-${one.tone} hidden` }));
+      root.append(cross, ...marks);
+      frame.querySelector("svg")?.remove();
+      frame.prepend(root);
+      drawn = { x, y, root, cross, marks, plotWidth };
+
+      const show = (index) => {
+        chosen = index;
+        if (index == null || !points[index]) {
+          cross.classList.add("hidden");
+          for (const mark of marks) mark.classList.add("hidden");
+          tooltip.classList.add("hidden");
+          return;
+        }
+        const point = points[index], px = x(point.time);
+        cross.setAttribute("x1", px);
+        cross.setAttribute("x2", px);
+        cross.classList.remove("hidden");
+        tooltip.replaceChildren(html("div", "chart-time", fullTime.format(point.time)));
+        series.forEach((one, i) => {
+          const value = one.value(point);
+          marks[i].classList.toggle("hidden", value == null);
+          if (value != null) { marks[i].setAttribute("cx", px); marks[i].setAttribute("cy", y(value)); }
+          const row = html("div", "chart-row");
+          row.append(html("i", `key tone-${one.tone}`), html("b", "", value == null ? "–" : format(value)), html("span", "muted", one.label));
+          tooltip.append(row);
+        });
+        tooltip.classList.remove("hidden");
+        // Beside the crosshair, on the side with room.
+        const left = px + 12 + tooltip.offsetWidth > width ? px - 12 - tooltip.offsetWidth : px + 12;
+        tooltip.style.left = `${Math.max(0, left)}px`;
+      };
+      const nearest = (clientX) => {
+        if (!points.length) return null;
+        const at = clientX - root.getBoundingClientRect().left;
+        let best = 0;
+        for (let i = 1; i < points.length; i++) if (Math.abs(x(points[i].time) - at) < Math.abs(x(points[best].time) - at)) best = i;
+        return best;
+      };
+      root.addEventListener("pointermove", (event) => show(nearest(event.clientX)));
+      root.addEventListener("pointerleave", () => { if (document.activeElement !== root) show(null); });
+      root.addEventListener("blur", () => show(null));
+      root.addEventListener("focus", () => show(chosen ?? (points.length ? points.length - 1 : null)));
+      root.addEventListener("keydown", (event) => {
+        if (!points.length) return;
+        const moves = { ArrowLeft: -1, ArrowRight: 1, Home: -Infinity, End: Infinity };
+        if (!(event.key in moves)) return;
+        event.preventDefault();
+        show(Math.min(points.length - 1, Math.max(0, (chosen ?? points.length - 1) + moves[event.key])));
+      });
+      if (chosen != null && chosen < points.length && document.activeElement === root) show(chosen);
+    }
+
+    // A page shown in its place takes the chart out of the document: it stops watching then.
+    const resize = new ResizeObserver(() => {
+      if (!frame.isConnected) { resize.disconnect(); return; }
+      if (frame.clientWidth && Math.abs(frame.clientWidth - (drawn ? Number(drawn.root.getAttribute("width")) : 0)) > 1) draw();
+    });
+    resize.observe(frame);
+    draw();
+    return {
+      update(points, from, to, step) {
+        state = { points, from, to, step };
+        chosen = null;
+        tooltip.classList.add("hidden");
+        draw();
+      },
+    };
+  }
+
+  window.HomeswiftChart = { lineChart };
 })();
 
 """#),
@@ -2549,7 +2935,7 @@ enum WebAssets {
   };
 
   /// The UI's API, with the session cookie: `body` is an object, sent as JSON; a refusal carries the server's
-  /// message, and a signed-out visitor goes to the sign-in page. `stream: true` answers the Response itself,
+  /// message and its `status`, and a signed-out visitor goes to the sign-in page. `stream: true` answers the Response itself,
   /// for a body read as it arrives.
   async function api(path, { method = "GET", body, stream = false } = {}) {
     const options = { method, credentials: "same-origin", headers: {} };
@@ -2560,7 +2946,7 @@ enum WebAssets {
     const text = await response.text();
     let json = null;
     try { json = text ? JSON.parse(text) : null; } catch { json = { error: text }; }
-    if (!response.ok) throw new Error((json && json.error) || `HTTP ${response.status}`);
+    if (!response.ok) throw Object.assign(new Error((json && json.error) || `HTTP ${response.status}`), { status: response.status });
     return json;
   }
 
@@ -2741,6 +3127,7 @@ enum WebAssets {
 <script src="/common.js"></script>
 <script src="/remote.js"></script>
 <script src="/camera.js"></script>
+<script src="/charts.js"></script>
 <script src="/chat.js"></script>
 <script src="/app.js"></script>
 </body>
@@ -3167,7 +3554,9 @@ enum WebAssets {
   --shadow-thick: 0 10px 30px rgba(25, 34, 56, 0.16); --shadow: 0 12px 36px rgba(25, 34, 56, 0.12); --shadow-control: 0 2px 8px rgba(25, 34, 56, 0.08);
   --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0) 45%);
   --text: #15171c; --muted: #596170; --line: rgba(20, 30, 50, 0.1);
-  --accent: #ff7a1a; --accent-2: #ffb15c; --accent-text: #ffffff; --ok: #1f9d55; --warn: #c9731a; --error: #d0383b;
+  --accent: #ff7a1a; --accent-2: #ffb15c; --accent-text: #ffffff; --ok: #1f9d55; --warn: #c9731a; --error: #d0383b; --paused: #5856d6;
+  /* Chart series, slots 1 and 2 of a palette checked for colour-blind separation and contrast, each mode its own step. */
+  --series-1: #2a78d6; --series-2: #eb6834;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --radius: 22px; --blur-thick: 32px; --blur: 20px;
@@ -3185,7 +3574,8 @@ enum WebAssets {
     --shadow-thick: 0 10px 30px rgba(0, 0, 0, 0.5); --shadow: 0 14px 40px rgba(0, 0, 0, 0.42); --shadow-control: 0 2px 8px rgba(0, 0, 0, 0.3);
     --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0) 45%);
     --text: #f3f4f7; --muted: #a2a9b5; --line: rgba(255, 255, 255, 0.1);
-    --warn: #e9a04a;
+    --warn: #e9a04a; --paused: #8e8cff;
+    --series-1: #3987e5; --series-2: #d95926;
   }
 }
 * { box-sizing: border-box; }
@@ -3393,6 +3783,7 @@ label > input, label > select { margin-top: 5px; }
 .pill.status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .pill.status.standby { color: var(--muted); }
 .pill.status.away { color: var(--warn); border-color: rgba(201, 115, 26, 0.35); }
+.pill.status.paused { color: var(--paused); border-color: rgba(88, 86, 214, 0.35); }
 
 /* Tiles: an icon on a colour, like the Home app's (common.js's tile()): the accent by default, and tone-* classes
    that no control's class can collide with. */
@@ -3578,7 +3969,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
    menus of cards side by side line up whatever each card holds. */
 .server:has(> .card-foot), .accessory-card, .server.catalog { display: flex; flex-direction: column; }
 .card > .card-foot, .server.catalog > .actions { margin-top: auto; }
-.bridge-section + .bridge-section { margin-top: 8px; }
+.accessory-section + .accessory-section { margin-top: 8px; }
 
 /* Plugins: a card per block; the settings form opens across the grid. */
 .server .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -3606,7 +3997,7 @@ textarea.short { min-height: 220px; }
 .editor-bar .popup { max-width: 240px; }
 
 /* A menu of actions (common.js menu()): thick material over the page, out of its button. */
-.menu-button { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
+.menu-button { flex: none; width: 32px; height: 32px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
 .menu-button svg { width: 18px; height: 18px; fill: currentColor; stroke: none; }
 .menu-button[aria-expanded="true"] { background: var(--material-thin); }
 .menu {
@@ -3668,6 +4059,49 @@ textarea.short { min-height: 220px; }
 }
 .stat b { display: block; font-size: 1.5rem; line-height: 1.1; letter-spacing: -0.02em; font-weight: 650; font-variant-numeric: tabular-nums; }
 .stat span { color: var(--muted); font-size: 0.8125rem; letter-spacing: 0.01em; }
+/* The Status page's activity charts: the filters in one row above them, two charts a row, one on a phone. */
+.activity { transition: opacity var(--normal) var(--ease-out); }
+.activity.loading .chart-grid { opacity: 0.55; }
+.filter-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }
+.filter-bar .popup { max-width: 260px; }
+.chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 14px; transition: opacity var(--normal) var(--ease-out); }
+.chart-card { margin: 0; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.chart-head .muted { font-size: 0.8125rem; }
+.chart-figure { font-size: 1.375rem; line-height: 1.1; font-weight: 650; letter-spacing: -0.02em; white-space: nowrap; }
+.chart-detail { font-size: 0.8125rem; font-variant-numeric: tabular-nums; min-height: 1.2em; }
+.chart-body { min-width: 0; }
+.chart-frame { position: relative; }
+.chart { display: block; max-width: 100%; overflow: visible; border-radius: 8px; }
+.chart:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.chart .grid { stroke: var(--line); stroke-width: 1; shape-rendering: crispEdges; }
+.chart .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .area { stroke: none; opacity: 0.1; }
+.chart .dot { stroke: var(--material-solid); stroke-width: 2; }
+.chart .crosshair { stroke: var(--muted); stroke-width: 1; opacity: 0.6; }
+.chart .line.tone-1 { stroke: var(--series-1); }
+.chart .line.tone-2 { stroke: var(--series-2); }
+.chart .area.tone-1, .chart .dot.tone-1 { fill: var(--series-1); }
+.chart .area.tone-2, .chart .dot.tone-2 { fill: var(--series-2); }
+.chart-legend { display: flex; gap: 14px; font-size: 0.8125rem; color: var(--muted); }
+.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.chart-legend .key, .chart-tooltip .key { display: inline-block; width: 12px; height: 2px; border-radius: 1px; }
+.key.tone-1 { background: var(--series-1); }
+.key.tone-2 { background: var(--series-2); }
+.chart-tooltip {
+  position: absolute; top: 4px; z-index: 2; pointer-events: none; padding: 8px 10px; border-radius: 12px; min-width: 132px;
+  background: var(--material-solid); border: 1px solid var(--edge); box-shadow: var(--shadow-control); font-size: 0.8125rem;
+}
+.chart-tooltip .chart-time { color: var(--muted); margin-bottom: 4px; white-space: nowrap; }
+.chart-tooltip .chart-row { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.chart-tooltip b { font-variant-numeric: tabular-nums; }
+.chart-table { margin-top: 12px; }
+.chart-table .table-scroll { overflow-x: auto; max-height: 360px; overflow-y: auto; margin-top: 8px; }
+.chart-table table { border-collapse: collapse; font-size: 0.8125rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chart-table th, .chart-table td { padding: 4px 12px 4px 0; text-align: right; border-bottom: 1px solid var(--line); }
+.chart-table th:first-child, .chart-table td:first-child { text-align: left; }
+.chart-table th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--material-solid); }
 .servers { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 14px; }
 .server { margin: 0; display: grid; gap: 14px; align-content: start; }
 .servers .server, .card.server { animation: materialize var(--normal) var(--ease-out); }

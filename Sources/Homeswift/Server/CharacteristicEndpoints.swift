@@ -15,6 +15,10 @@ extension HAPConnection {
         var failed = false
         // Built once for the request, not for each characteristic.
         let requestContext = requestContext
+        // The accessories read, for the timing observers.
+        let start = ContinuousClock.now
+        var read: Set<Int> = []
+        defer { if !read.isEmpty { server.recordTiming(.request, aids: read, since: start) } }
         for pair in ids.split(separator: ",") {
             let parts = pair.split(separator: ".")
             guard parts.count == 2, let aid = Int(parts[0]), let iid = Int(parts[1]) else {
@@ -30,10 +34,11 @@ extension HAPConnection {
                 failed = true
                 continue
             }
+            read.insert(aid)
             do {
                 if characteristic.isUnavailable { throw HAPStatusError(.serviceCommunicationFailure) }
-                if let read = characteristic.readHandler {
-                    let value = try await HAPRequestContext.$current.withValue(requestContext) { try await read() }
+                if let handler = characteristic.readHandler {
+                    let value = try await HAPRequestContext.$current.withValue(requestContext) { try await characteristic.timed(handler) }
                     characteristic.update(value, origin: id, force: false, reason: .read)
                 }
                 var entry = CharacteristicJSON(
@@ -69,6 +74,10 @@ extension HAPConnection {
         var results: [CharacteristicJSON] = []
         var needsBody = false
         let requestContext = requestContext
+        // The accessories written (not those only subscribed to), for the timing observers.
+        let start = ContinuousClock.now
+        var written: Set<Int> = []
+        defer { if !written.isEmpty { server.recordTiming(.request, aids: written, since: start) } }
         for item in request.characteristics {
             let key = CharacteristicKey(aid: item.aid, iid: item.iid)
             guard let characteristic = server.characteristic(aid: item.aid, iid: item.iid) else {
@@ -92,6 +101,7 @@ extension HAPConnection {
                 if permissions.contains(.timedWrite), !timedWriteValid {
                     status = .invalidValueInRequest
                 } else {
+                    written.insert(item.aid)
                     do {
                         if characteristic.type.uuid == CharacteristicType.identify.uuid {
                             server.logger.info("Identify requested", metadata: ["aid": "\(item.aid)", "accessory": "\(server.accessory(aid: item.aid)?.name ?? "?")"])

@@ -17,6 +17,8 @@ import NIOConcurrencyHelpers
 public struct HomeswiftCatalog: Sendable {
     public let host: PluginHost
     public let logs: LogBuffer
+    /// The memory, CPU and latency history of the Status page; nil when nothing records it.
+    public let metrics: Metrics?
     public let configURL: URL
     /// `get_config` may return secrets (`HOMESWIFT_ALLOW_SECRETS=true`).
     public let allowSecrets: Bool
@@ -31,11 +33,12 @@ public struct HomeswiftCatalog: Sendable {
     let logger: Logger
 
     public init(
-        host: PluginHost, logs: LogBuffer, configURL: URL, allowSecrets: Bool = false, restart: (@Sendable () -> Void)? = nil,
+        host: PluginHost, logs: LogBuffer, metrics: Metrics? = nil, configURL: URL, allowSecrets: Bool = false, restart: (@Sendable () -> Void)? = nil,
         reloadServices: (@Sendable (HomeswiftConfiguration, [String]) async -> Void)? = nil, logger: Logger = Logger(label: "homeswift.mcp")
     ) {
         self.host = host
         self.logs = logs
+        self.metrics = metrics
         self.configURL = configURL
         self.allowSecrets = allowSecrets
         self.restart = restart

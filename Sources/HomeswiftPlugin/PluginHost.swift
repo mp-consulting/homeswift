@@ -143,6 +143,8 @@ public final class PluginHost: @unchecked Sendable {
     private let assistantBox = NIOLockedValueBox<AssistantService?>(nil)
     // Characteristic changes of every server the host runs, for the web UI and the MCP server.
     private let changes: ChangeFeed
+    // How long requests and handlers take on every server, for the Status page's charts.
+    private let timings: TimingFeed
     // The tail of the reloads, so two quick saves apply one after the other.
     private let reloadTail = NIOLockedValueBox<Task<Void, Never>?>(nil)
 
@@ -162,8 +164,12 @@ public final class PluginHost: @unchecked Sendable {
         let changes = ChangeFeed()
         self.changes = changes
         changes.follow(mainServer)
+        let timings = TimingFeed()
+        self.timings = timings
+        timings.follow(main)
         externals = ExternalAccessories(bridges: bridgeList, storageDirectory: storageDirectory, options: options, setupCode: { mainServer.setupCode }) { bridge in
             changes.follow(bridge.server)
+            timings.follow(bridge)
         }
 
         if configuration.accessoryBlockCount > 0 {
@@ -246,6 +252,12 @@ public final class PluginHost: @unchecked Sendable {
     /// included (a child bridge, a television published after start), until the observation is cancelled.
     public func observeChanges(_ observer: @escaping HAPServer.ChangeObserver) -> Observation {
         changes.add(observer)
+    }
+
+    /// Calls `observer` with how long each request and handler took on any server the host runs, with that
+    /// server's bridge, until the observation is cancelled.
+    public func observeTimings(_ observer: @escaping @Sendable (Bridge, HAPServer.Timing) -> Void) -> Observation {
+        timings.add(observer)
     }
 
     /// Applies a new configuration without a restart, the way a save in the web UI or over MCP should take
@@ -418,10 +430,11 @@ public final class PluginHost: @unchecked Sendable {
         return Instance(entry: entry, block: block, context: context)
     }
 
-    /// Lists a new bridge and follows its changes.
+    /// Lists a new bridge and follows its changes and timings.
     private func appendBridge(_ bridge: Bridge) {
         bridgeList.withLockedValue { $0.append(bridge) }
         changes.follow(bridge.server)
+        timings.follow(bridge)
     }
 
     private static func uniqueKey(for block: HomeswiftConfiguration.Platform, taken: Set<String>) -> String {

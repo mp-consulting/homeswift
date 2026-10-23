@@ -224,8 +224,13 @@
     el("div", { class: "who" }, el("h1", { text: title }), subtitle ? el("p", { class: "muted", text: subtitle }) : null),
     tools.filter(Boolean).length ? el("div", { class: "tools" }, ...tools) : null);
 
+  // /status?since=24h&bridge=<bridge>&accessory=<accessory>: the activity charts' range and whose durations they show,
+  // as on the Logs page.
   views.status = async (main) => {
-    const status = await api("/api/status");
+    const [status, accessories] = await Promise.all([
+      api("/api/status"),
+      api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
+    ]);
     $("#banner").classList.toggle("hidden", !status.restartNeeded);
     const waiting = status.bridges.filter((bridge) => !bridge.paired);
     const [health, healthKind] = status.restartNeeded ? ["Running; some changes need a restart", "away"]
@@ -265,6 +270,7 @@
         el("div", { class: "stat" }, el("b", { text: plugins.size }), el("span", { text: plugins.size === 1 ? "Plugin" : "Plugins" })),
         el("div", { class: "stat" }, el("b", { text: main0 ? main0.controllers : 0 }), el("span", { text: "Home app controllers" })),
         el("div", { class: "stat" }, el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: "Up" }))),
+      activity(accessories, withSlugs(status.bridges, "bridge")),
       el("h2", { text: status.bridges.length === 1 ? "Bridge" : "Bridges and accessories" }),
       el("div", { class: "servers" }, ...bridges),
       el("h2", { text: "System" }),
@@ -279,6 +285,131 @@
         // Changes apply without one; this is for a plugin that misbehaves.
         el("div", { class: "actions" }, el("button", { class: "link", text: "Restart homeswift…", onclick: restartBridge }))));
   };
+
+  /// The Status page's charts: the process's memory and CPU, and how long the Home app's requests and the plugins'
+  /// calls to their devices take, over the range and for the bridge or accessory the filters above them choose (the
+  /// Logs page's). A range that ends now refreshes every minute; while new data loads the charts stay, faded.
+  function activity(accessories, bridges) {
+    const params = new URLSearchParams(location.search);
+    const range = rangeFilter(params, { changed: () => load() });
+    const sources = sourceFilter(accessories, bridges, initialSource(accessories, bridges, params.get("accessory"), params.get("bridge")), {
+      label: "Whose requests", everything: "All servers", changed: () => load() });
+    const byID = new Map(accessories.map((accessory) => [accessory.id, accessory]));
+    const durations = (key) => [
+      { label: "Average", tone: 1, value: (point) => point[key]?.average ?? null },
+      { label: "Longest", tone: 2, value: (point) => point[key]?.longest ?? null },
+    ];
+    const charts = [
+      { title: "Memory", note: "The homeswift process, at its highest in each point", series: [{ label: "Memory", tone: 1, value: (point) => point.memory }], format: formatBytes,
+        unit: (max) => 1024 ** (max >= 1024 ** 3 ? 3 : 2) },
+      { title: "CPU", note: "The homeswift process; 100% is one core busy", series: [{ label: "CPU", tone: 1, value: (point) => point.cpu }], format: formatPercent },
+      { title: "Home app requests", note: "How long the bridge takes to answer reads and writes", series: durations("requests"), format: formatMilliseconds, key: "requests" },
+      { title: "Plugin device calls", note: "How long plugins take to reach their devices or clouds", series: durations("handlers"), format: formatMilliseconds, key: "handlers" },
+    ].map((chart) => {
+      const figure = el("b", { class: "chart-figure" });
+      const detail = el("div", { class: "muted chart-detail" });
+      const body = el("div", { class: "chart-body" });
+      const card = el("div", { class: "card chart-card" },
+        el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: chart.title }), el("div", { class: "muted", text: chart.note })), figure),
+        body, detail);
+      return { ...chart, card, figure, detail, body, view: null };
+    });
+    const table = el("details", { class: "more chart-table" }, el("summary", { text: "Show as a table" }));
+    table.addEventListener("toggle", () => { if (table.open) fillTable(); });
+    const section = el("section", { class: "activity" },
+      el("h2", { text: "Activity" }),
+      el("div", { class: "filter-bar" }, range.picker, sources.picker, range.customRow),
+      el("div", { class: "chart-grid" }, charts.map((chart) => chart.card)),
+      table);
+    let shown = null;   // the last history loaded, for the table
+    let refresh = null;
+
+    function keepAddress() {
+      const query = new URLSearchParams();
+      range.address(query);
+      const { kind, value } = sources.source();
+      if (kind === "bridge") query.set("bridge", bridges.find((bridge) => bridge.deviceId === value)?.slug ?? value);
+      if (kind === "accessory") query.set("accessory", byID.get(value)?.slug ?? value);
+      const path = `${location.pathname}${query.size ? `?${query}` : ""}`;
+      if (path !== location.pathname + location.search) history.replaceState(null, "", path);
+    }
+    async function load() {
+      clearTimeout(refresh);
+      keepAddress();
+      const [from, end] = range.span() ?? [new Date(Date.now() - 3600000), null];
+      const to = end ?? new Date();
+      const query = new URLSearchParams({ from: from.toISOString(), to: to.toISOString() });
+      const { kind, value } = sources.source();
+      if (kind) query.set(kind, value);
+      section.classList.add("loading");
+      let history;
+      try {
+        history = await api(`/api/metrics?${query}`);
+      } catch (e) {
+        // A homeswift that records nothing (a library, a test) has no charts.
+        if (e.status === 404) { section.remove(); return; }
+        for (const chart of charts) chart.detail.textContent = e.message;
+        section.classList.remove("loading");
+        return;
+      }
+      section.classList.remove("loading");
+      const points = history.points.map((point) => ({ ...point, time: new Date(point.time).getTime() }));
+      shown = { points, latest: history.latest };
+      for (const chart of charts) {
+        if (chart.view) chart.view.update(points, from.getTime(), to.getTime(), history.step * 1000);
+        else chart.view = HomeswiftChart.lineChart(chart.body, { title: chart.title, series: chart.series, format: chart.format, unit: chart.unit, points, from: from.getTime(), to: to.getTime(), step: history.step * 1000 });
+        describe(chart, points, history.latest, !end);
+      }
+      if (table.open) fillTable();
+      // A range that ends now moves on with it.
+      if (!end) refresh = setTimeout(() => { if (section.isConnected && !document.hidden) load(); }, 60000);
+    }
+
+    /// The figure beside a chart's title and the line under it: the latest memory and CPU, the average and count
+    /// of the calls in the range.
+    function describe(chart, points, latest, live) {
+      if (!chart.key) {
+        const values = points.map(chart.series[0].value).filter((value) => value != null);
+        const now = chart.title === "Memory" ? latest.memory : latest.cpu;
+        chart.figure.textContent = live && now != null ? chart.format(now) : values.length ? chart.format(values.at(-1)) : "–";
+        chart.detail.textContent = values.length ? `Highest ${chart.format(Math.max(...values))} · lowest ${chart.format(Math.min(...values))}` : "";
+        return;
+      }
+      const calls = points.map((point) => point[chart.key]).filter(Boolean);
+      const count = calls.reduce((sum, one) => sum + one.count, 0);
+      const average = count ? calls.reduce((sum, one) => sum + one.average * one.count, 0) / count : null;
+      chart.figure.textContent = average == null ? "–" : chart.format(average);
+      chart.detail.textContent = count ? `Average of ${count.toLocaleString()} ${count === 1 ? "call" : "calls"} · longest ${chart.format(Math.max(...calls.map((one) => one.longest)))}` : "No calls in this range";
+    }
+
+    function fillTable() {
+      if (!shown) return;
+      const time = new Intl.DateTimeFormat([], { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+      const cell = (value, format) => el("td", { text: value == null ? "–" : format(value) });
+      const calls = (one) => [cell(one?.average, formatMilliseconds), cell(one?.longest, formatMilliseconds), cell(one?.count, (n) => n.toLocaleString())];
+      const head = ["Time", "Memory", "CPU", "Requests, average", "longest", "count", "Device calls, average", "longest", "count"];
+      table.replaceChildren(table.firstChild, el("div", { class: "table-scroll" }, el("table", {},
+        el("thead", {}, el("tr", {}, head.map((text) => el("th", { text })))),
+        el("tbody", {}, [...shown.points].reverse().map((point) => el("tr", {},
+          el("td", { text: time.format(point.time) }), cell(point.memory, formatBytes), cell(point.cpu, formatPercent),
+          calls(point.requests), calls(point.handlers)))))));
+    }
+
+    load();
+    return section;
+  }
+
+  /// Bytes as MB, or GB from 1 GB; `top`, the axis's highest, keeps a chart's ticks in one unit.
+  function formatBytes(bytes, top = bytes) {
+    const gigabytes = top >= 1024 ** 3;
+    const value = bytes / 1024 ** (gigabytes ? 3 : 2);
+    return `${value.toFixed(gigabytes || (value > 0 && value < 10) ? 1 : 0)} ${gigabytes ? "GB" : "MB"}`;
+  }
+  function formatPercent(value) { return `${value > 0 && value < 10 ? value.toFixed(1) : Math.round(value)}%`; }
+  function formatMilliseconds(ms) {
+    if (ms >= 1000) return `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)} s`;
+    return `${ms > 0 && ms < 10 ? ms.toFixed(1) : Math.round(ms)} ms`;
+  }
 
   function formatDuration(seconds) {
     const d = Math.floor(seconds / 86400), h = Math.floor(seconds % 86400 / 3600), m = Math.floor(seconds % 3600 / 60);
@@ -475,7 +606,7 @@
       ? el("div", { class: "control" }, el("span", { text: shortName(service) }), rows[0].lastChild)
       : el("div", { class: "controls" }, el("div", { class: "service-name", text: shortName(service) }), rows));
     const names = others.map(({ service }) => shortName(service));
-    const subtitle = [...new Set([describeModel(accessory), accessory.platformName].filter(Boolean))].join(" · ");
+    const subtitle = describeModel(accessory);
     const card = el("div", { class: "card accessory-card", "data-search": `${accessory.name} ${accessory.platformName || ""} ${accessory.model || ""}`.toLowerCase() },
       el("div", { class: "server-head" },
         tile(iconName, tone),
@@ -520,7 +651,7 @@
     const first = groups.filter((group) => cameraFirst.has(group.service.type));
     const more = groups.filter((group) => !cameraFirst.has(group.service.type));
     const names = more.map(({ service }) => shortName(service));
-    const subtitle = [...new Set([describeModel(accessory), accessory.platformName].filter(Boolean))].join(" · ");
+    const subtitle = describeModel(accessory);
     return el("div", { class: "card accessory-card camera-card", "data-search": `${accessory.name} ${accessory.platformName || ""} ${accessory.model || ""}`.toLowerCase() },
       view.element,
       subtitle ? el("div", { class: "camera-meta muted", text: subtitle }) : null,
@@ -545,14 +676,11 @@
 
   views.accessories = async (main) => {
     const accessories = withSlugs(await api("/api/accessories"), "accessory");
-    const byBridge = new Map();
-    for (const accessory of accessories) {
-      if (!byBridge.has(accessory.bridge)) byBridge.set(accessory.bridge, []);
-      byBridge.get(accessory.bridge).push(accessory);
-    }
+    const servers = new Set(accessories.map((accessory) => accessory.bridge)).size;
+    // A section per plugin; a card's foot names its server.
     const search = el("input", { type: "search", class: "search", placeholder: "Search accessories", "aria-label": "Search accessories" });
-    const sections = [...byBridge].map(([bridge, list]) => el("section", { class: "bridge-section" },
-      el("div", { class: "section-head" }, el("h2", { text: bridge }), el("span", { class: "muted", text: `${list.length} ${list.length === 1 ? "accessory" : "accessories"}` })),
+    const sections = groupByPlugin(accessories).map(([name, list]) => el("section", { class: "accessory-section" },
+      el("div", { class: "section-head" }, el("h2", { text: name }), el("span", { class: "muted", text: `${list.length} ${list.length === 1 ? "accessory" : "accessories"}` })),
       el("div", { class: "grid" }, list.map(accessoryCard))));
     const none = el("p", { class: "muted hidden", text: "No accessory matches." });
     search.addEventListener("input", () => {
@@ -571,9 +699,16 @@
       none.classList.toggle("hidden", shown > 0);
     });
     show(main,
-      pageHead("Accessories", accessories.length ? `${accessories.length} on ${byBridge.size} ${byBridge.size === 1 ? "server" : "servers"}, as the Home app sees them. Changes here reach your devices.` : "", accessories.length ? search : null),
+      pageHead("Accessories", accessories.length ? `${accessories.length} on ${servers} ${servers === 1 ? "server" : "servers"}, as the Home app sees them. Changes here reach your devices.` : "", accessories.length ? search : null),
       accessories.length ? [...sections, none] : el("div", { class: "card empty" }, el("p", { class: "muted", text: "No accessories yet. Plugins add them once they reach their devices." })));
   };
+
+  /// Accessories by plugin: [name, accessories] pairs by the plugin's name, each list by name; those of no
+  /// plugin last, as "Other accessories".
+  function groupByPlugin(accessories) {
+    const groups = Map.groupBy([...accessories].sort((a, b) => a.name.localeCompare(b.name)), (accessory) => accessory.platformName ?? "");
+    return [...groups].sort(([a], [b]) => !a - !b || a.localeCompare(b)).map(([name, list]) => [name || "Other accessories", list]);
+  }
 
   function describeModel(accessory) {
     const manufacturer = accessory.manufacturer || "";
@@ -671,7 +806,7 @@
   };
 
   /// A block's state pill: its label and tone.
-  const blockState = (block, plugin, instance) => block.system ? ["Built in", "standby"] : instance?.paused ? ["Paused", "standby"]
+  const blockState = (block, plugin, instance) => block.system ? ["Built in", "standby"] : instance?.paused ? ["Paused", "paused"]
     : instance ? ["Running", "on"] : plugin ? ["Not running", "away"] : ["No plugin", "away"];
 
   /// Takes a block out of config.json, after asking: its accessories leave the Home app.
@@ -1197,6 +1332,86 @@
   const levelChoices = [["trace", "All"], ["info", "Info"], ["warning", "Warnings"], ["error", "Errors"]];
   let logState = null;
 
+  // The Logs and Status pages' filters, in one row above what they scope.
+  const rangeChoices = [["latest", "Latest lines"], ["1h", "Last hour"], ["6h", "Last 6 hours"], ["24h", "Last 24 hours"],
+    ["today", "Today"], ["yesterday", "Yesterday"], ["7d", "Last 7 days"], ["custom", "Custom range…"]];
+
+  /// A time range menu whose first choice is the default (`latest`, the Logs page's latest lines, only when asked
+  /// for), with the From and To of a custom range in `customRow`. `changed` runs on a choice.
+  function rangeFilter(params, { latest = false, changed }) {
+    const choices = rangeChoices.filter(([value]) => latest || value !== "latest");
+    const fallback = choices[0][0];
+    const since = choices.some(([value]) => value === params.get("since")) ? params.get("since") : fallback;
+    const picker = el("select", { class: `popup ${since === fallback ? "" : "chosen"}`, "aria-label": "Time range" }, choices.map(([value, text]) => el("option", { value, text, selected: value === since })));
+    const localInput = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    const fromInput = el("input", { type: "datetime-local", "aria-label": "From", value: params.get("from") ?? localInput(new Date(Date.now() - 3600000)) });
+    const toInput = el("input", { type: "datetime-local", "aria-label": "To", value: params.get("to") ?? localInput(new Date()) });
+    const customRow = el("div", { class: `log-range ${since === "custom" ? "" : "hidden"}` },
+      el("label", {}, "From", fromInput), el("label", {}, "To", toInput),
+      el("button", { text: "Show", onclick: () => changed() }));
+    picker.addEventListener("change", () => {
+      customRow.classList.toggle("hidden", picker.value !== "custom");
+      picker.classList.toggle("chosen", picker.value !== fallback);
+      if (picker.value === "custom") fromInput.focus(); else changed();
+    });
+    return {
+      picker, customRow,
+      /// The span chosen, `[from, to]` with `to` null when it ends now; null for the latest lines.
+      span() {
+        const now = new Date();
+        const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        switch (picker.value) {
+        case "1h": return [new Date(now - 3600000), null];
+        case "6h": return [new Date(now - 6 * 3600000), null];
+        case "24h": return [new Date(now - 86400000), null];
+        case "today": return [midnight, null];
+        case "yesterday": return [new Date(midnight - 86400000), midnight];
+        case "7d": return [new Date(now - 7 * 86400000), null];
+        case "custom": {
+          const from = new Date(fromInput.value), to = new Date(toInput.value);
+          return isNaN(from) ? null : [from, isNaN(to) || to > now ? null : to];
+        }
+        default: return null;
+        }
+      },
+      /// Adds the choice to a page's address: `since`, and `from` and `to` for a custom range.
+      address(query) {
+        if (picker.value !== fallback) query.set("since", picker.value);
+        if (picker.value === "custom") { query.set("from", fromInput.value); if (toInput.value) query.set("to", toInput.value); }
+      },
+    };
+  }
+
+  /// What the data is about, one menu: everything (`everything` names it); the bridges, every bridge's own lines
+  /// (`allBridges`) or one's; or one accessory, grouped by plugin. Values: "", "bridge:all", "bridge:<device ID>",
+  /// "accessory:<id>". `changed` runs on a choice; `source()` reads it as a kind and a value.
+  function sourceFilter(accessories, bridges, initial, { label, everything, allBridges = false, changed }) {
+    const option = (value, text) => el("option", { value, text, selected: value === initial });
+    const picker = el("select", { class: `popup ${initial ? "chosen" : ""}`, "aria-label": label },
+      option("", everything),
+      bridges.length ? el("optgroup", { label: "Bridges" }, allBridges ? option("bridge:all", "Bridges only") : null,
+        bridges.map((bridge) => option(`bridge:${bridge.deviceId}`, bridge.external ? `${bridge.name} · its own server` : bridge.childBridge ? `${bridge.name} · child bridge` : bridge.name))) : null,
+      groupByPlugin(accessories).map(([name, list]) => el("optgroup", { label: name },
+        list.map((accessory) => option(`accessory:${accessory.id}`, accessory.name)))));
+    picker.addEventListener("change", () => { picker.classList.toggle("chosen", Boolean(picker.value)); changed(); });
+    return {
+      picker,
+      source() {
+        const [kind, ...rest] = picker.value.split(":");
+        return { kind, value: rest.join(":") };
+      },
+    };
+  }
+
+  /// The source menu's value for an address: an accessory by its slug or id, a bridge by its slug, or `all`.
+  function initialSource(accessories, bridges, accessory, bridge) {
+    const found = accessory && accessories.find((one) => one.slug === accessory || one.id === accessory);
+    if (found) return `accessory:${found.id}`;
+    if (bridge === "all") return "bridge:all";
+    const one = bridge && bridges.find((candidate) => candidate.slug === bridge);
+    return one ? `bridge:${one.deviceId}` : "";
+  }
+
   // /logs/<accessory>?bridge=<bridge>&since=24h&level=warning&q=text: the accessory by its slug (a plugin's page
   // may give its id), the bridge by its slug,
   // the range (latest, 1h, 6h, 24h, today, yesterday, 7d, or custom with from= and to=), the lowest level and the
@@ -1206,16 +1421,15 @@
       api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
       api("/api/status").then((status) => withSlugs(status.bridges, "bridge")).catch(() => []),
     ]);
-    const accessoryID = accessories.find((accessory) => accessory.slug === wanted || accessory.id === wanted)?.id ?? "";
     const params = new URLSearchParams(location.search);
     const output = el("div", { class: "log", role: "log", "aria-live": "off" });
     const filter = el("input", { type: "search", class: "search", placeholder: "Filter text", "aria-label": "Filter the log" });
     const follow = el("input", { type: "checkbox", checked: true });
     const count = el("span", { class: "muted count" });
-    // What the lines are about, one menu: every line; the bridges' own lines (their servers': connections, pairings,
-    // controllers), every bridge's or one's; or one accessory's (those of its own server and those naming it, its id
-    // or its address). The server picks them before its limit (UIServer.logMatcher), so a week of one accessory
-    // is not cut short by the others'. Values: "", "bridge:all", "bridge:<device ID>", "accessory:<id>".
+    // What the lines are about (sourceFilter): every line; the bridges' own lines (their servers': connections,
+    // pairings, controllers), every bridge's or one's; or one accessory's (those of its own server and those naming
+    // it, its id or its address). The server picks them before its limit (UIServer.logMatcher), so a week of one
+    // accessory is not cut short by the others'.
     const byID = new Map(accessories.map((accessory) => [accessory.id, accessory]));
     const termsFor = (id) => {
       const accessory = byID.get(id);
@@ -1231,32 +1445,19 @@
       const labels = new Set(chosen.map((bridge) => bridge.name));
       return (line) => labels.has(line.label);
     };
-    const wantedBridge = params.get("bridge") === "all" ? "all" : bridges.find((bridge) => bridge.slug === params.get("bridge"))?.deviceId;
-    const initial = accessoryID ? `accessory:${accessoryID}` : wantedBridge ? `bridge:${wantedBridge}` : "";
-    const option = (value, text) => el("option", { value, text, selected: value === initial });
-    const sourcePicker = el("select", { class: "popup", "aria-label": "What the lines are about" },
-      option("", "All lines"),
-      bridges.length ? el("optgroup", { label: "Bridges" }, option("bridge:all", "Bridges only"),
-        bridges.map((bridge) => option(`bridge:${bridge.deviceId}`, bridge.external ? `${bridge.name} · its own server` : bridge.childBridge ? `${bridge.name} · child bridge` : bridge.name))) : null,
-      accessories.length ? el("optgroup", { label: "Accessories" }, [...accessories].sort((a, b) => a.name.localeCompare(b.name)).map((accessory) =>
-        option(`accessory:${accessory.id}`, accessory.platformName ? `${accessory.name} · ${accessory.platformName}` : accessory.name))) : null);
-    /// The picker's choice: its kind and value.
-    const source = () => {
-      const [kind, ...rest] = sourcePicker.value.split(":");
-      return { kind, value: rest.join(":") };
-    };
+    const sources = sourceFilter(accessories, bridges, initialSource(accessories, bridges, wanted, params.get("bridge")), {
+      label: "What the lines are about", everything: "All lines", allBridges: true, changed: () => { choose(); load(); } });
+    const source = sources.source;
     const choose = () => {
       const { kind, value } = source();
       logState.accessory = kind === "accessory" ? termsFor(value) : null;
       logState.bridge = kind === "bridge" ? bridgeFor(value) : null;
-      sourcePicker.classList.toggle("chosen", Boolean(sourcePicker.value));
     };
     // `live`: new lines join the page (not while a span in the past is shown); `cap`: how many it keeps.
     filter.value = params.get("q") ?? "";
     const level = levelChoices.some(([value]) => value === params.get("level")) ? params.get("level") : "info";
     logState = { output, level, filter, follow, count, lines: [], accessory: null, bridge: null, live: true, cap: latestLines, capped: false };
     choose();
-    sourcePicker.addEventListener("change", () => { choose(); load(); });
     const levels = el("div", { class: "group", role: "group", "aria-label": "Lowest level shown" }, levelChoices.map(([level, text]) =>
       el("button", { text, class: level === logState.level ? "on" : "", "aria-pressed": String(level === logState.level), onclick: (event) => {
         logState.level = level;
@@ -1276,40 +1477,13 @@
     filter.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => { render(); keepAddress(); }, 120); });
     follow.addEventListener("change", () => { if (follow.checked) output.scrollTop = output.scrollHeight; });
 
-    // A time range: the latest lines from memory, or a span from the log the bridge keeps on disk (rotated, a
-    // week at most). A span that ends now keeps following; one in the past stays as it is.
-    const ranges = [["latest", "Latest lines"], ["1h", "Last hour"], ["6h", "Last 6 hours"], ["24h", "Last 24 hours"],
-      ["today", "Today"], ["yesterday", "Yesterday"], ["7d", "Last 7 days"], ["custom", "Custom range…"]];
-    const since = ranges.some(([value]) => value === params.get("since")) ? params.get("since") : "latest";
-    const rangePicker = el("select", { class: `popup ${since === "latest" ? "" : "chosen"}`, "aria-label": "Time range" }, ranges.map(([value, text]) => el("option", { value, text, selected: value === since })));
-    const localInput = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    const fromInput = el("input", { type: "datetime-local", "aria-label": "From", value: params.get("from") ?? localInput(new Date(Date.now() - 3600000)) });
-    const toInput = el("input", { type: "datetime-local", "aria-label": "To", value: params.get("to") ?? localInput(new Date()) });
-    const customRow = el("div", { class: `log-range ${since === "custom" ? "" : "hidden"}` },
-      el("label", {}, "From", fromInput), el("label", {}, "To", toInput),
-      el("button", { text: "Show", onclick: () => load() }));
-    const span = (choice) => {
-      const now = new Date();
-      const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      switch (choice) {
-      case "1h": return [new Date(now - 3600000), null];
-      case "6h": return [new Date(now - 6 * 3600000), null];
-      case "24h": return [new Date(now - 86400000), null];
-      case "today": return [midnight, null];
-      case "yesterday": return [new Date(midnight - 86400000), midnight];
-      case "7d": return [new Date(now - 7 * 86400000), null];
-      case "custom": {
-        const from = new Date(fromInput.value), to = new Date(toInput.value);
-        return isNaN(from) ? null : [from, isNaN(to) || to > now ? null : to];
-      }
-      default: return null;
-      }
-    };
+    // A time range (rangeFilter): the latest lines from memory, or a span from the log the bridge keeps on disk
+    // (rotated, a week at most). A span that ends now keeps following; one in the past stays as it is.
+    const range = rangeFilter(params, { latest: true, changed: () => load() });
     /// The address of what is shown, in place: no new history entry per choice.
     function keepAddress() {
       const query = new URLSearchParams();
-      if (rangePicker.value !== "latest") query.set("since", rangePicker.value);
-      if (rangePicker.value === "custom") { query.set("from", fromInput.value); if (toInput.value) query.set("to", toInput.value); }
+      range.address(query);
       if (logState.level !== "info") query.set("level", logState.level);
       if (filter.value) query.set("q", filter.value);
       const { kind, value } = source();
@@ -1321,7 +1495,7 @@
     }
     async function load() {
       keepAddress();
-      const chosen = span(rangePicker.value);
+      const chosen = range.span();
       const query = new URLSearchParams();
       if (chosen) query.set("from", chosen[0].toISOString());
       if (chosen?.[1]) query.set("to", chosen[1].toISOString());
@@ -1356,17 +1530,12 @@
       }
       setTimeout(() => { copy.textContent = "Copy"; copy.title = "Copy the lines shown"; }, 1800);
     } });
-    rangePicker.addEventListener("change", () => {
-      customRow.classList.toggle("hidden", rangePicker.value !== "custom");
-      rangePicker.classList.toggle("chosen", rangePicker.value !== "latest");
-      if (rangePicker.value === "custom") fromInput.focus(); else load();
-    });
     show(main,
       pageHead("Logs", "This homeswift's log, live, and up to a week back."),
       el("div", { class: "card log-card" },
-        el("div", { class: "editor-bar" }, levels, rangePicker, sourcePicker, filter, el("span", { class: "spacer" }), count, copy,
+        el("div", { class: "editor-bar" }, levels, range.picker, sources.picker, filter, el("span", { class: "spacer" }), count, copy,
           el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: "Follow" })),
-          customRow),
+          range.customRow),
         output));
     await load();
   };
