@@ -296,6 +296,46 @@ Where the time went, from `sample`:
 - **Static files** carried `no-store`: a reload downloaded 230 KB of scripts and styles again. They carry an
   ETag and `no-cache` now and answer 304; pages and the API keep `no-store`.
 
+### On a quiet machine, final
+
+The tables above ran while other builds kept the load average between 40 and 600. Measured again once the machine was
+quiet (load average 15 to 35): the whole bridge with 300 accessories, `7c45fef` against `0518b4b`, interleaved
+twice, the better run of each.
+
+| 300 accessories | `7c45fef` | `0518b4b` | |
+|---|---:|---:|---:|
+| MCP `search_logs`, p50 | 931 ms | 7.3 ms | 128× |
+| MCP `get_recent_logs`, p50 | 61 ms | 0.83 ms | 74× |
+| `GET /api/logs`, p50 | 8.3 ms | 0.80 ms | 10× |
+| `GET /api/logs?accessory=`, p50 | 21 ms | 3.1 ms | 6.9× |
+| `GET /api/logs?from=` (an hour), p50 | 34 ms | 7.3 ms | 4.6× |
+| `GET /api/accessories` (365 KB), p50 | 22 ms | 5.9 ms | 3.7× |
+| MCP `list_accessories`, p50 | 14 ms | 5.2 ms | 2.7× |
+| MCP `resources/read accessories`, p50 | 8.5 ms | 3.9 ms | 2.2× |
+| MCP `tools/list`, p50 | 0.51 ms | 0.18 ms | 2.9× |
+| `PUT /api/accessories/<id>`, p50 | 0.35 ms | 0.16 ms | 2.1× |
+| `GET /api/accessories`, 8 connections, CPU per request | 35.8 ms | 9.5 ms | 3.8× |
+| `GET /api/logs`, 4 connections, CPU per request | 10.6 ms | 0.89 ms | 12× |
+| MCP `list_accessories`, 4 connections, CPU per request | 17.0 ms | 6.0 ms | 2.8× |
+| Startup to ready, with 5 000 log lines | 4.2 s | 0.41 s | 10× |
+| Memory at rest, RSS / footprint | 28–31 / 14–16 MB | 30–31 / 12–19 MB | |
+
+And the HAP server alone (`hap-bench`, the same two commits, interleaved twice at 30 and at 100 accessories; the
+two sizes agree):
+
+| `hap-bench`, 30 accessories | `7c45fef` | `0518b4b` | |
+|---|---:|---:|---:|
+| GET /characteristics ×10, 1 connection | 8 571 req/s, 62 µs CPU | 9 280 req/s, 52 µs CPU | 1.08× |
+| GET /characteristics ×10, 4 connections | 22 868 req/s, 86 µs CPU | 25 138 req/s, 70 µs CPU | 1.10× |
+| GET /characteristics ×10, 16 connections | 32 405 req/s, 110 µs CPU | 35 267 req/s, 106 µs CPU | 1.09× |
+| PUT /characteristics ×1, 4 connections | 22 717 req/s, 81 µs CPU | 26 140 req/s, 59 µs CPU | 1.15× |
+| GET /accessories, pair setup, pair verify, events, memory | | unchanged | |
+
+What is left: `/api/accessories` spends a third of its 5.9 ms building the generic `JSONValue` tree and two thirds
+writing it (sorted keys); a writer of its own would duplicate the accessory JSON the MCP tools share, for a page
+that loads it once. HAP's `GET /accessories` (2.5 ms for 145 KB at 100 accessories) is the server's own JSON writer
+and the session's encryption, fetched when the configuration number changes.
+
 ### Adding accessories
 
 A plugin adds its accessories one at a time. Each add rewrote the whole accessory cache with `JSONEncoder`, and
