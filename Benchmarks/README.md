@@ -161,7 +161,22 @@ PORT=52000 ACCESSORIES=300 "$BIN/hap-bench" idle --name homeswift-300 --port 520
   by trying the configured port first.
 - Homeswift's CPU per request rises with the number of concurrent connections (61 µs on one, 85–93 µs on four
   or more) while HAP-NodeJS's falls (88 → 59 µs). The request path crosses from the NIO event loop into the
-  connection's task and back, and takes the server's state lock several times; worth a profile.
+  connection's task and back, and takes the server's state lock several times. Profiled on 2026-10-23: a fifth of
+  the inbound work was `HTTPRequest.parse` going through Foundation (byte by byte since `04ba6b8`, 2.7× fewer
+  instructions a request), and the hops each way between the loop and the task. Each connection's task now runs on
+  its channel's event loop (a `TaskExecutor` preference, macOS 15 and Linux). Back to back with `7c45fef`, twice,
+  30 accessories, on a busy machine (the same caveats as above):
+
+  | `hap-bench` | `7c45fef` | after | |
+  |---|---:|---:|---:|
+  | GET /characteristics ×10, 1 connection | 9 259 req/s, 59 µs CPU | 10 254 req/s, 50 µs CPU | 1.11× |
+  | GET /characteristics ×10, 4 connections | 22 783 req/s, 91 µs CPU | 26 759 req/s, 69 µs CPU | 1.17× |
+  | GET /characteristics ×10, 16 connections | 34 130 req/s, 115 µs CPU | 36 728 req/s, 111 µs CPU | 1.08× |
+  | PUT /characteristics ×1, 4 connections | 21 232 req/s, 88 µs CPU | 26 478 req/s, 60 µs CPU | 1.25× |
+  | GET /accessories, 4 connections | 3 683 req/s, 744 µs CPU | 3 712 req/s, 724 µs CPU | 1.0× |
+
+  Single-request latencies, pairing, events and memory are unchanged. The task on the loop alone, against the same
+  code without it: 58 → 50 µs on one connection, 89 → 69 µs on four, the same on sixteen.
 
 ## Reading the numbers
 
