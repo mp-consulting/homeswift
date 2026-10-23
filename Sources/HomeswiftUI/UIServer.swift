@@ -419,10 +419,18 @@ public final class UIServer: Sendable {
             case ["logs"]:
                 // `from` (and `to`, now when left out) as ISO 8601: that span, from the archive on disk; else the latest lines.
                 // `accessory`, `bridge` (a device ID, or `all`): only the lines about them, picked before the limit.
-                let accessory = request.query["accessory"].flatMap { catalog.find(id: $0) }.map(Self.logMatcher(for:))
+                let found = request.query["accessory"].flatMap { catalog.find(id: $0) }
+                let accessory = found.map(Self.logMatcher(for:))
                 let bridges = catalog.host.bridges
-                let bridge = request.query["bridge"].map { id in id == "all" ? bridges : bridges.filter { $0.server.deviceID == id } }.map(Self.logMatcher(for:))
+                let chosen = request.query["bridge"].map { id in id == "all" ? bridges : bridges.filter { $0.server.deviceID == id } }
+                let bridge = chosen.map(Self.logMatcher(for:))
                 let matching: (@Sendable (LogBuffer.Line) -> Bool)? = switch (accessory, bridge) {
+                case let (accessory?, bridge?): { accessory($0) && bridge($0) }
+                case let (accessory, bridge): accessory ?? bridge
+                }
+                // The same, on a row of the log on disk before it is parsed: what the row must hold to match.
+                let accessoryRow = found.flatMap(Self.rowFilter(for:)), bridgeRow = chosen.flatMap(Self.rowFilter(for:))
+                let mayMatch: (@Sendable (String) -> Bool)? = switch (accessoryRow, bridgeRow) {
                 case let (accessory?, bridge?): { accessory($0) && bridge($0) }
                 case let (accessory, bridge): accessory ?? bridge
                 }
@@ -431,7 +439,7 @@ public final class UIServer: Sendable {
                     // The archive is read off the concurrency pool: up to a week of files.
                     let logs = catalog.logs
                     let lines = await withCheckedContinuation { continuation in
-                        DispatchQueue.global(qos: .userInitiated).async { continuation.resume(returning: logs.lines(from: from, to: to, limit: Self.logLimit, matching: matching)) }
+                        DispatchQueue.global(qos: .userInitiated).async { continuation.resume(returning: logs.lines(from: from, to: to, limit: Self.logLimit, matching: matching, mayMatch: mayMatch)) }
                     }
                     return .json(.array(lines.map(Self.logJSON)))
                 }
@@ -446,6 +454,10 @@ public final class UIServer: Sendable {
                 let series = request.query["accessory"].flatMap { catalog.find(id: $0) }.map { "accessory:\($0.accessory.id)" }
                     ?? request.query["bridge"].flatMap { $0 == "all" ? nil : "bridge:\($0)" } ?? Metrics.allSeries
                 return .json(Self.metricsJSON(metrics.history(from: from, to: to, series: series), latest: metrics.latest))
+            case ["logs", "settings"]:
+                // Whether lines go to disk with their payloads; `available` false without a log on disk (tests, a library).
+                let archive = catalog.logs.archive
+                return .json(["saveDetails": .bool(archive?.savesDetails ?? false), "available": .bool(archive != nil)])
             case ["events"]:
                 return .events(events.stream())
             default:
@@ -474,6 +486,13 @@ public final class UIServer: Sendable {
                 }
             }
         case .PUT:
+            if route == ["logs", "settings"] {
+                guard let save = body["saveDetails"]?.boolValue else { return .error(400, "saveDetails (true or false) is required") }
+                guard let archive = catalog.logs.archive else { return .error(404, "this homeswift keeps no log on disk") }
+                try archive.setSavesDetails(save)
+                logger.info(save ? "Log payloads are saved on disk from now on, secrets masked" : "Log payloads are no longer saved on disk", metadata: ["user": "\(username)"])
+                return .json(["saveDetails": .bool(save), "available": true])
+            }
             if route == ["config"] {
                 guard body.objectValue != nil else { return .error(400, "the config must be a JSON object") }
                 let result = try await catalog.applyConfig(body, dryRun: false)
@@ -664,16 +683,40 @@ public final class UIServer: Sendable {
     /// Whether a log line is about an accessory: its own server's lines, and those naming it, its id, the
     /// address its id carries (`ElgatoKeyLights:3C:6A:…`) or its serial number. The page filters live lines
     /// the same way.
-    static func logMatcher(for found: HomeswiftCatalog.Located) -> @Sendable (LogBuffer.Line) -> Bool {
+    /// What names an accessory in a line, lower-cased: its name, id, address (`ElgatoKeyLights:3C:6A:…`) and serial.
+    static func logTerms(for found: HomeswiftCatalog.Located) -> [String] {
         let accessory = found.accessory
         let id = accessory.id
         let address = id.firstIndex(of: ":").map { String(id[id.index(after: $0)...]) }.flatMap(MACAddress.canonical)
         let serial = accessory.information[.serialNumber]?.value.stringValue
-        let terms = [accessory.name, id, address, serial].compactMap { $0?.lowercased() }.filter { $0.count >= 3 }
+        return [accessory.name, id, address, serial].compactMap { $0?.lowercased() }.filter { $0.count >= 3 }
+    }
+
+    /// Whether a row of the log on disk, its raw JSON text, could be about the accessory: it holds one of its terms.
+    /// The row escapes only quotes, backslashes and control characters, so a term without them reads the same in
+    /// it; nil (no shortcut) when a term has one.
+    static func rowFilter(for found: HomeswiftCatalog.Located) -> (@Sendable (String) -> Bool)? {
+        let terms = logTerms(for: found)
+        guard !terms.contains(where: { $0.contains("\"") || $0.contains("\\") }) else { return nil }
+        // ASCII terms (nearly always) are searched byte by byte, rows with an emoji or an accent too.
+        let ascii = terms.filter(TextSearch.isASCII), other = terms.filter { !TextSearch.isASCII($0) }
+        return { row in TextSearch.containsAny(row, asciiCaseless: ascii) || other.contains { TextSearch.contains(row, caseless: $0) } }
+    }
+
+    /// Whether a row could be one of these bridges' own lines: it holds `"n":"<label>"` (nil for a label to escape).
+    static func rowFilter(for bridges: [PluginHost.Bridge]) -> (@Sendable (String) -> Bool)? {
+        let keys = bridges.map { #""n":"\#($0.name)""# }
+        guard !bridges.contains(where: { $0.name.contains("\"") || $0.name.contains("\\") || !TextSearch.isASCII($0.name) }) else { return nil }
+        return { row in keys.contains { TextSearch.contains(row, ascii: $0) } }
+    }
+
+    static func logMatcher(for found: HomeswiftCatalog.Located) -> @Sendable (LogBuffer.Line) -> Bool {
+        let terms = logTerms(for: found)
         // A lower-cased term that is not ASCII never occurs in an ASCII line.
         let asciiTerms = terms.filter(TextSearch.isASCII)
         return { line in
-            let haystack = "\(line.label) \(line.text)"
+            // Inside its payload too: a device often appears there only, by its id or address.
+            let haystack = line.searchable
             // ASCII lines, nearly all of them, are searched in place, ignoring case; others are lowered first.
             if TextSearch.isASCII(haystack) { return asciiTerms.contains { TextSearch.contains(haystack, caseless: $0) } }
             let lowered = haystack.lowercased()
@@ -711,8 +754,11 @@ public final class UIServer: Sendable {
                 "latest": ["memory": latest.memory.map { .number(Double($0)) } ?? .null, "cpu": latest.cpu.map(JSONValue.number) ?? .null]]
     }
 
+    /// A line for the Logs page; `details`, the JSON taken out of it, as compact text for the page to expand.
     static func logJSON(_ line: LogBuffer.Line) -> JSONValue {
-        ["time": .string(Timestamp.iso8601(line.date)), "level": .string(line.level.rawValue), "label": .string(line.label), "text": .string(line.text)]
+        var json: [String: JSONValue] = ["time": .string(Timestamp.iso8601(line.date)), "level": .string(line.level.rawValue), "label": .string(line.label), "text": .string(line.text)]
+        if let details = line.details { json["details"] = .string(details) }
+        return .object(json)
     }
 
     /// Who changed config.json; the host's own line says what applied.

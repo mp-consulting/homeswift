@@ -11,7 +11,7 @@ enum WebAssets {
 (() => {
   "use strict";
 
-  const { $, el, tile, sparkle, menuButton, copyText, jsonEditor, fact, setPaused, slug, withSlugs } = HomeswiftCommon;
+  const { $, el, tile, sparkle, menuButton, copyText, jsonEditor, jsonView, fact, setPaused, slug, withSlugs } = HomeswiftCommon;
 
   const show = (main, ...nodes) => main.replaceChildren(...nodes.flat().filter(Boolean));
 
@@ -172,8 +172,12 @@ enum WebAssets {
     const main = $("#view");
     leaveGuard = null;
     shownPath = location.pathname + location.search;
-    main.replaceChildren(el("p", { class: "muted", text: "Loading…" }));
+    main.replaceChildren(el("div", { class: "view-loading" }, spinner()));
     view(main, args).catch((e) => { if (e.status !== 401) main.replaceChildren(el("p", { class: "error", text: e.message })); });
+  }
+  /// Something loading: a turning ring, read as "Loading"; it shows after a moment, so a quick load does not flash it.
+  function spinner() {
+    return el("span", { class: "spinner", role: "status", "aria-label": "Loading" });
   }
   /// Shows the view at `path` without loading the page again; `replace` keeps it out of the history.
   function navigate(path, { replace = false } = {}) {
@@ -391,16 +395,23 @@ enum WebAssets {
       chart.detail.textContent = count ? `Average of ${count.toLocaleString()} ${count === 1 ? "call" : "calls"} · longest ${chart.format(Math.max(...calls.map((one) => one.longest)))}` : "No calls in this range";
     }
 
+    /// The charts' points, newest first, under two header rows: the process (memory, CPU), then the Home app's
+    /// requests and the plugins' device calls, each its average, longest and count; a rule between the groups.
     function fillTable() {
       if (!shown) return;
       const time = new Intl.DateTimeFormat([], { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
-      const cell = (value, format) => el("td", { text: value == null ? "–" : format(value) });
-      const calls = (one) => [cell(one?.average, formatMilliseconds), cell(one?.longest, formatMilliseconds), cell(one?.count, (n) => n.toLocaleString())];
-      const head = ["Time", "Memory", "CPU", "Requests, average", "longest", "count", "Device calls, average", "longest", "count"];
+      const cell = (value, format, start = false) => el("td", { class: [value == null ? "empty" : "", start ? "group-start" : ""].join(" ").trim(), text: value == null ? "–" : format(value) });
+      const calls = (one) => [cell(one?.average, formatMilliseconds, true), cell(one?.longest, formatMilliseconds), cell(one?.count, (n) => n.toLocaleString())];
+      const group = (text, span, start = true) => el("th", { scope: "colgroup", colSpan: span, class: start ? "group-start" : "", text });
+      const column = (text, start = false) => el("th", { scope: "col", class: start ? "group-start" : "", text });
       table.replaceChildren(table.firstChild, el("div", { class: "table-scroll" }, el("table", {},
-        el("thead", {}, el("tr", {}, head.map((text) => el("th", { text })))),
+        el("thead", {},
+          el("tr", { class: "groups" },
+            el("th", { scope: "col", rowSpan: 2, class: "time", text: "Time" }),
+            group("homeswift", 2, false), group("Home app requests", 3), group("Plugin device calls", 3)),
+          el("tr", {}, column("Memory"), column("CPU"), column("Average", true), column("Longest"), column("Count"), column("Average", true), column("Longest"), column("Count"))),
         el("tbody", {}, [...shown.points].reverse().map((point) => el("tr", {},
-          el("td", { text: time.format(point.time) }), cell(point.memory, formatBytes), cell(point.cpu, formatPercent),
+          el("th", { scope: "row", class: "time", text: time.format(point.time) }), cell(point.memory, formatBytes), cell(point.cpu, formatPercent),
           calls(point.requests), calls(point.handlers)))))));
     }
 
@@ -1336,9 +1347,11 @@ enum WebAssets {
   // The server's caps: the latest lines (/api/logs) and a time range (UIServer.logLimit).
   const latestLines = 2000, rangeLines = 10000;
   const timeFormat = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-  /// A line with what filtering reads, worked out once: its date and its text in lower case.
-  const prepared = (line) => Object.assign(line, { date: new Date(line.time), haystack: `${line.label} ${line.text}`.toLowerCase() });
+  /// A line with what filtering reads, worked out once: its date and its text in lower case, its payload included.
+  const prepared = (line) => Object.assign(line, { date: new Date(line.time), haystack: `${line.label} ${line.text} ${line.details ?? ""}`.toLowerCase() });
+  // All: every line; Info: info and above; Warnings: warnings only; Errors: errors only (critical ones too).
   const levelChoices = [["trace", "All"], ["info", "Info"], ["warning", "Warnings"], ["error", "Errors"]];
+  const levelShown = (level, choice) => choice === "warning" ? level === "warning" : (levelRank[level] ?? 0) >= (levelRank[choice] ?? 0);
   let logState = null;
 
   // The Logs and Status pages' filters, in one row above what they scope.
@@ -1467,7 +1480,7 @@ enum WebAssets {
     const level = levelChoices.some(([value]) => value === params.get("level")) ? params.get("level") : "info";
     logState = { output, level, filter, follow, count, lines: [], accessory: null, bridge: null, live: true, cap: latestLines, capped: false };
     choose();
-    const levels = el("div", { class: "group", role: "group", "aria-label": "Lowest level shown" }, levelChoices.map(([level, text]) =>
+    const levels = el("div", { class: "group", role: "group", "aria-label": "Levels shown" }, levelChoices.map(([level, text]) =>
       el("button", { text, class: level === logState.level ? "on" : "", "aria-pressed": String(level === logState.level), onclick: (event) => {
         logState.level = level;
         for (const button of levels.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
@@ -1510,7 +1523,9 @@ enum WebAssets {
       if (chosen?.[1]) query.set("to", chosen[1].toISOString());
       const { kind, value } = source();
       if (kind) query.set(kind, value);
-      count.textContent = "Loading…";
+      // The range loading: a spinner where its lines will be.
+      count.textContent = "";
+      output.replaceChildren(el("div", { class: "log-loading" }, spinner()));
       try {
         logState.lines = (await api(`/api/logs${query.size ? `?${query}` : ""}`)).map(prepared);
       } catch (e) {
@@ -1522,6 +1537,27 @@ enum WebAssets {
       logState.capped = Boolean(chosen) && logState.lines.length >= rangeLines;
       render();
     }
+    // Whether lines go to disk with their JSON payloads, secrets masked: for reading them, or letting the Assistant
+    // read them, after the latest lines moved on. Off, only the lines in memory have them. Shown when the bridge
+    // keeps a log on disk.
+    const saveDetails = el("input", { type: "checkbox" });
+    const saveToggle = el("label", { class: "toggle compact hidden", title: "Keep each line's JSON payload in the log on disk, secrets masked, so you and the Assistant can read it later. Off: only the latest lines, in memory, have it." },
+      el("span", { class: "switch" }, saveDetails, el("span")), el("span", { text: "Save payloads" }));
+    api("/api/logs/settings").then((settings) => {
+      if (!settings.available) return;
+      saveDetails.checked = settings.saveDetails;
+      saveToggle.classList.remove("hidden");
+    }).catch(() => {});
+    saveDetails.addEventListener("change", async () => {
+      saveDetails.disabled = true;
+      try {
+        saveDetails.checked = (await api("/api/logs/settings", { method: "PUT", body: { saveDetails: saveDetails.checked } })).saveDetails;
+      } catch (e) {
+        saveDetails.checked = !saveDetails.checked;
+        alert(e.message);
+      }
+      saveDetails.disabled = false;
+    });
     // What the page shows, as text: a line each, the time, the label, the level when it is not info.
     const copy = el("button", { text: "Copy", title: "Copy the lines shown", onclick: async () => {
       const needle = filter.value.toLowerCase();
@@ -1544,6 +1580,7 @@ enum WebAssets {
       el("div", { class: "card log-card" },
         el("div", { class: "editor-bar" }, levels, range.picker, sources.picker, filter, el("span", { class: "spacer" }), count, copy,
           el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: "Follow" })),
+          saveToggle,
           range.customRow),
         output));
     await load();
@@ -1551,19 +1588,43 @@ enum WebAssets {
 
   /// Whether a prepared line passes the level, the text (`needle`, in lower case) and the accessory.
   function visible(line, needle = logState.filter.value.toLowerCase()) {
-    return (levelRank[line.level] ?? 0) >= (levelRank[logState.level] ?? 0) && (!needle || line.haystack.includes(needle))
+    return levelShown(line.level, logState.level) && (!needle || line.haystack.includes(needle))
       && (!logState.accessory || logState.accessory.some((term) => line.haystack.includes(term)))
       && (!logState.bridge || logState.bridge(line));
   }
+  /// A line; one whose JSON payload was taken out (its text shows `{…} 1.4 KB`) has a JSON button that shows the
+  /// payload under it, formatted. It stays open while the filters draw the lines again.
   function lineNode(line) {
     const time = isNaN(line.date) ? line.time : timeFormat.format(line.date);
-    return el("div", { class: `log-line ${line.level}` },
+    const text = el("span", { class: "text", text: line.text });
+    const node = el("div", { class: `log-line ${line.level}` },
       el("time", { text: time, title: line.time, dateTime: line.time }),
       el("span", { class: "label", text: line.label, title: line.label }),
-      el("span", { class: "text", text: line.text }));
+      text);
+    if (!line.details) return node;
+    const toggle = el("button", { type: "button", class: "log-details-toggle", text: "JSON", title: "Show the payload" });
+    const show = () => {
+      toggle.setAttribute("aria-expanded", String(Boolean(line.open)));
+      toggle.title = line.open ? "Hide the payload" : "Show the payload";
+      $(".log-details", node)?.remove();
+      if (line.open) node.append(detailsNode(line));
+    };
+    toggle.addEventListener("click", () => { line.open = !line.open; show(); });
+    text.append(" ", toggle);
+    show();
+    return node;
+  }
+  function detailsNode(line) {
+    try {
+      return jsonView(JSON.parse(line.details), { class: "json log-details" });
+    } catch {
+      return el("pre", { class: "json log-details", text: line.details });
+    }
   }
   function appendLogLine(line) {
     if (!logState || !logState.live || !document.body.contains(logState.output)) return;
+    // A range still loading: the line comes with it.
+    if ($(".log-loading", logState.output)) return;
     logState.lines.push(prepared(line));
     if (logState.lines.length > logState.cap) logState.lines.splice(0, logState.lines.length - logState.cap);
     if (!visible(line)) return;
@@ -3682,9 +3743,19 @@ button.busy::after {
   border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* Something loading: a ring that turns, faded in after 150 ms so a quick load does not flash it; a page's in the middle
+   of the view. */
+.spinner {
+  display: inline-block; width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent);
+  vertical-align: middle; animation: spin 0.8s linear infinite, fade var(--normal) var(--ease-out) 150ms both;
+}
+.view-loading { display: grid; place-items: center; min-height: 40vh; }
+.view-loading .spinner, .log-loading .spinner { width: 30px; height: 30px; border-width: 3px; }
+.log-loading { display: grid; place-items: center; height: 100%; min-height: 160px; }
 @media (prefers-reduced-motion: reduce) {
   .panel { animation: none; }
   button.busy::after { animation: none; border-right-color: currentColor; opacity: 0.5; }
+  .spinner { animation: fade var(--normal) var(--ease-out) 150ms both; border-color: var(--accent); opacity: 0.5; }
 }
 @media (max-width: 640px) { .panel-columns { grid-template-columns: 1fr; } }
 
@@ -4096,12 +4167,25 @@ textarea.short { min-height: 220px; }
 .chart-tooltip .chart-time { color: var(--muted); margin-bottom: 4px; white-space: nowrap; }
 .chart-tooltip .chart-row { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .chart-tooltip b { font-variant-numeric: tabular-nums; }
+/* The charts as a table: a card of its own, the header pinned while the rows scroll, the groups (homeswift, Home app
+   requests, plugin device calls) under a header each with a rule between them, numbers right-aligned in tabular
+   figures, an empty cell quiet. */
 .chart-table { margin-top: 12px; }
-.chart-table .table-scroll { overflow-x: auto; max-height: 360px; overflow-y: auto; margin-top: 8px; }
-.chart-table table { border-collapse: collapse; font-size: 0.8125rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.chart-table th, .chart-table td { padding: 4px 12px 4px 0; text-align: right; border-bottom: 1px solid var(--line); }
-.chart-table th:first-child, .chart-table td:first-child { text-align: left; }
-.chart-table th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--material-solid); }
+.chart-table .table-scroll {
+  overflow: auto; max-height: 420px; margin-top: 10px; border-radius: 14px; border: 1px solid var(--edge);
+  background: var(--material-solid); box-shadow: var(--shadow-control);
+}
+.chart-table table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.8125rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chart-table thead { position: sticky; top: 0; z-index: 1; background: var(--material-solid); }
+.chart-table th, .chart-table td { padding: 7px 14px; text-align: right; border-bottom: 1px solid var(--line); }
+.chart-table thead th { color: var(--muted); font-weight: 500; font-size: 0.75rem; }
+.chart-table thead .groups th { color: var(--text); font-weight: 600; font-size: 0.8125rem; text-align: center; padding-bottom: 4px; border-bottom-color: transparent; }
+.chart-table thead .groups th.time { text-align: left; vertical-align: bottom; padding-bottom: 7px; border-bottom-color: var(--line); }
+.chart-table .group-start { border-left: 1px solid var(--line); }
+.chart-table tbody th.time { text-align: left; font-weight: 500; color: var(--text); }
+.chart-table td.empty { color: var(--muted); opacity: 0.55; }
+.chart-table tbody tr:last-child > * { border-bottom: 0; }
+.chart-table tbody tr:hover > * { background: var(--material-thin); }
 .servers { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 14px; }
 .server { margin: 0; display: grid; gap: 14px; align-content: start; }
 .servers .server, .card.server { animation: materialize var(--normal) var(--ease-out); }
@@ -4155,6 +4239,14 @@ textarea.short { min-height: 220px; }
 .log-line time { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .log-line .label { color: var(--muted); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log-line .text { overflow-wrap: anywhere; white-space: pre-wrap; }
+/* A payload taken out of a line: a small JSON button after its marker, the JSON formatted under the line. */
+.log-details-toggle {
+  padding: 0 7px; margin: 0; border-radius: 6px; font: 600 0.6875rem/1.5 var(--mono); letter-spacing: 0.02em; vertical-align: baseline;
+  color: var(--muted); background: var(--material-thin); border: 1px solid var(--line); box-shadow: none;
+}
+.log-details-toggle:hover { color: var(--text); transform: none; }
+.log-details-toggle[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); }
+.log-line .log-details { grid-column: 1 / -1; margin: 4px 0 6px; max-height: 420px; overflow: auto; font-size: 0.75rem; }
 .log-line.warning { background: rgba(201, 115, 26, 0.08); }
 .log-line.warning .text { color: var(--warn); }
 .log-line.error, .log-line.critical { background: rgba(208, 56, 59, 0.08); }
