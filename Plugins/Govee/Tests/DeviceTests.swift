@@ -207,6 +207,9 @@ final class AdaptiveLightingProbe: @unchecked Sendable {
         let fake = AdaptiveLightingProbe()
         let harness = await DeviceHarness(model: "H6008", adaptiveLighting: fake.factory)
         #expect(fake.isActive)
+        // The first report after launch fills the cache: not a change made elsewhere, however far from its empty 0 K.
+        await harness.update(update { $0.kelvin = 2700 })
+        #expect(fake.isActive)
         await harness.update(update { $0.kelvin = 4000 })
         #expect(!fake.isActive)
         fake.activate()

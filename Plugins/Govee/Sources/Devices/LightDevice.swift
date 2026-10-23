@@ -47,6 +47,9 @@ final class LightDevice: GoveeDevice {
     private var cacheSat = 0.0
     private var cacheR = 0, cacheG = 0, cacheB = 0
     private var cacheKelvin = 0
+    /// Whether the light has reported a colour since launch. The first report only fills the cache: compared with
+    /// its empty values it would always look like a colour set elsewhere, and turn Adaptive Lighting off at every start.
+    private var colourReported = false
     private var cacheMired = 0.0
     private var cacheScene = ""
     private var stateRequestSeq = 0
@@ -452,7 +455,9 @@ final class LightDevice: GoveeDevice {
         } else {
             log("\(Lang.curColour) [rgb \(cacheR) \(cacheG) \(cacheB)]")
         }
-        if !colourSafeMode, significant, let adaptiveLighting, adaptiveLighting.isAdaptiveLightingActive {
+        let firstReport = !colourReported
+        colourReported = true
+        if !colourSafeMode, significant, !firstReport, let adaptiveLighting, adaptiveLighting.isAdaptiveLightingActive {
             adaptiveLighting.disableAdaptiveLighting()
             log(Lang.alDisabled)
         }
