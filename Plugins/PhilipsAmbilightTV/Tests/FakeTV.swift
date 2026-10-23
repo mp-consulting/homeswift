@@ -30,6 +30,8 @@ actor FakeTV: HTTPSending {
     var networkDevices: [[String: String]]? = [["id": "wifi0", "mac": "aa:bb:cc:dd:ee:ff", "ip": "192.168.1.20", "type": "wifi", "wake-on-lan": "Enabled"]]
     var menuBrightness: Int?
     var pin = "1234"
+    /// nil: a wrong PIN gets a 200 with INVALID_PIN; a status: the grant is answered with it.
+    var wrongPINStatus: Int?
     var authKey = "key-from-tv"
     var pairingTimestamp = 42
 
@@ -51,6 +53,7 @@ actor FakeTV: HTTPSending {
     func set(ambilight: JointSpace.AmbilightConfiguration) { self.ambilight = ambilight }
     func set(applications: [JointSpace.Application]) { self.applications = applications }
     func set(hueLamp: Bool) { self.hueLamp = hueLamp }
+    func set(wrongPINStatus: Int?) { self.wrongPINStatus = wrongPINStatus }
     func clearLaunches() { launches.removeAll() }
 
     /// Queues a notification for the next `notifychange`.
@@ -77,6 +80,7 @@ actor FakeTV: HTTPSending {
         if path == "pair/grant" {
             let auth = body["auth"] as? [String: Any] ?? [:]
             guard auth["pin"] as? String == pin, auth["auth_signature"] as? String == JointSpacePairing.signature(timestamp: pairingTimestamp, pin: pin) else {
+                if let wrongPINStatus { return HTTPResponse(status: wrongPINStatus, certificateFingerprint: Self.fingerprint) }
                 return json(["error_id": "INVALID_PIN", "error_text": "Invalid pin"])
             }
             if let id = (body["device"] as? [String: Any])?["id"] as? String { paired[id] = authKey }

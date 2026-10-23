@@ -102,6 +102,10 @@
   .form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; }
   .form .wide { grid-column: 1 / -1; }
   .form input[readonly] { color: var(--muted); }
+  /* A MAC address field with its "Get MAC" button. */
+  .with-button { display: flex; gap: 8px; align-items: center; }
+  .with-button input { flex: 1; min-width: 0; }
+  .head-actions { display: flex; gap: 14px; align-items: center; flex-shrink: 0; }
   .check { display: flex; align-items: center; gap: 12px; margin: 14px 0 0; }
   .check label { margin: 0; }
   .needs { border-color: var(--warn) !important; }

@@ -21,6 +21,8 @@ final class PhilipsTestEnvironment: @unchecked Sendable {
     let tv = FakeTV()
     /// This machine's ARP table as the plugin sees it: IP to MAC.
     let arpTable = NIOLockedValueBox<[String: String]>([:])
+    /// The Wake-on-LAN packets the plugin sent: MAC and address.
+    let woken = NIOLockedValueBox<[(mac: String, ip: String?)]>([])
     private let plugins = NIOLockedValueBox<[PhilipsAmbilightTVPlugin]>([])
     private let storages = NIOLockedValueBox<[String: MemoryStorage]>([:])
 
@@ -33,7 +35,8 @@ final class PhilipsTestEnvironment: @unchecked Sendable {
             let plugin = PhilipsAmbilightTVPlugin(
                 configuration: configuration, context: context,
                 dependencies: .init(transports: FakeTransports(tv: self.tv), discover: { _ in [.init(name: "Fake TV", host: "192.168.1.20")] },
-                    lookUpARP: { ip in self.arpTable.withLockedValue { $0[ip] } }))
+                    lookUpARP: { ip in self.arpTable.withLockedValue { $0[ip] } },
+                    wake: { mac, ip in self.woken.withLockedValue { $0.append((mac, ip)) } }))
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
         }
@@ -93,7 +96,11 @@ struct ConfigurationTests {
         #expect(settings.sources[JointSpace.watchTVURI]?.customName == "Télé")
         #expect(throws: TVConfigurationError.invalid("mac", "nope")) { try TVSettings(devices[1]) }
         #expect(throws: TVConfigurationError.missing("password")) { try TVSettings(.init(name: "x", mac: "aa:bb:cc:dd:ee:ff", ip: "1.2.3.4", username: "u")) }
-        #expect(throws: TVConfigurationError.invalid("pollingInterval", "10")) { try TVSettings(.init(name: "x", mac: "aa:bb:cc:dd:ee:ff", ip: "1.2.3.4", username: "u", password: "p", pollingInterval: 10)) }
+        // An interval out of range is the default, with a warning, as the Homebridge plugin has it.
+        let tooShort = try TVSettings(.init(name: "x", mac: "aa:bb:cc:dd:ee:ff", ip: "1.2.3.4", username: "u", password: "p", pollingInterval: 10))
+        #expect(tooShort.pollingInterval == .seconds(10))
+        #expect(tooShort.warnings == ["pollingInterval 10ms is out of range (1000-60000). Using default."])
+        #expect(settings.warnings.isEmpty)
         // A fingerprint that is not one must not quietly accept any certificate.
         #expect(throws: TVConfigurationError.invalid("certFingerprint", "abc")) { try TVSettings(.init(name: "x", mac: "aa:bb:cc:dd:ee:ff", ip: "1.2.3.4", username: "u", password: "p", certFingerprint: "abc")) }
         #expect(try TVSettings(.init(name: "x", mac: "aa:bb:cc:dd:ee:ff", ip: "1.2.3.4", username: "u", password: "p", certFingerprint: " ")).certFingerprint == nil)
@@ -134,9 +141,15 @@ struct PairingTests {
         #expect(session.device.app_id == "app.homeswift.philips.\(session.device.id)")
         let pinned = FakeTransports(tv: environment.tv).makeTransport(tls: .pinned(FakeTV.fingerprint))
         await #expect(throws: JointSpaceError.self) { try await JointSpacePairing.grant(session, pin: "0000", transport: pinned) }
+        // A TV that answers a wrong PIN with 401: the Homebridge plugin's words for it.
+        await environment.tv.set(wrongPINStatus: 401)
+        await #expect(throws: JointSpaceError.pairingRefused(status: 401)) { try await JointSpacePairing.grant(session, pin: "0000", transport: pinned) }
+        #expect(JointSpaceError.pairingRefused(status: 401).description == "Invalid PIN code. Please check the PIN on your TV screen and try again.")
+        #expect(JointSpaceError.pairingRefused(status: 418).description == "the TV answered HTTP 418")
+        await environment.tv.set(wrongPINStatus: nil)
         let credentials = try await JointSpacePairing.grant(session, pin: "1234", transport: pinned)
         #expect(credentials.username == session.device.id && credentials.password == "key-from-tv" && credentials.certFingerprint == FakeTV.fingerprint)
-        #expect(await environment.tv.challenges == 2)   // one per grant: the TV challenges every new connection
+        #expect(await environment.tv.challenges == 3)   // one per grant: the TV challenges every new connection
     }
 
     @Test func pairsFromTheWebPage() async throws {
@@ -146,6 +159,10 @@ struct PairingTests {
         #expect(started.status == 200 && started.json["certificateSeen"] == true)
         let wrong = try await plugin.handleWebRequest(.init(method: "POST", path: "pair/grant", body: ["ip": "192.168.1.20", "pin": "9999"], user: "admin"))
         #expect(wrong.status == 502)
+        await environment.tv.set(wrongPINStatus: 401)
+        let rejected = try await plugin.handleWebRequest(.init(method: "POST", path: "pair/grant", body: ["ip": "192.168.1.20", "pin": "9999"], user: "admin"))
+        #expect(rejected.status == 502 && rejected.json["error"]?.stringValue?.hasPrefix("Invalid PIN code.") == true)
+        await environment.tv.set(wrongPINStatus: nil)
         let granted = try await plugin.handleWebRequest(.init(method: "POST", path: "pair/grant", body: ["ip": "192.168.1.20", "pin": "1234"], user: "admin"))
         #expect(granted.status == 200)
         #expect(granted.json["device"]?["password"] == "key-from-tv")
@@ -418,8 +435,8 @@ struct TelevisionTests {
         try await netflix.characteristic(.configuredName).write(.string("Films"))
         try await netflix.characteristic(.configuredName).write(.string("Input Source 3"))   // tvOS's placeholder, ignored
         try await netflix.characteristic(.targetVisibilityState).write(.int(HAPConstants.TargetVisibilityState.hidden))
-        let sourceSwitch = try #require(bridge.server.primary.service(.switch, subtype: "source-switch-com.netflix.ninja"))
-        try await sourceSwitch.characteristic(.configuredName).write(.string("Netflix please"))
+        let sourceSwitch = try #require(bridge.server.primary.service(.switch, subtype: "source-switch-com.google.android.youtube.tv"))
+        try await sourceSwitch.characteristic(.configuredName).write(.string("YouTube please"))
         let deviceID = bridge.server.deviceID
         await first.stop()
 
@@ -432,7 +449,9 @@ struct TelevisionTests {
         let restored = try #require(again.server.primary.services.first { $0.type.uuid == ServiceType.inputSource.uuid && $0[.identifier]?.value == identifier })
         #expect(restored[.configuredName]?.value == .string("Films"))
         #expect(restored[.currentVisibilityState]?.value == .int(HAPConstants.CurrentVisibilityState.hidden))
-        #expect(again.server.primary.service(.switch, subtype: "source-switch-com.netflix.ninja")?[.configuredName]?.value == .string("Netflix please"))
+        #expect(again.server.primary.service(.switch, subtype: "source-switch-com.google.android.youtube.tv")?[.configuredName]?.value == .string("YouTube please"))
+        // A hidden input has no source switch, as in the Homebridge plugin.
+        #expect(again.server.primary.service(.switch, subtype: "source-switch-com.netflix.ninja") == nil)
         let records = try JSONDecoder().decode([InputRecord].self, from: Data(contentsOf: environment.directory.appendingPathComponent("plugins/PhilipsAmbilightTV-Philips-TVs/inputs-aabbccddeeff.json")))
         #expect(records.first { $0.id == "com.netflix.ninja" }?.identifier == identifier.intValue)
 
@@ -461,5 +480,135 @@ struct TelevisionTests {
         #expect(await eventually(timeout: .seconds(10)) { await tv.keys.contains("Home") })
         let page = try await environment.plugin!.handleWebRequest(.init(method: "GET", path: "tvs", user: "admin"))
         #expect(page.json["tvs"]?[0]?["on"] == true)
+    }
+
+    @Test func sensorsFollowHomeKitWritesAndClearInStandby() async throws {
+        let tv = environment.tv
+        await tv.set(power: "On")
+        var settings = livingRoom
+        settings["sources"] = [["id": JointSpace.hdmiSources[3].id, "visible": false]]
+        let host = try await environment.start(settings: ["devices": [settings]])
+        defer { Task { await host.stop() } }
+        let bridge = host.bridges[1]
+        // The apps the TV lists rebuild the accessory once.
+        #expect(await eventually { bridge.server.primary.service(.inputSource, subtype: "input-14") != nil })
+        let accessory = bridge.server.primary
+        @Sendable func sensor(_ name: String) -> HAPValue? { accessory.service(.motionSensor, subtype: "state-sensor-\(name)")?[.motionDetected]?.value }
+
+        // The Television says interrupted, as the Homebridge plugin does; source switches only for shown inputs.
+        #expect(accessory.service(.television)?[.currentMediaState]?.value == .int(HAPConstants.CurrentMediaState.interrupted))
+        #expect(accessory.service(.switch, subtype: "source-switch-\(JointSpace.hdmiSources[3].id)") == nil)
+        #expect(accessory.service(.switch, subtype: "source-switch-\(JointSpace.hdmiSources[0].id)") != nil)
+        #expect(accessory.service(.inputSource, subtype: "input-12")?[.currentVisibilityState]?.value == .int(HAPConstants.CurrentVisibilityState.hidden))
+
+        // Mute and Ambilight from HomeKit: the sensors follow at once, without waiting for the TV's report.
+        let speaker = try #require(accessory.service(.televisionSpeaker))
+        try await speaker.characteristic(.mute).write(.bool(true))
+        #expect(await tv.volume.muted == true)
+        #expect(sensor("mute") == .bool(true))
+        let ambilight = try #require(accessory.service(.lightbulb, subtype: "ambilight"))
+        try await ambilight.characteristic(.on).write(.bool(true))
+        #expect(sensor("ambilight") == .bool(true))
+        try await ambilight.characteristic(.on).write(.bool(false))
+        #expect(sensor("ambilight") == .bool(false))
+        try await ambilight.characteristic(.on).write(.bool(true))
+        let hueSwitch = try #require(accessory.service(.switch, subtype: "ambilight-hue-switch"))
+        try await hueSwitch.characteristic(.on).write(.bool(true))
+        #expect(await tv.hueLamp)
+
+        // Standby: the mute and Ambilight sensors clear, the Ambilight+hue switch goes off.
+        try await accessory.service(.television)?.characteristic(.active).write(.int(0))
+        #expect(sensor("power") == .bool(false))
+        #expect(sensor("mute") == .bool(false) && sensor("ambilight") == .bool(false))
+        #expect(hueSwitch[.on]?.value == .bool(false))
+        #expect(speaker[.mute]?.value == .bool(false))
+    }
+
+    @Test func adaptiveLightingFollowsOnlyAColourAmbilightShows() async throws {
+        let tv = environment.tv
+        await tv.set(power: "On")
+        let host = try await environment.start(settings: ["devices": [livingRoom]])
+        defer { Task { await host.stop() } }
+        let bridge = host.bridges[1]
+        #expect(await eventually { bridge.server.primary.service(.inputSource, subtype: "input-14") != nil })
+        let ambilight = try #require(bridge.server.primary.service(.lightbulb, subtype: "ambilight"))
+        // Adaptive Lighting's characteristics are on the light.
+        #expect(ambilight[.supportedCharacteristicValueTransitionConfiguration] != nil)
+        #expect(ambilight[.characteristicValueTransitionControl] != nil)
+        #expect(ambilight[.characteristicValueActiveTransitionCount]?.value == .int(0))
+
+        // Following the picture: a schedule's temperature does not turn it into a fixed colour.
+        let device = try #require(await environment.plugin?.device(mac: "AA:BB:CC:DD:EE:FF"))
+        try await ambilight.characteristic(.on).write(.bool(true))
+        try await device.setAmbilightColorTemperature(300, adaptiveLighting: true)
+        #expect(await tv.ambilightWrites.filter { $0.style == "FOLLOW_COLOR" }.isEmpty)
+        #expect(await tv.ambilight.style == "FOLLOW_VIDEO")
+        // A temperature picked by hand, or a schedule while a colour shows, is sent.
+        try await device.setAmbilightColorTemperature(300)
+        #expect(await tv.ambilightWrites.filter { $0.style == "FOLLOW_COLOR" }.count == 1)
+        try await device.setAmbilightColorTemperature(400, adaptiveLighting: true)
+        #expect(await tv.ambilightWrites.filter { $0.style == "FOLLOW_COLOR" }.count == 2)
+    }
+
+    @Test func startsATVWhosePollingIntervalIsOutOfRange() async throws {
+        var settings = livingRoom
+        settings["pollingInterval"] = 10
+        let host = try await environment.start(settings: ["devices": [settings]])
+        defer { Task { await host.stop() } }
+        #expect(host.bridges.count == 2)
+    }
+
+    @Test func refreshesTheSourcesFromTheTV() async throws {
+        let tv = environment.tv
+        let host = try await environment.start(settings: ["devices": [livingRoom]])
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        let off = try await plugin.handleWebRequest(.init(method: "POST", path: "sources/refresh", body: ["mac": "AA:BB:CC:DD:EE:FF"], user: "admin"))
+        #expect(off.status == 409)
+
+        await tv.set(power: "On")
+        let bridge = host.bridges[1]
+        #expect(await eventually { bridge.server.primary.service(.inputSource, subtype: "input-14") != nil })
+        var applications = await tv.applications
+        applications.append(.init(id: "plex", label: "Spotify", intent: .init(component: .init(packageName: "com.spotify.tv.android", className: "com.spotify.tv.android.SpotifyTVActivity"), action: "android.intent.action.MAIN")))
+        await tv.set(applications: applications)
+        let refreshed = try await plugin.handleWebRequest(.init(method: "POST", path: "sources/refresh", body: ["mac": "AA:BB:CC:DD:EE:FF"], user: "admin"))
+        #expect(refreshed.status == 200)
+        let sources = try #require(refreshed.json["sources"]?.arrayValue)
+        #expect(sources.contains { $0["id"] == "com.spotify.tv.android" && $0["name"] == "Spotify" && $0["kind"] == "app" })
+        #expect(await eventually { bridge.server.primary.services.contains { $0[.configuredName]?.value == .string("Spotify") } })
+        #expect(try await plugin.handleWebRequest(.init(method: "POST", path: "sources/refresh", body: ["mac": "00:00:00:00:00:01"], user: "admin")).status == 404)
+    }
+
+    @Test func findsMACAddressesAndWakesAnyTV() async throws {
+        let host = try await environment.start(settings: ["devices": [livingRoom]])
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        // A configured TV is asked; another address comes from the ARP table.
+        let configured = try await plugin.handleWebRequest(.init(method: "GET", path: "mac", query: ["ip": "192.168.1.20"], user: "admin"))
+        #expect(configured.json["mac"] == "AA:BB:CC:DD:EE:FF")
+        environment.arpTable.withLockedValue { $0["192.168.1.30"] = "0a:0b:0c:0d:0e:0f" }
+        let other = try await plugin.handleWebRequest(.init(method: "GET", path: "mac", query: ["ip": "192.168.1.30"], user: "admin"))
+        #expect(other.json["mac"] == "0A:0B:0C:0D:0E:0F")
+        #expect(try await plugin.handleWebRequest(.init(method: "GET", path: "mac", query: ["ip": "192.168.1.31"], user: "admin")).status == 404)
+        #expect(try await plugin.handleWebRequest(.init(method: "GET", path: "mac", query: ["ip": "nope"], user: "admin")).status == 400)
+
+        // Wake-on-LAN to any MAC address, as the Homebridge plugin's page sends it; a configured TV's own address.
+        let woke = try await plugin.handleWebRequest(.init(method: "POST", path: "wake", body: ["mac": "0a-0b-0c-0d-0e-0f", "ip": "192.168.1.30"], user: "admin"))
+        #expect(woke.status == 200 && woke.json["woke"] == "0A:0B:0C:0D:0E:0F")
+        _ = try await plugin.handleWebRequest(.init(method: "POST", path: "wake", query: ["mac": "aa:bb:cc:dd:ee:ff"], user: "admin"))
+        let sent = environment.woken.withLockedValue { $0.map { "\($0.mac) \($0.ip ?? "-")" } }
+        #expect(sent == ["0A:0B:0C:0D:0E:0F 192.168.1.30", "AA:BB:CC:DD:EE:FF 192.168.1.20"])
+        #expect(try await plugin.handleWebRequest(.init(method: "POST", path: "wake", body: ["mac": "nope"], user: "admin")).status == 400)
+    }
+}
+
+@Suite struct AssistantBackgroundTests {
+    @Test func describesThePortForTheAssistant() throws {
+        let background = try #require(PhilipsAmbilightTVPlugin.assistantBackground)
+        #expect(background.count > 500)
+        #expect(!background.contains("Homebridge") && !background.contains("homebridge"))
+        #expect(background.contains("plugins/PhilipsAmbilightTV-") && background.contains("inputs-<mac>.json"))
+        #expect(background.contains("Never ask the user for"))
     }
 }
