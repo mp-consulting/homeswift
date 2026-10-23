@@ -295,6 +295,7 @@ final class AccessTestEnvironment: @unchecked Sendable {
         controller.setDevices(devices, doors: doors)
         var settings: [String: Any] = ["controllers": [Self.controllerBlock.merging(extra) { $1 }], "options": options]
         settings["ringDelay"] = extra["ringDelay"]
+        settings["debugAll"] = extra["debugAll"]
         let host = try host(settings: settings)
         try await host.start()
         let expected = count ?? devices.count

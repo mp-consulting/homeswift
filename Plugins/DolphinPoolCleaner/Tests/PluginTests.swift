@@ -451,5 +451,18 @@ struct AssistantActionTests {
         var registry = PluginRegistry()
         registry.register(DolphinPoolCleanerPlugin.self)
         #expect(registry.entry(for: DolphinPoolCleanerPlugin.platform)?.assistantActions.map(\.name) == ["list_robots"])
+        #expect(registry.entry(for: DolphinPoolCleanerPlugin.platform)?.assistantBackground == DolphinPoolCleanerPlugin.assistantBackground)
+    }
+
+    @Test func theBackgroundDescribesThePort() throws {
+        let background = try #require(DolphinPoolCleanerPlugin.assistantBackground)
+        #expect(!background.isEmpty)
+        #expect(!background.contains("Homebridge"))
+        // The messages it names are the ones the port gives.
+        for message in ["Invalid email or password", "Verification code has expired. Please try again.", "Session expired. Please try again.",
+                        "Refresh token expired. Please re-authenticate through the plugin settings."] {
+            #expect(background.contains(message))
+        }
+        #expect(SetupWizard.errorMessages.allSatisfy { background.contains($0.message) })
     }
 }

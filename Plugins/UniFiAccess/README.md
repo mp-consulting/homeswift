@@ -54,6 +54,7 @@ authentication cannot log in.
 | `controllers[].verifyTls` | Validate the controller's certificate against trusted authorities (default `false`). Off, the controller's self-signed certificate is pinned the first time Homeswift connects and a different one is refused, before credentials are sent. Pins are in `unifi-access-tls-pins.json` in the plugin's directory (`~/.homeswift/plugins/UniFi Access-<name>/`); remove a controller's entry to trust a regenerated certificate |
 | `options` | [Feature options](#feature-options) |
 | `ringDelay` | Seconds between doorbell rings passed on to HomeKit (default `0`) |
+| `debugAll` | `true` logs the plugin's debug lines at the info level, so they show without `homeswift -D` (default `false`) |
 
 ### Feature options
 
@@ -135,7 +136,7 @@ controller, which takes its password, is not one of them.
   pins it from the first response (the console's home page, which carries no credentials). The login waits
   until a certificate is pinned, so when that first request fails the password is not sent over an unchecked
   connection; the next attempt tries again.
-- Not ported: the `homebridge-ai-core` Assistant routes (the runtime provides the Assistant), the Homebridge
-  UI's Support links beyond the documentation, and `debugAll`.
+- Not ported: the `homebridge-ai-core` Assistant routes (the runtime provides the Assistant).
+- `debugAll` is read from the block; the Homebridge plugin always set it to `false`.
 - The events WebSocket and MQTT run on `HomeswiftNetwork`'s `WebSocket` and `MQTTClient`. MQTT over WebSockets
   (`ws://`, `wss://`) stays refused, as in Homebridge.

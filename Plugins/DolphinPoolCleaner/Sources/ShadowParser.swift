@@ -13,6 +13,8 @@ enum FilterStatus: String, Sendable, Equatable {
 /// carries, so a partial push never resets the others.
 struct RobotState: Sendable, Equatable {
     var connected = false
+    /// The motor unit's state (legacy `mu_state`, `RobotStates`).
+    var muState = RobotStates.off
     var pwsState = PWSStates.off
     var isCleaning = false
     var cleaningMode = "all"
@@ -25,6 +27,8 @@ struct RobotState: Sendable, Equatable {
     var filterStatus: FilterStatus = .ok
     /// Degrees Celsius.
     var temperature: Double?
+    /// Whether the robot runs its smart cleaning (legacy `is_smart`).
+    var isSmartMode: Bool?
     var cycleStartTime: Date?
     var faultCode: Int?
     var faultDescription: String?
@@ -202,6 +206,7 @@ enum ShadowParser {
     private static func applyLegacyFormat(_ reported: JSONValue, to state: inout RobotState) {
         // The motor unit's state.
         if let muState = reported["mu_state"]?.saturatingIntValue {
+            state.muState = muState
             state.isCleaning = isCleaning(muState: muState)
         }
         // The power supply's state machine.
@@ -217,6 +222,9 @@ enum ShadowParser {
         // Tenths of a degree Celsius.
         if let temperature = reported["temperature"]?.doubleValue {
             state.temperature = temperature / 10
+        }
+        if let smart = reported["is_smart"]?.boolValue {
+            state.isSmartMode = smart
         }
         // The first four hex digits are the minutes elapsed.
         if let cycleInfo = reported["cycle_info"]?.stringValue, cycleInfo.count >= 4, let elapsed = parseHexPrefix(String(cycleInfo.prefix(4))) {

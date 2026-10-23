@@ -823,15 +823,19 @@ extension UniFiAccessPlugin {
   <section id="support-screen" class="screen hidden">
     <div class="section-head"><h2>Support</h2><button class="link" id="back-from-support">Back</button></div>
     <div class="card support">
-      <h2 style="margin-top: 0">Getting started</h2>
+      <h2 style="margin-top: 0">About this plugin</h2>
+      <p>A port of <a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-access">homebridge-unifi-access</a> to <a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homeswift">Homeswift</a>. If you find it useful, consider starring the projects on GitHub.</p>
+      <h2>Getting started</h2>
       <ul>
+        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homeswift/blob/main/Plugins/UniFiAccess/README.md">Installation and configuration</a> in Homeswift, and what differs from Homebridge.</li>
         <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-access/blob/main/docs/FeatureOptions.md">Feature options</a>: options to set per controller or device.</li>
         <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-access/blob/main/docs/MQTT.md">MQTT</a>: the topics published and accepted.</li>
         <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-access/blob/main/CHANGELOG.md">Changelog</a> of the Homebridge plugin this one follows.</li>
       </ul>
       <h2>Get help</h2>
       <ul>
-        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-access/issues/new/choose">Open an issue</a> on GitHub.</li>
+        <li><a target="_blank" rel="noopener noreferrer" href="https://discord.gg/QXqfHEW">Discord support channel</a> of the UniFi plugins.</li>
+        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-access/issues/new/choose">Create a developer support request</a> for the Homebridge plugin's behaviour, or <a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homeswift/issues/new">open an issue on Homeswift</a> for this port.</li>
         <li>The Homeswift log (the Logs page) shows what the plugin sees; feature option <code>Log.*</code> entries turn event logging on and off.</li>
       </ul>
     </div>
