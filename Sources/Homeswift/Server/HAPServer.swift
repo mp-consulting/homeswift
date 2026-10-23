@@ -80,6 +80,10 @@ public final class HAPServer: @unchecked Sendable {
         var pairSetupOwner: ObjectIdentifier?
         var failedPairSetupAttempts = 0
         var serverChannel: (any Channel)?
+        /// `persisted.databaseHash` is behind the database: accessories with new ids were added since, each with
+        /// its bump of the number. A settle, shortly after or at `stop()`, catches the hash up.
+        var hashBehind = false
+        var hashSettleScheduled = false
     }
 
     private let primaryBox: NIOLockedValueBox<Accessory>
@@ -176,11 +180,18 @@ public final class HAPServer: @unchecked Sendable {
                 // It replaces an accessory of the same shape under the same ids: the database is as it was, and
                 // hashing all of it again for every accessory a plugin adds at launch cost N² (seconds for 300).
                 running = true
+            } else if state.serverChannel != nil, assigned {
+                // New ids: the database changed whatever its hash, so the number goes up now; the hash, as costly
+                // for every accessory of a burst, is caught up once the burst is over.
+                state.persisted.configurationNumber = state.persisted.configurationNumber % 65535 + 1
+                state.hashBehind = true
+                running = true
             } else {
                 running = refreshIfRunning(&state)
             }
             return (running, assigned || before != (state.persisted.configurationNumber, state.persisted.databaseHash))
         }
+        scheduleHashSettle()
         // Nothing to save or announce when the ids, the database and its number are as they were: a plugin
         // replacing its cached accessories at launch, one by one.
         guard running, changed else { return }
@@ -317,6 +328,8 @@ public final class HAPServer: @unchecked Sendable {
 
     /// Stops advertising, disconnects controllers and closes the socket.
     public func stop() async {
+        // A hash still behind is stored now, so the next launch does not count the same changes again.
+        settleHash()
         advertiser.stop()
         await builtInAdvertiser.stop()
         usesBuiltInAdvertiser.withLockedValue { $0 = false }
@@ -390,14 +403,47 @@ public final class HAPServer: @unchecked Sendable {
     }
 
     private func refreshConfigurationNumber(in state: inout State) {
-        let structure = database(accessories: state.accessories, includeValues: false)
-        var json = JSONWriter(capacity: 64 * 1024)
-        structure.write(to: &json)
-        let hash = Secrets.hex(SHA256.hash(data: json.bytes))
-        if !state.persisted.databaseHash.isEmpty, state.persisted.databaseHash != hash {
+        let hash = databaseHash(state)
+        // Behind, the stored hash is from before the last adds and cannot tell whether this change changed anything:
+        // a bump then, at worst one more than needed.
+        if state.hashBehind || !state.persisted.databaseHash.isEmpty && state.persisted.databaseHash != hash {
             state.persisted.configurationNumber = state.persisted.configurationNumber % 65535 + 1
         }
         state.persisted.databaseHash = hash
+        state.hashBehind = false
+    }
+
+    private func databaseHash(_ state: State) -> String {
+        let structure = database(accessories: state.accessories, includeValues: false)
+        var json = JSONWriter(capacity: 64 * 1024)
+        structure.write(to: &json)
+        return Secrets.hex(SHA256.hash(data: json.bytes))
+    }
+
+    /// Catches the hash up a quarter of a second after the last add with new ids, once for the burst.
+    private func scheduleHashSettle() {
+        let first = state.withLockedValue { state -> Bool in
+            guard state.hashBehind, !state.hashSettleScheduled else { return false }
+            state.hashSettleScheduled = true
+            return true
+        }
+        guard first else { return }
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            self?.settleHash()
+        }
+    }
+
+    /// Stores the hash of the database as it is, without another bump: its changes have had theirs.
+    func settleHash() {
+        let settled = state.withLockedValue { state -> Bool in
+            state.hashSettleScheduled = false
+            guard state.hashBehind else { return false }
+            state.persisted.databaseHash = databaseHash(state)
+            state.hashBehind = false
+            return true
+        }
+        if settled { try? persist() }
     }
 
     /// One accessory's part of the hashed database: its aid, services, characteristics and their metadata.
@@ -444,7 +490,7 @@ public final class HAPServer: @unchecked Sendable {
     // MARK: Persistence and advertising
 
     func persist() throws {
-        let data = try state.withLockedValue { try JSONEncoder().encode($0.persisted) }
+        let data = state.withLockedValue { $0.persisted.encoded() }
         try storage.save(data)
     }
 
