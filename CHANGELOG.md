@@ -8,6 +8,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Accessory widgets** on the Accessories page (`widgets.js`): each accessory drawn by the widget of its kind,
+  from its primary service, on a wall of square units packed with no gaps, in a size chosen per accessory:
+  small (1×1, a tile a tap acts on), medium (2×1, its main control) or large (2×2). Climate (a gauge with the
+  band to the target, setpoints, modes, fan speed as bars), air purifier, fan, light (brightness, colour
+  swatches, white temperature in kelvin), shutter, gate, lock, alarm (opening, unlocking and disarming are
+  held, closing and locking a tap), valve (a run button counting down), switch groups, switches, sensors,
+  television and cameras. A widget's menu sets its size or its kind's ("Medium for every light") and opens
+  **All controls**, a sheet with every control: linked services as chips, readouts, meters and blocks, the
+  rest under More. **Edit** sets sizes and drags widgets into place; the page shows one wall, or a wall per
+  plugin. The bridge keeps the layout (`ui-layout.json`, `GET` and `PUT /api/layout`), the same for every user.
+  Changes show at once and are put back with the reason when the device refuses. Plugin pages can use them:
+  `HomeswiftWidgets.card(accessory, { size })`, `.open(accessory)` and `.listen()`.
 - **The Assistant's chat** in the web UI: a sparkle button in the header, on every page, opens a chat where
   the Assistant answers and acts through the MCP server's tools, plugin actions included. Each change shows
   a card with a dry run's list of what would change and waits for Allow; writes go to the MCP audit log.

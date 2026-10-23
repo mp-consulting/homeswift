@@ -35,14 +35,27 @@ with a new code).
   lists the values. The bridge samples memory and CPU every 10 seconds and keeps a record per minute under
   `metrics/` next to config.json (a file per day, 8 days), so the charts survive a restart. The view is
   `/status?since=24h&bridge=<bridge>&accessory=<accessory>`.
-- **Accessories**: every accessory with its services, a section per plugin. Switches for on/off, sliders for brightness, colour
-  temperature and the like, menus for lock, door and alarm targets, text for everything else. Values
-  update live when a device changes elsewhere. Locks, garage doors and alarms can be operated here, as in
-  the Home app, since the user signed in; a change to one of them, or to a characteristic a plugin marked as a
-  security control (a switch that unlocks a door), asks first. Values that carry keys (a camera's Setup
-  Endpoints) are not shown. Each card's **⋯** menu identifies the accessory, shows its log,
-  asks the Assistant about it, and opens its plugin's settings. What only HomeKit uses (a camera's stream and
-  recording setup) stays off the cards.
+- **Accessories**: a wall of widgets (`widgets.js`), each accessory drawn by the widget of its kind, chosen
+  from its primary service, in one of three fixed sizes on a grid of square units packed with no gaps:
+  **small** (1×1, a tile a tap acts on, lit while the accessory is on), **medium** (2×1, its main control) and
+  **large** (2×2). An air conditioner or thermostat has a gauge, its setpoints and modes; a purifier its mode,
+  speed and air readings; a light its brightness, colours and white temperature in kelvin; a shutter its
+  position, with its closed part drawn on the small tile; a valve a run button that counts down; a gate, a
+  lock or an alarm its state, with **Hold to open**, **Hold to unlock** or **Hold to turn off** (on a small
+  tile, the tile itself is held), while closing, locking and arming are a tap. A few positions (a fan's speeds
+  in steps of 20) are bars, two to four choices a segmented control. A widget's **⋯** menu (a right click on a
+  tile) opens **All controls**: every control of the accessory in a sheet, its other services as chips,
+  readouts, meters and blocks, and what no widget shows under **More**, as rows; an accessory no widget knows
+  gets those rows. The same menu sets the widget's size, makes it the size of every accessory of that kind
+  ("Medium for every light"), identifies the accessory, shows its log, asks the Assistant about it and opens
+  its plugin's settings. **Edit** shows the sizes and arrows on every widget and lets them be dragged into
+  place; the accessories share **One wall** until **By plugin** gives each plugin a wall of its own. The bridge keeps
+  the layout in `ui-layout.json` next to config.json (`/api/layout`), the same for every user. A change shows
+  at once and goes to the device; a refusal puts the value back and says why under the name. Values update
+  live when a device changes elsewhere. A characteristic a plugin marked as a security control (a switch that
+  unlocks a door) is held to turn on, or asks first in a row. Values that carry keys (a camera's Setup
+  Endpoints) are not shown, nor what only HomeKit uses (a camera's stream and recording setup, Adaptive
+  Lighting's bookkeeping).
 - **Cameras** get a card of their own: the picture in 16:9 with the name, motion, the doorbell's last ring and
   recording over it, buttons to unmute, refresh and go full screen, and the camera's controls under it. While
   the card is on screen and the page visible, it plays the live feed muted (`GET /api/cameras/<id>/live`, fMP4
@@ -50,6 +63,10 @@ with a new code).
   snapshot every 3 seconds (`/api/cameras/<id>/snapshot?width=&height=`). Off screen it fetches nothing. A camera
   has four live viewers at most, and one turned off in the Home app, or whose plugin is paused, shows nothing.
   Plugin pages can show the same view: load `/camera.js` and call `HomeswiftCamera.view({ id, name })`.
+- **Plugin pages** can draw an accessory as this page does: load `/remote.js`, `/camera.js` and `/widgets.js` after
+  `/common.js`, take the accessory from `/api/accessories`, add `HomeswiftWidgets.card(accessory, { size })` (`small`,
+  `medium` or `large`; the kind's own size when left out) to a `.wall`, open every control with
+  `HomeswiftWidgets.open(accessory)`, and call `HomeswiftWidgets.listen()` once for live values.
 - **Addresses** are paths: `/status`, `/accessories`, `/plugins`, `/plugins/<slug>` and its `/expert`,
   `/plugins/add/<platform>`, `/config`, `/account`, and `/logs/<accessory>?bridge=<bridge or all>&since=24h&level=warning&q=text`
   (the accessory by its name's slug; `since` is `1h`, `6h`, `24h`, `today`, `yesterday`, `7d` or `custom` with

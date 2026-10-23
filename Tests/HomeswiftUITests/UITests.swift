@@ -391,6 +391,30 @@ struct LogFilterTests {
         #expect(try await browser.put("/api/logs/settings", ["saveDetails": "yes"]).status == 400)
     }
 
+    /// The Accessories page's wall is kept beside config.json, owner-only, trimmed to what a layout holds; a size
+    /// or a grouping the page does not know is refused.
+    @Test func keepsTheAccessoryLayout() async throws {
+        let environment = try UITestEnvironment(auth: .none)
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let browser = Browser(base: base)
+        #expect(try await browser.get("/api/layout").json == ["order": [], "sizes": [:], "defaults": [:], "grouping": "none"])
+        let layout: JSONValue = ["order": ["Lamps:lamp", "Lamps:lock", "Lamps:lamp"], "sizes": ["Lamps:lamp": "large"], "defaults": ["light": "small"], "grouping": "plugin", "extra": true]
+        let kept: JSONValue = ["order": ["Lamps:lamp", "Lamps:lock"], "sizes": ["Lamps:lamp": "large"], "defaults": ["light": "small"], "grouping": "plugin"]
+        #expect(try await browser.put("/api/layout", layout).json == kept)
+        #expect(try await browser.get("/api/layout").json == kept)
+        let file = environment.directory.appendingPathComponent("ui-layout.json")
+        #expect(try JSONValue(data: Data(contentsOf: file)) == kept)
+        #if !os(Windows)
+        #expect((try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int) == 0o600)
+        #endif
+        #expect(try await browser.put("/api/layout", ["sizes": ["Lamps:lamp": "huge"]]).status == 400)
+        #expect(try await browser.put("/api/layout", ["grouping": "room"]).status == 400)
+        #expect(try await browser.put("/api/layout", ["defaults": ["Light!": "small"]]).status == 400)
+        #expect(try await browser.put("/api/layout", ["order": [1, 2]]).status == 400)
+        #expect(try await browser.get("/api/layout").json == kept)
+    }
+
     /// A bridge's own lines (its server's), or every bridge's; with an accessory, both must hold.
     @Test func picksABridgesLines() async throws {
         let environment = try UITestEnvironment(auth: .none)
