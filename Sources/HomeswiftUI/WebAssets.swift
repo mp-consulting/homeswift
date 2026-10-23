@@ -4187,7 +4187,9 @@ enum WebAssets {
   /// An answer to a spoken message, read out: plain text, without Markdown's marks.
   function speak(text) {
     if (!text || !window.speechSynthesis) return;
-    const plain = text.replace(/```[\s\S]*?```/g, "").replace(/[*_`#>]/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+    // Tables: the delimiter rows go, cells are read as a list.
+    const plain = text.replace(/```[\s\S]*?```/g, "").replace(/^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/gm, "").replace(/\s*\|\s*/g, ", ")
+      .replace(/[*_`#>~]/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
     const utterance = new SpeechSynthesisUtterance(plain);
     utterance.lang = voiceLanguage();
     speechSynthesis.speak(utterance);
@@ -4318,8 +4320,27 @@ enum WebAssets {
   const tile = (name, tone = "orange", large = false) =>
     el("span", { class: `tile tone-${tone}${large ? " large" : ""}`, "aria-hidden": "true" }, icon(name));
 
-  /// Markdown from the Assistant as elements, never as HTML: headings, paragraphs, nested lists, code blocks,
-  /// bold, italics, code and http(s) links. Anything else stays text.
+  // A table's cells: the outer pipes dropped, split on the others; `\|` is a pipe inside a cell.
+  const tableCells = (row) => {
+    let text = row.trim();
+    if (text.startsWith("|")) text = text.slice(1);
+    if (text.endsWith("|") && !text.endsWith("\\|")) text = text.slice(0, -1);
+    return text.split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/\\\|/g, "|"));
+  };
+  const tableDelimiter = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+
+  // A GitHub table: the header, its delimiter row (`:` for alignment), then the rows, held to the header's columns.
+  function table(header, delimiter, rows) {
+    const aligns = delimiter.map((cell) =>
+      cell.endsWith(":") ? (cell.startsWith(":") ? "align-center" : "align-right") : null);
+    const row = (cells, tag) => el("tr", {}, header.map((_, i) => el(tag, aligns[i] ? { class: aligns[i] } : {}, inline(cells[i] ?? ""))));
+    return el("div", { class: "md-table" }, el("table", {},
+      el("thead", {}, row(header, "th")),
+      rows.length ? el("tbody", {}, rows.map((cells) => row(cells, "td"))) : null));
+  }
+
+  /// Markdown from the Assistant as elements, never as HTML: headings, paragraphs, nested and task lists, tables,
+  /// quotes, rules, code blocks, and the inline marks of `inline`. Anything else stays text.
   function markdown(source) {
     const root = el("div", { class: "md" });
     const lines = String(source).replace(/\r/g, "").split("\n");
@@ -4339,6 +4360,30 @@ enum WebAssets {
         root.append(el("pre", {}, el("code", { text: code.join("\n") })));
         continue;
       }
+      if (/^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(line)) {
+        flush(); closeLists();
+        root.append(el("hr", {}));
+        continue;
+      }
+      if (/^\s*>/.test(line)) {
+        flush(); closeLists();
+        const quoted = [line];
+        while (i + 1 < lines.length && /^\s*>/.test(lines[i + 1])) quoted.push(lines[++i]);
+        root.append(el("blockquote", {}, ...markdown(quoted.map((text) => text.replace(/^\s*>\s?/, "")).join("\n")).childNodes));
+        continue;
+      }
+      if (line.includes("|") && tableDelimiter.test(lines[i + 1] ?? "")) {
+        const header = tableCells(line);
+        const delimiter = tableCells(lines[i + 1]);
+        if (delimiter.length === header.length) {
+          flush(); closeLists();
+          i++;
+          const rows = [];
+          while (i + 1 < lines.length && lines[i + 1].includes("|") && lines[i + 1].trim()) rows.push(tableCells(lines[++i]));
+          root.append(table(header, delimiter, rows));
+          continue;
+        }
+      }
       const heading = line.match(/^\s*(#{1,6})\s+(.*)$/);
       if (heading) {
         flush(); closeLists();
@@ -4353,14 +4398,19 @@ enum WebAssets {
         while (lists.length && lists[lists.length - 1].indent > indent) lists.pop();
         let current = lists[lists.length - 1];
         if (!current || current.indent < indent || current.ordered !== ordered) {
-          const node = el(ordered ? "ol" : "ul", {});
+          // A numbered list keeps its first number (a list split by a paragraph goes on at 3).
+          const start = ordered ? parseInt(item[2], 10) : 1;
+          const node = el(ordered ? "ol" : "ul", start !== 1 ? { start } : {});
           const parent = current && current.indent < indent ? current.node.lastElementChild : null;
           (parent || root).append(node);
           if (current && current.indent === indent) lists.pop();
           current = { indent, ordered, node };
           lists.push(current);
         }
-        current.node.append(el("li", {}, inline(item[3])));
+        const task = item[3].match(/^\[([ xX])\]\s+(.*)$/);
+        current.node.append(task
+          ? el("li", { class: "task" }, el("input", { type: "checkbox", checked: task[1] !== " ", disabled: true }), inline(task[2]))
+          : el("li", {}, inline(item[3])));
         continue;
       }
       if (!line.trim()) { flush(); continue; }
@@ -4376,20 +4426,34 @@ enum WebAssets {
     return root;
   }
 
-  /// Inline Markdown: **bold**, *italics*, `code`, [a link](https://…).
+  // The inline marks, the first that matches winning: code (taken as is), ***bold italics***, **bold** and
+  // __bold__, ~~struck~~, *italics* and _italics_ (not inside a word: snake_case stays), [a link](https://…),
+  // then a bare http(s) URL without its trailing punctuation.
+  const inlinePattern = new RegExp([
+    /`[^`]+`/, /\*\*\*[^*\s](?:[^*]*[^*\s])?\*\*\*/, /\*\*(?:[^*]|\*(?!\*))+?\*\*/, /__[^_\s](?:[^_]*[^_\s])?__/,
+    /~~[^~\s](?:[^~]*[^~\s])?~~/, /\*[^*\s](?:[^*]*[^*\s])?\*/, /(?<!\w)_[^_\s](?:[^_]*[^_\s])?_(?!\w)/,
+    /\[[^\]]+\]\(https?:\/\/[^)\s]+\)/, /https?:\/\/[^\s<>]*[^\s<>.,;:!?'")\]]/,
+  ].map((part) => part.source).join("|"), "g");
+
+  const link = (url, label) => el("a", { href: url, target: "_blank", rel: "noopener noreferrer" }, label ?? url);
+
+  /// Inline Markdown: `code`, **bold**, *italics*, ***both***, ~~struck~~, [a link](https://…) and bare
+  /// https:// links; marks nest (**`code` in bold**).
   function inline(text) {
     const nodes = [];
-    const pattern = /(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\*[^*\s][^*]*\*|\[[^\]]+\]\((?:https?:\/\/)[^)\s]+\))/g;
     let last = 0;
-    for (const match of text.matchAll(pattern)) {
+    for (const match of text.matchAll(inlinePattern)) {
       if (match.index > last) nodes.push(text.slice(last, match.index));
       const token = match[0];
-      if (token.startsWith("**") || token.startsWith("__")) nodes.push(el("strong", { text: token.slice(2, -2) }));
-      else if (token.startsWith("`")) nodes.push(el("code", { text: token.slice(1, -1) }));
+      if (token.startsWith("`")) nodes.push(el("code", { text: token.slice(1, -1) }));
+      else if (token.startsWith("***")) nodes.push(el("strong", {}, el("em", {}, inline(token.slice(3, -3)))));
+      else if (token.startsWith("**") || token.startsWith("__")) nodes.push(el("strong", {}, inline(token.slice(2, -2))));
+      else if (token.startsWith("~~")) nodes.push(el("del", {}, inline(token.slice(2, -2))));
       else if (token.startsWith("[")) {
         const [, label, url] = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
-        nodes.push(el("a", { href: url, text: label, target: "_blank", rel: "noopener noreferrer" }));
-      } else nodes.push(el("em", { text: token.slice(1, -1) }));
+        nodes.push(link(url, inline(label)));
+      } else if (token.startsWith("http")) nodes.push(link(token));
+      else nodes.push(el("em", {}, inline(token.slice(1, -1))));
       last = match.index + token.length;
     }
     if (last < text.length) nodes.push(text.slice(last));
@@ -6327,6 +6391,19 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .md pre { margin: 8px 0; padding: 10px 12px; border-radius: 12px; background: var(--material-thin); border: 1px solid var(--line); overflow: auto; }
 .md pre code { padding: 0; border: 0; background: none; }
 .md a { color: var(--accent); }
+.md .md-table { margin: 8px 0; overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+.md table { width: 100%; border-collapse: collapse; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+.md th, .md td { padding: 6px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+.md th { font-weight: 600; background: var(--material-thin); white-space: nowrap; }
+.md tbody tr:last-child td { border-bottom: 0; }
+.md th + th, .md td + td { border-left: 1px solid var(--line); }
+.md .align-center { text-align: center; }
+.md .align-right { text-align: right; }
+.md blockquote { margin: 8px 0; padding: 2px 0 2px 12px; border-left: 3px solid var(--line); color: var(--muted); }
+.md hr { margin: 12px 0; border: 0; border-top: 1px solid var(--line); }
+.md del { color: var(--muted); }
+.md li.task { list-style: none; margin-left: -1.3em; }
+.md li.task input { margin: 0 6px 0 0; vertical-align: -2px; accent-color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   .ai-card.thinking, .ai-card.thinking::before, .ai-thinking, .ai-body { animation: none; }
   .ai-thinking { color: var(--muted); background: none; }
@@ -7805,7 +7882,8 @@ self.addEventListener("notificationclick", (event) => {
     if (fill) node.style.setProperty("--fill", fill);
     const bar = gradient ? el("span", { class: "level-mark" }) : el("span", { class: "level-fill" });
     const text = el("span", { class: "level-text" });
-    node.append(bar, showLabel ? el("span", { class: "level-label", text: label }) : null, text);
+    // append() writes a null as the text "null": "" when there is no label.
+    node.append(bar, showLabel ? el("span", { class: "level-label", text: label }) : "", text);
     let value = min, dragging = false, keyTimer = null;
     function show(next) {
       value = clamp(Math.round((next - min) / step) * step + min, min, max);
@@ -9237,7 +9315,7 @@ self.addEventListener("notificationclick", (event) => {
     } else {
       const body = (built.body || []).filter(Boolean);
       node.append(el("div", { class: "w-head" }, glyph, who, powerToggle(ctx, built)),
-        body.length ? el("div", { class: "w-body" }, body) : null, el("span", { class: "w-corner" }, menu));
+        body.length ? el("div", { class: "w-body" }, body) : "", el("span", { class: "w-corner" }, menu));
       node.classList.toggle("head-only", !body.length);
       ctx.watch(() => node.classList.toggle("powered-off", !!built.power && !built.power.big && !isOn(built.power.characteristic)));
     }

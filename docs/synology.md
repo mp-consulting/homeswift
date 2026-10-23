@@ -1,10 +1,11 @@
 # Homeswift on a Synology NAS
 
-The Synology package (`homeswift-<arch>-<version>.spk`) runs the bridge on a Synology NAS, installed from
-Package Center like any other: no Docker, DSM 7.0 or later, and models without Container Manager, such as the
-j-series, can run it too. It is Homeswift's counterpart of
-[homebridge-syno-spk](https://github.com/homebridge/homebridge-syno-spk). The container image,
-`ghcr.io/mp-consulting/homeswift`, runs it with Container Manager instead.
+Two ways to run the bridge on a Synology NAS:
+
+- **The package** (`homeswift-<arch>-<version>.spk`), installed from Package Center like any other: no Docker,
+  DSM 7.0 or later, and models without Container Manager, such as the j-series, can run it too. It is
+  Homeswift's counterpart of [homebridge-syno-spk](https://github.com/homebridge/homebridge-syno-spk).
+- **The container** from `ghcr.io/mp-consulting/homeswift`, with Container Manager on DSM 7.2 or later.
 
 ## The package
 
@@ -89,7 +90,9 @@ in config.json's bridge block:
 
 UniFi Protect's cameras need FFmpeg. Install SynoCommunity's **ffmpeg7** package (or ffmpeg6), or Entware's
 ffmpeg: the bridge finds them in `/var/packages/ffmpeg7/target/bin`, `/var/packages/ffmpeg6/target/bin`,
-`/var/packages/ffmpeg/target/bin` or `/opt/bin`.
+`/var/packages/ffmpeg/target/bin` or `/opt/bin`. DSM's own `/bin/ffmpeg` (4.1, without libx264) cannot encode
+HomeKit Secure Video recordings: SynoCommunity's packages come before it, Entware's after, so with Entware set the
+plugin's `videoProcessor` to `/opt/bin/ffmpeg`. The log warns at start when the FFmpeg in use has no libx264.
 
 ### Moving to the package
 
@@ -110,6 +113,97 @@ runtime linked in and Avahi's dns_sd library beside it. Pushing a release tag ru
 Synology/build.sh aarch64        # or x86_64; both without an argument
 ```
 
+## The container
+
+The bridge runs as a container from `ghcr.io/mp-consulting/homeswift`, the image the
+[Dockerfile](../Dockerfile) builds. The image is published for `linux/amd64` (Intel and AMD models) and
+`linux/arm64`, and Docker pulls the right one. You need DSM 7.2 or later with **Container Manager** from the
+Package Center. Synology's package page lists the models that can run it.
+
+The same image and [docker-compose.yml](../docker-compose.yml) work on any Linux server with Docker.
+
+### Install
+
+1. In **File Station**, create the folder `docker/homeswift` (the `docker` shared folder is created by
+   Container Manager). It holds `config.json`, the pairings, the accessory cache, the logs and the metrics.
+2. Over SSH, `id` shows your DSM user's uid and gid. The compose file uses `1026` and `100`, the first account
+   DSM creates and its `users` group; change `PUID` and `PGID` if yours differ, and `TZ` to your time zone.
+3. In **Container Manager > Project > Create**, name the project `homeswift`, choose `/docker/homeswift` as
+   the path, pick **Upload docker-compose.yml** (or **Create docker-compose.yml** and paste it), and finish.
+   The image is pulled and the container starts.
+4. Open **Container > homeswift > Log**. The banner prints the bridge's HomeKit setup code, the web UI's
+   address and, until an account exists, the web UI's set-up code.
+5. Open `http://<nas-address>:8581`, create the administrator account with that set-up code, and add
+   plugins on the **Plugins** page. Then add the bridge in the Home app: scan the QR code on the **Status**
+   page, or **Add Accessory > More options**, **Homeswift**, and the setup code.
+
+On the first start the container writes a `config.json` with the bridge on port `51826` and the web UI on
+`8581` ([docs/ui.md](ui.md)). The bridge generates and keeps its device ID and setup code. If `config.json`
+exists already, it is left as it is.
+
+Over SSH instead of Container Manager, in a folder holding `docker-compose.yml`:
+
+```bash
+sudo docker compose up -d
+```
+
+### What the compose file sets
+
+| Setting | Why |
+|---|---|
+| `network_mode: host` | Required. HomeKit finds the bridge over mDNS multicast, which a bridged container network does not carry, and connects to the bridge's port on the NAS's address. With host networking there are no ports to map |
+| `restart: unless-stopped` | The bridge comes back after a reboot or a crash. A restart from the web UI happens inside the container, which keeps running |
+| `stop_grace_period: 30s` | Time to stop the servers and the plugins and to write the accessory cache |
+| `PUID`, `PGID` | The user the bridge runs as. The container makes the data folder that user's, so you can read and back up the files from DSM |
+| `TZ` | The time zone of the log and of the Logs page's days |
+| `AVAHI_INTERFACES` | Advertise only on these interfaces, such as `eth0`, or `ovs_eth0` when Open vSwitch is on for Virtual Machine Manager. By default every interface with multicast is used |
+| `/volume1/docker/homeswift:/homeswift` | The data. Change `volume1` if the shared folder lives on another volume |
+
+### Bonjour (container)
+
+Homeswift advertises through Avahi on Linux. By default the container runs its own Avahi daemon under its own
+name, `<nas-name>-homeswift.local`, which resolves to the NAS's addresses. It does not contend with DSM's
+own mDNS responder for the NAS's name. Avahi may log that it detected another mDNS stack on the host; with
+the two names apart, both work.
+
+DSM runs Avahi too, for its Bonjour service discovery (**Control Panel > File Services > Advanced**). To
+have DSM's Avahi advertise the bridge instead, check over SSH that its D-Bus socket exists:
+
+```bash
+ls -l /run/dbus/system_bus_socket
+```
+
+Then uncomment the `/run/dbus/system_bus_socket:/run/host-dbus/system_bus_socket` volume in the compose
+file. The container then starts no daemon and says `Bonjour through the host's Avahi` in its log. This
+depends on DSM's Avahi and its D-Bus policy, which Synology can change in an update; the built-in daemon is the
+default because it does not.
+
+To see what is advertised:
+
+```bash
+sudo docker exec homeswift avahi-browse -rt _hap._tcp
+```
+
+### Updating
+
+In **Container Manager > Project > homeswift**, **Action > Stop**, then **Action > Build**, which pulls the
+current image and starts the container again. Over SSH:
+
+```bash
+sudo docker compose pull && sudo docker compose up -d
+```
+
+To stay on one release, replace `latest` with a version such as `0.3.0`, or with `0.3` for its patch releases.
+The pairings live in the data folder, so the Home app keeps the bridge, its rooms and automations across
+updates.
+
+### Moving a bridge from a Mac
+
+Stop the bridge on the Mac first and keep it stopped: two bridges advertising the same device ID make the
+Home app drop the pairings. Then copy the contents of the Mac's `~/.homeswift` into `docker/homeswift` and
+start the container. The Home app keeps the bridge as it is. Paths in config.json that point at the Mac's file
+system, such as a certificate for the web UI, need to be changed.
+
 ## Firewall
 
 If the DSM firewall is on (**Control Panel > Security > Firewall**), allow from your local network:
@@ -127,7 +221,9 @@ for the default ports, and DSM's own **Bonjour** service for UDP 5353.
 
 - **Bluetooth**: the Govee plugin's Bluetooth goes through CoreBluetooth, which only macOS has. On a NAS the
   Govee plugin works through the LAN and the cloud only.
-- **Camera encoding**: the package's user cannot open `/dev/dri`: FFmpeg encodes in software.
+- **Camera encoding**: the image includes FFmpeg for UniFi Protect cameras. On an Intel NAS with Quick
+  Sync, uncomment the `/dev/dri` device in the compose file to let FFmpeg use the hardware encoder. The
+  package's user cannot open `/dev/dri`: FFmpeg encodes in software there.
 - **Package Center sources**: the package is installed by hand (**Manual Install**); updates come the same
   way, with the next release's `.spk`.
 - **Hostnames in the web UI**: the UI answers to IP addresses, `localhost` and the NAS's name. Add a DNS
@@ -140,3 +236,14 @@ for the default ports, and DSM's own **Bonjour** service for UDP 5353.
 - **The Home app does not find the packaged bridge**: check that the iPhone is on the same network as the NAS
   (not a guest Wi-Fi) and the firewall rules above. The log says whether Avahi or the built-in responder
   advertises it; on a NAS with several interfaces, `bind` keeps the built-in responder to the LAN's.
+- **The Home app does not find the bridge**: check that the container uses host networking, that the iPhone is
+  on the same network as the NAS (not a guest Wi-Fi), the firewall rules above, and `avahi-browse`. On a NAS
+  with several interfaces or with Open vSwitch on, set `AVAHI_INTERFACES` to the LAN's interface.
+- **`homeswift: could not create /homeswift/config.json`**: the folder is on a volume the container cannot
+  write. Check the path in the compose file.
+- **Commands**: the binary is `homeswift` in the container. Run it as the bridge's user, so that files it
+  writes stay readable to the bridge, and pass the data folder:
+
+  ```bash
+  sudo docker exec -it -u 1026:100 homeswift homeswift -U /homeswift ask "Why is the TV not responding?"
+  ```

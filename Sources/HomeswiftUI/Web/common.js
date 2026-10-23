@@ -80,8 +80,27 @@
   const tile = (name, tone = "orange", large = false) =>
     el("span", { class: `tile tone-${tone}${large ? " large" : ""}`, "aria-hidden": "true" }, icon(name));
 
-  /// Markdown from the Assistant as elements, never as HTML: headings, paragraphs, nested lists, code blocks,
-  /// bold, italics, code and http(s) links. Anything else stays text.
+  // A table's cells: the outer pipes dropped, split on the others; `\|` is a pipe inside a cell.
+  const tableCells = (row) => {
+    let text = row.trim();
+    if (text.startsWith("|")) text = text.slice(1);
+    if (text.endsWith("|") && !text.endsWith("\\|")) text = text.slice(0, -1);
+    return text.split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/\\\|/g, "|"));
+  };
+  const tableDelimiter = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+
+  // A GitHub table: the header, its delimiter row (`:` for alignment), then the rows, held to the header's columns.
+  function table(header, delimiter, rows) {
+    const aligns = delimiter.map((cell) =>
+      cell.endsWith(":") ? (cell.startsWith(":") ? "align-center" : "align-right") : null);
+    const row = (cells, tag) => el("tr", {}, header.map((_, i) => el(tag, aligns[i] ? { class: aligns[i] } : {}, inline(cells[i] ?? ""))));
+    return el("div", { class: "md-table" }, el("table", {},
+      el("thead", {}, row(header, "th")),
+      rows.length ? el("tbody", {}, rows.map((cells) => row(cells, "td"))) : null));
+  }
+
+  /// Markdown from the Assistant as elements, never as HTML: headings, paragraphs, nested and task lists, tables,
+  /// quotes, rules, code blocks, and the inline marks of `inline`. Anything else stays text.
   function markdown(source) {
     const root = el("div", { class: "md" });
     const lines = String(source).replace(/\r/g, "").split("\n");
@@ -101,6 +120,30 @@
         root.append(el("pre", {}, el("code", { text: code.join("\n") })));
         continue;
       }
+      if (/^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(line)) {
+        flush(); closeLists();
+        root.append(el("hr", {}));
+        continue;
+      }
+      if (/^\s*>/.test(line)) {
+        flush(); closeLists();
+        const quoted = [line];
+        while (i + 1 < lines.length && /^\s*>/.test(lines[i + 1])) quoted.push(lines[++i]);
+        root.append(el("blockquote", {}, ...markdown(quoted.map((text) => text.replace(/^\s*>\s?/, "")).join("\n")).childNodes));
+        continue;
+      }
+      if (line.includes("|") && tableDelimiter.test(lines[i + 1] ?? "")) {
+        const header = tableCells(line);
+        const delimiter = tableCells(lines[i + 1]);
+        if (delimiter.length === header.length) {
+          flush(); closeLists();
+          i++;
+          const rows = [];
+          while (i + 1 < lines.length && lines[i + 1].includes("|") && lines[i + 1].trim()) rows.push(tableCells(lines[++i]));
+          root.append(table(header, delimiter, rows));
+          continue;
+        }
+      }
       const heading = line.match(/^\s*(#{1,6})\s+(.*)$/);
       if (heading) {
         flush(); closeLists();
@@ -115,14 +158,19 @@
         while (lists.length && lists[lists.length - 1].indent > indent) lists.pop();
         let current = lists[lists.length - 1];
         if (!current || current.indent < indent || current.ordered !== ordered) {
-          const node = el(ordered ? "ol" : "ul", {});
+          // A numbered list keeps its first number (a list split by a paragraph goes on at 3).
+          const start = ordered ? parseInt(item[2], 10) : 1;
+          const node = el(ordered ? "ol" : "ul", start !== 1 ? { start } : {});
           const parent = current && current.indent < indent ? current.node.lastElementChild : null;
           (parent || root).append(node);
           if (current && current.indent === indent) lists.pop();
           current = { indent, ordered, node };
           lists.push(current);
         }
-        current.node.append(el("li", {}, inline(item[3])));
+        const task = item[3].match(/^\[([ xX])\]\s+(.*)$/);
+        current.node.append(task
+          ? el("li", { class: "task" }, el("input", { type: "checkbox", checked: task[1] !== " ", disabled: true }), inline(task[2]))
+          : el("li", {}, inline(item[3])));
         continue;
       }
       if (!line.trim()) { flush(); continue; }
@@ -138,20 +186,34 @@
     return root;
   }
 
-  /// Inline Markdown: **bold**, *italics*, `code`, [a link](https://…).
+  // The inline marks, the first that matches winning: code (taken as is), ***bold italics***, **bold** and
+  // __bold__, ~~struck~~, *italics* and _italics_ (not inside a word: snake_case stays), [a link](https://…),
+  // then a bare http(s) URL without its trailing punctuation.
+  const inlinePattern = new RegExp([
+    /`[^`]+`/, /\*\*\*[^*\s](?:[^*]*[^*\s])?\*\*\*/, /\*\*(?:[^*]|\*(?!\*))+?\*\*/, /__[^_\s](?:[^_]*[^_\s])?__/,
+    /~~[^~\s](?:[^~]*[^~\s])?~~/, /\*[^*\s](?:[^*]*[^*\s])?\*/, /(?<!\w)_[^_\s](?:[^_]*[^_\s])?_(?!\w)/,
+    /\[[^\]]+\]\(https?:\/\/[^)\s]+\)/, /https?:\/\/[^\s<>]*[^\s<>.,;:!?'")\]]/,
+  ].map((part) => part.source).join("|"), "g");
+
+  const link = (url, label) => el("a", { href: url, target: "_blank", rel: "noopener noreferrer" }, label ?? url);
+
+  /// Inline Markdown: `code`, **bold**, *italics*, ***both***, ~~struck~~, [a link](https://…) and bare
+  /// https:// links; marks nest (**`code` in bold**).
   function inline(text) {
     const nodes = [];
-    const pattern = /(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\*[^*\s][^*]*\*|\[[^\]]+\]\((?:https?:\/\/)[^)\s]+\))/g;
     let last = 0;
-    for (const match of text.matchAll(pattern)) {
+    for (const match of text.matchAll(inlinePattern)) {
       if (match.index > last) nodes.push(text.slice(last, match.index));
       const token = match[0];
-      if (token.startsWith("**") || token.startsWith("__")) nodes.push(el("strong", { text: token.slice(2, -2) }));
-      else if (token.startsWith("`")) nodes.push(el("code", { text: token.slice(1, -1) }));
+      if (token.startsWith("`")) nodes.push(el("code", { text: token.slice(1, -1) }));
+      else if (token.startsWith("***")) nodes.push(el("strong", {}, el("em", {}, inline(token.slice(3, -3)))));
+      else if (token.startsWith("**") || token.startsWith("__")) nodes.push(el("strong", {}, inline(token.slice(2, -2))));
+      else if (token.startsWith("~~")) nodes.push(el("del", {}, inline(token.slice(2, -2))));
       else if (token.startsWith("[")) {
         const [, label, url] = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
-        nodes.push(el("a", { href: url, text: label, target: "_blank", rel: "noopener noreferrer" }));
-      } else nodes.push(el("em", { text: token.slice(1, -1) }));
+        nodes.push(link(url, inline(label)));
+      } else if (token.startsWith("http")) nodes.push(link(token));
+      else nodes.push(el("em", {}, inline(token.slice(1, -1))));
       last = match.index + token.length;
     }
     if (last < text.length) nodes.push(text.slice(last));
