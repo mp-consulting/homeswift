@@ -33,6 +33,7 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
         var http: any HTTPSending = HTTPClient(tls: .system)
         var backoff: @Sendable (Int) -> Duration = DysonMQTTClient.exponentialBackoff
         var offlineRetry: Duration = DysonPureCoolPlugin.offlineRetry
+        var pendingSignInLifetime: Duration = DysonPureCoolPlugin.pendingSignInLifetime
     }
 
     /// One configured device and what runs it.
@@ -52,6 +53,8 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
         var countryCode: String
         var challengeID: String?
         var expires: ContinuousClock.Instant
+        /// Tells this sign-in from a later one, for the timer that drops it.
+        var id = UUID()
     }
 
     let configuration: Configuration
@@ -62,7 +65,11 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
     private var retries: [String: Task<Void, Never>] = [:]
     private let tasks = TaskBag()
     private var discovery: Task<[String: String], Never>?
-    private var pendingSignIn: PendingSignIn?
+    private var pendingSignIn: PendingSignIn? {
+        didSet { if pendingSignIn?.id != oldValue?.id { pendingSignInExpiry?.cancel() } }
+    }
+    /// Drops the pending sign-in, and the password with it, when its time is up.
+    private var pendingSignInExpiry: Task<Void, Never>?
     private var stopping = false
 
     public init(configuration: Configuration, context: PluginContext) {
@@ -106,6 +113,8 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
         await context.removeAccessories(keeping: Set(configured.compactMap(\.serial).map(Self.accessoryID)), message: "Removing accessory no longer in config")
 
         for settings in configured {
+            // stop() during start-up: nothing more is added or connected.
+            guard !stopping else { return }
             guard let serial = settings.serial, validate(settings) else { continue }
             let configuredIP = settings.ipAddress?.trimmingCharacters(in: .whitespaces).nonEmpty
             var ip = configuredIP
@@ -121,6 +130,7 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
             }
             await add(settings, serial: serial, ip: ip, configuredIP: configuredIP)
         }
+        guard !stopping else { return }
         saveIPOverrides(overrides)
 
         // Devices with an address connect at once; the others after an mDNS scan.
@@ -139,6 +149,8 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
 
     public func stop() async {
         stopping = true
+        pendingSignIn = nil
+        pendingSignInExpiry?.cancel()
         tasks.cancelAll()
         for task in retries.values { task.cancel() }
         retries.removeAll()
@@ -178,7 +190,7 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
             serial: serial, productType: productType, name: name, credentials: credentials, ipAddress: ip,
             mqtt: dependencies.mqtt, logger: logger, backoff: dependencies.backoff)
         if let interval = configuration.pollingInterval, interval > 0 {
-            await device.setPollingInterval(seconds: Int(interval))
+            await device.setPollingInterval(seconds: Int(saturating: interval) ?? 60)
         }
         let id = Self.accessoryID(serial: serial)
         let accessory = await DysonAccessory(
@@ -191,6 +203,7 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
             logger.error("Failed to initialize device \(serial): \(error)")
             return
         }
+        guard !stopping else { return }
         let forAccessory = await device.observe { event in accessory.handle(event) }
         let forPlugin = await device.observe { [weak self] event in
             guard let self else { return }
@@ -243,6 +256,11 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
         logger.debug("Connecting to device \(serial)...")
         do {
             try await device.connect()
+            // stop() while connecting: the connection does not outlive the plugin.
+            guard !stopping else {
+                await device.disconnect()
+                return
+            }
             if let variant = await device.activeVariant, variant.label != "default" {
                 logger.info("Connected to \(serial) using fallback variant '\(variant.label)' (protocolVersion=\(variant.protocolLevel), clean=\(variant.clean))")
             } else {
@@ -250,17 +268,23 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
             }
             return
         } catch {
+            // A connection stop() cut short is no failure.
+            guard !stopping else { return }
             logger.warning("Failed to connect to device \(serial): \(error)")
         }
-        guard !stopping else { return }
         if let ip = await device.ipAddress {
             logger.info("Attempting to rediscover IP for \(serial) via mDNS...")
             let found = await discoverIPs()[serial]
+            guard !stopping else { return }
             if let found, found != ip {
                 logger.warning("Device \(serial) answered mDNS at \(found) instead of \(ip). Set a static IP for the device if this was not expected.")
                 await device.setIPAddress(found)
                 do {
                     try await device.connect()
+                    guard !stopping else {
+                        await device.disconnect()
+                        return
+                    }
                     logger.info("Connected to \(serial) at new IP \(found)")
                     persistDiscoveredIP(serial: serial, ip: found)
                     return
@@ -387,7 +411,13 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
         let password = try CloudInput.password(body["password"])
         let countryCode = try CloudInput.countryCode(body["countryCode"])
         // A new attempt drops the previous challenge; the password is held for ten minutes at most.
-        pendingSignIn = PendingSignIn(email: email, password: password, countryCode: countryCode, expires: .now + Self.pendingSignInLifetime)
+        let lifetime = dependencies.pendingSignInLifetime
+        let signIn = PendingSignIn(email: email, password: password, countryCode: countryCode, expires: .now + lifetime)
+        pendingSignIn = signIn
+        pendingSignInExpiry = Task { [weak self] in
+            do { try await Task.sleep(for: lifetime) } catch { return }
+            await self?.expirePendingSignIn(signIn.id)
+        }
         do {
             switch try await cloud.requestCode(email: email, countryCode: countryCode) {
             case .code(let challengeID):
@@ -403,6 +433,15 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
             throw error
         }
     }
+
+    private func expirePendingSignIn(_ id: UUID) {
+        guard pendingSignIn?.id == id else { return }
+        logger.info("Clearing stale pending auth (timeout)")
+        pendingSignIn = nil
+    }
+
+    /// Whether a sign-in waits for its code. For tests.
+    var hasPendingSignIn: Bool { pendingSignIn != nil }
 
     private func verifyCode(_ body: JSONValue) async throws -> PluginWebResponse {
         let code = try CloudInput.code(body["otpCode"])
@@ -506,12 +545,20 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
         var ipAddress: String?
     }
 
-    private func pageDevice(_ body: JSONValue) throws -> PageDevice {
-        guard let serial = body["serial"]?.stringValue?.nonEmpty, let productType = body["productType"]?.stringValue?.nonEmpty,
-              let credentials = body["localCredentials"]?.stringValue?.nonEmpty else {
-            throw DysonCloud.Failure(status: 400, message: "Missing device info (serial, productType, localCredentials)")
+    /// The device a page request names: serial, product type and credential as the settings page sends them,
+    /// or (for the Assistant) only the serial of a device this instance runs, whose settings fill in the rest.
+    private func pageDevice(_ body: JSONValue) async throws -> PageDevice {
+        let given = try CloudInput.optionalIPAddress(body["ipAddress"])
+        if let serial = body["serial"]?.stringValue?.nonEmpty, let productType = body["productType"]?.stringValue?.nonEmpty,
+           let credentials = body["localCredentials"]?.stringValue?.nonEmpty {
+            return PageDevice(serial: serial, productType: productType, credentials: credentials, ipAddress: given)
         }
-        return PageDevice(serial: serial, productType: productType, credentials: credentials, ipAddress: try CloudInput.optionalIPAddress(body["ipAddress"]))
+        if body["productType"] == nil, body["localCredentials"] == nil, let serial = body["serial"]?.stringValue?.nonEmpty, let entry = managed[serial],
+           let credentials = (entry.settings.credentials?.nonEmpty ?? entry.settings.localCredentials)?.nonEmpty {
+            let ip = await entry.device.ipAddress
+            return PageDevice(serial: serial, productType: entry.device.productType, credentials: credentials, ipAddress: given ?? ip)
+        }
+        throw DysonCloud.Failure(status: 400, message: "Missing device info (serial, productType, localCredentials)")
     }
 
     /// The running device with this serial, when it is connected: the page uses its connection rather than
@@ -528,7 +575,7 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
     }
 
     private func deviceState(_ body: JSONValue, retried: Bool) async throws -> PluginWebResponse {
-        let page = try pageDevice(body)
+        let page = try await pageDevice(body)
         if !retried, let device = await connectedDevice(serial: page.serial) {
             let state = await device.state
             return PluginWebResponse(["success": true, "continuousMonitoring": .bool(state.continuousMonitoring == true)])
@@ -590,7 +637,7 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
     }
 
     private func setContinuousMonitoring(_ body: JSONValue, retried: Bool) async throws -> PluginWebResponse {
-        let page = try pageDevice(body)
+        let page = try await pageDevice(body)
         guard let enabled = body["enabled"], case .bool(let on) = enabled else { throw DysonCloud.Failure(status: 400, message: "enabled must be a boolean") }
         logger.info("Setting continuous monitoring to \(on) for \(page.serial)")
         if !retried, let device = await connectedDevice(serial: page.serial) {

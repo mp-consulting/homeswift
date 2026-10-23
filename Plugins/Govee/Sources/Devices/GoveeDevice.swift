@@ -183,7 +183,7 @@ class GoveeDevice {
                     number = base + Govee.round((number - base) / step) * step
                     number = (number * 1e6).rounded() / 1e6
                 }
-                return type.format == .float ? .double(number) : .int(Int(number.rounded()))
+                return type.format == .float ? .double(number) : .int(Int(saturating: number.rounded()) ?? 0)
             default:
                 return value
             }

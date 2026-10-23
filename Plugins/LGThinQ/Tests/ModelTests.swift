@@ -80,6 +80,20 @@ import Testing
         #expect(json.decodeMonitor(Data("invalidJSON".utf8)) == [:])
         #expect(json.decodeMonitor(nil) == [:])
     }
+
+    @Test func toleratesBrokenMonitoringProtocols() {
+        // A missing or non-numeric start or length leaves the key out (JavaScript's loop never ran); a huge
+        // length or start reads past the end: null, without looping or trapping.
+        let binary = DeviceModel(["Monitoring": ["type": "BINARY(BYTE)", "protocol": [
+            ["value": "NoStart", "length": 1], ["value": "NoLength", "startByte": 0], ["value": "Text", "startByte": "x", "length": 1],
+            ["value": "Huge", "startByte": 0, "length": 1e300], ["value": "Far", "startByte": 1e300, "length": 1], ["value": "Negative", "startByte": -1, "length": 1],
+            ["value": "Fine", "startByte": 1, "length": 1],
+        ]]])
+        let decoded = binary.decodeMonitor(Data([3, 4]))
+        #expect(decoded["NoStart"] == nil && decoded["NoLength"] == nil && decoded["Text"] == nil)
+        #expect(decoded["Huge"] == .null && decoded["Far"] == .null && decoded["Negative"] == .null)
+        #expect(decoded["Fine"] == "4")
+    }
 }
 
 @Suite struct DeviceTests {
@@ -93,6 +107,10 @@ import Testing
         #expect(device.hasValidID)
         #expect(device.online == JS.truthy(device.snapshot["online"]))
         #expect(ThinQDevice(["deviceType": 9999]).type == "undefined")
+        // A missing, non-numeric or fractional type is unknown, not a crash; a numeric string is looked up.
+        #expect(ThinQDevice([:]).type == "undefined" && ThinQDevice(["deviceType": "washer"]).type == "undefined")
+        #expect(ThinQDevice(["deviceType": 401.5]).type == "undefined" && ThinQDevice(["deviceType": 1e300]).type == "undefined")
+        #expect(ThinQDevice(["deviceType": "401"]).type == "AC")
     }
 
     @Test func mergesSnapshotsDeeply() {
@@ -176,17 +194,23 @@ import Testing
         #expect(ThinQ1.washerDryer(Self.model, [:])["washerDryer"]?["state"] == "POWEROFF")
     }
 
-    @Test @ThinQActor func preparesBinaryControlData() {
+    @Test @ThinQActor func preparesBinaryControlData() throws {
         let device = ThinQDevice(["deviceId": "dev1", "snapshot": ["raw": [:]]])
         device.deviceModel = DeviceModel(["ControlWifi": ["type": "BINARY(BYTE)", "action": ["SetControl": ["data": "[{{myKey}}]"]]]])
-        let data = ThinQ1.prepareControlData(device, key: "myKey", value: true, workID: "w")
+        let data = try ThinQ1.prepareControlData(device, key: "myKey", value: true, workID: "w")
         #expect(data["value"] == "ControlData" && data["format"] == "B64")
         #expect(data["data"] == .string(Data([1]).base64EncodedString()))
-        #expect(ThinQ1.prepareControlData(device, key: "myKey", value: "non-numeric", workID: "w")["data"] == .string(Data([0]).base64EncodedString()))
+        #expect(try ThinQ1.prepareControlData(device, key: "myKey", value: "non-numeric", workID: "w")["data"] == .string(Data([0]).base64EncodedString()))
         // Bytes above 127 travel as UTF-8, as Buffer.from(String.fromCharCode(...)) encodes them.
-        #expect(ThinQ1.prepareControlData(device, key: "myKey", value: 200, workID: "w")["data"] == .string(Data([0xC3, 0x88]).base64EncodedString()))
+        #expect(try ThinQ1.prepareControlData(device, key: "myKey", value: 200, workID: "w")["data"] == .string(Data([0xC3, 0x88]).base64EncodedString()))
+        // Uint8Array wraps 300 to 44 and reads a huge number as 0, without trapping.
+        #expect(try ThinQ1.prepareControlData(device, key: "myKey", value: 300, workID: "w")["data"] == .string(Data([44]).base64EncodedString()))
+        #expect(try ThinQ1.prepareControlData(device, key: "myKey", value: 1e300, workID: "w")["data"] == .string(Data([0]).base64EncodedString()))
+        // A template that is not a byte array once filled fails the write, as JSON.parse throws, instead of an empty command.
+        device.deviceModel = DeviceModel(["ControlWifi": ["type": "BINARY(BYTE)", "action": ["SetControl": ["data": "[{{myKey}}, {{other"]]]])
+        #expect(throws: ThinQError.self) { try ThinQ1.prepareControlData(device, key: "myKey", value: 1, workID: "w") }
         device.deviceModel = DeviceModel([:])
-        let json = ThinQ1.prepareControlData(device, key: "Jet", value: 1, workID: "w")
+        let json = try ThinQ1.prepareControlData(device, key: "Jet", value: 1, workID: "w")
         #expect(json["value"] == ["Jet": 1] && json["data"] == "" && json["cmd"] == "Control" && json["deviceId"] == "dev1")
     }
 
@@ -352,6 +376,8 @@ import Testing
         #expect(Cooking.sumTimeFields(1, 2, 3) == 3723)
         #expect(Cooking.sumTimeFields(["upperTimerHour": 1, "upperTimerSecond": 5], prefix: "upperTimer") == 3605)
         #expect(Cooking.formatClock(5400) == "1:30:00" && Cooking.formatClock(300) == "0:05:00" && Cooking.formatClock(36000) == "10:00:00")
+        #expect(Cooking.formatClock(1e300) == Cooking.formatClock(Double(Int.max)) && Cooking.formatClock(.infinity) == Cooking.formatClock(Double(Int.max)))
+        #expect(Cooking.formatClock(.nan) == "0:00:00" && Cooking.formatClock(-5) == "0:00:00")
         #expect(Cooking.formatDuration(3600) == "1:00:00 Hour" && Cooking.formatDuration(7200) == "2:00:00 Hours" && Cooking.formatDuration(60) == "0:01:00 Minutes")
         #expect(Cooking.capitalize("SOME_VALUE") == "Some_value" && Cooking.capitalize(5) == "")
         #expect(Cooking.tempCtoF(100) == 212 && Cooking.tempFtoC(350) == 176.5)

@@ -201,12 +201,24 @@ final class ThinQAPI {
 
     /// Every device of every home. A failed or rate-limited request leaves its home out.
     func listDevices() async -> [JSONValue] {
+        await deviceListing().devices
+    }
+
+    /// Every device of every home, and whether LG answered for the home list and each home: a failed or
+    /// rate-limited request leaves its home out and the listing incomplete.
+    func deviceListing() async -> (devices: [JSONValue], complete: Bool) {
+        let homes = await listHomes()
+        var complete = self.homes != nil
         var devices: [JSONValue] = []
-        for home in await listHomes() {
+        for home in homes {
             let answer = await getRequest("service/homes/" + JS.string(home["homeId"]))
-            devices += answer["result"]?["devices"]?.arrayValue ?? []
+            guard let result = answer["result"]?.objectValue else {
+                complete = false
+                continue
+            }
+            devices += result["devices"]?.arrayValue ?? []
         }
-        return devices
+        return (devices, complete)
     }
 
     /// The homes, cached once a request answered them.
@@ -239,7 +251,35 @@ final class ThinQAPI {
         guard let workList = data["workList"], workList.objectValue != nil, let code = workList["returnCode"] else { return nil }
         guard JS.string(code) == "0000" else { throw ThinQError.monitor(data.text()) }
         guard let returnData = workList["returnData"] else { return nil }
-        return Data(base64Encoded: JS.string(returnData)) ?? Data()
+        return Self.decodeBase64(JS.string(returnData))
+    }
+
+    /// `Buffer.from(text, 'base64')`: lenient, as Node is. Characters outside the alphabet (line breaks,
+    /// spaces) are skipped, the URL-safe `-` and `_` are accepted, decoding ends at the first `=`, and missing
+    /// padding is fine. A strict decoder fails on such data and the device would read as online with nothing.
+    nonisolated static func decodeBase64(_ text: String) -> Data {
+        var bytes: [UInt8] = []
+        var buffer: UInt32 = 0
+        var bits = 0
+        for character in text.utf8 {
+            let value: UInt32
+            switch character {
+            case UInt8(ascii: "A")...UInt8(ascii: "Z"): value = UInt32(character - UInt8(ascii: "A"))
+            case UInt8(ascii: "a")...UInt8(ascii: "z"): value = UInt32(character - UInt8(ascii: "a")) + 26
+            case UInt8(ascii: "0")...UInt8(ascii: "9"): value = UInt32(character - UInt8(ascii: "0")) + 52
+            case UInt8(ascii: "+"), UInt8(ascii: "-"): value = 62
+            case UInt8(ascii: "/"), UInt8(ascii: "_"): value = 63
+            case UInt8(ascii: "="): return Data(bytes)
+            default: continue
+            }
+            buffer = (buffer << 6 | value) & 0xFFFFFF
+            bits += 6
+            if bits >= 8 {
+                bits -= 8
+                bytes.append(UInt8(truncatingIfNeeded: buffer >> UInt32(bits)))
+            }
+        }
+        return Data(bytes)
     }
 
     func thinq1PostRequest(_ endpoint: String, _ data: JSONValue) async -> JSONValue {

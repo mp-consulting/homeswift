@@ -52,7 +52,9 @@ struct APIUnavailableError: Error, CustomStringConvertible, Equatable, Sendable 
 
 /// What a device needs from the API to write; tests record the calls instead.
 protocol DaikinDeviceWriting: Sendable {
-    func updateDevice(_ deviceID: String, embeddedID: String, dataPoint: String, value: JSONValue, path: String?) async throws
+    /// Answers the value the request carried: a write coalesced into a later one's request carries that one's value.
+    @discardableResult
+    func updateDevice(_ deviceID: String, embeddedID: String, dataPoint: String, value: JSONValue, path: String?) async throws -> JSONValue
     func setHolidayMode(_ deviceID: String, embeddedID: String, enabled: Bool, startDate: String?, endDate: String?) async throws
     func triggerFirmwareUpdate(_ deviceID: String, embeddedID: String, firmwareID: String) async throws
 }
@@ -89,9 +91,9 @@ actor DaikinAPI: DaikinDeviceWriting {
     private var pendingWrites: [String: PendingWrite] = [:]
 
     private final class PendingWrite: @unchecked Sendable {
-        var body: JSONValue
-        var task: Task<Void, any Error>?
-        init(body: JSONValue) { self.body = body }
+        var value: JSONValue
+        var task: Task<JSONValue, any Error>?
+        init(value: JSONValue) { self.value = value }
     }
 
     init(oauth: any OAuthProvider, http: DaikinHTTP, dependencies: Dependencies = Dependencies(), onRateLimit: @escaping @Sendable (RateLimitStatus) -> Void = { _ in }) {
@@ -118,22 +120,25 @@ actor DaikinAPI: DaikinDeviceWriting {
 
     // MARK: Writes
 
-    /// PATCHes one characteristic; `path` goes in the body, as the Onecta app sends it.
-    func updateDevice(_ deviceID: String, embeddedID: String, dataPoint: String, value: JSONValue, path: String?) async throws {
+    /// PATCHes one characteristic; `path` goes in the body, as the Onecta app sends it. Answers the value sent,
+    /// which is a newer one's when this write was merged into it.
+    @discardableResult
+    func updateDevice(_ deviceID: String, embeddedID: String, dataPoint: String, value: JSONValue, path: String?) async throws -> JSONValue {
         let url = "\(Self.managementPointPath(deviceID, embeddedID))/characteristics/\(URLEncoding.uriComponent(dataPoint))"
-        var body: [String: JSONValue] = ["value": value]
-        if let path { body["path"] = .string(path) }
         let key = "\(deviceID)|\(embeddedID)|\(dataPoint)|\(path ?? "")"
         if let pending = pendingWrites[key], let task = pending.task {
-            pending.body = .object(body)
+            pending.value = value
             return try await task.value
         }
-        let entry = PendingWrite(body: .object(body))
+        let entry = PendingWrite(value: value)
         pendingWrites[key] = entry
-        let task = enqueueWrite(deviceID) { api in
+        let task = enqueueWrite(deviceID) { api -> JSONValue in
             // Once sent, later writes queue behind it instead of merging.
-            let body = await api.takePending(key, entry)
-            _ = try await api.request(url, method: "PATCH", body: body)
+            let value = await api.takePending(key, entry)
+            var body: [String: JSONValue] = ["value": value]
+            if let path { body["path"] = .string(path) }
+            _ = try await api.request(url, method: "PATCH", body: .object(body))
+            return value
         }
         entry.task = task
         return try await task.value
@@ -141,7 +146,7 @@ actor DaikinAPI: DaikinDeviceWriting {
 
     private func takePending(_ key: String, _ entry: PendingWrite) -> JSONValue {
         if pendingWrites[key] === entry { pendingWrites[key] = nil }
-        return entry.body
+        return entry.value
     }
 
     /// Holiday (away) mode has an endpoint of its own; the dates (YYYY-MM-DD) are optional.
@@ -167,18 +172,20 @@ actor DaikinAPI: DaikinDeviceWriting {
     }
 
     /// Runs writes to one device one after the other with a gap between them; devices write in parallel.
-    private func enqueueWrite(_ deviceID: String, _ work: @escaping @Sendable (DaikinAPI) async throws -> Void) -> Task<Void, any Error> {
+    private func enqueueWrite<Result: Sendable>(_ deviceID: String, _ work: @escaping @Sendable (DaikinAPI) async throws -> Result) -> Task<Result, any Error> {
         let previous = writeQueues[deviceID]
         let sleep = dependencies.sleep
-        let task = Task { [self] in
+        let task = Task { [self] () async throws -> Result in
             await previous?.value
+            let result: Result
             do {
-                try await work(self)
+                result = try await work(self)
             } catch {
                 try? await sleep(Self.writeGap)
                 throw error
             }
             try? await sleep(Self.writeGap)
+            return result
         }
         writeQueues[deviceID] = Task { _ = try? await task.value }
         return task

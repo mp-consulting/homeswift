@@ -302,6 +302,60 @@ struct AccessAPITests {
     }
 }
 
+extension AccessAPITests {
+    /// `close()` while a reconnection is opening the events connection: the connection is closed, none follows.
+    @Test func closeEndsAnInFlightReconnection() async throws {
+        controller.setBootstrap(Self.bootstrap)
+        let connecting = LockedBox(0)
+        let events = events
+        let slow: AccessAPI.EventsConnector = { url, options in
+            connecting.set(connecting.get() + 1)
+            if connecting.get() > 1 { try? await Task.sleep(for: .milliseconds(200)) }
+            return try await events.connector(url, options)
+        }
+        let controller = controller
+        let api = AccessAPI(logger: log.logger, http: { controller.client(tls: $0) }, events: slow, verifyTLS: false, trust: .init(), timing: Self.timing)
+        _ = await api.login(address: "10.0.0.1", username: "user", password: "pass")
+        #expect(await api.getBootstrap())
+        events.last?.finish()
+        #expect(await eventually { connecting.get() == 2 })
+        await api.close()
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(events.all.allSatisfy { !$0.isOpen })
+        #expect(connecting.get() == 2)
+    }
+
+    /// Trust on first use: the pin comes from a response, so the password waits until a request has one.
+    @Test func noCredentialsBeforeAPin() async throws {
+        let controller = controller
+        let homePageFails = LockedBox(true)
+        let api = AccessAPI(
+            logger: log.logger,
+            http: { tls in
+                FailingHomePage(base: controller.client(tls: tls), fails: homePageFails)
+            }, events: nil, verifyTLS: false, trust: .init(), timing: Self.timing)
+        #expect(!(await api.login(address: "10.0.0.1", username: "user", password: "pass")))
+        #expect(controller.requests(matching: "/api/auth/login").isEmpty)
+        #expect(log.contains("Network connection to Access controller has been reset.", level: .error))
+
+        homePageFails.set(false)
+        #expect(await api.login(address: "10.0.0.1", username: "user", password: "pass"))
+        let login = try #require(controller.requests(matching: "/api/auth/login").first)
+        #expect(login.tls == .pinned(String(repeating: "ab", count: 32)))
+    }
+}
+
+/// The console's home page drops the connection before answering, while `fails`.
+private struct FailingHomePage: HTTPSending {
+    let base: any HTTPSending
+    let fails: LockedBox<Bool>
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        if fails.get(), request.url.path.isEmpty || request.url.path == "/" { throw HTTPClientError.connectionClosed }
+        return try await base.send(request)
+    }
+}
+
 /// A value tests set from a `@Sendable` closure.
 final class LockedBox<Value: Sendable>: Sendable {
     private let value: NIOLockedValueBox<Value>

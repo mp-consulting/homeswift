@@ -294,7 +294,7 @@ struct FeatureOptions: Sendable {
 
     /// `Number.prototype.toString` for the defaults: `60`, `2.5`.
     static func javaScriptString(_ number: Double) -> String {
-        if number.rounded() == number, abs(number) < 1e21 { return String(Int64(number)) }
+        if let integer = Int64(exactly: number) { return String(integer) }
         return String(number)
     }
 }

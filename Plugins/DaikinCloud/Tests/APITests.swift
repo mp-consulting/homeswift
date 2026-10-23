@@ -146,7 +146,7 @@ struct APITests {
     @Test func queuedWritesToOneTargetCoalesce() async throws {
         let http = FakeHTTP { _, _ in .text("", status: 204) }
         let api = api(http, gap: true)
-        async let first: Void = api.updateDevice("device-1", embeddedID: "climateControl", dataPoint: "temperatureControl", value: 20, path: "/a")
+        async let first = api.updateDevice("device-1", embeddedID: "climateControl", dataPoint: "temperatureControl", value: 20, path: "/a")
         #expect(await eventually { http.count == 1 })
         // These queue behind the first for the same target: the last value wins, one request.
         let second = Task { try await api.updateDevice("device-1", embeddedID: "climateControl", dataPoint: "temperatureControl", value: 21, path: "/a") }
@@ -154,7 +154,8 @@ struct APITests {
         let third = Task { try await api.updateDevice("device-1", embeddedID: "climateControl", dataPoint: "temperatureControl", value: 22, path: "/a") }
         try await Task.sleep(for: .milliseconds(20))
         gate.fire()
-        _ = try await (first, second.value, third.value)
+        // Each answers the value its request carried: the second's merged into the third's.
+        #expect(try await [first, second.value, third.value] == [20, 22, 22])
         #expect(http.count == 2)
         #expect(http.all.map(\.bodyJSON) == [["value": 20, "path": "/a"], ["value": 22, "path": "/a"]])
         #expect(http.all.allSatisfy { $0.method == "PATCH" && $0.header("Content-Type") == "application/json" })
@@ -163,9 +164,9 @@ struct APITests {
     @Test func writesToDifferentTargetsDoNotCoalesce() async throws {
         let http = FakeHTTP { _, _ in .text("", status: 204) }
         let api = api(http)
-        async let a: Void = api.updateDevice("device-1", embeddedID: "climateControl", dataPoint: "onOffMode", value: "on", path: nil)
-        async let b: Void = api.updateDevice("device-1", embeddedID: "climateControl", dataPoint: "temperatureControl", value: 21, path: "/a")
-        async let c: Void = api.updateDevice("device-1", embeddedID: "climateControl", dataPoint: "temperatureControl", value: 22, path: "/b")
+        async let a = api.updateDevice("device-1", embeddedID: "climateControl", dataPoint: "onOffMode", value: "on", path: nil)
+        async let b = api.updateDevice("device-1", embeddedID: "climateControl", dataPoint: "temperatureControl", value: 21, path: "/a")
+        async let c = api.updateDevice("device-1", embeddedID: "climateControl", dataPoint: "temperatureControl", value: 22, path: "/b")
         _ = try await (a, b, c)
         #expect(http.count == 3)
     }

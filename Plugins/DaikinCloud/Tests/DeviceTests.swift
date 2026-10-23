@@ -72,6 +72,54 @@ import Testing
         ])
     }
 
+    static let coolingSetpoint = "/operationModes/cooling/setpoints/roomTemperature"
+
+    /// A write merged into a newer one's request shows the value that went out, not its own.
+    @Test func aCoalescedWriteShowsTheValueSent() async throws {
+        let dx4 = device()
+        api.sentValues.withLockedValue { $0 = [22] }
+        try await dx4.setData(cc, "temperatureControl", 21, path: Self.coolingSetpoint)
+        #expect(dx4.data(cc, "temperatureControl", Self.coolingSetpoint).value == 22)
+    }
+
+    /// The callers of writes to one target resume in any order: an older one finishing last keeps the newer
+    /// value, so setting it again is not skipped as a no-op.
+    @Test func anOlderWriteFinishingLastDoesNotUndoANewerOne() async throws {
+        let dx4 = device()
+        let release = Signal()
+        api.next { _ in await release.wait() }
+        let older = Task { try await dx4.setData(cc, "temperatureControl", 20, path: Self.coolingSetpoint) }
+        #expect(await eventually { api.gate.withLockedValue { $0.isEmpty } })
+        try await dx4.setData(cc, "temperatureControl", 22, path: Self.coolingSetpoint)
+        release.fire()
+        try await older.value
+        #expect(dx4.data(cc, "temperatureControl", Self.coolingSetpoint).value == 22)
+        // Another target is not held back by it.
+        try await dx4.setData(cc, "operationMode", "heating")
+        #expect(dx4.data(cc, "operationMode").value == "heating")
+    }
+
+    /// End to end on the real write queue: three quick changes, two requests, and the device shows the last.
+    @Test(.timeLimit(.minutes(1)))
+    func coalescedWritesLeaveTheLastValue() async throws {
+        let http = FakeHTTP { _, _ in .text("", status: 204) }
+        let gate = Signal()
+        var dependencies = DaikinAPI.Dependencies()
+        dependencies.sleep = { duration in if duration == DaikinAPI.writeGap { await gate.wait() } }
+        let api = DaikinAPI(oauth: FakeOAuth(), http: DaikinHTTP(transport: http), dependencies: dependencies)
+        let dx4 = DaikinCloudDevice(Fixture.json("dx4Airco"), api: api)
+        let first = Task { try await dx4.setData(cc, "temperatureControl", 20, path: Self.coolingSetpoint) }
+        #expect(await eventually { http.count == 1 })
+        let second = Task { try await dx4.setData(cc, "temperatureControl", 21, path: Self.coolingSetpoint) }
+        try await Task.sleep(for: .milliseconds(20))
+        let third = Task { try await dx4.setData(cc, "temperatureControl", 22, path: Self.coolingSetpoint) }
+        try await Task.sleep(for: .milliseconds(20))
+        gate.fire()
+        for task in [first, second, third] { try await task.value }
+        #expect(http.count == 2)
+        #expect(dx4.data(cc, "temperatureControl", Self.coolingSetpoint).value == 22)
+    }
+
     @Test func holidayMode() async throws {
         let dx4 = device()
         #expect(dx4.data(cc, "holidayMode").value?["enabled"] == false)

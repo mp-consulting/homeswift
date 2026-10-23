@@ -131,6 +131,8 @@ actor AccessHub {
     var built = Built()
     private var configured = false
     private var removed = false
+    /// Counts the door and lock state changes events made, so the bootstrap's older states do not undo them.
+    private var doorStateChanges = 0
 
     init(device: AccessDevice, controllerName: String, environment: Environment) {
         let accessoryId = "\(UniFiAccessPlugin.platform):\(device.identifier.uppercased())"
@@ -139,10 +141,12 @@ actor AccessHub {
         id = accessoryId
         self.environment = environment
         self.controllerName = controllerName
+        // Option values are any number a user typed: saturated, so `Hub.LockDelayInterval.1e300` is not a crash.
         let seconds = environment.options.integer("Hub.GateDirectionDuration", device: device.identifier, controller: environment.controllerId).value
-        gateDirectionDuration = environment.timing.second * (seconds ?? Double(AccessSettings.gateDirectionDuration))
+            .flatMap { Int(saturating: $0, in: 0...AccessSettings.maximumOptionValue) }
+        gateDirectionDuration = environment.timing.second * (seconds ?? AccessSettings.gateDirectionDuration)
         if let minutes = environment.options.integer("Hub.LockDelayInterval", device: device.identifier, controller: environment.controllerId).value, minutes >= 0 {
-            lockDelayInterval = Int(minutes)
+            lockDelayInterval = Int(saturating: minutes, in: 0...AccessSettings.maximumOptionValue)
         }
         // The name HomeKit already has, else the device's.
         accessoryName = environment.context.accessory(id: accessoryId)?.name ?? AccessSettings.sanitizeName(device.resolvedName)
@@ -169,22 +173,29 @@ actor AccessHub {
         lockBacking = hubLockState()
         sideDpsBacking = hubDpsState(side: true)
         sideLockBacking = hubLockState(side: true)
+        // Events are handled while this waits (publishing, the doors): their states are newer than the bootstrap's.
+        let doorStates = doorStateChanges
 
         if catalog.usesLocationApi { await discoverDoorNames() }
+        guard !removed else { return }
         logLockDelayInterval(mainDoorName ?? "door")
         if hints.hasSideDoor { logLockDelayInterval(sideDoorName ?? "side door") }
         updateName()
 
         await rebuild()
+        // Removed (the plugin stopped) while publishing: no MQTT topics for a hub that is gone.
+        guard !removed else { return }
 
         // The configured state, announced as the services come up.
         if has(capability: "is_hub") { lockChanged(side: false, value: hubLockState(), publish: false) }
         if hints.hasSideDoor { lockChanged(side: true, value: hubLockState(side: true), publish: false) }
 
         await configureMQTT()
+        // Removed while subscribing: the topics cleanup did not see yet go too.
+        guard !removed else { return await unsubscribeMQTT() }
 
         if catalog.usesLocationApi, let doors = await environment.api.doors, !doors.isEmpty {
-            initializeDoors(from: doors)
+            if doorStateChanges == doorStates { initializeDoors(from: doors) }
             if updateName() { await rebuild() }
         }
     }
@@ -247,10 +258,13 @@ actor AccessHub {
         clearGatePhaseTimers()
         for task in autoRelockTasks.values { task.cancel() }
         autoRelockTasks = [:]
-        if let mqtt = environment.mqtt, let topicId = mqttId {
-            for topic in ["doorbell/get", "dps/get", "lock/get", "lock/set", "sidedoor/lock/get", "sidedoor/lock/set", "sidedoor/dps/get"] {
-                await mqtt.unsubscribe(topicId, topic)
-            }
+        await unsubscribeMQTT()
+    }
+
+    private func unsubscribeMQTT() async {
+        guard let mqtt = environment.mqtt, let topicId = mqttId else { return }
+        for topic in ["doorbell/get", "dps/get", "lock/get", "lock/set", "sidedoor/lock/get", "sidedoor/lock/set", "sidedoor/dps/get"] {
+            await mqtt.unsubscribe(topicId, topic)
         }
     }
 
@@ -311,6 +325,7 @@ actor AccessHub {
             beginGateClosing()
         }
         dpsBacking = value
+        doorStateChanges += 1
         built.contact[.contactDPS]?.characteristic(.contactSensorState).value = .int(value)
         dpsChanged(side: false, value: value)
         sensorChanged(.dps, value: value)
@@ -318,6 +333,7 @@ actor AccessHub {
 
     func setLockState(_ value: Int, side: Bool = false) {
         if side { sideLockBacking = value } else { lockBacking = value }
+        doorStateChanges += 1
         lockChanged(side: side, value: value)
     }
 
@@ -531,6 +547,12 @@ actor AccessHub {
                 logger.error("\(prefix)Unable to \(action) the \(side ? "side door" : "gate"). Door not found.")
                 return false
             }
+            // The location endpoint only unlocks (on a gate, toggles the motor): locking what is locked already
+            // would open it. Done, without a command.
+            if locking, isSecured(side: side) {
+                logger.debug("\(prefix)The \(doorName) is already locked: not triggering it.")
+                return true
+            }
             let url = await api.endpoint("location") + "/\(door)/unlock"
             guard await api.retrieve(url, method: "PUT", body: Data("{}".utf8)) != nil else {
                 logger.error("\(prefix)Unable to \(action) the \(doorName).")
@@ -547,6 +569,13 @@ actor AccessHub {
             return false
         }
         return true
+    }
+
+    /// A UA Gate door that a lock command has nothing to do for: the side door locked, the gate locked and
+    /// closed (or closing). A gate that is open with its relay locked still closes on the command.
+    func isSecured(side: Bool) -> Bool {
+        if side { return Self.isLocked(sideLockBacking) }
+        return Self.isLocked(lockBacking) && [HK.doorClosed, HK.doorClosing].contains(doorState())
     }
 
     /// Turns an access method on or off on the reader.
@@ -567,6 +596,12 @@ actor AccessHub {
     func updateDevice(_ device: AccessDevice) async {
         uda = device
         deviceOnline(isOnline)
+        // The access methods as the controller has them now, which events missed while disconnected may not say
+        // (Homebridge read them from the device on every get).
+        for method in Self.accessMethods {
+            guard let switchService = built.switches[method.subtype], let config = uda.config(method.key) else { continue }
+            switchService.characteristic(.on).value = .bool(config == "yes")
+        }
         guard hints.syncName else { return }
         let wanted = AccessSettings.sanitizeName(mainDoorName ?? uda.alias ?? "")
         if !wanted.isEmpty, wanted != accessoryName {
@@ -691,6 +726,7 @@ actor AccessHub {
             if lock != sideLockBacking { setLockState(lock, side: true) }
             if dps != sideDpsBacking {
                 sideDpsBacking = dps
+                doorStateChanges += 1
                 dpsChanged(side: true, value: dps)
             }
         } else {
@@ -800,6 +836,35 @@ actor AccessHub {
             service?.characteristic(.lockTargetState).value = .int(Self.isLocked(state) ? HK.lockSecured : HK.lockUnsecured)
         }
         built.garage?.characteristic(.currentDoorState).value = .int(doorState())
+    }
+
+    // MARK: The settings page and the Assistant
+
+    /// What the hub's doors and access methods are now, as HomeKit sees them: `locked`, `door` (`open`, `closed`,
+    /// `opening`, `closing`) when there is a position sensor or a gate, a UA Gate's side door, a reader's methods.
+    func stateJSON() -> [String: JSONValue] {
+        var json: [String: JSONValue] = [:]
+        if has(capability: "is_hub") {
+            json["locked"] = .bool(Self.isLocked(lockBacking))
+            if catalog.usesLocationApi || hints.hasWiring(.dps) {
+                json["door"] = .string(["open", "closed", "opening", "closing"][doorPosition()])
+            }
+        }
+        if hints.hasSideDoor {
+            json["sideDoorLocked"] = .bool(Self.isLocked(sideLockBacking))
+            if hints.hasWiringSideDoorDps { json["sideDoor"] = .string(Self.isClosed(sideDpsBacking) ? "closed" : "open") }
+        }
+        var methods: [String: JSONValue] = [:]
+        for method in Self.accessMethods where built.switches[method.subtype] != nil {
+            methods[method.name] = .bool(uda.config(method.key) == "yes")
+        }
+        if !methods.isEmpty { json["accessMethods"] = .object(methods) }
+        return json
+    }
+
+    /// The door's position as a HomeKit door state: the gate's phase on a UA Gate, else the DPS.
+    private func doorPosition() -> Int {
+        catalog.usesLocationApi ? doorState() : (Self.isClosed(dpsState) ? HK.doorClosed : HK.doorOpen)
     }
 
     // MARK: MQTT

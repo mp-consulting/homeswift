@@ -343,6 +343,9 @@ extension PluginHost {
         #expect(try await request("scenes", ["model": "H6173"]).status == 400)
         environment.govee.answer("app2.govee.com/bff-app/v1/devices/detail/function-support", ["data": ["modes": [10, 8]]])
         #expect(try await request("device-capabilities", ["deviceId": .string(lightID), "model": "H6173", "username": "user@example.com", "password": "pw"]).json["modes"] == ["scene", "music"])
+        // Without a login in the body, the instance's account answers; Govee failing gives "unknown".
+        #expect(try await request("device-capabilities", ["deviceId": .string(lightID), "model": "H6173"]).json["modes"] == ["scene", "music"])
+        environment.govee.fail("app2.govee.com/bff-app/v1/devices/detail/function-support")
         #expect(try await request("device-capabilities", ["deviceId": .string(lightID), "model": "H6173"]).json["modes"] == .null)
 
         // Icons: Govee's hosts only, images only, inlined.
@@ -358,10 +361,115 @@ extension PluginHost {
         let status = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "devices", user: "me"))
         #expect(status.json["devices"]?.arrayValue?.contains { $0["deviceId"] == .string(lightID) && $0["lan"] == "enabled" } == true)
 
+        #expect(await !plugin.store.values.isEmpty)
         let cleared = try await request("clear-cache", [:])
         #expect(cleared.json["success"] == true)
         let storage = environment.directory.appendingPathComponent("plugins/Govee-Govee")
         #expect(!FileManager.default.fileExists(atPath: storage.appendingPathComponent("govee.pfx").path))
         #expect(!FileManager.default.fileExists(atPath: storage.appendingPathComponent("credentials.json").path))
+        // The running instance forgets too: the next change does not write the old state back.
+        #expect(await plugin.store.values.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: storage.appendingPathComponent("device-state.json").path))
+        #expect(try await request("cached-devices").json["devices"] == [])
     }
+
+    /// Without a login in the body, the routes use the instance's account.
+    @Test func pageRoutesUseTheInstancesAccount() async throws {
+        let environment = GoveeEnvironment()
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        let logins = environment.govee.requests(to: "app2.govee.com/account/rest/account/v2/login").count
+        let found = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "discover", user: "me"))
+        #expect(found.json["devices"]?[0]?["deviceId"] == .string(lightID))
+        #expect(environment.govee.requests(to: "app2.govee.com/device/rest/devices/v1/list").last?.headers.contains { $0 == ("Authorization", "Bearer token-1") } == true)
+        #expect(environment.govee.requests(to: "app2.govee.com/account/rest/account/v2/login").count == logins)
+        // A username without its password is still refused.
+        #expect(try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "discover", body: ["username": "u"], user: "me")).status == 400)
+
+        // No account at all: the page is asked for credentials.
+        let offline = GoveeEnvironment()
+        offline.lan.scanReplies = [(lightID, "H6008", "192.168.1.20")]
+        let lanOnly = try await offline.start(["lightDevices": [["deviceId": lightID]]])
+        defer { Task { await lanOnly.stop() } }
+        let answer = try await #require(offline.plugin).handleWebRequest(PluginWebRequest(method: "GET", path: "discover", user: "me"))
+        #expect(answer.status == 400)
+        #expect(offline.govee.requests.isEmpty)
+    }
+
+    /// Every Assistant action reaches its route with its arguments where the route reads them.
+    @Test func assistantActionsReachTheirRoutes() async throws {
+        let environment = GoveeEnvironment()
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        let actions = Dictionary(uniqueKeysWithValues: GoveePlugin.assistantActions.map { ($0.name, $0) })
+        #expect(Set(actions.keys) == ["list_devices", "discovered_devices", "discover", "scenes", "diy_effects", "clear_cache"])
+        func call(_ name: String, _ arguments: JSONValue = [:]) async throws -> PluginWebResponse {
+            let action = try #require(actions[name])
+            return try await plugin.handleWebRequest(action.request(arguments: arguments, user: "assistant"))
+        }
+
+        #expect(try await call("list_devices").json["devices"]?.arrayValue?.contains { $0["deviceId"] == .string(lightID) && $0["list"] == "lightDevices" } == true)
+        #expect(try await call("discovered_devices").json["devices"]?.arrayValue?.contains { $0["deviceId"] == .string(lightID) } == true)
+        #expect(try await call("discover").json["devices"]?[0]?["deviceType"] == "lightDevices")
+
+        environment.govee.answer("app2.govee.com/appsku/v2/scences", ["data": ["categories": categories()]])
+        let scenes = try await call("scenes", ["deviceId": .string(lightID), "model": "H6008", "goodsType": 7])
+        #expect(scenes.json["source"] == "cloud" && scenes.json["categories"]?[0]?["scenes"]?[0]?["name"] == "Forest")
+        #expect(environment.govee.requests(to: "app2.govee.com/appsku/v2/scences").last?.query == ["sku": "H6008", "device": lightID, "goodsType": "7", "source": "0"])
+
+        environment.govee.answer("app2.govee.com/bff-app/v1/diy/list", ["data": ["diys": [["groupName": "Mine", "diys": [["diyId": 9, "diyName": "Sunset", "diyCode": 9]]]]]])
+        let diys = try await call("diy_effects", ["deviceId": .string(lightID), "model": "H6008"])
+        #expect(diys.json["diys"]?[0]?["name"] == "Sunset")
+        #expect(environment.govee.requests(to: "app2.govee.com/bff-app/v1/diy/list").last?.body?["sku"] == "H6008")
+
+        let clear = try #require(actions["clear_cache"])
+        #expect(clear.confirm && clear.access == .configure)
+        #expect(actions.values.filter { $0.name != "clear_cache" }.allSatisfy { $0.access == .read && !$0.confirm })
+        #expect(try await call("clear_cache").json["success"] == true)
+    }
+
+    /// stop() while the setup still waits (here on the LAN scan) leaves nothing running: the setup ends at its
+    /// next step and closes what it opened.
+    @Test func stopDuringSetupLeavesNothingRunning() async throws {
+        let environment = GoveeEnvironment()
+        let host = try environment.host(settings: ["username": "user@example.com", "password": "pw"])
+        try await host.start()
+        let plugin = try #require(environment.plugin)
+        await plugin.stop()
+        await plugin.settle()
+        #expect(await !plugin.started)
+        #expect(await plugin.lanClient == nil)
+        #expect(await plugin.awsClient == nil)
+        #expect(await plugin.bleClient == nil)
+        #expect(await plugin.devices.isEmpty)
+        #expect(environment.lan.closes >= 1)
+        #expect(host.accessory(lightID) == nil)
+        #expect(environment.govee.requests.isEmpty)
+        #expect(environment.mqtt.published.isEmpty)
+        await host.stop()
+    }
+
+    #if canImport(CoreBluetooth)
+    /// macOS lets a binary use Bluetooth only with a usage description in its Info.plist: the one the
+    /// `homeswift` binary embeds has it, and the plugin's check finds it there.
+    @Test func bluetoothPermissionIsFoundInTheBinarysInfoPlist() throws {
+        #expect(!CoreBluetoothCentral.isPermitted(infoDictionary: nil))
+        #expect(!CoreBluetoothCentral.isPermitted(infoDictionary: ["NSBluetoothAlwaysUsageDescription": ""]))
+        #expect(CoreBluetoothCentral.isPermitted(infoDictionary: ["NSBluetoothAlwaysUsageDescription": "Govee lights"]))
+
+        let source = pluginDirectory.appendingPathComponent("../../Sources/HomeswiftCLI/Info.plist").standardizedFileURL
+        let plist = try PropertyListSerialization.propertyList(from: Data(contentsOf: source), format: nil) as? [String: Any]
+        #expect(CoreBluetoothCentral.isPermitted(infoDictionary: plist))
+
+        // The built binary, when this build has one: its __TEXT,__info_plist section, which is what Bundle.main
+        // reads for a command-line tool.
+        let products = Bundle.allBundles.map(\.bundleURL).first { $0.pathExtension == "xctest" }?.deletingLastPathComponent()
+        if let binary = products?.appendingPathComponent("homeswift"), FileManager.default.fileExists(atPath: binary.path) {
+            let embedded = CFBundleCopyInfoDictionaryForURL(binary as CFURL) as? [String: Any]
+            #expect(CoreBluetoothCentral.isPermitted(infoDictionary: embedded))
+        }
+    }
+    #endif
 }

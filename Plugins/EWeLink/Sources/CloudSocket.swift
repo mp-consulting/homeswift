@@ -12,8 +12,11 @@ struct SocketAuthenticationError: Error, CustomStringConvertible, Equatable {
 /// The eWeLink WebSocket: authenticates with `userOnline`, routes `update` messages to the platform, sends
 /// commands and queries with a sequence number and waits for their answer, keeps the connection alive with
 /// pings and reconnects with exponential backoff (5 s doubling to 5 min, ±20 %), logging in again when the
-/// session was invalidated. The eWeLink servers have public certificates, so the system's trust is what is
-/// needed; the pings are eWeLink's own (`ping` as text, answered with `pong`), not WebSocket pings.
+/// session was invalidated. The backoff starts over only after a connection stayed up for a minute: when
+/// another client signs in to the same account, each fresh login drops the other's session, and resetting
+/// on every successful login made the two take turns every half minute forever. The eWeLink servers have
+/// public certificates, so the system's trust is what is needed; the pings are eWeLink's own (`ping` as text,
+/// answered with `pong`), not WebSocket pings.
 actor CloudSocket {
     /// Opens a WebSocket: `WebSocket.connect` in the plugin, a scripted server in tests.
     typealias Connect = @Sendable (URL, WebSocket.Options) async throws -> any WebSocketConnection
@@ -49,7 +52,9 @@ actor CloudSocket {
     private(set) var reconnecting = false
     private(set) var connected = false
     private(set) var reconnectAttempts = 0
-    /// Set by `disconnect()`: nothing reconnects until `start()` or `connect()`.
+    /// When the current socket authenticated, in plugin milliseconds.
+    private var connectedAt: Double?
+    /// Set by `disconnect()`: nothing reconnects until `connect()`.
     private(set) var stopped = false
     private var lastMessageAt = 0.0
     private var lastSequence = 0.0
@@ -78,9 +83,10 @@ actor CloudSocket {
 
     var isConnected: Bool { connected }
 
-    /// Connects in the background: a failure schedules retries until connected or `disconnect()`.
+    /// Connects in the background: a failure schedules retries until connected or `disconnect()`. Nothing
+    /// happens when `disconnect()` came first (the platform stopped before this task ran).
     func start() async {
-        stopped = false
+        guard !stopped else { return }
         do {
             try await openSocket()
         } catch {
@@ -130,8 +136,14 @@ actor CloudSocket {
             if generation == current { await closeSocket() }
             throw error
         }
+        // The socket closed, or `disconnect()` ran, while the answer was on its way: nothing would ever notice
+        // a socket marked connected that is gone, so the caller retries instead.
+        guard generation == current, connection != nil, !stopped else {
+            if generation == current { await closeSocket() }
+            throw EWeLinkError("WebSocket closed during authentication")
+        }
         connected = true
-        reconnectAttempts = 0
+        connectedAt = dependencies.clock.nowMilliseconds
         startHeartbeat()
     }
 
@@ -172,6 +184,11 @@ actor CloudSocket {
         let clock = dependencies.clock
         authenticationID += 1
         let id = authenticationID
+        let timeout = Task {
+            do { try await clock.sleep(milliseconds: Double(Timing.socketAuthentication)) } catch { return }
+            self.failAuthentication(EWeLinkError("Authentication timeout"), id: id)
+        }
+        defer { timeout.cancel() }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             authentication = continuation
             Task {
@@ -180,10 +197,6 @@ actor CloudSocket {
                 } catch {
                     self.failAuthentication(error, id: id)
                 }
-            }
-            Task {
-                try? await clock.sleep(milliseconds: Double(Timing.socketAuthentication))
-                self.failAuthentication(EWeLinkError("Authentication timeout"), id: id)
             }
         }
     }
@@ -406,7 +419,15 @@ actor CloudSocket {
         failAuthentication(EWeLinkError("WebSocket closed during authentication"))
         rejectPending(Self.inFlightLostMessage)
         // A socket that closes while connecting is the opener's to retry.
-        if wasConnected, !stopped { scheduleReconnect(forceLogin: false) }
+        guard wasConnected, !stopped else { return }
+        let uptime = connectedAt.map { dependencies.clock.nowMilliseconds - $0 } ?? 0
+        connectedAt = nil
+        if uptime >= Double(Timing.socketStableConnection) {
+            reconnectAttempts = 0
+        } else if reconnectAttempts > 0 {
+            logger.warning("WebSocket dropped \((uptime / 1000).rounded().clampedInt)s after connecting, again: backing off (is the account signed in elsewhere, in the eWeLink app or another bridge?)")
+        }
+        scheduleReconnect(forceLogin: false)
     }
 
     /// The delay before reconnection attempt `attempt` (1-based): 5 s doubling, at most 5 min, ±20 %.
@@ -474,6 +495,7 @@ actor CloudSocket {
     /// Closes the socket and stops reconnecting; pending requests fail.
     func disconnect() async {
         stopped = true
+        connectedAt = nil
         reconnecting = false
         stopHeartbeat()
         reconnectTimer?.cancel()

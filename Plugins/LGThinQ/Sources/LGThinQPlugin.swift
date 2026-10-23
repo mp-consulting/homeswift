@@ -65,8 +65,9 @@ public actor LGThinQPlugin: HomeswiftPlugin {
     /// the refresh token; `POST get-all-devices` lists the account's devices for a refresh token. Both take
     /// the region, since the page signs in before the block has one. `GET login-url` and `POST
     /// login-by-redirect` are the plugin's `thinq auth` command, for accounts that sign in with Google, Apple,
-    /// Facebook or Amazon. `GET devices` lists what this instance runs. The page saves the block itself, and
-    /// restarts through the UI's own API.
+    /// Facebook or Amazon. `GET devices` lists what this instance runs, `GET account-devices` every device of
+    /// the account the instance signed in with (for the Assistant, which never holds the refresh token). The
+    /// page saves the block itself, and restarts through the UI's own API.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         switch (request.method, request.path) {
         case ("POST", "login-by-user-pass"):
@@ -116,6 +117,12 @@ public actor LGThinQPlugin: HomeswiftPlugin {
         case ("GET", "devices"):
             let devices = await platformInstance?.webDevices() ?? []
             return PluginWebResponse(["devices": .array(devices)])
+        case ("GET", "account-devices"):
+            guard let platform = platformInstance, await platform.isConfigured else {
+                return .error(409, "This instance has no LG sign-in yet: sign in on the LG ThinQ plugin page first.")
+            }
+            guard let listing = await platform.accountDevices() else { return .error(502, "LG ThinQ did not answer; try again later.") }
+            return PluginWebResponse(["devices": .array(listing.devices), "complete": .bool(listing.complete)])
         default:
             return .error(404, "nothing at \(request.method) \(request.path)")
         }
@@ -184,10 +191,9 @@ public actor LGThinQPlugin: HomeswiftPlugin {
         try api.setRefreshToken(refreshToken)
         try await api.ready()
         return await api.listDevices().map { device in
-            let code = Int(JS.number(device["deviceType"]))
             return [
                 "id": device["deviceId"] ?? .null, "name": device["alias"] ?? .null,
-                "type": DeviceType.names[code].map { .string($0) } ?? device["deviceType"] ?? .null,
+                "type": DeviceType.code(device["deviceType"]).flatMap { DeviceType.names[$0] }.map { .string($0) } ?? device["deviceType"] ?? .null,
                 "online": .bool(device["online"] != .bool(false)),
             ]
         }
@@ -202,7 +208,26 @@ extension LGThinQPlatform {
             return [
                 "id": .string(device.id), "name": .string(device.name), "type": .string(device.type), "model": .string(device.model),
                 "platform": .string(device.platform ?? ""), "online": .bool(device.online), "external": .bool(DeviceRegistry.isExternal(device.type)),
+                "accessory": .string("\(BaseDevice.platformPrefix):\(device.id)"),
             ]
         }
+    }
+
+    /// Every device of the account, with whether this instance runs it; nil when LG answered nothing.
+    func accountDevices() async -> (devices: [JSONValue], complete: Bool)? {
+        guard !stopped else { return nil }
+        if (try? await thinq.isReady()) == nil { return nil }
+        let listing = await thinq.deviceListing()
+        if listing.devices.isEmpty, !listing.complete { return nil }
+        let configured = Set(configuredDevices.compactMap(\.id))
+        let devices = listing.devices.sorted { $0.name < $1.name }.map { device -> JSONValue in
+            [
+                "id": .string(device.id), "name": .string(device.name), "type": .string(device.type), "model": .string(device.model),
+                "platform": .string(device.platform ?? ""), "online": .bool(device.online),
+                "supported": .bool(DeviceRegistry.handler(for: device.type, platform: device.platform) != nil),
+                "configured": .bool(configuredDevices.isEmpty || configured.contains(device.id)), "running": .bool(handlers[device.id] != nil),
+            ]
+        }
+        return (devices, listing.complete)
     }
 }

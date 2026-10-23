@@ -427,4 +427,80 @@ struct PluginTests {
         #expect(done.json["success"] == true)
         #expect(try await environment.request("POST", "auth/stop-server", body: [:]).json["success"] == true)
     }
+
+    /// Two requests with the pending state at once (a browser retry, the URL pasted as well): one exchange.
+    @Test func theSameCallbackTwiceExchangesTheCodeOnce() async throws {
+        let environment = DaikinEnvironment()
+        let host = try await environment.start(developerBlock)
+        defer { Task { await host.stop() } }
+        let port = Int.random(in: 40000...60000)
+        let started = try await environment.request("POST", "auth/start", body: [
+            "clientId": "client", "clientSecret": "secret", "callbackServerExternalAddress": "127.0.0.1", "callbackServerPort": .number(Double(port)),
+            "oidcCallbackServerBindAddr": "127.0.0.1",
+        ])
+        let state = try #require(URLQuery.parameter("state", in: started.json["authUrl"]?.stringValue ?? ""))
+        let cloud = environment.cloud
+        let release = Signal()
+        let exchanges = NIOLockedValueBox(0)
+        cloud.http.set { request, _ in
+            if request.url == DeveloperPortalOAuth.tokenEndpoint {
+                exchanges.withLockedValue { $0 += 1 }
+                await release.wait()
+            }
+            return try await cloud.answer(request)
+        }
+        let url = JSONValue.string("https://127.0.0.1:\(port)/?code=good-code&state=\(state)")
+        let pasted = Task { try await environment.request("POST", "auth/callback", body: ["callbackUrl": url]) }
+        #expect(await eventually { exchanges.withLockedValue { $0 } == 1 })
+        // The redirect arriving meanwhile is refused, without a second exchange.
+        let redirect = await environment.plugin!.callbackRequest("/?code=good-code&state=\(state)")
+        #expect(redirect.status == 400)
+        let again = try await environment.request("POST", "auth/callback", body: ["callbackUrl": url])
+        #expect(again.json["error"] == "No pending authorization. Please start the auth flow again.")
+        release.fire()
+        #expect(try await pasted.value.json["success"] == true)
+        #expect(exchanges.withLockedValue { $0 } == 1)
+    }
+
+    /// A failed exchange keeps the login pending for a paste, unless the page cancelled it meanwhile.
+    @Test func aCancelledLoginStaysCancelled() async throws {
+        let environment = DaikinEnvironment()
+        let host = try await environment.start(developerBlock)
+        defer { Task { await host.stop() } }
+        let started = try await environment.request("POST", "auth/start", body: [
+            "clientId": "client", "clientSecret": "secret", "callbackServerExternalAddress": "127.0.0.1",
+            "callbackServerPort": .number(Double(Int.random(in: 40000...60000))), "oidcCallbackServerBindAddr": "127.0.0.1",
+        ])
+        let state = try #require(URLQuery.parameter("state", in: started.json["authUrl"]?.stringValue ?? ""))
+        let cloud = environment.cloud
+        let release = Signal()
+        let exchanges = NIOLockedValueBox(0)
+        cloud.http.set { request, _ in
+            if request.url == DeveloperPortalOAuth.tokenEndpoint {
+                exchanges.withLockedValue { $0 += 1 }
+                await release.wait()
+            }
+            return try await cloud.answer(request)
+        }
+        let failing = Task { await environment.plugin!.callbackRequest("/?code=bad&state=\(state)") }
+        #expect(await eventually { exchanges.withLockedValue { $0 } == 1 })
+        #expect(try await environment.request("POST", "auth/stop-server", body: [:]).json["success"] == true)
+        release.fire()
+        _ = await failing.value
+        #expect(await environment.plugin!.pendingAuth == nil)
+    }
+
+    @Test func callbackPorts() throws {
+        #expect(try DaikinCloudPlugin.callbackPort(nil) == 8582)
+        #expect(try DaikinCloudPlugin.callbackPort(8600) == 8600)
+        #expect(try DaikinCloudPlugin.callbackPort("8600 ") == 8600)
+        #expect(try DaikinCloudPlugin.callbackPort("8600abc") == 8600)
+        #expect(try DaikinCloudPlugin.callbackPort("abc") == 8582)
+        #expect(try DaikinCloudPlugin.callbackPort(0) == 8582)
+        #expect(try DaikinCloudPlugin.callbackPort("½") == 8582)
+        // A port no socket can have would trap in the bind: refused instead.
+        #expect(throws: DaikinError("Callback Server Port must be between 1 and 65535")) { try DaikinCloudPlugin.callbackPort("99999") }
+        #expect(throws: DaikinError.self) { try DaikinCloudPlugin.callbackPort("99999999999999999999999") }
+    }
+
 }

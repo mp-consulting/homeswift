@@ -1,6 +1,8 @@
 import Foundation
 import HomeswiftNetwork
 import Logging
+import NIOCore
+import NIOPosix
 import NIOSSL
 import Testing
 
@@ -166,7 +168,59 @@ struct TransportTests {
         #expect(await eventually { !server.isRunning })
     }
 
+    /// A browser that offers only TLS 1.0/1.1 gets no handshake; 1.2 does.
+    @Test(arguments: [(TLSVersion.tlsv1, false), (TLSVersion.tlsv11, false), (TLSVersion.tlsv12, true)])
+    func callbackServerNeedsTLS12(_ version: TLSVersion, _ accepted: Bool) async throws {
+        let server = CallbackServer(logger: testLogger)
+        let port = Int.random(in: 40000...60000)
+        try await server.start(port: port, hostname: "127.0.0.1", bindAddress: "127.0.0.1", certificateDirectory: directory, lifetime: .seconds(30)) { _ in (200, "ok") }
+        defer { Task { await server.stop() } }
+        var configuration = TLSConfiguration.makeClientConfiguration()
+        configuration.certificateVerification = .none
+        configuration.minimumTLSVersion = .tlsv1
+        configuration.maximumTLSVersion = version
+        let context = try NIOSSLContext(configuration: configuration)
+        let channel = try await ClientBootstrap(group: MultiThreadedEventLoopGroup.singleton)
+            .channelInitializer { channel in
+                channel.eventLoop.makeCompletedFuture { try channel.pipeline.syncOperations.addHandler(NIOSSLClientHandler(context: context, serverHostname: nil)) }
+            }
+            .connect(host: "127.0.0.1", port: port).get()
+        defer { channel.close(promise: nil) }
+        // Writes wait for the handshake and fail with it.
+        let written: Bool
+        do {
+            try await channel.writeAndFlush(ByteBuffer(string: "GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")).get()
+            written = true
+        } catch {
+            written = false
+        }
+        #expect(written == accepted)
+    }
+
+    /// A stop while the start waits for a busy port leaves nothing listening once the port frees up.
+    @Test func aStopDuringTheStartLeavesNothingRunning() async throws {
+        let port = Int.random(in: 40000...60000)
+        let occupier = try await ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton).bind(host: "127.0.0.1", port: port).get()
+        let server = CallbackServer(logger: testLogger)
+        let directory = directory
+        let start = Task {
+            try await server.start(port: port, hostname: "127.0.0.1", bindAddress: "127.0.0.1", certificateDirectory: directory, lifetime: .seconds(30)) { _ in (200, "") }
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        await server.stop()
+        try await occupier.close()
+        await #expect(throws: CallbackServer.Superseded.self) { try await start.value }
+        #expect(!server.isRunning)
+        // The port is free: nothing bound it behind the stop.
+        let probe = try await ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton).bind(host: "127.0.0.1", port: port).get()
+        try await probe.close()
+    }
+
     @Test func loopbackAndBindAddresses() {
+        // `isNumber` digits Int cannot read ("½", Arabic-Indic) are not an address, and do not trap.
+        for host in ["½.0.0.1", "١٢٧.0.0.1", "127.0.0.1²", "256.0.0.1", "1.2.3", "1..2.3", "１２７.0.0.1"] { #expect(!NetworkInfo.isIPv4(host), "\(host)") }
+        #expect(NetworkInfo.isIPv4("127.0.0.1") && NetworkInfo.isIPv4("255.255.255.255"))
+        #expect(!NetworkInfo.isLoopback("½.0.0.1"))
         for host in ["localhost", "127.0.0.1", "127.1.2.3", "::1", "[::1]", "::ffff:127.0.0.1", "app.localhost"] { #expect(NetworkInfo.isLoopback(host), "\(host)") }
         for host in ["192.168.1.10", "0.0.0.0", "example.com", "::"] { #expect(!NetworkInfo.isLoopback(host), "\(host)") }
         #expect(NetworkInfo.bindAddress("127.0.0.1") == "127.0.0.1")

@@ -44,6 +44,9 @@ actor MaytronicsCloud: DolphinCloud {
     private var shadowClient: ShadowClient?
     private var pendingConnect: Task<Void, any Error>?
     private var hasLoggedConnection = false
+    /// Set by `disconnect()`: nothing connects afterwards, so a sign-in in progress when the plugin stops
+    /// does not leave a connection behind that fights the next instance for the client id.
+    private var closed = false
     private var observers: [UUID: @Sendable (JSONValue) async -> Void] = [:]
 
     init(
@@ -64,6 +67,7 @@ actor MaytronicsCloud: DolphinCloud {
     }
 
     private func connectMQTT() async throws {
+        try ensureOpen()
         if let pendingConnect { return try await pendingConnect.value }
         let task = Task { try await openMQTT() }
         pendingConnect = task
@@ -84,12 +88,19 @@ actor MaytronicsCloud: DolphinCloud {
         let client = ShadowClient(
             serialNumber: serialNumber, endpoint: endpoint, region: region, mqtt: mqtt, timing: timing, logger: logger,
             credentials: { credentials.value })
-        credentialBox = credentials
         await client.setShadowHandler { [weak self] shadow in
             await self?.deliver(shadow)
         }
+        // `disconnect()` may have run during any of the awaits above.
+        try ensureOpen()
+        credentialBox = credentials
         shadowClient = client
         try await client.connect()
+        // A disconnect during the connection fails it; this covers one that came as it completed.
+        guard !closed else {
+            await client.disconnect()
+            throw Self.closedError
+        }
         if !hasLoggedConnection {
             hasLoggedConnection = true
             logger.info("MQTT connected for robot \(serialNumber)")
@@ -105,6 +116,7 @@ actor MaytronicsCloud: DolphinCloud {
 
     /// Fresh credentials when they expire within the hour, then the MQTT connection if it dropped.
     private func ensureConnectedMQTT() async throws {
+        try ensureOpen()
         try await authentication.ensureValidCredentials()
         credentialBox?.set(await authentication.awsCredentials)
         if let shadowClient, await shadowClient.isConnected { return }
@@ -112,9 +124,18 @@ actor MaytronicsCloud: DolphinCloud {
         try await connectMQTT()
     }
 
+    /// Closes the MQTT connection for good: a connection attempt in progress fails, and none starts after.
     func disconnect() async {
-        await shadowClient?.disconnect()
+        closed = true
+        let client = shadowClient
         shadowClient = nil
+        await client?.disconnect()
+    }
+
+    private static let closedError = DolphinError.notConnected("The cloud connection was closed")
+
+    private func ensureOpen() throws {
+        if closed { throw Self.closedError }
     }
 
     func addShadowObserver(_ handler: @escaping @Sendable (JSONValue) async -> Void) -> UUID {
@@ -200,7 +221,7 @@ actor MaytronicsCloud: DolphinCloud {
                 name: data["MyRobotName"]?.stringValue.nonEmpty ?? robotName.nonEmpty ?? "Dolphin Robot",
                 model: data["PARTDES"]?.stringValue.nonEmpty ?? "Unknown Model",
                 deviceType: deviceType ?? Maytronics.defaultDeviceType,
-                warrantyDays: data["warranty_days"]?.doubleValue.map { Int($0) },
+                warrantyDays: data["warranty_days"]?.saturatingIntValue,
                 features: features,
                 imageURL: data["originalUrlImage"]?.stringValue.nonEmpty ?? data["Originalmg"]?.stringValue.nonEmpty)
         } catch {

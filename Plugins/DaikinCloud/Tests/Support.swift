@@ -115,11 +115,15 @@ final class RecordingAPI: DaikinDeviceWriting, @unchecked Sendable {
     /// The next write runs `body` first.
     func next(_ body: @escaping @Sendable (Write) async throws -> Void) { gate.withLockedValue { $0.append(body) } }
 
-    func updateDevice(_ deviceID: String, embeddedID: String, dataPoint: String, value: JSONValue, path: String?) async throws {
+    /// The value sent, unless a test makes the next write answer another (a coalesced one).
+    let sentValues = NIOLockedValueBox<[JSONValue]>([])
+
+    func updateDevice(_ deviceID: String, embeddedID: String, dataPoint: String, value: JSONValue, path: String?) async throws -> JSONValue {
         let write = Write(embeddedID, dataPoint, value, path)
         let body = gate.withLockedValue { $0.isEmpty ? nil : $0.removeFirst() }
         try await body?(write)
         writes.withLockedValue { $0.append(write) }
+        return sentValues.withLockedValue { $0.isEmpty ? value : $0.removeFirst() }
     }
 
     func setHolidayMode(_ deviceID: String, embeddedID: String, enabled: Bool, startDate: String?, endDate: String?) async throws {

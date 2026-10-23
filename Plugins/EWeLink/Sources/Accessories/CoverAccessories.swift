@@ -23,8 +23,8 @@ final class CurtainAccessory: BaseAccessory {
         super.init(platform: platform, record: record, box: box)
         category = .windowCovering
         service = addService(.windowCovering, primary: true)
-        onRead(service.characteristic(.currentPosition), "CurrentPosition") { [weak self] in self.map { .int(Int($0.currentPosition)) } }
-        onRead(service.characteristic(.targetPosition), "TargetPosition") { [weak self] in self.map { .int(Int($0.targetPosition)) } }
+        onRead(service.characteristic(.currentPosition), "CurrentPosition") { [weak self] in self.map { .int($0.currentPosition.clampedInt) } }
+        onRead(service.characteristic(.targetPosition), "TargetPosition") { [weak self] in self.map { .int($0.targetPosition.clampedInt) } }
         onWrite(service.characteristic(.targetPosition)) { [weak self] value in try await self?.setTargetPosition(value) }
         onReadAlways(service.characteristic(.positionState)) { [weak self] in .int(self?.positionState.rawValue ?? 2) }
         initializeFromParams()
@@ -36,10 +36,10 @@ final class CurtainAccessory: BaseAccessory {
     }
 
     private func refreshState() async {
-        logDebug("Refreshing state - Current: \(Int(currentPosition))%, Target: \(Int(targetPosition))%")
+        logDebug("Refreshing state - Current: \(currentPosition.clampedInt)%, Target: \(targetPosition.clampedInt)%")
         _ = await platform.queryDeviceState(deviceID)
         _ = await trackedSleep(Double(Timing.stateInitDelay))
-        logDebug("State refreshed - Current: \(Int(currentPosition))%, Target: \(Int(targetPosition))%")
+        logDebug("State refreshed - Current: \(currentPosition.clampedInt)%, Target: \(targetPosition.clampedInt)%")
     }
 
     private func position(_ value: JSONValue, inverted: Bool) -> Double {
@@ -59,7 +59,7 @@ final class CurtainAccessory: BaseAccessory {
         update(service.characteristic(.currentPosition), currentPosition)
         update(service.characteristic(.targetPosition), targetPosition)
         update(service.characteristic(.positionState), positionState.rawValue)
-        logDebug("Curtain initialized at position \(Int(currentPosition))%")
+        logDebug("Curtain initialized at position \(currentPosition.clampedInt)%")
     }
 
     private func setTargetPosition(_ value: HAPValue) async throws {
@@ -67,18 +67,18 @@ final class CurtainAccessory: BaseAccessory {
         let motorTurn = DeviceCatalog.motorTurnParam(uiid)
         // Tapping near the position while moving means stop.
         if positionState != .stopped, abs(newTarget - currentPosition) <= 5 {
-            logInfo("Stop requested (target \(Int(newTarget))% near current \(Int(currentPosition))%)")
+            logInfo("Stop requested (target \(newTarget.clampedInt)% near current \(currentPosition.clampedInt)%)")
             try await sendStopCommand()
             return
         }
         if newTarget == currentPosition {
-            logDebug("Already at position \(Int(newTarget))%, skipping command")
+            logDebug("Already at position \(newTarget.clampedInt)%, skipping command")
             targetPosition = newTarget
             return
         }
         let previousTarget = targetPosition, previousState = positionState
         targetPosition = newTarget
-        logInfo("Setting position to \(Int(newTarget))% (from \(Int(currentPosition))%)")
+        logInfo("Setting position to \(newTarget.clampedInt)% (from \(currentPosition.clampedInt)%)")
         positionState = newTarget > currentPosition ? .increasing : .decreasing
         update(service.characteristic(.positionState), positionState.rawValue)
 
@@ -103,7 +103,7 @@ final class CurtainAccessory: BaseAccessory {
             targetPosition = previousTarget
             positionState = previousState
             update(service.characteristic(.positionState), previousState.rawValue)
-            revertCharacteristicLater(service.characteristic(.targetPosition), .int(Int(previousTarget)))
+            revertCharacteristicLater(service.characteristic(.targetPosition), .int(previousTarget.clampedInt))
             throw communicationError
         }
     }
@@ -117,7 +117,7 @@ final class CurtainAccessory: BaseAccessory {
         }
         logDebug("Sending stop command (UIID \(uiid)): \(JSONValue.object(params).text())")
         guard await sendCommand(params) else {
-            revertCharacteristicLater(service.characteristic(.targetPosition), .int(Int(targetPosition)))
+            revertCharacteristicLater(service.characteristic(.targetPosition), .int(targetPosition.clampedInt))
             throw communicationError
         }
         targetPosition = currentPosition
@@ -153,7 +153,7 @@ final class CurtainAccessory: BaseAccessory {
                 debounceTimer = nil
                 update(service.characteristic(.currentPosition), currentPosition)
                 lastReportedPosition = newPosition
-                if oldPosition != newPosition { logDebug("Position update: \(Int(oldPosition))% → \(Int(newPosition))%") }
+                if oldPosition != newPosition { logDebug("Position update: \(oldPosition.clampedInt)% → \(newPosition.clampedInt)%") }
             } else if change > 0, debounceTimer == nil {
                 debounceTimer = setTrackedTimeout(Self.positionDebounce) { [weak self] in
                     guard let self else { return }
@@ -168,21 +168,21 @@ final class CurtainAccessory: BaseAccessory {
             if let raw = params[config.target] {
                 targetPosition = position(raw, inverted: config.inverted)
                 update(service.characteristic(.targetPosition), targetPosition)
-                logDebug("Target position synced to \(Int(targetPosition))%")
+                logDebug("Target position synced to \(targetPosition.clampedInt)%")
                 positionUpdated = true
             }
         } else if positionUpdated {
             targetPosition = currentPosition
             positionState = .stopped
             update(service.characteristic(.targetPosition), targetPosition)
-            logDebug("Position synced to \(Int(currentPosition))%")
+            logDebug("Position synced to \(currentPosition.clampedInt)%")
         }
         if positionUpdated {
             let previousState = positionState
             positionState = targetPosition == currentPosition ? .stopped : targetPosition > currentPosition ? .increasing : .decreasing
             update(service.characteristic(.positionState), positionState.rawValue)
             if wasMoving, positionState == .stopped, previousState != .stopped {
-                logInfo("Reached target position: \(Int(currentPosition))%")
+                logInfo("Reached target position: \(currentPosition.clampedInt)%")
             }
         }
         if params["motorTurn"]?.jsNumber == 0, params["motorTurn"]?.doubleValue != nil, wasMoving {
@@ -190,7 +190,7 @@ final class CurtainAccessory: BaseAccessory {
             targetPosition = currentPosition
             update(service.characteristic(.targetPosition), targetPosition)
             update(service.characteristic(.positionState), positionState.rawValue)
-            logInfo("Movement stopped at \(Int(currentPosition))%")
+            logInfo("Movement stopped at \(currentPosition.clampedInt)%")
         }
         if params["switch"] == "off" { stop() }
     }
@@ -206,8 +206,8 @@ final class MotorAccessory: BaseAccessory {
         super.init(platform: platform, record: record, box: box)
         category = .windowCovering
         service = addService(.windowCovering, primary: true)
-        onRead(service.characteristic(.currentPosition), "CurrentPosition") { [weak self] in self.map { .int(Int($0.currentPosition)) } }
-        onRead(service.characteristic(.targetPosition), "TargetPosition") { [weak self] in self.map { .int(Int($0.targetPosition)) } }
+        onRead(service.characteristic(.currentPosition), "CurrentPosition") { [weak self] in self.map { .int($0.currentPosition.clampedInt) } }
+        onRead(service.characteristic(.targetPosition), "TargetPosition") { [weak self] in self.map { .int($0.targetPosition.clampedInt) } }
         onWrite(service.characteristic(.targetPosition)) { [weak self] value in try await self?.setTargetPosition(value) }
         onReadAlways(service.characteristic(.positionState)) { [weak self] in .int(self?.positionState.rawValue ?? 2) }
         if let current = deviceParams["currLocation"]?.jsNumber { currentPosition = clamp(current, 0, 100) }
@@ -215,7 +215,7 @@ final class MotorAccessory: BaseAccessory {
         update(service.characteristic(.currentPosition), currentPosition)
         update(service.characteristic(.targetPosition), targetPosition)
         update(service.characteristic(.positionState), positionState.rawValue)
-        logDebug("Motor initialized at position \(Int(currentPosition))%")
+        logDebug("Motor initialized at position \(currentPosition.clampedInt)%")
     }
 
     private func setTargetPosition(_ value: HAPValue) async throws {
@@ -225,7 +225,7 @@ final class MotorAccessory: BaseAccessory {
             return
         }
         targetPosition = newTarget
-        logInfo("Setting motor position to \(Int(newTarget))%")
+        logInfo("Setting motor position to \(newTarget.clampedInt)%")
         positionState = newTarget > currentPosition ? .increasing : .decreasing
         update(service.characteristic(.positionState), positionState.rawValue)
         let turn = newTarget > currentPosition ? 1 : newTarget < currentPosition ? 2 : 0
@@ -239,7 +239,7 @@ final class MotorAccessory: BaseAccessory {
             if position != currentPosition {
                 currentPosition = position
                 update(service.characteristic(.currentPosition), currentPosition)
-                logDebug("Current position updated to \(Int(currentPosition))%")
+                logDebug("Current position updated to \(currentPosition.clampedInt)%")
             }
         }
         if let raw = params["location"]?.jsNumber {
@@ -247,7 +247,7 @@ final class MotorAccessory: BaseAccessory {
             if target != targetPosition {
                 targetPosition = target
                 update(service.characteristic(.targetPosition), targetPosition)
-                logDebug("Target position updated to \(Int(targetPosition))%")
+                logDebug("Target position updated to \(targetPosition.clampedInt)%")
             }
         }
         positionState = targetPosition == currentPosition ? .stopped : targetPosition > currentPosition ? .increasing : .decreasing

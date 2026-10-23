@@ -180,6 +180,12 @@ struct PluginTests {
         await host.stop()
     }
 
+    @Test func pollingIntervalStaysWithinATimersRange() async throws {
+        let host = try await environment.start(settings: ["refreshToken": "refresh-token", "pollingInterval": 1e300])
+        #expect(environment.log.contains(.debug, "Starting polling for Pool Bot every 2147483s"))
+        await host.stop()
+    }
+
     // MARK: Discovery
 
     @Test func registersTheRobotAndStartsIt() async throws {
@@ -295,6 +301,24 @@ struct PluginTests {
         #expect(cloud.count("shadow") == 1)  // only the first read
     }
 
+    /// A config change stops the plugin while it signs in: nothing may start after.
+    @Test func stoppingDuringTheSignInStartsNothing() async throws {
+        let cloud = FakeCloud()
+        let gate = cloud.holdLogin()
+        environment.nextCloud.withLockedValue { $0 = { _ in cloud } }
+        let host = try environment.host(settings: validSettings)
+        try await host.start()
+        #expect(await eventually { gate.arrivals == 1 })
+        await host.stop()
+        gate.open()
+        await environment.plugin?.settle()
+        #expect(cloud.isDisconnected)
+        #expect(cloud.count("shadow") == 0)
+        #expect(cloud.observerCount == 0)
+        #expect(await environment.plugin?.device(serialNumber: "E3086OFG2M") == nil)
+        #expect(host.mainBridge.server.accessories.first { $0.id == robotID } == nil)
+    }
+
     @Test func stoppingCancelsARetry() async throws {
         // A retry a second away, so a busy machine still stops before it.
         environment.timing.withLockedValue { $0.discoveryRetryBase = .seconds(1) }
@@ -399,5 +423,33 @@ struct PluginTests {
         #expect(try await environment.request("GET", "image").status == 400)
         #expect(try await environment.request("GET", "nothing").status == 404)
         await host.stop()
+    }
+}
+
+@Suite(.timeLimit(.minutes(1)))
+struct AssistantActionTests {
+    let environment = DolphinTestEnvironment()
+
+    @Test func actionsReachTheirRoutes() async throws {
+        let host = try await environment.start()
+        let plugin = try #require(environment.plugin)
+        #expect(DolphinPoolCleanerPlugin.assistantActions.map(\.name) == ["list_robots"])
+        for action in DolphinPoolCleanerPlugin.assistantActions {
+            #expect(action.access == .read)
+            #expect(!action.confirm)
+            let response = try await plugin.handleWebRequest(action.request(arguments: [:], user: "admin"))
+            #expect(response.status == 200, "\(action.name)")
+        }
+        let action = try #require(DolphinPoolCleanerPlugin.assistantActions.first)
+        let robots = try await plugin.handleWebRequest(action.request(arguments: [:], user: "admin"))
+        #expect(robots.json["status"] == "ready")
+        #expect(robots.json["robots"]?[0]?["serialNumber"] == "E3086OFG2M")
+        await host.stop()
+    }
+
+    @Test func theRegistryCarriesThem() {
+        var registry = PluginRegistry()
+        registry.register(DolphinPoolCleanerPlugin.self)
+        #expect(registry.entry(for: DolphinPoolCleanerPlugin.platform)?.assistantActions.map(\.name) == ["list_robots"])
     }
 }

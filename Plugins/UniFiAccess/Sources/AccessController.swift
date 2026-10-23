@@ -63,11 +63,15 @@ actor AccessController {
     private var tasks: [Task<Void, Never>] = []
     private var refreshTask: Task<Void, Never>?
     private var stopped = false
+    /// Between login and bootstrap attempts, with up to 20% of jitter so controllers recovering from one outage
+    /// do not retry in lockstep.
+    private let retryInterval: Duration
 
     init(settings: Settings, shared: Shared) {
         self.settings = settings
         self.shared = shared
         name = settings.name ?? settings.address
+        retryInterval = shared.dependencies.controllerRetryInterval * Double.random(in: 1...1.2)
         let logger = shared.logger
         let address = settings.address
         let pins = shared.pins
@@ -124,8 +128,7 @@ actor AccessController {
             logger.info("\(name): Disabling this UniFi Access controller.")
             return
         }
-        // Up to 20% of jitter, so controllers recovering from one outage do not retry in lockstep.
-        let retry = shared.dependencies.controllerRetryInterval * Double.random(in: 1...1.2)
+        let retry = retryInterval
         while !Task.isCancelled, !stopped {
             if await api.login(address: settings.address, username: settings.username, password: settings.password) { break }
             try? await Task.sleep(for: retry)
@@ -143,6 +146,7 @@ actor AccessController {
         logger.info("\(name): Connected to \(settings.address) (UniFi Access \(controllerInfo?.version ?? "") running on UniFi OS \(controllerInfo?.hostFirmware ?? "")).")
 
         // Now that the controller's id is known: is it disabled?
+        guard !stopped else { return }
         guard hasFeature("Device") else {
             await api.logout()
             logger.info("\(name): Disabling this UniFi Access controller in HomeKit.")
@@ -158,6 +162,8 @@ actor AccessController {
             let client = AccessMQTT(
                 brokerURL: url, topicPrefix: settings.mqttTopic, verifyTLS: settings.mqttVerifyTls, connector: shared.dependencies.mqtt, logger: logger, prefix: "\(name): ")
             await client.start()
+            // Stopped while connecting: stop() saw no client to end.
+            guard !stopped else { return await client.end() }
             mqtt = client
         }
 
@@ -166,6 +172,7 @@ actor AccessController {
         }
 
         // Follow the API: every bootstrap syncs the devices and restarts the refresh countdown; messages go to the hubs.
+        guard !stopped else { return }
         let events = api.events
         tasks.append(Task { [weak self] in
             for await event in events {
@@ -183,16 +190,27 @@ actor AccessController {
         scheduleRefresh()
     }
 
+    /// Bootstraps again after the refresh interval, retrying until it works (`bootstrapController`): a refresh
+    /// that fails once, on a dropped connection, must not end the sync. A successful bootstrap reschedules.
     private func scheduleRefresh() {
         refreshTask?.cancel()
+        guard !stopped else { return }
         let interval = shared.dependencies.controllerRefreshInterval
+        let retry = retryInterval
         let api = api
         let logger = logger
         let name = name
         refreshTask = Task {
             try? await Task.sleep(for: interval)
-            guard !Task.isCancelled else { return }
-            if !(await api.getBootstrap()) { logger.error("\(name): Unable to refresh the controller configuration.") }
+            var failures = 0
+            while !Task.isCancelled {
+                if await api.getBootstrap() { return }
+                guard !Task.isCancelled else { return }
+                // Once in the log; the API logs each failed request.
+                if failures == 0 { logger.error("\(name): Unable to refresh the controller configuration. Retrying.") }
+                failures += 1
+                try? await Task.sleep(for: retry)
+            }
         }
     }
 
@@ -204,7 +222,11 @@ actor AccessController {
         let apiName = await api.name
         name = settings.name ?? apiName
         let devices = await api.devices ?? []
-        for device in devices { await addDevice(device) }
+        for device in devices {
+            guard !stopped else { return }
+            await addDevice(device)
+        }
+        guard !stopped else { return }
         await cleanup(devices: devices)
         for hub in hubs.values {
             await hub.setControllerName(name)
@@ -317,7 +339,8 @@ actor AccessController {
             shared.owners[accessoryId] = nil
             return
         }
-        let delay = shared.options.integer("Controller.DelayDeviceRemoval", device: id, controller: id).value.map(Int.init) ?? 0
+        let delay = shared.options.integer("Controller.DelayDeviceRemoval", device: id, controller: id).value
+            .flatMap { Int(saturating: $0, in: 0...AccessSettings.maximumOptionValue) } ?? 0
         let displayName = shared.context.accessory(id: accessoryId)?.name ?? accessoryId
         if !immediately, delay > 0 {
             guard let queued = removalQueue[accessoryId] else {
@@ -369,10 +392,12 @@ actor AccessController {
         var devices: [JSONValue] = []
         for (accessoryId, hub) in hubs.sorted(by: { $0.key < $1.key }) {
             let device = await hub.uda
-            devices.append([
+            var entry: [String: JSONValue] = [
                 "id": .string(accessoryId), "name": .string(await hub.accessoryName), "model": .string(device.resolvedModel),
                 "online": .bool(device.isFullyOnline), "featureId": .string(device.identifier),
-            ])
+            ]
+            entry.merge(await hub.stateJSON()) { current, _ in current }
+            devices.append(.object(entry))
         }
         return [
             "address": .string(settings.address), "name": .string(name), "connected": .bool(connected),

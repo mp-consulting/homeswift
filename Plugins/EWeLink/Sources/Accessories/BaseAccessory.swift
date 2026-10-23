@@ -154,7 +154,7 @@ class BaseAccessory {
     }
 
     static func hapValue(_ value: Double, for type: CharacteristicType) -> HAPValue {
-        guard value.isFinite else { return type.format == .float ? .double(type.minValue ?? 0) : .int(Int(type.minValue ?? 0)) }
+        guard value.isFinite else { return type.format == .float ? .double(type.minValue ?? 0) : .int((type.minValue ?? 0).clampedInt) }
         var clamped = value
         if let minimum = type.minValue { clamped = max(clamped, minimum) }
         if let maximum = type.maxValue { clamped = min(clamped, maximum) }
@@ -162,7 +162,7 @@ class BaseAccessory {
         case .bool: return .bool(clamped != 0)
         case .float: return .double(clamped)
         case .string, .tlv8, .data: return .string(clamped.jsDescription)
-        default: return .int(Int(jsRound(clamped)))
+        default: return .int(jsRound(clamped).clampedInt)
         }
     }
 
@@ -354,9 +354,9 @@ class BaseAccessory {
 
     /// Inching mode always sends "on" and toggles the state shown; the echo of its own command is ignored for
     /// a moment. Returns the new state; throws (reverting the switch later) when the command fails.
-    func handleInchingModeSet(_ characteristic: Characteristic, channel: Int, cacheState: Bool, ignoreUpdates: InchingFlag) async throws -> Bool {
+    func handleInchingModeSet(_ characteristic: Characteristic, outlets: [Int], cacheState: Bool, ignoreUpdates: InchingFlag) async throws -> Bool {
         let newState = !cacheState
-        let params = SwitchHelper.switchParams(deviceParams, channel: channel, on: true)
+        let params = SwitchHelper.switchParams(deviceParams, outlets: outlets, on: true)
         startInchingIgnoreWindow(ignoreUpdates)
         guard await sendCommand(params) else {
             logError("Failed to set inching mode state")

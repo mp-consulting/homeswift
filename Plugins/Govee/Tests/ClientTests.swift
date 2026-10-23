@@ -35,7 +35,13 @@ final class FakeLANSocket: LANSocket, @unchecked Sendable {
         }
     }
 
-    func close() async { continuation.finish() }
+    private var _closes = 0
+    var closes: Int { lock.withLock { _closes } }
+
+    func close() async {
+        lock.withLock { _closes += 1 }
+        continuation.finish()
+    }
 }
 
 /// AWS IoT's broker in memory: the shared fake, whose publishes can hang (a broker that never acknowledges).
@@ -79,11 +85,19 @@ actor FakeCentral: BLECentral {
     private(set) var written: [Data] = []
     private(set) var disconnects = 0
     var discovery: Duration = .zero
+    /// How long the adapter takes to report it is on; `powerWaits` counts the waits that started.
+    var powerDelay: Duration = .zero
+    private(set) var powerWaits = 0
     var onDiscover: (@Sendable (BLEAdvertisement) -> Void)?
 
     func set(discovery: Duration) { self.discovery = discovery }
+    func set(powerDelay: Duration) { self.powerDelay = powerDelay }
 
-    func waitForPoweredOn(timeout: Duration) async -> Bool { true }
+    func waitForPoweredOn(timeout: Duration) async -> Bool {
+        powerWaits += 1
+        if powerDelay > .zero { try? await Task.sleep(for: powerDelay) }
+        return true
+    }
 
     func startScanning(services: [String], allowDuplicates: Bool, onDiscover: @escaping @Sendable (BLEAdvertisement) -> Void) async throws {
         scans += 1
@@ -239,6 +253,20 @@ func scanReply(_ device: String, sku: String = "H6008", extra: [String: JSONValu
         #expect(socket.sent.first?.json == ["msg": ["cmd": "scan", "data": ["account_topic": "reserve"]]])
         await client.close()
     }
+
+    @Test func discoveryEndsAtOnceWhenCancelled() async {
+        let (client, socket, _) = client()
+        socket.scanReplies = [(deviceID, "H6008", "192.168.1.20")]
+        await client.start()
+        let started = ContinuousClock.now
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await client.discover()
+        }
+        _ = await task.value
+        #expect(ContinuousClock.now - started < LANClient.scanSettleTime)
+        await client.close()
+    }
 }
 
 // MARK: AWS
@@ -372,6 +400,25 @@ func scanReply(_ device: String, sku: String = "H6008", extra: [String: JSONValu
         #expect(readings.items.first?.battery == 90)
     }
 
+    /// A command claims the adapter before it waits for power: a sensor scan starting meanwhile would replace the
+    /// scan that finds the device (CoreBluetooth has one per manager).
+    @Test func aSensorScanWaitsForACommandThatWaitsForPower() async throws {
+        let central = FakeCentral()
+        await central.set(powerDelay: .milliseconds(200))
+        let client = BLEClient(central: central, logger: testLogger, timing: timing, debug: quietDebug)
+        let command = Task { try await client.updateDevice(target, params: .command(0x01, [1]), log: testDeviceLog) }
+        #expect(await eventually { await central.powerWaits == 1 })
+        try await client.scan(for: { _ in }, duration: .seconds(1))
+        #expect(await central.scans == 0)
+        try await command.value
+        #expect(await central.written.count == 1)
+        #expect(await central.scans == 0)
+        #expect(await !client.isConnecting)
+        // Once the command is done, the next window scans.
+        try await client.scan(for: { _ in }, duration: .milliseconds(100))
+        #expect(await central.scans == 1)
+    }
+
     @Test func noScanAfterShutdown() async throws {
         let central = FakeCentral()
         let client = BLEClient(central: central, logger: testLogger, timing: timing, debug: quietDebug)
@@ -389,6 +436,48 @@ func scanReply(_ device: String, sku: String = "H6008", extra: [String: JSONValu
         withAddress.address = "A4:C1:38:00:00:01"
         #expect(GoveePlugin.matches(BLETarget(address: "a4:c1:38:00:00:01", name: nil), withAddress))
         #expect(!GoveePlugin.matches(BLETarget(address: "a4:c1:38:00:00:09", name: "GVH5075_0001"), withAddress))
+    }
+}
+
+@Suite struct QueueWaitTests {
+    final class Box<T: Sendable>: @unchecked Sendable {
+        private let lock = NIOLock()
+        private var _value: T?
+        var value: T? { lock.withLock { _value } }
+        func set(_ value: T) { lock.withLock { _value = value } }
+    }
+
+    let queue = DispatchQueue(label: "test.queue-wait")
+
+    /// The case `withTaskCancellationHandler` alone gets wrong: the task was cancelled before the wait parked.
+    @Test func aTaskCancelledBeforeItWaitsDoesNotHang() async {
+        let wait = QueueWait<Bool>(queue: queue)
+        let result = Box<Bool>()
+        Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            result.set(await wait.wait(cancelled: false) { _ in })
+        }
+        #expect(await eventually { result.value == false })
+    }
+
+    @Test func endsWithTheValueOrTheCancellation() async {
+        let parked = Box<QueueWait<Bool>>()
+        let result = Box<Bool>()
+        let wait = QueueWait<Bool>(queue: queue)
+        Task { result.set(await wait.wait(cancelled: false) { parked.set($0) }) }
+        #expect(await eventually { parked.value != nil })
+        queue.async {
+            parked.value?.resume(true)
+            parked.value?.resume(false)
+        }
+        #expect(await eventually { result.value == true })
+
+        let cancelled = Box<Bool>()
+        let other = QueueWait<Bool>(queue: queue)
+        let task = Task { cancelled.set(await other.wait(cancelled: false) { _ in }) }
+        try? await Task.sleep(for: .milliseconds(50))
+        task.cancel()
+        #expect(await eventually { cancelled.value == false })
     }
 }
 

@@ -14,9 +14,9 @@ final class ThinQDevice {
 
     var id: String { JS.string(data["deviceId"]) }
     var name: String { JS.string(data["alias"]) }
-    var deviceTypeCode: Int { Int(JS.number(data["deviceType"])) }
-    /// `AC`, `WASHER`… or `undefined` for a type the plugin does not know.
-    var type: String { DeviceType.names[deviceTypeCode] ?? "undefined" }
+    var deviceTypeCode: Int? { DeviceType.code(data["deviceType"]) }
+    /// `AC`, `WASHER`… or `undefined` for a type the plugin does not know (or a missing or non-numeric one).
+    var type: String { deviceTypeCode.flatMap { DeviceType.names[$0] } ?? "undefined" }
 
     /// The model name without its region suffix (`RAC_056905_WW` is `RAC_056905`).
     var model: String {

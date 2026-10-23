@@ -1,4 +1,5 @@
 import Foundation
+import HomeswiftPlugin
 
 /// The ThinQ app's identifiers and LG's endpoints, as the Homebridge plugin has them (reversed from LG's app).
 enum ThinQConstants {
@@ -54,6 +55,12 @@ enum DeviceType {
         3001: "MISSG", 3002: "SENSOR", 3102: "SOLAR_SENSOR", 3003: "IOT_LIGHTING", 3004: "IOT_MOTION_SENSOR", 3005: "IOT_SMART_PLUG",
         3006: "IOT_DUST_SENSOR", 4001: "EMS_AIR_STATION", 4003: "AIR_SENSOR", 4004: "PURICARE_AIR_DETECTOR", 6001: "V2PHONE", 9000: "HOMEROBOT",
     ]
+
+    /// The code of a reported `deviceType` (a number or a numeric string), as `DeviceType[value]` looks it up:
+    /// nil for a missing, fractional or non-numeric one.
+    static func code(_ value: JSONValue?) -> Int? {
+        Int(exactly: JS.number(value))
+    }
 }
 
 enum PlatformType {

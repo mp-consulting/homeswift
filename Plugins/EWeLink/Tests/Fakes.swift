@@ -119,6 +119,8 @@ final class FakeSocketServer: @unchecked Sendable {
         /// Commands get this error code (0 is success); nil leaves them unanswered.
         var commandError: Int? = 0
         var hbInterval = 145
+        /// The next socket drops right after it answers the `userOnline`.
+        var dropAfterAuthentication = false
     }
 
     let state = NIOLockedValueBox(State())
@@ -162,6 +164,10 @@ final class FakeSocketServer: @unchecked Sendable {
         switch message["action"]?.stringValue {
         case "userOnline":
             socket.receive(text: JSONValue.object(["error": .number(Double(state.authError)), "config": ["hb": 1, "hbInterval": .number(Double(state.hbInterval))], "sequence": message["sequence"] ?? .null]).text())
+            if state.dropAfterAuthentication {
+                update { $0.dropAfterAuthentication = false }
+                socket.drop()
+            }
         case "update":
             guard let code = state.commandError else { return }
             socket.receive(text: JSONValue.object(["error": .number(Double(code)), "sequence": message["sequence"] ?? .null, "deviceid": message["deviceid"] ?? .null]).text())
@@ -239,6 +245,33 @@ final class FakeListener: LANDatagramListener, @unchecked Sendable {
     }
 
     func close() async { continuation.finish() }
+}
+
+/// A LAN whose UDP socket opens only when the test says so, for `stop()` during `start()`.
+final class SlowLAN: LANNetwork, @unchecked Sendable {
+    struct State {
+        var waiting = false
+        var release = false
+    }
+
+    final class Listener: LANDatagramListener, @unchecked Sendable {
+        let datagrams = AsyncStream<(data: Data, address: String)> { _ in }
+        let closed = NIOLockedValueBox(false)
+        func close() async { closed.withLockedValue { $0 = true } }
+    }
+
+    let state = NIOLockedValueBox(State())
+    let listener = Listener()
+
+    func browse(logger: Logger) -> AsyncStream<LANServiceEvent> { AsyncStream { _ in } }
+
+    func listen(port: Int, logger: Logger) async throws -> any LANDatagramListener {
+        state.withLockedValue { $0.waiting = true }
+        while !state.withLockedValue({ $0.release }) { try await Task.sleep(for: .milliseconds(5)) }
+        return listener
+    }
+
+    func post(_ url: URL, body: Data, timeout: Int) async throws -> Data { throw URLError(.timedOut) }
 }
 
 /// A host with one eWeLink block whose plugin talks to the fakes.

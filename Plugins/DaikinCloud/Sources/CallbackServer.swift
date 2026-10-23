@@ -20,6 +20,13 @@ final class CallbackServer: @unchecked Sendable {
         var channel: (any Channel)?
         var port: Int?
         var stopTask: Task<Void, Never>?
+        /// Bumped by every `stop()`: a start that a stop (or a newer start) overtook closes what it bound.
+        var generation = 0
+    }
+
+    /// The server was stopped, or started again, while this start was binding.
+    struct Superseded: Error, CustomStringConvertible {
+        var description: String { "The callback server was stopped while starting" }
     }
 
     init(logger: Logger, group: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton) {
@@ -34,10 +41,13 @@ final class CallbackServer: @unchecked Sendable {
     /// previous run is tried three times, a second apart.
     func start(port: Int, hostname: String, bindAddress: String, certificateDirectory: URL, lifetime: Duration, handler: @escaping Handler) async throws {
         await stop()
+        let generation = state.withLockedValue { $0.generation }
         let material = try SelfSignedCertificate.load(for: hostname, in: certificateDirectory)
-        let configuration = TLSConfiguration.makeServerConfiguration(
+        var configuration = TLSConfiguration.makeServerConfiguration(
             certificateChain: [.certificate(try NIOSSLCertificate(bytes: material.certificateDER, format: .der))],
             privateKey: .privateKey(try NIOSSLPrivateKey(bytes: Array(material.privateKeyPEM.utf8), format: .pem)))
+        // NIOSSL's server default still takes TLS 1.0; every browser Daikin redirects speaks 1.2.
+        configuration.minimumTLSVersion = .tlsv12
         let context = try NIOSSLContext(configuration: configuration)
         let bootstrap = ServerBootstrap(group: group)
             .serverChannelOption(.backlog, value: 16)
@@ -52,23 +62,38 @@ final class CallbackServer: @unchecked Sendable {
         var attempt = 1
         while true {
             do {
+                guard state.withLockedValue({ $0.generation }) == generation else { throw Superseded() }
                 let channel = try await bootstrap.bind(host: bindAddress, port: port).get()
+                let current = state.withLockedValue { state -> Bool in
+                    guard state.generation == generation else { return false }
+                    state.channel = channel
+                    state.port = port
+                    return true
+                }
+                guard current else {
+                    try? await channel.close()
+                    throw Superseded()
+                }
                 logger.info("HTTPS callback server listening on \(bindAddress):\(port)")
                 let stopTask = Task { [weak self] in
                     guard (try? await Task.sleep(for: lifetime)) != nil else { return }
                     self?.logger.info("[DaikinCloud] Authorization window expired, stopping callback server")
                     await self?.stop()
                 }
-                state.withLockedValue {
-                    $0.channel = channel
-                    $0.port = port
-                    $0.stopTask = stopTask
+                // A stop in between already took the channel; the timer is then not needed.
+                let kept = state.withLockedValue { state -> Bool in
+                    guard state.generation == generation else { return false }
+                    state.stopTask = stopTask
+                    return true
                 }
+                if !kept { stopTask.cancel() }
                 return
             } catch let error as IOError where error.errnoCode == EADDRINUSE && attempt < 3 {
                 logger.warning("Port \(port) in use, retrying in 1 second (attempt \(attempt)/3)...")
                 attempt += 1
                 try await Task.sleep(for: .seconds(1))
+            } catch let error as Superseded {
+                throw error
             } catch {
                 logger.error("Callback server error: \(error)")
                 throw error
@@ -78,7 +103,7 @@ final class CallbackServer: @unchecked Sendable {
 
     func stop() async {
         let (channel, stopTask) = state.withLockedValue { state -> ((any Channel)?, Task<Void, Never>?) in
-            defer { state = State() }
+            defer { state = State(generation: state.generation + 1) }
             return (state.channel, state.stopTask)
         }
         stopTask?.cancel()

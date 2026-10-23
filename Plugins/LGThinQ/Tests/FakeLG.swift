@@ -26,6 +26,25 @@ func fixture(_ name: String) throws -> JSONValue {
     return try JSONValue(data: Data(contentsOf: url))
 }
 
+/// A latch for holding a fake's answer: `wait()` notes it was reached and returns once `open()` ran.
+final class Gate: Sendable {
+    private let state = NIOLockedValueBox((reached: false, open: false))
+
+    var reached: Bool { state.withLockedValue { $0.reached } }
+
+    func open() { state.withLockedValue { $0.open = true } }
+
+    func wait() async {
+        state.withLockedValue { $0.reached = true }
+        while !state.withLockedValue({ $0.open }) {
+            // Not Task.sleep: a cancelled waiter must still hold until the test opens the gate.
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(5)) { continuation.resume() }
+            }
+        }
+    }
+}
+
 /// Polls `condition` until it holds or `timeout` passes.
 func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
@@ -58,6 +77,8 @@ final class FakeLG: HTTPSending, @unchecked Sendable {
     }
 
     let state = NIOLockedValueBox(State())
+    /// Awaited before each answer, to hold a request while a test does something else.
+    let beforeAnswer = NIOLockedValueBox<(@Sendable (HTTPRequest) async -> Void)?>(nil)
 
     var requests: [HTTPRequest] { state.withLockedValue { $0.requests } }
 
@@ -106,6 +127,7 @@ final class FakeLG: HTTPSending, @unchecked Sendable {
             state.requests.append(request)
             return state.overrides
         }
+        if let hook = beforeAnswer.withLockedValue({ $0 }) { await hook(request) }
         let url = request.url.absoluteString
         if let override = overrides.first(where: { url.contains($0.match) }) { return try override.respond(request) }
         let body = request.body.flatMap { try? JSONValue(data: $0) }
@@ -164,10 +186,13 @@ final class FakeLG: HTTPSending, @unchecked Sendable {
 final class FakeMQTT: @unchecked Sendable {
     let configurations = NIOLockedValueBox<[MQTTConfiguration]>([])
     let connection = FakeMQTTConnection()
+    /// Awaited before the factory answers its connection.
+    let beforeConnection = NIOLockedValueBox<(@Sendable () async -> Void)?>(nil)
 
     var factory: @Sendable (MQTTConfiguration) async throws -> any MQTTConnection {
         { configuration in
             self.configurations.withLockedValue { $0.append(configuration) }
+            if let hook = self.beforeConnection.withLockedValue({ $0 }) { await hook() }
             return self.connection
         }
     }

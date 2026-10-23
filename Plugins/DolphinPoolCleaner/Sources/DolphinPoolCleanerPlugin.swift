@@ -19,6 +19,8 @@ public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
 
     static let defaultPollingInterval = 60
     static let minimumPollingInterval = 30
+    /// Node's `setInterval` takes up to 2³¹ - 1 ms; a longer interval there fires every millisecond.
+    static let maximumPollingInterval = 2_147_483
 
     /// What the plugin uses to reach the cloud; tests swap them for fakes.
     struct Dependencies: Sendable {
@@ -111,8 +113,10 @@ public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
             let interval = configuration.effectivePollingInterval
             for robot in robots {
                 await register(robot, pollingInterval: interval)
+                guard !shuttingDown else { return }
             }
             await removeStaleAccessories(keeping: robots)
+            guard !shuttingDown else { return }
             self.robots = robots
             discoveryAttempts = 0
             status = .ready
@@ -149,11 +153,15 @@ public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
     private func initializeCloud() async throws -> [RobotInfo] {
         await stopDevices()
         await cloud?.disconnect()
+        cloud = nil
+        // `stop()` may have run meanwhile: it found no cloud to close, so none must open.
+        guard !shuttingDown else { throw CancellationError() }
         let settings = AccountSettings(
             email: configuration.email, password: configuration.password, refreshToken: configuration.refreshToken, iotRegion: configuration.iotRegion)
         let cloud = dependencies.makeCloud?(settings, logger)
             ?? MaytronicsCloud(settings: settings, transport: dependencies.transport, mqtt: dependencies.mqtt, timing: dependencies.timing, logger: logger)
         self.cloud = cloud
+        // `stop()` closes this cloud, which ends a sign-in in progress and keeps it from connecting after.
         let result = try await cloud.login()
         logger.info("Found robot: \(result.robotName) (S/N: \(result.serialNumber))")
         return await cloud.robots()
@@ -172,6 +180,13 @@ public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
             device: device, accessoryName: robot.name, configuration: deviceConfiguration, idPrefix: Self.platform, temperatures: temperatures,
             timing: dependencies.timing, logger: logger)
         await device.setStateHandler { state in binding.handleStateChange(state) }
+        // `stop()` during the awaits above stopped the devices it found; this one must not start.
+        guard !shuttingDown else {
+            await device.setStateHandler(nil)
+            await device.stop()
+            devices[serialNumber] = nil
+            return
+        }
         bindings[serialNumber] = binding
         if context.accessory(id: binding.accessory.id) != nil {
             logger.info("Restoring existing accessory: \(robot.name)")

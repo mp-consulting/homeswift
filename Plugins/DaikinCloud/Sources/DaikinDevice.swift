@@ -57,6 +57,10 @@ final class DaikinCloudDevice: @unchecked Sendable {
     private struct State {
         var raw: JSONValue
         var lastUpdated = Date()
+        /// Numbers `setData` calls in the order they were made; writes to one target are sent in that order.
+        var writeSequence = 0
+        /// The newest write applied locally, by target: an older one finishing later must not undo it.
+        var appliedWrites: [String: Int] = [:]
     }
 
     init(_ raw: JSONValue, api: any DaikinDeviceWriting) {
@@ -148,11 +152,23 @@ final class DaikinCloudDevice: @unchecked Sendable {
     /// Writes a data point (at a path inside it) and reflects it in the data at once, so reads see the new
     /// value instead of the old one until the next poll: switches derived from a data point (Auto fan mode
     /// from the fan's current mode) follow a related change right away. The next poll reconciles any drift.
+    ///
+    /// The value applied is the one the request carried (a write merged into a newer one's request carries the
+    /// newer value), and only when no later write to the same target was applied first: the callers of
+    /// coalesced writes resume in any order, and a stale value here would make the next identical change look
+    /// like a no-op.
     func setData(_ managementPointID: String, _ dataPoint: String, _ value: JSONValue, path: String? = nil) async throws {
         if isCloudConnectionUp == false { throw DeviceOfflineError(deviceID: id) }
-        try await api.updateDevice(id, embeddedID: managementPointID, dataPoint: dataPoint, value: value, path: path)
+        let target = "\(managementPointID)|\(dataPoint)|\(path ?? "")"
+        let sequence = state.withLockedValue { state in
+            state.writeSequence += 1
+            return state.writeSequence
+        }
+        let sent = try await api.updateDevice(id, embeddedID: managementPointID, dataPoint: dataPoint, value: value, path: path)
         state.withLockedValue { state in
-            state.raw = Self.writing(value, into: state.raw, managementPointID, dataPoint, path)
+            guard sequence > state.appliedWrites[target, default: 0] else { return }
+            state.appliedWrites[target] = sequence
+            state.raw = Self.writing(sent, into: state.raw, managementPointID, dataPoint, path)
             state.lastUpdated = Date()
         }
     }

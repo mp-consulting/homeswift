@@ -115,7 +115,7 @@ final class RFBridgeAccessory: BaseAccessory {
     override func updateState(_ params: DeviceParams) {
         mergeDeviceParams(params)
         if params["cmd"] == "transmit", let channel = params["rfChl"]?.jsNumber {
-            handleButton(Int(channel))
+            handleButton(channel.clampedInt)
             return
         }
         if params["cmd"] == "trigger" || params["updateSource"] == "LAN" {

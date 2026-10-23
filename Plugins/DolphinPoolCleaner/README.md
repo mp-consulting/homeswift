@@ -123,3 +123,11 @@ the UI's pages load images from their own origin only.
 - MQTT, the WebSocket and SigV4 presigning are HomeswiftNetwork's (`MQTTClient`, `AWSSignatureV4`), shared with
   other plugins; `ShadowClient` uses them directly. A dropped connection is retried every 5 seconds, 5 times, as
   mqtt.js was configured, then the next request opens a new one.
+- Redirects are followed as `fetch` follows them (MyDolphin answers the sign-in with a 307 at times):
+  `HomeswiftNetwork`'s `HTTPClient` does not follow them, so the plugin does.
+- Stopping the plugin during the sign-in (a configuration change restarts it) leaves no MQTT connection
+  behind to fight the next instance for the client id: a sign-in in progress ends without connecting.
+- A `pollingInterval` above 2147483 seconds (Node's longest timer, about 24.8 days) is that maximum; in
+  Homebridge the timer then fires every millisecond.
+- The Assistant (the web UI's chat, MCP clients) can read the robots and their state (`list_robots`). It does
+  not run the page's sign-in, whose code is mailed to the user.

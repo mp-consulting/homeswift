@@ -119,7 +119,13 @@ actor BLEClient {
     /// Writes a command to a device.
     func updateDevice(_ target: BLETarget, params: BLEParams, log: DeviceLog) async throws {
         log.debug("starting ble update with params [\(params)]")
-        guard await central.waitForPoweredOn(timeout: timing.powerOn) else { throw BLEError.wrongState(await central.state) }
+        // Claimed before the first await: a sensor scan that would start meanwhile (the actor is reentrant) waits
+        // for its next window rather than take the adapter's scan over while connect() searches for the device.
+        isConnecting = true
+        guard await central.waitForPoweredOn(timeout: timing.powerOn) else {
+            isConnecting = false
+            throw BLEError.wrongState(await central.state)
+        }
 
         let wasScanning = isScanning
         let savedCallback = discoverCallback
@@ -129,7 +135,6 @@ actor BLEClient {
             await stopDiscovery()
         }
 
-        isConnecting = true
         var connection: (any BLEConnection)?
         do {
             await central.reset()
@@ -285,5 +290,46 @@ actor BLEClient {
         isConnecting = false
         await central.reset()
         logger.info("[BLE] shutdown complete.")
+    }
+}
+
+/// A wait for a callback that arrives on a serial queue (CoreBluetooth's delegate), which cancelling the waiting
+/// task ends with `cancelled`, also when the task was cancelled before the wait was parked: then
+/// `withTaskCancellationHandler` runs its handler before the operation, and a wait parked after it would never end.
+final class QueueWait<Value: Sendable>: @unchecked Sendable {
+    private let queue: DispatchQueue
+    // On `queue` only.
+    private var continuation: CheckedContinuation<Value, Never>?
+    private var result: Value?
+
+    init(queue: DispatchQueue) { self.queue = queue }
+
+    /// Waits until `resume(_:)`. `park` runs on the queue first, to register the wait where the callback finds it,
+    /// or to resume it at once; it is skipped when the wait already ended.
+    func wait(cancelled: Value, park: @escaping @Sendable (QueueWait<Value>) -> Void) async -> Value {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                queue.async {
+                    if let result = self.result {
+                        continuation.resume(returning: result)
+                    } else {
+                        self.continuation = continuation
+                        park(self)
+                    }
+                }
+            }
+        } onCancel: {
+            queue.async { self.resume(cancelled) }
+        }
+    }
+
+    /// Ends the wait with `value`, on the queue; later calls change nothing.
+    func resume(_ value: Value) {
+        if let continuation {
+            self.continuation = nil
+            continuation.resume(returning: value)
+        } else if result == nil {
+            result = value
+        }
     }
 }

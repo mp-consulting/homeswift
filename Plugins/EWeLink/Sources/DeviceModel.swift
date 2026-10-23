@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftPlugin
 
 /// A device's state as eWeLink reports it (`params`): any JSON, keyed by parameter name.
@@ -25,15 +26,15 @@ struct EWeLinkDevice: Sendable, Equatable {
     }
     var extra: [String: JSONValue] { raw["extra"]?.objectValue ?? [:] }
     /// The eWeLink model type; 0 when missing.
-    var uiid: Int { extra["uiid"]?.jsNumber.map { Int($0) } ?? 0 }
+    var uiid: Int { extra["uiid"]?.jsNumber?.clampedInt ?? 0 }
     var model: String? { extra["model"]?.stringValue }
     var brandName: String? { raw["brandName"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } }
     var productModel: String? { raw["productModel"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } }
     var apikey: String { raw["apikey"]?.stringValue ?? "" }
     var devicekey: String { raw["devicekey"]?.stringValue ?? "" }
-    var localtype: Int? { raw["localtype"]?.jsNumber.map { Int($0) } }
+    var localtype: Int? { raw["localtype"]?.jsNumber?.clampedInt }
     var ip: String? { raw["ip"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } }
-    var port: Int? { raw["port"]?.jsNumber.map { Int($0) }.flatMap { $0 == 0 ? nil : $0 } }
+    var port: Int? { raw["port"]?.jsNumber.flatMap { Int(saturating: $0, in: 0...65_535) }.flatMap { $0 == 0 ? nil : $0 } }
     var firmware: String? { params["fwVersion"]?.stringValue }
 
     /// `true` unless the cloud said otherwise.
@@ -107,34 +108,35 @@ extension JSONValue {
         }
     }
 
-    /// `parseFloat(String(value))`: the leading number of the text, nil for NaN.
+    /// `parseFloat(String(value))`: the leading number of the text, nil for NaN and the infinities.
     var jsParseFloat: Double? {
         switch self {
-        case .number(let value): value
-        case .string(let value): Self.leadingNumber(value, allowFraction: true)
+        case .number(let value): value.finite
+        case .string(let value): Self.leadingNumber(value, allowFraction: true)?.finite
         default: nil
         }
     }
 
-    /// `parseInt(String(value), 10)`, nil for NaN.
+    /// `parseInt(String(value), 10)`, nil for NaN; clamped to `Int`'s range.
     var jsParseInt: Int? {
         switch self {
-        case .number(let value): value.isFinite ? Int(value.rounded(.towardZero)) : nil
-        case .string(let value): Self.leadingNumber(value, allowFraction: false).map { Int($0) }
+        case .number(let value): Int(saturating: value)
+        case .string(let value): Self.leadingNumber(value, allowFraction: false).flatMap { Int(saturating: $0) }
         default: nil
         }
     }
 
-    /// `Number(value)`, nil for NaN.
+    /// `Number(value)`, nil for NaN and the infinities (`Double` reads "nan" and "inf", which JavaScript does
+    /// not): what a device or the LAN sends can never make a conversion trap.
     var jsNumber: Double? {
         switch self {
-        case .number(let value): return value
+        case .number(let value): return value.finite
         case .bool(let value): return value ? 1 : 0
         case .null: return 0
         case .string(let value):
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty { return 0 }
-            return Double(trimmed)
+            return Double(trimmed)?.finite
         case .array, .object: return nil
         }
     }
@@ -165,6 +167,11 @@ extension JSONValue {
     init(_ number: Int) { self = .number(Double(number)) }
 }
 
+extension BinaryFloatingPoint {
+    /// Truncated toward zero and clamped to `Int`'s range, 0 for NaN: a device's number never traps.
+    var clampedInt: Int { Int(saturating: self) ?? 0 }
+}
+
 extension Double {
     /// How JavaScript prints a number: `25`, not `25.0`.
     var jsDescription: String {
@@ -186,8 +193,13 @@ extension Dictionary where Key == String, Value == JSONValue {
 
     /// The state of one outlet of `switches`.
     func outletSwitch(_ outlet: Int) -> JSONValue? {
-        switches?.first { $0["outlet"]?.jsNumber == Double(outlet) }?["switch"]
+        switches?.first { $0.outletNumber == outlet }?["switch"]
     }
+}
+
+extension JSONValue {
+    /// The `outlet` of a `switches` entry, when it is a whole number.
+    var outletNumber: Int? { self["outlet"]?.jsNumber.flatMap { Int(exactly: $0) } }
 }
 
 /// `'on'` or the JSON boolean `true` (some Zigbee devices, e.g. the SWV-BSP valve, report a boolean).

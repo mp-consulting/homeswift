@@ -35,8 +35,8 @@ class TimedCoverAccessory: BaseAccessory {
         update(service.characteristic(.positionState), PositionState.stopped.rawValue)
         onWrite(service.characteristic(.targetPosition)) { [weak self] value in try await self?.setTargetPosition(value) }
         if platform.configuration.disableNoResponse != true {
-            onRead(service.characteristic(.currentPosition), "CurrentPosition") { [weak self] in self.map { .int(Int($0.currentPosition)) } }
-            onRead(service.characteristic(.targetPosition), "TargetPosition") { [weak self] in self.map { .int(Int($0.targetPosition)) } }
+            onRead(service.characteristic(.currentPosition), "CurrentPosition") { [weak self] in self.map { .int($0.currentPosition.clampedInt) } }
+            onRead(service.characteristic(.targetPosition), "TargetPosition") { [weak self] in self.map { .int($0.targetPosition.clampedInt) } }
         }
     }
 
@@ -54,7 +54,7 @@ class TimedCoverAccessory: BaseAccessory {
     var currentPosition: Double { contextValue("cacheCurrentPosition")?.jsNumber ?? 0 }
     var targetPosition: Double { contextValue("cacheTargetPosition")?.jsNumber ?? 0 }
     private var positionState: PositionState {
-        PositionState(rawValue: Int(contextValue("cachePositionState")?.jsNumber ?? 2)) ?? .stopped
+        PositionState(rawValue: (contextValue("cachePositionState")?.jsNumber ?? 2).clampedInt) ?? .stopped
     }
 
     /// Deciseconds, the unit of `cacheLastStartTime`.
@@ -82,7 +82,7 @@ class TimedCoverAccessory: BaseAccessory {
 
     private func failSet(_ message: String) -> HAPStatusError {
         logError(message)
-        revertCharacteristicLater(service.characteristic(.targetPosition), .int(Int(targetPosition)), after: Double(Timing.positionCleanup))
+        revertCharacteristicLater(service.characteristic(.targetPosition), .int(targetPosition.clampedInt), after: Double(Timing.positionCleanup))
         return communicationError
     }
 
@@ -117,7 +117,7 @@ class TimedCoverAccessory: BaseAccessory {
         }
         let up = target > position
         let ds = jsRound(abs(target - position) * (up ? dsPerPercentUp : dsPerPercentDown))
-        logDebug("Moving from \(Int(position))% to \(Int(target))% - \(up ? "up" : "down") for \((ds / 10).jsDescription)s")
+        logDebug("Moving from \(position.clampedInt)% to \(target.clampedInt)% - \(up ? "up" : "down") for \((ds / 10).jsDescription)s")
         if !(await startMove(up)) {
             if !stopped { scheduleStop(up: previousState == .increasing, target: targetPosition, from: position) }
             throw failSet("Failed to set \(spec.label) position")
@@ -139,12 +139,12 @@ class TimedCoverAccessory: BaseAccessory {
     }
 
     private func finishMove(_ target: Double) async {
-        if !(await stopMove()) { logError("Failed to stop \(spec.label) at \(Int(target))%") }
+        if !(await stopMove()) { logError("Failed to stop \(spec.label) at \(target.clampedInt)%") }
         // Destroyed, or a new target came while the stop was in flight.
         guard !isDestroyed, moveTimer == nil else { return }
         setPositionState(.stopped)
         setCurrentPosition(target)
-        logInfo("\(spec.label.prefix(1).uppercased() + spec.label.dropFirst()) position set to \(Int(target))%")
+        logInfo("\(spec.label.prefix(1).uppercased() + spec.label.dropFirst()) position set to \(target.clampedInt)%")
     }
 }
 

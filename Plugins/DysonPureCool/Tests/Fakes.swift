@@ -51,6 +51,7 @@ final class FakeDyson: @unchecked Sendable {
         var reachableHosts: Set<String>?
         var answersStateRequests = true
         var echoesCommands = true
+        var connectGate: Gate?
     }
 
     private let store = NIOLockedValueBox(Store())
@@ -79,6 +80,9 @@ final class FakeDyson: @unchecked Sendable {
     /// false: commands are taken but no STATE-CHANGE confirms them.
     func set(echoesCommands: Bool) { store.withLockedValue { $0.echoesCommands = echoesCommands } }
     func clearPublished() { store.withLockedValue { $0.published = [] } }
+    /// CONNECTs wait for the gate to open.
+    func set(connectGate: Gate?) { store.withLockedValue { $0.connectGate = connectGate } }
+    fileprivate var connectGate: Gate? { store.withLockedValue { $0.connectGate } }
 
     /// A CONNECT: the refusal, or nil once the connection is open.
     fileprivate func connecting(_ connection: FakeConnection) -> (any Error)? {
@@ -186,6 +190,7 @@ final class FakeConnection: MQTTConnection, @unchecked Sendable {
     }
 
     func connect() async throws {
+        if let gate = device?.connectGate { await gate.wait() }
         if let refusal = device?.connecting(self) { throw refusal }
         setState(.connected(sessionPresent: false))
     }
@@ -250,6 +255,25 @@ final class FakeConnection: MQTTConnection, @unchecked Sendable {
     func drop() {
         state.withLockedValue { $0.closed = true }
         setState(.connectionLost("the connection to the MQTT broker dropped"))
+    }
+}
+
+/// Holds whoever waits until it opens, and counts them.
+actor Gate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private(set) var arrivals = 0
+
+    func wait() async {
+        arrivals += 1
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        for waiter in waiters { waiter.resume() }
+        waiters = []
     }
 }
 
@@ -326,6 +350,7 @@ final class DysonTestEnvironment: @unchecked Sendable {
     private let plugins = NIOLockedValueBox<[DysonPureCoolPlugin]>([])
     private let storages = NIOLockedValueBox<[String: MemoryStorage]>([:])
     var offlineRetry: Duration = .seconds(300)
+    var pendingSignInLifetime: Duration = DysonPureCoolPlugin.pendingSignInLifetime
 
     init(productState: [String: String] = FakeStates.tp04) {
         dyson = FakeDyson(productState: productState)
@@ -347,7 +372,7 @@ final class DysonTestEnvironment: @unchecked Sendable {
                 scans.withLockedValue { $0 += 1 }
                 return found.withLockedValue { $0 }
             },
-            http: cloud, backoff: { _ in .milliseconds(10) }, offlineRetry: offlineRetry)
+            http: cloud, backoff: { _ in .milliseconds(10) }, offlineRetry: offlineRetry, pendingSignInLifetime: pendingSignInLifetime)
     }
 
     func host(settings: [String: Any]) throws -> PluginHost {

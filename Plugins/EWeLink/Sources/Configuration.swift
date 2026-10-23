@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftPlugin
 
 extension EWeLinkPlugin {
@@ -561,7 +562,7 @@ extension KeyedDecodingContainer where Key == AnyKey {
         }
     }
 
-    func int(_ key: String) -> Int? { double(key).flatMap { $0.isFinite ? Int($0) : nil } }
+    func int(_ key: String) -> Int? { double(key).flatMap { Int(saturating: $0) } }
 
     /// A boolean, or `"true"`/`"false"`.
     func bool(_ key: String) -> Bool? {

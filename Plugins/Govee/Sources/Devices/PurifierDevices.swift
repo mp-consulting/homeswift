@@ -181,7 +181,7 @@ final class PurifierAirQualityDevice: GoveeDevice {
 
     private func internalSpeedUpdate(_ value: Double) async throws {
         guard value != 0 else { return }
-        let mode = Int((value / Double(Self.speedStep)).rounded(.down))
+        let mode = Int(saturating: (value / Double(Self.speedStep)).rounded(.down)) ?? 0
         guard mode != 0, mode != cacheMode, let code = Catalog.purifierH7122SpeedCodes[mode] else { return }
         do {
             try await send(.ptReal(code))

@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftPlugin
 
 /// A value definition of a model: what a key of the device's state holds.
@@ -121,21 +122,22 @@ struct DeviceModel: Sendable {
     }
 
     /// Each protocol entry is `startByte`/`length` bytes, big-endian, as a string; a byte past the end makes
-    /// the value null, as JavaScript's NaN did.
+    /// the value null, as JavaScript's NaN did. An entry without a numeric `startByte` and `length` is left
+    /// out, as JavaScript's loop over NaN bounds never ran.
     private func decodeMonitorBinary(_ monitorData: Data?, length: Int) -> [String: JSONValue] {
         var decoded: [String: JSONValue] = [:]
         let bytes = monitorData.map(Array.init) ?? []
         for item in data["Monitoring"]?["protocol"]?.arrayValue ?? [] {
             let key = JS.string(item["value"])
-            let start = Int(JS.number(item["startByte"]))
-            let count = Int(JS.number(item["length"]))
-            var value = 0.0
-            guard count > 0 else { continue }
-            for index in start..<(start + count) {
-                let byte = index >= 0 && index < bytes.count ? Double(bytes[index]) : .nan
-                value = JS.shiftLeft(value, length) + byte
-                decoded[key] = value.isNaN ? .null : .string(JS.format(value))
+            guard let start = Int(saturating: JS.number(item["startByte"])), let count = Int(saturating: JS.number(item["length"])), count > 0 else { continue }
+            let (end, overflow) = start.addingReportingOverflow(count)
+            guard start >= 0, !overflow, end <= bytes.count else {
+                decoded[key] = .null
+                continue
             }
+            var value = 0.0
+            for index in start..<end { value = JS.shiftLeft(value, length) + Double(bytes[index]) }
+            decoded[key] = .string(JS.format(value))
         }
         return decoded
     }

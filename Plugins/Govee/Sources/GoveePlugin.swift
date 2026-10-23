@@ -66,7 +66,7 @@ public actor GoveePlugin: HomeswiftPlugin {
     private let deviceSettings: [String: DeviceSettings]
     private let ignoredDevices: Set<String>
 
-    private var account: GoveeAccount?
+    private(set) var account: GoveeAccount?
     private var credentialStore: CredentialStore?
     private var credentials: AccountCredentials?
     private(set) var awsClient: AWSClient?
@@ -76,8 +76,8 @@ public actor GoveePlugin: HomeswiftPlugin {
     private(set) var devices: [String: ManagedDevice] = [:]
     private var httpDevices: [JSONValue] = []
     private var lanDevices: [LANDevice] = []
-    private(set) var discovered: [JSONValue] = []
-    private let store: DeviceStore
+    var discovered: [JSONValue] = []
+    let store: DeviceStore
     private let tasks = TaskBag()
     private var setup: Task<Void, Never>?
     private var httpSyncInProgress = false
@@ -92,6 +92,8 @@ public actor GoveePlugin: HomeswiftPlugin {
     var pageSession: (key: String, token: String)?
     var iconCache: [String: String] = [:]
     private(set) var started = false
+    /// Set by `stop()`: a setup still running stops at its next step and closes what it opened since.
+    private(set) var stopped = false
 
     public init(configuration: Configuration, context: PluginContext) {
         self.init(configuration: configuration, context: context, dependencies: Dependencies())
@@ -135,15 +137,21 @@ public actor GoveePlugin: HomeswiftPlugin {
         await setup?.value
     }
 
+    /// Each step can await for a while (a LAN scan, logins): after each one, a `stop()` that came meanwhile ends
+    /// the setup, and what the step opened after it is closed.
     private func setUp() async {
         await setUpLAN()
+        guard !stopped else { return await tearDown() }
         await setUpHTTPAndAWS()
+        guard !stopped else { return await tearDown() }
         setUpBLE()
         do {
             try await initializeDevices()
+            guard !stopped else { return await tearDown() }
             started = true
             logger.info("\(Lang.complete).")
         } catch {
+            guard !stopped else { return await tearDown() }
             logger.warning("***** \(Lang.disabling). *****")
             logger.warning("***** \(error). *****")
             await stop()
@@ -151,17 +159,26 @@ public actor GoveePlugin: HomeswiftPlugin {
     }
 
     public func stop() async {
+        stopped = true
         setup?.cancel()
+        await tearDown()
+        debug("Stopped")
+    }
+
+    /// Cancels the syncs and closes every client and device handler there is; again after a setup that `stop()`
+    /// interrupted, for what it opened since.
+    private func tearDown() async {
         tasks.cancelAll()
-        for device in devices.values { await device.handler.destroy() }
-        if let awsClient { await awsClient.disconnect() }
-        if let lanClient { await lanClient.close() }
-        if let bleClient { await bleClient.shutdown() }
+        let handlers = devices.values.map(\.handler)
+        for handler in handlers { await handler.destroy() }
+        let (aws, lan, ble) = (awsClient, lanClient, bleClient)
         awsClient = nil
         lanClient = nil
         bleClient = nil
+        if let aws { await aws.disconnect() }
+        if let lan { await lan.close() }
+        if let ble { await ble.shutdown() }
         try? store.flush()
-        debug("Stopped")
     }
 
     private func setUpLAN() async {
@@ -171,6 +188,8 @@ public actor GoveePlugin: HomeswiftPlugin {
         }
         do {
             let socket = try await dependencies.lanSocket(logger)
+            // Port 4002 stays free for the next instance when stop() came while it was bound.
+            guard !stopped else { return await socket.close() }
             var custom: [String: String] = [:]
             for (id, settings) in deviceSettings {
                 if let ip = settings.customIPAddress { custom[id] = ip }
@@ -178,8 +197,8 @@ public actor GoveePlugin: HomeswiftPlugin {
             let client = LANClient(socket: socket, customAddresses: custom, logger: logger, debug: debug) { [weak self] id, data, ip in
                 await self?.receiveUpdateLAN(id, data, ip: ip)
             }
-            await client.start()
             lanClient = client
+            await client.start()
             lanDevices = await client.discover()
             logger.info("[LAN] \(Lang.availableWithDevices(lanDevices.count)).")
         } catch {
@@ -240,8 +259,8 @@ public actor GoveePlugin: HomeswiftPlugin {
         let client = AWSClient(accountTopic: credentials.topic, connection: connection, debug: debug) { [weak self] payload in
             Task { await self?.receiveUpdateAWS(payload) }
         }
-        await client.start()
         awsClient = client
+        await client.start()
         logger.info("[AWS] \(Lang.available).")
     }
 
@@ -315,6 +334,7 @@ public actor GoveePlugin: HomeswiftPlugin {
 
         var lanUsed = Set<String>()
         for httpDevice in httpDevices {
+            guard !stopped else { return }
             let id = Govee.colonDeviceId(httpDevice["device"]?.stringValue ?? "")
             let model = httpDevice["sku"]?.stringValue ?? ""
             guard !id.isEmpty, !isIgnored(id, model: model) else { continue }
@@ -324,6 +344,7 @@ public actor GoveePlugin: HomeswiftPlugin {
             initialised = true
         }
         for lanDevice in lanDevices where !lanUsed.contains(lanDevice.device) {
+            guard !stopped else { return }
             let id = lanDevice.device
             guard !isIgnored(id, model: lanDevice.sku) else { continue }
             // LAN discovery is unauthenticated: with the account's list, only its devices and the configured ones.
@@ -337,6 +358,7 @@ public actor GoveePlugin: HomeswiftPlugin {
             initialised = true
         }
         guard initialised else { throw GoveeAPIError.message(Lang.noDevs) }
+        guard !stopped else { return }
 
         // Accessories of devices no longer listed, ignored or skipped leave HomeKit.
         let known = Set(httpDevices.map { Govee.colonDeviceId($0["device"]?.stringValue ?? "") }).union(lanDevices.map(\.device))
@@ -408,6 +430,8 @@ public actor GoveePlugin: HomeswiftPlugin {
             id: accessoryID, name: name, manufacturer: Lang.brand, model: model, serialNumber: id, firmwareRevision: info.firmware ?? "1.0.0",
             category: category, services: services + (history.map { [$0.service] } ?? []))
         let external = category == .audioReceiver || category == .tvSetTopBox || category == .tvStreamingStick
+        // Building the handler awaited: after a stop() meanwhile, nothing goes on the bridge (or its own server).
+        guard !stopped else { return await handler.destroy() }
         do {
             if external {
                 try await context.publishExternal(accessory)

@@ -230,8 +230,7 @@ final class AeroTower: AirPurifier {
 
     func setLightBrightness(_ value: HAPValue) async throws {
         guard let level = Normalize.number(value) else { return }
-        let index = Int(level) - 1
-        guard level == level.rounded(), Self.lightLevels.indices.contains(index) else { return }
+        guard level == level.rounded(), let index = Int(exactly: level - 1), Self.lightLevels.indices.contains(index) else { return }
         _ = try await setDeviceControl("airState.lightingState.displayControl", .number(Self.lightLevels[index]))
     }
 

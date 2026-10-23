@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftPlugin
 
 /// A colour as Govee takes it, each channel 0 to 255.
@@ -28,7 +29,7 @@ enum Colour {
         let q = 255 * (1 - s * f)
         let t = 255 * (1 - s * (1 - f))
         var rgb: [Double]
-        switch Int(h.rounded(.down)) % 6 {
+        switch (Int(saturating: h.rounded(.down)) ?? 0) % 6 {
         case 0: rgb = [255, t, p]
         case 1: rgb = [q, 255, p]
         case 2: rgb = [p, 255, t]
@@ -50,6 +51,8 @@ enum Colour {
 
     /// RGB to hue (degrees) and saturation (percent), rounded.
     static func rgb2hs(_ r: Int, _ g: Int, _ b: Int) -> (hue: Int, saturation: Int) {
+        // Channels outside 0-255 (a device's report) are clamped first, so the differences below cannot overflow.
+        let (r, g, b) = (min(max(r, 0), 255), min(max(g, 0), 255), min(max(b, 0), 255))
         let low = min(r, g, b)
         let high = max(r, g, b)
         let delta = Double(high - low)

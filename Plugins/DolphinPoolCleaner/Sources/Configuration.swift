@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 
 extension DolphinPoolCleanerPlugin {
     /// The platform block of `@mp-consulting/homebridge-dolphin-pool-cleaner`, key for key. Every option is
@@ -77,10 +78,12 @@ extension DolphinPoolCleanerPlugin {
             refreshToken?.isEmpty == false || (email?.isEmpty == false && password?.isEmpty == false)
         }
 
-        /// The polling interval in seconds: 60 when unset or 0, never below 30.
+        /// The polling interval in seconds: 60 when unset or 0, never below 30, nor above the longest delay a
+        /// JavaScript timer takes (2³¹ - 1 ms, about 24.8 days).
         var effectivePollingInterval: Int {
             let configured = pollingInterval ?? 0
-            return max(configured == 0 ? DolphinPoolCleanerPlugin.defaultPollingInterval : configured, DolphinPoolCleanerPlugin.minimumPollingInterval)
+            let interval = max(configured == 0 ? DolphinPoolCleanerPlugin.defaultPollingInterval : configured, DolphinPoolCleanerPlugin.minimumPollingInterval)
+            return min(interval, DolphinPoolCleanerPlugin.maximumPollingInterval)
         }
 
         func device(serialNumber: String) -> Device? {
@@ -121,7 +124,7 @@ extension KeyedDecodingContainer where Key == Keys {
 
     fileprivate func lenientInt(_ key: Key) -> Int? {
         if let int = try? decodeIfPresent(Int.self, forKey: key) { return int }
-        if let double = try? decodeIfPresent(Double.self, forKey: key), double.isFinite { return Int(double) }
+        if let double = try? decodeIfPresent(Double.self, forKey: key), let int = Int(saturating: double) { return int }
         if let string = try? decodeIfPresent(String.self, forKey: key) { return Int(string.trimmingCharacters(in: .whitespaces)) }
         return nil
     }

@@ -112,6 +112,26 @@ struct MQTTClientTests {
         await client.disconnect()
     }
 
+    /// disconnect() while the CONNECT is in flight: the connection that lands afterwards is closed, not kept.
+    @Test func aDisconnectDuringTheConnectWins() async throws {
+        let gate = Gate()
+        dyson.set(connectGate: gate)
+        let client = client(timeout: .seconds(20))
+        let connecting = Task { try await client.connect() }
+        #expect(await eventually { await gate.arrivals == 1 })
+        await client.disconnect()
+        await gate.open()
+        await #expect(throws: DysonMQTTError.notConnected) { try await connecting.value }
+        #expect(await !client.isConnected)
+        #expect(dyson.openConnections.isEmpty)
+        // The ladder does not go on to the next variant.
+        #expect(dyson.connects.count == 1)
+        // A later connect() works again.
+        try await client.connect()
+        #expect(await client.isConnected)
+        await client.disconnect()
+    }
+
     @Test func noReconnectionAfterAnIntentionalDisconnect() async throws {
         let client = client()
         try await client.connect()
@@ -141,6 +161,40 @@ struct DeviceTests {
         let state = await device.state
         #expect(state.isOn && state.fanSpeed == 5 && state.oscillation && state.temperature == 2951)
         #expect(state.connected)
+    }
+
+    /// The plugin's stop() disconnects devices that may still be connecting.
+    @Test func aDisconnectDuringTheConnectLeavesNothingOpen() async throws {
+        let dyson = FakeDyson(productState: FakeStates.tp04)
+        let gate = Gate()
+        dyson.set(connectGate: gate)
+        let device = DysonDevice(serial: "ABC-AB-12345678", productType: "438", name: "Fan", credentials: "secret", ipAddress: "192.168.1.50", mqtt: dyson.mqtt, logger: testLogger)
+        let connecting = Task { try await device.connect() }
+        #expect(await eventually { await gate.arrivals == 1 })
+        await device.disconnect()
+        await gate.open()
+        await #expect(throws: DysonMQTTError.notConnected) { try await connecting.value }
+        #expect(await !device.isConnected)
+        #expect(await !device.state.connected)
+        #expect(dyson.openConnections.isEmpty)
+        #expect(dyson.published.isEmpty)
+    }
+
+    /// Only state changes move the accessory: a connection does not re-read the state from a task, which could
+    /// land after a newer state (the cause of a rare stale Active in the plugin tests).
+    @Test func aConnectionDoesNotReapplyAnOlderState() async throws {
+        let device = DysonDevice(serial: "ABC-AB-12345678", productType: "358H", name: "Fan", credentials: "c", ipAddress: "192.168.1.5", mqtt: FakeDyson().mqtt, logger: testLogger)
+        let accessory = await DysonAccessory(
+            device: device, id: "DysonPureCool:ABC-AB-12345678", name: "Fan", options: DeviceOptions(), firmwareVersion: nil, cached: nil, logger: testLogger)
+        let humidifier = try #require(accessory.humidifier)
+        // The device's own state is still empty (humidifier off); the accessory was told of a newer one.
+        var state = DeviceState()
+        state.connected = true
+        state.humidifierEnabled = true
+        accessory.handle(.stateChanged(state))
+        accessory.handle(.connected)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(humidifier[.active]?.value == .int(1))
     }
 
     @Test func connectNeedsAnAddress() async throws {

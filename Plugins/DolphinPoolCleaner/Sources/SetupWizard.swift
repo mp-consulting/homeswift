@@ -195,7 +195,7 @@ struct RobotImages: Sendable {
     /// Downloads the picture the backend named, over HTTPS, when it is an image of reasonable size.
     func fetch(_ address: String, serialNumber: String, transport: any HTTPSending) async {
         guard let source = URL(string: address), source.scheme == "https" || source.scheme == "http", let file = url(serialNumber: serialNumber) else { return }
-        guard let response = try? await transport.send(HTTPRequest(method: "GET", url: source, timeout: .seconds(15))), response.isSuccess,
+        guard let response = try? await HTTPRedirects.send(HTTPRequest(method: "GET", url: source, timeout: .seconds(15)), through: transport), response.isSuccess,
             response.body.count <= SetupWizard.maximumImageSize,
             let type = response.header("Content-Type")?.split(separator: ";").first.map({ $0.trimmingCharacters(in: .whitespaces).lowercased() }),
             ["image/png", "image/jpeg", "image/webp", "image/gif"].contains(type)

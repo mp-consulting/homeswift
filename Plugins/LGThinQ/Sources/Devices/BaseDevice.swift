@@ -190,7 +190,7 @@ extension Service {
             if let minimum = type.minValue { number = Swift.max(number, minimum) }
             if let maximum = type.maxValue { number = Swift.min(number, maximum) }
             if type.format != .int { number = Swift.max(number, 0) }
-            let int = Int(number)
+            guard let int = Int(saturating: number) else { return nil }
             if let valid = type.validValues, !valid.contains(int) { return nil }
             return .int(int)
         case .float:
@@ -208,10 +208,8 @@ extension Service {
 }
 
 extension CharacteristicType {
-    /// Eve's Total Consumption (kWh), which Eve shows for energy meters.
-    nonisolated static let totalConsumption = CharacteristicType(
-        name: "Total Consumption", uuid: HAPUUID("E863F10C-079E-48FF-8F27-9C2605A29F52"), format: .float, permissions: [.pairedRead, .events],
-        minValue: 0, maxValue: 1_000_000, minStep: 0.01)
+    /// Eve's Total Consumption (kWh), which Eve shows for energy meters, with the Homebridge plugin's maximum.
+    nonisolated static let totalConsumption = EveCharacteristic.totalConsumption.props(max: 1_000_000)
 
     /// HAP-NodeJS's `setProps` with explicit valid values (keeps min and max).
     func valid(_ values: [Int]) -> CharacteristicType {

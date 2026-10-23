@@ -50,6 +50,12 @@ The Plugins page has an **Open** button for this plugin, with the Homebridge plu
 **Save Configuration** writes this instance's block; the plugin restarts with it at once. With the Assistant
 on, **Explain** sits next to errors.
 
+The Assistant (the web UI's chat, MCP clients) has the page's routes as tools: `Govee_list_devices` (the
+instance's devices and how it reaches them), `Govee_discovered_devices`, `Govee_discover` (the account's
+devices from the cloud), `Govee_scenes` and `Govee_diy_effects` for a light (to add them to its `scenes`),
+and `Govee_clear_cache`, which asks first. They log in with the instance's own account: no password goes
+through the model.
+
 ## Configuration
 
 ```json
@@ -120,3 +126,9 @@ Each device type has its list: `lightDevices`, `switchDevices`, `thermoDevices`,
   "Invalid command".
 - The H7126 family's speed reports set one of its three speeds (the Homebridge plugin set an invalid value).
 - The settings page's "Describe your setup" is left to the runtime's Assistant (`Explain` remains on errors).
+- The page's Discover, scenes, DIY effects and capabilities requests without a username in them use the
+  instance's own login (its token, else config.json's account), rather than failing: the Assistant uses them so.
+- **Clear Cache** also clears what the running instance holds, so the devices' state it kept in memory is not
+  written back before the restart.
+- Interval options above 2147483647 (seconds, or milliseconds for `bleControlInterval`) are taken as that
+  maximum; Node's timers ran such intervals after 1 ms.

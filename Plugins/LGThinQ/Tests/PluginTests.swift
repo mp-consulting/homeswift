@@ -190,3 +190,64 @@ struct WebPageTests {
         #expect(unknown?.status == 404)
     }
 }
+
+@Suite(.timeLimit(.minutes(1)))
+struct AssistantActionTests {
+    func call(_ host: PluginHost, _ name: String, _ arguments: JSONValue = [:]) async throws -> PluginWebResponse {
+        let action = try #require(LGThinQPlugin.assistantActions.first { $0.name == name })
+        return try #require(try await host.handleWebRequest(platform: "LGThinQ", name: "LG ThinQ", action.request(arguments: arguments, user: "admin")))
+    }
+
+    @Test func describesOnlyReadingRoutes() {
+        let actions = LGThinQPlugin.assistantActions
+        #expect(actions.map(\.name) == ["list_devices", "list_account_devices", "login_url"])
+        #expect(actions.allSatisfy { $0.access == .read && $0.method == "GET" && !$0.confirm })
+        // The sign-ins that take a password or LG's redirected address stay on the page.
+        #expect(!actions.contains { ["login-by-user-pass", "login-by-redirect", "get-all-devices"].contains($0.path) })
+    }
+
+    @Test func eachActionReachesItsRoute() async throws {
+        let environment = LGTestEnvironment()
+        environment.lg.add(device: ["deviceId": .string(stylerID), "deviceType": 203, "alias": "Styler", "online": true], model: [:])
+        environment.lg.add(device: ["deviceId": .string(ovenID), "deviceType": 301, "alias": "Oven", "online": false], model: [:])
+        environment.lg.add(device: ["deviceId": .string(hoodID), "deviceType": 304, "alias": "Old hood", "platformType": "thinq1"], model: [:])
+        environment.lg.add(device: ["deviceId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "deviceType": 701, "alias": "TV"], model: [:])
+        var block = LGTestEnvironment.defaultSettings
+        block["devices"] = [["id": stylerID], ["id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]]
+        let host = try await environment.start(settings: block)
+        defer { Task { await host.stop() } }
+        #expect(await environment.accessory(host, id: stylerID) != nil)
+
+        let running = try await call(host, "list_devices")
+        #expect(running.status == 200)
+        #expect(running.json["devices"] == [[
+            "id": .string(stylerID), "name": "Styler", "type": "STYLER", "model": "", "platform": "thinq2", "online": true, "external": false,
+            "accessory": .string("LGThinQ:\(stylerID)"),
+        ]])
+
+        let account = try await call(host, "list_account_devices")
+        #expect(account.status == 200 && account.json["complete"] == true)
+        let devices = try #require(account.json["devices"]?.arrayValue)
+        #expect(devices.map { JS.string($0["name"]) } == ["Old hood", "Oven", "Styler", "TV"])
+        let byName = Dictionary(uniqueKeysWithValues: devices.map { (JS.string($0["name"]), $0) })
+        #expect(byName["Styler"]?["configured"] == true && byName["Styler"]?["running"] == true && byName["Styler"]?["supported"] == true)
+        #expect(byName["Oven"]?["configured"] == false && byName["Oven"]?["running"] == false && byName["Oven"]?["online"] == false && byName["Oven"]?["type"] == "OVEN")
+        #expect(byName["Old hood"]?["platform"] == "thinq1" && byName["Old hood"]?["supported"] == true)
+        #expect(byName["TV"]?["supported"] == false && byName["TV"]?["configured"] == true && byName["TV"]?["running"] == false)
+        // The refresh token is not in the answer.
+        #expect(!account.json.text().contains("refresh-1"))
+
+        let page = try await call(host, "login_url", ["country": "FR", "language": "fr-FR"])
+        #expect(page.status == 200)
+        #expect(page.json["url"]?.stringValue.flatMap(URLComponents.init(string:))?.host == "us.m.lgaccount.com")
+    }
+
+    @Test func theAccountNeedsASignIn() async throws {
+        let environment = LGTestEnvironment()
+        let host = try await environment.start(settings: ["country": "FR", "language": "fr-FR"])
+        defer { Task { await host.stop() } }
+        let answer = try await call(host, "list_account_devices")
+        #expect(answer.status == 409)
+        #expect(try await call(host, "list_devices").json["devices"] == [])
+    }
+}

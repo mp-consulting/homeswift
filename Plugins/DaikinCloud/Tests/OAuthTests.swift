@@ -269,6 +269,21 @@ struct OAuthTests {
         await #expect(throws: DaikinError("Login failed: cdc.daikin.eu returned an unexpected response (HTTP 200)")) { try await mobile(odd, log: LogRecorder()).authenticate() }
     }
 
+    /// Gigya's code from JSON never traps, and only an exact 0 is a success.
+    @Test func gigyaErrorCodes() {
+        #expect(MobileOAuth.errorCode(0) == 0)
+        #expect(MobileOAuth.errorCode(403042) == 403042)
+        #expect(MobileOAuth.errorCode(1e300) == Int.max)
+        #expect(MobileOAuth.errorCode(-1e300) == Int.min)
+        #expect(MobileOAuth.errorCode(0.5) != 0)
+        #expect(MobileOAuth.errorCode(.infinity) == Int.max)
+    }
+
+    @Test func aHugeErrorCodeIsAnError() async throws {
+        let odd = Gigya(login: ["errorCode": 1e300, "errorMessage": "Odd"])
+        await #expect(throws: DaikinError("Login failed (\(Int.max)): Odd")) { try await mobile(odd, log: LogRecorder()).authenticate() }
+    }
+
     @Test func retriesTransientNetworkFailures() async throws {
         let down = Gigya(login: [:], failures: 99)
         let log = LogRecorder()

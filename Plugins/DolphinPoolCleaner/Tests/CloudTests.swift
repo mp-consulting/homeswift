@@ -110,6 +110,65 @@ struct CloudTests {
         #expect(log.contains(.warning, "Unknown IoT region \"mars-north-1\""))
     }
 
+    // MARK: Redirects
+
+    /// MyDolphin answered the sign-in with a 307 live; `fetch` follows it with the same method and body.
+    @Test func signInFollowsA307() async throws {
+        server.set("/mobapi/user/authenticate-user/", .init(status: 307, body: .null, headers: [("Location", "/mobapi/v2/user/authenticate-user/")]))
+        server.set("/mobapi/v2/user/authenticate-user/", .init(body: ["Status": "1", "Data": ["mob_token": "mob", "Sernum": "E3086OFG2M", "MyRobotName": "Pool Bot", "connectVia": "62"]]))
+        let cloud = cloud()
+        let result = try await cloud.login()
+        #expect(result.serialNumber == "E3086OFG2M")
+        let first = try #require(server.requests(to: "/mobapi/user/authenticate-user/").first)
+        let second = try #require(server.requests(to: "/mobapi/v2/user/authenticate-user/").first)
+        #expect(second.method == "POST")
+        #expect(second.url.host == Maytronics.baseURL.host)
+        #expect(second.body == first.body)
+        #expect(second.header("Authorization") == "Bearer id-token")
+        #expect(second.header("Content-Type") == "application/x-www-form-urlencoded")
+        await cloud.disconnect()
+    }
+
+    @Test func redirectsAsFetchFollowsThem() throws {
+        var post = HTTPRequest(method: "POST", url: URL(string: "https://mydolphin.example/a/")!, body: Data("x=1".utf8))
+        post.setHeader("Content-Type", "application/x-www-form-urlencoded")
+        post.setHeader("Authorization", "Bearer token")
+        func response(_ status: Int, _ location: String?) -> HTTPResponse {
+            HTTPResponse(status: status, headers: location.map { [("Location", $0)] } ?? [])
+        }
+
+        let kept = try #require(HTTPRedirects.redirected(post, by: response(308, "https://other.example/b")))
+        #expect(kept.method == "POST")
+        #expect(kept.body == post.body)
+        #expect(kept.url.absoluteString == "https://other.example/b")
+        // Another origin does not get the token.
+        #expect(kept.header("Authorization") == nil)
+        #expect(kept.header("Content-Type") == "application/x-www-form-urlencoded")
+
+        for status in [301, 302, 303] {
+            let get = try #require(HTTPRedirects.redirected(post, by: response(status, "b")))
+            #expect(get.method == "GET")
+            #expect(get.body == nil)
+            #expect(get.header("Content-Type") == nil)
+            #expect(get.url.absoluteString == "https://mydolphin.example/a/b")
+            #expect(get.header("Authorization") == "Bearer token")
+        }
+        var put = post
+        put.method = "PUT"
+        #expect(HTTPRedirects.redirected(put, by: response(302, "/c"))?.method == "PUT")
+        #expect(HTTPRedirects.redirected(put, by: response(303, "/c"))?.method == "GET")
+
+        #expect(HTTPRedirects.redirected(post, by: response(307, nil)) == nil)
+        #expect(HTTPRedirects.redirected(post, by: response(307, "ftp://mydolphin.example/")) == nil)
+    }
+
+    @Test func aRedirectLoopEnds() async {
+        server.set("/mobapi/user/authenticate-user/", .init(status: 307, body: .null, headers: [("Location", "/mobapi/user/authenticate-user/")]))
+        await #expect(throws: DolphinError.self) { try await cloud().login() }
+        #expect(server.requests(to: "/mobapi/user/authenticate-user/").count == HTTPRedirects.limit + 1)
+        #expect(broker.connectCount == 0)
+    }
+
     // MARK: Concurrency
 
     @Test func concurrentRequestsShareOneSignInAndConnection() async throws {
@@ -122,6 +181,36 @@ struct CloudTests {
         #expect(server.requests(to: "InitiateAuth").count == 1)
         #expect(broker.connectCount == 1)
         await cloud.disconnect()
+    }
+
+    // MARK: Shutdown
+
+    /// The plugin stopping (a config change restarts it) mid sign-in: no MQTT connection may open after,
+    /// or it would fight the next instance for the client id.
+    @Test func disconnectDuringTheSignInKeepsMQTTClosed() async throws {
+        let gate = server.hold("/mt-sso/aws/getToken/")
+        let cloud = cloud()
+        let login = Task { try await cloud.login() }
+        #expect(await eventually { gate.arrivals == 1 })
+        await cloud.disconnect()
+        gate.open()
+        await #expect(throws: DolphinError.self) { try await login.value }
+        #expect(broker.connectCount == 0)
+        // Nor does a poll afterwards connect.
+        #expect(await cloud.thingShadow(serialNumber: "E3086OFG2M") == nil)
+        #expect(broker.connectCount == 0)
+    }
+
+    @Test func disconnectDuringTheConnectionClosesIt() async throws {
+        broker.behavior = .hang
+        let cloud = cloud()
+        let login = Task { try await cloud.login() }
+        #expect(await eventually { broker.connectCount == 1 })
+        await cloud.disconnect()
+        await #expect(throws: DolphinError.self) { try await login.value }
+        // The attempt was abandoned: no connection came of it.
+        #expect(broker.connections.isEmpty)
+        #expect(broker.connectCount == 1)
     }
 
     @Test func reconnectsWithoutSigningInAgain() async throws {
@@ -213,6 +302,9 @@ struct CloudTests {
         #expect(AuthenticationManager.deviceType("60") == 60)
         #expect(AuthenticationManager.deviceType("x") == 62)
         #expect(AuthenticationManager.deviceType(nil) == 62)
+        // Numbers a JSON document can carry, which Int(_:) traps on.
+        #expect(AuthenticationManager.deviceType(.number(1e300)) == Int.max)
+        #expect(MyDolphinClient.Envelope(json: ["Status": .number(-1e300)]).status == String(Int.min))
         #expect(AuthenticationManager.parseDate("2099-01-01T00:00:00.000Z") == Date(timeIntervalSince1970: 4_070_908_800))
     }
 }

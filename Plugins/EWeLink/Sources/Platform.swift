@@ -63,13 +63,18 @@ final class EWeLinkPlatform {
         api = makeAPI()
 
         let restored = await restoreCachedAccessories()
+        // `stop()` may run at any await: whatever starts after it is stopped again.
+        if stopped { return registry.destroyAllHandlers() }
         if restored > 0 {
             logger.info("Restored \(restored) cached accessory handler(s) - waiting for eWeLink cloud discovery")
         }
         if configuration.connectionMode != .wan {
-            lan = makeLAN()
+            let lan = makeLAN()
+            self.lan = lan
             await preRegisterLANDevices(registry.devices.values.map(\.device), fromAPI: false)
-            await lan?.start()
+            if stopped { return }
+            await lan.start()
+            if stopped { return await lan.stop() }
         }
         await discover()
     }
@@ -128,6 +133,7 @@ final class EWeLinkPlatform {
         retryAttempts = 0
         for device in devices { registry.store(device) }
         if lan != nil { await preRegisterLANDevices(devices, fromAPI: true) }
+        if stopped { return }
 
         // Real-time updates connect in the background (and retry on their own): accessories never wait.
         if configuration.connectionMode != .lan, socket == nil {
@@ -136,6 +142,7 @@ final class EWeLinkPlatform {
             Task { await socket.start() }
         }
         await registerAccessories(devices, groups: groups, api: api)
+        if stopped { return registry.destroyAllHandlers() }
         initialized = true
         logger.info("eWeLink platform initialization complete")
     }
