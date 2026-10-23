@@ -18,6 +18,10 @@ protocol ProtectFfmpegOptions: AnyObject, Sendable {
     /// `-codec:a …` for AAC (`libfdk_aac` or `aac_at`).
     func audioEncoder() -> [String]
     var audioDecoder: String { get }
+    /// Whether FFmpeg has libopus, for live streams when it has no AAC-ELD encoder.
+    var hasOpusEncoder: Bool { get }
+    /// `-codec:a libopus …` for packets of `packetTime` milliseconds.
+    func opusEncoder(packetTime: Int) -> [String]
     func videoDecoder(_ codec: String) -> [String]
     var cropFilter: String { get }
     /// The largest transcode the host manages, in pixels.

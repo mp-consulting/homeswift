@@ -15,13 +15,18 @@ final class FakeFfmpegOptions: ProtectFfmpegOptions, @unchecked Sendable {
     let cropFilter = "crop=w=iw*1:h=ih*1:x=iw*0:y=ih*0"
     let hostSystemMaxPixels: Int
     let decoder: [String]
+    /// false: an FFmpeg without libfdk_aac, with libopus (ffmpeg-for-homeswift).
+    let hasFdk: Bool
 
-    init(hostSystemMaxPixels: Int = 3840 * 2160, decoder: [String] = []) {
+    init(hostSystemMaxPixels: Int = 3840 * 2160, decoder: [String] = [], hasFdk: Bool = true) {
         self.hostSystemMaxPixels = hostSystemMaxPixels
         self.decoder = decoder
+        self.hasFdk = hasFdk
     }
 
-    func audioEncoder() -> [String] { ["-codec:a", "libfdk_aac", "-afterburner", "1"] }
+    func audioEncoder() -> [String] { hasFdk ? ["-codec:a", "libfdk_aac", "-afterburner", "1"] : [] }
+    var hasOpusEncoder: Bool { !hasFdk }
+    func opusEncoder(packetTime: Int) -> [String] { ["-codec:a", "libopus", "-frame_duration", String(packetTime)] }
     func videoDecoder(_ codec: String) -> [String] { decoder }
     func streamEncoder(_ options: VideoEncoderOptions) -> [String] {
         ["-codec:v", "libx264", "-filter:v", "scale=\(options.width):\(options.height)", "-b:v", "\(options.bitrate)k", "-r", "\(options.fps)"]
@@ -616,6 +621,39 @@ final class FakeFfmpegKit: ProtectFfmpegKit, @unchecked Sendable {
         #expect(talkback.isStopped)
         #expect(await eventually { socket.isClosed })
         #expect(ffmpeg.state.withLockedValue { $0.demuxers.first?.closed.withLockedValue { $0 } } == true)
+    }
+
+    /// ffmpeg-for-homeswift: no libfdk_aac, libopus. Live streams offer and send Opus; talkback decodes it and
+    /// sends the camera FFmpeg's own AAC.
+    @Test func opusWithoutFdk() async throws {
+        let ffmpeg = FakeFfmpegKit(options: FakeFfmpegOptions(hasFdk: false))
+        let controller = FakeController()
+        controller.update { state in
+            state.bootstrap = Fixtures.bootstrap(cameras: [Fixtures.camera(), Fixtures.doorbell().setting("talkbackSettings", [
+                "samplingRate": 24000, "channels": 1, "bindPort": 7004, "typeFmt": "aac",
+            ])])
+        }
+        let environment = ProtectTestEnvironment(controller: controller, ffmpeg: ffmpeg)
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        let doorbell = try #require(await self.controller(environment, host, Self.doorbellID))
+        #expect(doorbell.options.streamingOptions.audio?.codecs.map(\.type) == [.opus])
+        let stream = try #require(await stream(environment.device("doorbell-id")))
+        _ = try await stream.prepareStream(prepare())
+        #expect(!environment.logs.contains("Audio support disabled"))
+        var request = Self.startRequest("session-1", width: 1280, height: 720, packetTime: 20)
+        request.audio.codec = .opus
+        request.audio.pt = 111
+        try await stream.handleStreamRequest(.start(request))
+        let live = try #require(await eventually { ffmpeg.streams.count == 2 } ? ffmpeg.streams.first : nil)
+        #expect(live.argument(after: "-frame_duration") == "20" && live.arguments.contains("libopus") && !live.arguments.contains("-profile:a"))
+        #expect(live.argument(after: "-ar") == "16k" && live.arguments.contains("srtp://10.0.0.2:51002?rtcpport=51002"))
+        let talkback = try #require(ffmpeg.streams.last)
+        let codecs = talkback.arguments.indices.filter { talkback.arguments[$0] == "-codec:a" }.map { talkback.arguments[$0 + 1] }
+        #expect(codecs == ["libopus", "aac"] && talkback.argument(after: "-ar") == "24000" && talkback.arguments.last == "pipe:1")
+        let sdp = String(decoding: talkback.written, as: UTF8.self)
+        #expect(sdp.contains("m=audio 50002 RTP/AVP 111") && sdp.contains("a=rtpmap:111 opus/48000/2") && !sdp.contains("MPEG4-GENERIC"))
+        try await stream.handleStreamRequest(.stop(sessionID: "session-1"))
     }
 
     @Test func removingTheCameraTakesTheControllerOff() async throws {

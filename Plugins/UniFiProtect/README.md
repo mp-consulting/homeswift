@@ -97,6 +97,10 @@ Video goes through FFmpeg, which the plugin checks at launch (no FFmpeg, no cont
   livestream API (fMP4 over a WebSocket) through the timeshift buffer, which starts streams at once. Streams are
   transcoded by default (`Video.Transcode`), copied otherwise, and always for cellular clients
   (`Video.Transcode.HighLatency`).
+- **Audio** is AAC-ELD with an FFmpeg that has libfdk_aac (or `aac_at` on macOS), as in the Homebridge plugin, and
+  Opus with one that has libopus instead, such as the container image's
+  [ffmpeg-for-homeswift](../../FFmpeg/README.md): live streams, and two-way audio, which reaches the camera as
+  FFmpeg's own AAC. Recordings are AAC-LC either way.
 - **Snapshots** come from the timeshift buffer, the RTSP stream, then the controller's snapshot API, with a
   recent image as the last resort; identical requests share one FFmpeg.
 - **Third-party cameras** with URLs of their own (`cameraOverrides`) are reached directly: snapshots from the
