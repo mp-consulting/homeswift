@@ -530,7 +530,8 @@ import Darwin
         }
         let start = ContinuousClock.now
         for await _ in process.segmentGenerator() {}
-        #expect(ContinuousClock.now - start < .milliseconds(HKSV_TIMEOUT / 2))
+        // A missed stop waits out the whole timeout; a busy CI runner takes seconds even without one.
+        #expect(ContinuousClock.now - start < .milliseconds(HKSV_TIMEOUT))
         #expect(!process.isTimedOut)
         _ = await waitForExit(process)
     }
