@@ -92,10 +92,12 @@ Every other key of the Homebridge plugin's types (`ipAddress`, `deviceModel`, `o
 the plugin logged in with), the account's devices with their LAN address (a 3 s mDNS scan runs while the cloud
 answers), the RF sub-devices under their bridge with their buttons, online, LAN and RF badges, and an **Explain**
 for offline devices and devices missing on the LAN when the Assistant is set up; the connection mode, debug and
-`offlineAsOff`; **Save configuration** writes the instance's block and the plugin reloads with it.
+`offlineAsOff`; **Save configuration** writes the instance's block and the plugin reloads with it. When the block
+changes elsewhere (the Expert editor, another tab, the Assistant), the page fills the settings in again the next time
+it comes into view, as the Homebridge page does on `configChanged`.
 
-The page's requests: `POST login`, `GET session`, `GET devices`, `POST test-device`, `GET accessories`,
-`GET status`.
+The page's requests: `POST login`, `GET session`, `GET devices`, `POST test-device`, `GET accessories` (the
+instance's accessories with their kept values, Homebridge's `/getCachedAccessories`), `GET status`.
 
 The Assistant (the web UI's chat, MCP clients) can call three of them as tools: `eWeLink_status`,
 `eWeLink_list_devices` and `eWeLink_test_device` (admin, confirmed first). Signing in stays on the page: it

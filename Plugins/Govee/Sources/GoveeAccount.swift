@@ -1,3 +1,4 @@
+import Crypto
 import Foundation
 import Homeswift
 import HomeswiftPlugin
@@ -57,6 +58,41 @@ struct CredentialStore: Sendable {
 
     func clear() {
         try? FileManager.default.removeItem(at: credentialsFile)
+    }
+
+    /// Written once a Homebridge login was imported, so it is imported once (Clear Cache leaves it).
+    var importMarker: URL { directory.appendingPathComponent("homebridge-import") }
+    /// node-persist names a key's file by its SHA-256.
+    static let homebridgeKey = "Govee_All_Devices_temp"
+
+    /// The Homebridge plugin's login, for a first start that has none: in `govee_cache`, node-persist's file for
+    /// `Govee_All_Devices_temp` (`{"key", "value", "ttl"}`, the value `topic:::token:::username:::accountId:::endpoint:::iotPass:::`),
+    /// and its certificate, `persist/govee.pfx`, of a Homebridge storage path. Kept as this store's own when the
+    /// username is the same; nil when there is nothing to import.
+    func importHomebridge(from storagePath: URL) -> AccountCredentials? {
+        guard !FileManager.default.fileExists(atPath: importMarker.path) else { return nil }
+        let name = SHA256.hash(data: Data(Self.homebridgeKey.utf8)).map { String(format: "%02x", $0) }.joined()
+        let cacheFile = storagePath.appendingPathComponent("govee_cache").appendingPathComponent(name)
+        let certificateFile = storagePath.appendingPathComponent("persist").appendingPathComponent("govee.pfx")
+        guard let cached = try? Data(contentsOf: cacheFile), let value = (try? JSONValue(data: cached))?["value"]?.stringValue,
+            let certificate = try? Data(contentsOf: certificateFile)
+        else { return nil }
+        let parts = value.components(separatedBy: ":::")
+        guard parts.count == 7, parts[2] == username else {
+            logger.debug("[HTTP] Homebridge cache at \(storagePath.path) is for another account, not imported")
+            return nil
+        }
+        let credentials = AccountCredentials(topic: parts[0], token: parts[1], accountId: parts[3], endpoint: parts[4], iotPass: parts[5])
+        do {
+            try OwnerOnlyFile.write(certificate, to: iotFile)
+            try OwnerOnlyFile.write(JSONEncoder().encode(Stored(username: username, credentials: credentials)), to: credentialsFile)
+            try OwnerOnlyFile.write(Data(storagePath.path.utf8), to: importMarker)
+        } catch {
+            logger.warning("[HTTP] \(Lang.accTokenStoreErr) \(error).")
+            return nil
+        }
+        logger.info("[HTTP] imported the Homebridge plugin's login from \(storagePath.path).")
+        return credentials
     }
 
     func certificate() throws -> Data { try Data(contentsOf: iotFile) }

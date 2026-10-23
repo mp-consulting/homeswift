@@ -47,7 +47,7 @@ extension GoveePlugin {
             let category = await device.handler.category
             var entry: [String: JSONValue] = [
                 "deviceId": .string(device.id), "name": .string(device.name), "model": .string(device.model),
-                "list": .string(DeviceConfigKey(model: device.model).rawValue), "kind": .string("\(category)"), "external": .bool(device.external),
+                "list": .string(DeviceConfigKey(model: device.model).rawValue), "kind": .string("\(category)"),
                 "lan": .string(device.transports.label(device.transports.hasLAN, device.transports.useLAN)),
                 "aws": .string(device.transports.label(device.transports.hasAWS, device.transports.useAWS)),
                 "ble": .string(device.transports.label(device.transports.hasBLE, device.transports.useBLE)),
