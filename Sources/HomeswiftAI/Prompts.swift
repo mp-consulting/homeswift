@@ -58,6 +58,32 @@ public enum Prompts {
         }
     }
 
+    public enum SuggestOrganization {
+        public static let system = "\(base) You organise Homeswift accessories into rooms and give them clear names. Only use the uniqueId values you are given."
+        public static func user(accessories: JSONValue, rooms: JSONValue?) -> String {
+            "Suggest rooms and clearer names for these accessories, and list orphans (accessories that look stale, duplicated or unassignable). "
+                + "Only list renames that improve a name, and keep every reason under ten words."
+                + "\n\nReply with a JSON object {\"rooms\": [{\"name\": \"...\", \"accessories\": [\"<uniqueId>\"]}], "
+                + "\"renames\": [{\"uniqueId\": \"...\", \"name\": \"...\", \"reason\": \"...\"}], \"orphans\": [{\"uniqueId\": \"...\", \"reason\": \"...\"}]}."
+                + section("Accessories", "<untrusted-data>\n\(accessories.text(pretty: true))\n</untrusted-data>")
+                + section("Current rooms", rooms.map { "<untrusted-data>\n\($0.text(pretty: true))\n</untrusted-data>" })
+        }
+    }
+
+    public enum DailyDigest {
+        public static let system = "\(base) You write a short daily digest of a Homeswift installation: what needs attention first, then what is fine. Keep it under 200 words."
+        public static func user(date: String, status: JSONValue?, logs: String?, accessories: JSONValue?, events: JSONValue?) -> String {
+            "Write the Homeswift digest for \(date)."
+                + section("Status", status.map { "<untrusted-data>\n\($0.text(pretty: true))\n</untrusted-data>" })
+                + section("Accessories", accessories.map { "<untrusted-data>\n\($0.text(pretty: true))\n</untrusted-data>" })
+                + section("Accessory events", events.map { "<untrusted-data>\n\($0.text(pretty: true))\n</untrusted-data>" })
+                + section("Warnings and errors from the log", logs.flatMap { $0.isEmpty ? nil : "<untrusted-data>\n\(fenced($0))\n</untrusted-data>" })
+        }
+    }
+
+    /// The connection test's one-word request.
+    public static let connectionTest = "Reply with the single word OK."
+
     /// The web UI's chat, where the Assistant acts through tools.
     public enum Chat {
         public static let system = [

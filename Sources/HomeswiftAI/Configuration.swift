@@ -81,6 +81,12 @@ public struct AIConfiguration: Sendable, Equatable {
               "promptCaching": { "title": "Prompt caching", "type": "boolean", "default": true, "description": "Claude: cache the system prompt and tools. Off for proxies that reject it." },
               "fallbacks": { "title": "Fallback model", "type": "boolean", "description": "Claude: let the API retry a declined request on a fallback model." },
               "enabled": { "title": "Enabled", "type": "boolean", "default": true },
+              "budget": { "title": "Budget", "type": "object", "description": "Limits per day and per month, local time: once one is used up, requests are refused until it resets. Empty is no limit.", "properties": {
+                "dailyTokens": { "title": "Tokens per day", "type": "integer", "minimum": 0 },
+                "monthlyTokens": { "title": "Tokens per month", "type": "integer", "minimum": 0 },
+                "dailyUsd": { "title": "USD per day", "type": "number", "minimum": 0, "description": "Models without a known price count as free." },
+                "monthlyUsd": { "title": "USD per month", "type": "number", "minimum": 0 }
+              } },
               "mcp": { "title": "MCP server", "type": "object", "properties": {
                 "http": { "title": "Over HTTP", "type": "object", "properties": {
                   "enabled": { "title": "Run the MCP server", "type": "boolean", "default": false, "description": "Lets Claude Desktop and other MCP clients read and control the bridge with a token." },
@@ -122,6 +128,8 @@ public struct AIConfiguration: Sendable, Equatable {
     /// Claude Opus 5.5, Opus 5, Sonnet 5.5 and Fable: let the API re-run a declined request on a fallback
     /// model (default true for those models).
     public var fallbacks: Bool?
+    /// Daily and monthly limits (`budget`: `dailyTokens`, `monthlyTokens`, `dailyUsd`, `monthlyUsd`).
+    public var budget = UsageBudget()
     /// Whether the block (or the environment) names a provider or a key at all. A block that only turns
     /// on the MCP server has neither, and then no Assistant is set up.
     public var hasProviderSettings = true
@@ -180,6 +188,7 @@ public struct AIConfiguration: Sendable, Equatable {
         }
         promptCaching = object["promptCaching"] != .bool(false)
         fallbacks = object["fallbacks"]?.boolValue
+        budget = try UsageBudget(json: object["budget"])
         hasProviderSettings = object["provider"] != nil || object["model"] != nil || apiKey != nil
     }
 

@@ -49,33 +49,54 @@ extension Assistant {
     }
 }
 
-/// The Assistant on one provider, with usage accounting.
+/// The Assistant on one provider, with usage accounting and budgets: every request first checks
+/// `usage.checkBudget()` (throwing `BudgetExceededError` without calling the provider), then is recorded.
 public final class AssistantService: Assistant, Sendable {
     public let provider: any Provider
     public let usage: UsageTracker
     public let maxOutputTokens: Int
     /// Extra instructions appended to every system prompt, e.g. which plugin is asking.
     public let systemContext: String?
+    /// Who is asking (the web UI's signed-in user), for the usage per user.
+    public let user: String?
     let logger: Logger
 
     public init(
         provider: any Provider, maxOutputTokens: Int = AIConfiguration.defaultMaxOutputTokens, systemContext: String? = nil,
-        usage: UsageTracker = UsageTracker(), logger: Logger = Logger(label: "homeswift.ai")
+        usage: UsageTracker = UsageTracker(), user: String? = nil, logger: Logger = Logger(label: "homeswift.ai")
     ) {
         self.provider = provider
         self.maxOutputTokens = maxOutputTokens
         self.systemContext = systemContext
         self.usage = usage
+        self.user = user
         self.logger = logger
     }
 
-    public convenience init(configuration: AIConfiguration, transport: any HTTPTransport = URLSessionTransport(), logger: Logger = Logger(label: "homeswift.ai")) throws {
-        self.init(provider: try configuration.makeProvider(transport: transport), maxOutputTokens: configuration.maxOutputTokens, logger: logger)
+    /// The block's provider, with its `budget`. `usageStore` keeps the usage across launches
+    /// (`FileUsageStore` at `UsageTracker.fileName` in the storage directory); without one it lasts the process.
+    public convenience init(
+        configuration: AIConfiguration, transport: any HTTPTransport = URLSessionTransport(), usageStore: (any UsageStore)? = nil,
+        logger: Logger = Logger(label: "homeswift.ai")
+    ) throws {
+        self.init(
+            provider: try configuration.makeProvider(transport: transport), maxOutputTokens: configuration.maxOutputTokens,
+            usage: UsageTracker(budget: configuration.budget, store: usageStore, logger: logger), logger: logger)
     }
 
     /// The same Assistant (same provider, same usage totals) with instructions about who is asking.
     public func withContext(_ context: String) -> AssistantService {
-        AssistantService(provider: provider, maxOutputTokens: maxOutputTokens, systemContext: context, usage: usage, logger: logger)
+        AssistantService(provider: provider, maxOutputTokens: maxOutputTokens, systemContext: context, usage: usage, user: user, logger: logger)
+    }
+
+    /// The same Assistant, its requests counted for `user`.
+    public func forUser(_ user: String?) -> AssistantService {
+        AssistantService(provider: provider, maxOutputTokens: maxOutputTokens, systemContext: systemContext, usage: usage, user: user, logger: logger)
+    }
+
+    /// Records a finished request for this Assistant's user.
+    func record(model: String, usage used: TokenUsage) async {
+        await usage.record(model: model, usage: used, user: user)
     }
 
     public var providerName: String { provider.name }
@@ -91,16 +112,17 @@ public final class AssistantService: Assistant, Sendable {
     }
 
     /// A redacted JSON value as text, trimmed to `maxTokens` when it does not fit.
-    private func boundedJSON(_ value: JSONValue, _ maxTokens: Int) -> JSONValue {
+    func boundedJSON(_ value: JSONValue, _ maxTokens: Int) -> JSONValue {
         let redacted = Redaction.redactSecrets(value)
         let text = redacted.text()
         return Tokens.estimate(text) <= maxTokens ? redacted : .string(Tokens.trim(text, to: maxTokens, keep: .head))
     }
 
-    private func reply(system: String, messages: [ChatMessage], onChunk: (@Sendable (String) -> Void)?) async throws -> AssistantReply {
+    func reply(system: String, messages: [ChatMessage], onChunk: (@Sendable (String) -> Void)?) async throws -> AssistantReply {
+        try await usage.checkBudget()
         // Redacted here, whatever the feature did before: idempotent, and the rule then has one home.
         let result = try await complete(provider, ChatRequest(system: self.system(system), messages: Redaction.redactMessages(messages), maxOutputTokens: maxOutputTokens), onChunk: onChunk)
-        await usage.record(model: result.model, usage: result.usage)
+        await record(model: result.model, usage: result.usage)
         logger.debug("Assistant reply", metadata: ["model": "\(result.model)", "input": "\(result.usage.inputTokens)", "output": "\(result.usage.outputTokens)", "stop": "\(result.stopReason)"])
         return AssistantReply(text: result.text, usage: result.usage, model: result.model)
     }
@@ -138,11 +160,12 @@ public final class AssistantService: Assistant, Sendable {
             "properties": ["config": .object(configSchema), "explanation": ["type": "string"]],
         ]
         let redactedCurrent = current.map { Redaction.redactSecrets($0) }
+        try await usage.checkBudget()
         let generated = try await JSONGeneration.generate(
             provider: provider, schema: replySchema,
             prompt: Prompts.GeneratePluginConfig.user(request: Redaction.redactText(request), schema: pluginSchema, current: redactedCurrent, pluginName: pluginName.map(Redaction.redactText)),
             system: system(Prompts.GeneratePluginConfig.system), maxOutputTokens: maxOutputTokens, onChunk: onChunk)
-        await usage.record(model: provider.model, usage: generated.usage)
+        await record(model: provider.model, usage: generated.usage)
         var config = generated.data["config"] ?? .object([:])
         if let current, Redaction.containsRedacted(config) {
             // A new secret field with no current value keeps the placeholder for the user to fill in.

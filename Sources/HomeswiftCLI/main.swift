@@ -25,6 +25,10 @@ let usage = """
            homeswift ask <question>
            homeswift explain <error message>
            homeswift diagnose [<log file>]
+           homeswift digest [--hours <hours>]
+           homeswift organize [--json]
+           homeswift test-ai
+           homeswift usage [--json]
            homeswift mcp [--url <url>] [--token <token>] | --generate-token | --snippets
 
     Runs a HomeKit bridge with the plugins listed in <path>/config.json and prints its setup code.
@@ -43,6 +47,10 @@ let usage = """
       ask                             ask the Assistant a question (docs/ai.md)
       explain                         have the Assistant explain a device error
       diagnose                        have the Assistant diagnose a log file, or the log piped in
+      digest                          a digest of the last day: the log's warnings and errors, the accessories
+      organize                        rooms and clearer names for the accessories the bridge last cached
+      test-ai                         check that the HomeswiftAiKit block's provider, key and model answer
+      usage                           the Assistant's usage today and this month, with the budgets
       mcp                             stdio MCP server for Claude Desktop, Claude Code or Cursor, proxied to the
                                       bridge's HTTP MCP server (docs/mcp.md); --generate-token, --snippets
 
@@ -73,7 +81,7 @@ while let argument = arguments.next() {
         exit(0)
     case "plugins":
         command = "plugins"
-    case "ask", "explain", "diagnose", "mcp":
+    case "ask", "explain", "diagnose", "digest", "organize", "test-ai", "usage", "mcp":
         command = argument
         // Everything after the command is the question, the error or the file.
         while let rest = arguments.next() { commandArguments.append(rest) }
@@ -118,17 +126,18 @@ do {
     fail("\(configURL.path): \(error)")
 }
 
-if ["ask", "explain", "diagnose", "mcp"].contains(command) {
+if command == "mcp" || AssistantCommands.commands.contains(command) {
     // Top-level code runs on the main actor, so the command runs detached and the main thread serves Dispatch.
     let selectedCommand = command
     let selectedArguments = commandArguments
     let selectedConfiguration = configuration
+    let selectedStorage = storagePath
     Task.detached {
         do {
             if selectedCommand == "mcp" {
                 try await MCPCommands.run(arguments: selectedArguments, configuration: selectedConfiguration, logger: logger)
             } else {
-                try await AssistantCommands.run(selectedCommand, arguments: selectedArguments, configuration: selectedConfiguration, logger: logger)
+                try await AssistantCommands.run(selectedCommand, arguments: selectedArguments, configuration: selectedConfiguration, storage: selectedStorage, logger: logger)
             }
             exit(0)
         } catch {
