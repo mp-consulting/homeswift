@@ -259,19 +259,23 @@ struct PluginTests {
         await host.stop()
     }
 
+    /// 150 ms, then 300 ms: the attempts' times are recorded and the gaps checked from below, which a slow runner cannot
+    /// break (a sleep never ends early), where a check that no attempt came yet raced the next one.
     @Test func backsOffExponentially() async throws {
+        let attempts = NIOLockedValueBox<[ContinuousClock.Instant]>([])
         environment.nextCloud.withLockedValue { $0 = { _ in
+            attempts.withLockedValue { $0.append(.now) }
             let cloud = FakeCloud()
             cloud.configure { $0.loginError = DolphinError.cognitoFailed("network down") }
             return cloud
         } }
         let host = try await environment.start()
-        // 150 ms, then 300 ms.
-        #expect(await eventually { environment.clouds.count == 2 })
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(environment.clouds.count == 2)
-        #expect(await eventually { environment.clouds.count == 3 })
+        #expect(await eventually { attempts.withLockedValue { $0.count } >= 3 })
         await host.stop()
+        let times = attempts.withLockedValue { $0 }
+        try #require(times.count >= 3)
+        #expect(times[1] - times[0] >= .milliseconds(150))
+        #expect(times[2] - times[1] >= .milliseconds(300))
     }
 
     @Test func rejectedCredentialsAreNotRetried() async throws {

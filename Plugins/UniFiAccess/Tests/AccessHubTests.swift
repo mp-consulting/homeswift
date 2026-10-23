@@ -2,6 +2,7 @@ import Foundation
 import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
+import NIOConcurrencyHelpers
 import Testing
 
 @testable import Homeswift
@@ -390,10 +391,16 @@ struct AccessHubTests {
         let host = try await environment.start(devices: [ugt()], doors: Self.gateDoors, options: ["Enable.Hub.GateDirectionDuration.112233445566.30"])
         defer { Task { await host.stop() } }
         let garage = try #require(accessory(host, gateID)?.service(.garageDoorOpener, nil))
+        // Open lasts one phase (300 ms) before the timer moves to closing: the states are recorded as they change, so a
+        // runner that stalls through the whole phase still sees it.
+        let states = NIOLockedValueBox<[Int]>([])
+        garage.characteristic(.currentDoorState).observe { change in
+            if let state = change.newValue.intValue { states.withLockedValue { $0.append(state) } }
+        }
         try await garage.characteristic(.targetDoorState).write(.int(0))
         #expect(environment.controller.requests(matching: "/location/door-1/unlock").count == 1)
         #expect(garage[.currentDoorState]?.value.intValue == 2)
-        #expect(await eventually { garage[.currentDoorState]?.value.intValue == 0 })
+        #expect(await eventually { states.withLockedValue { $0.contains(0) } })
         // The gate is open; the timer moves it to closing; the DPS confirms closed.
         environment.send(AccessEventType.locationUpdate, "door-1", data: ["id": "door-1", "name": "Main Gate", "state": ["dps": "open", "lock": "locked"]])
         #expect(await eventually { garage[.currentDoorState]?.value.intValue == 3 })

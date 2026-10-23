@@ -461,7 +461,7 @@ final class MDNSResponder: @unchecked Sendable {
                 var address = in_addr()
                 withUnsafeMutableBytes(of: &address.s_addr) { $0.copyBytes(from: interface.addresses.first ?? [0, 0, 0, 0]) }
                 return multicast.joinGroup(Self.group, device: device)
-                    .flatMap { options.setIPMulticastIF(address) }
+                    .flatMap { [address] in options.setIPMulticastIF(address) }
                     .flatMap { options.setIPMulticastTTL(255) }
                     .flatMap { options.setIPMulticastLoop(1) }
                     .map { channel }
