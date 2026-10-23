@@ -216,33 +216,44 @@ BIN=$(swift build -c release --scratch-path ~/Library/Caches/homeswift-bench --s
 ./bridge-bench.py compare results/before.json results/after.json
 ```
 
-Apple M1, 2026-10-23, 60 accessories, 5 000 log lines, `/api/accessories` 72 KB. Before is commit `7c45fef`,
-after is `8cc6cad`. Other builds shared the machine (load averages of 40 to 250), so the p50s are indicative;
-CPU per request moves less. Rows the first run measured wrongly (`search_logs` was called without its pattern)
-are left out.
+Apple M1, 2026-10-23, 5 000 log lines, `/api/accessories` 72 KB with 60 accessories and 355 KB with 300. Before is
+commit `7c45fef`, after is `cbde386` (the changes below). The two ran interleaved, before then after, at 60 then 300
+accessories, twice, while other sessions' builds kept the load average around 600: each figure is the better of its
+two runs. Under that load a route under a millisecond measures scheduling more than the bridge (0.1 to 0.9 ms on
+either side, from run to run), so those are left out; CPU per request is the steadier figure.
 
-| Endpoint | before p50 | after p50 | |
-|---|---:|---:|---:|
-| MCP `get_recent_logs` (200 lines) | 89 ms | 2.9 ms | 31× |
-| `GET /api/logs?accessory=` | 35 ms | 5.3 ms | 6.5× |
-| `GET /api/logs` (2 000 lines, 238 KB) | 17 ms | 4.5 ms | 3.8× |
-| `GET /api/accessories` | 10.7 ms | 2.9 ms | 3.7× |
-| `GET /api/config/block/…` | 0.55 ms | 0.17 ms | 3.3× |
-| MCP `resources/read status` | 0.41 ms | 0.13 ms | 3.3× |
-| MCP `tools/list` (12 KB) | 0.69 ms | 0.27 ms | 2.6× |
-| MCP `list_accessories` | 4.7 ms | 2.1 ms | 2.3× |
-| `GET /api/logs?from=` (an hour from the archive, 600 KB) | 57 ms | 30 ms | 1.9× |
-| MCP `resources/read accessories` | 3.0 ms | 1.9 ms | 1.6× |
-| `GET /api/status` | 0.26 ms | 0.19 ms | 1.4× |
-| a write → its event on `/api/events` | 0.76 ms | 0.78 ms | |
+| Endpoint, p50 | before, 60 | after, 60 | before, 300 | after, 300 |
+|---|---:|---:|---:|---:|
+| MCP `search_logs` | 2 517 ms | 9.8 ms | 8 831 ms | 15 ms |
+| MCP `get_recent_logs` (200 lines) | 106 ms | 1.8 ms | 521 ms | 2.4 ms |
+| `GET /api/logs?accessory=` | 28 ms | 4.7 ms | 134 ms | 7.6 ms |
+| `GET /api/logs` (2 000 lines, 238 KB) | 11 ms | 6.0 ms | 36 ms | 4.4 ms |
+| `GET /api/logs?from=` (an hour from the archive, 600 KB) | 49 ms | 51 ms | 233 ms | 51 ms |
+| `GET /api/accessories` | 5.9 ms | 4.3 ms | 134 ms | 31 ms |
+| MCP `list_accessories` | 5.4 ms | 2.2 ms | 60 ms | 13 ms |
+| MCP `resources/read accessories` | 4.7 ms | 2.0 ms | 44 ms | 14 ms |
+| MCP `tools/list` (12 KB) | 1.3 ms | 0.7 ms | 1.9 ms | 0.7 ms |
+| a write → its event on `/api/events` | 1.3 ms | 1.4 ms | 1.8 ms | 1.0 ms |
 
-| Load | before CPU/request | after CPU/request | |
-|---|---:|---:|---:|
-| `GET /api/accessories`, 8 connections | 7 694 µs | 2 305 µs | 3.3× |
-| `GET /api/logs`, 4 connections | 13 035 µs | 4 032 µs | 3.2× |
-| MCP `list_accessories`, 4 connections | 4 630 µs | 1 900 µs | 2.4× |
-| `GET /api/status`, 8 connections | 133 µs | 80 µs | 1.7× |
-| `GET /app.js`, 8 connections | 98 µs | 73 µs | 1.3× |
+| Load, CPU per request | before, 60 | after, 60 | before, 300 | after, 300 |
+|---|---:|---:|---:|---:|
+| `GET /api/accessories`, 8 connections | 6 234 µs | 1 697 µs | 31 000 µs | 10 769 µs |
+| `GET /api/logs`, 4 connections | 10 882 µs | 3 085 µs | 11 262 µs | 3 714 µs |
+| MCP `list_accessories`, 4 connections | 4 216 µs | 1 383 µs | 20 000 µs | 8 622 µs |
+| `GET /api/status`, 8 connections | 140 µs | 130 µs | 181 µs | 106 µs |
+| `GET /app.js`, 8 connections | 113 µs | 105 µs | 106 µs | 79 µs |
+
+| Process | before, 60 | after, 60 | before, 300 | after, 300 |
+|---|---:|---:|---:|---:|
+| Startup, CPU (to 2 s after ready) | 0.35 s | 0.18 s | 7.6 s | 3.1 s |
+| Startup, wall, to ready (noisy: 29 to 112 s for the same baseline) | 0.9 s | 0.9 s | 29–112 s | 20–32 s |
+| Idle RSS / footprint | 16 / 10 MB | 16 / 10 MB | 15 / 14 MB | 20 / 18 MB |
+| Idle CPU | 0.0 % | 0.0 % | 0.2 % | 0.0 % |
+
+The before `search_logs` on 300 accessories ran past the client's 30 s timeout in a first attempt; the script now
+gives each endpoint a 15 s budget (at least five samples) and always stops the server it started. `logs?from=` with
+60 accessories did not move: its time is reading the archive back, which another change was reworking at the same
+time.
 
 Where the time went, from `sample`:
 
@@ -264,15 +275,11 @@ Where the time went, from `sample`:
 
 A plugin adds its accessories one at a time. Each add rewrote the whole accessory cache with `JSONEncoder`, and
 on a running server rehashed the whole database, re-encoded the persisted state with its iid map and re-
-advertised: N² for N accessories. With 300 the bench bridge took over a minute to be ready (69 s, sampled, under
-load). Commit `6722697` saves the cache once per burst, skips the rehash when an accessory replaces one of the
-same shape under the same ids (a plugin replacing its cached accessories at launch), and looks for a free iid
-only when one is needed. The time to ready after that change is still to be measured on a quiet machine; the
-script prints it first:
-
-```sh
-./bridge-bench.py --server "$BIN/bridge-bench-server" --accessories 300 --log-lines 0 --name after-300
-```
+advertised: N² for N accessories. Commit `6722697` saves the cache once per burst, skips the rehash when an
+accessory replaces one of the same shape under the same ids (a plugin replacing its cached accessories at launch),
+and looks for a free iid only when one is needed. With 300 accessories the bridge's startup CPU went from 7.6 to
+3.1 s (the Process table above); the rest is the first launch's own work, adding 300 accessories and logging
+5 000 lines.
 
 The HAP side (`hap-bench`) measured as in the tables above; its request path was not changed here.
 
