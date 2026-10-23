@@ -92,8 +92,9 @@ public final class FfmpegExec: FfmpegProcess, @unchecked Sendable {
                         try? await Task.sleep(for: .milliseconds(timeout))
                         guard let self, run.isPending else { return }
                         self.log.debug("FFmpeg command timed out after \(timeout) ms. Terminating.")
-                        self.stop()
+                        // Settle first: the exit that stop() causes would otherwise settle with the killed process's result.
                         run.settle(nil)
+                        self.stop()
                     }
                 }
                 if let stdinData {
@@ -103,8 +104,8 @@ public final class FfmpegExec: FfmpegProcess, @unchecked Sendable {
         } onCancel: {
             guard run.cancel() else { return }
             log.debug("FFmpeg command cancelled. Terminating.")
-            stop()
             run.settle(nil)
+            stop()
         }
     }
 
