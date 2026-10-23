@@ -9,6 +9,7 @@ process: Homeswift's `HAPServer` and HAP-NodeJS, the library inside Homebridge.
 | `Sources/hap-bench-server` | A Homeswift bridge with `ACCESSORIES` lightbulbs (On, Brightness, Hue, Saturation), release build. |
 | `hap-nodejs/server.js` | The same bridge on `@homebridge/hap-nodejs` 2.2.2, the version Homebridge 2.4.0 ships. |
 | `run.sh` | Builds everything, runs the suite against both servers, prints the comparison. |
+| `Sources/bridge-bench-server`, `bridge-bench.py` | A whole bridge as the CLI runs it (plugin runtime, web UI, MCP server) on a synthetic home, and the script that times every endpoint: see [The whole bridge](#the-whole-bridge-web-ui-and-mcp-server). |
 
 ```sh
 ./run.sh                                   # 30 accessories, the counts below
@@ -198,3 +199,80 @@ default Node flags) on Node 25, one ahead of the versions its `engines` lists. T
 its own costs are the same for both servers and excluded from the per-step pairing times, but during the load
 runs it shares the eight cores with the server. A Raspberry Pi would stretch every CPU-bound number, pairing
 above all; it would not change the ratios much.
+
+## The whole bridge: web UI and MCP server
+
+`bridge-bench-server` runs what the `homeswift` CLI runs, the plugin runtime with the web UI (no sign-in, on
+127.0.0.1) and the MCP server over one catalog, with a plugin of its own instead of devices: `ACCESSORIES`
+(60 by default) lamps, plugs, thermostats, sensors, blinds, fans, purifiers and switches, a sensor that changes
+every `TICK_MS` and logs a line, and `LOG_LINES` lines logged before it is ready. `bridge-bench.py` (standard
+library only) starts it and times, on one keep-alive connection after warm-ups, every page and API route of the
+web UI, every MCP method and read tool, a write through each, the latency from a write to its event on
+`/api/events`, throughput and CPU per request on 1 to 8 connections, and the process's memory and idle CPU.
+
+```sh
+BIN=$(swift build -c release --scratch-path ~/Library/Caches/homeswift-bench --show-bin-path)
+./bridge-bench.py --server "$BIN/bridge-bench-server" --name after
+./bridge-bench.py compare results/before.json results/after.json
+```
+
+Apple M1, 2026-10-23, 60 accessories, 5 000 log lines, `/api/accessories` 72 KB. Before is commit `7c45fef`,
+after is `8cc6cad`. Other builds shared the machine (load averages of 40 to 250), so the p50s are indicative;
+CPU per request moves less. Rows the first run measured wrongly (`search_logs` was called without its pattern)
+are left out.
+
+| Endpoint | before p50 | after p50 | |
+|---|---:|---:|---:|
+| MCP `get_recent_logs` (200 lines) | 89 ms | 2.9 ms | 31× |
+| `GET /api/logs?accessory=` | 35 ms | 5.3 ms | 6.5× |
+| `GET /api/logs` (2 000 lines, 238 KB) | 17 ms | 4.5 ms | 3.8× |
+| `GET /api/accessories` | 10.7 ms | 2.9 ms | 3.7× |
+| `GET /api/config/block/…` | 0.55 ms | 0.17 ms | 3.3× |
+| MCP `resources/read status` | 0.41 ms | 0.13 ms | 3.3× |
+| MCP `tools/list` (12 KB) | 0.69 ms | 0.27 ms | 2.6× |
+| MCP `list_accessories` | 4.7 ms | 2.1 ms | 2.3× |
+| `GET /api/logs?from=` (an hour from the archive, 600 KB) | 57 ms | 30 ms | 1.9× |
+| MCP `resources/read accessories` | 3.0 ms | 1.9 ms | 1.6× |
+| `GET /api/status` | 0.26 ms | 0.19 ms | 1.4× |
+| a write → its event on `/api/events` | 0.76 ms | 0.78 ms | |
+
+| Load | before CPU/request | after CPU/request | |
+|---|---:|---:|---:|
+| `GET /api/accessories`, 8 connections | 7 694 µs | 2 305 µs | 3.3× |
+| `GET /api/logs`, 4 connections | 13 035 µs | 4 032 µs | 3.2× |
+| MCP `list_accessories`, 4 connections | 4 630 µs | 1 900 µs | 2.4× |
+| `GET /api/status`, 8 connections | 133 µs | 80 µs | 1.7× |
+| `GET /app.js`, 8 connections | 98 µs | 73 µs | 1.3× |
+
+Where the time went, from `sample`:
+
+- **Foundation's JSON coders.** `JSONValue` went through `JSONEncoder` and `JSONDecoder`, whose generic paths
+  (dynamic casts, a trial decode of every type at every value) took most of each request. It now writes and
+  parses its JSON itself: the same bytes `JSONEncoder` wrote (sorted keys, its escapes and number forms, checked
+  on random documents), 7–13× faster to write and 20–30× faster to parse. That also helps every plugin that
+  decodes a cloud's answers through `JSONValue` (UniFi Protect's bootstrap is hundreds of KB).
+- **The redaction regexes.** `Redaction.redactText`'s secret-pair expression backtracks through every word,
+  and eight more scan each line: about 450 µs a log line. ASCII text now skips the expressions it cannot
+  match, using byte searches (a keyword and a separator, `Bearer`, the exact digit groups of a setup code).
+  Every log line starts with a date, so a looser test let the setup-code expressions run on all of them.
+- **The log.** `LogBuffer` shifted its 5 000 lines on every line once full; it is a ring now. The archive
+  encoded and decoded each line with the Codable coders; ISO 8601 times went through a format style.
+- **Static files** carried `no-store`: a reload downloaded 230 KB of scripts and styles again. They carry an
+  ETag and `no-cache` now and answer 304; pages and the API keep `no-store`.
+
+### Adding accessories
+
+A plugin adds its accessories one at a time. Each add rewrote the whole accessory cache with `JSONEncoder`, and
+on a running server rehashed the whole database, re-encoded the persisted state with its iid map and re-
+advertised: N² for N accessories. With 300 the bench bridge took over a minute to be ready (69 s, sampled, under
+load). Commit `6722697` saves the cache once per burst, skips the rehash when an accessory replaces one of the
+same shape under the same ids (a plugin replacing its cached accessories at launch), and looks for a free iid
+only when one is needed. The time to ready after that change is still to be measured on a quiet machine; the
+script prints it first:
+
+```sh
+./bridge-bench.py --server "$BIN/bridge-bench-server" --accessories 300 --log-lines 0 --name after-300
+```
+
+The HAP side (`hap-bench`) measured as in the tables above; its request path was not changed here.
+
