@@ -255,11 +255,15 @@ final class Subprocess: @unchecked Sendable {
         } while count < 0 && errno == EINTR
         if count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) { return }
         guard count > 0 else {
-            handle.readabilityHandler = nil
-            try? handle.close()
+            // Marked first, so a callback that follows reads nothing from a descriptor that may be closed.
             let deliver = state.withLockedValue { state -> Bool in
                 if isStdout { state.stdoutEOF = true } else { state.stderrEOF = true }
                 return Self.readyToDeliver(&state)
+            }
+            // Not from inside the handler: Foundation on Linux waits on the queue running it, and traps.
+            DispatchQueue.global().async {
+                handle.readabilityHandler = nil
+                try? handle.close()
             }
             if deliver { deliverExit() }
             return
