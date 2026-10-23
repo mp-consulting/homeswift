@@ -263,7 +263,9 @@ import Darwin
         let status = await waitForExit(process) {
             process.endStdin()
             #expect(!process.isStdinWritable)
-            await #expect(throws: FfmpegProcessError.stdinClosed) { try await process.writeStdin(Data("late".utf8)) }
+            // cat may already have exited, which answers "not running" rather than "standard input is closed".
+            let late = await #expect(throws: FfmpegProcessError.self) { try await process.writeStdin(Data("late".utf8)) }
+            #expect(late == .stdinClosed || late == .notRunning)
         }
         #expect(status?.exitCode == 0)
         #expect(output.withLockedValue { $0 } == Data("hello world".utf8))
