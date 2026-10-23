@@ -115,10 +115,12 @@ public final class Metrics: @unchecked Sendable {
     public func start(following host: PluginHost) {
         let observation = host.observeTimings { [weak self] bridge, timing in self?.record(timing, server: bridge.server.deviceID) }
         let interval = interval
+        // The first sample before returning, so the Status page has memory and CPU from the start.
+        sample()
         let sampler = Task { [weak self] in
             while !Task.isCancelled {
-                self?.sample()
                 do { try await Task.sleep(for: interval) } catch { return }
+                self?.sample()
             }
         }
         state.withLockedValue {
