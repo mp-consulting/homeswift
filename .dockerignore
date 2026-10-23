@@ -1,0 +1,10 @@
+.build/
+.swiftpm/
+.git/
+.github/
+.claude/
+Benchmarks/
+docs/
+*.xcodeproj
+DerivedData/
+.DS_Store
