@@ -150,11 +150,23 @@ public final class HAPServer: @unchecked Sendable {
     /// Adds a bridged accessory, before or while running. Once running, HomeKit picks it up from the new
     /// configuration number; before, `start()` hashes the whole database once.
     public func add(_ accessory: Accessory) throws {
-        let running = state.withLockedValue { state in
-            assign(accessory, aid: nil, in: &state)
-            return refreshIfRunning(&state)
+        let (running, changed) = state.withLockedValue { state -> (Bool, Bool) in
+            let before = (state.persisted.configurationNumber, state.persisted.databaseHash)
+            let previous = state.persisted.aids[accessory.id].flatMap { state.accessories[$0] }
+            let assigned = assign(accessory, aid: nil, in: &state)
+            let running: Bool
+            if state.serverChannel != nil, !assigned, let previous, structure(of: previous) == structure(of: accessory) {
+                // It replaces an accessory of the same shape under the same ids: the database is as it was, and
+                // hashing all of it again for every accessory a plugin adds at launch cost N² (seconds for 300).
+                running = true
+            } else {
+                running = refreshIfRunning(&state)
+            }
+            return (running, assigned || before != (state.persisted.configurationNumber, state.persisted.databaseHash))
         }
-        guard running else { return }
+        // Nothing to save or announce when the ids, the database and its number are as they were: a plugin
+        // replacing its cached accessories at launch, one by one.
+        guard running, changed else { return }
         try persist()
         updateAdvertisement()
     }
@@ -299,7 +311,9 @@ public final class HAPServer: @unchecked Sendable {
 
     // MARK: Identifiers and database
 
-    private func assign(_ accessory: Accessory, aid fixed: Int?, in state: inout State) {
+    /// Gives the accessory its aid and iids, the ones it had when known; returns whether any was new.
+    @discardableResult
+    private func assign(_ accessory: Accessory, aid fixed: Int?, in state: inout State) -> Bool {
         let aid: Int
         if let fixed {
             aid = fixed
@@ -308,16 +322,21 @@ public final class HAPServer: @unchecked Sendable {
         } else {
             aid = max(1, state.persisted.aids.values.max() ?? 1) + 1
         }
+        var changed = state.persisted.aids[accessory.id] != aid
         state.persisted.aids[accessory.id] = aid
         accessory.aidBox.withLockedValue { $0 = aid }
 
         let prefix = "\(aid)/"
-        var next = (state.persisted.iids.filter { $0.key.hasPrefix(prefix) }.values.max() ?? 0) + 1
+        // The next free iid, looked for only when one is needed: every server's iids would be scanned for each
+        // accessory otherwise, though at launch they are all known.
+        var next: Int?
         func iid(for key: String) -> Int {
             if let known = state.persisted.iids[prefix + key] { return known }
-            defer { next += 1 }
-            state.persisted.iids[prefix + key] = next
-            return next
+            let free = next ?? (state.persisted.iids.filter { $0.key.hasPrefix(prefix) }.values.max() ?? 0) + 1
+            next = free + 1
+            state.persisted.iids[prefix + key] = free
+            changed = true
+            return free
         }
         for service in accessory.services {
             let serviceKey = "\(service.type.uuid.uuidString)/\(service.subtype ?? "")"
@@ -327,6 +346,7 @@ public final class HAPServer: @unchecked Sendable {
             }
         }
         state.accessories[aid] = accessory
+        return changed
     }
 
     private func refreshConfigurationNumber(in state: inout State) {
@@ -338,6 +358,13 @@ public final class HAPServer: @unchecked Sendable {
             state.persisted.configurationNumber = state.persisted.configurationNumber % 65535 + 1
         }
         state.persisted.databaseHash = hash
+    }
+
+    /// One accessory's part of the hashed database: its aid, services, characteristics and their metadata.
+    private func structure(of accessory: Accessory) -> [UInt8] {
+        var json = JSONWriter(capacity: 2048)
+        database(accessories: [accessory.aid: accessory], includeValues: false).write(to: &json)
+        return json.bytes
     }
 
     func database(includeValues: Bool) -> AccessoryDatabase {
