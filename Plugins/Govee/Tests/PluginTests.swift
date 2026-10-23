@@ -471,5 +471,13 @@ extension PluginHost {
             #expect(CoreBluetoothCentral.isPermitted(infoDictionary: embedded))
         }
     }
+
+    /// macOS asks the responsible process: a test run from a shell has the app that opened it (Terminal, an IDE)
+    /// as such, which the check reads from its `.app` bundle; run on its own it is nil.
+    @Test func theResponsibleAppIsReadFromItsBundle() {
+        guard let app = CoreBluetoothCentral.responsibleApp else { return }
+        #expect(FileManager.default.fileExists(atPath: app.path))
+        if app.path.hasSuffix(".app") { #expect(app.infoDictionary?["CFBundleIdentifier"] != nil) }
+    }
     #endif
 }

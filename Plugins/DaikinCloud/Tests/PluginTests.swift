@@ -219,6 +219,30 @@ struct PluginTests {
         #expect(host.mainBridge.server.accessories.count == 1)
     }
 
+    /// Seen live: once the saved token had expired, the page's connection test sent it as it was and failed. It goes
+    /// through the running instance's token client, which refreshes first.
+    @Test func theConnectionTestRefreshesAnExpiredToken() async throws {
+        let environment = DaikinEnvironment()
+        environment.tokens = (.developerPortal, TokenSet(access_token: "old", refresh_token: "r", token_type: "Bearer", expires_at: 1))
+        let cloud = environment.cloud
+        environment.cloud.http.set { request, _ in
+            let url = request.url.absoluteString
+            if url.hasPrefix(DeveloperPortalOAuth.tokenEndpoint.absoluteString) {
+                return .json(["access_token": "refreshed", "token_type": "Bearer", "expires_in": 3600])
+            }
+            if request.header("Authorization") == "Bearer old" { return .json(["message": "Unauthorized"], status: 401) }
+            return try await cloud.answer(request)
+        }
+        let host = try await environment.start(developerBlock)
+        defer { Task { await host.stop() } }
+        #expect(await eventually { host.mainBridge.server.accessories.count > 1 })
+        // The file says expired, as it does on disk until the instance's next call refreshes it.
+        try TokenFile.save(TokenSet(access_token: "old", refresh_token: "r", token_type: "Bearer", expires_at: 1),
+                       to: environment.storage.appendingPathComponent(".daikin-controller-cloud-tokenset"))
+        let test = try await environment.request("POST", "auth/test")
+        #expect(test.json["success"] == true)
+    }
+
     @Test func mobileAppLogsInByItself() async throws {
         let environment = DaikinEnvironment()
         let host = try await environment.start(["authMode": "mobile_app", "daikinEmail": "me@example.com", "daikinPassword": "right"])

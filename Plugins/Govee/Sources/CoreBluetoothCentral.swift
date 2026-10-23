@@ -31,10 +31,33 @@ final class CoreBluetoothCentral: NSObject, BLECentral, CBCentralManagerDelegate
     /// Whether this process may use Bluetooth: macOS kills a process that does without a usage description in
     /// its Info.plist, so without one the plugin runs without BLE. The `homeswift` binary embeds one
     /// (Sources/HomeswiftCLI/Info.plist, in its `__TEXT,__info_plist` section), which `Bundle.main` reads.
-    static var isPermitted: Bool { isPermitted(infoDictionary: Bundle.main.infoDictionary) }
+    ///
+    /// macOS asks the *responsible* process, though: the app that started the shell homeswift runs in (an IDE, an
+    /// agent's app), unless homeswift runs on its own (launchd, `brew services`). That app needs the key too, or
+    /// the first Bluetooth call aborts the whole bridge.
+    static var isPermitted: Bool {
+        isPermitted(infoDictionary: Bundle.main.infoDictionary) && isPermitted(infoDictionary: responsibleApp?.infoDictionary ?? Bundle.main.infoDictionary)
+    }
 
     static func isPermitted(infoDictionary: [String: Any]?) -> Bool {
         (infoDictionary?[usageDescriptionKey] as? String).map { !$0.isEmpty } ?? false
+    }
+
+    /// The app macOS holds responsible for this process when it is not this process itself (nil when it is, or
+    /// when the system does not say). Its bundle is the `.app` around the responsible process's executable; a
+    /// responsible plain executable has no bundle, which reads as no usage description.
+    static var responsibleApp: (path: String, infoDictionary: [String: Any]?)? {
+        typealias Responsible = @convention(c) (pid_t) -> pid_t
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "responsibility_get_pid_responsible_for_pid") else { return nil }
+        let responsible = unsafeBitCast(symbol, to: Responsible.self)(getpid())
+        guard responsible > 0, responsible != getpid() else { return nil }
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(responsible, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        var url = URL(fileURLWithPath: path)
+        while url.path != "/", url.pathExtension != "app" { url.deleteLastPathComponent() }
+        guard url.pathExtension == "app" else { return (path, nil) }
+        return (url.path, Bundle(url: url)?.infoDictionary)
     }
 
     /// A peripheral handed between tasks; CoreBluetooth objects are used on `queue` only.
