@@ -135,8 +135,10 @@ final class Subprocess: @unchecked Sendable {
     /// Only touched on `stdinQueue`.
     nonisolated(unsafe) private var stdinFDClosed = false
     private let state = NIOLockedValueBox(State())
-    /// The pipes' read sources, kept: a source nothing holds is released and never fires.
-    private let readSources = NIOLockedValueBox<[any DispatchSourceRead]>([])
+    /// The pipes' read sources by pipe (true for standard output), kept: a source nothing holds is released and
+    /// never fires. Its handler looks it up here rather than capturing it, which Linux's non-class-bound
+    /// `DispatchSourceRead` would not allow `unowned`, and a strong capture would keep alive.
+    private let readSources = NIOLockedValueBox<[Bool: any DispatchSourceRead]>([:])
     private let pidBox = NIOLockedValueBox<Int32>(0)
 
     /// Starts `executable` (a name looked up in `PATH`, or a path). Nothing is read until `beginReading()`. The child keeps
@@ -248,14 +250,14 @@ final class Subprocess: @unchecked Sendable {
         // descriptor (closing it earlier makes libdispatch's event loop crash on Linux).
         for (handle, isStdout) in [(stdoutHandle, true), (stderrHandle, false)] {
             let source = DispatchSource.makeReadSource(fileDescriptor: handle.fileDescriptor, queue: DispatchQueue(label: "HomeswiftFFmpeg.read"))
-            source.setEventHandler { [unowned source] in self.readable(source, isStdout: isStdout) }
+            source.setEventHandler { self.readable(isStdout: isStdout) }
             source.setCancelHandler { try? handle.close() }
-            readSources.withLockedValue { $0.append(source) }
+            readSources.withLockedValue { $0[isStdout] = source }
             source.resume()
         }
     }
 
-    private func readable(_ source: any DispatchSourceRead, isStdout: Bool) {
+    private func readable(isStdout: Bool) {
         guard state.withLockedValue({ isStdout ? !$0.stdoutEOF : !$0.stderrEOF }) else { return }
         let fd = isStdout ? stdoutFD : stderrFD
         var buffer = [UInt8](repeating: 0, count: 65536)
@@ -269,7 +271,7 @@ final class Subprocess: @unchecked Sendable {
                 if isStdout { state.stdoutEOF = true } else { state.stderrEOF = true }
                 return Self.readyToDeliver(&state)
             }
-            source.cancel()
+            readSources.withLockedValue { $0[isStdout] }?.cancel()
             if deliver { deliverExit() }
             return
         }
