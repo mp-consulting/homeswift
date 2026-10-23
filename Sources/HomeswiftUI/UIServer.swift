@@ -525,8 +525,12 @@ public final class UIServer: Sendable {
                 return .json(["changed": true])
             }
             if route == ["assistant", "explain"] {
-                guard let assistant = catalog.host.assistant else { return .error(404, "the Assistant is off: add a HomeswiftAiKit block") }
+                guard var assistant = catalog.host.assistant else { return .error(404, "the Assistant is off: add a HomeswiftAiKit block") }
                 guard let error = body["error"]?.stringValue, !error.isEmpty else { return .error(400, "an error to explain is required") }
+                // A plugin's page: the Assistant gets the plugin's background (what its errors mean).
+                if let platform = body["plugin"]?.stringValue, let entry = catalog.host.registry.entry(for: platform) {
+                    assistant = assistant.withContext(PluginContext.assistantContext(name: entry.name, platform: platform, background: entry.assistantBackground))
+                }
                 do {
                     let reply = try await assistant.explain(error: error, context: body["context"]?.stringValue, device: body["device"], pluginName: body["plugin"]?.stringValue)
                     return .json(["text": .string(reply.text), "model": .string(reply.model)])
