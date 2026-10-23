@@ -413,7 +413,7 @@ public struct HomeswiftCatalog: Sendable {
             "plugins": .array(host.registry.entries.map { entry in
                 [
                     "platform": .string(entry.platform), "name": .string(entry.name), "hasSchema": .bool(entry.configurationSchemaJSON != nil), "hasPages": .bool(entry.hasPages),
-                    "tools": .array(entry.assistantActions.map { .string("\(entry.platform)_\($0.name)") }),
+                    "tools": .array(entry.assistantActions.map { .string(Self.actionToolName(platform: entry.platform, action: $0.name)) }),
                 ]
             }),
         ]
@@ -969,6 +969,13 @@ public struct HomeswiftCatalog: Sendable {
         return bare(a) == bare(b)
     }
 
+    /// A plugin action's tool name, `<platform>_<action>`, with what a provider refuses in a name
+    /// (`^[a-zA-Z0-9_-]{1,128}$` at Anthropic) as `_`: UniFi Protect's `discover` is `UniFi_Protect_discover`.
+    static func actionToolName(platform: String, action: String) -> String {
+        let allowed = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+        return String("\(platform)_\(action)".map { allowed.contains($0) ? $0 : "_" }.prefix(128))
+    }
+
     /// The plugins' `assistantActions`, as `<platform>_<action>` tools on a running instance. Their answers
     /// reach the client with secrets as handles of the session's vault.
     var pluginActionTools: [MCPTool] {
@@ -985,7 +992,7 @@ public struct HomeswiftCatalog: Sendable {
                 case .configure: .admin
                 }
                 return MCPTool(
-                    name: "\(entry.platform)_\(action.name)", title: action.title, description: "\(entry.name): \(action.description)",
+                    name: Self.actionToolName(platform: entry.platform, action: action.name), title: action.title, description: "\(entry.name): \(action.description)",
                     inputSchema: .object(schema), scope: scope, readOnly: action.access == .read, destructive: action.confirm
                 ) { call in
                     let instances = catalog.host.platforms.filter { $0.platform == entry.platform }

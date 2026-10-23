@@ -13,6 +13,9 @@ import Testing
         let tools = toolbox.agentTools { _ in false }
         let names = Set(tools.map(\.definition.name))
         #expect(names.isSuperset(of: ["list_accessories", "put_list_entry", "patch_config", "Devices_pair"]))
+        // Anthropic refuses a request whose tool names leave ^[a-zA-Z0-9_-]{1,128}$ (UniFi Protect's space).
+        #expect(names.allSatisfy { $0.wholeMatch(of: /[a-zA-Z0-9_-]{1,128}/) != nil })
+        #expect(HomeswiftCatalog.actionToolName(platform: "UniFi Protect", action: "discover") == "UniFi_Protect_discover")
         let patch = try #require(tools.first { $0.definition.name == "patch_config" })
         #expect(patch.definition.inputSchema["properties"]?["confirmationCode"] == nil)
         #expect(patch.definition.inputSchema["properties"]?["dryRun"] != nil)

@@ -2,7 +2,7 @@
 (() => {
   "use strict";
 
-  const { $, el, tile, sparkle, menuButton, copyText, jsonEditor, jsonView, fact, setPaused, slug, withSlugs } = HomeswiftCommon;
+  const { $, el, tile, sparkle, menuButton, copyText, markdown, jsonEditor, jsonView, fact, setPaused, slug, withSlugs } = HomeswiftCommon;
 
   const show = (main, ...nodes) => main.replaceChildren(...nodes.flat().filter(Boolean));
 
@@ -315,6 +315,7 @@
           el("h1", { text: "Homeswift" }),
           el("p", { class: `health ${healthKind}`, text: health }),
           el("p", { class: "muted", text: `Version ${status.version} · ${status.system.hostname}` }))),
+      updateCard(status.update),
       el("div", { class: "stats" },
         el("div", { class: "stat" }, el("b", { text: status.bridges.reduce((sum, bridge) => sum + bridge.accessories, 0) }), el("span", { text: "Accessories" })),
         el("div", { class: "stat" }, el("b", { text: plugins.size }), el("span", { text: plugins.size === 1 ? "Plugin" : "Plugins" })),
@@ -450,6 +451,33 @@
 
     api("/api/assistant/digest").then((digest) => (digest && digest.text ? shown(digest) : offer())).catch((e) => body.replaceChildren(el("p", { class: "error", text: e.message })));
     return card;
+  }
+
+  /// A newer release, when the bridge found one (ReleaseWatcher): how to get it on this install, the package to
+  /// download on a NAS or the command to run, and its notes.
+  function updateCard(update) {
+    if (!update?.available) return null;
+    const published = update.publishedAt ? ` · released ${new Date(update.publishedAt).toLocaleDateString()}` : "";
+    let command = null;
+    if (update.command) {
+      const copy = el("button", { type: "button", text: "Copy", onclick: async () => {
+        try { await copyText(update.command); copy.textContent = "Copied"; } catch { copy.textContent = "Not copied"; }
+        setTimeout(() => { copy.textContent = "Copy"; }, 1800);
+      } });
+      command = el("div", { class: "update-command" }, el("code", { text: update.command }), copy);
+    }
+    return el("div", { class: "card update-card" },
+      el("div", { class: "server-head" },
+        tile("update", "green"),
+        el("div", { class: "who" },
+          el("strong", { text: `Homeswift ${update.latest} is available` }),
+          el("div", { class: "muted", text: `This is ${update.current}${published}` }))),
+      el("p", { text: update.how }),
+      command,
+      el("div", { class: "actions" },
+        update.download ? el("a", { class: "button primary", href: update.download.url, rel: "noopener", title: update.download.name, text: "Download the package" }) : null,
+        el("a", { class: "button", href: update.url, target: "_blank", rel: "noopener", text: "On GitHub" })),
+      update.notes ? el("details", { class: "more-options" }, el("summary", { text: "What's new" }), markdown(update.notes)) : null);
   }
 
   /// The Status page's charts: the process's memory and CPU, and how long the Home app's requests and the plugins'

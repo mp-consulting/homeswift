@@ -33,10 +33,11 @@ public struct UIConfiguration: Sendable, Equatable {
               "scheduledRestartCron": { "title": "Scheduled restart", "type": "string", "placeholder": "0 4 * * 1", "description": "Restart homeswift on a schedule, as a cron expression of five fields in this machine's time zone (minute hour day month weekday): 0 4 * * 1 is Mondays at 4:00. Empty: never." },
               "scheduledBackupDisable": { "title": "Turn off the daily backup", "type": "boolean", "default": false, "description": "The web UI backs up the whole instance once a day, at a random time between midnight and 7:00." },
               "scheduledBackupPath": { "title": "Backup folder", "type": "string", "placeholder": "instance-backups next to config.json", "description": "Where the daily and manual backups are kept: a folder that exists, a network share for a copy off this machine. Empty: instance-backups next to config.json." },
-              "scheduledBackupDays": { "title": "Keep daily backups (days)", "type": "integer", "default": 7, "minimum": 1, "maximum": 365, "description": "Older backups of this bridge are removed after each daily backup." }
+              "scheduledBackupDays": { "title": "Keep daily backups (days)", "type": "integer", "default": 7, "minimum": 1, "maximum": 365, "description": "Older backups of this bridge are removed after each daily backup." },
+              "checkForUpdates": { "title": "Check for updates", "type": "boolean", "default": true, "description": "Ask GitHub twice a day whether a newer Homeswift is out, and say so on the Status page with how to upgrade this install. The request carries only the version." }
             }
           },
-          "layout": ["port", "host", "auth", "sessionDays", "allowedHosts", "https", "certificate", "privateKey",
+          "layout": ["port", "host", "auth", "sessionDays", "allowedHosts", "https", "certificate", "privateKey", "checkForUpdates",
             { "type": "fieldset", "title": "Behind a reverse proxy", "expandable": true, "expanded": false, "items": ["trustProxy"] },
             { "type": "fieldset", "title": "Schedules", "expandable": true, "expanded": false, "items": ["scheduledRestartCron", "scheduledBackupDisable", "scheduledBackupPath", "scheduledBackupDays"] }]
         }
@@ -71,6 +72,8 @@ public struct UIConfiguration: Sendable, Equatable {
     public var scheduledBackupPath: String?
     /// How many days daily backups are kept (`scheduledBackupDays`).
     public var scheduledBackupDays = 7
+    /// Whether the Status page says when a newer Homeswift is out (`ReleaseWatcher`, GitHub twice a day).
+    public var checkForUpdates = true
 
     public var scheme: String { https ? "https" : "http" }
 
@@ -99,6 +102,10 @@ public struct UIConfiguration: Sendable, Equatable {
         if let https = block["https"], !https.isNull {
             guard let value = https.boolValue else { throw UIConfigurationError.invalid(key: "https", expected: "true or false") }
             self.https = value
+        }
+        if let check = block["checkForUpdates"], !check.isNull {
+            guard let value = check.boolValue else { throw UIConfigurationError.invalid(key: "checkForUpdates", expected: "true or false") }
+            checkForUpdates = value
         }
         certificate = block["certificate"]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty
         privateKey = block["privateKey"]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty

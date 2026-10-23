@@ -531,7 +531,7 @@ enum WebAssets {
 (() => {
   "use strict";
 
-  const { $, el, tile, sparkle, menuButton, copyText, jsonEditor, jsonView, fact, setPaused, slug, withSlugs } = HomeswiftCommon;
+  const { $, el, tile, sparkle, menuButton, copyText, markdown, jsonEditor, jsonView, fact, setPaused, slug, withSlugs } = HomeswiftCommon;
 
   const show = (main, ...nodes) => main.replaceChildren(...nodes.flat().filter(Boolean));
 
@@ -844,6 +844,7 @@ enum WebAssets {
           el("h1", { text: "Homeswift" }),
           el("p", { class: `health ${healthKind}`, text: health }),
           el("p", { class: "muted", text: `Version ${status.version} · ${status.system.hostname}` }))),
+      updateCard(status.update),
       el("div", { class: "stats" },
         el("div", { class: "stat" }, el("b", { text: status.bridges.reduce((sum, bridge) => sum + bridge.accessories, 0) }), el("span", { text: "Accessories" })),
         el("div", { class: "stat" }, el("b", { text: plugins.size }), el("span", { text: plugins.size === 1 ? "Plugin" : "Plugins" })),
@@ -979,6 +980,33 @@ enum WebAssets {
 
     api("/api/assistant/digest").then((digest) => (digest && digest.text ? shown(digest) : offer())).catch((e) => body.replaceChildren(el("p", { class: "error", text: e.message })));
     return card;
+  }
+
+  /// A newer release, when the bridge found one (ReleaseWatcher): how to get it on this install, the package to
+  /// download on a NAS or the command to run, and its notes.
+  function updateCard(update) {
+    if (!update?.available) return null;
+    const published = update.publishedAt ? ` · released ${new Date(update.publishedAt).toLocaleDateString()}` : "";
+    let command = null;
+    if (update.command) {
+      const copy = el("button", { type: "button", text: "Copy", onclick: async () => {
+        try { await copyText(update.command); copy.textContent = "Copied"; } catch { copy.textContent = "Not copied"; }
+        setTimeout(() => { copy.textContent = "Copy"; }, 1800);
+      } });
+      command = el("div", { class: "update-command" }, el("code", { text: update.command }), copy);
+    }
+    return el("div", { class: "card update-card" },
+      el("div", { class: "server-head" },
+        tile("update", "green"),
+        el("div", { class: "who" },
+          el("strong", { text: `Homeswift ${update.latest} is available` }),
+          el("div", { class: "muted", text: `This is ${update.current}${published}` }))),
+      el("p", { text: update.how }),
+      command,
+      el("div", { class: "actions" },
+        update.download ? el("a", { class: "button primary", href: update.download.url, rel: "noopener", title: update.download.name, text: "Download the package" }) : null,
+        el("a", { class: "button", href: update.url, target: "_blank", rel: "noopener", text: "On GitHub" })),
+      update.notes ? el("details", { class: "more-options" }, el("summary", { text: "What's new" }), markdown(update.notes)) : null);
   }
 
   /// The Status page's charts: the process's memory and CPU, and how long the Home app's requests and the plugins'
@@ -3564,6 +3592,7 @@ enum WebAssets {
 
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   const phone = matchMedia("(max-width: 640px)");
+  const touch = matchMedia("(pointer: coarse)");
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   // ---- A spring, after Apple's damping ratio and response (no mass, stiffness, damping to tune) ----------
@@ -3664,7 +3693,24 @@ enum WebAssets {
     });
     if (Recognition) setUpMic();
     setUpDrag();
+    setUpKeyboard();
     renderControls();
+  }
+
+  /// Safari keeps the layout viewport, and so a fixed sheet's bottom, under the on-screen keyboard: the phone
+  /// sheet sits on the keyboard instead (`--keyboard`, what it covers) and fits in what is left above it.
+  function setUpKeyboard() {
+    const view = window.visualViewport;
+    if (!view) return;
+    const fit = () => {
+      const covered = phone.matches ? Math.max(0, Math.round(window.innerHeight - view.height - view.offsetTop)) : 0;
+      panel.sheet.style.setProperty("--keyboard", `${covered}px`);
+      panel.sheet.style.setProperty("--visible", `${Math.round(view.height)}px`);
+      panel.sheet.classList.toggle("keyboard", covered > 80);
+    };
+    view.addEventListener("resize", fit);
+    view.addEventListener("scroll", fit);
+    fit();
   }
 
   /// The text field grows with what is typed, up to a few lines.
@@ -3704,7 +3750,8 @@ enum WebAssets {
       scrim.hidden = !phone.matches;
       if (openness.value === 0) draw(0);
       load();
-      setTimeout(() => panel.input.focus({ preventScroll: true }), 50);
+      // A touch screen keeps its keyboard down until the field is tapped: up at once, it would cover the sheet.
+      if (!touch.matches) setTimeout(() => panel.input.focus({ preventScroll: true }), 50);
     } else if (listening) {
       stopListening(true);
     }
@@ -4238,6 +4285,7 @@ enum WebAssets {
     open: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
     edit: '<path d="M12 20h8M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
     inputs: '<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/>',
+    update: '<path d="M12 3.5v11"/><path d="m7.5 10 4.5 4.5 4.5-4.5"/><path d="M5 20.5h14"/>',
     camera: '<rect x="2.5" y="6" width="13.5" height="12" rx="2.5"/><path d="m16 10.5 5.5-3.5v10L16 13.5"/>',
     identify: '<circle cx="12" cy="12" r="2.5"/><path d="M7.5 7.5a6.4 6.4 0 0 0 0 9M16.5 7.5a6.4 6.4 0 0 1 0 9"/>',
     room: '<path d="M4 21V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v16M2 21h20M15 12h.01"/>',
@@ -6120,7 +6168,7 @@ button, a.button {
 a.button { display: inline-block; text-decoration: none; line-height: normal; }
 button:hover, a.button:hover { transform: translateY(-1px); }
 button:active:not(:disabled), a.button:active { transform: scale(0.97); transition-duration: 80ms; }
-button.primary { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); border-color: rgba(255, 255, 255, 0.4); box-shadow: 0 8px 20px rgba(255, 122, 26, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
+button.primary, a.button.primary { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); border-color: rgba(255, 255, 255, 0.4); box-shadow: 0 8px 20px rgba(255, 122, 26, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
 button.link { border: 0; background: none; box-shadow: none; color: var(--accent); padding: 4px 6px; }
 button.link:hover { transform: none; }
 button.link:active:not(:disabled) { transform: none; opacity: 0.6; }
@@ -6373,6 +6421,13 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .wall { --unit: min(160px, calc((100cqw - var(--unit-gap)) / 2)); display: grid; grid-template-columns: repeat(auto-fill, var(--unit)); grid-auto-rows: var(--unit);
   grid-auto-flow: row dense; gap: var(--unit-gap); }
 .wall > .widget { width: auto; height: auto; }
+/* A phone: two columns that fill the width. */
+@container (max-width: 520px) { .wall { --unit: calc((100cqw - var(--unit-gap)) / 2); } }
+/* The Accessories page's tools on a phone: the search on a line of its own. */
+@media (max-width: 600px) {
+  .page-head .tools:has(> .search) { flex-wrap: wrap; width: 100%; }
+  .page-head .tools > .search { flex: 1 1 100%; width: 100%; }
+}
 .wall > .size-medium { grid-column: span 2; }
 .wall > .size-large { grid-column: span 2; grid-row: span 2; }
 /* A control a widget hides (Close while the door is closed) stays hidden whatever its display. */
@@ -6404,26 +6459,30 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .w-body > * { flex-shrink: 0; }
 .widget:not(.widget-full) .seg > button { white-space: nowrap; padding-inline: 2px; }
 .size-medium .w-body { padding-right: 26px; overflow: hidden; justify-content: safe center; }
-.size-medium .swatches { gap: 6px; flex-wrap: nowrap; }
-.widget.size-medium .swatch { width: 24px; height: 24px; }
+/* A medium light's swatches on one line, as large as the line allows for the eight colours and the sun. */
+.size-medium .swatches { gap: 5px; flex-wrap: nowrap; }
+.widget.size-medium .swatch { width: min(28px, calc((100% - 40px) / 9)); height: auto; aspect-ratio: 1; }
 .size-large .w-body { justify-content: flex-start; overflow-y: auto; scrollbar-width: none; }
 .size-large .w-body > :last-child { margin-right: 26px; }
 /* A large box's chips on one line, swiped sideways when there are more than fit. */
 .widget.size-large .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 2px; margin: -2px; }
 .widget.size-large .chips > * { flex: none; }
 .head-only { justify-content: center; }
-/* A phone: two columns that fill the width. */
-@container (max-width: 520px) { .wall { --unit: calc((100cqw - var(--unit-gap)) / 2); } }
-/* The Accessories page's tools on a phone: the search on a line of its own. */
-@media (max-width: 600px) {
-  .page-head .tools:has(> .search) { flex-wrap: wrap; width: 100%; }
-  .page-head .tools > .search { flex: 1 1 100%; width: 100%; }
-}
 .powered-off .w-body, .powered-off .w-main { opacity: 0.55; transition: opacity var(--normal) var(--ease-out); }
 /* The menu at the bottom right of the box, over its content's corner. */
 .w-corner { position: absolute; right: 6px; bottom: 6px; z-index: 2; }
 .widget:not(.widget-full) .menu-button { width: 28px; height: 28px; background: none; border-color: transparent; box-shadow: none; color: inherit; }
 .widget:not(.widget-full) .menu-button svg { width: 16px; height: 16px; }
+/* A phone holds every button to 40px tall (the phone rules below); a widget's own controls keep their shapes,
+   a swatch round, a step a bar, the corner's glyph 28px, its hit area grown under a finger instead. */
+.widget .swatch, .widget .steps > button, .widget .seg > button, .widget .round, .widget .w-hit, .widget:not(.widget-full) .menu-button, .edit-bar button { min-height: 0; }
+.widget .swatch { flex: none; }
+.widget button { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+@media (pointer: coarse) {
+  .widget:not(.widget-full) .menu-button { position: relative; }
+  .widget:not(.widget-full) .menu-button::after { content: ""; position: absolute; inset: -8px; }
+  .edit-bar button { min-width: 36px; height: 36px; }
+}
 
 /* Small: a tap anywhere acts (or a hold confirms); the whole tile lights up when on, as the Home app's do. */
 .size-small.on { background-color: var(--tile-on); background-image: none; color: var(--tile-on-text); }
@@ -6446,6 +6505,16 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 /* Held to confirm: a fill crosses the tile; let go early and it goes back. */
 .w-veil { position: absolute; inset: 0; z-index: 0; pointer-events: none; background: color-mix(in srgb, var(--warn) 30%, transparent); clip-path: inset(0 100% 0 0); transition: clip-path 200ms var(--ease-out); }
 .holding > .w-veil { clip-path: inset(0 0 0 0); transition: clip-path 900ms linear; }
+/* A shutter's tile slid: the shade follows the pointer one to one; held on a phone, it lifts a little first. */
+.size-small.sliding > .w-shade { transition: none; }
+.size-small.slide-ready, .size-small.sliding { transform: scale(1.02); box-shadow: var(--shadow-thick); }
+.widget-cover.size-small > .w-hit { cursor: ns-resize; user-select: none; -webkit-user-select: none; }
+
+/* A paused plugin's accessory: quiet and striped, its controls out of reach; the menu stays to resume it. */
+.widget.paused { background-image: repeating-linear-gradient(135deg, transparent 0 10px, color-mix(in srgb, var(--muted) 9%, transparent) 10px 20px); }
+.widget.paused > :not(.w-corner):not(.w-bottom):not(.w-head), .widget.paused .w-bottom .who, .widget.paused .w-head > .tile, .widget.paused .w-head > .switch { opacity: 0.45; filter: grayscale(1); }
+.widget.paused.size-small.on { background-color: var(--material); color: var(--text); }
+.widget.paused .w-hit { cursor: default; }
 
 /* Medium and large bodies */
 .w-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; min-height: 32px; }
@@ -6467,6 +6536,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .light-large > .level.vertical { width: 96px; flex: none; }
 .light-tall { display: flex; flex-direction: column; gap: 8px; flex: none; width: 96px; }
 .light-tall > .level { flex: 1; }
+.light-tall > .adaptive-chip { justify-content: center; }
 .light-colours { flex: 1; display: grid; align-content: center; gap: 12px; min-width: 0; }
 .cover-large > .level.vertical { width: 112px; flex: none; border-radius: 14px; }
 .cover-buttons { display: grid; align-content: center; gap: 10px; flex: 1; min-width: 0; }
@@ -6485,16 +6555,6 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .switch.big span::before { width: 28px; height: 28px; }
 .switch.big input:checked + span::before { transform: translateX(26px); }
 
-/* A shutter's tile slid: the shade follows the pointer one to one; held on a phone, it lifts a little first. */
-.size-small.sliding > .w-shade { transition: none; }
-.size-small.slide-ready, .size-small.sliding { transform: scale(1.02); box-shadow: var(--shadow-thick); }
-.widget-cover.size-small > .w-hit { cursor: ns-resize; user-select: none; -webkit-user-select: none; }
-
-/* A paused plugin's accessory: quiet and striped, its controls out of reach; the menu stays to resume it. */
-.widget.paused { background-image: repeating-linear-gradient(135deg, transparent 0 10px, color-mix(in srgb, var(--muted) 9%, transparent) 10px 20px); }
-.widget.paused > :not(.w-corner):not(.w-bottom):not(.w-head), .widget.paused .w-bottom .who, .widget.paused .w-head > .tile, .widget.paused .w-head > .switch { opacity: 0.45; filter: grayscale(1); }
-.widget.paused.size-small.on { background-color: var(--material); color: var(--text); }
-.widget.paused .w-hit { cursor: default; }
 /* A camera on the wall: its picture fills the box. */
 .widget.camera-tile { padding: 0; }
 .camera-tile .camera-view { position: absolute; inset: 0; margin: 0; aspect-ratio: auto; border-radius: inherit; }
@@ -6504,19 +6564,27 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .camera-tile .w-hit { z-index: 1; }
 
 /* The sheet: every control of one accessory, over the dimmed page. */
-.widget-sheet { width: min(600px, calc(100vw - 24px)); max-height: calc(100vh - 32px); padding: 0; border: 0; background: none; color: inherit; overflow: visible; }
+.widget-sheet { width: min(600px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); padding: 0; border: 0; background: none; color: inherit; overflow: visible; }
 .widget-sheet::backdrop { background: rgba(15, 18, 24, 0.35); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 .widget-sheet[open] { animation: materialize var(--normal) var(--ease-out); }
 .sheet-bar { display: flex; justify-content: flex-end; padding: 0 6px 8px; }
 .sheet-bar .link { color: #fff; font-weight: 600; }
-.widget-sheet .widget-full { margin: 0; max-height: calc(100vh - 90px); overflow-y: auto; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35); }
+.widget-sheet .widget-full { margin: 0; max-height: calc(100dvh - 90px); overflow-y: auto; overscroll-behavior: contain; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35); }
+/* On a phone, a sheet rising from the bottom edge, within the thumb's reach, its last control above the home
+   indicator. */
+@media (max-width: 640px) {
+  .widget-sheet { width: 100%; max-width: none; margin: auto 0 0; max-height: calc(100dvh - max(12px, env(safe-area-inset-top))); }
+  .widget-sheet[open] { animation: sheet-up 340ms cubic-bezier(0.32, 0.72, 0, 1); }
+  .widget-sheet .widget-full { max-height: calc(100dvh - max(12px, env(safe-area-inset-top)) - 44px); border-radius: 26px 26px 0 0; border-bottom: 0; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .sheet-bar { padding: 0 14px 8px; }
+}
+@keyframes sheet-up { from { transform: translateY(100%); } }
 .w-main, .w-side { display: grid; gap: 14px; align-content: start; min-width: 0; }
 .w-split { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 20px; align-items: start; }
 @media (max-width: 640px) { .w-split { grid-template-columns: minmax(0, 1fr); } }
 .w-block { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
 .w-main > .w-block:first-child, .w-side > .w-block:first-child { border-top: 0; padding-top: 0; }
 .w-block-body { display: grid; gap: 10px; }
-.light-tall > .adaptive-chip { justify-content: center; }
 
 /* Edit: each widget shows its sizes and arrows; the widget itself rests, and drags into place. */
 .wall.editing > .widget { cursor: grab; }
@@ -6623,6 +6691,13 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget .chip[aria-pressed="true"] { background: var(--accent); border-color: transparent; color: var(--accent-text); }
 .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
 .swatches.grid { display: grid; grid-template-columns: repeat(4, 30px); gap: 10px; }
+/* Adaptive Lighting: the day's whites, a sun on them; dimmed until the Home app has sent a schedule to resume. */
+.widget .swatch.adaptive { display: grid; place-items: center; color: #5c3b00; background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); }
+.widget .swatch.adaptive svg, .widget .round.adaptive svg, .adaptive-chip svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.size-medium .swatch.adaptive svg { width: 13px; height: 13px; }
+.widget .round.adaptive[aria-pressed="true"] { background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); color: #5c3b00; border-color: transparent; }
+.widget .adaptive-chip { display: inline-flex; align-items: center; gap: 6px; }
+.widget .adaptive.unset { opacity: 0.55; }
 .widget .swatch { width: 30px; height: 30px; padding: 0; border-radius: 50%; background: var(--swatch); border: 2px solid var(--edge); }
 .widget .swatch[aria-checked="true"] { outline: 2px solid var(--text); outline-offset: 1px; }
 /* Room for that ring: a box that clips (a fixed widget's body) would cut it. */
@@ -6664,13 +6739,6 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .server.editor { grid-column: 1 / -1; gap: 18px; }
 .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 4px 18px; align-items: start; }
 .fields > fieldset, .fields > .group-box { grid-column: 1 / -1; }
-/* Adaptive Lighting: the day's whites, a sun on them; dimmed until the Home app has sent a schedule to resume. */
-.widget .swatch.adaptive { display: grid; place-items: center; color: #5c3b00; background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); }
-.widget .swatch.adaptive svg, .widget .round.adaptive svg, .adaptive-chip svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-.size-medium .swatch.adaptive svg { width: 13px; height: 13px; }
-.widget .round.adaptive[aria-pressed="true"] { background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); color: #5c3b00; border-color: transparent; }
-.widget .adaptive-chip { display: inline-flex; align-items: center; gap: 6px; }
-.widget .adaptive.unset { opacity: 0.55; }
 .field { margin: 10px 0 4px; }
 .field-title { display: block; font-weight: 500; margin-bottom: 6px; }
 .field > input, .field > select { margin-top: 0; }
@@ -6746,6 +6814,14 @@ textarea.short { min-height: 220px; }
 .hero .logo.large { margin: 0; }
 .hero h1 { margin: 0 0 2px; }
 .hero p { margin: 0; }
+/* A newer release, under the summary: how to upgrade this install, its command with Copy, the notes folded. */
+.update-card { margin-top: 14px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.update-card > p { margin: 0; }
+.update-card .actions { margin-top: 0; flex-wrap: wrap; }
+.update-command { display: flex; align-items: center; gap: 8px; padding: 5px 5px 5px 14px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); }
+.update-command code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font: 0.8125rem/1.5 var(--mono); scrollbar-width: none; }
+.update-command button { flex: none; padding: 5px 12px; font-size: 0.8125rem; }
+.update-card details.more-options { margin: 0; }
 .who { flex: 1; min-width: 0; }
 .health { font-weight: 500; display: flex; align-items: center; gap: 8px; }
 .health::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
@@ -7071,8 +7147,17 @@ dd { margin: 0; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 @media (max-width: 640px) {
-  .chat { top: auto; bottom: 0; left: 0; right: 0; width: auto; height: min(88dvh, 780px); transform-origin: bottom center; }
+  .chat {
+    top: auto; bottom: var(--keyboard, 0px); left: 0; right: 0; width: auto; transform-origin: bottom center;
+    height: min(88dvh, 780px, calc(var(--visible, 100dvh) - max(12px, env(safe-area-inset-top))));
+  }
   .chat-surface { border-radius: 26px 26px 0 0; padding-bottom: env(safe-area-inset-bottom); border-bottom: 0; }
+  /* On the keyboard: no home indicator to clear, and the voice line and the provider's note give the log room. */
+  .chat.keyboard .chat-surface { padding-bottom: 0; }
+  .chat.keyboard .chat-voice, .chat.keyboard .chat-foot:empty { display: none; }
+  .chat.keyboard .chat-foot { margin: 6px 16px 8px; }
+  /* 16px, or Safari zooms the page into the field and leaves it there. */
+  .chat-composer textarea, .chat .chat-voice select.popup { font-size: 16px; }
   .chat-glow { inset: -3px -3px 0; border-radius: 29px 29px 0 0; }
   .chat-grabber { display: block; position: absolute; top: 6px; left: 50%; width: 36px; height: 5px; border-radius: 3px; background: var(--line); transform: translateX(-50%); }
   .chat-head { padding-top: 20px; touch-action: none; cursor: grab; }
