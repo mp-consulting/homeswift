@@ -182,7 +182,7 @@ let main = Task {
     // The web UI's settings as last started, to fall back on when new ones cannot start.
     let uiConfiguration = NIOLockedValueBox(configuration)
     let catalog = HomeswiftCatalog(
-        host: host, logs: logBuffer, metrics: metrics, configURL: configURL, allowSecrets: ProcessInfo.processInfo.environment["HOMESWIFT_ALLOW_SECRETS"] == "true",
+        host: host, logs: logBuffer, metrics: metrics, configURL: configURL, allowSecrets: (ProcessInfo.processInfo.environment["HOMESWIFT_ALLOW_SECRETS"] ?? ProcessInfo.processInfo.environment["HOMEBRIDGE_ALLOW_SECRETS"]) == "true",
         restart: { Task.detached { await shutdown(); Restart.exec() } },
         reloadServices: { [mcpServer, uiServer] next, platforms in
             guard let catalog = catalogBox.withLockedValue({ $0 }) else { return }
