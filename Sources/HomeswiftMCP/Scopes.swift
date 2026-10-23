@@ -51,6 +51,8 @@ public struct MCPConfiguration: Sendable, Equatable {
 
     public static let defaultPort = 8582
     public static let defaultHost = "127.0.0.1"
+    public static let defaultMaxSessions = 32
+    public static let defaultSessionIdleMinutes = 30
 
     public var enabled = false
     public var host = defaultHost
@@ -66,12 +68,25 @@ public struct MCPConfiguration: Sendable, Equatable {
     /// Log every write tool call to a JSONL file.
     public var auditLog = true
     public var auditLogPath: String?
+    /// Sessions at once; a new one ends the least recently used idle session.
+    public var maxSessions = defaultMaxSessions
+    /// A session idle this long ends.
+    public var sessionIdleMinutes = defaultSessionIdleMinutes
 
     public init() {}
 
-    /// Reads the `mcp.http` object of a `HomeswiftAiKit` block (or a whole block). Unknown scopes and bad
-    /// numbers throw; client rows without a token are skipped.
+    /// Reads the `mcp.http` object of a `HomeswiftAiKit` block (or a whole block), then the environment's
+    /// overrides (`applyEnvironment`). Unknown scopes and bad numbers throw; client rows without a token are skipped.
     public init(block: JSONValue) throws {
+        try self.init(block: block, environment: ProcessInfo.processInfo.environment)
+    }
+
+    public init(block: JSONValue, environment: [String: String]) throws {
+        try self.init(parsing: block)
+        try applyEnvironment(environment)
+    }
+
+    private init(parsing block: JSONValue) throws {
         let http = block["mcp"]?["http"] ?? block["http"] ?? [:]
         func string(_ key: String) -> String? { http[key]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty }
         enabled = http["enabled"] == .bool(true)
@@ -84,6 +99,11 @@ public struct MCPConfiguration: Sendable, Equatable {
         readOnly = http["readOnly"] == .bool(true)
         auditLog = http["auditLog"] != .bool(false)
         auditLogPath = string("auditLogPath")
+        for (key, keyPath) in [("maxSessions", \MCPConfiguration.maxSessions), ("sessionIdleMinutes", \MCPConfiguration.sessionIdleMinutes)] {
+            guard let value = http[key], !value.isNull else { continue }
+            guard let number = value.intValue, number >= 1 else { throw MCPConfigurationError.invalid(key: "mcp.http.\(key)", expected: "a whole number from 1") }
+            self[keyPath: keyPath] = number
+        }
         if let origins = http["allowedOrigins"] {
             if let list = origins.arrayValue {
                 allowedOrigins = list.compactMap { $0.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty }
@@ -102,6 +122,59 @@ public struct MCPConfiguration: Sendable, Equatable {
     }
 
     public var hasTokens: Bool { token != nil || !clients.isEmpty }
+
+    /// The environment names `homebridge-ai-kit` reads, each under a `HOMESWIFT_` name that wins over it.
+    public static let environmentNames: [(homeswift: String, homebridge: String)] = [
+        ("HOMESWIFT_MCP_MAX_SESSIONS", "HOMEBRIDGE_AI_MCP_MAX_SESSIONS"),
+        ("HOMESWIFT_MCP_SESSION_IDLE_MINUTES", "HOMEBRIDGE_AI_MCP_SESSION_IDLE_MINUTES"),
+        ("HOMESWIFT_READ_ONLY", "HOMEBRIDGE_READ_ONLY"),
+        ("HOMESWIFT_MCP_TOKENS", "HOMEBRIDGE_AI_MCP_TOKENS"),
+        ("HOMESWIFT_MCP_ALLOWED_ORIGINS", "HOMEBRIDGE_AI_MCP_ALLOWED_ORIGINS"),
+        ("HOMESWIFT_MCP_AUDIT_LOG", "HOMEBRIDGE_AI_AUDIT_LOG"),
+    ]
+
+    /// Overrides from the environment, over config.json: the session cap and idle minutes, read-only
+    /// (`1`/`true`/`yes`/`on` or `0`/`false`/`no`/`off`), more tokens as `scope:token` pairs separated by
+    /// commas (`read:abc,control:def`; added to the block's clients), allowed origins separated by commas,
+    /// and the audit log's path.
+    public mutating func applyEnvironment(_ environment: [String: String]) throws {
+        func value(_ index: Int) -> (name: String, text: String)? {
+            let (own, upstream) = Self.environmentNames[index]
+            for name in [own, upstream] {
+                if let text = environment[name]?.trimmingCharacters(in: .whitespaces), !text.isEmpty { return (name, text) }
+            }
+            return nil
+        }
+        func positive(_ index: Int) throws -> Int? {
+            guard let (name, text) = value(index) else { return nil }
+            guard let number = Int(text), number >= 1 else { throw MCPConfigurationError.invalid(key: name, expected: "a whole number from 1") }
+            return number
+        }
+        if let number = try positive(0) { maxSessions = number }
+        if let number = try positive(1) { sessionIdleMinutes = number }
+        if let (name, text) = value(2) {
+            switch text.lowercased() {
+            case "1", "true", "yes", "on": readOnly = true
+            case "0", "false", "no", "off": readOnly = false
+            default: throw MCPConfigurationError.invalid(key: name, expected: "true or false")
+            }
+        }
+        if let (name, text) = value(3) {
+            for (index, entry) in text.split(separator: ",").map({ $0.trimmingCharacters(in: .whitespaces) }).filter({ !$0.isEmpty }).enumerated() {
+                guard let colon = entry.firstIndex(of: ":"), let scope = Scope(rawValue: String(entry[..<colon])), entry.index(after: colon) < entry.endIndex else {
+                    throw MCPConfigurationError.invalid(key: "\(name) entry \(index + 1)", expected: "read:<token>, control:<token> or admin:<token>")
+                }
+                clients.append(Client(name: "\(scope.rawValue)-\(index + 1)", token: String(entry[entry.index(after: colon)...]), scope: scope))
+            }
+        }
+        if let (_, text) = value(4) {
+            allowedOrigins = text.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        }
+        if let (_, text) = value(5) {
+            auditLog = true
+            auditLogPath = text
+        }
+    }
 
     /// The audit log the block asks for (`auditLogPath`, else `homeswift-mcp-audit.jsonl` in the config
     /// directory), or nil with `auditLog: false`. The web UI's chat writes to the same one.

@@ -19,7 +19,11 @@ public final class MCPHTTPServer: Sendable {
         public var port: Int
         public var path = "/mcp"
         public var allowedOrigins: [String]
-        public var idleTimeout: Duration = .seconds(1800)
+        /// How long a session may sit idle; the configuration's `sessionIdleMinutes` when nil.
+        public var idleTimeout: Duration?
+        /// At most this many sessions: a new one ends the least recently used idle one, or is refused with 503
+        /// when all are busy. The configuration's `maxSessions` when nil.
+        public var maxSessions: Int?
         public var logger = Logger(label: "homeswift.mcp")
 
         public init(host: String = MCPConfiguration.defaultHost, port: Int = MCPConfiguration.defaultPort, allowedOrigins: [String] = []) {
@@ -48,6 +52,9 @@ public final class MCPHTTPServer: Sendable {
     /// The bound port, once started.
     public var port: Int? { channel.withLockedValue { $0?.localAddress?.port } }
 
+    public var idleTimeout: Duration { options.idleTimeout ?? .seconds(configuration.sessionIdleMinutes * 60) }
+    public var maxSessions: Int { max(1, options.maxSessions ?? configuration.maxSessions) }
+
     public func start() async throws {
         guard configuration.hasTokens else { throw MCPTransportError.noToken }
         let bootstrap = ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton)
@@ -62,11 +69,13 @@ public final class MCPHTTPServer: Sendable {
         let bound = try await bootstrap.bind(host: options.host, port: options.port).get()
         channel.withLockedValue { $0 = bound }
         let server = self.server
-        let timeout = options.idleTimeout
+        let timeout = idleTimeout
+        // Swept every minute, or twice per timeout when it is shorter.
+        let sweep = min(Duration.seconds(60), max(Duration.seconds(1), timeout / 2))
         expiry.withLockedValue {
             $0 = Task {
                 while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(60))
+                    try? await Task.sleep(for: sweep)
                     server.expireSessions(idleFor: timeout)
                 }
             }
@@ -179,7 +188,11 @@ public final class MCPHTTPServer: Sendable {
             guard messages.contains(where: { if case .request(_, "initialize", _) = $0 { true } else { false } }) else {
                 return .json(status: 400, body: Self.errorBody("Mcp-Session-Id is required; initialize first"))
             }
-            session = server.makeSession(principal: principal)
+            guard let created = server.makeSession(principal: principal, limit: maxSessions) else {
+                logger.warning("MCP session refused: every session is busy", metadata: ["limit": "\(maxSessions)", "remote": "\(request.remote)"])
+                return .json(status: 503, body: Self.errorBody("too many active sessions (at most \(maxSessions))"), headers: ["Retry-After": "5"])
+            }
+            session = created
         }
         let requests = messages.filter(\.isRequest)
         let acceptsEvents = (request.headers["accept"] ?? "").contains("text/event-stream")

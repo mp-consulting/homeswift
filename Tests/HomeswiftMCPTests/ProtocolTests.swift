@@ -392,7 +392,7 @@ struct ProtocolTests {
         #expect(one.contains("Lock Target State"))
         await #expect(throws: JSONRPCError.self) { try await client.call("resources/read", ["uri": "homeswift://accessory/none"]) }
         let templates = try await client.call("resources/templates/list")["resourceTemplates"]?.arrayValue?.compactMap { $0["uriTemplate"]?.stringValue } ?? []
-        #expect(templates == ["homeswift://accessory/{id}", "homeswift://plugin/{platform}"])
+        #expect(templates == ["homeswift://accessory/{id}", "homeswift://child-bridge/{id}", "homeswift://plugin/{platform}"])
         let completion = try await client.call("completion/complete", ["ref": ["type": "ref/resource", "uri": "homeswift://accessory/{id}"], "argument": ["name": "id", "value": "Devices:l"]])
         #expect(completion["completion"]?["values"] == ["Devices:lamp", "Devices:lock"])
 

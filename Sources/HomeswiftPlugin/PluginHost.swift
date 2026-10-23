@@ -47,6 +47,14 @@ public final class PluginHost: @unchecked Sendable {
         private let storedName: String
         // Accessory ids on this bridge and the platform instance that owns each.
         private let owners = NIOLockedValueBox<[String: (key: String, name: String)]>([:])
+        /// When it started, how often it was restarted, whether someone stopped it (`ChildBridges.swift`).
+        let lifecycle = NIOLockedValueBox(Lifecycle())
+
+        struct Lifecycle {
+            var startedAt: Date?
+            var restarts = 0
+            var stoppedManually = false
+        }
 
         init(name: String, server: HAPServer, isChild: Bool, isExternal: Bool = false, owner: String? = nil, ownerKey: String? = nil) {
             storedName = name
@@ -103,6 +111,8 @@ public final class PluginHost: @unchecked Sendable {
         let block: HomeswiftConfiguration.Platform
         let context: PluginContext
         let plugin = NIOLockedValueBox<(any HomeswiftPlugin)?>(nil)
+        /// Why its plugin did not start, the last time it was launched.
+        let failure = NIOLockedValueBox<String?>(nil)
 
         init(entry: PluginRegistry.Entry, block: HomeswiftConfiguration.Platform, context: PluginContext) {
             self.entry = entry
@@ -147,7 +157,7 @@ public final class PluginHost: @unchecked Sendable {
     // How long requests and handlers take on every server, for the Status page's charts.
     private let timings: TimingFeed
     // The tail of the reloads, so two quick saves apply one after the other.
-    private let reloadTail = NIOLockedValueBox<Task<Void, Never>?>(nil)
+    let reloadTail = NIOLockedValueBox<Task<Void, Never>?>(nil)
 
     /// Prepares the bridges and the plugins' contexts and restores the accessory caches. Nothing listens
     /// until `start()`.
@@ -202,6 +212,7 @@ public final class PluginHost: @unchecked Sendable {
     public func start() async throws {
         for bridge in bridges {
             try await bridge.server.start()
+            bridge.lifecycle.withLockedValue { $0.startedAt = Date() }
         }
         // From here on an external accessory a plugin publishes starts its server at once.
         externals.markRunning()
@@ -370,7 +381,10 @@ public final class PluginHost: @unchecked Sendable {
         do {
             instance = try makeInstance(block, entry: entry, taken: Set(instances.map(\.context.key)))
             if instance.context.bridge.isChild {
-                if externals.isRunning { try await instance.context.bridge.server.start() }
+                if externals.isRunning {
+                    try await instance.context.bridge.server.start()
+                    instance.context.bridge.lifecycle.withLockedValue { $0.startedAt = Date() }
+                }
                 appendBridge(instance.context.bridge)
             }
         } catch {
@@ -404,7 +418,7 @@ public final class PluginHost: @unchecked Sendable {
         }
     }
 
-    private func stopPlugin(_ instance: Instance) async {
+    func stopPlugin(_ instance: Instance) async {
         if let plugin = instance.plugin.withLockedValue({ $0 }) {
             await plugin.stop()
         }
@@ -464,8 +478,11 @@ public final class PluginHost: @unchecked Sendable {
             assistant: assistant, externals: externals, assistantBackground: assistantBackground)
     }
 
-    private func launch(_ instance: Instance, as verb: String = "Started") async {
+    func launch(_ instance: Instance, as verb: String = "Started") async {
         let context = instance.context
+        instance.failure.withLockedValue { $0 = nil }
+        // A child bridge someone stopped: its plugins wait for start_child_bridge.
+        if context.bridge.lifecycle.withLockedValue({ $0.stoppedManually }) { return }
         // A paused block: no plugin, so nothing reaches the devices; its accessories stay in HomeKit, answering
         // No Response, and come back as they were when it resumes.
         let paused = instance.block.paused
@@ -480,8 +497,10 @@ public final class PluginHost: @unchecked Sendable {
             try await plugin.start()
             context.logger.info("\(verb)", metadata: ["plugin": "\(instance.entry.name)", "bridge": "\(context.bridge.name)"])
         } catch let error as DecodingError {
+            instance.failure.withLockedValue { $0 = "invalid configuration: \(Self.describe(error))" }
             context.logger.error("Invalid configuration for platform \"\(context.platform)\": \(Self.describe(error))")
         } catch {
+            instance.failure.withLockedValue { $0 = "\(error)" }
             context.logger.error("Plugin failed to start: \(error)")
         }
     }
