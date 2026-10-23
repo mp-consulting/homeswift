@@ -88,6 +88,8 @@ public struct MQTTConfiguration: Sendable {
     public var keepAlive: Duration
     public var cleanSession: Bool
     public var will: MQTTMessage?
+    /// 3.1.1 by default; `.v5` speaks MQTT 5 (a persistent session, `cleanSession: false`, asks the broker to keep
+    /// it with no expiry, as 3.1.1 does).
     public var protocolVersion: MQTTProtocolVersion
     /// From the connection attempt to CONNACK.
     public var connectTimeout: Duration
@@ -140,9 +142,10 @@ public struct MQTTConfiguration: Sendable {
     }
 }
 
-/// An MQTT 3.1.1 client on NIO: TCP, TLS (client certificates, ALPN) and WebSocket; QoS 0 and 1 both ways
-/// (QoS 2 received), retained messages, a will, keep-alive, and automatic reconnection that renews the
-/// subscriptions.
+/// An MQTT 3.1.1 client on NIO (3.1 and 5 on request): TCP, TLS (client certificates, ALPN) and WebSocket; QoS 0
+/// and 1 both ways (QoS 2 received), retained messages, a will, keep-alive, and automatic reconnection that renews
+/// the subscriptions. With MQTT 5 it reads the reason codes (refused connections, subscriptions and publishes, a
+/// DISCONNECT from the broker) and follows the broker's Server Keep Alive; it sends no topic aliases.
 ///
 /// ```swift
 /// var configuration = MQTTConfiguration(transport: .tcp(host: "192.168.1.20"), clientID: "homeswift-\(serial)",
@@ -167,7 +170,7 @@ public actor MQTTClient: MQTTConnection {
     private var parser = MQTTPacketParser()
     private var nextPacketID: UInt16 = 0
     private var pending: [UInt16: CheckedContinuation<MQTTPacket, any Error>] = [:]
-    private var connack: CheckedContinuation<Bool, any Error>?
+    private var connack: CheckedContinuation<(sessionPresent: Bool, serverKeepAlive: UInt16?), any Error>?
     private var subscriptions: [MQTTSubscription] = []
     /// QoS 2 messages received but not yet released, delivered once.
     private var inboundQoS2: Set<UInt16> = []
@@ -183,8 +186,10 @@ public actor MQTTClient: MQTTConnection {
     public init(_ configuration: MQTTConfiguration, group: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton) {
         self.configuration = configuration
         self.group = group
-        parser = MQTTPacketParser(limit: configuration.maximumPacketSize)
+        parser = MQTTPacketParser(limit: configuration.maximumPacketSize, version: configuration.protocolVersion)
     }
+
+    private nonisolated var version: MQTTProtocolVersion { configuration.protocolVersion }
 
     public nonisolated var messages: AsyncStream<MQTTMessage> { messageBroadcast.stream() }
     public nonisolated var states: AsyncStream<MQTTConnectionState> { stateBroadcast.stream() }
@@ -224,7 +229,7 @@ public actor MQTTClient: MQTTConnection {
         inFlight = nil
         generation += 1
         let transport = transport
-        if connected { try? await transport?.send(MQTTPacket.disconnect.encode()) }
+        if connected { try? await transport?.send(MQTTPacket.disconnect().encode(version: version)) }
         tearDown(error: MQTTError.notConnected)
         await transport?.close()
         stateBroadcast.yield(.disconnected)
@@ -248,13 +253,15 @@ public actor MQTTClient: MQTTConnection {
         guard connected, let transport else { throw MQTTError.notConnected }
         switch message.qos {
         case .atMostOnce:
-            try await transport.send(MQTTPacket.publish(message, packetID: nil, duplicate: false).encode())
+            try await transport.send(MQTTPacket.publish(message, packetID: nil, duplicate: false).encode(version: version))
         case .atLeastOnce, .exactlyOnce:
             // QoS 2 is sent as QoS 1: the devices this is for never need exactly-once delivery from the client.
             var message = message
             message.qos = .atLeastOnce
             let id = allocatePacketID()
-            _ = try await request(.publish(message, packetID: id, duplicate: false), id: id)
+            if case .puback(_, let code) = try await request(.publish(message, packetID: id, duplicate: false), id: id), code >= 0x80 {
+                throw MQTTError.publishRefused(topic: message.topic, reasonCode: code)
+            }
         }
     }
 
@@ -292,7 +299,7 @@ public actor MQTTClient: MQTTConnection {
             throw MQTTError.notConnected
         }
         self.transport = transport
-        parser = MQTTPacketParser(limit: configuration.maximumPacketSize)
+        parser = MQTTPacketParser(limit: configuration.maximumPacketSize, version: configuration.protocolVersion)
         lastReceived = .now
         let incoming = transport.incoming
         readTask = Task { [weak self] in
@@ -309,23 +316,29 @@ public actor MQTTClient: MQTTConnection {
         }
 
         let keepAlive = UInt16(clamping: max(configuration.keepAlive == .zero ? 0 : 1, Int(configuration.keepAlive.components.seconds)))
-        let connect = MQTTConnect(
+        var connect = MQTTConnect(
             version: configuration.protocolVersion, clientID: configuration.clientID, username: configuration.username,
             password: configuration.password, keepAlive: keepAlive, cleanSession: configuration.cleanSession, will: configuration.will
         )
+        if configuration.protocolVersion == .v5 {
+            // A 3.1.1 persistent session outlives the connection; in MQTT 5 that takes a Session Expiry Interval.
+            if !configuration.cleanSession { connect.properties.entries.append((MQTTProperties.sessionExpiryInterval, .uint32(.max))) }
+            connect.properties.entries.append((MQTTProperties.maximumPacketSize, .uint32(UInt32(clamping: configuration.maximumPacketSize))))
+        }
+        let connectBytes = MQTTPacket.connect(connect).encode()
         let timeout = configuration.connectTimeout
         let timer = Task { [weak self] in
             try? await Task.sleep(for: timeout)
             if !Task.isCancelled { await self?.connackTimedOut(generation: generation) }
         }
         defer { timer.cancel() }
-        let sessionPresent: Bool
+        let accepted: (sessionPresent: Bool, serverKeepAlive: UInt16?)
         do {
-            sessionPresent = try await withCheckedThrowingContinuation { continuation in
+            accepted = try await withCheckedThrowingContinuation { continuation in
                 connack = continuation
                 Task { [weak self] in
                     do {
-                        try await transport.send(MQTTPacket.connect(connect).encode())
+                        try await transport.send(connectBytes)
                     } catch {
                         await self?.connectionLost(generation: generation, error: error)
                     }
@@ -346,8 +359,9 @@ public actor MQTTClient: MQTTConnection {
             throw MQTTError.connectionLost
         }
         connected = true
-        stateBroadcast.yield(.connected(sessionPresent: sessionPresent))
-        startKeepAlive(generation: generation)
+        stateBroadcast.yield(.connected(sessionPresent: accepted.sessionPresent))
+        // MQTT 5: the broker may impose its own keep-alive, which then replaces the one sent.
+        startKeepAlive(generation: generation, interval: accepted.serverKeepAlive.map { .seconds(Int($0)) } ?? configuration.keepAlive)
         if !subscriptions.isEmpty {
             // Renewed in one SUBSCRIBE: the broker forgot them with a clean session, and renewing is harmless otherwise.
             try? await sendSubscribe(subscriptions)
@@ -356,8 +370,9 @@ public actor MQTTClient: MQTTConnection {
 
     private func sendSubscribe(_ subscriptions: [MQTTSubscription]) async throws {
         let id = allocatePacketID()
-        guard case .suback(_, let codes) = try await request(.subscribe(packetID: id, subscriptions), id: id) else { return }
-        for (subscription, code) in zip(subscriptions, codes) where code == 0x80 {
+        guard case .suback(_, let codes, _) = try await request(.subscribe(packetID: id, subscriptions), id: id) else { return }
+        // 0x80 in 3.1.1; any reason code from 0x80 in MQTT 5.
+        for (subscription, code) in zip(subscriptions, codes) where code >= 0x80 {
             self.subscriptions.removeAll { $0.topic == subscription.topic }
             throw MQTTError.subscriptionRefused(topic: subscription.topic)
         }
@@ -367,11 +382,12 @@ public actor MQTTClient: MQTTConnection {
     private func request(_ packet: MQTTPacket, id: UInt16) async throws -> MQTTPacket {
         guard let transport else { throw MQTTError.notConnected }
         let generation = generation
+        let bytes = packet.encode(version: version)
         return try await withCheckedThrowingContinuation { continuation in
             pending[id] = continuation
             Task { [weak self] in
                 do {
-                    try await transport.send(packet.encode())
+                    try await transport.send(bytes)
                 } catch {
                     await self?.connectionLost(generation: generation, error: error)
                 }
@@ -401,46 +417,49 @@ public actor MQTTClient: MQTTConnection {
 
     private func handle(_ packet: MQTTPacket) async throws {
         switch packet {
-        case .connack(let sessionPresent, let code):
+        case .connack(let sessionPresent, let code, let properties):
             let continuation = connack
             connack = nil
             if code == 0 {
-                continuation?.resume(returning: sessionPresent)
+                continuation?.resume(returning: (sessionPresent, properties.uint16(MQTTProperties.serverKeepAlive)))
             } else {
                 continuation?.resume(throwing: MQTTError.connectionRefused(code: code))
             }
-        case .publish(let message, let id, _):
+        case .publish(let message, let id, _, _):
             switch message.qos {
             case .atMostOnce:
                 messageBroadcast.yield(message)
             case .atLeastOnce:
                 messageBroadcast.yield(message)
-                if let id { try await transport?.send(MQTTPacket.puback(id).encode()) }
+                if let id { try await transport?.send(MQTTPacket.puback(id).encode(version: version)) }
             case .exactlyOnce:
                 guard let id else { return }
                 if inboundQoS2.insert(id).inserted { messageBroadcast.yield(message) }
-                try await transport?.send(MQTTPacket.pubrec(id).encode())
+                try await transport?.send(MQTTPacket.pubrec(id).encode(version: version))
             }
         case .pubrel(let id):
             inboundQoS2.remove(id)
-            try await transport?.send(MQTTPacket.pubcomp(id).encode())
-        case .puback(let id), .unsuback(let id), .pubcomp(let id):
+            try await transport?.send(MQTTPacket.pubcomp(id).encode(version: version))
+        case .puback(let id, _), .unsuback(let id, _), .pubcomp(let id):
             pending.removeValue(forKey: id)?.resume(returning: packet)
-        case .suback(let id, _):
+        case .suback(let id, _, _):
             pending.removeValue(forKey: id)?.resume(returning: packet)
         case .pubrec(let id):
-            try await transport?.send(MQTTPacket.pubrel(id).encode())
+            try await transport?.send(MQTTPacket.pubrel(id).encode(version: version))
         case .pingresp:
             break
+        case .disconnect(let code, let properties) where version == .v5:
+            // MQTT 5 brokers say why they close (session taken over, shutting down…); reconnection follows as usual.
+            throw MQTTError.disconnectedByBroker(reasonCode: code, reason: properties.string(MQTTProperties.reasonString))
         case .connect, .subscribe, .unsubscribe, .pingreq, .disconnect:
             throw MQTTError.protocolError("unexpected packet from the broker")
         }
     }
 
-    private func startKeepAlive(generation: Int) {
+    private func startKeepAlive(generation: Int, interval: Duration) {
         keepAliveTask?.cancel()
-        guard configuration.keepAlive > .zero else { return }
-        let interval = max(configuration.keepAlive, .seconds(1))
+        guard interval > .zero else { return }
+        let interval = max(interval, .seconds(1))
         keepAliveTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: interval)
@@ -456,7 +475,7 @@ public actor MQTTClient: MQTTConnection {
             connectionLost(generation: generation, error: MQTTError.keepAliveTimeout)
             return
         }
-        try? await transport.send(MQTTPacket.pingreq.encode())
+        try? await transport.send(MQTTPacket.pingreq.encode(version: version))
     }
 
     private func connackTimedOut(generation: Int) {

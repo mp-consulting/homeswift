@@ -283,6 +283,41 @@ struct HTTPClientTests {
             try await HTTPClient(tls: .pinned(other)).send(HTTPRequest(url: url))
         }
     }
+
+    @Test func offersTheCipherSuitesItIsGiven() async throws {
+        let server = try await TestServer(tls: true, behaviour: .echo)
+        defer { Task { await server.stop() } }
+        let url = URL(string: "https://127.0.0.1:\(server.port)/")!
+        // OpenSSL's DEFAULT list (Node's `ciphers: "DEFAULT"`), and one named suite.
+        #expect(try await HTTPClient(tls: .any, cipherSuites: "DEFAULT").send(HTTPRequest(url: url)).status == 200)
+        #expect(try await HTTPClient(tls: .any, cipherSuites: "ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256").send(HTTPRequest(url: url)).status == 200)
+        // A list that leaves no suite fails the requests (NIOSSL would stop the process on it).
+        await #expect(throws: TLSCipherListError(list: "NO-SUCH-CIPHER")) {
+            try await HTTPClient(tls: .any, cipherSuites: "NO-SUCH-CIPHER").send(HTTPRequest(url: url))
+        }
+        #expect(throws: TLSCipherListError(list: "ALL:!ALL")) { try TLSOptions(cipherSuites: "ALL:!ALL").makeContext() }
+        #expect(TLSOptions(cipherSuites: "DEFAULT") != TLSOptions())
+        _ = try TLSOptions(trust: .any, cipherSuites: "DEFAULT").makeContext()
+    }
+
+    @Test func tellsUsableCipherListsAsBoringSSLDoes() throws {
+        let lists = [
+            "DEFAULT", "ALL", "HIGH", "ECDHE-RSA-AES128-GCM-SHA256", "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256", "ECDHE+AESGCM:!aPSK",
+            "DEFAULT:!3DES", "kRSA+AES256", "3DES", "DES-CBC3-SHA", "-ALL:AES", "AES:@STRENGTH", "UNKNOWN:AES128", "ECDHE-RSA-AES128-SHA256",
+            "NO-SUCH-CIPHER", "ALL:!ALL", "SHA256", "TLS_AES_128_GCM_SHA256", "!AES:AES", "AES:@SECLEVEL=2", "[AES|CHACHA20]", "-AES",
+        ]
+        // A context builds for every list judged usable (the others would stop the process in NIOSSL); equal-preference
+        // groups are refused, though BoringSSL reads them.
+        for list in lists {
+            var configuration = TLSConfiguration.makeClientConfiguration()
+            configuration.cipherSuites = list
+            let usable = TLSCipherList.isUsable(list)
+            #expect(usable == ["DEFAULT", "ALL", "HIGH", "ECDHE-RSA-AES128-GCM-SHA256", "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+                               "ECDHE+AESGCM:!aPSK", "DEFAULT:!3DES", "kRSA+AES256", "3DES", "DES-CBC3-SHA", "-ALL:AES", "AES:@STRENGTH",
+                               "UNKNOWN:AES128", "ECDHE-RSA-AES128-SHA256"].contains(list), "\(list)")
+            if usable { _ = try NIOSSLContext(configuration: configuration) }
+        }
+    }
 }
 
 @Suite struct DigestTests {
