@@ -68,7 +68,7 @@ final class AirConditionerV1: AirConditioner {
     override func setSwingMode(_ value: HAPValue) async throws {
         guard status.isPowerOn else { return }
         let swing: JSONValue = Normalize.boolean(value) ? "100" : "0"
-        let mode = config.string("ac_swing_mode")
+        let mode = config.mode("ac_swing_mode")
         if mode == "BOTH" || mode == "VERTICAL" {
             try await thinq.thinq1DeviceControl(device, key: "WDirVStep", value: swing)
             setSnapshotValues(["airState.wDir.vStep": swing])

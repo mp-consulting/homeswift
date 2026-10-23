@@ -85,6 +85,18 @@ struct AirConditionerTests {
         await #expect(throws: HAPStatusError(.serviceCommunicationFailure)) { try await heater.characteristic(.active).write(.int(1)) }
     }
 
+    /// The Homebridge plugin's documentation writes the modes in lower case: they count all the same.
+    @Test func readsModesInAnyCase() async throws {
+        let (environment, host, accessory) = try await start(["ac_mode": "heating", "ac_swing_mode": "vertical"])
+        defer { Task { await host.stop() } }
+        let heater = try #require(accessory.service(.heaterCooler))
+        #expect(heater[.targetHeaterCoolerState]?.type.validValues == [1] && heater[.targetHeaterCoolerState]?.value == .int(1))
+        try await heater.characteristic(.swingMode).write(.int(0))
+        let swing = try #require(environment.lg.commands.last)
+        #expect(swing["dataKey"] == "airState.wDir.vStep" && swing["dataValue"] == "0")
+        #expect(DeviceSettings(type: "AC", block: ["ac_swing_mode": "Horizontal"]).mode("ac_swing_mode") == "HORIZONTAL")
+    }
+
     @Test func followsMQTTPushes() async throws {
         let (environment, host, accessory) = try await start()
         defer { Task { await host.stop() } }

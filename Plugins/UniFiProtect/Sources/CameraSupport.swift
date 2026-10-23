@@ -51,6 +51,22 @@ protocol ProtectFfmpegRecording: ProtectFfmpegProcess {
     func stop(logErrors: Bool)
 }
 
+/// `FfmpegLivestreamProcess`: a camera's RTSP stream remuxed to fMP4 without transcoding, for the timeshift buffer when
+/// `Debug.Video.HKSV.UseRtsp` replaces the livestream API. One object serves every restart of the session.
+protocol ProtectFfmpegLivestream: AnyObject, Sendable {
+    /// The fragment duration in milliseconds, applied when FFmpeg starts.
+    var segmentLength: Int? { get set }
+    /// Starts FFmpeg, with a fresh initialization segment.
+    func startLivestream()
+    func stop()
+    /// Each box after the initialization segment as FFmpeg writes it: a moof, then its mdat.
+    func onSegment(_ handler: @escaping @Sendable (Data) -> Void)
+    /// Runs once when the running FFmpeg exits; at once when none runs.
+    func onExit(_ handler: @escaping @Sendable () -> Void)
+    /// The initialization segment (ftyp and moov), waiting for it; throws when FFmpeg ends first.
+    func getInitSegment() async throws -> Data
+}
+
 /// `RtpDemuxer`: splits return audio from RTCP for two-way audio.
 protocol ProtectRtpDemuxer: AnyObject, Sendable {
     /// Waits for the first RTP packet, or the demuxer closing.
@@ -80,6 +96,9 @@ protocol ProtectFfmpegKit: Sendable {
     /// `FfmpegRecordingProcess`, started.
     func startRecording(options: any ProtectFfmpegOptions, configuration: CameraRecordingConfiguration, fMp4Options: FMp4RecordingOptions,
                         verbose: Bool) -> any ProtectFfmpegRecording
+    /// `FfmpegLivestreamProcess`, not started: HKSV's timeshift buffer from RTSP (`Debug.Video.HKSV.UseRtsp`).
+    func makeLivestream(options: any ProtectFfmpegOptions, configuration: CameraRecordingConfiguration, livestreamOptions: FMp4LivestreamOptions,
+                        verbose: Bool) -> any ProtectFfmpegLivestream
     /// `FfmpegProcess`, started: FFmpeg with this command line, its standard output to read (a live view's fMP4).
     func startProcess(options: any ProtectFfmpegOptions, arguments: [String]) -> any ProtectFfmpegProcess
     /// `FfmpegExec`: runs FFmpeg to the end with `stdin`, killed after `timeout` milliseconds. nil when it did not run.

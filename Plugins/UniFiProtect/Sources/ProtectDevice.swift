@@ -172,7 +172,7 @@ class ProtectDevice: ProtectBase {
     func setInfo(_ device: ProtectDeviceConfig) {
         accessory.setInformation(
             manufacturer: "Ubiquiti Inc.", model: device.marketName ?? device.type, serialNumber: device.mac.isEmpty ? nil : device.mac,
-            firmwareRevision: device.firmwareVersion)
+            firmwareRevision: device.firmwareVersion, hardwareRevision: device.hardwareRevision)
     }
 
     // MARK: Writing to Protect

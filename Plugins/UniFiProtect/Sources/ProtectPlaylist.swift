@@ -77,19 +77,43 @@ actor ProtectPlaylistServer {
     /// The port it listens on, once it does.
     var listeningPort: Int? { channel?.localAddress?.port }
 
+    /// Whether it listens on IPv6 (and IPv4 with it): with no address configured, as Node's `server.listen(port)`.
+    var isListeningOnIPv6: Bool {
+        if case .v6? = channel?.localAddress { return true }
+        return false
+    }
+
     func start() async {
         guard !isClosed, channel == nil else { return }
         let api = api, token = token
-        let bootstrap = ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton)
-            .serverChannelOption(.backlog, value: 16)
-            .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
-            .childChannelInitializer { channel in
+        func bootstrap(dualStack: Bool) -> ServerBootstrap {
+            var bootstrap = ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton)
+                .serverChannelOption(.backlog, value: 16)
+                .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
+            if dualStack {
+                // IPv4 connections too, as IPv4-mapped addresses, whatever the system's default.
+                bootstrap = bootstrap.serverChannelOption(ChannelOptions.Types.SocketOption(level: .ipv6, name: .ipv6_v6only), value: 0)
+            }
+            return bootstrap.childChannelInitializer { channel in
                 channel.pipeline.configureHTTPServerPipeline().flatMap {
                     channel.pipeline.addHandler(PlaylistHandler(api: api, token: token))
                 }
             }
+        }
         do {
-            let bound = try await bootstrap.bind(host: address ?? "0.0.0.0", port: port).get()
+            let bound: any Channel
+            if let address {
+                bound = try await bootstrap(dualStack: false).bind(host: address, port: port).get()
+            } else {
+                // All interfaces, IPv6 included; IPv4 alone where the host has no IPv6.
+                do {
+                    bound = try await bootstrap(dualStack: true).bind(host: "::", port: port).get()
+                } catch let error as IOError where error.errnoCode == EADDRINUSE {
+                    throw error
+                } catch {
+                    bound = try await bootstrap(dualStack: false).bind(host: "0.0.0.0", port: port).get()
+                }
+            }
             // Closed while binding: let the port go at once.
             guard !isClosed else {
                 try? await bound.close()

@@ -584,7 +584,7 @@ final class ProtectStreamingDelegate: CameraStreamingDelegate {
         if session.hasAudioSupport, camera.hasFeature("Audio.Filter.Noise") { hinting.append("\u{1F50A}\u{FE0E}") }
         if !hinting.isEmpty { hinting.append("") }
         log.info("\(hinting.joined(separator: " "))Streaming request: \(request.video.width)x\(request.video.height)@\(request.video.fps)fps, "
-            + "\(formatBps(Double(plan.targetBitrate) * 1000)). Using \(entry.name), \(formatBps(Double(entry.channel.bitrate))) [\(plan.useTsb ? "TSB/API" : "RTSP")].")
+            + "\(formatBps(Double(plan.targetBitrate) * 1000)). Using \(entry.name), \(formatBps(Double(entry.channel.bitrate))) [\(plan.useTsb ? "TSB/" + (camera.hasFeature("Debug.Video.HKSV.UseRtsp") ? "RTSP" : "API") : "RTSP")].")
         // Motion interpolation where it runs in real time: Apple Silicon from M3, from the timeshift buffer.
         let useInterpolation = plan.useTsb && camera.context.packageCamera == nil && ffmpeg.hostSystem == "macOS.Apple" && ffmpeg.cpuGeneration >= 3
         if plan.isTranscoding {
