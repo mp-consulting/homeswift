@@ -175,6 +175,8 @@ public actor MQTTClient: MQTTConnection {
     /// QoS 2 messages received but not yet released, delivered once.
     private var inboundQoS2: Set<UInt16> = []
     private var lastReceived = ContinuousClock.now
+    /// When the PINGREQ still unanswered went out: the broker is dead when it says nothing for an interval after one.
+    private var pingSent: ContinuousClock.Instant?
     private var readTask: Task<Void, Never>?
     private var keepAliveTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
@@ -301,6 +303,7 @@ public actor MQTTClient: MQTTConnection {
         self.transport = transport
         parser = MQTTPacketParser(limit: configuration.maximumPacketSize, version: configuration.protocolVersion)
         lastReceived = .now
+        pingSent = nil
         let incoming = transport.incoming
         readTask = Task { [weak self] in
             var failure: (any Error)?
@@ -471,10 +474,12 @@ public actor MQTTClient: MQTTConnection {
 
     private func keepAliveTick(generation: Int, interval: Duration) async {
         guard generation == self.generation, connected, let transport else { return }
-        if ContinuousClock.now - lastReceived >= interval * 2 {
+        // Silence after our last ping, not since the last packet: a tick a busy machine runs late is no dead broker.
+        if let sent = pingSent, lastReceived < sent, ContinuousClock.now - sent >= interval {
             connectionLost(generation: generation, error: MQTTError.keepAliveTimeout)
             return
         }
+        pingSent = .now
         try? await transport.send(MQTTPacket.pingreq.encode(version: version))
     }
 

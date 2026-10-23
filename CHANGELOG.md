@@ -423,6 +423,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- MQTT: a broker counts as gone when it leaves a PINGREQ unanswered for an interval, not when nothing came in for two
+  intervals, so a keep-alive tick a busy machine runs late no longer drops a healthy connection.
 - Metrics: the first memory and CPU sample is taken when recording starts, so the Status page (and
   `MetricsAPITests.servesTheHistory` on a slow CI runner) has a value at once.
 - Philips Ambilight TV: the mute and Ambilight state sensors follow a mute or Ambilight switched from HomeKit
