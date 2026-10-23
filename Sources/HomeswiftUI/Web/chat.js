@@ -553,7 +553,9 @@
   /// An answer to a spoken message, read out: plain text, without Markdown's marks.
   function speak(text) {
     if (!text || !window.speechSynthesis) return;
-    const plain = text.replace(/```[\s\S]*?```/g, "").replace(/[*_`#>]/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+    // Tables: the delimiter rows go, cells are read as a list.
+    const plain = text.replace(/```[\s\S]*?```/g, "").replace(/^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/gm, "").replace(/\s*\|\s*/g, ", ")
+      .replace(/[*_`#>~]/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
     const utterance = new SpeechSynthesisUtterance(plain);
     utterance.lang = voiceLanguage();
     speechSynthesis.speak(utterance);
