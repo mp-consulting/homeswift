@@ -1,0 +1,75 @@
+# Contributing
+
+Bug reports, fixes and new plugins are welcome. For anything larger than a fix, open an issue first so we can
+agree on the approach before you spend time on it.
+
+```bash
+swift build
+swift test
+```
+
+CI runs the tests on macOS and on Linux (`swift:6.2`); both must pass. On macOS, if `swift test` fails to code
+sign the test bundle, build outside the repository with `--scratch-path ~/Library/Caches/homeswift-build`.
+Changes that users notice get a line in the `[Unreleased]` section of [CHANGELOG.md](CHANGELOG.md).
+
+## Proposing a plugin
+
+Swift cannot load code at runtime, so plugins are compiled into the `homeswift` binary: a new plugin is a pull
+request that adds `Plugins/<Name>/` to this repository ([docs/plugins.md](docs/plugins.md#where-plugins-live)
+says why).
+
+1. **Open a [plugin proposal](https://github.com/mp-consulting/homeswift/issues/new?template=plugin-proposal.yml)**
+   before writing code. A plugin is a good fit when:
+   - the devices are not in HomeKit already (natively or through Matter), or the plugin adds what HomeKit lacks;
+   - there is a Homebridge plugin to port, under a license compatible with MIT (MIT, ISC, BSD, Apache-2.0).
+     Code under the GPL cannot be ported into this repository;
+   - its transport fits `HomeswiftNetwork` (HTTP, MQTT, WebSocket, UDP, mDNS), or the proposal says what is missing
+     there. Plugins add no package dependencies;
+   - you have the hardware, or someone who has it will test the port.
+2. **Create the skeleton** once the proposal is accepted:
+   ```bash
+   swift Scripts/new-plugin.swift <Name> <platform> "<Display Name>"
+   ```
+   `<Name>` names the directory and the targets, `<platform>` is the Homebridge plugin's `pluginAlias`. The script
+   writes `Plugins/<Name>/` (a plugin that polls a fake API, with its tests), adds its targets to `Package.swift`
+   and registers it in `Sources/HomeswiftCLI/Plugins.swift`.
+3. **Port the plugin** following [docs/plugins.md](docs/plugins.md). `Plugins/ElgatoKeyLights` is the reference;
+   `Plugins/PhilipsAmbilightTV` publishes a television on its own, `Plugins/UniFiProtect` has cameras.
+4. **Open the pull request.** Its template lists what is checked below.
+
+## What a plugin needs
+
+- **The layout:** `README.md`, `config.schema.json`, `Sources` (target `Homeswift<Name>`), `Tests` (target
+  `<Name>Tests`), and optionally `Web/` for its own page.
+- **The same configuration as the Homebridge plugin:** its platform name and option names, so a user pastes their
+  block unchanged. Every option is optional, with the defaults applied in code.
+- **Stable accessory ids** prefixed with the platform name (`ElgatoKeyLights:<MAC>`). A changing id makes HomeKit
+  forget the accessory's room, scenes and automations.
+- **Tests without devices or accounts:** fake transports injected through a `PluginRegistry` closure; MQTT and
+  WebSocket fakes are in `HomeswiftNetworkTestSupport`. Tests use `MemoryStorage` and `advertise: false`.
+- **Linux:** Darwin-only APIs behind `#if canImport(...)`, `URLSession` with `#if canImport(FoundationNetworking)`.
+- **No secrets in the log:** tokens, passwords, keys and setup codes are never logged, at any level.
+- **Generated files current:** after editing `config.schema.json` or `Web/`, run
+  `swift Scripts/embed-assets.swift plugin Plugins/<Name> <Name>Plugin` (and the `web` command for a page).
+- **Credit:** the README names the plugin it ports and its license, and keeps its copyright notice.
+- **A maintainer:** the README names who maintains the plugin, and says how it was tested on real devices.
+
+## Maintaining a plugin
+
+The person named in a plugin's README reviews its changes and answers its issues. Contributors with write access
+also get a line in [.github/CODEOWNERS](.github/CODEOWNERS), so GitHub asks for their review. A plugin nobody
+has tested on real hardware is marked experimental in its README. A plugin that stays broken without a
+maintainer may be removed in a later release; its accessories then leave HomeKit, so this is said in the
+changelog first.
+
+## With an AI assistant
+
+[AGENTS.md](AGENTS.md) (the same file as [CLAUDE.md](CLAUDE.md)) gives coding agents the repository's rules. The
+`homeswift-plugin` skill in [.claude/skills](.claude/skills/homeswift-plugin/SKILL.md) walks an agent through a
+port: reading the Homebridge plugin, the skeleton, the tests, checking the result on a running bridge, the
+pull request. Claude Code picks it up on its own; other agents can be pointed at the file. You remain
+responsible for what you submit: read the code, and test it on your devices.
+
+## License
+
+Contributions are under the MIT license of this repository.

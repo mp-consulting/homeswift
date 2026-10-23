@@ -368,7 +368,9 @@ Commit `bee55cc` reads an archive row's members through a closure (no array of t
 decimals such as a row's time with one exact division instead of `strtod`, and puts a range's lines together in one
 pass: `GET /api/logs?from=` (an hour) went from 6.3 to 4.8 ms at 60 and at 300 accessories, back to back. The same
 run measured `search_logs` at 7.9 ms against 3.3 before: its new implementation (`HomeswiftCatalog.searchLogs`, with
-payloads, filters and context lines) came in between the two builds.
+payloads, filters and context lines) came in between the two builds, and made the shown text and the masked text of
+every line in memory. It makes them now for the lines that need them: 3.4 ms at 60 and at 300 accessories, back to
+back.
 
 ### Adding accessories
 

@@ -300,6 +300,8 @@ swift test
 On macOS, if `swift test` fails to code sign the test bundle (files under `~/Documents` can carry Finder
 metadata), build outside the repository with `--scratch-path ~/Library/Caches/homeswift-build`.
 
+To propose a plugin or contribute a change, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
 MIT, see [LICENSE](LICENSE). The service and characteristic definitions come from HAP-NodeJS (Apache-2.0).

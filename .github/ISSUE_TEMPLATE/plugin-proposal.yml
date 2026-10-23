@@ -1,0 +1,70 @@
+name: Plugin proposal
+description: Propose a new plugin, usually the port of a Homebridge plugin, before writing it.
+title: "Plugin: "
+labels: ["plugin proposal"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Plugins are compiled into `homeswift`, so a new one is a pull request to this repository.
+        Agreeing on it here first saves work on both sides. CONTRIBUTING.md says what a plugin needs.
+  - type: input
+    id: devices
+    attributes:
+      label: Devices
+      description: The brand and the models, and what they would be in HomeKit.
+      placeholder: "Shelly Plus 1PM and Pro 4PM: switches with power metering"
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Plugin to port
+      description: The Homebridge plugin (npm or GitHub link), or "none" for a new plugin.
+      placeholder: https://github.com/…/homebridge-…
+    validations:
+      required: true
+  - type: input
+    id: license
+    attributes:
+      label: Its license
+      description: MIT, ISC, BSD and Apache-2.0 can be ported; GPL code cannot.
+      placeholder: MIT
+    validations:
+      required: true
+  - type: dropdown
+    id: transport
+    attributes:
+      label: How the plugin reaches the devices
+      multiple: true
+      options:
+        - HTTP on the local network
+        - MQTT
+        - WebSocket
+        - UDP or mDNS discovery
+        - Bluetooth
+        - A cloud API
+        - Cameras (RTSP, FFmpeg)
+        - Other (explain below)
+    validations:
+      required: true
+  - type: textarea
+    id: homekit
+    attributes:
+      label: Why a plugin
+      description: Do the devices work with HomeKit or Matter already? What would this plugin add?
+    validations:
+      required: true
+  - type: textarea
+    id: missing
+    attributes:
+      label: What Homeswift lacks for it
+      description: Anything HomeswiftNetwork or the plugin API does not have yet (a protocol, a cipher, a service type). Plugins add no package dependencies.
+  - type: checkboxes
+    id: commitment
+    attributes:
+      label: Testing and maintenance
+      options:
+        - label: I have the hardware and will test the port on it
+        - label: I will maintain the plugin (review its changes, answer its issues)
+        - label: I want to write it myself (leave unchecked to ask someone else to take it on)
