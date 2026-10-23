@@ -5,9 +5,9 @@ import Logging
 
 /// An advertisement a scan saw.
 struct BLEAdvertisement: Sendable, Equatable {
-    /// The system's identifier for the peripheral (CoreBluetooth's UUID).
+    /// The system's identifier for the peripheral (CoreBluetooth's UUID, the MAC address on Linux).
     var identifier: String
-    /// The MAC address, where the system gives it (not on macOS).
+    /// The MAC address, where the system gives it (Linux; not macOS).
     var address: String?
     var localName: String?
     /// Company id first, as the Govee app and noble see it.
@@ -27,14 +27,14 @@ struct BLESensorReading: Sendable, Equatable {
     var rssi: Int
 }
 
-/// Where a BLE device is: its MAC (from Govee's device settings) and the name it advertises (`bleName`),
-/// which is how a system that hides MAC addresses finds it.
+/// Where a BLE device is: its MAC (from Govee's device settings), which Linux connects to as the Homebridge plugin
+/// did, and the name it advertises (`bleName`), which is how macOS, which hides MAC addresses, finds it.
 struct BLETarget: Sendable, Equatable {
     var address: String
     var name: String?
 }
 
-/// The Bluetooth adapter: CoreBluetooth on macOS, a fake in tests. Linux has none yet.
+/// The Bluetooth adapter: CoreBluetooth on macOS, a raw HCI socket on Linux, a fake in tests.
 protocol BLECentral: Sendable {
     /// `poweredOn`, `poweredOff`, `unauthorized`, `unsupported`…
     var state: String { get async }

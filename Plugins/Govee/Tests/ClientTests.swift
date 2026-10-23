@@ -501,3 +501,14 @@ func scanReply(_ device: String, sku: String = "H6008", extra: [String: JSONValu
 
 func jsonText(_ value: JSONValue) -> String { value.text() }
 func jsonData(_ value: JSONValue) -> Data { value.encoded() }
+
+@Suite struct AWSEventTests {
+    /// The AWS IoT SDK's `error` and `offline` events of the Homebridge plugin, on a dropped connection.
+    @Test func aDroppedConnectionLogsTheErrorEvent() async {
+        let recorder = LogRecorder()
+        let client = AWSClient(accountTopic: "account-topic", connection: FakeAWSBroker(), debug: DebugLog(logger: recorder.logger, raised: true)) { _ in }
+        await client.handle(.connectionLost("TLS handshake failed"))
+        await client.handle(.disconnected)
+        #expect(recorder.lines == ["[AWS] error event [TLS handshake failed].", "[AWS] offline event.", "[AWS] close event."])
+    }
+}

@@ -109,6 +109,12 @@
         "default": false,
         "description": "If enabled, uses a slower but more reliable method for setting colours."
       },
+      "homebridgeStoragePath": {
+        "title": "Homebridge Storage Path",
+        "type": "string",
+        "placeholder": "~/.homebridge",
+        "description": "Homeswift only: the Homebridge storage path whose Govee login (govee_cache and persist/govee.pfx) the first start imports. ~/.homebridge when it exists."
+      },
       "lightDevices": {
         "title": "Light Devices",
         "type": "array",
