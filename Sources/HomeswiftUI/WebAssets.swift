@@ -145,6 +145,7 @@ enum WebAssets {
     $("#auth").classList.add("hidden");
     $("#app").classList.remove("hidden");
     $("#user").textContent = auth.username || "";
+    HomeswiftCommon.tabBar({ parent: $("#app") });
     HomeswiftChat.mount();
     $("#logout").classList.toggle("hidden", auth.mode !== "form");
     openEvents();
@@ -163,7 +164,11 @@ enum WebAssets {
     const decode = (part) => { try { return decodeURIComponent(part); } catch { return part; } };
     const [name, ...args] = (location.hash || "#status").slice(1).split("/").map(decode);
     const section = sectionOf[name] || name;
-    for (const link of document.querySelectorAll("nav a")) link.classList.toggle("active", link.getAttribute("href") === `#${section}`);
+    for (const link of document.querySelectorAll("nav a")) {
+      const current = link.getAttribute("href") === `#${section}`;
+      link.classList.toggle("active", current);
+      if (current) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
+    }
     const view = views[name] || views.status;
     const main = $("#view");
     leaveGuard = null;
@@ -1845,8 +1850,9 @@ enum WebAssets {
       else if (key === "text") node.textContent = value;
       else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
       // Attributes with no property of the same name: data-*, aria-* (a screen reader reads those).
+      else if (value === undefined || value === null || value === false) continue;
       else if (key.startsWith("data-") || key.startsWith("aria-")) node.setAttribute(key, value);
-      else if (value !== undefined && value !== null && value !== false) node[key] = value;
+      else node[key] = value;
     }
     for (const child of children.flat()) if (child != null) node.append(child.nodeType ? child : document.createTextNode(String(child)));
     return node;
@@ -1872,6 +1878,7 @@ enum WebAssets {
     gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
     more: '<circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/>',
     logs: '<path d="M8 6h12M8 12h12M8 18h8M4 6h.01M4 12h.01M4 18h.01"/>',
+    code: '<path d="M8 4c-2 0-3 1-3 3v2c0 1.5-1 3-2.5 3C4 12 5 13.5 5 15v2c0 2 1 3 3 3M16 4c2 0 3 1 3 3v2c0 1.5 1 3 2.5 3-1.5 0-2.5 1.5-2.5 3v2c0 2-1 3-3 3"/>',
     trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
     edit: '<path d="M12 20h8M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
     inputs: '<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/>',
@@ -2129,7 +2136,23 @@ enum WebAssets {
   const fact = (label, value, attrs = {}) =>
     el("div", { class: "fact" }, el("span", { text: label }), el("b", { text: String(value), title: String(value), ...attrs }));
 
-  window.HomeswiftCommon = { $, el, icon, tile, fact, markdown, sparkle, api, menuButton, copyText, jsonHighlight, jsonView, jsonEditor };
+  // ---- The sections, and the tab bar a phone shows them in -----------------------------------------------
+
+  const sections = [["#status", "Status", "bridge"], ["#accessories", "Accessories", "bulb"], ["#plugins", "Plugins", "plugin"], ["#config", "Config", "code"], ["#logs", "Logs", "logs"]];
+
+  /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
+  /// a label each, the current one in the accent. `prefix` is "/" on a plugin's page; `parent` is what hides it
+  /// with the app (the sign-in screen has none). Hidden on wider windows, where the header holds them.
+  function tabBar({ prefix = "", active, parent = document.body } = {}) {
+    const existing = document.querySelector("nav.tabbar");
+    if (existing) return existing;
+    const bar = el("nav", { class: "tabbar", "aria-label": "Sections" }, sections.map(([hash, text, glyph]) =>
+      el("a", { href: `${prefix}${hash}`, class: hash === active ? "active" : "", "aria-current": hash === active ? "page" : null }, icon(glyph), el("span", { text }))));
+    parent.append(bar);
+    return bar;
+  }
+
+  window.HomeswiftCommon = { $, el, icon, tile, fact, markdown, sparkle, api, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, sections, tabBar };
 })();
 
 """#),
@@ -2156,7 +2179,13 @@ enum WebAssets {
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#e9edf6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1218" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Homeswift">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>Homeswift</title>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css">
@@ -2284,7 +2313,7 @@ enum WebAssets {
 
   // The UI's own header on every plugin page, Plugins highlighted, so leaving a plugin's page is one click
   // anywhere; and a breadcrumb under it: Plugins › the plugin › (its instance) › what is open on the page.
-  const sections = [["#status", "Status"], ["#accessories", "Accessories"], ["#plugins", "Plugins"], ["#config", "Config"], ["#logs", "Logs"]];
+  const sections = HomeswiftCommon.sections;
   const header = $("header");
   if (header) {
     const user = el("a", { id: "user", href: "/#account", title: "Your account: change the password" });
@@ -2296,6 +2325,11 @@ enum WebAssets {
       el("a", { class: "brand", href: "/#status" }, el("img", { src: "/icon.svg", class: "logo", alt: "" }), "Homeswift"),
       el("nav", { "aria-label": "Sections" }, sections.map(([hash, text]) => el("a", { href: `/${hash}`, text, class: hash === "#plugins" ? "active" : "" }))),
       el("span", { class: "spacer" }), user, logout);
+    // On a phone the sections sit in a tab bar at the bottom, as on the UI's own pages; the page also extends
+    // under the notch and the home indicator, which the layout pads around.
+    HomeswiftCommon.tabBar({ prefix: "/", active: "#plugins" });
+    const viewport = document.querySelector('meta[name="viewport"]');
+    if (viewport && !viewport.content.includes("viewport-fit")) viewport.content += ", viewport-fit=cover";
     // The Assistant's chat, as on the UI's own pages.
     document.head.append(el("script", { src: "/chat.js" }));
     api("/api/auth/state").then((state) => {
@@ -3108,6 +3142,8 @@ textarea.short { min-height: 220px; }
 .range { display: inline-flex; align-items: center; gap: 10px; }
 
 /* Log: a row per line, its time and source in columns, warnings and errors tinted. */
+/* Inside the Logs card the list is the card's own content: no second material, corners, edge or shadow. */
+.log-card .log { border: 0; border-radius: 0; box-shadow: none; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
 .log { font-size: 0.8125rem; line-height: 1.45; padding: 6px 0; height: calc(100vh - 290px); min-height: 320px; overflow: auto; overscroll-behavior: contain; }
 .log-line { display: grid; grid-template-columns: auto minmax(0, 11em) minmax(0, 1fr); gap: 12px; padding: 3px 16px; align-items: baseline; }
 .log-line:hover { background: var(--material-thin); }
@@ -3368,6 +3404,79 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
 .form-card > p.error:empty { display: none; }
 .chat-voice { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 6px 16px 0; font-size: 0.75rem; color: var(--muted); }
 .chat-voice select.popup { padding: 3px 26px 3px 10px; font-size: 0.75rem; font-weight: 500; background-position: right 9px center; }
+
+/* On a phone, after iOS: the sections move to a tab bar floating above the home indicator, within the thumb's
+   reach; the header keeps the app's icon, the Assistant and the account. Controls answer the press (no hover
+   lift left behind by a tap), fields are 16px so Safari does not zoom into them, and the layout pads around the
+   notch and the home indicator (viewport-fit=cover). */
+.tabbar { display: none; }
+@media (max-width: 640px) {
+  header { top: max(8px, env(safe-area-inset-top)); width: calc(100% - 20px); margin-top: max(8px, env(safe-area-inset-top)); padding: 6px 8px 6px 6px; }
+  header nav, #logout { display: none; }
+  header .brand { font-size: 1.0625rem; gap: 8px; letter-spacing: -0.015em; }
+  header .spacer { display: block; flex: 1; }
+  #user { max-width: 9em; font-weight: 500; }
+  main { padding: 14px 12px calc(104px + env(safe-area-inset-bottom)); }
+  .tabbar {
+    position: fixed; z-index: 15; left: 10px; right: 10px; bottom: max(10px, env(safe-area-inset-bottom));
+    display: grid; grid-template-columns: repeat(5, 1fr); padding: 6px; border-radius: 28px;
+    background-color: var(--material-thick); background-image: var(--sheen);
+    -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+    border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
+  }
+  .tabbar a {
+    display: grid; justify-items: center; gap: 2px; padding: 7px 2px 6px; border-radius: 22px; min-height: 50px;
+    color: var(--muted); text-decoration: none; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.01em;
+    touch-action: manipulation; -webkit-user-select: none; user-select: none;
+    transition: transform var(--fast) var(--ease-out), background-color var(--fast) var(--ease-out), color var(--fast) var(--ease-out);
+  }
+  .tabbar a svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .tabbar a.active { color: var(--accent); background: var(--material-thin); }
+  .tabbar a:active { transform: scale(0.92); transition-duration: 80ms; }
+  /* Bars that float at the bottom of a page float above the tab bar. */
+  .settings-bar { bottom: calc(86px + env(safe-area-inset-bottom)); padding-left: 16px; }
+  /* Fields at 16px: smaller, and Safari zooms the page into them on focus. */
+  input, select, textarea, .code-editor > .code-layer, .code-editor > .code-input { font-size: 16px; }
+  /* Comfortable targets, near Apple's 44pt: every button at least 40px tall, a text button too (its hit area
+     grows, not its look). */
+  .menu-button, .chat-icon { width: 40px; height: 40px; }
+  button, a.button { min-height: 40px; }
+  button.link { padding-top: 10px; padding-bottom: 10px; }
+  .group button, .chat-suggestions button, .chat-voice select, .tabbar a { min-height: 0; }
+  .menu [role="menuitem"] { padding: 11px 14px; font-size: 1rem; }
+  /* A page's heading beside its tile, smaller; its tools under it. */
+  .page-head { flex-wrap: nowrap; align-items: center; gap: 12px; margin: 4px 0 16px; }
+  .page-head:has(.tools) { flex-wrap: wrap; }
+  .page-head .tile.large { flex: none; }
+  .page-head > div { min-width: 0; }
+  .page-head h1 { font-size: 1.625rem; line-height: 1.1; letter-spacing: -0.02em; }
+  .page-head p { font-size: 0.875rem; }
+  /* The Logs toolbar: the level across, the two menus side by side, the filter, then the count and actions. */
+  .log-card .editor-bar { gap: 8px; padding: 10px; }
+  .log-card .editor-bar > .group { flex: 1 1 100%; display: grid; grid-template-columns: repeat(4, 1fr); }
+  .log-card .editor-bar > .group button { padding: 6px 4px; }
+  .log-card .editor-bar > select.popup { flex: 1 1 40%; max-width: none; min-width: 0; }
+  .log-card .editor-bar > .search { flex: 1 1 100%; width: 100%; }
+  .log-card .editor-bar > .spacer { display: none; }
+  .log-card .editor-bar > .count { flex: 1; }
+  .log-card .editor-bar > label.toggle { margin: 0; }
+  .log-card .editor-bar > .log-range { flex: 1 1 100%; }
+  .log-card .log { height: 60dvh; min-height: 260px; }
+  /* Two figures a row, so a label such as "Home app controllers" reads on one or two lines, not three; a
+     bridge's device ID, the longest fact, across. */
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .facts, .facts.lead { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .facts.lead > :first-child { grid-column: 1 / -1; }
+  /* The chat sheet sits over the tab bar, its field above the home indicator. */
+  .chat-foot { margin-bottom: max(12px, env(safe-area-inset-bottom)); }
+}
+/* A touch has no hover: a lift or a tint applied on tap would stay until the next tap elsewhere. */
+@media (hover: none) {
+  button:hover, a.button:hover, select.popup:hover { transform: none; }
+  nav a:hover:not(.active) { background-color: transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .tabbar a { transition: none; } }
+@media (prefers-reduced-transparency: reduce) { .tabbar { background: var(--material-solid); -webkit-backdrop-filter: none; backdrop-filter: none; } }
 
 """#),
     ]

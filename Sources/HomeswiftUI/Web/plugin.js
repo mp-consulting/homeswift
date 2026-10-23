@@ -82,7 +82,7 @@
 
   // The UI's own header on every plugin page, Plugins highlighted, so leaving a plugin's page is one click
   // anywhere; and a breadcrumb under it: Plugins › the plugin › (its instance) › what is open on the page.
-  const sections = [["#status", "Status"], ["#accessories", "Accessories"], ["#plugins", "Plugins"], ["#config", "Config"], ["#logs", "Logs"]];
+  const sections = HomeswiftCommon.sections;
   const header = $("header");
   if (header) {
     const user = el("a", { id: "user", href: "/#account", title: "Your account: change the password" });
@@ -94,6 +94,11 @@
       el("a", { class: "brand", href: "/#status" }, el("img", { src: "/icon.svg", class: "logo", alt: "" }), "Homeswift"),
       el("nav", { "aria-label": "Sections" }, sections.map(([hash, text]) => el("a", { href: `/${hash}`, text, class: hash === "#plugins" ? "active" : "" }))),
       el("span", { class: "spacer" }), user, logout);
+    // On a phone the sections sit in a tab bar at the bottom, as on the UI's own pages; the page also extends
+    // under the notch and the home indicator, which the layout pads around.
+    HomeswiftCommon.tabBar({ prefix: "/", active: "#plugins" });
+    const viewport = document.querySelector('meta[name="viewport"]');
+    if (viewport && !viewport.content.includes("viewport-fit")) viewport.content += ", viewport-fit=cover";
     // The Assistant's chat, as on the UI's own pages.
     document.head.append(el("script", { src: "/chat.js" }));
     api("/api/auth/state").then((state) => {

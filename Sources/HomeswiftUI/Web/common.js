@@ -12,8 +12,9 @@
       else if (key === "text") node.textContent = value;
       else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
       // Attributes with no property of the same name: data-*, aria-* (a screen reader reads those).
+      else if (value === undefined || value === null || value === false) continue;
       else if (key.startsWith("data-") || key.startsWith("aria-")) node.setAttribute(key, value);
-      else if (value !== undefined && value !== null && value !== false) node[key] = value;
+      else node[key] = value;
     }
     for (const child of children.flat()) if (child != null) node.append(child.nodeType ? child : document.createTextNode(String(child)));
     return node;
@@ -39,6 +40,7 @@
     gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
     more: '<circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/>',
     logs: '<path d="M8 6h12M8 12h12M8 18h8M4 6h.01M4 12h.01M4 18h.01"/>',
+    code: '<path d="M8 4c-2 0-3 1-3 3v2c0 1.5-1 3-2.5 3C4 12 5 13.5 5 15v2c0 2 1 3 3 3M16 4c2 0 3 1 3 3v2c0 1.5 1 3 2.5 3-1.5 0-2.5 1.5-2.5 3v2c0 2-1 3-3 3"/>',
     trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
     edit: '<path d="M12 20h8M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
     inputs: '<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/>',
@@ -296,5 +298,21 @@
   const fact = (label, value, attrs = {}) =>
     el("div", { class: "fact" }, el("span", { text: label }), el("b", { text: String(value), title: String(value), ...attrs }));
 
-  window.HomeswiftCommon = { $, el, icon, tile, fact, markdown, sparkle, api, menuButton, copyText, jsonHighlight, jsonView, jsonEditor };
+  // ---- The sections, and the tab bar a phone shows them in -----------------------------------------------
+
+  const sections = [["#status", "Status", "bridge"], ["#accessories", "Accessories", "bulb"], ["#plugins", "Plugins", "plugin"], ["#config", "Config", "code"], ["#logs", "Logs", "logs"]];
+
+  /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
+  /// a label each, the current one in the accent. `prefix` is "/" on a plugin's page; `parent` is what hides it
+  /// with the app (the sign-in screen has none). Hidden on wider windows, where the header holds them.
+  function tabBar({ prefix = "", active, parent = document.body } = {}) {
+    const existing = document.querySelector("nav.tabbar");
+    if (existing) return existing;
+    const bar = el("nav", { class: "tabbar", "aria-label": "Sections" }, sections.map(([hash, text, glyph]) =>
+      el("a", { href: `${prefix}${hash}`, class: hash === active ? "active" : "", "aria-current": hash === active ? "page" : null }, icon(glyph), el("span", { text }))));
+    parent.append(bar);
+    return bar;
+  }
+
+  window.HomeswiftCommon = { $, el, icon, tile, fact, markdown, sparkle, api, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, sections, tabBar };
 })();

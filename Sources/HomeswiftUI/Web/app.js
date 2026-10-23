@@ -136,6 +136,7 @@
     $("#auth").classList.add("hidden");
     $("#app").classList.remove("hidden");
     $("#user").textContent = auth.username || "";
+    HomeswiftCommon.tabBar({ parent: $("#app") });
     HomeswiftChat.mount();
     $("#logout").classList.toggle("hidden", auth.mode !== "form");
     openEvents();
@@ -154,7 +155,11 @@
     const decode = (part) => { try { return decodeURIComponent(part); } catch { return part; } };
     const [name, ...args] = (location.hash || "#status").slice(1).split("/").map(decode);
     const section = sectionOf[name] || name;
-    for (const link of document.querySelectorAll("nav a")) link.classList.toggle("active", link.getAttribute("href") === `#${section}`);
+    for (const link of document.querySelectorAll("nav a")) {
+      const current = link.getAttribute("href") === `#${section}`;
+      link.classList.toggle("active", current);
+      if (current) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
+    }
     const view = views[name] || views.status;
     const main = $("#view");
     leaveGuard = null;
