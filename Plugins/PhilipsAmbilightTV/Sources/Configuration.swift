@@ -15,7 +15,7 @@ extension PhilipsAmbilightTVPlugin {
             public var password: String?
             /// SHA-256 of the TV's certificate, recorded at pairing: connections are refused otherwise.
             public var certFingerprint: String?
-            /// Milliseconds between state polls, 1000 to 60000; 10000 by default.
+            /// Milliseconds between state polls, 1000 to 60000; 10000 by default, and when out of range.
             public var pollingInterval: Int?
             public var wakeOnLanEnabled: Bool?
             /// `STYLE/ALGORITHM`, e.g. `FOLLOW_VIDEO/NATURAL`, applied when Ambilight is switched on.
@@ -100,6 +100,8 @@ struct TVSettings: Sendable, Equatable {
     var customButtons: [(name: String, key: String)]
     var stateSensors: [StateSensor]
     var sources: [String: SourceSetting]
+    /// What was wrong but has a fallback, for the log (an out-of-range `pollingInterval`).
+    var warnings: [String] = []
 
     struct SourceSetting: Sendable, Equatable {
         var order: Int?
@@ -143,10 +145,13 @@ struct TVSettings: Sendable, Equatable {
         } else {
             certFingerprint = nil
         }
-        if let interval = device.pollingInterval, !Self.pollingIntervalRange.contains(interval) {
-            throw TVConfigurationError.invalid("pollingInterval", String(interval))
+        // Out of range: the default, with a warning, as the Homebridge plugin does.
+        var interval = device.pollingInterval ?? Self.defaultPollingInterval
+        if !Self.pollingIntervalRange.contains(interval) {
+            warnings.append("pollingInterval \(interval)ms is out of range (\(Self.pollingIntervalRange.lowerBound)-\(Self.pollingIntervalRange.upperBound)). Using default.")
+            interval = Self.defaultPollingInterval
         }
-        pollingInterval = .milliseconds(device.pollingInterval ?? Self.defaultPollingInterval)
+        pollingInterval = .milliseconds(interval)
         wakeOnLAN = device.wakeOnLanEnabled ?? true
         ambilightMode = device.ambilightMode?.nonEmpty ?? Self.defaultAmbilightMode
         ambilightOnStart = device.ambilightOnStart ?? false

@@ -137,8 +137,10 @@
     sourcesCard.replaceChildren(
       el("div", { class: "panel-head" },
         el("div", {}, el("h2", { text: `Inputs of ${editing.tv.name}` }),
-          el("p", { class: "muted", text: "The order of the input wheel in the Home app. Drag a row by its handle, or press Alt and an arrow key. Click a name to rename it." })),
-        el("button", { class: "link", text: "Close", onclick: closeSources })),
+          el("p", { class: "muted", text: editing.note ?? "The order of the input wheel in the Home app. Drag a row by its handle, or press Alt and an arrow key. Click a name to rename it." })),
+        el("div", { class: "head-actions" },
+          el("button", { class: "link", text: "Refresh from TV", title: "Read the TV's apps again", onclick: (event) => act(event.currentTarget, refreshSources) }),
+          el("button", { class: "link", text: "Close", onclick: closeSources }))),
       el("div", { class: "panel-columns" },
         el("section", {}, el("div", { class: "column-head" }, el("span", { class: "pill status on", text: `Shown · ${shown.length}` }), el("span", { class: "muted", text: "drag to reorder" })),
           shown.length ? shownList : el("p", { class: "muted empty-list", text: "No input is shown." })),
@@ -291,6 +293,27 @@
     renderSources();
   }
 
+  /// "Refresh from TV": the plugin reads the TV's apps now. Unsaved changes stay; new inputs join their column
+  /// at the end, inputs the TV no longer has go.
+  async function refreshSources() {
+    const tv = editing.tv;
+    const { sources } = await request("sources/refresh", { method: "POST", body: { mac: tv.mac } });
+    if (!editing || editing.tv !== tv) return;
+    const fresh = sources.map((source) => ({ ...source, customName: source.customName ?? "" }));
+    const known = new Set(editing.sources.map((source) => source.id));
+    const added = fresh.filter((source) => !known.has(source.id));
+    if (isDirty()) {
+      const present = new Set(fresh.map((source) => source.id));
+      const kept = editing.sources.filter((source) => present.has(source.id));
+      editing.sources = [...kept.filter((s) => s.visible), ...added.filter((s) => s.visible), ...kept.filter((s) => !s.visible), ...added.filter((s) => !s.visible)];
+    } else {
+      editing.sources = [...fresh.filter((source) => source.visible), ...fresh.filter((source) => !source.visible)];
+      editing.saved = JSON.stringify(editing.sources);
+    }
+    editing.note = added.length ? `${added.length} new input${added.length === 1 ? "" : "s"} from the TV: ${added.map((source) => source.name).join(", ")}.` : "The TV has no new app.";
+    renderSources();
+  }
+
   async function resetSources() {
     if (!confirm(`Put the inputs of ${editing.tv.name} back in the TV's order, all shown, with their own names?`)) return;
     const tv = editing.tv;
@@ -312,6 +335,21 @@
   let editorState = null;   // { tv, draft, saved, section }
 
   const fieldRow = (label, control, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), control, help ? el("span", { class: "help", text: help }) : null);
+
+  /// "Get MAC" next to a MAC address field: the plugin asks the TV when it is configured, else reads this
+  /// machine's ARP table, which has the TV once it answered on the network.
+  function macButton(ipOf, input, report) {
+    return el("button", { type: "button", text: "Get MAC", onclick: (event) => {
+      event.preventDefault();
+      act(event.currentTarget, async () => {
+        const ip = (ipOf() ?? "").trim();
+        if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) throw new Error("Enter the TV's IPv4 address first.");
+        const { mac } = await request(`mac?ip=${encodeURIComponent(ip)}`);
+        input.value = mac;
+        input.dispatchEvent(new Event("input"));
+      }, report);
+    } });
+  }
   function toggleRow(label, checked, onChange, help) {
     const input = el("input", { type: "checkbox", checked });
     input.addEventListener("change", () => onChange(input.checked));
@@ -375,7 +413,8 @@
   function renderEditor() {
     const { tv, schema, draft } = editorState;
     const message = el("span", { class: "muted" });
-    const save = el("button", { class: "primary", text: "Save", onclick: (event) => act(event.currentTarget, saveEditor, (text) => { message.className = "error"; message.textContent = text; }) });
+    const report = (text) => { message.className = "error"; message.textContent = text; };
+    const save = el("button", { class: "primary", text: "Save", onclick: (event) => act(event.currentTarget, saveEditor, report) });
     const discard = el("button", { text: "Discard", onclick: () => { editorState.draft = JSON.parse(editorState.saved); renderEditor(); } });
     const changed = () => {
       const dirty = JSON.stringify(editorState.draft) !== editorState.saved;
@@ -403,7 +442,10 @@
         el("div", { class: "fields" },
           fieldRow("Name in the Home app", text("name", { maxLength: 64 })),
           fieldRow("Address", text("ip", { inputmode: "decimal" }), "The TV's IPv4 address. Give it a fixed address in your router."),
-          fieldRow("MAC address", text("mac"), "For Wake-on-LAN, which switches the TV on from deep standby."),
+          fieldRow("MAC address", (() => {
+            const input = text("mac");
+            return el("div", { class: "with-button" }, input, macButton(() => draft.ip, input, report));
+          })(), "For Wake-on-LAN, which switches the TV on from deep standby."),
           fieldRow("Ambilight style", selectFor(schema.ambilightMode, draft.ambilightMode, (value) => { setKey(draft, "ambilightMode", value, schema.ambilightMode.default); changed(); }), schema.ambilightMode.description),
           fieldRow("Polling interval (ms)", interval, schema.pollingInterval.description)),
         toggleRow("Switch Ambilight on whenever the TV comes on", draft.ambilightOnStart === true, (on) => { setKey(draft, "ambilightOnStart", on, false); changed(); }),
@@ -553,15 +595,18 @@
   let device = null;   // what the TV handed out: ip, username, password, certFingerprint, mac
   let attempt = null;  // the TV last asked for a PIN, for the failure's Wake and Explain
   let repairing = null;   // the MAC of a configured TV paired again: its entry gets the new keys
-  /// An error, with Explain when there is an Assistant, and Wake when the TV is one the plugin knows (a TV in
-  /// deep standby answers nothing until a Wake-on-LAN packet reaches it).
+  /// An error, with Explain when there is an Assistant, and Wake for the TV being paired (a TV in deep standby
+  /// answers nothing until a Wake-on-LAN packet reaches it): a known TV by its MAC address, another by the MAC
+  /// address this machine's ARP table has for its address.
   function fail(message) {
     say(message, "error");
     const known = attempt && tvs.find((tv) => tv.ip === attempt.ip);
+    const sleeper = known ?? (attempt ? { name: attempt.name ?? attempt.ip, ip: attempt.ip } : null);
     status.append(
-      known ? el("button", { class: "link", text: `Wake ${known.name}`, onclick: (event) => act(event.currentTarget, async () => {
-        await request(`wake?mac=${encodeURIComponent(known.mac)}`, { method: "POST" });
-        say(`Sent. Give ${known.name} a few seconds to start, then pair again.`, "ok");
+      sleeper ? el("button", { class: "link", text: `Wake ${sleeper.name}`, onclick: (event) => act(event.currentTarget, async () => {
+        const address = sleeper.mac ?? (await request(`mac?ip=${encodeURIComponent(sleeper.ip)}`)).mac;
+        await request("wake", { method: "POST", body: { mac: address, ip: sleeper.ip } });
+        say(`Sent. Give ${sleeper.name} a few seconds to start, then pair again.`, "ok");
       }, fail) }) : null,
       explain({ error: message, context: "Pairing a Philips Android TV from the Homeswift plugin page: POST pair/request on port 1926, the TV shows a PIN, then pair/grant with an HMAC of the PIN.", device: { model: "Philips Android TV with Ambilight" } }));
   }
@@ -609,7 +654,7 @@
     el("div", { class: "form" },
       el("div", { class: "wide" }, el("label", { text: "Name in the Home app" }), tvName),
       el("div", {}, el("label", { text: "Address" }), ipField),
-      el("div", {}, el("label", { text: "MAC address" }), mac, macHelp),
+      el("div", {}, el("label", { text: "MAC address" }), el("div", { class: "with-button" }, mac, macButton(() => ipField.value, mac, fail)), macHelp),
       modeField),
     el("div", { class: "check" }, el("label", { class: "switch" }, onStart, el("span", {})), el("label", { htmlFor: "ambilight-on-start", text: "Switch Ambilight on whenever the TV comes on" })),
     moreOptions,
