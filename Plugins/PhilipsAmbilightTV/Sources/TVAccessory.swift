@@ -13,6 +13,8 @@ enum TVAccessory {
         let accessory: Accessory
         /// Pushes a change of the device into the characteristics.
         let apply: @Sendable (TVDevice.Change) -> Void
+        /// Adaptive Lighting on the Ambilight light, kept alive as long as the binding.
+        let adaptiveLighting: AdaptiveLightingController?
 
         /// Pushes the device's whole state: what changed while the accessory was being built.
         func sync(with device: TVDevice) async {
@@ -26,7 +28,10 @@ enum TVAccessory {
         }
     }
 
-    static func make(device: TVDevice, idPrefix: String, logger: Logger) async -> Binding {
+    /// Makes Adaptive Lighting for the Ambilight light, its state restored and saved (the plugin's context).
+    typealias AdaptiveLightingFactory = @Sendable (_ lightbulb: Service) -> AdaptiveLightingController
+
+    static func make(device: TVDevice, idPrefix: String, logger: Logger, adaptiveLighting: AdaptiveLightingFactory? = nil) async -> Binding {
         let settings = device.settings
         let inputs = await device.inputs
         let currentIdentifier = await device.currentIdentifier
@@ -78,28 +83,36 @@ enum TVAccessory {
                 Characteristic(.configuredName, value: .string("Ambilight")),
             ])
         applyAmbilight(ambilight, to: ambilightService)
+        // Adaptive Lighting in automatic mode, as the Homebridge plugin has it: the controller writes the colour
+        // temperature every minute, which the TV takes only while it shows a colour.
+        let adaptive = adaptiveLighting?(ambilightService)
         ambilightService.characteristic(.on).onWrite { value in try await device.setAmbilight(on: value.boolValue ?? false) }
         ambilightService.characteristic(.brightness).onWrite(changesOnly: true) { value in try await device.setAmbilightBrightness(value.intValue ?? 100) }
         ambilightService.characteristic(.hue).onWrite(changesOnly: true) { value in try await device.setAmbilightHue(value.doubleValue ?? 0) }
         ambilightService.characteristic(.saturation).onWrite(changesOnly: true) { value in try await device.setAmbilightSaturation(value.doubleValue ?? 0) }
-        ambilightService.characteristic(.colorTemperature).onWrite(changesOnly: true) { value in try await device.setAmbilightColorTemperature(value.intValue ?? 280) }
+        ambilightService.characteristic(.colorTemperature).onWrite(changesOnly: true) { value in
+            try await device.setAmbilightColorTemperature(value.intValue ?? 280, adaptiveLighting: adaptive?.isAdaptiveLightingActive ?? false)
+        }
 
         let television = Service(
-            .television, name: name, optional: [.displayOrder],
+            .television, name: name, optional: [.displayOrder, .currentMediaState],
             linked: inputServices + [speaker, ambilightService], isPrimary: true)
         television.characteristic(.active).value = .int(isOn ? HAPConstants.Active.active : HAPConstants.Active.inactive)
         television.characteristic(.activeIdentifier).value = .int(currentIdentifier)
         television.characteristic(.configuredName).value = .string(name)
         television.characteristic(.sleepDiscoveryMode).value = .int(HAPConstants.SleepDiscoveryMode.alwaysDiscoverable)
         television.characteristic(.displayOrder).value = .string(await device.displayOrder)
+        // The TV does not report playback; the Homebridge plugin says interrupted.
+        television.characteristic(.currentMediaState).value = .int(HAPConstants.CurrentMediaState.interrupted)
         television.characteristic(.active).onWrite { value in try await device.setPower(value.intValue == HAPConstants.Active.active) }
         television.characteristic(.activeIdentifier).onWrite { value in try await device.selectInput(identifier: value.intValue ?? 0) }
         television.characteristic(.remoteKey).onWrite { value in await device.remoteKey(value.intValue ?? -1) }
 
-        // Switches and sensors.
+        // Switches and sensors. Source switches for the inputs shown in the Home app only, as the Homebridge
+        // plugin builds them; a change of visibility takes effect at the next rebuild (new inputs, a restart).
         var sourceSwitches: [String: Service] = [:]
         if settings.sourceSwitches {
-            for input in inputs {
+            for input in inputs where !input.hidden {
                 let label = await device.switchName(for: input.id) ?? input.name
                 let service = Service(.switch, name: "\(name) \(input.name)", subtype: "source-switch-\(input.id)", extra: [Characteristic(.configuredName, value: .string(label))])
                 service.characteristic(.on).value = .bool(input.identifier == currentIdentifier && isOn)
@@ -182,7 +195,11 @@ enum TVAccessory {
                 television.characteristic(.active).value = .int(on ? HAPConstants.Active.active : HAPConstants.Active.inactive)
                 sensorServices[.power]?.characteristic(.motionDetected).value = .bool(on)
                 if !on {
+                    // Standby: Ambilight and mute sensors clear, the source and Ambilight+hue switches go off.
+                    sensorServices[.ambilight]?.characteristic(.motionDetected).value = .bool(false)
+                    sensorServices[.mute]?.characteristic(.motionDetected).value = .bool(false)
                     for service in switches.values { service.characteristic(.on).value = .bool(false) }
+                    hueService?.characteristic(.on).value = .bool(false)
                 }
             case .ambilight(let state):
                 applyAmbilight(state, to: ambilightService)
@@ -201,7 +218,7 @@ enum TVAccessory {
                 break
             }
         }
-        return Binding(accessory: accessory, apply: apply)
+        return Binding(accessory: accessory, apply: apply, adaptiveLighting: adaptive)
     }
 
     private static func applyAmbilight(_ state: TVDevice.AmbilightState, to service: Service) {
