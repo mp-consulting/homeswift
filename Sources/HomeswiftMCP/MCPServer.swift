@@ -716,9 +716,15 @@ public final class MCPServer: Sendable {
         let ask = tool.title.map { "Allow \($0) (\(tool.name))?" } ?? "Allow \(tool.name)?"
         guard let preview, let changes = preview["changes"]?.arrayValue?.compactMap(\.stringValue) else { return "\(ask) Arguments: \(arguments)" }
         guard !changes.isEmpty else { return "\(ask) It would change nothing." }
+        let config = preview["config"]
         let lines = changes.prefix(8).map { path -> String in
-            let value = preview["config"].flatMap { value(at: path, in: $0) }
-            return "- \(path) → \(value.map { Redaction.isConcealed($0.stringValue ?? "") ? "(secret, kept)" : $0.text() } ?? "removed")"
+            let shown: String
+            if let found = config.flatMap({ Self.value(at: path, in: $0) }) {
+                shown = Redaction.isConcealed(found.stringValue ?? "") ? "(secret, kept)" : found.text()
+            } else {
+                shown = "removed"
+            }
+            return "- \(path) → \(shown)"
         }
         return "\(ask) It would change:\n" + lines.joined(separator: "\n") + (changes.count > 8 ? "\n- and \(changes.count - 8) more" : "")
     }
