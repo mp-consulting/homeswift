@@ -75,6 +75,16 @@ import Testing
                 return sent
             }
         }
+
+        /// Waits until what was sent matches, for up to `timeout`: timers run late on a busy CI runner.
+        func wait(
+            _ timeout: Duration = .seconds(10), until match: @Sendable ([(destination: SocketAddress, message: DNSMessage)]) -> Bool
+        ) async throws {
+            let deadline = ContinuousClock.now + timeout
+            while !sent.withLockedValue({ match($0) }), ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(20))
+            }
+        }
     }
 
     static let interface = MDNSResponder.Interface(index: 7, name: "eth0", addresses: [[192, 168, 1, 5]])
@@ -102,7 +112,7 @@ import Testing
         let (responder, wire) = try makeResponder()
         let id = try await responder.register(name: "Homeswift", port: 51826, txt: txt("1"), interfaces: [], logger: testLogger).get()
         // Up to a second of probing, then two announcements a second apart.
-        try await Task.sleep(for: .milliseconds(2200))
+        try await wire.wait { $0.filter(\.message.isResponse).count >= 2 }
 
         let sent = wire.take()
         let probes = sent.filter { !$0.message.isResponse }
@@ -118,7 +128,7 @@ import Testing
 
         // A browse: the PTR, with what resolving it needs as additionals, after the shared-record delay.
         try deliver(DNSMessage(questions: [DNSQuestion(name: MDNSResponder.serviceType, type: DNSType.ptr)]), to: responder)
-        try await Task.sleep(for: .milliseconds(300))
+        try await wire.wait { $0.contains { $0.message.additionals.contains { $0.type == DNSType.srv } } }
         let answer = try #require(wire.take().last { $0.message.answers.first?.type == DNSType.ptr })
         #expect(answer.message.additionals.contains { $0.type == DNSType.srv })
         #expect(answer.message.additionals.contains { $0.type == DNSType.a })
@@ -156,8 +166,10 @@ import Testing
             name: DNSName(["Homeswift", "_hap", "_tcp", "local"]),
             data: .srv(priority: 0, weight: 0, port: 40000, target: DNSName(dotted: "Other.local")), ttl: 120, cacheFlush: true)
         try deliver(DNSMessage(isResponse: true, answers: [theirs]), to: responder)
-        try await Task.sleep(for: .milliseconds(1300))
-        let announcement = try #require(wire.take().first { $0.message.isResponse })
+        let renamed = DNSRecord.Data.ptr(DNSName(["Homeswift (2)", "_hap", "_tcp", "local"]))
+        try await wire.wait { $0.contains { $0.message.isResponse && $0.message.answers.contains { $0.data == renamed } } }
+        let announcement = try #require(wire.take().first { $0.message.isResponse && $0.message.answers.contains { $0.data == renamed } })
+        #expect(!announcement.message.answers.contains { $0.data == .ptr(DNSName(["Homeswift", "_hap", "_tcp", "local"])) })
         #expect(announcement.message.answers.contains { $0.data == .ptr(DNSName(["Homeswift (2)", "_hap", "_tcp", "local"])) })
         #expect(announcement.message.answers.contains { $0.name == DNSName(dotted: "Homeswift-2.local") && $0.type == DNSType.a })
     }
@@ -165,7 +177,7 @@ import Testing
     @Test func ourOwnAnnouncementLoopedBackIsNoConflict() async throws {
         let (responder, wire) = try makeResponder()
         let id = try await responder.register(name: "Homeswift", port: 51826, txt: txt("1"), interfaces: [], logger: testLogger).get()
-        try await Task.sleep(for: .milliseconds(1200))
+        try await wire.wait { $0.filter(\.message.isResponse).count >= 2 }
         let announcement = try #require(wire.take().first { $0.message.isResponse })
         try deliver(announcement.message, to: responder)
         try await Task.sleep(for: .milliseconds(1300))
