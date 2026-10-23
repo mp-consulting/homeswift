@@ -1,5 +1,6 @@
 import Foundation
 import HomeswiftPlugin
+import Logging
 import NIOConcurrencyHelpers
 import Testing
 
@@ -15,14 +16,15 @@ final class DeviceHarness: @unchecked Sendable {
         get { lock.withLock { _failing } }
         set { lock.withLock { _failing = newValue } }
     }
-    let store = memoryStore()
+    let store: DeviceStore
     var device: GoveeDevice!
 
     @GoveeActor
     init(
         model: String, settings: JSONValue = [:], platform: JSONValue = [:], transports: TransportFlags = TransportFlags(hasLAN: true, useLAN: true),
-        adaptiveLighting: AdaptiveLightingFactory? = nil
+        adaptiveLighting: AdaptiveLightingFactory? = nil, store: DeviceStore = memoryStore(), logger: Logger = testLogger
     ) {
+        self.store = store
         let environment = DeviceEnvironment(
             info: DeviceInfo(id: "AA:BB:CC:DD:EE:FF:00:11", model: model, name: "Test"), settings: DeviceSettings(raw: settings),
             platform: GoveePlugin.Configuration(platform), transports: transports,
@@ -31,7 +33,7 @@ final class DeviceHarness: @unchecked Sendable {
                 if fail { throw GoveeAPIError.message("offline") }
                 sent.append(command)
             },
-            logger: testLogger, deviceLogging: true, debugLogging: false, cached: nil, store: store, historyDirectory: nil, adaptiveLighting: adaptiveLighting)
+            logger: logger, deviceLogging: true, debugLogging: false, cached: nil, store: store, historyDirectory: nil, adaptiveLighting: adaptiveLighting)
         device = GoveeDevice.make(model: model, environment: environment)
         device.configure()
     }
@@ -50,7 +52,7 @@ final class DeviceHarness: @unchecked Sendable {
     }
 }
 
-/// A device store that never writes its file.
+/// A device store in a temporary file, written only when a handler flushes it.
 func memoryStore() -> DeviceStore {
     DeviceStore(url: FileManager.default.temporaryDirectory.appendingPathComponent("govee-test-\(UUID().uuidString).json"), autosave: nil)
 }
@@ -501,5 +503,25 @@ final class AdaptiveLightingProbe: @unchecked Sendable {
             adaptiveLighting: nil)
         #expect(await GoveeDevice.make(model: "HZZZZ", environment: environment) == nil)
         #expect(await GoveeDevice.make(model: "H1162", environment: environment) is TemplateDevice)
+    }
+}
+
+@Suite struct DeviceStorageTests {
+    /// A thermo-hygrometer's temperature, which heaters and coolers follow, is saved at once; a failure is logged
+    /// as the Homebridge plugin's `storageWriteErr`.
+    @Test func aTemperatureThatCannotBeSavedIsLogged() async throws {
+        let recorder = LogRecorder()
+        let store = DeviceStore(url: URL(fileURLWithPath: "/dev/null/device-state.json"), autosave: nil)
+        let harness = await DeviceHarness(model: "H5179", store: store, logger: recorder.logger)
+        await harness.update(update { $0.temperature = 2213 })
+        #expect(recorder.contains("[Test] could not save accessory to file as"))
+    }
+
+    @Test func aTemperatureIsSavedAtOnce() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("govee-state-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let harness = await DeviceHarness(model: "H5179", store: DeviceStore(url: url, autosave: nil))
+        await harness.update(update { $0.temperature = 2213 })
+        #expect(DeviceStore(url: url, autosave: nil).temperature(of: "AA:BB:CC:DD:EE:FF:00:11") == 22.13)
     }
 }

@@ -134,6 +134,16 @@ All notable changes to this project are documented here. The format follows
 - The Govee plugin turns Bluetooth off, with a warning naming the app, when macOS holds an app without a
   Bluetooth usage description responsible for homeswift (started from that app's shell); macOS aborted the
   whole bridge at the first Bluetooth call.
+- **Govee Bluetooth on Linux**, as noble reached it for the Homebridge plugin: a raw HCI socket on `hci0` (or
+  `NOBLE_HCI_DEVICE_ID`) scans for the thermo-hygrometers' advertisements, and commands go over the kernel's
+  L2CAP socket on the ATT channel (characteristic discovery, write commands). Devices and readings are matched
+  by MAC address there, as upstream; macOS keeps matching by advertised name, since CoreBluetooth hides MACs.
+- The Govee plugin imports the Homebridge plugin's kept login (`govee_cache` and `persist/govee.pfx` of
+  `homebridgeStoragePath`, else `~/.homebridge`) once, at a first start of the same account, so Govee does not
+  email a verification code again.
+- The Govee plugin logs `devNotRef` for a sensor whose data cannot be read, `storageWriteErr` when a
+  thermo-hygrometer's temperature cannot be saved, and AWS IoT's `error event` when the connection drops, as
+  the Homebridge plugin does; it gives the Assistant its background (`assistantBackground`).
 - **Camera cards** on the Accessories page: a 16:9 live video with the camera's name, motion, the doorbell's
   last ring and HomeKit Secure Video recording over it, mute, refresh and full screen buttons, and the camera's
   own controls (its light, switches, whether it is on in the Home app) under it. The video plays muted through
@@ -292,6 +302,8 @@ All notable changes to this project are documented here. The format follows
 - LG ThinQ: the settings page has the options of AeroTowers (`air_fast_mode`) and WashTower 2 (the washer's).
 - UniFi Protect and LG ThinQ give the Assistant their background (`assistantBackground`): the errors they log,
   their files and the usual fixes, after the Homebridge plugins' `*_AI_CONTEXT`.
+- Govee plugs shown as an audio receiver, set-top box or streaming stick are on the bridge, as in Homebridge,
+  rather than accessories with a pairing of their own.
 
 ## [0.3.0] - 2026-10-21
 

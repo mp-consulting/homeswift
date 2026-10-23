@@ -101,7 +101,7 @@ final class SensorThermoDevice: GoveeDevice {
 
     /// Heaters and coolers shown for a plug read the temperature from here (`temperatureSource`).
     private func saveTemperature() {
-        environment.store.setTemperature(cacheTemp, of: info.id)
+        storeTemperature(cacheTemp)
     }
 }
 
@@ -197,7 +197,7 @@ final class SensorMonitorDevice: GoveeDevice {
     override func configure() {
         temperatureService = addService(.temperatureSensor, primary: true)
         cacheTemp = double(temperatureService[.currentTemperature])
-        environment.store.setTemperature(cacheTemp, of: info.id)
+        storeTemperature(cacheTemp)
         humidityService = addService(.humiditySensor)
         cacheHumi = double(humidityService[.currentRelativeHumidity])
         airService = addService(.airQualitySensor, characteristics: [.pm2_5Density])
@@ -250,7 +250,7 @@ final class SensorMonitorDevice: GoveeDevice {
         update(temperatureService[.currentTemperature], cacheTemp)
         addHistory(temp: cacheTemp)
         log("\(Lang.curTemp) [\(DeviceUpdate.format(cacheTemp))°C / \(DeviceUpdate.format(Govee.cenToFar(cacheTemp)))°F]")
-        environment.store.setTemperature(cacheTemp, of: info.id)
+        storeTemperature(cacheTemp)
     }
 
     private func setHumidity(_ value: Double) {
