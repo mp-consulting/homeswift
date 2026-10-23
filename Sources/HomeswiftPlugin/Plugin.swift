@@ -267,8 +267,11 @@ public final class PluginContext: @unchecked Sendable {
         var accessories: [Accessory] = []
         /// The ids published as external accessories.
         var external: Set<String> = []
+        /// The ids restored from the cache that the plugin has not added again (yet).
+        var restoredOnly: Set<String> = []
 
         mutating func put(_ accessory: Accessory) {
+            restoredOnly.remove(accessory.id)
             if let index = accessories.firstIndex(where: { $0.id == accessory.id }) {
                 accessories[index] = accessory
             } else {
@@ -303,6 +306,10 @@ public final class PluginContext: @unchecked Sendable {
 
     /// Whether the accessory with this id is published on its own server rather than on the bridge.
     public func isExternal(id: String) -> Bool { list.withLockedValue { $0.external.contains(id) } }
+
+    /// Whether the accessory with this id came from the cache and the plugin has not added it since: a device
+    /// it has not reached yet, or one it no longer has.
+    public func isRestoredOnly(id: String) -> Bool { list.withLockedValue { $0.restoredOnly.contains(id) } }
 
     /// Adds an accessory to the bridge, or replaces the one with the same `id`. HomeKit sees the change
     /// through the configuration number; the aid and iids stay, so rooms and automations survive.
@@ -358,6 +365,7 @@ public final class PluginContext: @unchecked Sendable {
         list.withLockedValue { entries in
             entries.accessories.removeAll { $0.id == id }
             entries.external.remove(id)
+            entries.restoredOnly.remove(id)
         }
         saveCache()
     }
@@ -405,6 +413,7 @@ public final class PluginContext: @unchecked Sendable {
                 }
                 list.withLockedValue { entries in
                     entries.accessories.append(accessory)
+                    entries.restoredOnly.insert(accessory.id)
                     if external { entries.external.insert(accessory.id) }
                 }
                 logger.info("Restored accessory from cache", metadata: ["accessory": "\(accessory.name)", "external": "\(external)"])
