@@ -4,6 +4,10 @@
 # bridge over mDNS multicast, which a bridged container network does not carry.
 
 ARG SWIFT_VERSION=6.2
+# ffmpeg-for-homeswift (FFmpeg/), for the camera plugins: a static FFmpeg of 30 MB where Ubuntu's takes 450.
+ARG FFMPEG_IMAGE=ghcr.io/mp-consulting/ffmpeg-for-homeswift:8.1.3-1
+
+FROM ${FFMPEG_IMAGE} AS ffmpeg
 
 FROM swift:${SWIFT_VERSION}-noble AS build
 RUN apt-get update \
@@ -24,12 +28,15 @@ RUN swift build -c release --static-swift-stdlib --product homeswift \
 
 FROM ubuntu:24.04
 # avahi-daemon and dbus: Bonjour, which Homeswift reaches through Avahi's dns_sd compatibility library.
-# ffmpeg: the UniFi Protect plugin's cameras. avahi-utils: avahi-browse, for checking what is advertised.
+# avahi-utils: avahi-browse, for checking what is advertised.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         avahi-daemon avahi-utils dbus libavahi-compat-libdnssd1 \
-        ca-certificates tzdata libcurl4t64 ffmpeg tini \
+        ca-certificates tzdata libcurl4t64 tini \
     && rm -rf /var/lib/apt/lists/*
+# FFmpeg is GPLv3: its licences, and where its sources are, go with it.
+COPY --from=ffmpeg /ffmpeg /usr/local/bin/ffmpeg
+COPY --from=ffmpeg /licenses /usr/share/doc/ffmpeg-for-homeswift
 COPY --from=build /out/homeswift /usr/local/bin/homeswift
 COPY Scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
