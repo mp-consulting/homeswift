@@ -238,6 +238,11 @@ The description is the model's only guide: say what comes back and which tool wr
 (`put_list_entry` adds or replaces one entry of a list, keyed by `mac` unless told otherwise). Secrets in
 the answer reach the model as handles it passes on without reading (`docs/ai.md`).
 
+`assistantBackground` is what the Assistant should know to explain the plugin's errors: what its error
+messages mean, quotas, ports, the usual fixes (the `*_AI_CONTEXT` of a Homebridge plugin's
+`homebridge-ui/assistant.js`). It goes with every request from the plugin's pages and its `context.assistant`,
+so keep it to a paragraph or two, use the messages the plugin really logs, and never ask for secrets in it.
+
 ### Testing
 
 Run a `PluginHost` with `MemoryStorage` and no Bonjour, and register the plugin with a closure that injects

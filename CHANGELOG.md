@@ -8,6 +8,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Plugin backgrounds for the Assistant**: `HomeswiftPlugin.assistantBackground`, the troubleshooting notes
+  each Homebridge plugin sent with its Assistant requests (`*_AI_CONTEXT`), goes with every Explain from a
+  plugin's page and with `context.assistant`.
+- **Describe your setup** on a plugin's settings form: the Assistant writes the block from a sentence and the
+  plugin's `config.schema.json`, shown as a diff to use and save (`POST /api/assistant/config`), as each
+  Homebridge plugin's page offered.
+- **Schema conditions** in the settings form: fields with a `condition` (`functionBody` or an expression) show
+  only when it holds, per list entry too, read without running the schema's code.
 - **The Assistant's chat** in the web UI: a sparkle button in the header, on every page, opens a chat where
   the Assistant answers and acts through the MCP server's tools, plugin actions included. Each change shows
   a card with a dry run's list of what would change and waits for Allow; writes go to the MCP audit log.

@@ -860,6 +860,7 @@
     }
     let getValue;
     let body;
+    let useSuggestion = null;
     const textarea = el("textarea", { class: "short", value: JSON.stringify(current, null, 2), spellcheck: false, "aria-label": "The block as JSON" });
     const editor = jsonEditor(textarea);
     const fromJSON = () => { const value = JSON.parse(textarea.value); delete value.platform; return value; };
@@ -891,6 +892,13 @@
         } })));
       body = el("div", { class: "card form-card" }, tabs, switchError, formView, jsonView);
       getValue = () => (mode === "form" ? form.getValue() : fromJSON());
+      // The Assistant's suggestion goes into the view on screen, as unsaved changes to review and save.
+      useSuggestion = (value) => {
+        const next = { ...value, platform };
+        if (mode === "form") { form = buildForm(schema, next); formView.replaceChildren(form.element); }
+        else { textarea.value = JSON.stringify(next, null, 2); editor.repaint(); }
+        body.dispatchEvent(new Event("input", { bubbles: true }));
+      };
     } else {
       body = el("div", { class: "card form-card" }, el("p", { class: "muted", text: "This block has no settings form; edit it as JSON." }), editor);
       getValue = fromJSON;
@@ -968,11 +976,71 @@
       hasPage ? el("div", { class: "card page-note" },
         el("p", {}, el("strong", { text: "Expert. " }), `Every setting of the block, as config.json keeps it, including what ${plugin.name}'s page does not show. A save reloads the plugin.`),
         el("a", { class: "button", href: pluginPage(block), text: "Back to its page" })) : null,
+      useSuggestion && !block.system ? describeSetup({ platform, pluginName: plugin ? plugin.name : platform, current: () => { try { return getValue(); } catch { return current; } }, use: useSuggestion }) : null,
       body,
       el("div", { class: "settings-bar" }, message, revert, save),
       remove);
     update();
   };
+
+  /// Describe your setup: the Assistant writes the block from the plugin's config.schema.json and a sentence
+  /// ("two lights, the second one at 192.168.1.40"); the change shows as a diff, and "Use it" puts it in the form
+  /// as unsaved changes. Shown when the Assistant is on.
+  function describeSetup({ platform, pluginName, current, use }) {
+    const card = el("details", { class: "card describe-setup hidden" });
+    api("/api/assistant").then((state) => { if (state && state.enabled) card.classList.remove("hidden"); }).catch(() => {});
+    const request = el("textarea", { class: "short", rows: 3, placeholder: `What should ${pluginName} do? For example: "add my second light at 192.168.1.40, and poll every 5 seconds".`, "aria-label": "Your setup, in your words" });
+    const ask = el("button", { class: "primary", text: "Suggest" });
+    const result = el("div", { class: "describe-result" });
+    ask.addEventListener("click", async () => {
+      if (!request.value.trim()) { request.focus(); return; }
+      ask.disabled = true;
+      result.replaceChildren(el("p", { class: "muted", text: "The Assistant is writing the block…" }));
+      try {
+        const before = current();
+        const reply = await api("/api/assistant/config", { method: "POST", body: { platform, request: request.value, current: before } });
+        const { platform: _, ...after } = reply.config || {};
+        const { platform: __, ...was } = before || {};
+        const lines = blockDiff(was, after);
+        const changed = lines.some((line) => line.kind !== "same");
+        result.replaceChildren(
+          reply.explanation ? el("div", { class: "markdown" }, HomeswiftCommon.markdown(reply.explanation)) : null,
+          changed ? el("pre", { class: "diff" }, lines.map((line) => el("span", { class: `diff-${line.kind}`, text: `${line.kind === "add" ? "+ " : line.kind === "remove" ? "- " : "  "}${line.text}\n` })))
+            : el("p", { class: "muted", text: "No change to the block." }),
+          changed ? el("div", { class: "actions" },
+            el("button", { class: "primary", text: "Use it", onclick: () => { use(after); result.replaceChildren(el("p", { class: "ok", text: "In the form: review it, then Save." })); } }),
+            el("button", { text: "Discard", onclick: () => result.replaceChildren() })) : null,
+          el("p", { class: "muted", text: `Written by ${reply.model}. Passwords and tokens never reach it; check addresses and names before saving.` }));
+      } catch (e) {
+        result.replaceChildren(el("p", { class: "error", text: e.message }));
+      } finally { ask.disabled = false; }
+    });
+    card.append(el("summary", {}, sparkle(), el("strong", { text: " Describe your setup" }), el("span", { class: "muted", text: " · the Assistant writes the settings" })),
+      el("div", { class: "describe-body" }, request, el("div", { class: "actions" }, ask), result));
+    return card;
+  }
+
+  /// Two blocks as pretty JSON with sorted keys, line by line: same, add or remove (a longest common subsequence).
+  function blockDiff(before, after) {
+    const sortKeys = (value) => Array.isArray(value) ? value.map(sortKeys)
+      : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortKeys(value[key])])) : value;
+    const a = JSON.stringify(sortKeys(before ?? {}), null, 2).split("\n");
+    const b = JSON.stringify(sortKeys(after ?? {}), null, 2).split("\n");
+    const lengths = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+    for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) {
+      lengths[i][j] = a[i] === b[j] ? lengths[i + 1][j + 1] + 1 : Math.max(lengths[i + 1][j], lengths[i][j + 1]);
+    }
+    const out = [];
+    let i = 0, j = 0;
+    while (i < a.length && j < b.length) {
+      if (a[i] === b[j]) { out.push({ kind: "same", text: a[i] }); i++; j++; }
+      else if (lengths[i + 1][j] >= lengths[i][j + 1]) out.push({ kind: "remove", text: a[i++] });
+      else out.push({ kind: "add", text: b[j++] });
+    }
+    while (i < a.length) out.push({ kind: "remove", text: a[i++] });
+    while (j < b.length) out.push({ kind: "add", text: b[j++] });
+    return out;
+  }
 
   /// A place to drop a file for a path field (a certificate, its key), or to choose it: the bridge keeps the
   /// file next to config.json, owner-only, and the field gets its path.
@@ -1013,6 +1081,125 @@
     return `${name} ${n}`;
   }
 
+  /// A schema's `condition` (`{ functionBody: "return model.x === 'y';" }`, or the expression as a string) as a
+  /// function of the block and the entry's index, or null when there is none. The page may not run code it
+  /// is sent (no eval under its Content-Security-Policy), so this reads the part of JavaScript conditions use:
+  /// `model.a.b`, `model.list[arrayIndices].type`, literals and arrays, `.includes()`, `!`, comparisons,
+  /// `&&`, `||` and parentheses. A condition it cannot read shows the field.
+  function schemaCondition(condition) {
+    const source = typeof condition === "string" ? condition : condition && typeof condition.functionBody === "string" ? condition.functionBody : null;
+    if (source === null) return null;
+    let ast;
+    try { ast = parseCondition(source); } catch { return null; }
+    return (model, index) => {
+      try { return Boolean(evaluateCondition(ast, { model, arrayIndex: index, arrayIndices: index })); } catch { return true; }
+    };
+  }
+
+  function parseCondition(source) {
+    const tokens = [];
+    const pattern = /\s*(?:(\d+(?:\.\d+)?)|('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")|([A-Za-z_$][\w$]*)|(===|!==|==|!=|<=|>=|&&|\|\||[!<>()[\].,;]))/y;
+    const text = source.trim();
+    let match;
+    pattern.lastIndex = 0;
+    while (pattern.lastIndex < text.length && (match = pattern.exec(text))) {
+      if (match[1] !== undefined) tokens.push({ kind: "value", value: Number(match[1]) });
+      else if (match[2] !== undefined) tokens.push({ kind: "value", value: match[2].slice(1, -1).replace(/\\(.)/g, "$1") });
+      else if (match[3] !== undefined) tokens.push({ kind: "name", value: match[3] });
+      else tokens.push({ kind: "op", value: match[4] });
+    }
+    if (pattern.lastIndex < text.length && text.slice(pattern.lastIndex).trim()) throw new Error("unreadable condition");
+    let at = 0;
+    const peek = (value) => tokens[at] && tokens[at].kind === "op" && tokens[at].value === value;
+    const expect = (value) => { if (!peek(value)) throw new Error(`expected ${value}`); at++; };
+    if (tokens[at] && tokens[at].kind === "name" && tokens[at].value === "return") at++;
+    const binary = { "||": 1, "&&": 2, "===": 3, "!==": 3, "==": 3, "!=": 3, "<": 4, ">": 4, "<=": 4, ">=": 4 };
+    const expression = (minimum = 1) => {
+      let left = unary();
+      while (tokens[at] && tokens[at].kind === "op" && binary[tokens[at].value] >= minimum) {
+        const op = tokens[at++].value;
+        left = { op, left, right: expression(binary[op] + 1) };
+      }
+      return left;
+    };
+    const unary = () => { if (peek("!")) { at++; return { op: "!", operand: unary() }; } return postfix(primary()); };
+    const primary = () => {
+      const token = tokens[at++];
+      if (!token) throw new Error("unexpected end");
+      if (token.kind === "value") return { value: token.value };
+      if (token.kind === "name") {
+        if (token.value === "true" || token.value === "false") return { value: token.value === "true" };
+        if (token.value === "null" || token.value === "undefined") return { value: token.value === "null" ? null : undefined };
+        return { name: token.value };
+      }
+      if (token.value === "(") { const inner = expression(); expect(")"); return inner; }
+      if (token.value === "[") {
+        const items = [];
+        while (!peek("]")) { items.push(expression()); if (peek(",")) at++; else break; }
+        expect("]");
+        return { array: items };
+      }
+      throw new Error(`unexpected ${token.value}`);
+    };
+    const postfix = (node) => {
+      for (;;) {
+        if (peek(".")) {
+          at++;
+          const name = tokens[at++];
+          if (!name || name.kind !== "name") throw new Error("expected a name");
+          if (peek("(")) {
+            at++;
+            const args = [];
+            while (!peek(")")) { args.push(expression()); if (peek(",")) at++; else break; }
+            expect(")");
+            node = { call: name.value, target: node, args };
+          } else node = { member: name.value, target: node };
+        } else if (peek("[")) {
+          at++;
+          const key = expression();
+          expect("]");
+          node = { index: key, target: node };
+        } else return node;
+      }
+    };
+    const ast = expression();
+    if (peek(";")) at++;
+    if (at < tokens.length) throw new Error("unexpected input");
+    return ast;
+  }
+
+  function evaluateCondition(node, scope) {
+    if ("value" in node) return node.value;
+    if (node.name !== undefined) { if (!(node.name in scope)) throw new Error(`unknown ${node.name}`); return scope[node.name]; }
+    if (node.array) return node.array.map((item) => evaluateCondition(item, scope));
+    const property = (target, key) => (target === null || target === undefined ? undefined : Object.prototype.hasOwnProperty.call(Object(target), key) || Array.isArray(target) && key === "length" ? target[key] : undefined);
+    if (node.member !== undefined) return property(evaluateCondition(node.target, scope), node.member);
+    if (node.index) return property(evaluateCondition(node.target, scope), evaluateCondition(node.index, scope));
+    if (node.call !== undefined) {
+      const target = evaluateCondition(node.target, scope);
+      const args = node.args.map((arg) => evaluateCondition(arg, scope));
+      if (node.call === "includes" && (Array.isArray(target) || typeof target === "string")) return target.includes(args[0]);
+      if (node.call === "indexOf" && (Array.isArray(target) || typeof target === "string")) return target.indexOf(args[0]);
+      throw new Error(`unknown call ${node.call}`);
+    }
+    if (node.op === "!") return !evaluateCondition(node.operand, scope);
+    const left = evaluateCondition(node.left, scope);
+    if (node.op === "&&") return left && evaluateCondition(node.right, scope);
+    if (node.op === "||") return left || evaluateCondition(node.right, scope);
+    const right = evaluateCondition(node.right, scope);
+    switch (node.op) {
+      case "===": return left === right;
+      case "!==": return left !== right;
+      case "==": return left == right; // eslint-disable-line eqeqeq
+      case "!=": return left != right; // eslint-disable-line eqeqeq
+      case "<": return left < right;
+      case ">": return left > right;
+      case "<=": return left <= right;
+      case ">=": return left >= right;
+    }
+    throw new Error(`unknown operator ${node.op}`);
+  }
+
   /// A form from a Homebridge-style config.schema.json; key order follows the schema (and its layout).
   function buildForm(root, value) {
     const schema = root.schema || root;
@@ -1020,8 +1207,19 @@
     const requiredTop = new Set(Array.isArray(schema.required) ? schema.required : []);
     const fields = new Map();
     const container = el("div", {});
+    // Fields and layout groups shown only when their condition holds, re-checked as the form changes.
+    const conditional = [];
+    const watch = (element, condition, index) => {
+      const test = schemaCondition(condition);
+      if (test && element) conditional.push({ element, test, index });
+    };
 
-    const field = (key, property, current, required) => {
+    const field = (key, property, current, required, index) => {
+      const made = makeField(key, property, current, required, index);
+      watch(made.element, property.condition ?? property["x-schema-form"]?.condition, index);
+      return made;
+    };
+    const makeField = (key, property, current, required, index) => {
       const title = property.title || key;
       const help = property.description ? el("div", { class: "help", text: property.description }) : null;
       const wrap = (control) => el("label", { class: "field" }, el("span", { class: "field-title" }, title, required ? el("span", { class: "muted", text: " · required" }) : null), control, help);
@@ -1041,7 +1239,7 @@
         return { element: wrap(input), get: () => (input.value === "" ? undefined : Number(input.value)) };
       }
       if (type === "object" && property.properties) {
-        const nested = buildObject(property, current || {});
+        const nested = buildObject(property, current || {}, index);
         return { element: el("fieldset", {}, el("legend", { text: title }), nested.element), get: () => { const v = nested.getValue(); return Object.keys(v).length ? v : undefined; } };
       }
       if (type === "array") {
@@ -1052,7 +1250,7 @@
           const entry = {};
           if (items.type === "object" && items.properties) {
             // An entry (a light, a TV) is a row with its name and address; it opens to edit, a new one open.
-            const nested = buildObject(items, itemValue || {});
+            const nested = buildObject(items, itemValue || {}, () => rows.indexOf(entry));
             const name = el("span", { class: "entry-name" });
             const detail = el("span", { class: "entry-detail" });
             const describe = () => {
@@ -1104,7 +1302,7 @@
       return [...shown, el("details", { class: "more-options" }, el("summary", { text: `More options (${more.length})` }), el("div", { class: "fields" }, more))];
     }
 
-    function buildObject(objectSchema, current) {
+    function buildObject(objectSchema, current, index) {
       const props = objectSchema.properties || {};
       const required = new Set(Array.isArray(objectSchema.required) ? objectSchema.required : []);
       const parts = new Map();
@@ -1112,7 +1310,7 @@
       const entries = [];
       for (const [key, property] of Object.entries(props)) {
         const isRequired = required.has(key) || property.required === true;
-        const f = field(key, property, current[key], isRequired);
+        const f = field(key, property, current[key], isRequired, index);
         parts.set(key, f);
         entries.push({ element: f.element, required: isRequired, value: current[key] });
       }
@@ -1136,14 +1334,15 @@
     };
     const layoutItem = (item) => {
       if (typeof item === "string") return item === "*" ? Object.keys(properties).map(render) : render(item);
-      if (item && item.key) return render(item.key);
+      if (item && item.key) { const node = render(item.key); if (item.condition) watch(node, item.condition); return node; }
       if (item && Array.isArray(item.items)) {
         const inner = item.items.map(layoutItem).flat().filter(Boolean);
         if (!inner.length) return null;
-        if (item.type === "fieldset" || item.title) {
-          return el("details", { class: "group-box", open: !item.expandable || item.expanded !== false }, el("summary", { text: item.title || "More" }), el("div", { class: "fields" }, ...inner));
-        }
-        return el("div", { class: "fields" }, ...inner);
+        const node = item.type === "fieldset" || item.title
+          ? el("details", { class: "group-box", open: !item.expandable || item.expanded !== false }, el("summary", { text: item.title || "More" }), el("div", { class: "fields" }, ...inner))
+          : el("div", { class: "fields" }, ...inner);
+        watch(node, item.condition);
+        return node;
       }
       return null;
     };
@@ -1157,12 +1356,26 @@
         ...split.filter((node) => node.classList?.contains("more-options")));
     }
 
-    return { element: container, getValue: () => {
+    const getValue = () => {
       const out = {};
       for (const [key, v] of Object.entries(value)) if (!properties[key]) out[key] = v;
       for (const [key, f] of fields) { const v = f.get(); if (v !== undefined) out[key] = v; }
       return out;
-    } };
+    };
+    // A hidden field keeps its value, as Homebridge's form does; it only leaves the screen.
+    const applyConditions = () => {
+      if (!conditional.length) return;
+      const model = getValue();
+      for (const { element, test, index } of conditional) {
+        const shown = test(model, typeof index === "function" ? index() : index);
+        element.classList.toggle("hidden", !shown);
+      }
+    };
+    container.addEventListener("input", applyConditions);
+    container.addEventListener("change", applyConditions);
+    container.addEventListener("click", () => setTimeout(applyConditions, 0));   // rows added or removed
+    applyConditions();
+    return { element: container, getValue };
   }
 
   // ---- Password strength ---------------------------------------------------

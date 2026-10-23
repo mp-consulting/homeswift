@@ -493,6 +493,7 @@ struct UIServerTests {
         // Without a HomeswiftAiKit block the pages offer no Explain, and asking for one says why.
         #expect(try await browser.get("/api/assistant").json?["enabled"] == false)
         #expect(try await browser.post("/api/assistant/explain", ["error": "boom"]).status == 404)
+        #expect(try await browser.post("/api/assistant/config", ["platform": "Recording", "request": "two lights"]).status == 404)
         let status = try await browser.get("/api/status").json
         #expect(status?["bridges"]?[0]?["deviceId"] == "0E:11:22:33:44:66")
         #expect(status?["bridges"]?[0]?["setupCode"] == "0314-5154")
