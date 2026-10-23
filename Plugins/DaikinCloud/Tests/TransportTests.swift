@@ -56,8 +56,14 @@ struct TransportTests {
             printf '%s' '\(stderr)' >&2
             exit \(code)
             """
-        try Data(script.utf8).write(to: url)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+        // Through a close-on-exec descriptor: a process another test spawns meanwhile would otherwise keep the file open for
+        // writing, and Linux refuses to run it (ETXTBSY, which CurlTransport reports as a missing curl).
+        let fd = open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o700)
+        guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        let bytes = Array(script.utf8)
+        let written = bytes.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
+        close(fd)
+        guard written == bytes.count else { throw POSIXError(.EIO) }
         return url.path
     }
 
