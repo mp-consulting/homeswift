@@ -1028,3 +1028,45 @@ pre.diff { margin: 0; padding: 10px 12px; border-radius: 12px; background: var(-
 pre.diff .diff-add { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); display: block; }
 pre.diff .diff-remove { color: var(--error); background: color-mix(in srgb, var(--error) 12%, transparent); display: block; }
 pre.diff .diff-same { display: block; opacity: 0.7; }
+
+/* Settings (admin.js): its pages as a segmented row of links, lists of rows in one card, the confirmation and
+   history sheets, the audit table. */
+a.link { color: var(--accent); text-decoration: none; padding: 4px 6px; }
+a.button.primary { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); border-color: rgba(255, 255, 255, 0.4); box-shadow: 0 8px 20px rgba(255, 122, 26, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
+a.link:hover { text-decoration: underline; }
+.subnav { margin: -6px 0 18px; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.subnav::-webkit-scrollbar { display: none; }
+.group a { color: var(--text); text-decoration: none; padding: 5px 13px; border-radius: 999px; white-space: nowrap; transition: background-color var(--fast) var(--ease-out); }
+.group a:hover:not(.on) { background: var(--material-thin); }
+.group a.on { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); }
+.card.rows { padding: 4px 0; }
+.rows > .row, .rows > .row-block > .row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; min-width: 0; }
+.rows > * + * { border-top: 1px solid var(--line); }
+.rows .row > .who { flex: 1; min-width: 0; }
+.rows .row > .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-detail { padding: 0 16px 12px; }
+.row-detail:empty { display: none; }
+.row-block > div:not(.row):not(:empty) { padding: 0 16px 12px; }
+pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
+.notice-list p { margin: 4px 0; font-size: 0.875rem; }
+.admin-dialog { margin: auto; width: min(520px, calc(100% - 24px)); max-height: calc(100% - 48px); overflow: auto; padding: 20px 22px; color: var(--text); background-color: var(--material-solid); }
+.admin-dialog.wide { width: min(980px, calc(100% - 24px)); }
+.admin-dialog::backdrop { background: rgba(10, 14, 24, 0.35); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+.admin-dialog h2 { margin: 0 0 10px; }
+.admin-dialog p { margin: 0 0 10px; }
+.admin-dialog .actions { justify-content: flex-end; }
+.admin-dialog .page-head { margin: 0 0 14px; }
+.admin-dialog .chart-grid.loading { opacity: 0.55; }
+.data-table { border-collapse: collapse; font-size: 0.8125rem; width: 100%; }
+.data-table th, .data-table td { padding: 6px 12px 6px 0; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+.data-table th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--material-solid); }
+.data-table td:first-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.card > .table-scroll { overflow-x: auto; max-height: 70vh; overflow-y: auto; }
+.audit-details { max-width: 420px; }
+.audit-details code { display: block; font: 0.75rem/1.4 var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (prefers-reduced-transparency: reduce) { .admin-dialog::backdrop { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(10, 14, 24, 0.6); } }
+@media (max-width: 640px) {
+  .rows > .row, .rows > .row-block > .row { padding: 10px 12px; }
+  .admin-dialog { padding: 16px; }
+  .audit-details { max-width: 240px; }
+}

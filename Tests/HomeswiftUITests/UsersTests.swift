@@ -144,7 +144,8 @@ struct UsersServerTests {
         #expect(try await milo.put("/api/accessories/Lamps:lamp", ["characteristic": "Brightness", "value": 70]).status == 200)
         #expect(try await milo.post("/api/accessories/Lamps:lamp/identify", [:]).status == 200)
         for (method, path) in [("GET", "/api/config"), ("GET", "/api/logs"), ("GET", "/api/qr/0.svg"), ("GET", "/api/users"), ("GET", "/api/tokens"),
-                               ("GET", "/api/plugins/ElgatoKeyLights/schema"), ("GET", "/api/plugins/Lamps/Lamps/hello"), ("GET", "/api/config/block/Lamps/Lamps")] {
+                               ("GET", "/api/plugins/ElgatoKeyLights/schema"), ("GET", "/api/plugins/Lamps/Lamps/hello"), ("GET", "/api/config/block/Lamps/Lamps"),
+                               ("GET", "/api/settings/bridge"), ("GET", "/api/backups"), ("GET", "/api/audit"), ("GET", "/api/pairings"), ("GET", "/api/child-bridges")] {
             #expect(try await milo.send(method, path).status == 403, "\(method) \(path)")
         }
         #expect(try await milo.put("/api/config", ["bridge": [:]]).status == 403)
@@ -248,6 +249,8 @@ struct UsersServerTests {
         #expect(try await call("GET", "/api/status", token: readToken) == 200)
         #expect(try await call("GET", "/api/accessories", token: readToken) == 200)
         #expect(try await call("GET", "/api/config", token: readToken) == 403)
+        #expect(try await call("GET", "/api/settings/bridge", token: readToken) == 403)
+        #expect(try await call("GET", "/api/settings/bridge", token: adminToken) == 200)
         #expect(try await call("PUT", "/api/accessories/Lamps:lamp", token: readToken, body: #"{"characteristic":"Brightness","value":10}"#) == 403)
         #expect(try await call("GET", "/api/config", token: adminToken) == 200)
         #expect(try await call("PUT", "/api/accessories/Lamps:lamp", token: adminToken, body: #"{"characteristic":"Brightness","value":10}"#, crossSite: true) == 200)
