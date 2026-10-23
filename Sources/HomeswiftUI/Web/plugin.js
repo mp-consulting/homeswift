@@ -10,7 +10,7 @@
   const address = `/plugins/${location.pathname.split("/")[2] || ""}`;
   const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
 
-  const { $, el, icon, tile, fact, markdown, sparkle, api } = HomeswiftCommon;
+  const { $, el, icon, tile, fact, markdown, sparkle, api, assistantRequest, formatTemperature, temperature } = HomeswiftCommon;
 
   /// This plugin instance's own routes (its handleWebRequest).
   const request = (path, options) => api(prefix + String(path).replace(/^\//, ""), options);
@@ -42,7 +42,10 @@
         const head = (label) => el("div", { class: "ai-head" }, sparkle(), el("span", { class: "ai-label", text: label }), el("span", { class: "spacer" }), close);
         if (entry.pending) {
           card.classList.add("thinking");
-          card.replaceChildren(el("div", { class: "ai-inner" }, head("Assistant"), el("p", { class: "ai-thinking", text: "Thinking about it…" })));
+          // The answer as it is written, once it starts.
+          const live = el("div", { class: "ai-live" }, entry.text ? markdown(entry.text) : el("p", { class: "ai-thinking", text: "Thinking about it…" }));
+          entry.draw = () => { if (live.isConnected) live.replaceChildren(markdown(entry.text)); };
+          card.replaceChildren(el("div", { class: "ai-inner" }, head("Assistant"), live));
           entry.pending.finally(() => { if (document.body.contains(card) && !card.classList.contains("hidden")) show(explanations.get(error)); });
           return;
         }
@@ -50,7 +53,7 @@
           card.classList.add("failed");
           card.replaceChildren(el("div", { class: "ai-inner" }, head("Assistant"),
             el("p", { class: "error", text: entry.failed }),
-            el("button", { class: "link", text: "Try again", onclick: () => { explanations.delete(error); ask(); } })));
+            el("button", { class: "link", text: "Try again", onclick: () => { explanations.delete(error); explainNow(); } })));
           return;
         }
         card.classList.add("answered");
@@ -67,21 +70,32 @@
           if (body.scrollHeight <= body.clientHeight + 4) { body.classList.remove("clamped"); more.remove(); }
         });
       };
-      const ask = () => {
-        const entry = { pending: null };
-        entry.pending = api("/api/assistant/explain", { method: "POST", body: { error, context, device, plugin: platform } })
+      const explainNow = () => {
+        const entry = { pending: null, text: "" };
+        let scheduled = false;
+        const onChunk = (text) => {
+          entry.text += text;
+          if (!scheduled) { scheduled = true; requestAnimationFrame(() => { scheduled = false; entry.draw?.(); }); }
+        };
+        entry.pending = assistantRequest("/api/assistant/explain", { error, context, device, plugin: platform }, { onChunk })
           .then((json) => { explanations.set(error, { text: json.text, model: json.model }); })
           .catch((e) => { explanations.set(error, { failed: e.message }); });
         explanations.set(error, entry);
         show(entry);
         card.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
       };
-      button.addEventListener("click", () => (explanations.has(error) ? show(explanations.get(error)) : ask()));
+      button.addEventListener("click", () => (explanations.has(error) ? show(explanations.get(error)) : explainNow()));
       box.replaceChildren(button, card);
       if (explanations.has(error)) show(explanations.get(error));
     });
     return box;
   }
+
+  /// Asks the Assistant something about this plugin, its background going with the question (ai-kit's
+  /// `/ai/ask`): resolves to `{ text, model }`. `onChunk(text)` gets the answer as it is written; an AbortSignal
+  /// in `signal` stops it. Rejects when the Assistant is off (check `assistant()` first) or fails.
+  const ask = (prompt, { context, onChunk, signal } = {}) =>
+    assistantRequest("/api/assistant/ask", { prompt, context, plugin: platform }, { onChunk, signal });
 
   // The UI's own header on every plugin page, Plugins highlighted, so leaving a plugin's page is one click
   // anywhere; and a breadcrumb under it: Plugins › the plugin › (its instance) › what is open on the page.
@@ -104,6 +118,8 @@
     if (viewport && !viewport.content.includes("viewport-fit")) viewport.content += ", viewport-fit=cover";
     // The Assistant's chat, as on the UI's own pages.
     document.head.append(el("script", { src: "/chat.js" }));
+    // The user's theme, wallpaper and temperature unit, as on the UI's own pages.
+    HomeswiftCommon.loadPreferences();
     api("/api/auth/state").then((state) => {
       user.textContent = state.username || "";
       logout.classList.toggle("hidden", state.mode !== "form");
@@ -287,7 +303,7 @@
   }
 
   window.homeswift = {
-    platform, name, request, home: "/plugins", $, el, icon, tile, fact, assistant, explain, breadcrumb, api, act,
+    platform, name, request, home: "/plugins", $, el, icon, tile, fact, assistant, explain, ask, breadcrumb, api, act, formatTemperature, temperature,
     readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, poll, renderKeyed,
     canonicalMAC, isMAC, sameMAC,
   };

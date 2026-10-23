@@ -44,6 +44,12 @@ public final class UIServer: Sendable {
     let throttle = FailureThrottle()
     let events = EventHub()
     let chat: AssistantChat
+    /// The pages' one-shot Assistant requests, streamed and cancellable (`AssistantRoutes.swift`).
+    let runs = AssistantRuns()
+    /// Glass UI's 20 Assistant requests a minute per user.
+    let assistantLimiter = SlidingWindowRateLimiter.assistant()
+    /// Each user's appearance and Status page layout.
+    let preferences: PreferencesStore
     /// Who watches which camera's live feed, to cap them.
     let cameraViewers = CameraViewers()
     private let channel = NIOLockedValueBox<(any Channel)?>(nil)
@@ -69,8 +75,9 @@ public final class UIServer: Sendable {
         setupCode = configuration.auth == .form && users.isEmpty ? Self.makeSetupCode() : nil
         allowedHosts = Self.allowedHosts(for: configuration)
         live = options.webRoot.map(LiveWebFiles.init(root:))
-        chat = AssistantChat(catalog: catalog, logger: options.logger)
+        chat = AssistantChat(catalog: catalog, storeURL: usersURL.deletingLastPathComponent().appendingPathComponent("ui-chats.json"), logger: options.logger)
         directory = usersURL.deletingLastPathComponent()
+        preferences = PreferencesStore(url: usersURL.deletingLastPathComponent().appendingPathComponent("ui-preferences.json"))
     }
 
     /// The SHA-256 fingerprint of the HTTPS certificate, for the banner: what a browser's warning shows.
@@ -116,6 +123,7 @@ public final class UIServer: Sendable {
     public func stop() async {
         watcher.withLockedValue { $0 }?.cancel()
         events.close()
+        runs.cancelAll()
         await chat.close()
         let bound = channel.withLockedValue { channel -> (any Channel)? in
             defer { channel = nil }
@@ -240,7 +248,7 @@ public final class UIServer: Sendable {
     private func asset(_ file: WebFile, name: String, platform: String?, live: Bool) -> (Data, String) {
         let key = "\(platform ?? "")/\(name)"
         if !live, let kept = assets.withLockedValue({ $0[key] }), kept.file == file { return (kept.body, kept.tag) }
-        let body = Data(file.body.utf8)
+        let body = file.data
         // FNV-1a: stable across launches, so a restart does not make browsers fetch everything again.
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
         for byte in body { hash = (hash ^ UInt64(byte)) &* 0x100_0000_01b3 }
@@ -378,6 +386,9 @@ public final class UIServer: Sendable {
             }
             return .json(response.json, status: response.status)
         }
+        if route.first == "preferences", let reply = preferencesRoute(Array(route.dropFirst()), request, body: body, username: username) { return reply }
+        if route.first == "assistant", route.count >= 2, route[1] != "chat", route[1] != "chats",
+           let reply = try await assistantRoute(Array(route.dropFirst()), request, body: body, username: username) { return reply }
         switch request.method {
         case .GET:
             switch route {
@@ -391,6 +402,9 @@ public final class UIServer: Sendable {
                 guard catalog.host.assistant != nil else { return .error(404, "the Assistant is off: add a HomeswiftAiKit block") }
                 // The conversation so far, then the run going on, if any, as it goes.
                 return .events(await chat.conversation(for: username).subscribe())
+            case ["assistant", "chats"]:
+                // The user's conversations, to open an earlier one.
+                return .json(await chat.list(user: username))
             case ["accessories"]:
                 let rings = events.lastRings
                 return .json(.array(catalog.located().map { located in
@@ -436,6 +450,16 @@ public final class UIServer: Sendable {
                     return .json(.array(lines.map(Self.logJSON)))
                 }
                 return .json(.array(catalog.logs.recent(2000, matching: matching).map(Self.logJSON)))
+            case ["logs", "download"]:
+                // The log as a text file: everything kept (a week at most), or `from` to `to` (ISO 8601).
+                let (from, to) = (request.query["from"].flatMap(Self.date(iso:)), request.query["to"].flatMap(Self.date(iso:)))
+                let catalog = catalog
+                let text = await withCheckedContinuation { continuation in
+                    DispatchQueue.global(qos: .userInitiated).async { continuation.resume(returning: catalog.logText(from: from, to: to)) }
+                }
+                let stamp = Timestamp.iso8601(Date()).prefix(19).replacingOccurrences(of: ":", with: "-")
+                return .data(status: 200, contentType: "text/plain; charset=utf-8", body: Data((text.isEmpty ? "" : text + "\n").utf8),
+                             headers: ["Content-Disposition": "attachment; filename=\"homeswift-\(stamp).log\""])
             case ["metrics"]:
                 // `from` and `to` (now when left out) as ISO 8601, the last hour without them; `bridge` (a device ID,
                 // or `all`) or `accessory`: whose request and handler durations. Memory and CPU are the process's.
@@ -524,20 +548,6 @@ public final class UIServer: Sendable {
                 logger.info("Web UI password changed; the user's other sessions are signed out", metadata: ["user": "\(username)"])
                 return .json(["changed": true])
             }
-            if route == ["assistant", "explain"] {
-                guard var assistant = catalog.host.assistant else { return .error(404, "the Assistant is off: add a HomeswiftAiKit block") }
-                guard let error = body["error"]?.stringValue, !error.isEmpty else { return .error(400, "an error to explain is required") }
-                // A plugin's page: the Assistant gets the plugin's background (what its errors mean).
-                if let platform = body["plugin"]?.stringValue, let entry = catalog.host.registry.entry(for: platform) {
-                    assistant = assistant.withContext(PluginContext.assistantContext(name: entry.name, platform: platform, background: entry.assistantBackground))
-                }
-                do {
-                    let reply = try await assistant.explain(error: error, context: body["context"]?.stringValue, device: body["device"], pluginName: body["plugin"]?.stringValue)
-                    return .json(["text": .string(reply.text), "model": .string(reply.model)])
-                } catch {
-                    return .error(502, "the Assistant did not answer: \(error)")
-                }
-            }
             if route == ["assistant", "config"] {
                 // Describe your setup: a block written from the plugin's config.schema.json and a request in plain
                 // language, for the settings form to show as a change to review; nothing is saved here.
@@ -551,7 +561,7 @@ public final class UIServer: Sendable {
                 var current = body["current"]
                 if case .object(var block)? = current { block["platform"] = nil; current = .object(block) }
                 do {
-                    let suggestion = try await assistant
+                    let suggestion = try await assistant.forUser(username)
                         .withContext(PluginContext.assistantContext(name: entry.name, platform: platform, background: entry.assistantBackground))
                         .generateConfiguration(request: wish, schema: schema, current: current == .null ? nil : current, pluginName: entry.name, onChunk: nil)
                     return .json(["config": suggestion.config, "explanation": .string(suggestion.explanation), "model": .string(assistant.model)])
@@ -571,8 +581,16 @@ public final class UIServer: Sendable {
                 noteConfigChange(by: username)
                 return .json(result, status: 201)
             }
+            if route.count == 4, route[0] == "assistant", route[1] == "chats", route[3] == "open" {
+                guard await chat.open(user: username, id: route[2]) else { return .error(404, "no such conversation") }
+                return .json(JSONValue.object([:]))
+            }
             if route.first == "assistant", route.count >= 2, route[1] == "chat" {
                 return try await chatAction(Array(route.dropFirst(2)), body: body, username: username)
+            }
+            if route == ["logs", "truncate"] {
+                // Every account is the bridge's administrator (docs/ui.md); the MCP tool is admin-scoped.
+                return .json(catalog.truncateLogs(by: "web UI user \(username)"))
             }
             if route == ["restart"] {
                 guard catalog.scheduleRestart(requestedBy: "web UI user \(username)") else { return .error(501, "this process cannot restart itself; restart homeswift by hand") }
@@ -586,6 +604,10 @@ public final class UIServer: Sendable {
         case .DELETE:
             if route == ["assistant", "chat"] {
                 await chat.reset(user: username)
+                return .json(JSONValue.object([:]))
+            }
+            if route.count == 3, route[0] == "assistant", route[1] == "chats" {
+                guard await chat.remove(user: username, id: route[2]) else { return .error(404, "no such conversation") }
                 return .json(JSONValue.object([:]))
             }
             if route.count == 3, route[0] == "config", route[1] == "platforms" {
@@ -632,7 +654,7 @@ public final class UIServer: Sendable {
             guard let text = body["text"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return .error(400, "a message is required") }
             guard text.count <= 4000 else { return .error(400, "the message is too long: 4000 characters at most") }
             let page = body["page"]?.stringValue.map { String($0.prefix(100)) }
-            guard conversation.send(text, page: page, user: username, assistant: assistant, logger: logger) else {
+            guard conversation.send(text, page: page, user: username, assistant: assistant.forUser(username), logger: logger) else {
                 return .error(409, "the Assistant is still answering; stop it first")
             }
             return .events(conversation.subscribe())
@@ -849,7 +871,7 @@ final class UIRequestHandler: ChannelInboundHandler {
         ("X-Content-Type-Options", "nosniff"),
         ("X-Frame-Options", "DENY"),
         ("Referrer-Policy", "no-referrer"),
-        ("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'"),
+        ("Content-Security-Policy", "default-src 'self'; manifest-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'"),
         ("Cache-Control", "no-store"),
     ]
 
@@ -880,9 +902,14 @@ final class UIRequestHandler: ChannelInboundHandler {
                     channel.writeAndFlush(HTTPServerResponsePart.body(.byteBuffer(ByteBuffer(string: ": keepalive\n\n"))), promise: nil)
                 }
             }
-            for await chunk in stream {
-                channel.writeAndFlush(HTTPServerResponsePart.body(.byteBuffer(ByteBuffer(bytes: chunk))), promise: nil)
+            // A closed connection stops reading the stream, which ends what feeds it (a run, a subscription).
+            let forward = Task {
+                for await chunk in stream {
+                    channel.writeAndFlush(HTTPServerResponsePart.body(.byteBuffer(ByteBuffer(bytes: chunk))), promise: nil)
+                }
             }
+            channel.closeFuture.whenComplete { _ in forward.cancel() }
+            await forward.value
             keepalive.cancel()
             channel.writeAndFlush(HTTPServerResponsePart.end(nil), promise: nil)
             channel.close(promise: nil)

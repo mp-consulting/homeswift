@@ -27,6 +27,8 @@ public final class PluginHost: @unchecked Sendable {
         public var makeStorage: (@Sendable (_ name: String) -> any HAPStorage)?
         /// Platform names the runtime itself handles (the Assistant, the web UI): no plugin, no warning.
         public var systemPlatforms: Set<String> = [AIConfiguration.platform]
+        /// How the Assistant reaches its provider; tests pass canned replies. URLSession when nil.
+        public var aiTransport: (any HTTPTransport)?
 
         public init(advertise: Bool = true, logger: Logger = Logger(label: "homeswift"), makeStorage: (@Sendable (_ name: String) -> any HAPStorage)? = nil) {
             self.advertise = advertise
@@ -144,6 +146,8 @@ public final class PluginHost: @unchecked Sendable {
     public var assistant: AssistantService? { assistantBox.withLockedValue { $0 } }
     /// The `HomeswiftAiKit` block as read, whether or not its provider could be set up.
     public var aiConfiguration: AIConfiguration? { aiConfigurationBox.withLockedValue { $0 } }
+    /// How the Assistant reaches its provider: `Options.aiTransport`, else URLSession. A connection test uses it too.
+    public var aiTransport: any HTTPTransport { options.aiTransport ?? URLSessionTransport() }
     private let aiConfigurationBox: NIOLockedValueBox<AIConfiguration?>
 
     var instances: [Instance] { instanceList.withLockedValue { $0 } }
@@ -190,7 +194,7 @@ public final class PluginHost: @unchecked Sendable {
         // The Assistant's block is the runtime's, not a plugin's. A bad one never stops the bridge.
         let ai = Self.loadAIConfiguration(configuration, logger: logger)
         aiConfigurationBox = NIOLockedValueBox(ai)
-        assistantBox.withLockedValue { $0 = Self.makeAssistant(ai, storageDirectory: storageDirectory, logger: logger) }
+        assistantBox.withLockedValue { $0 = Self.makeAssistant(ai, storageDirectory: storageDirectory, transport: options.aiTransport, logger: logger) }
 
         var instances: [Instance] = []
         for block in configuration.platforms where !options.systemPlatforms.contains(block.platform) {
@@ -306,7 +310,7 @@ public final class PluginHost: @unchecked Sendable {
                 // The Assistant swaps in place: plugins read it through the shared box on every use.
                 let ai = Self.loadAIConfiguration(next, logger: logger)
                 aiConfigurationBox.withLockedValue { $0 = ai }
-                assistantBox.withLockedValue { $0 = Self.makeAssistant(ai, storageDirectory: storageDirectory, logger: logger) }
+                assistantBox.withLockedValue { $0 = Self.makeAssistant(ai, storageDirectory: storageDirectory, transport: options.aiTransport, logger: logger) }
             }
             report.systemBlocksChanged.append(platform)
         }
@@ -401,7 +405,7 @@ public final class PluginHost: @unchecked Sendable {
 
     /// The Assistant of a `HomeswiftAiKit` block; nil when it is off or its provider cannot be set up.
     /// The Assistant of the HomeswiftAiKit block; its usage, and so its budget, is kept in `ai-usage.json` across launches.
-    private static func makeAssistant(_ ai: AIConfiguration?, storageDirectory: URL, logger: Logger) -> AssistantService? {
+    private static func makeAssistant(_ ai: AIConfiguration?, storageDirectory: URL, transport: (any HTTPTransport)?, logger: Logger) -> AssistantService? {
         guard let ai, ai.enabled else { return nil }
         guard ai.hasProviderSettings else {
             logger.info("Assistant off: the HomeswiftAiKit block names no provider")
@@ -409,7 +413,7 @@ public final class PluginHost: @unchecked Sendable {
         }
         do {
             let store = FileUsageStore(url: storageDirectory.appendingPathComponent(UsageTracker.fileName), write: OwnerOnlyFile.write)
-            let service = try AssistantService(configuration: ai, usageStore: store, logger: logger)
+            let service = try AssistantService(configuration: ai, transport: transport ?? URLSessionTransport(), usageStore: store, logger: logger)
             logger.info("Assistant ready", metadata: ["provider": "\(service.providerName)", "model": "\(service.model)"])
             return service
         } catch {

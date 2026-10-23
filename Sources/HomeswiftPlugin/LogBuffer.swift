@@ -78,6 +78,16 @@ public final class LogBuffer: Sendable {
 
     public var all: [Line] { state.withLockedValue { $0.ordered } }
 
+    /// Empties the log: the lines in memory and the archive's files (the web UI's and MCP's log truncation).
+    /// Lines logged from then on are kept as before.
+    public func clear() {
+        state.withLockedValue { state in
+            state.ring = []
+            state.start = 0
+        }
+        archive?.removeAll()
+    }
+
     /// The lines from `from` to `to`, oldest first, at most the latest `limit`: from the archive when there is
     /// one, from memory otherwise.
     public func lines(from: Date, to: Date, limit: Int, matching: ((Line) -> Bool)? = nil) -> [Line] {

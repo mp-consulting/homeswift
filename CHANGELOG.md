@@ -8,6 +8,28 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Log Doctor** on the Logs page: Diagnose sends the lines shown to the Assistant, which groups the issues with
+  causes and fixes, streamed as it writes (`POST /api/assistant/diagnose`).
+- **Daily digest widget** on the Status page: the Assistant's summary of the day, written on demand, streamed, and
+  kept for the day in `ai-digest.json` (owner-only); `get_daily_digest` for MCP clients.
+- **Assistant settings**: the HomeswiftAiKit block's page tests the connection with the form's settings
+  (`POST /api/assistant/test`, `test_assistant_connection`), shows today's and this month's usage against the
+  budgets, by model and by user (`GET /api/assistant/usage`, `get_assistant_usage`), and edits the budgets.
+- **Streamed, cancellable Assistant requests** for pages: explain, ask (new, with the plugin's background),
+  diagnose and the digest stream `chunk` events when the body has a `requestId`, and `POST /api/assistant/cancel`
+  stops one, as homebridge-ai-kit's plugin routes; `homeswift.ask()` in plugin.js beside `explain()`, which now
+  streams too. Glass UI's 20 requests a minute per user apply.
+- **Chat history**: the chat's conversations are kept per user in `ui-chats.json` (owner-only), the open one and
+  the ten before it; New chat files one away and Earlier chats opens it again. Cmd+K (Ctrl+K) opens the chat.
+- **Appearance** (`/appearance`, from Account): light, dark or automatic theme, a wallpaper (five of the UI's or
+  an image of your own) and °C or °F for temperatures on accessory cards and plugin pages, saved per user in
+  `ui-preferences.json`.
+- **Status page widgets**: Customise shows, hides and orders the overview, digest, activity, bridges and system,
+  saved per user.
+- **Installable web app**: a manifest, PNG icons and an apple-touch-icon, so the UI goes on a phone's home screen.
+- **Log download and emptying** on the Logs page: the range shown or the whole log as a file
+  (`GET /api/logs/download`), and Empty the log (`POST /api/logs/truncate`, `truncate_logs` for admin MCP clients).
+
 - **Plugin backgrounds for the Assistant**: `HomeswiftPlugin.assistantBackground`, the troubleshooting notes
   each Homebridge plugin sent with its Assistant requests (`*_AI_CONTEXT`), goes with every Explain from a
   plugin's page and with `context.assistant`.

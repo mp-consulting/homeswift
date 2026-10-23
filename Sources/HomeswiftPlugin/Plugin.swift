@@ -162,12 +162,25 @@ public struct AssistantAction: Sendable {
 /// A file of a web page: the UI's own, or a plugin's.
 public struct WebFile: Sendable, Equatable {
     public let contentType: String
+    /// The text, or for a binary file (an icon) its bytes in base64.
     public let body: String
+    public let isBase64: Bool
 
     public init(contentType: String, body: String) {
         self.contentType = contentType
         self.body = body
+        isBase64 = false
     }
+
+    /// A binary file, its bytes in base64.
+    public init(contentType: String, base64: String) {
+        self.contentType = contentType
+        body = base64
+        isBase64 = true
+    }
+
+    /// The bytes as served.
+    public var data: Data { isBase64 ? Data(base64Encoded: body) ?? Data() : Data(body.utf8) }
 }
 
 /// A request from a plugin's web page to the instance that serves it.

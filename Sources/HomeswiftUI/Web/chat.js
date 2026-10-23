@@ -9,7 +9,7 @@
 // and closes when a flick would carry it past half its height. Reduced motion cross-fades instead.
 (() => {
   "use strict";
-  const { $, el, markdown, sparkle, api, jsonView } = HomeswiftCommon;
+  const { $, el, icon, markdown, sparkle, api, jsonView } = HomeswiftCommon;
 
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   const phone = matchMedia("(max-width: 640px)");
@@ -92,16 +92,17 @@
     const close = el("button", { type: "button", class: "chat-icon", "aria-label": "Close", title: "Close (Esc)", text: "×", onclick: () => toggle(false) });
     const fresh = el("button", { type: "button", class: "chat-icon", "aria-label": "New chat", title: "New chat", onclick: reset });
     fresh.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h8M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
+    const earlier = el("button", { type: "button", class: "chat-icon", "aria-label": "Earlier chats", title: "Earlier chats", "aria-expanded": "false", onclick: () => showHistory() }, icon("history"));
     const head = el("div", { class: "chat-head" },
       el("span", { class: "chat-grabber", "aria-hidden": "true" }),
       sparkle(), el("strong", { id: "chat-title", text: "Assistant" }), el("span", { class: "chat-model", text: info.model || "" }),
-      el("span", { class: "spacer" }), fresh, close);
+      el("span", { class: "spacer" }), earlier, fresh, close);
     const sheet = el("section", { class: "chat", role: "dialog", "aria-labelledby": "chat-title", hidden: true },
       el("div", { class: "chat-glow", "aria-hidden": "true" }),
       el("div", { class: "chat-surface" }, head, log, form, voice, foot));
     const scrim = el("div", { class: "chat-scrim", hidden: true, onclick: () => toggle(false) });
     document.body.append(scrim, sheet);
-    panel = { sheet, scrim, log, input, mic, send, foot, head, languagePicker };
+    panel = { sheet, scrim, log, input, mic, send, foot, head, languagePicker, earlier };
 
     input.addEventListener("input", grow);
     input.addEventListener("keydown", (event) => {
@@ -248,6 +249,7 @@
   async function reset() {
     if (running) await stop();
     try { await api("/api/assistant/chat", { method: "DELETE" }); } catch (e) { showError(e.message); return; }
+    closeHistory();
     setItems([], false);
     usage = null;
     renderControls();
@@ -283,6 +285,7 @@
   }
 
   function handle(event, data) {
+    if (historyOpen && event !== "snapshot") closeHistory();
     switch (event) {
     case "snapshot": setItems(data.items, data.running); if (data.usage) usage = data.usage; break;
     case "item": items[data.index] = data.item; renderItem(data.index); break;
@@ -297,6 +300,58 @@
       spoken = false;
       break;
     }
+  }
+
+  // ---- Earlier conversations ----------------------------------------------------------------------------------
+  // The bridge keeps each user's conversations (the open one and the 10 before it): New chat files the open one
+  // away, and one picked here opens again where it was, the Assistant remembering it.
+
+  let historyOpen = false;
+  async function showHistory() {
+    if (historyOpen) { closeHistory(); return; }
+    historyOpen = true;
+    panel.earlier.setAttribute("aria-expanded", "true");
+    const list = el("div", { class: "chat-history", role: "region", "aria-label": "Earlier chats" }, el("p", { class: "muted", text: "Loading…" }));
+    panel.log.replaceChildren(list);
+    let chats;
+    try { chats = await api("/api/assistant/chats"); } catch (e) { list.replaceChildren(el("p", { class: "chat-error", text: e.message })); return; }
+    if (!historyOpen) return;
+    const when = new Intl.DateTimeFormat([], { dateStyle: "medium", timeStyle: "short" });
+    const rows = chats.map((chat) => {
+      const row = el("div", { class: `chat-history-row${chat.current ? " current" : ""}` },
+        el("button", { type: "button", class: "chat-history-open", onclick: () => openChat(chat) },
+          el("strong", { text: chat.title }),
+          el("span", { class: "muted", text: `${when.format(new Date(chat.updated))} · ${chat.messages} ${chat.messages === 1 ? "message" : "messages"}${chat.current ? " · open" : ""}` })),
+        el("button", { type: "button", class: "chat-icon", "aria-label": `Forget “${chat.title}”`, title: "Forget this chat", text: "×", onclick: async () => {
+          try { await api(`/api/assistant/chats/${encodeURIComponent(chat.id)}`, { method: "DELETE" }); } catch (e) { showError(e.message); return; }
+          row.remove();
+          if (chat.current) { setItems([], false); historyOpen = false; showHistory(); }
+        } }));
+      return row;
+    });
+    list.replaceChildren(el("h2", { text: "Earlier chats" }),
+      rows.length ? el("div", { class: "chat-history-list" }, rows) : el("p", { class: "muted", text: "No chat yet. Each one you start is kept here, the last ten." }),
+      el("button", { type: "button", class: "link", text: "Back to the chat", onclick: closeHistory }));
+  }
+
+  async function openChat(chat) {
+    if (running) await stop();
+    if (!chat.current) {
+      try { await api(`/api/assistant/chats/${encodeURIComponent(chat.id)}/open`, { method: "POST", body: {} }); } catch (e) { showError(e.message); return; }
+    }
+    closeHistory(false);
+    loaded = false;
+    usage = null;
+    await load();
+    panel.input.focus();
+  }
+
+  /// Back to the conversation; `redraw` false when another one is about to load.
+  function closeHistory(redraw = true) {
+    if (!historyOpen) return;
+    historyOpen = false;
+    panel.earlier.setAttribute("aria-expanded", "false");
+    if (redraw) setItems(items, running);
   }
 
   // ---- Drawing the conversation --------------------------------------------------------------------------
@@ -549,11 +604,19 @@
     if (!info.enabled) return;
     const header = $("header");
     if (!header || header.querySelector(".chat-open")) return;
+    const shortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl+K";
     trigger = el("button", {
-      type: "button", class: "chat-open", "aria-expanded": "false", "aria-haspopup": "dialog", title: "Ask the Assistant",
+      type: "button", class: "chat-open", "aria-expanded": "false", "aria-haspopup": "dialog", title: `Ask the Assistant (${shortcut})`, "aria-keyshortcuts": "Meta+K Control+K",
       onclick: () => toggle(),
     }, sparkle(), el("span", { text: "Assistant" }));
     header.insertBefore(trigger, header.querySelector("#user"));
+    // Cmd+K (Ctrl+K elsewhere) opens the chat from anywhere, and closes it, as Glass UI's palette.
+    document.addEventListener("keydown", (event) => {
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "k" && !event.isComposing) {
+        event.preventDefault();
+        toggle();
+      }
+    });
     phone.addEventListener("change", () => { if (isOpen()) { panel.scrim.hidden = !phone.matches; draw(openness.value); } });
   }
 

@@ -73,6 +73,15 @@ public final class LogArchive: @unchecked Sendable {
         queue.sync { write() }
     }
 
+    /// Removes every segment, and what is pending: the next line starts a new one.
+    public func removeAll() {
+        queue.sync {
+            pending.removeAll()
+            close()
+            for segment in segments() { try? FileManager.default.removeItem(at: segment.url) }
+        }
+    }
+
     private func write() {
         guard !pending.isEmpty, var open = segment else { return }
         try? open.handle.write(contentsOf: pending)

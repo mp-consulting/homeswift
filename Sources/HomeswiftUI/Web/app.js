@@ -140,6 +140,11 @@
     HomeswiftChat.mount();
     $("#logout").classList.toggle("hidden", auth.mode !== "form");
     openEvents();
+    // The user's theme, wallpaper and units; a page showing temperatures draws again when the unit changed.
+    const shownUnit = HomeswiftCommon.preferences().temperatureUnit;
+    HomeswiftCommon.loadPreferences().then((preferences) => {
+      if (preferences.temperatureUnit !== shownUnit && ["/", "/status", "/accessories"].includes(location.pathname)) route();
+    });
     route();
   }
 
@@ -258,8 +263,10 @@
             el("div", { class: "code", text: bridge.setupCode }))) : null);
     });
 
-    show(main,
-      el("div", { class: "card hero" },
+    // The page is widgets the user can hide and order (Customise, at the bottom; Glass UI's dashboard layout),
+    // drawn only when shown: the activity charts load nothing while hidden.
+    const widgets = {
+      overview: () => [el("div", { class: "card hero" },
         el("img", { src: "/icon.svg", class: "logo large", alt: "" }),
         el("div", { class: "who" },
           el("h1", { text: "Homeswift" }),
@@ -269,11 +276,12 @@
         el("div", { class: "stat" }, el("b", { text: status.bridges.reduce((sum, bridge) => sum + bridge.accessories, 0) }), el("span", { text: "Accessories" })),
         el("div", { class: "stat" }, el("b", { text: plugins.size }), el("span", { text: plugins.size === 1 ? "Plugin" : "Plugins" })),
         el("div", { class: "stat" }, el("b", { text: main0 ? main0.controllers : 0 }), el("span", { text: "Home app controllers" })),
-        el("div", { class: "stat" }, el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: "Up" }))),
-      activity(accessories, withSlugs(status.bridges, "bridge")),
-      el("h2", { text: status.bridges.length === 1 ? "Bridge" : "Bridges and accessories" }),
-      el("div", { class: "servers" }, ...bridges),
-      el("h2", { text: "System" }),
+        el("div", { class: "stat" }, el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: "Up" })))],
+      digest: () => status.assistant ? digestWidget() : null,
+      activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
+      bridges: () => [el("h2", { text: status.bridges.length === 1 ? "Bridge" : "Bridges and accessories" }),
+      el("div", { class: "servers" }, ...bridges)],
+      system: () => [el("h2", { text: "System" }),
       el("div", { class: "card server" },
         el("div", { class: "server-head" }, tile("system", "grey"),
           el("div", { class: "who" }, el("strong", { text: status.system.hostname }), el("div", { class: "muted", text: `${status.system.platform} ${status.system.os}` }))),
@@ -283,8 +291,119 @@
           fact("Machine up", formatDuration(status.system.systemUptimeSeconds ?? 0))),
         el("div", { class: "fact wide" }, el("span", { text: "Configuration" }), el("b", { class: "mono", text: status.configPath, title: status.configPath })),
         // Changes apply without one; this is for a plugin that misbehaves.
-        el("div", { class: "actions" }, el("button", { class: "link", text: "Restart homeswift…", onclick: restartBridge }))));
+        el("div", { class: "actions" }, el("button", { class: "link", text: "Restart homeswift…", onclick: restartBridge })))],
+    };
+    const layout = dashboardLayout();
+    show(main,
+      layout.order.filter((id) => !layout.hidden.includes(id)).map((id) => {
+        const nodes = [widgets[id]?.()].flat().filter(Boolean);
+        return nodes.length ? el("section", { class: "widget", "data-widget": id }, nodes) : null;
+      }),
+      el("div", { class: "actions page-foot" },
+        el("button", { class: "link", onclick: () => customiseDashboard(main, { assistant: Boolean(status.assistant), scroll: true }) }, HomeswiftCommon.icon("sliders"), " Customise this page…")));
+    // Open while the user changes it: the page is drawn again under it after each change.
+    if (customising) customiseDashboard(main, { assistant: Boolean(status.assistant) });
   };
+
+  // ---- The Status page's widgets: which show, in which order ----------------------------------------------
+  // Each user's own, kept on the server with their other preferences (/api/preferences, `dashboard`).
+
+  const dashboardWidgets = [["overview", "Overview", "Health, accessories, plugins, uptime"], ["digest", "Daily digest", "The Assistant's summary of the day"],
+    ["activity", "Activity", "Memory, CPU and response times"], ["bridges", "Bridges", "Pairing codes and what each bridge runs"], ["system", "System", "The machine, and Restart"]];
+
+  /// The widgets in the user's order (new ones last), and those hidden.
+  function dashboardLayout() {
+    const saved = HomeswiftCommon.preferences().dashboard || {};
+    const known = dashboardWidgets.map(([id]) => id);
+    const order = [...(saved.order || []).filter((id) => known.includes(id)), ...known.filter((id) => !(saved.order || []).includes(id))];
+    return { order, hidden: (saved.hidden || []).filter((id) => known.includes(id)) };
+  }
+
+  let customising = false;
+
+  /// The Customise panel: a switch per widget and arrows to move it; each change is saved and the page redrawn.
+  function customiseDashboard(main, { assistant, scroll = false }) {
+    const existing = $(".customise", main);
+    if (existing) { existing.remove(); customising = false; return; }
+    customising = true;
+    let layout = dashboardLayout();
+    const list = el("div", { class: "customise-list" });
+    const save = async (next) => {
+      layout = next;
+      draw();
+      try {
+        await HomeswiftCommon.applyPreferences(await api("/api/preferences", { method: "PUT", body: { dashboard: layout } }));
+        route();
+      } catch (e) { alert(e.message); }
+    };
+    const draw = () => list.replaceChildren(...layout.order.map((id, index) => {
+      const [, name, note] = dashboardWidgets.find(([known]) => known === id);
+      const shown = !layout.hidden.includes(id);
+      const toggle = el("input", { type: "checkbox", checked: shown, "aria-label": `Show ${name}`, onchange: () =>
+        save({ order: layout.order, hidden: shown ? [...layout.hidden, id] : layout.hidden.filter((one) => one !== id) }) });
+      const move = (by) => () => { const order = [...layout.order]; order.splice(index + by, 0, order.splice(index, 1)[0]); save({ ...layout, order }); };
+      return el("div", { class: "customise-row" },
+        el("label", { class: "switch" }, toggle, el("span")),
+        el("div", { class: "who" }, el("strong", { text: name }), el("div", { class: "muted", text: id === "digest" && !assistant ? "Needs the Assistant (a HomeswiftAiKit block)" : note })),
+        el("button", { type: "button", class: "icon-button", "aria-label": `Move ${name} up`, disabled: index === 0, onclick: move(-1) }, HomeswiftCommon.icon("up")),
+        el("button", { type: "button", class: "icon-button", "aria-label": `Move ${name} down`, disabled: index === layout.order.length - 1, onclick: move(1) }, HomeswiftCommon.icon("down")));
+    }));
+    draw();
+    const panel = el("div", { class: "card customise", role: "region", "aria-label": "Customise the Status page" },
+      el("div", { class: "section-head" }, el("h2", { text: "Customise this page" }), el("span", { class: "muted", text: "Saved for you, on every browser" })),
+      list,
+      el("div", { class: "actions" },
+        el("button", { class: "link", text: "Back to the usual layout", onclick: () => save({ order: dashboardWidgets.map(([id]) => id), hidden: [] }) }),
+        el("button", { class: "primary", text: "Done", onclick: () => { panel.remove(); customising = false; } })));
+    main.prepend(panel);
+    if (scroll) panel.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  }
+
+  // ---- The daily digest (Glass UI's assistant digest widget) ------------------------------------------------
+  // The Assistant's summary of the last day: the log's warnings and errors, the accessories, what needs attention
+  // first. Written on demand and kept for the day by the bridge (ai-digest.json); Write again replaces it.
+
+  function digestWidget() {
+    const body = el("div", { class: "digest-body", "aria-live": "polite" });
+    const note = el("span", { class: "muted" });
+    const card = el("div", { class: "card digest-card" },
+      el("div", { class: "server-head" },
+        el("span", { class: "tile tone-ai", "aria-hidden": "true" }, sparkle()),
+        el("div", { class: "who" }, el("strong", { text: "Daily digest" }), el("div", { class: "muted", text: "What needs attention today, from the log and the accessories" }))),
+      body,
+      el("div", { class: "card-foot" }, note, menuButton("Digest actions", () => [{ label: "Write it again", icon: sparkle(), onSelect: () => write() }])));
+    let controller = null;
+
+    const shown = (digest) => {
+      body.replaceChildren(HomeswiftCommon.markdown(digest.text));
+      note.textContent = `Written ${new Date(digest.generatedAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}${digest.model ? ` by ${digest.model}` : ""}`;
+    };
+    const offer = () => body.replaceChildren(
+      el("p", { class: "muted", text: "No digest yet today. The Assistant reads the day's warnings and errors and the accessories, and says what needs attention." }),
+      el("button", { class: "ai-button", onclick: () => write() }, sparkle(), el("span", { text: "Write today's digest" })));
+
+    async function write() {
+      controller?.abort();
+      controller = new AbortController();
+      const own = controller;
+      let text = "";
+      const live = el("div", {}, el("p", { class: "ai-thinking", text: "Reading the day…" }));
+      body.replaceChildren(live, el("button", { class: "link", text: "Stop", onclick: () => own.abort() }));
+      card.classList.add("writing");
+      note.textContent = "";
+      try {
+        shown(await HomeswiftCommon.assistantRequest("/api/assistant/digest", {}, { signal: own.signal, onChunk: (piece) => { text += piece; live.replaceChildren(HomeswiftCommon.markdown(text)); } }));
+      } catch (e) {
+        if (own.signal.aborted) offer(); else body.replaceChildren(el("p", { class: "error", text: e.message }), el("button", { class: "link", text: "Try again", onclick: () => write() }));
+      } finally {
+        card.classList.remove("writing");
+        if (controller === own) controller = null;
+      }
+    }
+
+    api("/api/assistant/digest").then((digest) => (digest && digest.text ? shown(digest) : offer())).catch((e) => body.replaceChildren(el("p", { class: "error", text: e.message })));
+    return card;
+  }
 
   /// The Status page's charts: the process's memory and CPU, and how long the Home app's requests and the plugins'
   /// calls to their devices take, over the range and for the bridge or accessory the filters above them choose (the
@@ -503,8 +622,8 @@
       const input = el("input", { type: "range", min: characteristic.minValue, max: characteristic.maxValue, step: characteristic.minStep || 1, value: characteristic.value ?? 0, "aria-label": sentence(characteristic.type) });
       const value = el("span", { class: "value", text: formatValue(characteristic) });
       let timer;
-      input.addEventListener("input", () => { value.textContent = `${input.value}${unit(characteristic)}`; clearTimeout(timer); timer = setTimeout(() => write(Number(input.value)), 250); });
-      return el("span", { class: "range", "data-unit": unit(characteristic), ...attrs }, input, value);
+      input.addEventListener("input", () => { value.textContent = display(Number(input.value), characteristic.unit); clearTimeout(timer); timer = setTimeout(() => write(Number(input.value)), 250); });
+      return el("span", { class: "range", "data-unit": unit(characteristic), "data-unit-name": characteristic.unit, ...attrs }, input, value);
     }
     if (writable && characteristic.format === "string") {
       const input = el("input", { type: "text", value: characteristic.value ?? "", ...attrs });
@@ -513,7 +632,7 @@
     }
     if (!readable) return null;
     const text = labels ? labelFor(characteristic.type, characteristic.value) : formatValue(characteristic);
-    return el("span", { class: "value", text, ...attrs });
+    return el("span", { class: "value", text, "data-unit-name": labels ? null : characteristic.unit, ...attrs });
   }
 
   /// On/Off or Active as a switch; Active writes 1 and 0.
@@ -527,12 +646,19 @@
   }
 
   function unit(characteristic) {
-    return { celsius: " °C", percentage: " %", lux: " lx", seconds: " s", arcdegrees: "°" }[characteristic.unit] || "";
+    // Temperatures in the unit the user chose (Appearance); HomeKit's values stay in °C.
+    if (characteristic.unit === "celsius") return ` ${HomeswiftCommon.temperature(0).unit}`;
+    return { percentage: " %", lux: " lx", seconds: " s", arcdegrees: "°" }[characteristic.unit] || "";
   }
   function formatValue(characteristic) {
     if (characteristic.format === "bool") return characteristic.value ? "On" : "Off";
     if (characteristic.value === null || characteristic.value === undefined) return "";
-    return `${characteristic.value}${unit(characteristic)}`;
+    return display(characteristic.value, characteristic.unit);
+  }
+  /// A value with its unit, a temperature converted to the user's unit.
+  function display(value, unitName) {
+    if (unitName === "celsius" && typeof value === "number") return HomeswiftCommon.formatTemperature(value);
+    return `${value}${unit({ unit: unitName })}`;
   }
 
   /// Rows for the characteristics of a service a person reads or changes; `skip` are shown elsewhere (the
@@ -722,9 +848,10 @@
     for (const node of document.querySelectorAll(selector)) {
       if (event.subtype && node.dataset.service !== event.subtype) continue;
       if (node.classList.contains("switch")) $("input", node).checked = event.value === true || event.value === 1;
-      else if (node.classList.contains("range")) { $("input", node).value = event.value; $(".value", node).textContent = `${event.value}${node.dataset.unit || ""}`; }
+      else if (node.classList.contains("range")) { $("input", node).value = event.value; $(".value", node).textContent = display(event.value, node.dataset.unitName); }
       else if (node.tagName === "SELECT") node.value = String(event.value);
       else if (node.tagName === "INPUT") node.value = event.value;
+      else if (node.dataset.unitName && typeof event.value === "number") node.textContent = display(event.value, node.dataset.unitName);
       else node.textContent = typeof event.value === "boolean" && !enumLabels[event.characteristic] ? (event.value ? "On" : "Off") : labelFor(event.characteristic, event.value);
     }
   }
@@ -976,12 +1103,106 @@
       hasPage ? el("div", { class: "card page-note" },
         el("p", {}, el("strong", { text: "Expert. " }), `Every setting of the block, as config.json keeps it, including what ${plugin.name}'s page does not show. A save reloads the plugin.`),
         el("a", { class: "button", href: pluginPage(block), text: "Back to its page" })) : null,
+      platform === "HomeswiftAiKit" && useSuggestion && !isNew ? assistantSettings({
+        formValue: () => { try { return { ...getValue(), platform }; } catch { return { ...current, platform }; } },
+        useValue: useSuggestion, save, dirty }) : null,
       useSuggestion && !block.system ? describeSetup({ platform, pluginName: plugin ? plugin.name : platform, current: () => { try { return getValue(); } catch { return current; } }, use: useSuggestion }) : null,
       body,
       el("div", { class: "settings-bar" }, message, revert, save),
       remove);
     update();
   };
+
+  /// The Assistant's block, above its form: Test connection (the form's settings, saved or not), and what the
+  /// Assistant used today and this month against its budgets, by model and by user; the budgets are edited here
+  /// and saved with the block (Glass UI's Assistant settings).
+  function assistantSettings({ formValue, useValue, save, dirty }) {
+    const result = el("p", { class: "muted test-result", role: "status" });
+    const test = el("button", { text: "Test connection", onclick: async () => {
+      test.disabled = true;
+      result.className = "muted test-result";
+      result.textContent = "Asking the provider…";
+      try {
+        const answer = await api("/api/assistant/test", { method: "POST", body: { block: formValue() } });
+        result.className = `test-result ${answer.ok ? "ok" : "error"}`;
+        result.textContent = answer.ok ? `It works: ${answer.provider} · ${answer.model} answered in ${answer.latencyMs} ms.` : answer.message || "It did not answer.";
+        loadUsage();
+      } catch (e) { result.className = "test-result error"; result.textContent = e.message; }
+      test.disabled = false;
+    } });
+
+    const usage = el("div", { class: "usage" }, el("p", { class: "muted", text: "Loading…" }));
+    const money = (usd) => usd == null ? "–" : usd > 0 && usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`;
+    const tokens = (summary) => (summary.inputTokens + summary.outputTokens).toLocaleString();
+    const meter = (label, used, limit, format) => {
+      const share = Math.min(1, limit ? used / limit : 0);
+      return el("div", { class: `budget-meter${share >= 1 ? " over" : share >= 0.8 ? " near" : ""}` },
+        el("div", { class: "budget-label" }, el("span", { text: label }), el("b", { text: `${format(used)} of ${format(limit)}` })),
+        el("div", { class: "gauge-track", role: "meter", "aria-label": label, "aria-valuemin": "0", "aria-valuemax": String(limit), "aria-valuenow": String(used) },
+          el("div", { class: "gauge-fill", style: `width:${share * 100}%` })));
+    };
+    const table = (title, rows) => rows.length ? el("div", { class: "table-scroll" }, el("table", {},
+      el("thead", {}, el("tr", {}, [title, "Requests", "Tokens", "Cost"].map((text) => el("th", { text })))),
+      el("tbody", {}, rows.map(([name, summary]) => el("tr", {}, el("td", { text: name }), el("td", { text: summary.requests.toLocaleString() }),
+        el("td", { text: tokens(summary) }), el("td", { text: money(summary.costUsd) })))))) : null;
+    async function loadUsage() {
+      let answer;
+      try { answer = await api("/api/assistant/usage"); } catch (e) { usage.replaceChildren(el("p", { class: "error", text: e.message })); return; }
+      const report = answer.usage;
+      const budget = report.budget || {};
+      const meters = [
+        budget.dailyTokens ? meter("Tokens today", report.today.inputTokens + report.today.outputTokens, budget.dailyTokens, (n) => n.toLocaleString()) : null,
+        budget.dailyUsd ? meter("Spent today", report.today.costUsd ?? 0, budget.dailyUsd, money) : null,
+        budget.monthlyTokens ? meter("Tokens this month", report.thisMonth.inputTokens + report.thisMonth.outputTokens, budget.monthlyTokens, (n) => n.toLocaleString()) : null,
+        budget.monthlyUsd ? meter("Spent this month", report.thisMonth.costUsd ?? 0, budget.monthlyUsd, money) : null,
+      ].filter(Boolean);
+      const byModel = Object.entries(report.monthByModel || {}).sort(([, a], [, b]) => b.requests - a.requests);
+      const byUser = Object.entries(report.byUser?.thisMonth || {}).sort(([, a], [, b]) => b.requests - a.requests);
+      usage.replaceChildren(...[
+        el("div", { class: "stats" },
+          el("div", { class: "stat" }, el("b", { text: report.today.requests.toLocaleString() }), el("span", { text: "Requests today" })),
+          el("div", { class: "stat" }, el("b", { text: money(report.today.costUsd) }), el("span", { text: "Cost today" })),
+          el("div", { class: "stat" }, el("b", { text: report.thisMonth.requests.toLocaleString() }), el("span", { text: "Requests this month" })),
+          el("div", { class: "stat" }, el("b", { text: money(report.thisMonth.costUsd) }), el("span", { text: "Cost this month" }))),
+        report.exceeded ? el("p", { class: "error", text: report.exceeded }) : null,
+        meters.length ? el("div", { class: "budget-meters" }, meters) : el("p", { class: "muted", text: "No budget: requests are not limited." }),
+        byModel.length || byUser.length ? el("details", { class: "more" }, el("summary", { text: "This month by model and by user" }),
+          table("Model", byModel), table("User", byUser)) : null,
+        el("p", { class: "muted", text: "Costs come from the token counts at today's prices; only Claude models are priced." })].filter(Boolean));
+    }
+
+    // The budget's four limits, written into the form and saved with it; empty is no limit.
+    const limits = [["dailyTokens", "Tokens per day", 1], ["dailyUsd", "USD per day", 0.01], ["monthlyTokens", "Tokens per month", 1], ["monthlyUsd", "USD per month", 0.01]];
+    const inputs = Object.fromEntries(limits.map(([key, , step]) => [key, el("input", { type: "number", min: 0, step, inputMode: "decimal", placeholder: "No limit" })]));
+    const budgetMessage = el("span", { class: "muted" });
+    const editor = el("details", { class: "more budget-editor" },
+      el("summary", { text: "Edit the budgets" }),
+      el("div", { class: "fields" }, limits.map(([key, label]) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), inputs[key]))),
+      el("div", { class: "actions" }, budgetMessage, el("button", { class: "primary", text: "Save the budgets", onclick: () => {
+        if (dirty() && !confirm("The form below has other unsaved changes: save them with the budgets?")) return;
+        const budget = {};
+        for (const [key] of limits) if (inputs[key].value !== "" && Number(inputs[key].value) > 0) budget[key] = Number(inputs[key].value);
+        const value = formValue();
+        if (Object.keys(budget).length) value.budget = budget; else delete value.budget;
+        useValue(value);
+        save.click();
+        budgetMessage.textContent = "Saving…";
+        setTimeout(() => { budgetMessage.textContent = ""; loadUsage(); }, 1200);
+      } })));
+    editor.addEventListener("toggle", () => {
+      if (!editor.open) return;
+      const budget = formValue().budget || {};
+      for (const [key] of limits) inputs[key].value = budget[key] ?? "";
+    });
+
+    loadUsage();
+    return el("div", { class: "card assistant-settings" },
+      el("div", { class: "server-head" },
+        el("span", { class: "tile tone-ai", "aria-hidden": "true" }, sparkle()),
+        el("div", { class: "who" }, el("strong", { text: "The Assistant" }), el("div", { class: "muted", text: "Check the settings below before saving them, and see what it costs." })),
+        test),
+      result, usage, editor);
+  }
 
   /// Describe your setup: the Assistant writes the block from the plugin's config.schema.json and a sentence
   /// ("two lights, the second one at 192.168.1.40"); the change shows as a diff, and "Use it" puts it in the form
@@ -1445,7 +1666,7 @@
     const state = await api("/api/auth/state");
     if (state.mode !== "form") {
       show(main, pageHead("Account", "This web UI has no sign-in: its HomeswiftUI block says auth none, so there is no password to change."),
-        el("div", { class: "card" }, el("p", { class: "muted", text: "Plugins › HomeswiftUI › Settings turns sign-in on." })));
+        el("div", { class: "card" }, el("p", { class: "muted", text: "Plugins › HomeswiftUI › Settings turns sign-in on." })), appearanceLink());
       return;
     }
     const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);
@@ -1481,8 +1702,92 @@
       el("div", { class: "account" }, form,
         el("div", { class: "card" }, el("h2", { text: "Sign out" }),
           el("p", { class: "muted", text: "Ends this browser's session. Changing the password ends the others." }),
-          el("button", { text: "Sign out", onclick: () => $("#logout").click() }))));
+          el("button", { text: "Sign out", onclick: () => $("#logout").click() }))),
+      appearanceLink());
   };
+
+  const appearanceLink = () => el("a", { class: "card link-card", href: "/appearance" }, HomeswiftCommon.icon("sliders"),
+    el("div", { class: "who" }, el("strong", { text: "Appearance" }), el("div", { class: "muted", text: "Light or dark, the wallpaper, °C or °F" })));
+
+  // ---- Appearance ------------------------------------------------------------
+  // /appearance: the theme (as the system, light or dark), a wallpaper (one of the UI's, or an image of your own)
+  // and the temperature unit, as Glass UI offers them. Each user's own, saved on the bridge (/api/preferences) and
+  // applied at once, on every page, plugins' included.
+
+  const wallpaperChoices = [["none", "None"], ["aurora", "Aurora"], ["sunset", "Sunset"], ["ocean", "Ocean"], ["forest", "Forest"], ["graphite", "Graphite"]];
+
+  views.appearance = async (main) => {
+    let preferences = await HomeswiftCommon.loadPreferences();
+    const message = el("p", { class: "status-line muted", role: "status" });
+    const choose = async (change) => {
+      message.className = "status-line muted";
+      message.textContent = "Saving…";
+      try {
+        preferences = HomeswiftCommon.applyPreferences(await api("/api/preferences", { method: "PUT", body: change }));
+        message.textContent = "Saved for your account, on every browser.";
+        draw();
+      } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
+    };
+    const segmented = (label, value, options, key) => el("div", { class: "group", role: "radiogroup", "aria-label": label },
+      options.map(([option, text]) => el("button", { type: "button", role: "radio", text, class: option === value ? "on" : "", "aria-checked": String(option === value),
+        onclick: () => { if (option !== value) choose({ [key]: option }); } })));
+
+    const picker = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp", class: "hidden" });
+    picker.addEventListener("change", async () => {
+      const file = picker.files[0];
+      picker.value = "";
+      if (!file) return;
+      message.className = "status-line muted";
+      message.textContent = "Preparing the image…";
+      try {
+        const data = await scaledImage(file);
+        preferences = HomeswiftCommon.applyPreferences(await api("/api/preferences/wallpaper", { method: "PUT", body: { data } }));
+        message.textContent = "Your image is the wallpaper now.";
+        draw();
+      } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
+    });
+    const body = el("div", { class: "appearance" });
+    function draw() {
+      const own = preferences.wallpaper === "custom" || preferences.wallpaperVersion;
+      body.replaceChildren(
+        el("div", { class: "card" }, el("h2", { text: "Theme" }),
+          el("p", { class: "muted", text: "Automatic follows the system's light or dark appearance." }),
+          segmented("Theme", preferences.theme, [["auto", "Automatic"], ["light", "Light"], ["dark", "Dark"]], "theme")),
+        el("div", { class: "card" }, el("h2", { text: "Wallpaper" }),
+          el("p", { class: "muted", text: "Behind the glass of every page." }),
+          el("div", { class: "wallpapers", role: "radiogroup", "aria-label": "Wallpaper" },
+            [...wallpaperChoices, ...(own ? [["custom", "Your image"]] : [])].map(([value, text]) =>
+              el("button", { type: "button", role: "radio", class: `wallpaper-choice${preferences.wallpaper === value ? " on" : ""}`, "aria-checked": String(preferences.wallpaper === value),
+                onclick: () => { if (preferences.wallpaper !== value) choose({ wallpaper: value }); } },
+                el("span", { class: "wallpaper-swatch", "data-swatch": value }), el("span", { text })))),
+          el("div", { class: "actions" },
+            el("button", { text: own ? "Choose another image…" : "Use an image of your own…", onclick: () => picker.click() }),
+            own ? el("button", { class: "link danger", text: "Remove your image", onclick: async () => {
+              try { preferences = HomeswiftCommon.applyPreferences(await api("/api/preferences/wallpaper", { method: "DELETE" })); draw(); } catch (e) { alert(e.message); }
+            } }) : null),
+          picker),
+        el("div", { class: "card" }, el("h2", { text: "Temperatures" }),
+          el("p", { class: "muted", text: "How accessories and plugin pages show them. HomeKit and the Home app keep their own setting." }),
+          segmented("Temperature unit", preferences.temperatureUnit, [["c", "Celsius (°C)"], ["f", "Fahrenheit (°F)"]], "temperatureUnit")));
+    }
+    draw();
+    show(main, pageHead("Appearance", "How the web UI looks for you, on every browser you sign in to."), body, message);
+  };
+
+  /// An image as base64 JPEG, at most 2560 pixels on its long side: a photo from a phone is several MB.
+  async function scaledImage(file) {
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error("Choose a JPEG, PNG or WebP image.");
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 2560 / Math.max(bitmap.width, bitmap.height));
+    const canvas = el("canvas", { width: Math.round(bitmap.width * scale), height: Math.round(bitmap.height * scale) });
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+    if (!blob) throw new Error("The image could not be read.");
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(binary);
+  }
 
   // ---- Config --------------------------------------------------------------
 
@@ -1727,13 +2032,17 @@
       render();
     }
     // What the page shows, as text: a line each, the time, the label, the level when it is not info.
-    const copy = el("button", { text: "Copy", title: "Copy the lines shown", onclick: async () => {
+    const shownLines = () => {
       const needle = filter.value.toLowerCase();
-      const shown = logState.lines.filter((line) => visible(line, needle));
-      const text = shown.map((line) => {
-        const level = line.level === "info" || line.level === "notice" ? "" : ` [${line.level.toUpperCase()}]`;
-        return `${line.time} [${line.label}]${level} ${line.text}`;
-      }).join("\n");
+      return logState.lines.filter((line) => visible(line, needle));
+    };
+    const asText = (line) => {
+      const level = line.level === "info" || line.level === "notice" ? "" : ` [${line.level.toUpperCase()}]`;
+      return `${line.time} [${line.label}]${level} ${line.text}`;
+    };
+    const copy = el("button", { text: "Copy", title: "Copy the lines shown", onclick: async () => {
+      const shown = shownLines();
+      const text = shown.map(asText).join("\n");
       try {
         await copyText(text);
         copy.textContent = `Copied ${shown.length} line${shown.length === 1 ? "" : "s"}`;
@@ -1743,15 +2052,74 @@
       }
       setTimeout(() => { copy.textContent = "Copy"; copy.title = "Copy the lines shown"; }, 1800);
     } });
+    // Log Doctor: the Assistant reads the lines shown and groups the issues, with causes and fixes.
+    const doctor = logDoctor(() => shownLines().slice(-3000).map(asText), () => {
+      const about = sources.picker.selectedOptions[0];
+      return [sources.picker.value && about ? `the lines about ${about.textContent}` : "", filter.value ? `lines matching "${filter.value}"` : ""].filter(Boolean).join(", ");
+    });
+    // Download: the range shown (everything kept for the latest lines); Empty: the log in memory and on disk.
+    const actions = menuButton("Log actions", () => {
+      const chosen = range.span();
+      const query = new URLSearchParams();
+      if (chosen) { query.set("from", chosen[0].toISOString()); if (chosen[1]) query.set("to", chosen[1].toISOString()); }
+      return [
+        { label: chosen ? "Download this range" : "Download the whole log", icon: "download", href: `/api/logs/download${query.size ? `?${query}` : ""}` },
+        { label: "Empty the log…", icon: "trash", danger: true, onSelect: async () => {
+          if (!confirm("Empty the log? Every line goes, in memory and the files kept on disk (up to a week). This cannot be undone.")) return;
+          try { await api("/api/logs/truncate", { method: "POST", body: {} }); await load(); } catch (e) { alert(e.message); }
+        } },
+      ];
+    });
     show(main,
       pageHead("Logs", "This homeswift's log, live, and up to a week back."),
       el("div", { class: "card log-card" },
-        el("div", { class: "editor-bar" }, levels, range.picker, sources.picker, filter, el("span", { class: "spacer" }), count, copy,
+        el("div", { class: "editor-bar" }, levels, range.picker, sources.picker, filter, el("span", { class: "spacer" }), count, doctor.button, copy,
           el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: "Follow" })),
-          range.customRow),
-        output));
+          actions, range.customRow),
+        output),
+      doctor.card);
     await load();
   };
+
+  /// Log Doctor (Glass UI's): a Diagnose button and the card the diagnosis streams into. `lines()` gives the
+  /// lines to read, `focus()` what they were picked by. Hidden while the Assistant is off.
+  function logDoctor(lines, focus) {
+    const button = el("button", { class: "ai-button hidden", title: "The Assistant reads the lines shown and groups the issues, with causes and fixes" }, sparkle(), el("span", { text: "Diagnose" }));
+    const card = el("div", { class: "ai-card log-doctor hidden", role: "region", "aria-label": "Log Doctor", "aria-live": "polite" });
+    api("/api/assistant").then((state) => { if (state?.enabled) button.classList.remove("hidden"); }).catch(() => {});
+    let controller = null;
+    button.addEventListener("click", async () => {
+      const picked = lines();
+      if (!picked.length) { alert("No line is shown: widen the range or the filters first."); return; }
+      controller?.abort();
+      const own = controller = new AbortController();
+      let text = "";
+      let closed = false;
+      const live = el("div", { class: "ai-live" }, el("p", { class: "ai-thinking", text: `Reading ${picked.length.toLocaleString()} ${picked.length === 1 ? "line" : "lines"}…` }));
+      const stop = el("button", { class: "link", text: "Stop", onclick: () => own.abort() });
+      const close = el("button", { class: "ai-close", title: "Close", "aria-label": "Close the diagnosis", text: "×", onclick: () => { closed = true; own.abort(); card.classList.add("hidden"); } });
+      const head = el("div", { class: "ai-head" }, sparkle(), el("span", { class: "ai-label", text: "Log Doctor" }), el("span", { class: "spacer" }), close);
+      card.className = "ai-card log-doctor thinking";
+      card.replaceChildren(el("div", { class: "ai-inner" }, head, live, stop));
+      card.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      button.disabled = true;
+      try {
+        const reply = await HomeswiftCommon.assistantRequest("/api/assistant/diagnose", { lines: picked, focus: focus() || undefined }, {
+          signal: own.signal, onChunk: (piece) => { text += piece; live.replaceChildren(HomeswiftCommon.markdown(text)); } });
+        card.className = "ai-card log-doctor answered";
+        live.replaceChildren(HomeswiftCommon.markdown(reply.text));
+        stop.replaceWith(el("p", { class: "muted ai-note", text: `${reply.model} read ${reply.lines.toLocaleString()} ${reply.lines === 1 ? "line" : "lines"}. Secrets and addresses were masked first; check its advice before acting on it.` }));
+      } catch (e) {
+        card.className = `ai-card log-doctor failed${closed ? " hidden" : ""}`;
+        stop.remove();
+        live.replaceChildren(el("p", { class: own.signal.aborted ? "muted" : "error", text: own.signal.aborted ? "Stopped." : e.message }));
+      } finally {
+        button.disabled = false;
+        if (controller === own) controller = null;
+      }
+    });
+    return { button, card };
+  }
 
   /// Whether a prepared line passes the level, the text (`needle`, in lower case) and the accessory.
   function visible(line, needle = logState.filter.value.toLowerCase()) {

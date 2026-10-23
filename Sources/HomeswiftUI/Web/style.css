@@ -23,7 +23,7 @@
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1); --fast: 120ms; --normal: 200ms;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not(:where([data-theme="light"])) {
     --bg: #0f1218; --bg-warm: #3a2a1e; --bg-cool: #15243a; --bg-mint: #14302a;
     --material-thick: rgba(28, 31, 40, 0.74); --material: rgba(34, 38, 48, 0.54); --material-thin: rgba(255, 255, 255, 0.06);
     --material-solid: #1d2129;
@@ -37,6 +37,23 @@
     --warn: #e9a04a; --paused: #8e8cff;
     --series-1: #3987e5; --series-2: #d95926;
   }
+}
+/* A theme chosen in the web UI (/appearance) rather than the system's: common.js sets data-theme. */
+:root:where([data-theme="light"]) { color-scheme: light; }
+:root:where([data-theme="dark"]) {
+  color-scheme: dark;
+  --bg: #0f1218; --bg-warm: #3a2a1e; --bg-cool: #15243a; --bg-mint: #14302a;
+  --material-thick: rgba(28, 31, 40, 0.74); --material: rgba(34, 38, 48, 0.54); --material-thin: rgba(255, 255, 255, 0.06);
+  --material-solid: #1d2129;
+  --control: rgba(70, 76, 92, 0.75); --field: rgba(0, 0, 0, 0.28);
+  --search-fill: rgba(118, 118, 128, 0.26); --search-glyph: rgba(235, 235, 245, 0.6);
+  --search-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a7a7b0' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='10.5' cy='10.5' r='6'/%3E%3Cpath d='m15 15 5 5'/%3E%3C/svg%3E");
+  --edge: rgba(255, 255, 255, 0.16); --edge-light: rgba(255, 255, 255, 0.14);
+  --shadow-thick: 0 10px 30px rgba(0, 0, 0, 0.5); --shadow: 0 14px 40px rgba(0, 0, 0, 0.42); --shadow-control: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0) 45%);
+  --text: #f3f4f7; --muted: #a2a9b5; --line: rgba(255, 255, 255, 0.1);
+  --warn: #e9a04a; --paused: #8e8cff;
+  --series-1: #3987e5; --series-2: #d95926;
 }
 * { box-sizing: border-box; }
 html { min-height: 100%; background: var(--bg); }
@@ -213,8 +230,9 @@ input[type=range] { padding: 0; width: 160px; background: none; border: 0; box-s
    accent ring shows for the keyboard, not for a click. */
 :root { --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 16' fill='none' stroke='%23596170' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 6l3-3 3 3M2 10l3 3 3-3'/%3E%3C/svg%3E"); }
 @media (prefers-color-scheme: dark) {
-  :root { --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 16' fill='none' stroke='%23a2a9b5' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 6l3-3 3 3M2 10l3 3 3-3'/%3E%3C/svg%3E"); }
+  :root:not(:where([data-theme="light"])) { --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 16' fill='none' stroke='%23a2a9b5' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 6l3-3 3 3M2 10l3 3 3-3'/%3E%3C/svg%3E"); }
 }
+:root:where([data-theme="dark"]) { --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 16' fill='none' stroke='%23a2a9b5' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 6l3-3 3 3M2 10l3 3 3-3'/%3E%3C/svg%3E"); }
 select {
   -webkit-appearance: none; appearance: none; touch-action: manipulation; cursor: pointer; padding-right: 34px;
   background-image: var(--chevron); background-repeat: no-repeat; background-position: right 13px center; background-size: 9px 14px;
@@ -651,7 +669,8 @@ dd { margin: 0; }
 }
 @media (prefers-contrast: more) {
   :root { --material: var(--material-solid); --material-thick: var(--material-solid); --sheen: none; --edge: rgba(20, 30, 50, 0.55); --line: rgba(20, 30, 50, 0.3); --muted: #3a4150; }
-  @media (prefers-color-scheme: dark) { :root { --edge: rgba(255, 255, 255, 0.6); --line: rgba(255, 255, 255, 0.3); --muted: #cfd4dc; } }
+  @media (prefers-color-scheme: dark) { :root:not(:where([data-theme="light"])) { --edge: rgba(255, 255, 255, 0.6); --line: rgba(255, 255, 255, 0.3); --muted: #cfd4dc; } }
+  :root:where([data-theme="dark"]) { --edge: rgba(255, 255, 255, 0.6); --line: rgba(255, 255, 255, 0.3); --muted: #cfd4dc; }
   .card, header, .log, .banner { -webkit-backdrop-filter: none; backdrop-filter: none; }
   button, input, select, textarea, .pill { border-color: var(--edge); }
 }
@@ -834,8 +853,9 @@ dd { margin: 0; }
    a read-only block (.json) and an editor whose coloured layer sits under a transparent textarea. */
 :root { --json-key: #6f42c1; --json-string: #1a7f37; --json-number: #c4510d; --json-bool: #0a63c9; --json-null: #8a8f98; }
 @media (prefers-color-scheme: dark) {
-  :root { --json-key: #c8a2ff; --json-string: #8ddc8f; --json-number: #ffb06b; --json-bool: #79b8ff; --json-null: #8b949e; }
+  :root:not(:where([data-theme="light"])) { --json-key: #c8a2ff; --json-string: #8ddc8f; --json-number: #ffb06b; --json-bool: #79b8ff; --json-null: #8b949e; }
 }
+:root:where([data-theme="dark"]) { --json-key: #c8a2ff; --json-string: #8ddc8f; --json-number: #ffb06b; --json-bool: #79b8ff; --json-null: #8b949e; }
 .json-key { color: var(--json-key); }
 .json-string { color: var(--json-string); }
 .json-number { color: var(--json-number); }
@@ -1025,3 +1045,74 @@ pre.diff { margin: 0; padding: 10px 12px; border-radius: 12px; background: var(-
 pre.diff .diff-add { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); display: block; }
 pre.diff .diff-remove { color: var(--error); background: color-mix(in srgb, var(--error) 12%, transparent); display: block; }
 pre.diff .diff-same { display: block; opacity: 0.7; }
+
+/* ---- Appearance: a theme chosen in the web UI (/appearance) rather than the system's, and wallpapers ---------
+   common.js sets data-theme and data-wallpaper on the root element; Automatic leaves the system to decide. */
+/* The backdrops behind the glass: soft gradients of the UI's own, or the user's image over the page colour. */
+:root[data-wallpaper] body::before { background-size: cover; background-position: center; }
+:root[data-wallpaper="aurora"] body::before, [data-swatch="aurora"] { background: radial-gradient(70% 60% at 15% 10%, #6ee7b7 0%, transparent 60%), radial-gradient(60% 60% at 85% 20%, #818cf8 0%, transparent 60%), radial-gradient(80% 60% at 50% 100%, #22d3ee 0%, transparent 65%), #0f172a; }
+:root[data-wallpaper="sunset"] body::before, [data-swatch="sunset"] { background: radial-gradient(70% 55% at 20% 0%, #fde68a 0%, transparent 60%), radial-gradient(60% 60% at 90% 30%, #fb7185 0%, transparent 60%), linear-gradient(180deg, #fb923c, #9d174d); }
+:root[data-wallpaper="ocean"] body::before, [data-swatch="ocean"] { background: radial-gradient(60% 50% at 80% 10%, #7dd3fc 0%, transparent 60%), radial-gradient(70% 60% at 10% 90%, #2dd4bf 0%, transparent 60%), linear-gradient(160deg, #0ea5e9, #1e3a8a); }
+:root[data-wallpaper="forest"] body::before, [data-swatch="forest"] { background: radial-gradient(60% 50% at 20% 15%, #bef264 0%, transparent 60%), radial-gradient(70% 60% at 90% 80%, #34d399 0%, transparent 60%), linear-gradient(170deg, #4d7c0f, #064e3b); }
+:root[data-wallpaper="graphite"] body::before, [data-swatch="graphite"] { background: radial-gradient(60% 50% at 25% 10%, #9ca3af 0%, transparent 60%), linear-gradient(170deg, #4b5563, #111827); }
+:root[data-wallpaper="custom"] body::before, [data-swatch="custom"] { background: var(--wallpaper-image, none) center / cover no-repeat, var(--bg); }
+[data-swatch="none"] {
+  background: radial-gradient(55% 45% at 8% 6%, var(--bg-warm) 0%, transparent 62%), radial-gradient(50% 42% at 92% 16%, var(--bg-cool) 0%, transparent 60%),
+    radial-gradient(60% 55% at 50% 100%, var(--bg-mint) 0%, transparent 65%), var(--bg);
+}
+.wallpapers { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; margin: 12px 0; }
+.wallpaper-choice { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 6px 6px 8px; border-radius: 16px; font-weight: 500; }
+.wallpaper-choice.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.wallpaper-swatch { display: block; height: 64px; border-radius: 11px; border: 1px solid var(--line); }
+.appearance { display: grid; gap: 16px; }
+.appearance .group { margin-top: 10px; flex-wrap: wrap; }
+.link-card { display: flex; align-items: center; gap: 14px; margin-top: 16px; padding: 16px 18px; color: var(--text); text-decoration: none; }
+.link-card svg { width: 24px; height: 24px; fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---- The Status page's widgets, Customise, and the daily digest ------------------------------------------- */
+.widget + .widget { margin-top: 0; }
+.page-foot { justify-content: center; margin: 24px 0 8px; }
+.page-foot svg, .customise .icon-button svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: -3px; }
+.customise { margin-bottom: 16px; padding: 16px 18px; }
+.customise-list { display: grid; gap: 6px; margin: 10px 0; }
+.customise-row { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); }
+.customise-row .icon-button:disabled { opacity: 0.35; }
+.tile.tone-ai { background: var(--material-solid); border: 1px solid var(--line); }
+.tile.tone-ai .sparkle { width: 24px; height: 24px; }
+.digest-card { margin-bottom: 18px; }
+.digest-body { margin: 12px 0 4px; }
+.digest-body .md > :first-child { margin-top: 0; }
+.digest-card.writing { box-shadow: 0 0 0 1.5px #bf5af2, 0 10px 30px rgba(191, 90, 242, 0.25); }
+@media (prefers-reduced-motion: no-preference) { .digest-card { transition: box-shadow var(--normal) var(--ease-out); } }
+
+/* ---- Log Doctor, under the log --------------------------------------------------------------------------- */
+.log-doctor { margin-top: 16px; }
+.log-doctor .ai-note { margin: 10px 0 0; font-size: 0.8125rem; }
+.log-card .editor-bar .ai-button { margin: 0; }
+
+/* ---- The Assistant's settings: test, usage, budgets -------------------------------------------------------- */
+.assistant-settings { margin-bottom: 16px; padding: 16px 18px; }
+.assistant-settings .server-head > button { margin-left: auto; }
+.test-result { margin: 8px 0 0; }
+.test-result:empty { display: none; }
+.usage .stats { margin: 12px 0; }
+.budget-meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 18px; margin: 8px 0 12px; }
+.budget-label { display: flex; justify-content: space-between; gap: 8px; font-size: 0.8125rem; margin-bottom: 6px; color: var(--muted); }
+.budget-label b { color: var(--text); font-weight: 600; }
+.budget-meter .gauge-fill { background: var(--ok); }
+.budget-meter.near .gauge-fill { background: var(--warn); }
+.budget-meter.over .gauge-fill { background: var(--error); }
+.budget-editor .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin: 10px 0; }
+
+/* ---- The chat's earlier conversations ---------------------------------------------------------------------- */
+.chat-history h2 { font-size: 1rem; margin: 4px 0 10px; }
+.chat-history-list { display: grid; gap: 6px; margin-bottom: 10px; }
+.chat-history-row { display: flex; align-items: center; gap: 6px; border-radius: 14px; border: 1px solid var(--line); background: var(--material-thin); }
+.chat-history-row.current { border-color: var(--accent); }
+.chat-history-open { flex: 1; min-width: 0; display: grid; gap: 2px; text-align: left; border: 0; background: none; box-shadow: none; padding: 9px 12px; border-radius: 14px; }
+.chat-history-open strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-history-open .muted { font-size: 0.75rem; }
+.chat-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+/* A page's title and line on a wallpaper, outside the glass: lifted off it. */
+:root[data-wallpaper] .page-head > .who { color: #fff; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45); }
+:root[data-wallpaper] .page-head > .who .muted { color: rgba(255, 255, 255, 0.85); }

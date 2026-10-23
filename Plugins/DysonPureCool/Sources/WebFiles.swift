@@ -285,7 +285,7 @@ extension DysonPureCoolPlugin {
 
     const facts = removable && live && live.connected ? el("div", { class: "facts live" },
       fact("Fan", live.on ? (live.autoMode ? "Auto" : `Speed ${live.fanSpeed > 0 ? live.fanSpeed : "—"}`) : "Off"),
-      live.temperature !== undefined ? fact("Temperature", `${live.temperature} °C`) : null,
+      live.temperature !== undefined ? fact("Temperature", homeswift.formatTemperature(live.temperature)) : null,
       live.humidity !== undefined ? fact("Humidity", `${live.humidity} %`) : null,
       live.pm25 !== undefined ? fact("PM2.5", String(live.pm25)) : null,
       live.filterLife !== undefined ? fact("Filter", `${live.filterLife} %`) : null) : null;
