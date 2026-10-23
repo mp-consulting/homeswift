@@ -105,6 +105,29 @@ import Testing
         #expect(await server.listeningPort == nil)
     }
 
+    /// With no address, the playlist answers on every interface, IPv6 included (Node's `server.listen(port)`); a host
+    /// without IPv6 falls back to IPv4 alone.
+    @Test func playlistListensOnIPv4AndIPv6() async throws {
+        let api = ProtectAPI(log: ProtectLog(logger: LogCapture().logger))
+        let server = ProtectPlaylistServer(api: api, log: ProtectLog(logger: LogCapture().logger), address: nil, port: 0, token: "secret")
+        await server.start()
+        let port = try #require(await server.listeningPort)
+        defer { Task { await server.close() } }
+        let client = HTTPClient()
+        func status(_ host: String, token: String) async throws -> Int {
+            try await client.send(HTTPRequest(url: try #require(URL(string: "http://\(host):\(port)/?token=\(token)")), timeout: .seconds(5))).status
+        }
+        #expect(try await status("127.0.0.1", token: "secret") == 200)
+        #expect(try await status("127.0.0.1", token: "wrong") == 401)
+        if await server.isListeningOnIPv6 {
+            #expect(try await status("[::1]", token: "secret") == 200)
+        }
+        #if os(macOS)
+        // macOS always has IPv6 on loopback.
+        #expect(await server.isListeningOnIPv6)
+        #endif
+    }
+
     // MARK: Hostile numbers and payloads
 
     @Test func hugeNumbersDoNotTrap() throws {

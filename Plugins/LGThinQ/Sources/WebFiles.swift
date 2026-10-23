@@ -54,7 +54,9 @@ extension LGThinQPlugin {
     DISHWASHER: { toggles: [{ key: "dishwasher_trigger", label: "Program finished trigger" }] },
     AIR_PURIFIER: { toggles: [{ key: "air_fast_mode", label: "Air Fast Mode" }] },
   };
-  for (const type of ["WASHER_NEW", "WASH_TOWER", "DRYER"]) DEVICE_TYPE_FIELDS[type] = DEVICE_TYPE_FIELDS.WASHER;
+  for (const type of ["WASHER_NEW", "WASH_TOWER", "WASH_TOWER_2", "DRYER"]) DEVICE_TYPE_FIELDS[type] = DEVICE_TYPE_FIELDS.WASHER;
+  // The AeroTower is an air purifier with the same Air Fast switch.
+  DEVICE_TYPE_FIELDS.AERO_TOWER = DEVICE_TYPE_FIELDS.AIR_PURIFIER;
   const AC_OP_MODES = [[0, "Cool"], [1, "Dry"], [2, "Fan"], [4, "Heat"], [5, "Air Clean"], [6, "Auto"]];
 
   // State: the block as saved, the session used to list devices, the devices and the choices on them.
@@ -280,7 +282,7 @@ extension LGThinQPlugin {
       typeSection.push(el("h3", { class: "group-title", text: `${device.type} settings` }));
       if (fields.selects) {
         typeSection.push(el("div", { class: "columns" }, fields.selects.map((field) => {
-          const select = el("select", {}, field.options.map(([value, label]) => el("option", { value, text: label, selected: (overrides[field.key] || "") === value })));
+          const select = el("select", {}, field.options.map(([value, label]) => el("option", { value, text: label, selected: String(overrides[field.key] || "").toUpperCase() === value })));
           selects[field.key] = select;
           return fieldRow(field.label, select);
         })));

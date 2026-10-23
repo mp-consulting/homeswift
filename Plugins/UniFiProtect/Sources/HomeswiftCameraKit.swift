@@ -49,6 +49,11 @@ final class HomeswiftFfmpegKit: ProtectFfmpegKit {
         return process
     }
 
+    func makeLivestream(options: any ProtectFfmpegOptions, configuration: CameraRecordingConfiguration, livestreamOptions: FMp4LivestreamOptions,
+                        verbose: Bool) -> any ProtectFfmpegLivestream {
+        FfmpegLivestreamProcess(Self.native(options), recordingConfig: configuration, livestreamOptions: livestreamOptions, isVerbose: verbose)
+    }
+
     func startProcess(options: any ProtectFfmpegOptions, arguments: [String]) -> any ProtectFfmpegProcess {
         let process = FfmpegProcess(Self.native(options), commandLineArgs: arguments)
         process.start()
@@ -82,6 +87,11 @@ extension FfmpegStreamingProcess: ProtectFfmpegStreamingProcess {}
 
 extension FfmpegRecordingProcess: ProtectFfmpegRecording {
     func segments() -> AsyncStream<Data> { segmentGenerator() }
+}
+
+extension FfmpegLivestreamProcess: ProtectFfmpegLivestream {
+    func startLivestream() { start() }
+    func onSegment(_ handler: @escaping @Sendable (Data) -> Void) { _ = segmentEvents.on(handler) }
 }
 
 extension RtpDemuxer: ProtectRtpDemuxer {

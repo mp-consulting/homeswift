@@ -59,6 +59,27 @@ import _CryptoExtras
         }
         #expect(LGThinQPlugin.webFiles["index.html"]?.contentType == "text/html; charset=utf-8")
     }
+
+    /// Every type with options of its own has fields on the settings page: AERO_TOWER and WASH_TOWER_2 too.
+    @Test func thePageHasFieldsForEveryTypeWithOptions() throws {
+        let script = try #require(LGThinQPlugin.webFiles["app.js"]?.body)
+        for (type, descriptor) in DeviceRegistry.descriptors where !descriptor.defaults.isEmpty {
+            #expect(script.contains("\(type):") || script.contains("\"\(type)\"") || script.contains("DEVICE_TYPE_FIELDS.\(type) ="), "\(type) has no fields on the page")
+            for key in descriptor.defaults.keys where key != "ac_buttons" {
+                #expect(script.contains("key: \"\(key)\""), "\(key) has no field on the page")
+            }
+        }
+        #expect(script.contains("DEVICE_TYPE_FIELDS.AERO_TOWER = DEVICE_TYPE_FIELDS.AIR_PURIFIER"))
+        #expect(script.contains("\"WASH_TOWER_2\""))
+    }
+
+    /// The Assistant's background (homebridge-ui/assistant.js), with the port's files and messages.
+    @Test func assistantBackground() throws {
+        let background = try #require(LGThinQPlugin.assistantBackground)
+        #expect(background.count > 1000 && background.contains("Homeswift") && !background.contains("Homebridge"))
+        #expect(!background.contains("thinq auth") && background.contains("plugins/") && background.contains("persist"))
+        #expect(background.contains("LG rejected the sign-in") && background.contains("LG ThinQ API rate limit hit"))
+    }
 }
 
 @Suite struct ClientIdentityTests {

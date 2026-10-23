@@ -260,7 +260,7 @@ class AirConditioner: BaseDevice {
         let status = status
         let validStates: [String: [Int]] = ["BOTH": [0, 1, 2], "COOLING": [2], "HEATING": [1]]
         var types: [CharacteristicType] = []
-        if let valid = config.string("ac_mode").flatMap({ validStates[$0] }) { types.append(CharacteristicType.targetHeaterCoolerState.valid(valid)) }
+        if let valid = config.mode("ac_mode").flatMap({ validStates[$0] }) { types.append(CharacteristicType.targetHeaterCoolerState.valid(valid)) }
         if let heat = status.temperatureRange(status.heatingLimits()) {
             types.append(temperatureProps(.heatingThresholdTemperature, status: status, range: heat))
         } else {
@@ -286,7 +286,7 @@ class AirConditioner: BaseDevice {
     func configureHeaterCooler() {
         service.set(.name, device.name)
         service.characteristic(.active).onSet { [weak self] value in try await self?.setActive(value) }
-        if let mode = config.string("ac_mode"), ["BOTH", "COOLING", "HEATING"].contains(mode) {
+        if let mode = config.mode("ac_mode"), ["BOTH", "COOLING", "HEATING"].contains(mode) {
             service.set(.targetHeaterCoolerState, mode == "HEATING" ? 1 : 2)
         }
         service.characteristic(.targetHeaterCoolerState).onSet { [weak self] value in try await self?.setTargetState(value) }
@@ -617,7 +617,7 @@ class AirConditioner: BaseDevice {
             return
         }
         let swing: JSONValue = Normalize.boolean(value) ? "100" : "0"
-        switch config.string("ac_swing_mode") {
+        switch config.mode("ac_swing_mode") {
         case "BOTH":
             try await sendCommand([
                 "dataKey": .null, "dataValue": .null, "dataSetList": ["airState.wDir.vStep": swing, "airState.wDir.hStep": swing], "dataGetList": .null,

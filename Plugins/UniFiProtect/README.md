@@ -49,7 +49,7 @@ Per controller:
 | `doorbellMessages` | Extra messages for doorbells with a screen: `message`, `duration` in seconds (`0` keeps it) |
 | `mqttUrl`, `mqttTopic`, `mqttVerifyTls` | Publish events to an MQTT broker under `mqttTopic` (`unifi/protect`) and take commands there |
 | `cameraOverrides` | Per third-party camera (`mac`): its own `rtspUrl` and `snapshotUrl`, bypassing the controller; `onvif*` fields are remembered by the page's ONVIF discovery |
-| `playlistAddress`, `playlistToken` | Where the M3U playlist (`Nvr.Service.Playlist`) listens, and the `?token=` it requires |
+| `playlistAddress`, `playlistToken` | Where the M3U playlist (`Nvr.Service.Playlist`) listens (every interface, IPv4 and IPv6, when unset), and the `?token=` it requires |
 
 ### Feature options
 
@@ -118,10 +118,9 @@ the same code with the real controller and FFmpeg in memory.
 
 - Controller-scoped feature options also accept the controller's configured address as the scope, as the
   Homebridge settings page writes it.
-- `Debug.Video.HKSV.UseRtsp` (HKSV recording from RTSP instead of the livestream API) is not available.
 - Saving the web page writes the block at once (its **Save** button) rather than through Homebridge's own
   save.
-- The accessory information shows no hardware revision; HomeKit categories are set for every accessory.
+- HomeKit categories are set for every accessory.
 - Liveview switches and the security system are cleaned up for this controller only, and a removed doorbell
   message switch really goes away.
 - A third-party camera with an RTSP or snapshot URL override gets snapshots and live streams even when Protect

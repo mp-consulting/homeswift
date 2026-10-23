@@ -95,6 +95,10 @@ struct DeviceSettings: Sendable {
         return JS.string(value)
     }
 
+    /// A mode (`ac_mode`, `ac_swing_mode`) in upper case: the Homebridge plugin's documentation writes "both" and "vertical",
+    /// which its comparisons with "BOTH" and "VERTICAL" silently ignored.
+    func mode(_ key: String) -> String? { string(key)?.uppercased() }
+
     var name: String? { values["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } }
     var serialNumber: String? { values["serial_number"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } }
 

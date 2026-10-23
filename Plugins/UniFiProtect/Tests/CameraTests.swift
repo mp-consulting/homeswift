@@ -103,6 +103,104 @@ final class FakeProcess: ProtectFfmpegStreamingProcess, ProtectFfmpegRecording, 
     let isTimedOut = false
 }
 
+/// FFmpeg on a camera's RTSP stream (`Debug.Video.HKSV.UseRtsp`): the test writes its initialization segment and boxes.
+final class FakeLivestream: ProtectFfmpegLivestream, @unchecked Sendable {
+    struct State {
+        var segmentLength: Int?
+        var starts: [Int?] = []
+        var stops = 0
+        var running = false
+        var initSegment: Data?
+        /// Written as soon as FFmpeg starts, when set.
+        var initOnStart: Data?
+        var initWaiters: [CheckedContinuation<Data, any Error>] = []
+        var segmentHandlers: [@Sendable (Data) -> Void] = []
+        var exitHandlers: [@Sendable () -> Void] = []
+    }
+
+    let options: FMp4LivestreamOptions
+    let state = NIOLockedValueBox(State())
+
+    init(options: FMp4LivestreamOptions) {
+        self.options = options
+    }
+
+    var segmentLength: Int? {
+        get { state.withLockedValue { $0.segmentLength } }
+        set { state.withLockedValue { $0.segmentLength = newValue } }
+    }
+
+    var starts: [Int?] { state.withLockedValue { $0.starts } }
+    var isRunning: Bool { state.withLockedValue { $0.running } }
+
+    func startLivestream() {
+        state.withLockedValue { state in
+            state.starts.append(state.segmentLength)
+            state.running = true
+            state.initSegment = state.initOnStart
+        }
+    }
+
+    func stop() { exit() }
+
+    /// FFmpeg ends: waiters fail, exit handlers run.
+    func exit() {
+        let (waiters, handlers) = state.withLockedValue { state -> ([CheckedContinuation<Data, any Error>], [@Sendable () -> Void]) in
+            guard state.running else { return ([], []) }
+            state.running = false
+            state.stops += 1
+            defer { state.initWaiters = []; state.exitHandlers = [] }
+            return (state.initWaiters, state.exitHandlers)
+        }
+        waiters.forEach { $0.resume(throwing: FfmpegLivestreamError.aborted) }
+        handlers.forEach { $0() }
+    }
+
+    func onSegment(_ handler: @escaping @Sendable (Data) -> Void) { state.withLockedValue { $0.segmentHandlers.append(handler) } }
+
+    func onExit(_ handler: @escaping @Sendable () -> Void) {
+        let running = state.withLockedValue { state -> Bool in
+            if state.running { state.exitHandlers.append(handler) }
+            return state.running
+        }
+        if !running { handler() }
+    }
+
+    func getInitSegment() async throws -> Data {
+        try await withCheckedThrowingContinuation { continuation in
+            let result = state.withLockedValue { state -> Result<Data, any Error>? in
+                if let segment = state.initSegment { return .success(segment) }
+                guard state.running else { return .failure(FfmpegLivestreamError.noActiveProcess) }
+                state.initWaiters.append(continuation)
+                return nil
+            }
+            if let result { continuation.resume(with: result) }
+        }
+    }
+
+    /// FFmpeg writes its ftyp and moov.
+    func writeInit(_ segment: Data) {
+        let waiters = state.withLockedValue { state in
+            state.initSegment = segment
+            defer { state.initWaiters = [] }
+            return state.initWaiters
+        }
+        waiters.forEach { $0.resume(returning: segment) }
+    }
+
+    /// FFmpeg writes a box of this type: a 32-bit size, the type, the payload.
+    func writeBox(_ type: String, _ payload: Data) {
+        let box = Self.box(type, payload)
+        state.withLockedValue { $0.segmentHandlers }.forEach { $0(box) }
+    }
+
+    static func box(_ type: String, _ payload: Data) -> Data {
+        var box = Data()
+        withUnsafeBytes(of: UInt32(8 + payload.count).bigEndian) { box.append(contentsOf: $0) }
+        return box + Data(type.utf8) + payload
+    }
+}
+
 final class FakeDemuxer: ProtectRtpDemuxer, @unchecked Sendable {
     let closed = NIOLockedValueBox(false)
     func firstPacket() async {}
@@ -120,6 +218,9 @@ final class FakeFfmpegKit: ProtectFfmpegKit, @unchecked Sendable {
         var execResult: Data? = Data([0xFF, 0xD8, 0xFF, 0xE0])
         var demuxers: [FakeDemuxer] = []
         var processes: [FakeProcess] = []
+        var livestreams: [FakeLivestream] = []
+        /// The initialization segment the RTSP livestreams write as they start.
+        var livestreamInit: Data?
         var probes = 0
     }
 
@@ -175,6 +276,16 @@ final class FakeFfmpegKit: ProtectFfmpegKit, @unchecked Sendable {
         let process = FakeProcess(arguments: [])
         state.withLockedValue { $0.recordings.append((process, fMp4Options)) }
         return process
+    }
+
+    func makeLivestream(options: any ProtectFfmpegOptions, configuration: CameraRecordingConfiguration, livestreamOptions: FMp4LivestreamOptions,
+                        verbose: Bool) -> any ProtectFfmpegLivestream {
+        let livestream = FakeLivestream(options: livestreamOptions)
+        state.withLockedValue { state in
+            livestream.state.withLockedValue { $0.initOnStart = state.livestreamInit }
+            state.livestreams.append(livestream)
+        }
+        return livestream
     }
 
     func startProcess(options: any ProtectFfmpegOptions, arguments: [String]) -> any ProtectFfmpegProcess {
@@ -478,6 +589,69 @@ final class FakeFfmpegKit: ProtectFfmpegKit, @unchecked Sendable {
         #expect(await eventually { socket.isClosed })
         #expect(environment.logs.contains("Disabling HomeKit Secure Video event recording."))
         _ = device
+    }
+
+    /// `Debug.Video.HKSV.UseRtsp`: the timeshift buffer reads the channel's RTSP stream through FFmpeg instead of the livestream API
+    /// (protect-livestream.ts with `FfmpegLivestreamProcess`), each moof and its mdat one segment.
+    @Test func recordingFromRtsp() async throws {
+        let ffmpeg = FakeFfmpegKit()
+        let environment = ProtectTestEnvironment(timeScale: 1, ffmpeg: ffmpeg)
+        let host = try await environment.start(options: ["Enable.Debug.Video.HKSV.UseRtsp"])
+        defer { Task { await host.stop() } }
+        let controller = try #require(await controller(environment, host, Self.cameraID))
+        controller.services.first { $0.type.uuid == ServiceType.cameraRecordingManagement.uuid }?[.recordingAudioActive]?.value = .int(1)
+        #expect(environment.logs.contains("Enabling RTSP-based HKSV events are for debugging purposes only and unsupported."))
+        let recording = try #require(await recording(environment.device("camera-id")))
+        await recording.updateRecordingConfiguration(Self.recordingConfiguration())
+        let activation = Task { await recording.updateRecordingActive(true) }
+        let livestream = try #require(await eventually { ffmpeg.state.withLockedValue { !$0.livestreams.isEmpty } }
+            ? ffmpeg.state.withLockedValue { $0.livestreams.last } : nil)
+        #expect(await eventually { livestream.isRunning })
+        let entry = try #require(await recording.rtspEntry)
+        #expect(livestream.options.url == entry.url && livestream.options.codec == "h264" && livestream.options.enableAudio == true)
+        #expect(livestream.starts == [ProtectSettings.segmentResolution])
+        livestream.writeInit(Data("init".utf8))
+        await activation.value
+        #expect(await recording.isRecording)
+        // No livestream API session.
+        #expect(!environment.webSockets.connections.contains { $0.path.contains("livestream") })
+        #expect(environment.controller.requests("/proxy/protect/api/ws/livestream").isEmpty)
+        for value in UInt8(1)...UInt8(3) {
+            livestream.writeBox("moof", Data([value]))
+            livestream.writeBox("mdat", Data([value]))
+        }
+        let timeshift = await recording.timeshift
+        #expect(await eventually { await timeshift.time == 300 })
+        let pair = { (value: UInt8) in FakeLivestream.box("moof", Data([value])) + FakeLivestream.box("mdat", Data([value])) }
+        #expect(await timeshift.getLast(100) == Data("init".utf8) + pair(3))
+        #expect(await timeshift.buffer == Data("init".utf8) + pair(1) + pair(2) + pair(3))
+        // FFmpeg ends on its own: the session closes.
+        livestream.exit()
+        #expect(await eventually { environment.logs.contains("RTSP connection closed by the controller. Retrying shortly.") })
+        await recording.updateRecordingActive(false)
+        #expect(!livestream.isRunning)
+    }
+
+    /// A session from RTSP that goes quiet is restarted like a livestream API session: FFmpeg starts again.
+    @Test func rtspSessionRestarts() async throws {
+        let ffmpeg = FakeFfmpegKit()
+        ffmpeg.state.withLockedValue { $0.livestreamInit = Data("init".utf8) }
+        let environment = ProtectTestEnvironment(ffmpeg: ffmpeg)
+        let host = try await environment.start(options: ["Enable.Debug.Video.HKSV.UseRtsp"])
+        defer { Task { await host.stop() } }
+        _ = await controller(environment, host, Self.cameraID)
+        let recording = try #require(await recording(environment.device("camera-id")))
+        await recording.updateRecordingConfiguration(Self.recordingConfiguration())
+        let activation = Task { await recording.updateRecordingActive(true) }
+        let livestream = try #require(await eventually { ffmpeg.state.withLockedValue { !$0.livestreams.isEmpty } }
+            ? ffmpeg.state.withLockedValue { $0.livestreams.last } : nil)
+        await activation.value
+        #expect(await recording.isRecording)
+        // Nothing comes: the watchdog restarts FFmpeg.
+        #expect(await eventually { livestream.starts.count >= 2 && livestream.isRunning })
+        #expect(environment.logs.contains("Reconnecting to the RTSP stream."))
+        #expect(ffmpeg.state.withLockedValue { $0.livestreams.count } == 1)
+        await recording.updateRecordingActive(false)
     }
 
     @Test func recordingWithoutEnoughVideo() async throws {

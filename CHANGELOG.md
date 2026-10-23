@@ -199,6 +199,21 @@ All notable changes to this project are documented here. The format follows
 - `PluginContext.remove(id:)` is async: removing an external accessory stops its server.
 - Every accessory a server publishes carries the Protocol Information service; bridges no longer add it themselves.
 
+### Fixed
+
+- UniFi Protect: accessories show Protect's hardware revision (cameras, sensors and the other devices, the
+  controller's system information and the liveview security system), as the Homebridge plugin sets it.
+- UniFi Protect: with no `playlistAddress`, the M3U playlist listens on IPv6 as well as IPv4 (one dual-stack
+  socket, IPv4 alone on hosts without IPv6), as Node's `server.listen(port)` does.
+- UniFi Protect: `Debug.Video.HKSV.UseRtsp` works: HomeKit Secure Video's timeshift buffer reads the camera's
+  RTSP stream through FFmpeg (`FfmpegLivestreamProcess`, fMP4 without transcoding) instead of the livestream
+  API, restarted by the same watchdog; it used to log a warning and change nothing.
+- LG ThinQ: `ac_mode` and `ac_swing_mode` are read in any case; the lower-case `both` and `vertical` of the
+  Homebridge plugin's documentation were silently ignored.
+- LG ThinQ: the settings page has the options of AeroTowers (`air_fast_mode`) and WashTower 2 (the washer's).
+- UniFi Protect and LG ThinQ give the Assistant their background (`assistantBackground`): the errors they log,
+  their files and the usual fixes, after the Homebridge plugins' `*_AI_CONTEXT`.
+
 ## [0.3.0] - 2026-10-21
 
 ### Added
