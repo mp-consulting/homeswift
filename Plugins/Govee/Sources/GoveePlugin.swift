@@ -82,7 +82,7 @@ public actor GoveePlugin: HomeswiftPlugin {
     let store: DeviceStore
     private let tasks = TaskBag()
     private var setup: Task<Void, Never>?
-    private var httpSyncInProgress = false
+    private(set) var httpSyncInProgress = false
     private var awsSyncInProgress = false
     private var bleSyncInProgress = false
     private var lastReauthentication: Date?

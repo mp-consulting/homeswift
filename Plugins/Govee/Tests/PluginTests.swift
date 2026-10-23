@@ -245,6 +245,8 @@ extension PluginHost {
         let plugin = try #require(environment.plugin)
         let warnings = "app2.govee.com/leak/rest/device/v1/warnMessage"
         _ = await eventually { environment.govee.requests(to: warnings).count == 1 }
+        // The start's sync can still be running on a loaded machine, and a sync asked for meanwhile is skipped.
+        #expect(await eventually { await !plugin.httpSyncInProgress })
         await plugin.httpSync()
         #expect(environment.govee.requests(to: warnings).count == 1)
 
