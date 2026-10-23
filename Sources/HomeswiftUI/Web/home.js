@@ -16,7 +16,7 @@
   // ---- Rooms, hidden accessories, display names ------------------------------------------------------
 
   async function changeLayout(body) {
-    return app.api("/api/layout", { method: "PUT", body });
+    return app.api("/api/rooms", { method: "PUT", body });
   }
 
   /// What an accessory card's menu adds: its room, a name for these pages, Quick Controls, hiding.
@@ -35,7 +35,7 @@
 
   async function chooseRoom(accessory, change) {
     let rooms = [];
-    try { rooms = (await app.api("/api/layout")).rooms.map((room) => room.name); } catch {}
+    try { rooms = (await app.api("/api/rooms")).rooms.map((room) => room.name); } catch {}
     const known = rooms.length ? ` Rooms: ${rooms.join(", ")}.` : "";
     const room = prompt(`The room of ${displayName(accessory)}.${known} A new name adds the room; empty takes it out of its room.`, accessory.room || "");
     if (room !== null) change({ room: room.trim() || null });
@@ -59,7 +59,7 @@
     panel.classList.add("ai-busy");
     let result;
     try {
-      result = await app.api("/api/layout/suggest", { method: "POST", body: {} });
+      result = await app.api("/api/rooms/suggest", { method: "POST", body: {} });
     } catch (e) {
       panel.replaceChildren(el("p", { class: "error", text: e.message }), el("div", { class: "actions" }, el("button", { text: "Close", onclick: () => panel.remove() })));
       return;

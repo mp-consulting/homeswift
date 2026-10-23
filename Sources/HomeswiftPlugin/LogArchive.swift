@@ -1,6 +1,8 @@
 import Foundation
+import Homeswift
 import HomeswiftAI
 import Logging
+import NIOConcurrencyHelpers
 
 /// The log on disk, so the web UI can show a past hour or yesterday after the memory buffer moved on or the
 /// bridge restarted.
@@ -10,6 +12,10 @@ import Logging
 /// pass `maxTotalSize` or are older than `days`. Writes are batched on a queue of their own, once a second or
 /// every 64 KB, so logging never waits for the disk. A time range opens only the segments that overlap it,
 /// newest first, reads each from its end, and stops at the range's start or once it has `limit` lines.
+///
+/// A line's details (the JSON `LogDetails` took out of it, secrets masked) are written only while
+/// `savesDetails` is on, a choice kept in `settings.json` beside the segments; otherwise the disk has the
+/// line's marker (`{…} 1.4 KB`) and the details live in memory only, with the latest lines.
 public final class LogArchive: @unchecked Sendable {
     public let directory: URL
     public let days: Int
@@ -21,8 +27,10 @@ public final class LogArchive: @unchecked Sendable {
     private var pending = Data()
     private var flushScheduled = false
     private var segment: (handle: FileHandle, ends: Date, size: Int)?
+    private let saving: NIOLockedValueBox<Bool>
 
     static let prefix = "homeswift-"
+    static let settingsName = "settings.json"
     static let flushBytes = 64 * 1024
 
     public init(directory: URL, days: Int = 7, maxSegmentSize: Int = 8 * 1024 * 1024, maxTotalSize: Int = 64 * 1024 * 1024) {
@@ -30,25 +38,56 @@ public final class LogArchive: @unchecked Sendable {
         self.days = days
         self.maxSegmentSize = maxSegmentSize
         self.maxTotalSize = maxTotalSize
+        let settings = (try? Data(contentsOf: directory.appendingPathComponent(Self.settingsName))).flatMap { try? JSONValue(data: $0) }
+        saving = NIOLockedValueBox(settings?["saveDetails"]?.boolValue ?? false)
     }
 
-    /// A line as a JSON object: `t` (seconds since 1970), `l` (level), `n` (label), `m` (text). Written and read
-    /// as `JSONValue` rather than through `JSONEncoder`, which cost more than the rest of logging a line.
-    static func entry(_ line: LogBuffer.Line) -> Data {
-        var data = JSONValue.object(["t": .number(line.date.timeIntervalSince1970), "l": .string(line.level.rawValue), "n": .string(line.label), "m": .string(line.text)]).encoded()
+    /// Whether lines go to disk with their details.
+    public var savesDetails: Bool { saving.withLockedValue { $0 } }
+
+    /// Turns saving the details on or off, for the lines from now on, and keeps the choice for the next start.
+    public func setSavesDetails(_ on: Bool) throws {
+        try OwnerOnlyFile.write(JSONValue.object(["saveDetails": .bool(on)]).encoded(), to: directory.appendingPathComponent(Self.settingsName))
+        saving.withLockedValue { $0 = on }
+    }
+
+    /// A line as a JSON object: `t` (seconds since 1970), `l` (level), `n` (label), `m` (text), and `d` (its
+    /// details, with `withDetails`). Written and read as `JSONValue` rather than through `JSONEncoder`, which cost
+    /// more than the rest of logging a line.
+    static func entry(_ line: LogBuffer.Line, withDetails: Bool = false) -> Data {
+        var object: [String: JSONValue] = ["t": .number(line.date.timeIntervalSince1970), "l": .string(line.level.rawValue), "n": .string(line.label), "m": .string(line.text)]
+        if withDetails, let details = line.details { object["d"] = .string(details) }
+        var data = JSONValue.object(object).encoded()
         data.append(0x0A)
         return data
     }
 
     static func line(_ row: Data) -> LogBuffer.Line? {
-        guard let entry = try? JSONValue(data: row), let time = entry["t"]?.doubleValue, let level = entry["l"]?.stringValue,
-              let label = entry["n"]?.stringValue, let text = entry["m"]?.stringValue else { return nil }
-        return LogBuffer.Line(date: Date(timeIntervalSince1970: time), level: Logger.Level(rawValue: level) ?? .info, label: label, text: text)
+        row.withUnsafeBytes { line($0) }
+    }
+
+    /// The row's members are read in place, without a dictionary for each of the thousands of rows a range has.
+    static func line(_ row: UnsafeRawBufferPointer) -> LogBuffer.Line? {
+        guard let members = try? JSONValue.members(of: row) else { return nil }
+        var time: Double?, level: String?, label: String?, text: String?, details: String?
+        for (key, value) in members {
+            switch key {
+            case "t": time = value.doubleValue
+            case "l": level = value.stringValue
+            case "n": label = value.stringValue
+            case "m": text = value.stringValue
+            case "d": details = value.stringValue
+            default: break
+            }
+        }
+        guard let time, let level, let label, let text else { return nil }
+        return LogBuffer.Line(date: Date(timeIntervalSince1970: time), level: Logger.Level(rawValue: level) ?? .info, label: label, text: text, details: details)
     }
 
     public func append(_ line: LogBuffer.Line) {
+        let withDetails = line.details != nil && savesDetails
         queue.async { [self] in
-            let data = Self.entry(line)
+            let data = Self.entry(line, withDetails: withDetails)
             // A line of a new day starts a new segment: what is pending belongs to the old one.
             if let open = segment, line.date >= open.ends {
                 write()
@@ -140,7 +179,12 @@ public final class LogArchive: @unchecked Sendable {
     }
 
     /// The lines from `from` to `to` that `matching` keeps, oldest first; the latest `limit` when there are more.
-    public func lines(from: Date, to: Date, limit: Int, matching: ((LogBuffer.Line) -> Bool)? = nil) -> [LogBuffer.Line] {
+    ///
+    /// A row is parsed only once its time, read from its bytes, is in the range and `mayMatch`, given the row's raw
+    /// JSON text, says it could match (an accessory's name in it): parsing was most of a range's cost.
+    public func lines(
+        from: Date, to: Date, limit: Int, matching: ((LogBuffer.Line) -> Bool)? = nil, mayMatch: ((String) -> Bool)? = nil
+    ) -> [LogBuffer.Line] {
         flush()
         let all = segments()
         var chunks: [[LogBuffer.Line]] = []   // newest segment first, each newest line first
@@ -151,18 +195,55 @@ public final class LogArchive: @unchecked Sendable {
             guard segment.start <= to, end >= from else { continue }
             guard let data = try? Data(contentsOf: segment.url) else { continue }
             var found: [LogBuffer.Line] = []
-            for row in data.split(separator: 0x0A).reversed() {
-                guard let line = Self.line(row) else { continue }
-                if line.date > to { continue }
-                if line.date < from { chunks.append(found); break scan }
-                if let matching, !matching(line) { continue }
-                found.append(line)
-                count += 1
-                if count >= limit { chunks.append(found); break scan }
+            // Row by row from the end, in place: splitting the segment into rows first cost as much as parsing them.
+            let done = data.withUnsafeBytes { bytes -> Bool in
+                var end = bytes.count
+                while end > 0 {
+                    var start = end
+                    while start > 0, bytes[start - 1] != 0x0A { start -= 1 }
+                    defer { end = start - 1 }
+                    guard start < end else { continue }
+                    let row = UnsafeRawBufferPointer(rebasing: bytes[start..<end])
+                    if let time = Self.time(of: row) {
+                        if time > to.timeIntervalSince1970 { continue }
+                        if time < from.timeIntervalSince1970 { return true }
+                    }
+                    if let mayMatch, !mayMatch(String(decoding: row, as: UTF8.self)) { continue }
+                    guard let line = Self.line(row) else { continue }
+                    if line.date > to { continue }
+                    if line.date < from { return true }
+                    if let matching, !matching(line) { continue }
+                    found.append(line)
+                    count += 1
+                    if count >= limit { return true }
+                }
+                return false
             }
             chunks.append(found)
+            if done { break scan }
         }
         return chunks.joined().reversed()
+    }
+
+    /// A row's `t`, read from its bytes without parsing the row: inside a JSON string every quote is escaped, so the
+    /// bytes `"t":` are the key wherever it is. nil when there is none (not a row).
+    static func time(of row: Data) -> Double? {
+        row.withUnsafeBytes { time(of: $0) }
+    }
+
+    static func time(of raw: UnsafeRawBufferPointer) -> Double? {
+        let bytes = raw.bindMemory(to: UInt8.self)
+        guard bytes.count >= 5 else { return nil }
+        // Rows are written with sorted keys, `t` last: from the end it is found at once.
+        var index = bytes.count - 4
+        while index >= 0 {
+            if bytes[index] == UInt8(ascii: "\""), bytes[index + 1] == UInt8(ascii: "t"), bytes[index + 2] == UInt8(ascii: "\""), bytes[index + 3] == UInt8(ascii: ":") { break }
+            index -= 1
+        }
+        guard index >= 0 else { return nil }
+        var end = index + 4
+        while end < bytes.count, bytes[end] != UInt8(ascii: ","), bytes[end] != UInt8(ascii: "}") { end += 1 }
+        return Double(String(decoding: UnsafeBufferPointer(rebasing: bytes[(index + 4)..<end]), as: UTF8.self))
     }
 
     /// `20261022-221500`, in UTC: names sort by time whatever the time zone.

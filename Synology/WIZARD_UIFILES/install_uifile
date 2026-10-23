@@ -1,0 +1,90 @@
+[
+    {
+        "step_title": "Web UI account",
+        "items": [
+            {
+                "type": "textfield",
+                "desc": "Homeswift's web UI, on port 8581, configures the bridge and its plugins and shows the code to add it in the Home app. Choose the administrator account it signs in with.",
+                "subitems": [
+                    {
+                        "key": "wizard_username",
+                        "desc": "Username",
+                        "defaultValue": "admin",
+                        "validator": {
+                            "allowBlank": false,
+                            "regex": {
+                                "expr": "/^[^\\s:]{1,64}$/",
+                                "errorText": "1 to 64 characters, without spaces or colons"
+                            }
+                        }
+                    }
+                ]
+            },
+            {
+                "type": "password",
+                "desc": "At least 12 characters, and neither a common word nor the username: a few unrelated words make a good one. If you forget it, <b>sudo homeswift users password &lt;username&gt;</b> over SSH sets a new one.",
+                "subitems": [
+                    {
+                        "key": "wizard_password",
+                        "desc": "Password",
+                        "validator": {
+                            "allowBlank": false,
+                            "minLength": 12
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "step_title": "Ports",
+        "items": [
+            {
+                "type": "textfield",
+                "desc": "The ports Homeswift listens on. A port another service already uses is refused before anything is installed: a Homebridge on this NAS usually has 8581 and 51826. They can be changed later in config.json.",
+                "subitems": [
+                    {
+                        "key": "wizard_ui_port",
+                        "desc": "Web UI",
+                        "defaultValue": "8581",
+                        "validator": {
+                            "allowBlank": false,
+                            "regex": {
+                                "expr": "/^([1-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$/",
+                                "errorText": "A port from 1024 to 65535"
+                            }
+                        }
+                    },
+                    {
+                        "key": "wizard_hap_port",
+                        "desc": "HomeKit bridge",
+                        "defaultValue": "51826",
+                        "validator": {
+                            "allowBlank": false,
+                            "regex": {
+                                "expr": "/^([1-9][0-9]{3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$/",
+                                "errorText": "A port from 1024 to 65535"
+                            }
+                        }
+                    }
+                ]
+            },
+            {
+                "type": "singleselect",
+                "desc": "How browsers reach the web UI. HTTPS keeps your password and session private on the network, and Safari lets the Assistant use the microphone only over HTTPS; the bridge makes its own certificate, so the browser warns once. HTTP needs nothing, but everything crosses the network in the clear. It can be changed later in config.json.",
+                "subitems": [
+                    {
+                        "key": "wizard_https",
+                        "desc": "HTTPS",
+                        "defaultValue": true
+                    },
+                    {
+                        "key": "wizard_http",
+                        "desc": "HTTP",
+                        "defaultValue": false
+                    }
+                ]
+            }
+        ]
+    }
+]

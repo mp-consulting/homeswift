@@ -176,6 +176,8 @@ extension PluginHost {
 
     /// Every accessory of every cache file, those of blocks no longer in the configuration included.
     public func cachedAccessories() -> [CachedAccessoryInfo] {
+        // The files are read: saves still waiting for the end of a burst are written first.
+        for instance in instances { instance.context.flushCache() }
         let byKey = Dictionary(instances.map { ($0.context.key, $0) }, uniquingKeysWith: { first, _ in first })
         return cacheFiles().flatMap { file -> [CachedAccessoryInfo] in
             let key = String(file.dropLast(".json".count))

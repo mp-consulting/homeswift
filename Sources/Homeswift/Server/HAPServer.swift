@@ -18,6 +18,15 @@ import NIOPosix
 /// ```
 public final class HAPServer: @unchecked Sendable {
     public struct Options: Sendable {
+        /// How the server is advertised over Bonjour.
+        public enum Advertiser: String, Sendable {
+            /// The system's dns_sd (mDNSResponder on macOS, Avahi on Linux), or the built-in responder when it
+            /// is unavailable.
+            case system
+            /// The built-in mDNS responder (`MDNSResponder`), HAP-NodeJS's ciao.
+            case builtIn
+        }
+
         /// Overrides the stored setup code. Defaults to the stored one, or a random code on first launch.
         public var setupCode: SetupCode?
         /// Overrides the stored device ID, six hex octets such as `0E:1A:2B:3C:4D:5E` (Homebridge's
@@ -28,6 +37,10 @@ public final class HAPServer: @unchecked Sendable {
         public var port: Int?
         /// Advertise over Bonjour. Turn off for tests.
         public var advertise: Bool
+        public var advertiser: Advertiser = .system
+        /// Interface names or IPv4 addresses the built-in responder advertises on (Homebridge's `bind`); empty
+        /// for every interface.
+        public var interfaces: [String] = []
         public var logger: Logger
 
         public init(
@@ -67,6 +80,10 @@ public final class HAPServer: @unchecked Sendable {
         var pairSetupOwner: ObjectIdentifier?
         var failedPairSetupAttempts = 0
         var serverChannel: (any Channel)?
+        /// `persisted.databaseHash` is behind the database: accessories with new ids were added since, each with
+        /// its bump of the number. A settle, shortly after or at `stop()`, catches the hash up.
+        var hashBehind = false
+        var hashSettleScheduled = false
     }
 
     private let primaryBox: NIOLockedValueBox<Accessory>
@@ -78,6 +95,9 @@ public final class HAPServer: @unchecked Sendable {
     let state: NIOLockedValueBox<State>
     let signingKey: Curve25519.Signing.PrivateKey
     let advertiser = BonjourAdvertiser()
+    let builtInAdvertiser: MDNSAdvertiser
+    /// Whether the built-in responder advertises the server rather than dns_sd.
+    let usesBuiltInAdvertiser = NIOLockedValueBox(false)
 
     /// A bridge exposing several accessories. The bridge gets aid 1.
     public convenience init(bridge: Accessory, accessories: [Accessory], storage: any HAPStorage, options: Options = Options()) throws {
@@ -95,6 +115,7 @@ public final class HAPServer: @unchecked Sendable {
         self.options = options
         self.storage = storage
         logger = options.logger
+        builtInAdvertiser = MDNSAdvertiser(interfaces: options.interfaces, logger: options.logger)
 
         var persisted: PersistedState
         if let data = try storage.load() {
@@ -150,11 +171,30 @@ public final class HAPServer: @unchecked Sendable {
     /// Adds a bridged accessory, before or while running. Once running, HomeKit picks it up from the new
     /// configuration number; before, `start()` hashes the whole database once.
     public func add(_ accessory: Accessory) throws {
-        let running = state.withLockedValue { state in
-            assign(accessory, aid: nil, in: &state)
-            return refreshIfRunning(&state)
+        let (running, changed) = state.withLockedValue { state -> (Bool, Bool) in
+            let before = (state.persisted.configurationNumber, state.persisted.databaseHash)
+            let previous = state.persisted.aids[accessory.id].flatMap { state.accessories[$0] }
+            let assigned = assign(accessory, aid: nil, in: &state)
+            let running: Bool
+            if state.serverChannel != nil, !assigned, let previous, structure(of: previous) == structure(of: accessory) {
+                // It replaces an accessory of the same shape under the same ids: the database is as it was, and
+                // hashing all of it again for every accessory a plugin adds at launch cost N² (seconds for 300).
+                running = true
+            } else if state.serverChannel != nil, assigned {
+                // New ids: the database changed whatever its hash, so the number goes up now; the hash, as costly
+                // for every accessory of a burst, is caught up once the burst is over.
+                state.persisted.configurationNumber = state.persisted.configurationNumber % 65535 + 1
+                state.hashBehind = true
+                running = true
+            } else {
+                running = refreshIfRunning(&state)
+            }
+            return (running, assigned || before != (state.persisted.configurationNumber, state.persisted.databaseHash))
         }
-        guard running else { return }
+        scheduleHashSettle()
+        // Nothing to save or announce when the ids, the database and its number are as they were: a plugin
+        // replacing its cached accessories at launch, one by one.
+        guard running, changed else { return }
         try persist()
         updateAdvertisement()
     }
@@ -244,7 +284,13 @@ public final class HAPServer: @unchecked Sendable {
                 self.state.withLockedValue { $0.connections[connection.id] = connection }
                 return channel.eventLoop.makeCompletedFuture {
                     try channel.pipeline.syncOperations.addHandler(connection.inboundHandler)
-                    Task { await connection.run() }
+                    // The connection's task runs on its channel's event loop where the runtime allows it: a request
+                    // and its answer then need no hop from the loop to the task and back, and no wake-up between them.
+                    if #available(macOS 15, iOS 18, tvOS 18, watchOS 11, *) {
+                        Task(executorPreference: EventLoopTaskExecutor(channel.eventLoop)) { await connection.run() }
+                    } else {
+                        Task { await connection.run() }
+                    }
                 }
             }
 
@@ -261,13 +307,32 @@ public final class HAPServer: @unchecked Sendable {
         logger.info("HAP server listening", metadata: ["port": "\(port)", "paired": "\(isPaired)"])
 
         if options.advertise {
-            try advertiser.start(name: primary.name, port: port, txt: txtRecord())
+            startAdvertising(port: port)
         }
+    }
+
+    private func startAdvertising(port: Int) {
+        if options.advertiser == .system {
+            do {
+                try advertiser.start(name: primary.name, port: port, txt: txtRecord())
+                return
+            } catch {
+                // Avahi not running, or out of reach (a Synology package, a container): HomeKit must still find
+                // the bridge.
+                logger.warning("Bonjour unavailable (\(error)); advertising with the built-in mDNS responder")
+            }
+        }
+        usesBuiltInAdvertiser.withLockedValue { $0 = true }
+        builtInAdvertiser.start(name: primary.name, port: port, txt: txtRecord())
     }
 
     /// Stops advertising, disconnects controllers and closes the socket.
     public func stop() async {
+        // A hash still behind is stored now, so the next launch does not count the same changes again.
+        settleHash()
         advertiser.stop()
+        await builtInAdvertiser.stop()
+        usesBuiltInAdvertiser.withLockedValue { $0 = false }
         let (channel, connections) = state.withLockedValue { ($0.serverChannel, Array($0.connections.values)) }
         connections.forEach { $0.close() }
         try? await channel?.close()
@@ -299,7 +364,9 @@ public final class HAPServer: @unchecked Sendable {
 
     // MARK: Identifiers and database
 
-    private func assign(_ accessory: Accessory, aid fixed: Int?, in state: inout State) {
+    /// Gives the accessory its aid and iids, the ones it had when known; returns whether any was new.
+    @discardableResult
+    private func assign(_ accessory: Accessory, aid fixed: Int?, in state: inout State) -> Bool {
         let aid: Int
         if let fixed {
             aid = fixed
@@ -308,16 +375,21 @@ public final class HAPServer: @unchecked Sendable {
         } else {
             aid = max(1, state.persisted.aids.values.max() ?? 1) + 1
         }
+        var changed = state.persisted.aids[accessory.id] != aid
         state.persisted.aids[accessory.id] = aid
         accessory.aidBox.withLockedValue { $0 = aid }
 
         let prefix = "\(aid)/"
-        var next = (state.persisted.iids.filter { $0.key.hasPrefix(prefix) }.values.max() ?? 0) + 1
+        // The next free iid, looked for only when one is needed: every server's iids would be scanned for each
+        // accessory otherwise, though at launch they are all known.
+        var next: Int?
         func iid(for key: String) -> Int {
             if let known = state.persisted.iids[prefix + key] { return known }
-            defer { next += 1 }
-            state.persisted.iids[prefix + key] = next
-            return next
+            let free = next ?? (state.persisted.iids.filter { $0.key.hasPrefix(prefix) }.values.max() ?? 0) + 1
+            next = free + 1
+            state.persisted.iids[prefix + key] = free
+            changed = true
+            return free
         }
         for service in accessory.services {
             let serviceKey = "\(service.type.uuid.uuidString)/\(service.subtype ?? "")"
@@ -327,17 +399,58 @@ public final class HAPServer: @unchecked Sendable {
             }
         }
         state.accessories[aid] = accessory
+        return changed
     }
 
     private func refreshConfigurationNumber(in state: inout State) {
-        let structure = database(accessories: state.accessories, includeValues: false)
-        var json = JSONWriter(capacity: 64 * 1024)
-        structure.write(to: &json)
-        let hash = Secrets.hex(SHA256.hash(data: json.bytes))
-        if !state.persisted.databaseHash.isEmpty, state.persisted.databaseHash != hash {
+        let hash = databaseHash(state)
+        // Behind, the stored hash is from before the last adds and cannot tell whether this change changed anything:
+        // a bump then, at worst one more than needed.
+        if state.hashBehind || !state.persisted.databaseHash.isEmpty && state.persisted.databaseHash != hash {
             state.persisted.configurationNumber = state.persisted.configurationNumber % 65535 + 1
         }
         state.persisted.databaseHash = hash
+        state.hashBehind = false
+    }
+
+    private func databaseHash(_ state: State) -> String {
+        let structure = database(accessories: state.accessories, includeValues: false)
+        var json = JSONWriter(capacity: 64 * 1024)
+        structure.write(to: &json)
+        return Secrets.hex(SHA256.hash(data: json.bytes))
+    }
+
+    /// Catches the hash up a quarter of a second after the last add with new ids, once for the burst.
+    private func scheduleHashSettle() {
+        let first = state.withLockedValue { state -> Bool in
+            guard state.hashBehind, !state.hashSettleScheduled else { return false }
+            state.hashSettleScheduled = true
+            return true
+        }
+        guard first else { return }
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            self?.settleHash()
+        }
+    }
+
+    /// Stores the hash of the database as it is, without another bump: its changes have had theirs.
+    func settleHash() {
+        let settled = state.withLockedValue { state -> Bool in
+            state.hashSettleScheduled = false
+            guard state.hashBehind else { return false }
+            state.persisted.databaseHash = databaseHash(state)
+            state.hashBehind = false
+            return true
+        }
+        if settled { try? persist() }
+    }
+
+    /// One accessory's part of the hashed database: its aid, services, characteristics and their metadata.
+    private func structure(of accessory: Accessory) -> [UInt8] {
+        var json = JSONWriter(capacity: 2048)
+        database(accessories: [accessory.aid: accessory], includeValues: false).write(to: &json)
+        return json.bytes
     }
 
     func database(includeValues: Bool) -> AccessoryDatabase {
@@ -377,7 +490,7 @@ public final class HAPServer: @unchecked Sendable {
     // MARK: Persistence and advertising
 
     func persist() throws {
-        let data = try state.withLockedValue { try JSONEncoder().encode($0.persisted) }
+        let data = state.withLockedValue { $0.persisted.encoded() }
         try storage.save(data)
     }
 
@@ -400,7 +513,11 @@ public final class HAPServer: @unchecked Sendable {
 
     func updateAdvertisement() {
         guard options.advertise else { return }
-        advertiser.update(txt: txtRecord())
+        if usesBuiltInAdvertiser.withLockedValue({ $0 }) {
+            builtInAdvertiser.update(txt: txtRecord())
+        } else {
+            advertiser.update(txt: txtRecord())
+        }
     }
 
     // MARK: Connections
@@ -439,4 +556,20 @@ extension HAPServer {
 struct CharacteristicKey: Hashable {
     var aid: Int
     var iid: Int
+}
+
+/// Runs a task's jobs on one event loop: a connection's work stays on the thread its channel's I/O runs on.
+/// Nothing in a connection's path may block (NIO refuses `wait()` there); its awaits still go where they go.
+@available(macOS 15, iOS 18, tvOS 18, watchOS 11, *)
+final class EventLoopTaskExecutor: TaskExecutor {
+    let eventLoop: any EventLoop
+
+    init(_ eventLoop: any EventLoop) {
+        self.eventLoop = eventLoop
+    }
+
+    func enqueue(_ job: consuming ExecutorJob) {
+        let job = UnownedJob(job)
+        eventLoop.execute { job.runSynchronously(on: self.asUnownedTaskExecutor()) }
+    }
 }

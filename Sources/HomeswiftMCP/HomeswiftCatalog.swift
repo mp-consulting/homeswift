@@ -131,7 +131,28 @@ public struct HomeswiftCatalog: Sendable {
 
     /// Makes the accessory identify itself (a light blinks, a speaker chimes).
     public func identify(_ located: Located) async throws {
-        try await located.accessory.information.characteristic(.identify).write(.bool(true))
+        do {
+            try await located.accessory.information.characteristic(.identify).write(.bool(true))
+        } catch let error as HAPStatusError {
+            throw CatalogError(Self.describe(error, of: located))
+        }
+    }
+
+    /// A device's refusal in words: a paused plugin's accessory, a device out of reach, a value it would not take.
+    static func describe(_ error: HAPStatusError, of located: Located) -> String {
+        let name = located.accessory.name
+        if let platform = located.platform, platform.paused {
+            return "\(platform.name) is paused: resume it on the Plugins page to control \(name)"
+        }
+        switch error.status {
+        case .serviceCommunicationFailure: return "\(name) did not answer: the device may be off or out of reach"
+        case .resourceBusy: return "\(name) is busy: try again in a moment"
+        case .operationTimedOut: return "\(name) took too long to answer"
+        case .invalidValueInRequest: return "\(name) refused that value"
+        case .notAllowedInCurrentState: return "\(name) cannot do that now"
+        case .readOnlyCharacteristic: return "\(name) only reports this value"
+        default: return "\(name) refused the change (\(error.status))"
+        }
     }
 
     public static func json(_ value: HAPValue) -> JSONValue {
@@ -162,19 +183,21 @@ public struct HomeswiftCatalog: Sendable {
     public static func accessoryJSON(_ located: Located, detailed: Bool) -> JSONValue {
         let accessory = located.accessory
         let information = accessory.information
-        var object: [String: JSONValue] = [
-            "id": .string(accessory.id),
-            "aid": .number(Double(accessory.aid)),
-            "name": .string(accessory.name),
-            "category": .string("\(accessory.category)"),
-            "bridge": .string(located.bridge.name),
-            "manufacturer": json(information[.manufacturer]?.value ?? .null),
-            "model": json(information[.model]?.value ?? .null),
-            "serialNumber": json(information[.serialNumber]?.value ?? .null),
-        ]
+        // Each dictionary is made at the size it ends up: growing them key by key was most of building the list.
+        var object = [String: JSONValue](minimumCapacity: 12)
+        object["id"] = .string(accessory.id)
+        object["aid"] = .number(Double(accessory.aid))
+        object["name"] = .string(accessory.name)
+        object["category"] = .string("\(accessory.category)")
+        object["bridge"] = .string(located.bridge.name)
+        object["manufacturer"] = json(information[.manufacturer]?.value ?? .null)
+        object["model"] = json(information[.model]?.value ?? .null)
+        object["serialNumber"] = json(information[.serialNumber]?.value ?? .null)
         if let platform = located.platform {
             object["platform"] = .string(platform.platform)
             object["platformName"] = .string(platform.name)
+            // Its plugin does not run: the accessory answers No Response until it is resumed.
+            if platform.paused { object["paused"] = true }
         }
         if let layout = located.layout {
             if let room = layout.room { object["room"] = .string(room) }
@@ -190,18 +213,21 @@ public struct HomeswiftCatalog: Sendable {
         // Its plugin records an Eve history: get_accessory_history, and the web UI's History, have something to show.
         if !EveHistory.histories(of: accessory).isEmpty { object["history"] = true }
         object["services"] = .array(accessory.services.filter { $0.type.uuid != ServiceType.accessoryInformation.uuid }.map { service in
-            var entry: [String: JSONValue] = ["type": .string(service.type.name)]
+            var entry = [String: JSONValue](minimumCapacity: 6)
+            entry["type"] = .string(service.type.name)
             if let subtype = service.subtype { entry["subtype"] = .string(subtype) }
             if let name = service[.name]?.value.stringValue { entry["name"] = .string(name) }
             if service.isPrimary { entry["primary"] = true }
             if isInternal(service) { entry["internal"] = true }
+            if let controller = service.adaptiveLighting { entry["adaptiveLighting"] = adaptiveLightingJSON(controller) }
             if detailed {
                 entry["characteristics"] = .array(service.characteristics.map { characteristic in
                     let type = characteristic.type
-                    var detail: [String: JSONValue] = [
-                        "type": .string(type.name), "value": isOpaque(characteristic) ? .null : value(of: characteristic), "format": .string(type.format.rawValue),
-                        "permissions": .array(type.permissions.map(\.rawValue).sorted().map(JSONValue.string)),
-                    ]
+                    var detail = [String: JSONValue](minimumCapacity: 12)
+                    detail["type"] = .string(type.name)
+                    detail["value"] = isOpaque(characteristic) ? .null : value(of: characteristic)
+                    detail["format"] = .string(type.format.rawValue)
+                    detail["permissions"] = .array(type.permissions.map(\.rawValue).sorted().map(JSONValue.string))
                     if characteristic.isSecurityControl { detail["security"] = true }
                     if characteristic.isConfidential { detail["confidential"] = true }
                     if isInternal(characteristic) { detail["internal"] = true }
@@ -284,8 +310,41 @@ public struct HomeswiftCatalog: Sendable {
             throw CatalogError("\(characteristic.type.name) of \(located.accessory.name) unlocks, opens or disarms: use set_security_accessory")
         }
         guard let hap = Self.hapValue(value) else { throw CatalogError("value must be a boolean, a number or a string") }
-        try await characteristic.write(hap)
+        do {
+            try await characteristic.write(hap)
+        } catch let error as HAPStatusError {
+            throw CatalogError(Self.describe(error, of: located))
+        }
         return ["id": .string(located.accessory.id), "characteristic": .string(characteristic.type.name), "value": Self.value(of: characteristic)]
+    }
+
+    /// Turns a light's Adaptive Lighting on or off. On resumes the last schedule the Home app sent (the bridge keeps
+    /// it), as the web UI's Adaptive swatch does; HomeKit alone can start one. `service` picks the lightbulb when the
+    /// accessory has several with Adaptive Lighting.
+    public func setAdaptiveLighting(_ located: Located, service serviceName: String?, on: Bool) throws -> JSONValue {
+        let lights = located.accessory.services.filter { service in
+            guard service.adaptiveLighting != nil else { return false }
+            guard let serviceName else { return true }
+            let wanted = Self.normalized(serviceName)
+            return Self.normalized(service.type.name) == wanted || service.subtype.map(Self.normalized) == wanted || service[.name]?.value.stringValue.map(Self.normalized) == wanted
+        }
+        guard let light = lights.first, let controller = light.adaptiveLighting else {
+            throw CatalogError("\(located.accessory.name) has no Adaptive Lighting\(serviceName.map { " on service \($0)" } ?? "")")
+        }
+        if lights.count > 1, serviceName == nil { throw CatalogError("\(located.accessory.name) has \(lights.count) lights with Adaptive Lighting; name the service") }
+        if !on {
+            controller.disableAdaptiveLighting()
+        } else if !controller.isAdaptiveLightingActive, !controller.resumeAdaptiveLighting() {
+            throw CatalogError(controller.canResumeAdaptiveLighting
+                ? "the Adaptive Lighting schedule of \(located.accessory.name) does not cover this time of day; turn it on in the Home app"
+                : "turn Adaptive Lighting on once in the Home app (the light's settings): the bridge then keeps the schedule and can resume it")
+        }
+        return ["id": .string(located.accessory.id), "adaptiveLighting": Self.adaptiveLightingJSON(controller)]
+    }
+
+    /// Whether a light's Adaptive Lighting runs, and whether the bridge has a schedule to resume when it does not.
+    static func adaptiveLightingJSON(_ controller: AdaptiveLightingController) -> JSONValue {
+        ["active": .bool(controller.isAdaptiveLightingActive), "resumable": .bool(controller.canResumeAdaptiveLighting)]
     }
 
     // MARK: Status, plugins, system
@@ -488,8 +547,19 @@ public struct HomeswiftCatalog: Sendable {
     // MARK: Logs
 
     /// The last lines, secrets masked and the data boundary defused.
-    public func recentLogs(lines: Int, level: Logger.Level) -> String {
-        logs.recent(min(max(lines, 1), 1000), level: level).map { Self.safe($0.formatted) }.joined(separator: "\n")
+    public func recentLogs(lines: Int, level: Logger.Level, details: Bool = false) -> String {
+        logs.recent(min(max(lines, 1), 1000), level: level).map { Self.logText($0, details: details) }.joined(separator: "\n")
+    }
+
+    /// The most of a line's payload a tool shows.
+    static let detailsLimit = 4000
+
+    /// A line as a tool shows it, through `safe`: with `details`, its JSON payload on the next line, cut at
+    /// `detailsLimit` characters.
+    static func logText(_ line: LogBuffer.Line, details: Bool) -> String {
+        guard details, var payload = line.details else { return safe(line.formatted) }
+        if payload.count > detailsLimit { payload = "\(payload.prefix(detailsLimit))… (\(payload.count - detailsLimit) more characters)" }
+        return safe("\(line.formatted)\n    \(payload)")
     }
 
     /// Log text as data: secrets masked, confirmation codes hidden (a client must not read its own code back),
@@ -498,14 +568,16 @@ public struct HomeswiftCatalog: Sendable {
         let redacted = Redaction.redactText(line)
         // Most lines hold neither: in ASCII text a byte search finds that out without the expression.
         let ascii = TextSearch.isASCII(redacted)
-        let hidden = !ascii || TextSearch.contains(redacted, caseless: "confirmation code ")
+        let hidden = !ascii || TextSearch.contains(redacted, confirmationNeedle)
             ? confirmationCodes.stringByReplacingMatches(in: redacted, range: NSRange(redacted.startIndex..., in: redacted), withTemplate: "$1••••••")
             : redacted
-        guard !ascii || TextSearch.contains(hidden, caseless: "untrusted-data") else { return hidden }
+        guard !ascii || TextSearch.contains(hidden, untrustedNeedle) else { return hidden }
         return hidden.replacingOccurrences(of: "untrusted-data", with: "untrusted\u{2011}data", options: [.caseInsensitive])
     }
 
     private static let confirmationCodes = try! NSRegularExpression(pattern: #"(?i)(confirmation code )\d{6}"#)
+    private static let confirmationNeedle = TextSearch.Needle("confirmation code ", caseless: true)
+    private static let untrustedNeedle = TextSearch.Needle("untrusted-data", caseless: true)
 
     // MARK: The catalog
 
@@ -582,19 +654,26 @@ public struct HomeswiftCatalog: Sendable {
             ) { _ in .json(["backups": .array(catalog.backups().map(JSONValue.string))]) },
             MCPTool(
                 name: "get_recent_logs", title: "Recent log lines",
-                description: "The last lines of the log (default 200, at most 1000), optionally only from a level up (debug, info, warning, error). Secrets are masked.",
-                inputSchema: ["type": "object", "properties": ["lines": ["type": "integer", "minimum": 1, "maximum": 1000], "level": ["type": "string", "enum": ["trace", "debug", "info", "notice", "warning", "error"]]]],
+                description: "The last lines of the log (default 200, at most 1000), optionally only from a level up (debug, info, warning, error). "
+                    + "A line whose JSON payload was taken out shows `{…} 1.4 KB`; details: true adds each payload on the next line. Secrets are masked.",
+                inputSchema: ["type": "object", "properties": [
+                    "lines": ["type": "integer", "minimum": 1, "maximum": 1000], "level": ["type": "string", "enum": ["trace", "debug", "info", "notice", "warning", "error"]],
+                    "details": ["type": "boolean"],
+                ]],
                 scope: .read, idempotent: true
             ) { call in
                 let level = call.optionalString("level").flatMap(Logger.Level.init(rawValue:)) ?? .trace
-                return .text("<untrusted-data source=\"log\">\n\(catalog.recentLogs(lines: call.int("lines", default: 200), level: level))\n</untrusted-data>")
+                let text = catalog.recentLogs(lines: call.int("lines", default: 200), level: level, details: call.bool("details"))
+                return .text("<untrusted-data source=\"log\">\n\(text)\n</untrusted-data>")
             },
             MCPTool(
                 name: "search_logs", title: "Search the log",
-                description: "Log lines containing the text (case-insensitive unless caseSensitive), newest last, at most maxMatches (default 100), with context lines around each when asked. "
+                description: "Log lines containing the text (case-insensitive unless caseSensitive), in their JSON payloads too, newest last, at most maxMatches (default 100), with context lines around each when asked. "
                     + "Narrow by time (since/until: ISO such as 2026-10-04T18:00, in the bridge's local time without a zone, or back from now such as 30m, 1h, 2d; "
                     + "with either, the log archive on disk is searched, else the lines kept in memory), by minimum level (error, warning, info, debug) "
-                    + "and by plugin (part of the label after the time: the plugin instance or bridge name). pattern may be left out when a filter is given. "
+                    + "and by plugin (part of the label after the time: the plugin instance or bridge name); hours (at most 168) is since that far back. "
+                    + "Payloads are kept on disk only while Save payloads is on in the web UI's Logs page; details: true adds each match's payload on the next line. "
+                    + "pattern may be left out when a filter is given. "
                     + "An admin token may pass regex: true for a regular expression, stopped after 5 seconds. Secrets are masked.",
                 inputSchema: ["type": "object", "properties": [
                     "pattern": ["type": "string", "minLength": 1, "maxLength": 200], "regex": ["type": "boolean"], "caseSensitive": ["type": "boolean"],
@@ -604,6 +683,8 @@ public struct HomeswiftCatalog: Sendable {
                     "level": ["type": "string", "enum": ["trace", "debug", "info", "notice", "warn", "warning", "error", "critical"], "description": "Minimum level: warning gives warnings and errors"],
                     "plugin": ["type": "string", "minLength": 1, "description": "Only lines whose label contains this, case aside"],
                     "context": ["type": "integer", "minimum": 0, "maximum": 20, "description": "Lines before and after each match (default 0)"],
+                    "hours": ["type": "number", "minimum": 0, "maximum": 168, "description": "Since this many hours ago (the same as since)"],
+                    "details": ["type": "boolean", "description": "Each match's JSON payload on the next line"],
                 ]],
                 outputSchema: Output.logSearch, scope: .read, idempotent: true
             ) { call in
@@ -614,6 +695,8 @@ public struct HomeswiftCatalog: Sendable {
                 query.context = call.int("context", default: 0)
                 query.plugin = call.optionalString("plugin")
                 query.level = call.optionalString("level").flatMap(Self.logLevel)
+                query.details = call.bool("details")
+                if let hours = call.arguments["hours"]?.doubleValue, hours > 0 { query.since = Date().addingTimeInterval(-min(hours, 168) * 3600) }
                 for (key, keyPath) in [("since", \LogQuery.since), ("until", \LogQuery.until)] {
                     guard let text = call.optionalString(key) else { continue }
                     guard let date = Self.parseTimeBound(text) else { return .error("\(key): use an ISO time such as 2026-10-04T18:00 or a duration such as 30m, 1h, 2d") }

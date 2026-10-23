@@ -531,7 +531,7 @@ enum WebAssets {
 (() => {
   "use strict";
 
-  const { $, el, tile, sparkle, menuButton, copyText, jsonEditor, fact, setPaused, slug, withSlugs } = HomeswiftCommon;
+  const { $, el, tile, sparkle, menuButton, copyText, jsonEditor, jsonView, fact, setPaused, slug, withSlugs } = HomeswiftCommon;
 
   const show = (main, ...nodes) => main.replaceChildren(...nodes.flat().filter(Boolean));
 
@@ -736,8 +736,12 @@ enum WebAssets {
     const main = $("#view");
     leaveGuard = null;
     shownPath = location.pathname + location.search;
-    main.replaceChildren(el("p", { class: "muted", text: "Loading…" }));
+    main.replaceChildren(el("div", { class: "view-loading" }, spinner()));
     view(main, args).catch((e) => { if (e.status !== 401) main.replaceChildren(el("p", { class: "error", text: e.message })); });
+  }
+  /// Something loading: a turning ring, read as "Loading"; it shows after a moment, so a quick load does not flash it.
+  function spinner() {
+    return el("span", { class: "spinner", role: "status", "aria-label": "Loading" });
   }
   /// Shows the view at `path` without loading the page again; `replace` keeps it out of the history.
   function navigate(path, { replace = false } = {}) {
@@ -1073,16 +1077,23 @@ enum WebAssets {
       chart.detail.textContent = count ? `Average of ${count.toLocaleString()} ${count === 1 ? "call" : "calls"} · longest ${chart.format(Math.max(...calls.map((one) => one.longest)))}` : "No calls in this range";
     }
 
+    /// The charts' points, newest first, under two header rows: the process (memory, CPU), then the Home app's
+    /// requests and the plugins' device calls, each its average, longest and count; a rule between the groups.
     function fillTable() {
       if (!shown) return;
       const time = new Intl.DateTimeFormat([], { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
-      const cell = (value, format) => el("td", { text: value == null ? "–" : format(value) });
-      const calls = (one) => [cell(one?.average, formatMilliseconds), cell(one?.longest, formatMilliseconds), cell(one?.count, (n) => n.toLocaleString())];
-      const head = ["Time", "Memory", "CPU", "Requests, average", "longest", "count", "Device calls, average", "longest", "count"];
+      const cell = (value, format, start = false) => el("td", { class: [value == null ? "empty" : "", start ? "group-start" : ""].join(" ").trim(), text: value == null ? "–" : format(value) });
+      const calls = (one) => [cell(one?.average, formatMilliseconds, true), cell(one?.longest, formatMilliseconds), cell(one?.count, (n) => n.toLocaleString())];
+      const group = (text, span, start = true) => el("th", { scope: "colgroup", colSpan: span, class: start ? "group-start" : "", text });
+      const column = (text, start = false) => el("th", { scope: "col", class: start ? "group-start" : "", text });
       table.replaceChildren(table.firstChild, el("div", { class: "table-scroll" }, el("table", {},
-        el("thead", {}, el("tr", {}, head.map((text) => el("th", { text })))),
+        el("thead", {},
+          el("tr", { class: "groups" },
+            el("th", { scope: "col", rowSpan: 2, class: "time", text: "Time" }),
+            group("homeswift", 2, false), group("Home app requests", 3), group("Plugin device calls", 3)),
+          el("tr", {}, column("Memory"), column("CPU"), column("Average", true), column("Longest"), column("Count"), column("Average", true), column("Longest"), column("Count"))),
         el("tbody", {}, [...shown.points].reverse().map((point) => el("tr", {},
-          el("td", { text: time.format(point.time) }), cell(point.memory, formatBytes), cell(point.cpu, formatPercent),
+          el("th", { scope: "row", class: "time", text: time.format(point.time) }), cell(point.memory, formatBytes), cell(point.cpu, formatPercent),
           calls(point.requests), calls(point.handlers)))))));
     }
 
@@ -1108,270 +1119,29 @@ enum WebAssets {
   }
 
   // ---- Accessories ---------------------------------------------------------
+  // A wall of widgets (widgets.js): each accessory at the size chosen for it, else the size chosen for its kind,
+  // else the kind's own; in the order chosen, on one wall or a wall per plugin. The bridge keeps the layout
+  // (/api/layout), the same for every user: a widget's menu sets its size, Edit sets sizes and order.
 
-  const enumLabels = {
-    "Lock Target State": ["Unsecured", "Secured"], "Lock Current State": ["Unsecured", "Secured", "Jammed", "Unknown"],
-    "Target Door State": ["Open", "Closed"], "Current Door State": ["Open", "Closed", "Opening", "Closing", "Stopped"],
-    "Security System Target State": ["Home", "Away", "Night", "Off"], "Security System Current State": ["Home", "Away", "Night", "Off", "Alarm"],
-    "Active": ["Inactive", "Active"], "Target Heating Cooling State": ["Off", "Heat", "Cool", "Auto"], "Current Heating Cooling State": ["Off", "Heating", "Cooling"],
-    "Target Fan State": ["Manual", "Auto"], "Current Fan State": ["Inactive", "Idle", "Blowing"], "Rotation Direction": ["Clockwise", "Counter-clockwise"],
-    "Swing Mode": ["Disabled", "Enabled"], "Programmable Switch Event": ["Single press", "Double press", "Long press"],
-    "Contact Sensor State": ["Contact", "No contact"], "Temperature Display Units": ["Celsius", "Fahrenheit"],
-    "Air Quality": ["Unknown", "Excellent", "Good", "Fair", "Inferior", "Poor"], "Charging State": ["Not charging", "Charging", "Not chargeable"],
-    "Status Low Battery": ["Normal", "Low"], "Leak Detected": ["Dry", "Leak"], "Smoke Detected": ["Clear", "Smoke"], "Carbon Monoxide Detected": ["Normal", "Abnormal"],
-    "Target Air Purifier State": ["Manual", "Auto"], "Current Air Purifier State": ["Inactive", "Idle", "Purifying"],
-    "Motion Detected": ["No motion", "Motion"], "Occupancy Detected": ["Not occupied", "Occupied"], "Mute": ["Off", "On"],
-  };
-  // What HomeKit needs to describe an accessory rather than a state a person reads or changes: kept off the page.
-  const plumbing = new Set([
-    "Name", "Configured Name", "Identifier", "Is Configured", "Current Visibility State", "Target Visibility State", "Input Source Type",
-    "Input Device Type", "Sleep Discovery Mode", "Display Order", "Closed Captions", "Picture Mode", "Power Mode Selection",
-    "Volume Control Type", "Current Media State", "Target Media State", "Version",
-  ]);
-  const remoteKeys = [["←", 6, "Left"], ["↑", 4, "Up"], ["↓", 5, "Down"], ["→", 7, "Right"], ["Select", 8], ["Back", 9], ["Play/Pause", 11], ["Info", 15]];
-
-  function serviceKey(service) { return service.subtype || service.type; }
-  /// The text for an enumerated value, or the value itself.
-  function labelFor(type, value) {
-    const labels = enumLabels[type];
-    // Motion Detected and the like are booleans whose labels are listed for 0 and 1.
-    const index = typeof value === "boolean" ? Number(value) : value;
-    return labels && labels[index] !== undefined ? labels[index] : String(value);
-  }
-  /// "Color Temperature" reads "Color temperature".
-  const sentence = (type) => type.charAt(0) + type.slice(1).toLowerCase();
-
-  function writer(accessory, service, characteristic) {
-    return async (value, onError = () => {}) => {
-      // A security control (a lock, a door, an alarm, or what a plugin marked, such as a switch that unlocks a door)
-      // asks first, as the Assistant's set_security_accessory does.
-      if (characteristic.security) {
-        const label = characteristic.format === "bool" ? (value ? "On" : "Off") : labelFor(characteristic.type, value);
-        if (!confirm(`Set ${sentence(characteristic.type).toLowerCase()} of ${accessory.name} to ${label}?`)) { onError(new Error("cancelled")); return; }
-      }
-      try {
-        await api(`/api/accessories/${encodeURIComponent(accessory.id)}`, { method: "PUT", body: { service: serviceKey(service), characteristic: characteristic.type, value } });
-      } catch (e) { onError(e); }
-    };
-  }
-
-  // On and off as 1 and 0.
-  const numericSwitches = new Set(["HomeKit Camera Active"]);
-
-  function controlFor(accessory, service, characteristic) {
-    const writable = characteristic.permissions.includes("pw");
-    const readable = characteristic.permissions.includes("pr");
-    const attrs = { "data-id": accessory.id, "data-service": serviceKey(service), "data-char": characteristic.type };
-    const write = writer(accessory, service, characteristic);
-    const labels = enumLabels[characteristic.type];
-    if (writable && (characteristic.format === "bool" || numericSwitches.has(characteristic.type))) return powerSwitch(accessory, service, characteristic);
-    if (writable && characteristic.type === "Active Identifier") {
-      // The TV's input picker: the input services' identifiers under their names.
-      const inputs = accessory.services.filter((s) => s.type === "InputSource").map((s) => {
-        const value = (type) => s.characteristics.find((c) => c.type === type)?.value;
-        return { identifier: value("Identifier"), name: value("Configured Name") || s.name, hidden: value("Current Visibility State") === 1 };
-      }).filter((input) => input.identifier !== undefined && !input.hidden);
-      const select = el("select", attrs, ...inputs.map((input) => el("option", { value: input.identifier, text: input.name, selected: input.identifier === characteristic.value })));
-      select.addEventListener("change", () => write(Number(select.value)));
-      return select;
-    }
-    if (writable && !readable && characteristic.type === "Remote Key") {
-      return el("div", { class: "keys" }, remoteKeys.map(([text, value, label]) => el("button", { text, "aria-label": label || text, onclick: () => write(value) })));
-    }
-    if (writable && !readable && characteristic.type === "Volume Selector") {
-      return el("div", { class: "group" }, el("button", { text: "−", "aria-label": "Volume down", onclick: () => write(1) }), el("button", { text: "+", "aria-label": "Volume up", onclick: () => write(0) }));
-    }
-    if (writable && (characteristic.validValues || labels)) {
-      const values = characteristic.validValues || labels.map((_, index) => index);
-      const select = el("select", attrs, ...values.map((value) => el("option", { value, text: labelFor(characteristic.type, value), selected: value === characteristic.value })));
-      // A write that fails or is cancelled puts the menu back on the value it had.
-      let shown = select.value;
-      select.addEventListener("focus", () => { shown = select.value; });
-      select.addEventListener("change", () => { const previous = shown; shown = select.value; write(Number(select.value), () => { select.value = previous; shown = previous; }); });
-      return select;
-    }
-    if (writable && ["int", "uint8", "uint16", "uint32", "uint64", "float"].includes(characteristic.format) && characteristic.minValue !== undefined && characteristic.maxValue !== undefined) {
-      const input = el("input", { type: "range", min: characteristic.minValue, max: characteristic.maxValue, step: characteristic.minStep || 1, value: characteristic.value ?? 0, "aria-label": sentence(characteristic.type) });
-      const value = el("span", { class: "value", text: formatValue(characteristic) });
-      let timer;
-      input.addEventListener("input", () => { value.textContent = display(Number(input.value), characteristic.unit); clearTimeout(timer); timer = setTimeout(() => write(Number(input.value)), 250); });
-      return el("span", { class: "range", "data-unit": unit(characteristic), "data-unit-name": characteristic.unit, ...attrs }, input, value);
-    }
-    if (writable && characteristic.format === "string") {
-      const input = el("input", { type: "text", value: characteristic.value ?? "", ...attrs });
-      input.addEventListener("change", () => write(input.value));
-      return input;
-    }
-    if (!readable) return null;
-    const text = labels ? labelFor(characteristic.type, characteristic.value) : formatValue(characteristic);
-    return el("span", { class: "value", text, "data-unit-name": labels ? null : characteristic.unit, ...attrs });
-  }
-
-  /// On/Off or Active as a switch; Active writes 1 and 0.
-  function powerSwitch(accessory, service, characteristic) {
-    const numeric = characteristic.format !== "bool";
-    const input = el("input", { type: "checkbox", checked: characteristic.value === true || characteristic.value === 1, "aria-label": `${accessory.name}: ${sentence(characteristic.type)}` });
-    const label = el("label", { class: "switch", "data-id": accessory.id, "data-service": serviceKey(service), "data-char": characteristic.type }, input, el("span"));
-    const write = writer(accessory, service, characteristic);
-    input.addEventListener("change", () => write(numeric ? (input.checked ? 1 : 0) : input.checked, () => { input.checked = !input.checked; }));
-    return label;
-  }
-
-  function unit(characteristic) {
-    // Temperatures in the unit the user chose (Appearance); HomeKit's values stay in °C.
-    if (characteristic.unit === "celsius") return ` ${HomeswiftCommon.temperature(0).unit}`;
-    return { percentage: " %", lux: " lx", seconds: " s", arcdegrees: "°" }[characteristic.unit] || "";
-  }
-  function formatValue(characteristic) {
-    if (characteristic.format === "bool") return characteristic.value ? "On" : "Off";
-    if (characteristic.value === null || characteristic.value === undefined) return "";
-    return display(characteristic.value, characteristic.unit);
-  }
-  /// A value with its unit, a temperature converted to the user's unit.
-  function display(value, unitName) {
-    if (unitName === "celsius" && typeof value === "number") return HomeswiftCommon.formatTemperature(value);
-    return `${value}${unit({ unit: unitName })}`;
-  }
-
-  /// Rows for the characteristics of a service a person reads or changes; `skip` are shown elsewhere (the
-  /// power switch in the header, the remote).
-  function controlRows(accessory, service, ...skip) {
-    // `internal`: what only HomeKit uses (TLV8 stream configurations, snapshot settings), never a row.
-    return service.characteristics.filter((c) => !skip.includes(c) && !plumbing.has(c.type) && !c.internal).map((characteristic) => {
-      const control = controlFor(accessory, service, characteristic);
-      if (!control) return null;
-      const label = rowLabels[characteristic.type] || sentence(characteristic.type);
-      return el("div", { class: "control" }, el("span", { text: label }), control);
-    }).filter(Boolean);
-  }
-
-  const rowLabels = {
-    "Active Identifier": "Input", "Remote Key": "Remote", "Volume Selector": "Volume",
-    "HomeKit Camera Active": "On in the Home app", "Camera Operating Mode Indicator": "Status light",
+  const sizeNames = { small: "Small", medium: "Medium", large: "Large" };
+  // A kind of widget as the menu names it: "Medium for every light".
+  const kindNames = {
+    climate: "air conditioner and thermostat", "air-purifier": "air purifier", fan: "fan", light: "light", cover: "shutter", toggle: "switch",
+    "switch-group": "group of switches", television: "television", "garage-door": "gate", lock: "lock", "security-system": "alarm", valve: "valve",
+    sensor: "sensor", camera: "camera", inspector: "other accessory",
   };
 
-  // An accessory's category as its tile: the icon and the colour.
-  const categoryIcons = {
-    lightbulb: ["bulb", "yellow"], television: ["accessory", "blue"], tvSetTopBox: ["accessory", "blue"], tvStreamingStick: ["accessory", "blue"],
-    appleTV: ["accessory", "blue"], switch: ["switch", "green"], programmableSwitch: ["switch", "green"], outlet: ["outlet", "green"],
-    sensor: ["sensor", "teal"], fan: ["fan", "teal"], airPurifier: ["fan", "teal"], speaker: ["speaker", "blue"], homePod: ["speaker", "blue"],
-    audioReceiver: ["speaker", "blue"], doorLock: ["lock", "violet"], thermostat: ["thermo", "yellow"], heater: ["thermo", "yellow"], airConditioner: ["thermo", "teal"],
-    garageDoorOpener: ["door", "violet"], door: ["door", "violet"], window: ["door", "violet"], windowCovering: ["door", "violet"],
-    ipCamera: ["camera", "grey"], videoDoorbell: ["camera", "grey"],
-  };
-
-  // A television's remote: HomeKit's Remote Key values, and its speaker's volume and mute.
-  const homeKitKeys = { up: 4, down: 5, left: 6, right: 7, select: 8, back: 9, playPause: 11, info: 15 };
-  function televisionRemote(accessory, primary, remoteKey) {
-    const speaker = accessory.services.find((s) => s.type === "TelevisionSpeaker");
-    const volume = speaker?.characteristics.find((c) => c.type === "Volume Selector" && c.permissions.includes("pw"));
-    const mute = speaker?.characteristics.find((c) => c.type === "Mute" && c.permissions.includes("pw"));
-    const actions = [...Object.keys(homeKitKeys), ...(volume ? ["volumeUp", "volumeDown"] : []), ...(mute ? ["mute"] : [])];
-    const failing = (e) => { throw e; };
-    // Mute toggles from the live state the speaker's switch shows (it follows the TV's events).
-    let muted = mute?.value === true;
-    const muteState = () => document.querySelector(`[data-id="${CSS.escape(accessory.id)}"][data-char="Mute"] input`)?.checked ?? muted;
-    return HomeswiftRemote.build({
-      actions, label: `Remote for ${accessory.name}`,
-      send: (action) => {
-        if (action in homeKitKeys) return writer(accessory, primary, remoteKey)(homeKitKeys[action], failing);
-        if (action === "volumeUp" || action === "volumeDown") return writer(accessory, speaker, volume)(action === "volumeUp" ? 0 : 1, failing);
-        muted = !muteState();
-        return writer(accessory, speaker, mute)(muted, failing);
-      },
-    });
-  }
-
-  // Inputs are chosen with the Input picker; the protocol version is HomeKit's business.
-  const quietServices = new Set(["InputSource", "ProtocolInformation"]);
-
-  function accessoryCard(accessory) {
-    if (accessory.camera && window.HomeswiftCamera) return cameraCard(accessory);
-    const services = accessory.services.filter((s) => !s.internal);
-    const primary = services.find((s) => s.primary) || services[0];
-    const power = primary && primary.characteristics.find((c) => (c.type === "On" || c.type === "Active") && c.permissions.includes("pw"));
-    const remoteKey = primary && primary.characteristics.find((c) => c.type === "Remote Key" && c.permissions.includes("pw"));
-    const [iconName, tone] = categoryIcons[accessory.category] || ["generic", "grey"];
-    // "Living Room TV HDMI 1" reads "HDMI 1" inside the Living Room TV's card.
-    const shortName = (service) => {
-      const name = service.name || service.type.replace(/([a-z])([A-Z])/g, "$1 $2");
-      return name.startsWith(`${accessory.name} `) ? name.slice(accessory.name.length + 1) : name;
-    };
-    const others = services.filter((s) => s !== primary && !quietServices.has(s.type))
-      .map((service) => ({ service, rows: controlRows(accessory, service) })).filter((other) => other.rows.length);
-    // A service with one control (a switch, a sensor) is one row under its own name; the others get a heading.
-    const otherNodes = others.map(({ service, rows }) => rows.length === 1
-      ? el("div", { class: "control" }, el("span", { text: shortName(service) }), rows[0].lastChild)
-      : el("div", { class: "controls" }, el("div", { class: "service-name", text: shortName(service) }), rows));
-    const names = others.map(({ service }) => shortName(service));
-    const subtitle = describeModel(accessory);
-    const card = el("div", { class: "card accessory-card", "data-search": searchText(accessory) },
-      el("div", { class: "server-head" },
-        tile(iconName, tone),
-        el("div", { class: "who" }, el("strong", { text: accessory.displayName || accessory.name, title: accessory.displayName ? `${accessory.name} in the Home app` : null }), el("div", { class: "muted", text: subtitle })),
-        power ? powerSwitch(accessory, primary, power) : null),
-      primary ? el("div", { class: "controls" }, controlRows(accessory, primary, power, remoteKey)) : null,
-      remoteKey ? el("div", { class: "card-remote" }, televisionRemote(accessory, primary, remoteKey)) : null,
-      others.length ? el("details", { class: "more" },
-        el("summary", { text: names.length > 3 ? `${names.slice(0, 2).join(", ")} and ${names.length - 2} more` : names.join(", ") }),
-        el("div", { class: "controls" }, otherNodes)) : null,
-      el("div", { class: "card-foot" },
-        el("span", { class: "muted", text: accessory.bridge }),
-        menuButton(`Actions for ${accessory.name}`, () => accessoryActions(accessory))));
-    return card;
-  }
-
-  // Under a camera's video: its light (a package camera's flashlight), switches and HomeKit camera setting;
-  // sensors and the rest under "More".
-  const cameraFirst = new Set(["Lightbulb", "Switch", "Outlet", "CameraOperatingMode"]);
-  const cameraServiceNames = { CameraOperatingMode: "Camera", Microphone: "Microphone", Speaker: "Speaker" };
-
-  /// A camera's card: its live video or snapshots on top (camera.js), with its name and state over it, then
-  /// its controls. A doorbell's ring shows on the video rather than as a row.
-  function cameraCard(accessory) {
-    const find = (type, characteristic) => accessory.services.find((s) => s.type === type)?.characteristics.find((c) => c.type === characteristic);
-    const view = HomeswiftCamera.view({
-      id: accessory.id, name: accessory.name, doorbell: !!accessory.doorbell, lastRing: accessory.lastRing,
-      motion: find("MotionSensor", "Motion Detected")?.value === true, recording: find("CameraRecordingManagement", "Active")?.value === 1,
-    });
-    const rings = accessory.services.flatMap((s) => s.characteristics.filter((c) => c.type === "Programmable Switch Event"));
-    // A camera's sensors carry its own name: they read as what they are.
-    const shortName = (service) => {
-      const own = !service.name || service.name === accessory.name;
-      const name = own ? cameraServiceNames[service.type] || service.type.replace(/([a-z])([A-Z])/g, "$1 $2") : service.name;
-      return name.startsWith(`${accessory.name} `) ? name.slice(accessory.name.length + 1) : name;
-    };
-    const groups = accessory.services.filter((s) => !s.internal && !quietServices.has(s.type))
-      .map((service) => ({ service, rows: controlRows(accessory, service, ...rings) })).filter((group) => group.rows.length);
-    const node = ({ service, rows }) => rows.length === 1
-      ? el("div", { class: "control" }, el("span", { text: shortName(service) }), rows[0].lastChild)
-      : el("div", { class: "controls" }, el("div", { class: "service-name", text: shortName(service) }), rows);
-    const first = groups.filter((group) => cameraFirst.has(group.service.type));
-    const more = groups.filter((group) => !cameraFirst.has(group.service.type));
-    const names = more.map(({ service }) => shortName(service));
-    const subtitle = describeModel(accessory);
-    return el("div", { class: "card accessory-card camera-card", "data-search": searchText(accessory) },
-      view.element,
-      subtitle ? el("div", { class: "camera-meta muted", text: subtitle }) : null,
-      first.length ? el("div", { class: "controls" }, first.map(node)) : null,
-      more.length ? el("details", { class: "more" },
-        el("summary", { text: names.length > 3 ? `${names.slice(0, 2).join(", ")} and ${names.length - 2} more` : names.join(", ") }),
-        el("div", { class: "controls" }, more.map(node))) : null,
-      el("div", { class: "card-foot" },
-        el("span", { class: "muted", text: accessory.bridge }),
-        menuButton(`Actions for ${accessory.name}`, () => accessoryActions(accessory))));
-  }
-
-  /// What the search box looks in: the names, the room, the plugin and the model.
-  const searchText = (accessory) => [accessory.name, accessory.displayName, accessory.room, accessory.platformName, accessory.model].filter(Boolean).join(" ").toLowerCase();
-
-  /// What the menu of an accessory's card offers.
+  /// What the menu of an accessory's widget offers, after its sizes.
   function accessoryActions(accessory) {
     return [
       { label: "Identify", icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) },
       isAdmin() ? { label: "Show its log", icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
       window.HomeswiftChat?.available() ? { label: "Ask the Assistant", icon: sparkle(), onSelect: () => HomeswiftChat.ask(`About ${accessory.name}: `) } : null,
       accessory.platform && isAdmin() ? { label: "Plugin settings", icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
+      // A paused plugin's accessories do nothing until it runs again.
+      accessory.paused && isAdmin() ? { label: `Resume ${accessory.platformName}`, icon: "play", onSelect: async () => {
+        try { await setPaused(accessory.platform, accessory.platformName, false); route(); } catch (e) { alert(e.message); }
+      } } : null,
       ...(isAdmin() ? window.HomeswiftHome?.layoutActions(accessory) ?? [] : []),
       accessory.history ? { label: "History", icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
     ];
@@ -1380,34 +1150,216 @@ enum WebAssets {
   // /accessories?group=room|plugin&hidden=1: sections per room (once there are rooms) or per plugin; hidden
   // accessories only with hidden=1.
   views.accessories = async (main) => {
-    const [all, layout] = await Promise.all([api("/api/accessories").then((list) => withSlugs(list, "accessory")), api("/api/layout").catch(() => ({ rooms: [] }))]);
-    const params = new URLSearchParams(location.search);
-    const rooms = layout.rooms.map((room) => room.name);
-    const byRoom = (params.get("group") || (rooms.length ? "room" : "plugin")) === "room";
-    const showHidden = params.get("hidden") === "1";
+    const [list, saved, home] = await Promise.all([api("/api/accessories"), api("/api/layout").catch(() => null), api("/api/rooms").catch(() => ({ rooms: [] }))]);
+    const all = withSlugs(list, "accessory");
+    // Hidden accessories (an accessory's ⋯ menu) only with ?hidden=1.
+    const showHidden = new URLSearchParams(location.search).get("hidden") === "1";
     const accessories = showHidden ? all : all.filter((accessory) => !accessory.hidden);
-    const hiddenCount = all.length - all.filter((accessory) => !accessory.hidden).length;
+    const hiddenCount = all.filter((accessory) => accessory.hidden).length;
+    const rooms = home.rooms.map((room) => room.name);
     const servers = new Set(accessories.map((accessory) => accessory.bridge)).size;
-    // A section per room or per plugin; a card's foot names its server.
-    const search = el("input", { type: "search", class: "search", placeholder: "Search accessories", "aria-label": "Search accessories" });
-    const viewWith = (key, value) => { const next = new URLSearchParams(location.search); if (value === null) next.delete(key); else next.set(key, value); const query = next.toString(); navigate(`/accessories${query ? `?${query}` : ""}`, { replace: true }); };
-    const grouping = el("select", { "aria-label": "Group by", onchange: (event) => viewWith("group", event.target.value) },
-      el("option", { value: "room", text: "By room", selected: byRoom }), el("option", { value: "plugin", text: "By plugin", selected: !byRoom }));
-    const hiddenToggle = hiddenCount ? el("label", { class: "toggle compact" }, el("input", { type: "checkbox", checked: showHidden, onchange: (event) => viewWith("hidden", event.target.checked ? "1" : null) }),
-      el("span", { text: `Show hidden (${hiddenCount})` })) : null;
-    const suggest = window.HomeswiftChat?.available() && accessories.length
-      ? el("button", { class: "ai-button", onclick: () => HomeswiftHome.suggestRooms(main.querySelector(".accessory-sections"), all) }, sparkle(), "Suggest rooms") : null;
-    const groups = byRoom ? HomeswiftHome.groupByRoom(accessories, rooms) : groupByPlugin(accessories);
-    const sections = groups.map(([name, list]) => el("section", { class: "accessory-section" },
-      el("div", { class: "section-head" }, el("h2", { text: name }), el("span", { class: "muted", text: `${list.length} ${list.length === 1 ? "accessory" : "accessories"}` })),
-      el("div", { class: "grid" }, list.map(accessoryCard))));
+    const layout = { order: [], sizes: {}, defaults: {}, grouping: "none", ...saved };
+    const kinds = new Map(accessories.map((accessory) => [accessory.id, HomeswiftWidgets.kindOf(accessory)]));
+    const kindOf = (accessory) => kinds.get(accessory.id).kind;
+    const sizeOf = (accessory) => layout.sizes[accessory.id] || layout.defaults[kindOf(accessory)] || kinds.get(accessory.id).size;
+    // The order kept first; accessories it does not list yet after them, by plugin and name.
+    const rank = new Map(layout.order.map((id, index) => [id, index]));
+    const ordered = groupByPlugin(accessories).flatMap(([, group]) => group)
+      .map((accessory, index) => [accessory, rank.get(accessory.id) ?? layout.order.length + index]).sort((a, b) => a[1] - b[1]).map(([accessory]) => accessory);
+    const plugin = (accessory) => accessory.platformName ?? "";
+    // What a widget may move beside when the wall is split: its plugin, or its room.
+    const section = (accessory) => layout.grouping === "room" ? accessory.room ?? "" : plugin(accessory);
+    let editing = false;
+
+    // Each change is kept by the bridge a moment later; a refusal says so in the page's head.
+    const note = el("p", { class: "error hidden", role: "status" });
+    let saveTimer = null;
+    const save = () => {
+      layout.order = ordered.map((accessory) => accessory.id);
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(async () => {
+        try {
+          await api("/api/layout", { method: "PUT", body: layout });
+          note.classList.add("hidden");
+        } catch (e) {
+          if (e.status === 401) return;
+          note.textContent = `The layout was not kept: ${e.message}`;
+          note.classList.remove("hidden");
+        }
+      }, 300);
+    };
+
+    const nodes = new Map();
+    const actions = (accessory) => {
+      const size = sizeOf(accessory), kind = kindOf(accessory);
+      return [
+        ...HomeswiftWidgets.sizes.map((one) => ({ label: sizeNames[one], checked: one === size, onSelect: () => resize(accessory, one) })),
+        { label: `${sizeNames[size]} for every ${kindNames[kind] ?? "accessory like it"}`, icon: "edit", onSelect: () => resizeKind(kind, size) },
+        { separator: true },
+        ...accessoryActions(accessory),
+      ];
+    };
+    function widget(accessory) {
+      const node = HomeswiftWidgets.card(accessory, { size: sizeOf(accessory), actions });
+      if (editing) editable(node, accessory);
+      nodes.set(accessory.id, node);
+      return node;
+    }
+    function resize(accessory, size) {
+      layout.sizes[accessory.id] = size;
+      nodes.get(accessory.id)?.replaceWith(widget(accessory));
+      save();
+    }
+    /// The size of a kind: every accessory of that kind takes it, those sized one by one included.
+    function resizeKind(kind, size) {
+      layout.defaults[kind] = size;
+      for (const accessory of accessories) {
+        if (kindOf(accessory) !== kind) continue;
+        delete layout.sizes[accessory.id];
+        nodes.get(accessory.id)?.replaceWith(widget(accessory));
+      }
+      save();
+    }
+    /// Puts `accessory` before or after `target`; by plugin, only beside one of its own plugin.
+    function place(accessory, target, after) {
+      if (accessory === target || (layout.grouping !== "none" && section(accessory) !== section(target))) return;
+      ordered.splice(ordered.indexOf(accessory), 1);
+      ordered.splice(ordered.indexOf(target) + (after ? 1 : 0), 0, accessory);
+      save();
+      render();
+    }
+    function step(accessory, delta) {
+      const wall = ordered.filter((one) => layout.grouping === "none" || section(one) === section(accessory));
+      const target = wall[wall.indexOf(accessory) + delta];
+      if (!target) return;
+      place(accessory, target, delta > 0);
+      nodes.get(accessory.id)?.querySelector(`.edit-bar [data-step="${delta}"]`)?.focus();
+    }
+    /// In Edit: the sizes and the arrows over the widget, and the widget dragged into place.
+    function editable(node, accessory) {
+      const size = sizeOf(accessory);
+      node.append(el("div", { class: "edit-bar", role: "group", "aria-label": `Size and place of ${accessory.name}` },
+        el("button", { type: "button", "aria-label": "Move earlier", title: "Move earlier", text: "‹", "data-step": "-1", onclick: () => step(accessory, -1) }),
+        HomeswiftWidgets.sizes.map((one) => el("button", { type: "button", text: one[0].toUpperCase(), title: sizeNames[one], "aria-label": sizeNames[one], "aria-pressed": String(one === size), onclick: () => resize(accessory, one) })),
+        el("button", { type: "button", "aria-label": "Move later", title: "Move later", text: "›", "data-step": "1", onclick: () => step(accessory, 1) })));
+      node.addEventListener("pointerdown", (event) => drag(event, node));
+    }
+
+    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+    /// Moves widgets of `wall` by `change` and slides them from where they were seen to where they land (FLIP): taken
+    /// from their on-screen place, so a slide already under way turns smoothly.
+    function slide(wall, change, except) {
+      const siblings = [...wall.children].filter((node) => node !== except);
+      const seen = new Map(siblings.map((node) => [node, node.getBoundingClientRect()]));
+      change();
+      for (const node of siblings) { node.style.transition = "none"; node.style.transform = ""; }
+      for (const node of siblings) {
+        const was = seen.get(node), now = node.getBoundingClientRect();
+        const dx = was.left - now.left, dy = was.top - now.top;
+        if (!dx && !dy) { node.style.transition = ""; continue; }
+        node.style.transform = `translate(${dx}px, ${dy}px)`;
+        node.getBoundingClientRect();
+        node.style.transition = reducedMotion.matches ? "none" : "transform 220ms var(--ease-out)";
+        node.style.transform = "";
+      }
+    }
+
+    /// Dragging in Edit: the widget lifts and follows the pointer, a dashed slot holds its place in the grid and
+    /// moves as it passes over the others, which slide aside; near the window's top or bottom the page scrolls.
+    /// Let go, it lands in the slot, and the wall's order is kept. A finger drags at once: in Edit the widgets do not
+    /// scroll the page.
+    function drag(event, node) {
+      if (event.button !== 0 || event.target.closest(".edit-bar")) return;
+      // A press that drags selects no text.
+      event.preventDefault();
+      getSelection()?.removeAllRanges();
+      const wall = node.parentElement;
+      const start = { x: event.clientX, y: event.clientY };
+      let slot = null, pointer = event, scroller = null;
+      node.setPointerCapture(event.pointerId);
+      const lift = () => {
+        const box = node.getBoundingClientRect();
+        slot = el("div", { class: `${[...node.classList].filter((name) => name.startsWith("size-")).join(" ")} widget drag-slot`, "aria-hidden": "true" });
+        node.before(slot);
+        node.classList.add("lifted");
+        Object.assign(node.style, { left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px` });
+        scroller = setInterval(() => {
+          const edge = 80, speed = 14;
+          if (pointer.clientY < edge) scrollBy(0, -speed);
+          else if (pointer.clientY > innerHeight - edge) scrollBy(0, speed);
+          else return;
+          hover();
+        }, 16);
+      };
+      // The widget under the pointer: the slot goes before it, or after it past its middle.
+      const hover = () => {
+        const under = document.elementFromPoint(pointer.clientX, pointer.clientY)?.closest(".wall > .widget");
+        if (!under || under === slot || under.parentElement !== wall) return;
+        const box = under.getBoundingClientRect();
+        const after = pointer.clientX > box.left + box.width / 2;
+        if ((after ? under.nextElementSibling : under.previousElementSibling) === slot) return;
+        slide(wall, () => (after ? under.after(slot) : under.before(slot)), node);
+      };
+      const move = (moved) => {
+        pointer = moved;
+        if (!slot) {
+          if (Math.hypot(moved.clientX - start.x, moved.clientY - start.y) < 5) return;
+          lift();
+        }
+        node.style.transform = `translate(${moved.clientX - start.x}px, ${moved.clientY - start.y}px) scale(1.04)`;
+        hover();
+      };
+      const end = () => {
+        node.removeEventListener("pointermove", move);
+        node.removeEventListener("pointerup", end);
+        node.removeEventListener("pointercancel", end);
+        clearInterval(scroller);
+        if (!slot) return;
+        // Lands in the slot from where it was let go.
+        const from = node.getBoundingClientRect();
+        slot.replaceWith(node);
+        node.classList.remove("lifted");
+        node.style.cssText = "";
+        const to = node.getBoundingClientRect();
+        node.style.transition = "none";
+        node.style.transform = `translate(${from.left - to.left}px, ${from.top - to.top}px)`;
+        node.getBoundingClientRect();
+        node.style.transition = reducedMotion.matches ? "none" : "transform 220ms var(--ease-out)";
+        node.style.transform = "";
+        // The wall's accessories take the places they had in the order, in the order they now stand.
+        const ids = [...wall.children].map((child) => child.dataset.id).filter(Boolean);
+        const places = ordered.flatMap((accessory, index) => ids.includes(accessory.id) ? [index] : []);
+        const byID = new Map(ordered.map((accessory) => [accessory.id, accessory]));
+        ids.forEach((id, index) => { ordered[places[index]] = byID.get(id); });
+        save();
+      };
+      node.addEventListener("pointermove", move);
+      node.addEventListener("pointerup", end);
+      node.addEventListener("pointercancel", end);
+    }
+
+    const content = el("div", { class: "accessory-walls" });
     const none = el("p", { class: "muted hidden", text: "No accessory matches." });
-    search.addEventListener("input", () => {
+    function render() {
+      nodes.clear();
+      // By plugin or by room: a section each (by plugin in the order of their names, those of no plugin last; by room
+      // in the rooms' order, those in none last); else one wall.
+      const sections = layout.grouping === "plugin" ? groupByPlugin(accessories)
+        : layout.grouping === "room" && rooms.length ? HomeswiftHome.groupByRoom(accessories, rooms) : null;
+      const groups = sections ? sections.map(([name, group]) => [name, ordered.filter((accessory) => group.includes(accessory))]) : [["", ordered]];
+      content.replaceChildren(...groups.map(([name, group]) => el("section", { class: "accessory-section" },
+        name ? el("div", { class: "section-head" }, el("h2", { text: name }), el("span", { class: "muted", text: `${group.length} ${group.length === 1 ? "accessory" : "accessories"}` })) : null,
+        el("div", { class: `wall${editing ? " editing" : ""}` }, group.map(widget)))));
+      filter();
+    }
+
+    const search = el("input", { type: "search", class: "search", placeholder: "Search accessories", "aria-label": "Search accessories" });
+    function filter() {
       const text = search.value.trim().toLowerCase();
       let shown = 0;
-      for (const section of sections) {
+      for (const section of content.children) {
         let inSection = 0;
-        for (const card of section.querySelectorAll(".accessory-card")) {
+        for (const card of section.querySelectorAll("[data-search]")) {
           const match = !text || card.dataset.search.includes(text);
           card.classList.toggle("hidden", !match);
           if (match) inSection++;
@@ -1416,11 +1368,38 @@ enum WebAssets {
         shown += inSection;
       }
       none.classList.toggle("hidden", shown > 0);
-    });
+    }
+    search.addEventListener("input", filter);
+    const groupings = [["none", "One wall"], ...(rooms.length ? [["room", "By room"]] : []), ["plugin", "By plugin"]];
+    const grouping = el("div", { class: "group", role: "group", "aria-label": "Group the accessories" }, groupings.map(([value, text]) =>
+      el("button", { type: "button", text, class: layout.grouping === value ? "on" : "", "aria-pressed": String(layout.grouping === value), onclick: (event) => {
+        layout.grouping = value;
+        for (const button of grouping.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
+        save();
+        render();
+      } })));
+    const edit = el("button", { type: "button", text: "Edit", "aria-pressed": "false", title: "Sizes and order of the widgets", onclick: () => {
+      editing = !editing;
+      edit.textContent = editing ? "Done" : "Edit";
+      edit.classList.toggle("primary", editing);
+      edit.setAttribute("aria-pressed", String(editing));
+      render();
+    } });
+
+    const hiddenToggle = hiddenCount ? el("label", { class: "toggle compact" }, el("input", { type: "checkbox", checked: showHidden, onchange: (event) => {
+      const next = new URLSearchParams(location.search);
+      if (event.target.checked) next.set("hidden", "1"); else next.delete("hidden");
+      navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
+    } }), el("span", { text: `Show hidden (${hiddenCount})` })) : null;
+    const suggest = isAdmin() && window.HomeswiftChat?.available() && all.length
+      ? el("button", { class: "ai-button", onclick: () => HomeswiftHome.suggestRooms(content, all) }, sparkle(), "Suggest rooms") : null;
+
+    render();
     show(main,
       pageHead("Accessories", accessories.length ? `${accessories.length} on ${servers} ${servers === 1 ? "server" : "servers"}, as the Home app sees them. Changes here reach your devices.` : "",
-        accessories.length ? search : null, all.length ? grouping : null, hiddenToggle, suggest),
-      el("div", { class: "accessory-sections" }, accessories.length ? [...sections, none] : el("div", { class: "card empty" }, el("p", { class: "muted", text: all.length ? "Every accessory is hidden." : "No accessories yet. Plugins add them once they reach their devices." }))));
+        ...(accessories.length ? [search, grouping, edit] : []), hiddenToggle, suggest),
+      note,
+      accessories.length ? [content, none] : el("div", { class: "card empty" }, el("p", { class: "muted", text: all.length ? "Every accessory is hidden." : "No accessories yet. Plugins add them once they reach their devices." })));
   };
 
   /// Accessories by plugin: [name, accessories] pairs by the plugin's name, each list by name; those of no
@@ -1430,24 +1409,9 @@ enum WebAssets {
     return [...groups].sort(([a], [b]) => !a - !b || a.localeCompare(b)).map(([name, list]) => [name || "Other accessories", list]);
   }
 
-  function describeModel(accessory) {
-    const manufacturer = accessory.manufacturer || "";
-    const model = accessory.model || "";
-    return model.toLowerCase().startsWith(manufacturer.toLowerCase()) ? model : `${manufacturer} ${model}`.trim();
-  }
-
   function applyAccessoryEvent(event) {
     window.HomeswiftCamera?.event(event);
-    const selector = `[data-id="${CSS.escape(event.id)}"][data-char="${CSS.escape(event.characteristic)}"]`;
-    for (const node of document.querySelectorAll(selector)) {
-      if (event.subtype && node.dataset.service !== event.subtype) continue;
-      if (node.classList.contains("switch")) $("input", node).checked = event.value === true || event.value === 1;
-      else if (node.classList.contains("range")) { $("input", node).value = event.value; $(".value", node).textContent = display(event.value, node.dataset.unitName); }
-      else if (node.tagName === "SELECT") node.value = String(event.value);
-      else if (node.tagName === "INPUT") node.value = event.value;
-      else if (node.dataset.unitName && typeof event.value === "number") node.textContent = display(event.value, node.dataset.unitName);
-      else node.textContent = typeof event.value === "boolean" && !enumLabels[event.characteristic] ? (event.value ? "On" : "Off") : labelFor(event.characteristic, event.value);
-    }
+    HomeswiftWidgets.event(event);
   }
 
   // ---- Plugins and settings forms -----------------------------------------
@@ -2216,21 +2180,28 @@ enum WebAssets {
   const passwordPolicy = { minimumLength: 12, minimumBits: 85, scaleBits: 128 };
   const strengthLabels = { strongToVeryStrong: "Strong to very strong", mediumToStrong: "Medium to strong", lowToMedium: "Low to medium", veryWeak: "Very weak" };
 
-  /// A live gauge under a password field: the ANSSI's bands along 0 to 128 bits, the 85-bit bar marked, and the
-  /// two rules ticking as they are met. `username()` gives the name the password must not lean on.
-  /// `gauge.acceptable()` answers, once the server has, whether the password as typed passes.
+  /// The ANSSI's bands, from the bits where each starts: the scale under the gauge.
+  const strengthBands = [[0, "Weak"], [65, "Low"], [85, "Medium"], [100, "Strong"]];
+
+  /// A live gauge under a password field: the ANSSI's bands along 0 to 128 bits as one gradient, lit up to the
+  /// password's entropy, the 85-bit bar marked, and the two rules ticking as they are met. `username()` gives the
+  /// name the password must not lean on. `gauge.acceptable()` answers, once the server has, whether the password as
+  /// typed passes. Its classes are `strength-*`: the widgets' dial is `.gauge`.
   function strengthGauge(input, username = () => "") {
-    const fill = el("div", { class: "gauge-fill" });
-    const label = el("strong", {});
-    const bits = el("span", { class: "muted" });
+    const percent = (bits) => `${(Math.min(bits, passwordPolicy.scaleBits) / passwordPolicy.scaleBits) * 100}%`;
+    const fill = el("div", { class: "strength-fill" });
+    const label = el("strong", { class: "strength-level" });
+    const bits = el("span", { class: "strength-bits" });
     const ruleLength = el("li", { text: `At least ${passwordPolicy.minimumLength} characters` });
     const ruleBits = el("li", { text: `At least ${passwordPolicy.minimumBits} bits of entropy (ANSSI: medium to strong)` });
-    const hint = el("p", { class: "help gauge-hint" });
-    const track = el("div", { class: "gauge-track", role: "meter", "aria-label": "Password strength", "aria-valuemin": "0", "aria-valuemax": String(passwordPolicy.scaleBits) },
+    const hint = el("p", { class: "help strength-hint" });
+    const track = el("div", { class: "strength-track", role: "meter", "aria-label": "Password strength", "aria-valuemin": "0", "aria-valuemax": String(passwordPolicy.scaleBits) },
       fill,
-      ...[65, 85, 100].map((at) => el("span", { class: "gauge-tick", style: `left:${(at / passwordPolicy.scaleBits) * 100}%` })),
-      el("span", { class: "gauge-mark", title: `Required: ${passwordPolicy.minimumBits} bits`, style: `left:${(passwordPolicy.minimumBits / passwordPolicy.scaleBits) * 100}%` }));
-    const gauge = el("div", { class: "gauge" }, track, el("div", { class: "gauge-legend" }, label, bits), el("ul", { class: "gauge-rules" }, ruleLength, ruleBits), hint);
+      ...strengthBands.slice(1).map(([at]) => el("span", { class: "strength-tick", style: `left:${percent(at)}` })),
+      el("span", { class: "strength-mark", title: `Required: ${passwordPolicy.minimumBits} bits`, style: `left:${percent(passwordPolicy.minimumBits)}` }));
+    const scale = el("div", { class: "strength-scale", "aria-hidden": "true" },
+      ...strengthBands.map(([at, text], index) => el("span", { text, style: `left:${percent(at)};width:${percent((strengthBands[index + 1]?.[0] ?? passwordPolicy.scaleBits) - at)}` })));
+    const gauge = el("div", { class: "strength" }, el("div", { class: "strength-head" }, label, bits), track, scale, el("ul", { class: "strength-rules" }, ruleLength, ruleBits), hint);
 
     // One request per password and username as typed; an answer that is no longer the latest is dropped.
     let latest = null;
@@ -2242,7 +2213,7 @@ enum WebAssets {
     };
     const draw = (s) => {
       gauge.dataset.level = s ? s.level : "";
-      fill.style.width = `${Math.min(s?.bits ?? 0, passwordPolicy.scaleBits) / passwordPolicy.scaleBits * 100}%`;
+      fill.style.setProperty("--lit", percent(s?.bits ?? 0));
       track.setAttribute("aria-valuenow", String(s?.bits ?? 0));
       track.setAttribute("aria-valuetext", s ? `${strengthLabels[s.level]}, ${s.bits} bits` : "empty");
       label.textContent = s ? strengthLabels[s.level] : "Strength";
@@ -2286,6 +2257,7 @@ enum WebAssets {
     const message = el("p", { class: "status-line muted", role: "status" });
     const submit = el("button", { class: "primary", type: "submit", text: "Change password" });
     const fail = (text) => { message.className = "status-line error"; message.textContent = text; };
+    const days = state.sessionDays ?? 7;
     const form = el("form", { class: "card account-form", onsubmit: async (event) => {
       event.preventDefault();
       if (!(await gauge.acceptable())) { next.focus(); return fail("The new password is not strong enough yet: the gauge says what is missing."); }
@@ -2302,20 +2274,28 @@ enum WebAssets {
       submit.disabled = false;
     } },
       el("h2", { text: "Change your password" }),
-      field("Current password", current),
-      el("label", { class: "field" }, el("span", { class: "field-title", text: "New password" }), next, gauge),
-      field("New password again", again),
-      el("div", { class: "actions" }, submit), message);
-    show(main,
-      pageHead("Account", `Signed in as ${state.username}${state.admin ? ", an administrator" : ""}. Logins last ${state.sessionDays ?? 7} days without activity.`),
-      el("div", { class: "account" }, el("div", { class: "stack" }, form, twoFactorCard(state)),
-        el("div", { class: "stack" },
-          el("div", { class: "card" }, el("h2", { text: "Sign out" }),
-            el("p", { class: "muted", text: "Ends this browser's session. Changing the password, or turning two-factor authentication on or off, ends the others." }),
-            el("button", { text: "Sign out", onclick: () => $("#logout").click() })),
-          state.admin ? el("div", { class: "card" }, el("h2", { text: "Users and API tokens" }),
-            el("p", { class: "muted", text: "Add people who may use this web UI, choose who administers it, and make tokens for scripts." }),
-            el("a", { class: "button", href: "/users", text: "Open Users" })) : null)),
+      el("p", { class: "muted account-lead", text: "A phrase of several random words is long, strong and easy to remember." }),
+      // The fields on one side, the new password's entropy beside them as it is typed.
+      el("div", { class: "account-password" },
+        el("div", { class: "account-fields" },
+          field("Current password", current),
+          field("New password", next),
+          field("New password again", again),
+          el("div", { class: "actions" }, submit), message),
+        el("aside", { class: "strength-panel", "aria-label": "Strength of the new password" },
+          el("span", { class: "field-title", text: "Entropy of the new password" }), gauge)));
+    // Who is signed in, with the one thing to do about it.
+    const profile = el("section", { class: "card account-profile" },
+      el("span", { class: "account-avatar", "aria-hidden": "true", text: (state.username || "?").slice(0, 1).toUpperCase() }),
+      el("div", { class: "account-who" },
+        el("h2", { text: state.username }),
+        el("p", { class: "muted", text: `Signed in on this browser. Logins last ${days} day${days === 1 ? "" : "s"} without activity; changing the password, or turning two-factor authentication on or off, signs the others out.` })),
+      el("button", { text: "Sign out", onclick: () => $("#logout").click() }));
+    show(main, pageHead("Account", `Your sign-in to this bridge's web UI${state.admin ? ", as an administrator" : ""}.`),
+      el("div", { class: "account" }, profile, form, twoFactorCard(state),
+        state.admin ? el("div", { class: "card" }, el("h2", { text: "Users and API tokens" }),
+          el("p", { class: "muted", text: "Add people who may use this web UI, choose who administers it, and make tokens for scripts." }),
+          el("a", { class: "button", href: "/users", text: "Open Users" })) : null),
       appearanceLink());
   };
 
@@ -2649,9 +2629,11 @@ enum WebAssets {
   // The server's caps: the latest lines (/api/logs) and a time range (UIServer.logLimit).
   const latestLines = 2000, rangeLines = 10000;
   const timeFormat = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-  /// A line with what filtering reads, worked out once: its date and its text in lower case.
-  const prepared = (line) => Object.assign(line, { date: new Date(line.time), haystack: `${line.label} ${line.text}`.toLowerCase() });
+  /// A line with what filtering reads, worked out once: its date and its text in lower case, its payload included.
+  const prepared = (line) => Object.assign(line, { date: new Date(line.time), haystack: `${line.label} ${line.text} ${line.details ?? ""}`.toLowerCase() });
+  // All: every line; Info: info and above; Warnings: warnings only; Errors: errors only (critical ones too).
   const levelChoices = [["trace", "All"], ["info", "Info"], ["warning", "Warnings"], ["error", "Errors"]];
+  const levelShown = (level, choice) => choice === "warning" ? level === "warning" : (levelRank[level] ?? 0) >= (levelRank[choice] ?? 0);
   let logState = null;
 
   // The Logs and Status pages' filters, in one row above what they scope.
@@ -2780,7 +2762,7 @@ enum WebAssets {
     const level = levelChoices.some(([value]) => value === params.get("level")) ? params.get("level") : "info";
     logState = { output, level, filter, follow, count, lines: [], accessory: null, bridge: null, live: true, cap: latestLines, capped: false };
     choose();
-    const levels = el("div", { class: "group", role: "group", "aria-label": "Lowest level shown" }, levelChoices.map(([level, text]) =>
+    const levels = el("div", { class: "group", role: "group", "aria-label": "Levels shown" }, levelChoices.map(([level, text]) =>
       el("button", { text, class: level === logState.level ? "on" : "", "aria-pressed": String(level === logState.level), onclick: (event) => {
         logState.level = level;
         for (const button of levels.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
@@ -2823,7 +2805,9 @@ enum WebAssets {
       if (chosen?.[1]) query.set("to", chosen[1].toISOString());
       const { kind, value } = source();
       if (kind) query.set(kind, value);
-      count.textContent = "Loading…";
+      // The range loading: a spinner where its lines will be.
+      count.textContent = "";
+      output.replaceChildren(el("div", { class: "log-loading" }, spinner()));
       try {
         logState.lines = (await api(`/api/logs${query.size ? `?${query}` : ""}`)).map(prepared);
       } catch (e) {
@@ -2835,6 +2819,27 @@ enum WebAssets {
       logState.capped = Boolean(chosen) && logState.lines.length >= rangeLines;
       render();
     }
+    // Whether lines go to disk with their JSON payloads, secrets masked: for reading them, or letting the Assistant
+    // read them, after the latest lines moved on. Off, only the lines in memory have them. Shown when the bridge
+    // keeps a log on disk.
+    const saveDetails = el("input", { type: "checkbox" });
+    const saveToggle = el("label", { class: "toggle compact hidden", title: "Keep each line's JSON payload in the log on disk, secrets masked, so you and the Assistant can read it later. Off: only the latest lines, in memory, have it." },
+      el("span", { class: "switch" }, saveDetails, el("span")), el("span", { text: "Save payloads" }));
+    api("/api/logs/settings").then((settings) => {
+      if (!settings.available) return;
+      saveDetails.checked = settings.saveDetails;
+      saveToggle.classList.remove("hidden");
+    }).catch(() => {});
+    saveDetails.addEventListener("change", async () => {
+      saveDetails.disabled = true;
+      try {
+        saveDetails.checked = (await api("/api/logs/settings", { method: "PUT", body: { saveDetails: saveDetails.checked } })).saveDetails;
+      } catch (e) {
+        saveDetails.checked = !saveDetails.checked;
+        alert(e.message);
+      }
+      saveDetails.disabled = false;
+    });
     // What the page shows, as text: a line each, the time, the label, the level when it is not info.
     const shownLines = () => {
       const needle = filter.value.toLowerCase();
@@ -2880,7 +2885,8 @@ enum WebAssets {
       el("div", { class: "card log-card" },
         el("div", { class: "editor-bar" }, levels, range.picker, sources.picker, filter, el("span", { class: "spacer" }), count, doctor.button, copy,
           el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: "Follow" })),
-          actions, range.customRow),
+          saveToggle, actions,
+          range.customRow),
         output),
       doctor.card);
     await load();
@@ -2928,19 +2934,43 @@ enum WebAssets {
 
   /// Whether a prepared line passes the level, the text (`needle`, in lower case) and the accessory.
   function visible(line, needle = logState.filter.value.toLowerCase()) {
-    return (levelRank[line.level] ?? 0) >= (levelRank[logState.level] ?? 0) && (!needle || line.haystack.includes(needle))
+    return levelShown(line.level, logState.level) && (!needle || line.haystack.includes(needle))
       && (!logState.accessory || logState.accessory.some((term) => line.haystack.includes(term)))
       && (!logState.bridge || logState.bridge(line));
   }
+  /// A line; one whose JSON payload was taken out (its text shows `{…} 1.4 KB`) has a JSON button that shows the
+  /// payload under it, formatted. It stays open while the filters draw the lines again.
   function lineNode(line) {
     const time = isNaN(line.date) ? line.time : timeFormat.format(line.date);
-    return el("div", { class: `log-line ${line.level}` },
+    const text = el("span", { class: "text", text: line.text });
+    const node = el("div", { class: `log-line ${line.level}` },
       el("time", { text: time, title: line.time, dateTime: line.time }),
       el("span", { class: "label", text: line.label, title: line.label }),
-      el("span", { class: "text", text: line.text }));
+      text);
+    if (!line.details) return node;
+    const toggle = el("button", { type: "button", class: "log-details-toggle", text: "JSON", title: "Show the payload" });
+    const show = () => {
+      toggle.setAttribute("aria-expanded", String(Boolean(line.open)));
+      toggle.title = line.open ? "Hide the payload" : "Show the payload";
+      $(".log-details", node)?.remove();
+      if (line.open) node.append(detailsNode(line));
+    };
+    toggle.addEventListener("click", () => { line.open = !line.open; show(); });
+    text.append(" ", toggle);
+    show();
+    return node;
+  }
+  function detailsNode(line) {
+    try {
+      return jsonView(JSON.parse(line.details), { class: "json log-details" });
+    } catch {
+      return el("pre", { class: "json log-details", text: line.details });
+    }
   }
   function appendLogLine(line) {
     if (!logState || !logState.live || !document.body.contains(logState.output)) return;
+    // A range still loading: the line comes with it.
+    if ($(".log-loading", logState.output)) return;
     logState.lines.push(prepared(line));
     if (logState.lines.length > logState.cap) logState.lines.splice(0, logState.lines.length - logState.cap);
     if (!visible(line)) return;
@@ -2963,7 +2993,12 @@ enum WebAssets {
   });
 
   // The views of home.js: rooms, Quick Controls, scenes, notifications.
-  window.HomeswiftHome?.install({ views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(), enumLabels, labelFor, withSlugs });
+  // An accessory's widget at its kind's size, for the Quick Controls.
+  const accessoryCard = (accessory) => HomeswiftWidgets.card(accessory, { size: HomeswiftWidgets.kindOf(accessory).size, actions: accessoryActions });
+  window.HomeswiftHome?.install({
+    views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(),
+    enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
+  });
   // The Settings pages (admin.js) draw with the same helpers.
   window.HomeswiftApp = { api, navigate, route, pageHead, breadcrumb, show, savedText, waitForRestart, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage };
 
@@ -4333,21 +4368,27 @@ enum WebAssets {
 
   let openMenu = null;
 
-  /// Opens a menu under `trigger`. Each item: { label, icon (a name or a node), href or onSelect, danger }.
+  /// Opens a menu under `trigger`. Each item: { label, icon (a name or a node), href or onSelect, danger }, or
+  /// { separator: true }; `checked` (true or false) makes it one of a set of choices, the chosen one ticked.
   /// Opened from the keyboard, its first item takes the focus; from a click, the menu does, so no item looks
   /// chosen before the pointer or an arrow key gets to it.
   function menu(trigger, items, { keyboard = false } = {}) {
     if (openMenu?.trigger === trigger) { openMenu.close(); return; }
     openMenu?.close(true);
-    const entries = items.filter(Boolean).map((item) => {
+    const nodes = items.filter(Boolean).map((item) => {
+      if (item.separator) return el("hr", { class: "menu-separator", role: "separator" });
       const glyph = typeof item.icon === "string" ? icon(item.icon) : item.icon ?? null;
+      const choice = typeof item.checked === "boolean";
+      const role = choice ? "menuitemradio" : "menuitem";
+      const tick = choice ? el("span", { class: "menu-check", "aria-hidden": "true", text: item.checked ? "✓" : "" }) : null;
       const node = item.href
-        ? el("a", { role: "menuitem", href: item.href, class: item.danger ? "danger" : "", tabIndex: -1 }, glyph, el("span", { text: item.label }))
-        : el("button", { type: "button", role: "menuitem", class: item.danger ? "danger" : "", tabIndex: -1 }, glyph, el("span", { text: item.label }));
+        ? el("a", { role, href: item.href, class: item.danger ? "danger" : "", tabIndex: -1 }, glyph, el("span", { text: item.label }), tick)
+        : el("button", { type: "button", role, class: item.danger ? "danger" : "", tabIndex: -1, "aria-checked": choice ? String(item.checked) : null }, glyph, el("span", { text: item.label }), tick);
       node.addEventListener("click", () => { close(); item.onSelect?.(); });
       return node;
     });
-    const list = el("div", { class: "menu", role: "menu", tabIndex: -1, "aria-label": trigger.getAttribute("aria-label") || "Actions" }, entries);
+    const entries = nodes.filter((node) => node.tagName !== "HR");
+    const list = el("div", { class: "menu", role: "menu", tabIndex: -1, "aria-label": trigger.getAttribute("aria-label") || "Actions" }, nodes);
     document.body.append(list);
     // Under the button, its right edges aligned, inside the window; above it when there is no room below.
     const box = trigger.getBoundingClientRect();
@@ -4655,7 +4696,7 @@ enum WebAssets {
   // ---- Rooms, hidden accessories, display names ------------------------------------------------------
 
   async function changeLayout(body) {
-    return app.api("/api/layout", { method: "PUT", body });
+    return app.api("/api/rooms", { method: "PUT", body });
   }
 
   /// What an accessory card's menu adds: its room, a name for these pages, Quick Controls, hiding.
@@ -4674,7 +4715,7 @@ enum WebAssets {
 
   async function chooseRoom(accessory, change) {
     let rooms = [];
-    try { rooms = (await app.api("/api/layout")).rooms.map((room) => room.name); } catch {}
+    try { rooms = (await app.api("/api/rooms")).rooms.map((room) => room.name); } catch {}
     const known = rooms.length ? ` Rooms: ${rooms.join(", ")}.` : "";
     const room = prompt(`The room of ${displayName(accessory)}.${known} A new name adds the room; empty takes it out of its room.`, accessory.room || "");
     if (room !== null) change({ room: room.trim() || null });
@@ -4698,7 +4739,7 @@ enum WebAssets {
     panel.classList.add("ai-busy");
     let result;
     try {
-      result = await app.api("/api/layout/suggest", { method: "POST", body: {} });
+      result = await app.api("/api/rooms/suggest", { method: "POST", body: {} });
     } catch (e) {
       panel.replaceChildren(el("p", { class: "error", text: e.message }), el("div", { class: "actions" }, el("button", { text: "Close", onclick: () => panel.remove() })));
       return;
@@ -5355,6 +5396,7 @@ enum WebAssets {
 <script src="/common.js"></script>
 <script src="/remote.js"></script>
 <script src="/camera.js"></script>
+<script src="/widgets.js"></script>
 <script src="/charts.js"></script>
 <script src="/chat.js"></script>
 <script src="/home.js"></script>
@@ -5971,37 +6013,86 @@ button.busy::after {
   border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* Something loading: a ring that turns, faded in after 150 ms so a quick load does not flash it; a page's in the middle
+   of the view. */
+.spinner {
+  display: inline-block; width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent);
+  vertical-align: middle; animation: spin 0.8s linear infinite, fade var(--normal) var(--ease-out) 150ms both;
+}
+.view-loading { display: grid; place-items: center; min-height: 40vh; }
+.view-loading .spinner, .log-loading .spinner { width: 30px; height: 30px; border-width: 3px; }
+.log-loading { display: grid; place-items: center; height: 100%; min-height: 160px; }
 @media (prefers-reduced-motion: reduce) {
   .panel { animation: none; }
   button.busy::after { animation: none; border-right-color: currentColor; opacity: 0.5; }
+  .spinner { animation: fade var(--normal) var(--ease-out) 150ms both; border-color: var(--accent); opacity: 0.5; }
 }
 @media (max-width: 640px) { .panel-columns { grid-template-columns: 1fr; } }
 
-/* The password gauge: the ANSSI's bands along 0 to 128 bits, the 80-bit bar marked; the fill eases to its
-   width as you type and takes the band's colour. */
-.gauge { margin-top: 10px; }
-.gauge-track { position: relative; height: 8px; border-radius: 4px; background: var(--material-thin); border: 1px solid var(--line); overflow: visible; }
-.gauge-fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 4px; background: var(--error); transition: width var(--normal) var(--ease-out), background-color var(--normal) var(--ease-out); }
-.gauge[data-level="lowToMedium"] .gauge-fill { background: var(--warn); }
-.gauge[data-level="mediumToStrong"] .gauge-fill { background: #37b26c; }
-.gauge[data-level="strongToVeryStrong"] .gauge-fill { background: var(--ok); }
-.gauge-tick { position: absolute; top: 1px; bottom: 1px; width: 1px; background: var(--line); }
-.gauge-mark { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--text); opacity: 0.55; }
-.gauge-legend { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
-.gauge[data-level="veryWeak"] .gauge-legend strong { color: var(--error); }
-.gauge[data-level="lowToMedium"] .gauge-legend strong { color: var(--warn); }
-.gauge[data-level="mediumToStrong"] .gauge-legend strong, .gauge[data-level="strongToVeryStrong"] .gauge-legend strong { color: var(--ok); }
-.gauge-rules { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 3px; font-size: 0.8125rem; color: var(--muted); }
-.gauge-rules li::before { content: "○"; display: inline-block; width: 1.3em; }
-.gauge-rules li.met { color: var(--ok); }
-.gauge-rules li.met::before { content: "✓"; }
-.gauge-hint { margin: 6px 0 0; min-height: 1em; }
-@media (prefers-reduced-motion: reduce) { .gauge-fill { transition: none; } }
-.account { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+/* The password strength: the ANSSI's bands along 0 to 128 bits as one gradient, from red through amber to green,
+   lit up to the password's entropy as you type; the 85-bit bar marked. Its own names: the widgets' dial is .gauge. */
+:root { --entropy: linear-gradient(90deg, #ff453a 0%, #ff6a2b 30%, #ff9f0a 50.8%, #ffd60a 66.4%, #30d158 78.1%, #20c4a8 100%); }
+.strength { margin-top: 10px; display: grid; gap: 6px; }
+.strength-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-variant-numeric: tabular-nums; }
+.strength-level { font-size: 0.9375rem; font-weight: 600; transition: color var(--normal) var(--ease-out); }
+.strength-bits { font-size: 0.8125rem; color: var(--muted); }
+.strength-track { position: relative; height: 12px; border-radius: 999px; background: var(--material-thin); box-shadow: inset 0 0 0 1px var(--line); }
+/* The whole scale shows faintly; the fill is the same gradient, cut at the entropy, so each band keeps its colour. */
+.strength-track::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--entropy); opacity: 0.2; }
+.strength-fill {
+  position: absolute; inset: 0; border-radius: inherit; background: var(--entropy);
+  clip-path: inset(0 calc(100% - var(--lit, 0%)) 0 0 round 999px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  transition: clip-path var(--normal) var(--ease-out);
+}
+.strength-tick { position: absolute; top: 3px; bottom: 3px; width: 1px; background: rgba(255, 255, 255, 0.75); mix-blend-mode: overlay; }
+.strength-mark { position: absolute; top: -5px; bottom: -5px; width: 3px; margin-left: -1.5px; border-radius: 2px; background: var(--text); box-shadow: 0 0 0 2px var(--material-solid); }
+.strength-scale { position: relative; height: 1.2em; font-size: 0.6875rem; color: var(--muted); }
+.strength-scale span { position: absolute; top: 0; text-align: center; white-space: nowrap; }
+.strength[data-level="veryWeak"] .strength-level { color: var(--error); }
+.strength[data-level="lowToMedium"] .strength-level { color: var(--warn); }
+.strength[data-level="mediumToStrong"] .strength-level, .strength[data-level="strongToVeryStrong"] .strength-level { color: var(--ok); }
+.strength-rules { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 3px; font-size: 0.8125rem; color: var(--muted); }
+.strength-rules li::before { content: "○"; display: inline-block; width: 1.3em; }
+.strength-rules li.met { color: var(--ok); }
+.strength-rules li.met::before { content: "✓"; }
+.strength-hint { margin: 2px 0 0; min-height: 1em; }
+@media (prefers-reduced-motion: reduce) { .strength-fill, .strength-level { transition: none; } }
+
+/* Account: who is signed in, then the password form with the new password's entropy beside its fields. */
+.account { display: grid; gap: 14px; max-width: 920px; }
 .account .card { margin: 0; }
-.account h2 { margin-top: 0; }
-.account-form .field { max-width: 420px; }
-@media (max-width: 640px) { .account { grid-template-columns: 1fr; } }
+.account h2 { margin: 0; }
+.account-profile { display: flex; align-items: center; gap: 16px; }
+.account-avatar {
+  flex: none; display: grid; place-items: center; width: 52px; height: 52px; border-radius: 50%;
+  font-size: 1.375rem; font-weight: 600; color: var(--accent-text);
+  background: linear-gradient(145deg, var(--accent-2), var(--accent));
+  box-shadow: 0 8px 20px rgba(255, 122, 26, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+.account-who { flex: 1; min-width: 0; }
+.account-who p { margin: 3px 0 0; }
+.account-lead { margin: 4px 0 0; }
+.account-password { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 22px; align-items: start; margin-top: 16px; }
+.account-fields .field:first-child { margin-top: 0; }
+.strength-panel {
+  padding: 16px 18px; border-radius: calc(var(--radius) - 6px);
+  background: var(--material-thin); box-shadow: inset 0 0 0 1px var(--line);
+}
+.strength-panel .strength { margin-top: 10px; gap: 8px; }
+.strength-panel .strength-level { font-size: 1.25rem; letter-spacing: -0.01em; }
+.strength-panel .strength-bits { font-size: 0.9375rem; }
+.strength-panel .strength-track { height: 14px; }
+@media (max-width: 720px) {
+  /* One column, the entropy right under the new password, where the eyes are while typing it. */
+  .account-password { grid-template-columns: 1fr; gap: 0; }
+  .account-fields { display: contents; }
+  .account-fields > :nth-child(-n+2) { order: 1; }
+  .strength-panel { order: 2; margin: 8px 0 4px; }
+  .account-fields > :nth-child(n+3) { order: 3; }
+  .account-profile { flex-wrap: wrap; }
+  .account-profile > button { width: 100%; }
+}
 .stack { display: grid; gap: 14px; align-content: start; min-width: 0; }
 .check { display: flex; gap: 8px; align-items: center; margin: 14px 0 4px; font-weight: 500; }
 .secret { word-break: break-all; user-select: all; }
@@ -6264,11 +6355,319 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .card > .card-foot, .server.catalog > .actions { margin-top: auto; }
 .accessory-section + .accessory-section { margin-top: 8px; }
 
+/* The wall (widgets.js, the Accessories page): widgets on a grid of square units, packed with no gaps; a small
+   widget takes one unit, a medium two side by side, a large two by two. The unit shrinks on a narrow phone so two
+   always fit. A widget's box is fixed; every control is a tap away in its sheet. */
+:root {
+  --heat: #f2711c; --cool: #1f7fe8; --auto: #1f9d55; --track: rgba(120, 128, 142, 0.2);
+  --tile-on: #ffffff; --tile-on-text: #15171c; --tile-on-muted: rgba(21, 23, 28, 0.6); --knob: #ffffff;
+  --unit: 160px; --unit-gap: 12px;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --heat: #ff8d3a; --cool: #4aa3ff; --auto: #3ccf7a; --track: rgba(255, 255, 255, 0.12); --tile-on: rgba(255, 255, 255, 0.92); --knob: #f3f4f7; }
+}
+.accessory-walls { container-type: inline-size; }
+.wall { --unit: min(160px, calc((100cqw - var(--unit-gap)) / 2)); display: grid; grid-template-columns: repeat(auto-fill, var(--unit)); grid-auto-rows: var(--unit);
+  grid-auto-flow: row dense; gap: var(--unit-gap); }
+.wall > .widget { width: auto; height: auto; }
+.wall > .size-medium { grid-column: span 2; }
+.wall > .size-large { grid-column: span 2; grid-row: span 2; }
+/* A control a widget hides (Close while the door is closed) stays hidden whatever its display. */
+.widget [hidden] { display: none !important; }
+
+.widget:not(.widget-full) { position: relative; margin: 0; padding: 12px; min-width: 0; display: flex; flex-direction: column; gap: 8px; overflow: hidden; border-radius: var(--radius); }
+.widget.size-small { width: var(--unit); height: var(--unit); justify-content: space-between; gap: 6px;
+  transition: background-color var(--normal) var(--ease-out), color var(--normal) var(--ease-out), transform var(--fast) var(--ease-out); }
+.widget.size-medium { width: calc(var(--unit) * 2 + var(--unit-gap)); height: var(--unit); }
+.widget.size-large { width: calc(var(--unit) * 2 + var(--unit-gap)); height: calc(var(--unit) * 2 + var(--unit-gap)); }
+.widget .tile { transition: background var(--normal) var(--ease-out), box-shadow var(--normal) var(--ease-out), color var(--normal) var(--ease-out); }
+.widget:not(.widget-full) .tile { width: 34px; height: 34px; border-radius: 10px; }
+.widget:not(.widget-full) .tile svg { width: 19px; height: 19px; }
+.tile.tone-heat { background: linear-gradient(160deg, #ffb15c, #f2711c); }
+.tile.tone-light { background: var(--light, linear-gradient(160deg, #ffd66b, #f0a01e)); color: #3a2600; box-shadow: 0 4px 14px color-mix(in srgb, var(--glow, #f0a01e) 45%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.4); }
+/* Off: grey, whatever the tone (after the tones, which it overrides). */
+.tile.is-off { background: linear-gradient(160deg, #b4bbc7, #8b94a4); color: #fff; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35); }
+
+.w-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.w-head .who, .w-bottom .who { flex: 1; min-width: 0; display: grid; }
+.widget:not(.widget-full) .who strong { font-size: 0.875rem; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.widget.size-small:not(.widget-full) .who strong { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.widget .status { font-size: 0.8125rem; color: var(--muted); transition: color var(--normal) var(--ease-out); }
+.widget:not(.widget-full) .status { font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status[data-tone="heat"] { color: var(--heat); } .status[data-tone="cool"] { color: var(--cool); } .status[data-tone="auto"], .status[data-tone="ok"] { color: var(--ok); }
+.status[data-tone="warn"] { color: var(--warn); } .status[data-tone="bad"] { color: var(--error); }
+.w-body { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 10px; }
+/* Each part keeps its height; a large body that holds more scrolls rather than squeezing them. */
+.w-body > * { flex-shrink: 0; }
+.widget:not(.widget-full) .seg > button { white-space: nowrap; padding-inline: 2px; }
+.size-medium .w-body { padding-right: 26px; overflow: hidden; justify-content: safe center; }
+.size-medium .swatches { gap: 6px; flex-wrap: nowrap; }
+.widget.size-medium .swatch { width: 24px; height: 24px; }
+.size-large .w-body { justify-content: flex-start; overflow-y: auto; scrollbar-width: none; }
+.size-large .w-body > :last-child { margin-right: 26px; }
+/* A large box's chips on one line, swiped sideways when there are more than fit. */
+.widget.size-large .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 2px; margin: -2px; }
+.widget.size-large .chips > * { flex: none; }
+.head-only { justify-content: center; }
+/* A phone: two columns that fill the width. */
+@container (max-width: 520px) { .wall { --unit: calc((100cqw - var(--unit-gap)) / 2); } }
+/* The Accessories page's tools on a phone: the search on a line of its own. */
+@media (max-width: 600px) {
+  .page-head .tools:has(> .search) { flex-wrap: wrap; width: 100%; }
+  .page-head .tools > .search { flex: 1 1 100%; width: 100%; }
+}
+.powered-off .w-body, .powered-off .w-main { opacity: 0.55; transition: opacity var(--normal) var(--ease-out); }
+/* The menu at the bottom right of the box, over its content's corner. */
+.w-corner { position: absolute; right: 6px; bottom: 6px; z-index: 2; }
+.widget:not(.widget-full) .menu-button { width: 28px; height: 28px; background: none; border-color: transparent; box-shadow: none; color: inherit; }
+.widget:not(.widget-full) .menu-button svg { width: 16px; height: 16px; }
+
+/* Small: a tap anywhere acts (or a hold confirms); the whole tile lights up when on, as the Home app's do. */
+.size-small.on { background-color: var(--tile-on); background-image: none; color: var(--tile-on-text); }
+.size-small.on .status, .size-small.on .w-hero small { color: var(--tile-on-muted); }
+.size-small:has(> .w-hit:active) { transform: scale(0.97); }
+.w-hit { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; padding: 0; border: 0; border-radius: inherit; background: none; box-shadow: none; }
+.widget .w-hit:hover, .widget .w-hit:active:not(:disabled) { transform: none; }
+.w-hit:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.w-top, .w-bottom { position: relative; z-index: 1; display: flex; gap: 8px; min-width: 0; pointer-events: none; }
+.w-top { align-items: flex-start; justify-content: space-between; }
+.w-bottom { align-items: flex-end; }
+.w-bottom .menu-button { pointer-events: auto; margin: 0 -6px -6px 0; flex: none; }
+.w-hero { font-size: 1.375rem; font-weight: 600; letter-spacing: -0.02em; line-height: 1; text-align: right; font-variant-numeric: tabular-nums; }
+.w-hero small { display: block; margin-top: 3px; font-size: 0.6875rem; font-weight: 500; letter-spacing: 0; color: var(--muted); }
+.w-hero svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.w-hero-word { font-size: 0.9375rem; }
+/* A shutter's tile: its closed part drawn from the top. */
+.w-shade { position: absolute; inset: 0 0 auto 0; z-index: 0; height: var(--closed, 0%); pointer-events: none;
+  background: repeating-linear-gradient(180deg, rgba(120, 128, 142, 0.16) 0 7px, rgba(120, 128, 142, 0.26) 7px 8px); transition: height 300ms var(--ease-out); }
+/* Held to confirm: a fill crosses the tile; let go early and it goes back. */
+.w-veil { position: absolute; inset: 0; z-index: 0; pointer-events: none; background: color-mix(in srgb, var(--warn) 30%, transparent); clip-path: inset(0 100% 0 0); transition: clip-path 200ms var(--ease-out); }
+.holding > .w-veil { clip-path: inset(0 0 0 0); transition: clip-path 900ms linear; }
+
+/* Medium and large bodies */
+.w-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; min-height: 32px; }
+.w-row .steps { flex: 0 1 200px; }
+.w-row select { width: auto; min-width: 0; max-width: 62%; }
+.w-label { color: var(--muted); font-size: 0.8125rem; }
+.w-grow { flex: 1; min-width: 0; }
+.w-keys { display: flex; align-items: center; gap: 6px; }
+.w-actions { display: grid; min-width: 130px; }
+.w-figure { display: grid; line-height: 1.1; }
+.w-big { font-size: 2.125rem; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.w-figure span { font-size: 0.75rem; color: var(--muted); }
+.w-state { font-size: 1.625rem; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+.w-line { font-size: 0.75rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.big-state { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.big-state b { font-size: 1.625rem; letter-spacing: -0.02em; line-height: 1.1; }
+.widget .w-button { width: 100%; border-radius: 12px; padding: 9px 14px; font-weight: 600; }
+.light-large, .cover-large { flex: 1; min-height: 0; display: flex; gap: 16px; align-items: stretch; }
+.light-large > .level.vertical { width: 96px; flex: none; }
+.light-tall { display: flex; flex-direction: column; gap: 8px; flex: none; width: 96px; }
+.light-tall > .level { flex: 1; }
+.light-colours { flex: 1; display: grid; align-content: center; gap: 12px; min-width: 0; }
+.cover-large > .level.vertical { width: 112px; flex: none; border-radius: 14px; }
+.cover-buttons { display: grid; align-content: center; gap: 10px; flex: 1; min-width: 0; }
+.cover-buttons .level { width: 100%; }
+.toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.widget .mini-toggle { display: grid; gap: 1px; text-align: left; border-radius: 14px; padding: 9px 11px; background: var(--material-thin); transition: background-color var(--normal) var(--ease-out); }
+.mini-toggle b { font-size: 0.8125rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-toggle span { font-size: 0.6875rem; color: var(--muted); }
+.widget .mini-toggle[aria-pressed="true"] { background: var(--tile-on); color: var(--tile-on-text); }
+.mini-toggle[aria-pressed="true"] span { color: var(--tile-on-muted); }
+.widget .power-button { align-self: center; width: 112px; height: 112px; flex: none; padding: 0; border-radius: 50%; display: grid; place-items: center; }
+.power-button svg { width: 40px; height: 40px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
+.widget .power-button[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); border-color: transparent; }
+.switch.big { width: 60px; height: 34px; }
+.switch.big span { border-radius: 17px; }
+.switch.big span::before { width: 28px; height: 28px; }
+.switch.big input:checked + span::before { transform: translateX(26px); }
+
+/* A shutter's tile slid: the shade follows the pointer one to one; held on a phone, it lifts a little first. */
+.size-small.sliding > .w-shade { transition: none; }
+.size-small.slide-ready, .size-small.sliding { transform: scale(1.02); box-shadow: var(--shadow-thick); }
+.widget-cover.size-small > .w-hit { cursor: ns-resize; user-select: none; -webkit-user-select: none; }
+
+/* A paused plugin's accessory: quiet and striped, its controls out of reach; the menu stays to resume it. */
+.widget.paused { background-image: repeating-linear-gradient(135deg, transparent 0 10px, color-mix(in srgb, var(--muted) 9%, transparent) 10px 20px); }
+.widget.paused > :not(.w-corner):not(.w-bottom):not(.w-head), .widget.paused .w-bottom .who, .widget.paused .w-head > .tile, .widget.paused .w-head > .switch { opacity: 0.45; filter: grayscale(1); }
+.widget.paused.size-small.on { background-color: var(--material); color: var(--text); }
+.widget.paused .w-hit { cursor: default; }
+/* A camera on the wall: its picture fills the box. */
+.widget.camera-tile { padding: 0; }
+.camera-tile .camera-view { position: absolute; inset: 0; margin: 0; aspect-ratio: auto; border-radius: inherit; }
+.camera-tile .camera-controls { padding-right: 46px; }
+.camera-tile .w-corner .menu-button { color: #fff; background: rgba(20, 22, 30, 0.45); }
+.camera-tile.size-small .camera-controls, .camera-tile.size-small .camera-badge:not(.motion):not(.ring) { display: none; }
+.camera-tile .w-hit { z-index: 1; }
+
+/* The sheet: every control of one accessory, over the dimmed page. */
+.widget-sheet { width: min(600px, calc(100vw - 24px)); max-height: calc(100vh - 32px); padding: 0; border: 0; background: none; color: inherit; overflow: visible; }
+.widget-sheet::backdrop { background: rgba(15, 18, 24, 0.35); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.widget-sheet[open] { animation: materialize var(--normal) var(--ease-out); }
+.sheet-bar { display: flex; justify-content: flex-end; padding: 0 6px 8px; }
+.sheet-bar .link { color: #fff; font-weight: 600; }
+.widget-sheet .widget-full { margin: 0; max-height: calc(100vh - 90px); overflow-y: auto; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35); }
+.w-main, .w-side { display: grid; gap: 14px; align-content: start; min-width: 0; }
+.w-split { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 640px) { .w-split { grid-template-columns: minmax(0, 1fr); } }
+.w-block { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.w-main > .w-block:first-child, .w-side > .w-block:first-child { border-top: 0; padding-top: 0; }
+.w-block-body { display: grid; gap: 10px; }
+.light-tall > .adaptive-chip { justify-content: center; }
+
+/* Edit: each widget shows its sizes and arrows; the widget itself rests, and drags into place. */
+.wall.editing > .widget { cursor: grab; }
+.wall.editing > .widget > :not(.edit-bar) { pointer-events: none; }
+.wall.editing > .widget::after { content: ""; position: absolute; inset: 0; z-index: 2; border-radius: inherit; background: color-mix(in srgb, var(--bg) 40%, transparent); pointer-events: none; }
+.edit-bar { position: absolute; z-index: 3; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; gap: 2px; padding: 4px; border-radius: 999px;
+  background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
+.edit-bar button { min-width: 28px; height: 28px; padding: 0 7px; border: 0; background: none; box-shadow: none; border-radius: 999px; font-size: 0.75rem; font-weight: 600; color: var(--muted); }
+.edit-bar button:hover { transform: none; color: var(--text); }
+.edit-bar button[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); }
+/* Dragged: the widget lifts over the page and follows the pointer; a dashed slot shows where it will land. In
+   Edit, a finger on a widget drags it rather than scrolling the page. */
+.wall.editing { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.wall.editing > .widget { touch-action: none; }
+.widget.lifted { position: fixed; z-index: 40; margin: 0; pointer-events: none; cursor: grabbing; box-shadow: 0 24px 60px rgba(15, 18, 24, 0.3); }
+.widget.lifted::after { display: none; }
+.wall > .drag-slot::after { display: none; }
+.wall > .drag-slot { border: 2px dashed color-mix(in srgb, var(--accent) 55%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--accent) 6%, transparent); box-shadow: none; }
+
+/* Segmented: equal columns, a thumb sliding to the one chosen. */
+.seg { position: relative; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 3px; border-radius: 12px; background: var(--track); }
+.seg-thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / var(--n)); border-radius: 9px; background: var(--control);
+  box-shadow: var(--shadow-control), inset 0 1px 0 var(--edge-light); transform: translateX(calc(var(--i, 0) * 100%)); transition: transform 220ms var(--ease-out); }
+.seg.unset .seg-thumb { opacity: 0; }
+.widget .seg > button { position: relative; z-index: 1; border: 0; background: none; box-shadow: none; color: var(--muted); font-size: 0.8125rem; padding: 7px 6px; border-radius: 9px; transform: none; transition: color var(--normal) var(--ease-out); }
+.widget .seg > button[aria-checked="true"] { color: var(--text); font-weight: 600; }
+.widget .seg > button:focus-visible { outline-offset: -2px; }
+
+/* Level: a pill the fill grows in, dragged one to one; a track variant (white temperature) has a mark. */
+.level { position: relative; height: 44px; border-radius: 14px; background: var(--track); overflow: hidden; touch-action: none; cursor: ew-resize; user-select: none; -webkit-user-select: none; }
+.level-fill { position: absolute; inset: 0; transform-origin: left center; background: var(--fill, linear-gradient(90deg, var(--accent-2), var(--accent))); }
+.level:not(.dragging) .level-fill { transition: transform var(--normal) var(--ease-out); }
+.level-label, .level-text { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; font-size: 0.8125rem; font-weight: 600; pointer-events: none; }
+.level-label { left: 14px; }
+.level-text { right: 14px; font-variant-numeric: tabular-nums; }
+.level.track { background: var(--track); }
+.level.track .level-label, .level.track .level-text { color: #2a2620; }
+.level-mark { position: absolute; top: 6px; bottom: 6px; width: 6px; margin-left: -3px; border-radius: 3px; background: var(--knob); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35); }
+/* Tall: filled from the bottom, the value at the top, the label at the foot. */
+.level.vertical { height: auto; border-radius: 20px; cursor: ns-resize; }
+.level.vertical .level-fill { transform-origin: center bottom; }
+.level.vertical .level-label, .level.vertical .level-text { left: 0; right: 0; justify-content: center; }
+.level.vertical .level-label { top: auto; bottom: 12px; }
+.level.vertical .level-text { top: 12px; bottom: auto; font-size: 0.9375rem; }
+.level.vertical .level-mark { top: auto; bottom: auto; left: 10px; right: 10px; width: auto; height: 6px; margin: -3px 0 0; }
+.level:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.level.thin { height: 28px; border-radius: 9px; }
+.level.thin .level-text { right: 10px; font-size: 0.75rem; }
+
+/* Steps: a few positions as rising bars. */
+.steps { display: flex; align-items: flex-end; gap: 6px; height: 32px; }
+.widget .steps > button { flex: 1; padding: 0; border: 0; border-radius: 6px; background: var(--track); box-shadow: none; transform: none; transition: background-color var(--fast) var(--ease-out); }
+.widget .steps > button.lit { background: var(--steps, var(--accent)); }
+
+/* Setpoint and gauge */
+.setpoints { display: grid; gap: 14px; justify-items: center; align-content: center; }
+.row-setpoints { justify-items: start; }
+.setpoint { display: grid; grid-template-columns: 36px auto 36px; align-items: center; gap: 8px; justify-items: center; }
+.sp-value { display: grid; justify-items: center; line-height: 1.15; min-width: 4.4em; }
+.sp-value b { font-size: 1.375rem; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.sp-value span { font-size: 0.75rem; color: var(--muted); }
+.widget .round { width: 36px; height: 36px; padding: 0; border-radius: 50%; display: grid; place-items: center; }
+.widget .round svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
+.climate-hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+@container widgets (max-width: 400px) { .climate-hero { grid-template-columns: minmax(0, 1fr); } }
+.gauge { width: 100%; max-width: 230px; height: auto; display: block; margin: 0 auto; overflow: visible; }
+.gauge-track, .gauge-band { fill: none; stroke-width: 12; stroke-linecap: round; }
+.gauge-track { stroke: var(--track); }
+.gauge-band { transition: stroke var(--normal) var(--ease-out); }
+.gauge-value { fill: var(--text); font: 600 40px var(--font); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.gauge-caption, .gauge-end { fill: var(--muted); font: 500 12px var(--font); }
+.gauge-dot { fill: var(--knob); stroke: var(--text); stroke-width: 2; }
+.gauge-target { stroke: var(--text); stroke-width: 3; stroke-linecap: round; }
+
+/* Facets: readouts, meters, chips, swatches, pills */
+.readouts { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.readouts.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.readouts.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.widget:not(.widget-full) .readouts { gap: 6px; }
+.widget:not(.widget-full) .readout { padding: 7px 9px; border-radius: 12px; }
+.widget:not(.widget-full) .readout-value { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.widget:not(.widget-full) .readout-value b { font-size: 1rem; }
+.readouts.four .readout-value b { font-size: 0.875rem; }
+.readouts.four .readout { padding: 6px 7px; }
+.widget:not(.widget-full) .readout-label { font-size: 0.6875rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.readout { padding: 10px 12px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--edge); display: grid; gap: 2px; min-width: 0; }
+.readout-value b { font-size: 1.125rem; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.readout-value small { font-size: 0.75rem; font-weight: 500; color: var(--muted); margin-left: 3px; }
+.readout-label { font-size: 0.75rem; color: var(--muted); overflow-wrap: anywhere; }
+.readout[data-tone="warn"] b { color: var(--warn); } .readout[data-tone="ok"] b { color: var(--ok); } .readout[data-tone="muted"] b { color: var(--muted); }
+.readout-extra { display: flex; gap: 3px; }
+.readout-extra:empty { display: none; }
+.readout-extra i { flex: 1; height: 4px; border-radius: 2px; background: var(--track); }
+.readout-extra i.lit { background: var(--ok); }
+.meter { display: grid; gap: 6px; font-size: 0.8125rem; }
+.meter-row { display: flex; justify-content: space-between; color: var(--muted); }
+.meter-row b { color: var(--text); font-variant-numeric: tabular-nums; }
+.meter-bar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
+.meter-bar i { display: block; height: 100%; transform-origin: left; background: var(--ok); border-radius: 3px; }
+.meter.low .meter-bar i { background: var(--warn); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips:empty { display: none; }
+.widget .chip { font-size: 0.8125rem; padding: 6px 12px; transition: background-color var(--normal) var(--ease-out), color var(--normal) var(--ease-out), transform var(--fast) var(--ease-out); }
+.widget .chip[aria-pressed="true"] { background: var(--accent); border-color: transparent; color: var(--accent-text); }
+.swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.swatches.grid { display: grid; grid-template-columns: repeat(4, 30px); gap: 10px; }
+.widget .swatch { width: 30px; height: 30px; padding: 0; border-radius: 50%; background: var(--swatch); border: 2px solid var(--edge); }
+.widget .swatch[aria-checked="true"] { outline: 2px solid var(--text); outline-offset: 1px; }
+/* Room for that ring: a box that clips (a fixed widget's body) would cut it. */
+.widget .swatches { padding: 3px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; background: var(--material-thin); border: 1px solid var(--edge); }
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.pill.ok::before { background: var(--ok); } .pill.warn::before { background: var(--warn); } .pill.bad::before { background: var(--error); }
+.lock-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.w-main > .lock-row:first-child { border-top: 0; padding-top: 0; }
+.lock-name { display: grid; gap: 4px; justify-items: start; }
+.lock-row .hold, .lock-row .w-button { width: auto; }
+
+/* Hold to confirm: the fill runs while held and snaps back when let go early. */
+.widget .hold { position: relative; overflow: hidden; width: 100%; border-radius: 14px; padding: 10px 16px; font-weight: 600; touch-action: none; user-select: none; -webkit-user-select: none; }
+.hold-fill { position: absolute; inset: 0; display: grid; place-items: center; background: var(--warn); color: #fff; clip-path: inset(0 100% 0 0); transition: clip-path 200ms var(--ease-out); }
+.hold.holding .hold-fill { clip-path: inset(0 0 0 0); transition: clip-path 900ms linear; }
+
+/* Valve: a round run button whose ring empties as the time runs out. */
+.valve { display: grid; justify-items: center; gap: 14px; }
+.valve .seg { width: 100%; }
+.widget .valve-button { position: relative; width: 128px; height: 128px; padding: 0; border-radius: 50%; display: grid; place-items: center; }
+.valve-button svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.valve-button .ring-track, .valve-button .ring { fill: none; stroke-width: 6; }
+.valve-button .ring-track { stroke: var(--track); }
+.valve-button .ring { stroke: var(--cool); stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
+.valve-text { display: grid; justify-items: center; line-height: 1.2; }
+.valve-text b { font-size: 1.125rem; }
+.valve-text span { font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  .seg-thumb, .level-fill, .widget .tile, .widget.size-small, .w-shade, .valve-button .ring { transition-duration: 0ms !important; }
+  .size-small:has(> .w-hit:active) { transform: none; }
+  .widget-sheet[open] { animation-name: fade; }
+}
+@media (prefers-contrast: more) { .tile.is-off { background: #687284; } }
+
 /* Plugins: a card per block; the settings form opens across the grid. */
 .server .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .server.editor { grid-column: 1 / -1; gap: 18px; }
 .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 4px 18px; align-items: start; }
 .fields > fieldset, .fields > .group-box { grid-column: 1 / -1; }
+/* Adaptive Lighting: the day's whites, a sun on them; dimmed until the Home app has sent a schedule to resume. */
+.widget .swatch.adaptive { display: grid; place-items: center; color: #5c3b00; background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); }
+.widget .swatch.adaptive svg, .widget .round.adaptive svg, .adaptive-chip svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.size-medium .swatch.adaptive svg { width: 13px; height: 13px; }
+.widget .round.adaptive[aria-pressed="true"] { background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); color: #5c3b00; border-color: transparent; }
+.widget .adaptive-chip { display: inline-flex; align-items: center; gap: 6px; }
+.widget .adaptive.unset { opacity: 0.55; }
 .field { margin: 10px 0 4px; }
 .field-title { display: block; font-weight: 500; margin-bottom: 6px; }
 .field > input, .field > select { margin-top: 0; }
@@ -6304,11 +6703,15 @@ textarea.short { min-height: 220px; }
 .menu.closing { animation: menu-out 140ms var(--ease-out) forwards; pointer-events: none; }
 @keyframes menu-in { from { opacity: 0; transform: scale(0.92); } }
 @keyframes menu-out { to { opacity: 0; transform: scale(0.95); } }
-.menu [role="menuitem"] {
+.menu [role="menuitem"], .menu [role="menuitemradio"] {
   display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 12px; border: 0; border-radius: 10px;
   background: none; box-shadow: none; color: var(--text); font: inherit; font-size: 0.875rem; text-align: left; text-decoration: none; cursor: pointer;
 }
-.menu [role="menuitem"]:hover, .menu [role="menuitem"]:focus-visible { background: var(--accent); color: var(--accent-text); outline: none; transform: none; }
+.menu [role="menuitem"]:hover, .menu [role="menuitem"]:focus-visible, .menu [role="menuitemradio"]:hover, .menu [role="menuitemradio"]:focus-visible { background: var(--accent); color: var(--accent-text); outline: none; transform: none; }
+/* A choice among several (a widget's size): the chosen one ticked at the right. */
+.menu-check { margin-left: auto; font-weight: 700; color: var(--accent); }
+.menu [role="menuitemradio"]:hover .menu-check, .menu [role="menuitemradio"]:focus-visible .menu-check { color: inherit; }
+.menu-separator { border: 0; border-top: 1px solid var(--line); margin: 4px 8px; }
 .menu [role="menuitem"].danger { color: var(--error); }
 .menu [role="menuitem"].danger:hover, .menu [role="menuitem"].danger:focus-visible { background: var(--error); color: #fff; }
 .menu [role="menuitem"] svg { width: 17px; height: 17px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -6389,12 +6792,25 @@ textarea.short { min-height: 220px; }
 .chart-tooltip .chart-time { color: var(--muted); margin-bottom: 4px; white-space: nowrap; }
 .chart-tooltip .chart-row { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .chart-tooltip b { font-variant-numeric: tabular-nums; }
+/* The charts as a table: a card of its own, the header pinned while the rows scroll, the groups (homeswift, Home app
+   requests, plugin device calls) under a header each with a rule between them, numbers right-aligned in tabular
+   figures, an empty cell quiet. */
 .chart-table { margin-top: 12px; }
-.chart-table .table-scroll { overflow-x: auto; max-height: 360px; overflow-y: auto; margin-top: 8px; }
-.chart-table table { border-collapse: collapse; font-size: 0.8125rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.chart-table th, .chart-table td { padding: 4px 12px 4px 0; text-align: right; border-bottom: 1px solid var(--line); }
-.chart-table th:first-child, .chart-table td:first-child { text-align: left; }
-.chart-table th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--material-solid); }
+.chart-table .table-scroll {
+  overflow: auto; max-height: 420px; margin-top: 10px; border-radius: 14px; border: 1px solid var(--edge);
+  background: var(--material-solid); box-shadow: var(--shadow-control);
+}
+.chart-table table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.8125rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chart-table thead { position: sticky; top: 0; z-index: 1; background: var(--material-solid); }
+.chart-table th, .chart-table td { padding: 7px 14px; text-align: right; border-bottom: 1px solid var(--line); }
+.chart-table thead th { color: var(--muted); font-weight: 500; font-size: 0.75rem; }
+.chart-table thead .groups th { color: var(--text); font-weight: 600; font-size: 0.8125rem; text-align: center; padding-bottom: 4px; border-bottom-color: transparent; }
+.chart-table thead .groups th.time { text-align: left; vertical-align: bottom; padding-bottom: 7px; border-bottom-color: var(--line); }
+.chart-table .group-start { border-left: 1px solid var(--line); }
+.chart-table tbody th.time { text-align: left; font-weight: 500; color: var(--text); }
+.chart-table td.empty { color: var(--muted); opacity: 0.55; }
+.chart-table tbody tr:last-child > * { border-bottom: 0; }
+.chart-table tbody tr:hover > * { background: var(--material-thin); }
 .servers { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 14px; }
 .server { margin: 0; display: grid; gap: 14px; align-content: start; }
 .servers .server, .card.server { animation: materialize var(--normal) var(--ease-out); }
@@ -6448,6 +6864,14 @@ textarea.short { min-height: 220px; }
 .log-line time { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .log-line .label { color: var(--muted); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log-line .text { overflow-wrap: anywhere; white-space: pre-wrap; }
+/* A payload taken out of a line: a small JSON button after its marker, the JSON formatted under the line. */
+.log-details-toggle {
+  padding: 0 7px; margin: 0; border-radius: 6px; font: 600 0.6875rem/1.5 var(--mono); letter-spacing: 0.02em; vertical-align: baseline;
+  color: var(--muted); background: var(--material-thin); border: 1px solid var(--line); box-shadow: none;
+}
+.log-details-toggle:hover { color: var(--text); transform: none; }
+.log-details-toggle[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); }
+.log-line .log-details { grid-column: 1 / -1; margin: 4px 0 6px; max-height: 420px; overflow: auto; font-size: 0.75rem; }
 .log-line.warning { background: rgba(201, 115, 26, 0.08); }
 .log-line.warning .text { color: var(--warn); }
 .log-line.error, .log-line.critical { background: rgba(208, 56, 59, 0.08); }
@@ -7037,6 +7461,1777 @@ self.addEventListener("notificationclick", (event) => {
     return self.clients.openWindow(target);
   }));
 });
+
+"""#),
+        "widgets.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
+// Accessory widgets, for the Accessories page and plugin pages: each accessory drawn by the widget of its kind,
+// chosen from its primary service (an air conditioner's gauge and modes, a light's brightness and colours, a
+// shutter's tile, a gate held to open), all built from the same few controls. The services an accessory links
+// to its main one become the widget's facets (chips, readouts, meters), and what no widget shows stays
+// reachable under More, as rows. On the wall a widget is a fixed box: small (1×1, a tile a tap acts on), medium
+// (2×1, its main control) or large (2×2); its ⋯ menu opens every control in a sheet. Loaded after common.js,
+// remote.js and camera.js.
+//
+//   HomeswiftWidgets.card(accessory, { size, actions })   an accessory of /api/accessories at a size
+//   HomeswiftWidgets.open(accessory, { actions })         every control of it, in a sheet
+//   HomeswiftWidgets.kindOf(accessory)                    { kind, size }: its kind of widget and that kind's size
+//   HomeswiftWidgets.event(event)                         an "accessory" event of /api/events, for the cards shown
+//   HomeswiftWidgets.listen()                             a plugin page's own event stream, for its cards
+(() => {
+  "use strict";
+
+  const { el, menuButton, api } = HomeswiftCommon;
+
+  // ---- Values -------------------------------------------------------------------------------------------
+
+  const enumLabels = {
+    "Lock Target State": ["Unsecured", "Secured"], "Lock Current State": ["Unsecured", "Secured", "Jammed", "Unknown"],
+    "Target Door State": ["Open", "Closed"], "Current Door State": ["Open", "Closed", "Opening", "Closing", "Stopped"],
+    "Security System Target State": ["Home", "Away", "Night", "Off"], "Security System Current State": ["Home", "Away", "Night", "Off", "Alarm"],
+    "Active": ["Inactive", "Active"], "Target Heating Cooling State": ["Off", "Heat", "Cool", "Auto"], "Current Heating Cooling State": ["Off", "Heating", "Cooling"],
+    "Target Heater-Cooler State": ["Auto", "Heat", "Cool"], "Current Heater-Cooler State": ["Inactive", "Idle", "Heating", "Cooling"],
+    "Target Fan State": ["Manual", "Auto"], "Current Fan State": ["Inactive", "Idle", "Blowing"], "Rotation Direction": ["Clockwise", "Counter-clockwise"],
+    "Swing Mode": ["Disabled", "Enabled"], "Programmable Switch Event": ["Single press", "Double press", "Long press"],
+    "Contact Sensor State": ["Contact", "No contact"], "Temperature Display Units": ["Celsius", "Fahrenheit"],
+    "Air Quality": ["Unknown", "Excellent", "Good", "Fair", "Inferior", "Poor"], "Charging State": ["Not charging", "Charging", "Not chargeable"],
+    "Status Low Battery": ["Normal", "Low"], "Leak Detected": ["Dry", "Leak"], "Smoke Detected": ["Clear", "Smoke"], "Carbon Monoxide Detected": ["Normal", "Abnormal"],
+    "Carbon Dioxide Detected": ["Normal", "Abnormal"], "Target Air Purifier State": ["Manual", "Auto"], "Current Air Purifier State": ["Inactive", "Idle", "Purifying"],
+    "Motion Detected": ["No motion", "Motion"], "Occupancy Detected": ["Not occupied", "Occupied"], "Mute": ["Off", "On"],
+    "Position State": ["Closing", "Opening", "Stopped"], "Filter Change Indication": ["OK", "Replace"], "In Use": ["Not in use", "In use"],
+    "Lock Physical Controls": ["Unlocked", "Locked"], "Valve Type": ["Valve", "Irrigation", "Shower head", "Faucet"],
+  };
+  // What HomeKit needs to describe an accessory rather than a state a person reads or changes: kept off the page.
+  const plumbing = new Set([
+    "Name", "Configured Name", "Identifier", "Is Configured", "Current Visibility State", "Target Visibility State", "Input Source Type",
+    "Input Device Type", "Sleep Discovery Mode", "Display Order", "Closed Captions", "Picture Mode", "Power Mode Selection",
+    "Volume Control Type", "Current Media State", "Target Media State", "Version",
+    // Adaptive Lighting's bookkeeping.
+    "Characteristic Value Active Transition Count", "Characteristic Value Transition Control", "Supported Characteristic Value Transition Configuration",
+  ]);
+  // Inputs are chosen with the Input picker; the protocol version is HomeKit's business.
+  const quietServices = new Set(["InputSource", "ProtocolInformation"]);
+  // On and off as 1 and 0.
+  const numericSwitches = new Set(["HomeKit Camera Active"]);
+  const rowLabels = {
+    "Active Identifier": "Input", "Remote Key": "Remote", "Volume Selector": "Volume",
+    "HomeKit Camera Active": "On in the Home app", "Camera Operating Mode Indicator": "Status light",
+  };
+
+  const serviceKey = (service) => service.subtype || service.type;
+  /// "Color Temperature" reads "Color temperature".
+  const sentence = (type) => type.charAt(0) + type.slice(1).toLowerCase();
+  /// The text for an enumerated value, or the value itself.
+  function labelFor(type, value) {
+    const labels = enumLabels[type];
+    // Motion Detected and the like are booleans whose labels are listed for 0 and 1.
+    const index = typeof value === "boolean" ? Number(value) : value;
+    return labels && labels[index] !== undefined ? labels[index] : String(value);
+  }
+  const units = { percentage: " %", lux: " lx", seconds: " s", arcdegrees: "°" };
+  // Temperatures in the unit the user chose (Appearance); HomeKit's values stay in °C.
+  const unit = (characteristic) => characteristic.unit === "celsius" ? ` ${HomeswiftCommon.temperature(0).unit}` : units[characteristic.unit] || "";
+  /// A value with its characteristic's unit, a temperature converted to the user's unit.
+  const withUnit = (value, characteristic) =>
+    characteristic.unit === "celsius" && typeof value === "number" ? HomeswiftCommon.formatTemperature(value) : `${value}${unit(characteristic)}`;
+  function formatValue(characteristic) {
+    if (characteristic.format === "bool") return characteristic.value ? "On" : "Off";
+    if (characteristic.value === null || characteristic.value === undefined) return "";
+    return withUnit(characteristic.value, characteristic);
+  }
+  const canWrite = (characteristic) => !!characteristic && characteristic.permissions.includes("pw");
+  const canRead = (characteristic) => !!characteristic && characteristic.permissions.includes("pr");
+  const isOn = (characteristic) => characteristic?.value === true || characteristic?.value === 1;
+  const numberOf = (characteristic, fallback = 0) => typeof characteristic?.value === "number" ? characteristic.value : fallback;
+  /// On and off in the characteristic's own format: a bool, or 1 and 0 (Active).
+  const onValue = (characteristic, on) => characteristic.format === "bool" ? on : on ? 1 : 0;
+  /// The positions of a range when there are only a few (a fan's speeds in steps of 20), else Infinity.
+  function positions(characteristic) {
+    const { minValue: min, maxValue: max, minStep: step } = characteristic;
+    return min === undefined || max === undefined || !step ? Infinity : Math.round((max - min) / step);
+  }
+  /// A temperature (HomeKit's °C) in the user's unit, as the dials show it: "21.5°".
+  const degrees = (celsius) => { const { value } = HomeswiftCommon.temperature(celsius); return `${Number.isInteger(value) ? value : value.toFixed(1)}°`; };
+  const clock = (seconds) => `${Math.floor(seconds / 60)}:${String(Math.max(0, Math.round(seconds % 60))).padStart(2, "0")}`;
+  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+  /// A colour temperature in mireds (what HomeKit sends) in kelvin, to the nearest 50.
+  const kelvin = (mireds) => Math.round(1e6 / mireds / 50) * 50;
+  /// About the colour of white light at `k` kelvin, for a tile and the temperature track.
+  function whiteColor(k, lightness = 70) {
+    const t = clamp((k - 2700) / (6500 - 2700), 0, 1);
+    return `hsl(${Math.round(32 + t * 178)} ${Math.round(90 - t * 70)}% ${lightness}%)`;
+  }
+
+  function describeModel(accessory) {
+    const manufacturer = accessory.manufacturer || "";
+    const model = accessory.model || "";
+    return model.toLowerCase().startsWith(manufacturer.toLowerCase()) ? model : `${manufacturer} ${model}`.trim();
+  }
+
+  /// A service's name inside its accessory's card: "Living Room TV HDMI 1" reads "HDMI 1" in the Living Room TV's
+  /// card; a service named like its accessory reads as its subtype ("climateControl:indoor_silent_mode" is "Indoor
+  /// silent mode"), else as its type.
+  function shortName(accessory, service) {
+    const name = service.name;
+    if (name && name !== accessory.name) return name.startsWith(`${accessory.name} `) ? name.slice(accessory.name.length + 1) : name;
+    const words = (text) => text.replace(/([a-z])([A-Z0-9])/g, "$1 $2").replace(/[_-]+/g, " ").trim();
+    if (service.subtype) {
+      const parts = service.subtype.split(/[.:/]/).filter((part) => part && !/^[0-9a-f]{12,}$/i.test(part));
+      const last = parts[parts.length - 1];
+      if (last) return sentence(words(last));
+    }
+    return words(service.type);
+  }
+
+  // ---- An accessory on the page: its values, writes and painters --------------------------------------
+
+  const cards = new Set();
+
+  function context(accessory, options = {}) {
+    const services = accessory.services.filter((service) => !service.internal);
+    const ctx = {
+      accessory, services, options,
+      used: new Set(),       // the characteristics a widget shows; the rest go under More
+      painters: [],
+      born: Date.now(), node: null,
+    };
+    ctx.find = (type) => services.find((service) => service.type === type);
+    ctx.all = (type) => services.filter((service) => service.type === type);
+    ctx.char = (service, type) => service?.characteristics.find((characteristic) => characteristic.type === type);
+    /// Marks characteristics as shown; answers the first.
+    ctx.use = (...characteristics) => { for (const c of characteristics) if (c) ctx.used.add(c); return characteristics[0]; };
+    ctx.take = (service, type) => ctx.use(ctx.char(service, type));
+    ctx.useAll = (service) => service.characteristics.forEach((c) => ctx.used.add(c));
+    /// Runs `paint` now and after every change of a value of this accessory.
+    ctx.watch = (paint) => { ctx.painters.push(paint); paint(); };
+    ctx.paint = () => { for (const paint of ctx.painters) paint(); };
+    /// Writes at once on the page (the controls and the status follow), then to the device; a refusal puts the
+    /// value back and says why in the status line. A security control (a lock, a door, an alarm, what a plugin
+    /// marked) asks first unless the control was held to confirm (`held`).
+    ctx.write = async (service, characteristic, value, { held = false } = {}) => {
+      // A paused plugin's accessory answers nothing: say so rather than ask.
+      if (accessory.paused) { ctx.flash(`${accessory.platformName ?? "Its plugin"} is paused: resume it to control ${accessory.name}`); return; }
+      if (characteristic.security && !held) {
+        const label = characteristic.format === "bool" ? (value ? "On" : "Off") : labelFor(characteristic.type, value);
+        if (!confirm(`Set ${sentence(characteristic.type).toLowerCase()} of ${accessory.name} to ${label}?`)) { ctx.paint(); return; }
+      }
+      const before = characteristic.value;
+      characteristic.value = value;
+      ctx.paint();
+      try {
+        await put(service, characteristic, value);
+      } catch (e) {
+        if (e.message === "signed out") return;
+        characteristic.value = before;
+        ctx.flash(e.message);
+      }
+    };
+    /// A write with no value to keep (a remote's key): its failure is the caller's to show.
+    ctx.send = (service, characteristic, value) => put(service, characteristic, value);
+    const put = (service, characteristic, value) => api(`/api/accessories/${encodeURIComponent(accessory.id)}`, {
+      method: "PUT", body: { service: serviceKey(service), characteristic: characteristic.type, value } });
+    ctx.flashing = null;
+    ctx.flash = (text) => {
+      clearTimeout(ctx.flashTimer);
+      ctx.flashing = text;
+      ctx.paint();
+      ctx.flashTimer = setTimeout(() => { ctx.flashing = null; ctx.paint(); }, 5000);
+    };
+    return ctx;
+  }
+
+  /// An accessory event from the page's event stream: the new value, painted on the cards of that accessory.
+  function event({ id, service, subtype, characteristic, value }) {
+    const now = Date.now();
+    for (const ctx of cards) {
+      // A card no longer on the page (the view changed) is let go; a new one may not be attached yet.
+      if (!ctx.node?.isConnected) { if (now - ctx.born > 2000) cards.delete(ctx); continue; }
+      if (ctx.accessory.id !== id) continue;
+      const key = subtype || service;
+      const owner = ctx.accessory.services.find((s) => (!key || serviceKey(s) === key) && s.characteristics.some((c) => c.type === characteristic));
+      const target = owner && owner.characteristics.find((c) => c.type === characteristic);
+      if (!target) continue;
+      target.value = value;
+      ctx.paint();
+    }
+  }
+
+  /// For a plugin page: the bridge's events, so the cards it shows follow the devices.
+  let stream = null;
+  function listen() {
+    if (stream) return;
+    stream = new EventSource("/api/events");
+    stream.addEventListener("accessory", (message) => {
+      const data = JSON.parse(message.data);
+      window.HomeswiftCamera?.event(data);
+      event(data);
+    });
+  }
+
+  // ---- Controls -----------------------------------------------------------------------------------------
+  // Each answers its node and set(), which shows a value without calling back; a control being changed by
+  // the pointer keeps what the pointer says until it is let go.
+
+  function toggle(label, onChange) {
+    const input = el("input", { type: "checkbox", "aria-label": label });
+    input.addEventListener("change", () => onChange(input.checked));
+    return { node: el("label", { class: "switch" }, input, el("span")), set: (on) => { input.checked = on; } };
+  }
+
+  /// Two to four choices side by side, a thumb sliding to the one chosen; the arrow keys move it.
+  function segmented(options, label, onChange) {
+    const thumb = el("span", { class: "seg-thumb", "aria-hidden": "true" });
+    const node = el("div", { class: "seg", role: "radiogroup", "aria-label": label }, thumb);
+    node.style.setProperty("--n", options.length);
+    const buttons = options.map((option, index) => {
+      const button = el("button", { type: "button", role: "radio", text: option.label, onclick: () => choose(index) });
+      button.addEventListener("keydown", (event) => {
+        const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+        if (!step) return;
+        event.preventDefault();
+        const next = (index + step + options.length) % options.length;
+        choose(next);
+        buttons[next].focus();
+      });
+      return button;
+    });
+    node.append(...buttons);
+    let current = -1;
+    function show(index) {
+      current = index;
+      node.classList.toggle("unset", index < 0);
+      node.style.setProperty("--i", Math.max(0, index));
+      buttons.forEach((button, i) => { button.setAttribute("aria-checked", String(i === index)); button.tabIndex = i === Math.max(0, index) ? 0 : -1; });
+    }
+    function choose(index) { if (index === current) return; show(index); onChange(options[index].value); }
+    show(-1);
+    return { node, set: (value) => show(options.findIndex((option) => option.value === value)) };
+  }
+
+  /// A level: a pill whose fill (or, with `gradient`, a mark on the gradient) follows the pointer one to one;
+  /// `onCommit` runs when it is let go, and after a pause in the arrow keys. `vertical`: a tall one, filled from
+  /// the bottom, as the Home app's brightness.
+  function level({ label, min, max, step = 1, format, gradient, fill, thin = false, showLabel = true, vertical = false }, onCommit) {
+    const node = el("div", { class: `level${gradient ? " track" : ""}${thin ? " thin" : ""}${vertical ? " vertical" : ""}`, role: "slider", tabIndex: 0,
+      "aria-label": label, "aria-valuemin": min, "aria-valuemax": max, "aria-orientation": vertical ? "vertical" : null });
+    if (gradient) node.style.setProperty("--track", gradient);
+    if (fill) node.style.setProperty("--fill", fill);
+    const bar = gradient ? el("span", { class: "level-mark" }) : el("span", { class: "level-fill" });
+    const text = el("span", { class: "level-text" });
+    node.append(bar, showLabel ? el("span", { class: "level-label", text: label }) : null, text);
+    let value = min, dragging = false, keyTimer = null;
+    function show(next) {
+      value = clamp(Math.round((next - min) / step) * step + min, min, max);
+      const share = max > min ? (value - min) / (max - min) : 0;
+      if (gradient && vertical) bar.style.top = `calc(100% - 10px - ${share} * (100% - 20px))`;
+      else if (gradient) bar.style.left = `calc(10px + ${share} * (100% - 20px))`;
+      else bar.style.transform = vertical ? `scaleY(${share})` : `scaleX(${share})`;
+      text.textContent = format(value);
+      node.setAttribute("aria-valuenow", value);
+      node.setAttribute("aria-valuetext", format(value));
+    }
+    const at = (event) => {
+      const box = node.getBoundingClientRect();
+      const share = vertical ? 1 - (event.clientY - box.top) / box.height : (event.clientX - box.left) / box.width;
+      return min + clamp(share, 0, 1) * (max - min);
+    };
+    node.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      dragging = true;
+      node.setPointerCapture(event.pointerId);
+      node.classList.add("dragging");
+      show(at(event));
+    });
+    node.addEventListener("pointermove", (event) => { if (dragging) show(at(event)); });
+    const end = () => { if (!dragging) return; dragging = false; node.classList.remove("dragging"); onCommit(value); };
+    node.addEventListener("pointerup", end);
+    node.addEventListener("pointercancel", end);
+    node.addEventListener("keydown", (event) => {
+      const big = Math.max(step, (max - min) / 10);
+      const delta = { ArrowRight: step, ArrowUp: step, ArrowLeft: -step, ArrowDown: -step, PageUp: big, PageDown: -big }[event.key];
+      if (delta === undefined && event.key !== "Home" && event.key !== "End") return;
+      event.preventDefault();
+      show(delta === undefined ? (event.key === "Home" ? min : max) : value + delta);
+      clearTimeout(keyTimer);
+      keyTimer = setTimeout(() => { keyTimer = null; onCommit(value); }, 350);
+    });
+    show(min);
+    return { node, set: (next) => { if (!dragging && !keyTimer) show(next); } };
+  }
+
+  /// A few positions as rising bars, as a fan's speeds read: the bar pressed and those under it lit.
+  function steps({ label, count }, onChange) {
+    const node = el("div", { class: "steps", role: "radiogroup", "aria-label": label });
+    const bars = Array.from({ length: count }, (_, index) => {
+      const bar = el("button", { type: "button", role: "radio", "aria-label": `${label} ${index + 1} of ${count}`, onclick: () => { show(index + 1); onChange(index + 1); } });
+      bar.style.height = `${Math.round(38 + (62 * (index + 1)) / count)}%`;
+      return bar;
+    });
+    node.append(...bars);
+    function show(n) {
+      bars.forEach((bar, index) => {
+        bar.classList.toggle("lit", index < n);
+        bar.setAttribute("aria-checked", String(index + 1 === n));
+        bar.tabIndex = index + 1 === Math.max(1, n) ? 0 : -1;
+      });
+    }
+    node.addEventListener("keydown", (event) => {
+      const step = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[event.key];
+      if (!step) return;
+      event.preventDefault();
+      const current = bars.filter((bar) => bar.classList.contains("lit")).length;
+      const next = clamp(current + step, 1, count);
+      show(next); bars[next - 1].focus(); onChange(next);
+    });
+    return { node, set: show };
+  }
+
+  /// A temperature to reach: − the value +, written after a pause so a few presses make one write.
+  function setpoint({ label, min, max, step }, onChange) {
+    let value = min, timer = null;
+    const number = el("b");
+    const caption = el("span", { text: label });
+    const show = (next) => { value = clamp(Math.round(next / step) * step, min, max); number.textContent = degrees(+value.toFixed(2)); };
+    const bump = (delta) => {
+      show(value + delta);
+      clearTimeout(timer);
+      timer = setTimeout(() => { timer = null; onChange(value); }, 600);
+    };
+    const round = (glyph, text, delta) => el("button", { type: "button", class: "round", "aria-label": `${text} ${label.toLowerCase()}`, onclick: () => bump(delta) }, icon(glyph));
+    const node = el("div", { class: "setpoint" }, round("minus", "Lower", -step), el("div", { class: "sp-value", "aria-live": "polite" }, number, caption), round("plus", "Raise", step));
+    return { node, set: (next) => { if (!timer) show(next); } };
+  }
+
+  /// A 240° arc from `min` to `max`: the reading as a dot, a target as a tick, the band between them in the mode's colour.
+  function gauge({ min, max }) {
+    const cx = 100, cy = 96, r = 80, start = 150, sweep = 240;
+    const angle = (value) => start + sweep * clamp((value - min) / (max - min), 0, 1);
+    const point = (deg, radius = r) => [cx + radius * Math.cos((deg * Math.PI) / 180), cy + radius * Math.sin((deg * Math.PI) / 180)];
+    const arc = (a, b) => {
+      const [x1, y1] = point(a), [x2, y2] = point(b);
+      return `M${x1.toFixed(2)} ${y1.toFixed(2)} A${r} ${r} 0 ${b - a > 180 ? 1 : 0} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`;
+    };
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 200 172");
+    svg.setAttribute("class", "gauge");
+    svg.setAttribute("role", "img");
+    const [left] = point(start), [right] = point(start + sweep);
+    svg.innerHTML = `<path class="gauge-track" d="${arc(start, start + sweep)}"/><path class="gauge-band"/><line class="gauge-target"/><circle class="gauge-dot" r="7"/>`
+      + `<text class="gauge-value" x="100" y="104" text-anchor="middle"></text><text class="gauge-caption" x="100" y="128" text-anchor="middle"></text>`
+      + `<text class="gauge-end" x="${left.toFixed(0)}" y="168" text-anchor="middle">${degrees(min)}</text><text class="gauge-end" x="${right.toFixed(0)}" y="168" text-anchor="middle">${degrees(max)}</text>`;
+    const band = svg.querySelector(".gauge-band"), tick = svg.querySelector(".gauge-target"), dot = svg.querySelector(".gauge-dot");
+    const [valueText, captionText] = svg.querySelectorAll("text");
+    function update({ value, from, to, color, caption }) {
+      const known = typeof value === "number";
+      dot.style.display = known ? "" : "none";
+      if (known) { const [x, y] = point(angle(value)); dot.setAttribute("cx", x.toFixed(2)); dot.setAttribute("cy", y.toFixed(2)); }
+      valueText.textContent = known ? degrees(+value.toFixed(1)) : "–";
+      captionText.textContent = caption;
+      const banded = typeof from === "number" && typeof to === "number";
+      const a = banded ? angle(Math.min(from, to)) : 0, b = banded ? angle(Math.max(from, to)) : 0;
+      band.setAttribute("d", banded && b - a >= 0.5 ? arc(a, b) : "");
+      band.style.stroke = color || "";
+      tick.style.display = typeof to === "number" ? "" : "none";
+      if (typeof to === "number") {
+        const [x1, y1] = point(angle(to), r - 13), [x2, y2] = point(angle(to), r + 13);
+        tick.setAttribute("x1", x1.toFixed(2)); tick.setAttribute("y1", y1.toFixed(2)); tick.setAttribute("x2", x2.toFixed(2)); tick.setAttribute("y2", y2.toFixed(2));
+      }
+      svg.setAttribute("aria-label", known ? `${caption}: ${degrees(+value.toFixed(1))}` : caption);
+    }
+    return { node: svg, update };
+  }
+
+  /// A value read, not changed: big, its unit small, its label under it.
+  function readout(label) {
+    const number = el("b"), small = el("small"), extra = el("span", { class: "readout-extra" });
+    const node = el("div", { class: "readout" }, el("span", { class: "readout-value" }, number, small), el("span", { class: "readout-label", text: label }), extra);
+    return {
+      node,
+      set(text, unitText = "", tone = "", scale = null) {
+        number.textContent = text;
+        small.textContent = unitText;
+        node.dataset.tone = tone;
+        // A level out of five (air quality) as five short bars.
+        extra.replaceChildren(...(scale ? Array.from({ length: 5 }, (_, i) => el("i", { class: i < scale ? "lit" : "" })) : []));
+      },
+    };
+  }
+
+  /// A level that wears down: a filter's life, a battery. Amber under 10 %.
+  function meter(label) {
+    const amount = el("b"), fillBar = el("i");
+    const node = el("div", { class: "meter", role: "meter", "aria-label": label, "aria-valuemin": 0, "aria-valuemax": 100 },
+      el("div", { class: "meter-row" }, el("span", { text: label }), amount), el("div", { class: "meter-bar" }, fillBar));
+    return {
+      node,
+      set(percent) {
+        amount.textContent = `${percent} %`;
+        fillBar.style.transform = `scaleX(${clamp(percent, 0, 100) / 100})`;
+        node.classList.toggle("low", percent < 10);
+        node.setAttribute("aria-valuenow", percent);
+      },
+    };
+  }
+
+  /// A secondary on/off service, pressed or not.
+  function chip(label, onChange) {
+    const node = el("button", { type: "button", class: "chip", text: label, "aria-pressed": "false" });
+    node.addEventListener("click", () => {
+      const on = node.getAttribute("aria-pressed") !== "true";
+      node.setAttribute("aria-pressed", String(on));
+      onChange(on);
+    });
+    return { node, set: (on) => node.setAttribute("aria-pressed", String(on)) };
+  }
+
+  /// A security write (unlock, open, disarm): held for a moment, the fill running across; let go early and
+  /// nothing happens. Space and Enter hold it from the keyboard. The fill's transition in style.css lasts as long.
+  const HOLD_MS = 900;
+  function hold(label, onConfirm) {
+    const text = el("span", { text: label });
+    const fillText = el("span", { class: "hold-fill", "aria-hidden": "true", text: label });
+    const node = el("button", { type: "button", class: "hold" }, text, fillText);
+    // A timer decides, the fill only shows it: a transition does not run in a hidden tab.
+    let timer = null;
+    const start = () => {
+      if (timer) return;
+      node.classList.add("holding");
+      timer = setTimeout(() => { cancel(); onConfirm(); }, HOLD_MS);
+    };
+    const cancel = () => { clearTimeout(timer); timer = null; node.classList.remove("holding"); };
+    node.addEventListener("pointerdown", (event) => { if (event.button === 0) { node.setPointerCapture(event.pointerId); start(); } });
+    for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) node.addEventListener(type, cancel);
+    node.addEventListener("keydown", (event) => { if ((event.key === " " || event.key === "Enter") && !event.repeat) { event.preventDefault(); start(); } });
+    node.addEventListener("keyup", (event) => { if (event.key === " " || event.key === "Enter") cancel(); });
+    node.addEventListener("click", (event) => event.preventDefault());
+    const name = (next) => { text.textContent = next; fillText.textContent = next; node.setAttribute("aria-label", `${next} (press and hold)`); };
+    name(label);
+    return { node, label: name };
+  }
+
+  const pill = (text = "", tone = "") => el("span", { class: `pill ${tone}`.trim(), text });
+
+  const glyphs = {
+    minus: '<path d="M6 12h12"/>', plus: '<path d="M12 6v12M6 12h12"/>',
+    blind: '<rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M4 8h16M4 12h16M12 12v5"/>',
+    drop: '<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/>',
+    gate: '<path d="M3 21V9l9-5 9 5v12M7 21v-8h10v8M7 17h10"/>',
+    wind: '<path d="M3 8h11a3 3 0 1 0-3-3M3 12h16a3 3 0 1 1-3 3M3 16h8"/>',
+    shield: '<path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/>',
+    tv: '<rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/>',
+    up: '<path d="m6 15 6-6 6 6"/>', down: '<path d="m6 9 6 6 6-6"/>', stop: '<rect x="7" y="7" width="10" height="10" rx="2"/>',
+    power: '<path d="M12 3v9"/><path d="M6.3 7.2a8 8 0 1 0 11.4 0"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>', mute: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6M21 9l-5 6"/>',
+  };
+  /// One of these glyphs, else one of common.js's icons.
+  function icon(name) {
+    if (!glyphs[name]) return HomeswiftCommon.icon(name);
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    svg.innerHTML = glyphs[name];
+    return svg;
+  }
+
+  // ---- Rows: a characteristic as a labelled control, for what no widget draws --------------------------
+
+  const remoteKeys = [["←", 6, "Left"], ["↑", 4, "Up"], ["↓", 5, "Down"], ["→", 7, "Right"], ["Select", 8], ["Back", 9], ["Play/Pause", 11], ["Info", 15]];
+
+  function controlFor(ctx, service, characteristic) {
+    const writable = canWrite(characteristic), readable = canRead(characteristic);
+    const labels = enumLabels[characteristic.type];
+    const write = (value) => ctx.write(service, characteristic, value);
+    if (writable && (characteristic.format === "bool" || numericSwitches.has(characteristic.type))) {
+      const control = toggle(`${ctx.accessory.name}: ${sentence(characteristic.type)}`, (on) => write(onValue(characteristic, on)));
+      ctx.watch(() => control.set(isOn(characteristic)));
+      return control.node;
+    }
+    if (writable && characteristic.type === "Active Identifier") return inputPicker(ctx, service, characteristic);
+    if (writable && !readable && characteristic.type === "Remote Key") {
+      return el("div", { class: "keys" }, remoteKeys.map(([text, value, label]) => el("button", { text, "aria-label": label || text, onclick: () => ctx.send(service, characteristic, value).catch((e) => ctx.flash(e.message)) })));
+    }
+    if (writable && !readable && characteristic.type === "Volume Selector") {
+      const send = (value) => ctx.send(service, characteristic, value).catch((e) => ctx.flash(e.message));
+      return el("div", { class: "group" }, el("button", { text: "−", "aria-label": "Volume down", onclick: () => send(1) }), el("button", { text: "+", "aria-label": "Volume up", onclick: () => send(0) }));
+    }
+    if (writable && (characteristic.validValues || labels)) {
+      const values = characteristic.validValues || labels.map((_, index) => index);
+      const select = el("select", { "aria-label": sentence(characteristic.type) }, values.map((value) => el("option", { value, text: labelFor(characteristic.type, value) })));
+      select.addEventListener("change", () => write(Number(select.value)));
+      ctx.watch(() => { if (document.activeElement !== select) select.value = String(characteristic.value); });
+      return select;
+    }
+    if (writable && ["int", "uint8", "uint16", "uint32", "uint64", "float"].includes(characteristic.format) && characteristic.minValue !== undefined && characteristic.maxValue !== undefined) {
+      const input = el("input", { type: "range", min: characteristic.minValue, max: characteristic.maxValue, step: characteristic.minStep || 1, "aria-label": sentence(characteristic.type) });
+      const value = el("span", { class: "value" });
+      let timer = null;
+      input.addEventListener("input", () => {
+        value.textContent = withUnit(Number(input.value), characteristic);
+        clearTimeout(timer);
+        timer = setTimeout(() => { timer = null; write(Number(input.value)); }, 250);
+      });
+      ctx.watch(() => { if (!timer) { input.value = characteristic.value ?? 0; value.textContent = formatValue(characteristic); } });
+      return el("span", { class: "range" }, input, value);
+    }
+    if (writable && characteristic.format === "string") {
+      const input = el("input", { type: "text", "aria-label": sentence(characteristic.type) });
+      input.addEventListener("change", () => write(input.value));
+      ctx.watch(() => { if (document.activeElement !== input) input.value = characteristic.value ?? ""; });
+      return input;
+    }
+    if (!readable) return null;
+    const text = el("span", { class: "value" });
+    ctx.watch(() => { text.textContent = labels ? labelFor(characteristic.type, characteristic.value) : formatValue(characteristic); });
+    return text;
+  }
+
+  /// The TV's input picker: the input services' identifiers under their names.
+  function inputPicker(ctx, service, characteristic) {
+    const inputs = ctx.accessory.services.filter((s) => s.type === "InputSource").map((s) => {
+      const value = (type) => s.characteristics.find((c) => c.type === type)?.value;
+      return { identifier: value("Identifier"), name: value("Configured Name") || s.name, hidden: value("Current Visibility State") === 1 };
+    }).filter((input) => input.identifier !== undefined && !input.hidden);
+    const select = el("select", { "aria-label": "Input" }, inputs.map((input) => el("option", { value: input.identifier, text: input.name })));
+    select.addEventListener("change", () => ctx.write(service, characteristic, Number(select.value)));
+    ctx.watch(() => { if (document.activeElement !== select) select.value = String(characteristic.value); });
+    return select;
+  }
+
+  /// Rows for the characteristics of `service` no widget took, each marked as shown.
+  function rows(ctx, service) {
+    return service.characteristics.filter((c) => !ctx.used.has(c) && !plumbing.has(c.type) && !c.internal).map((characteristic) => {
+      const control = controlFor(ctx, service, characteristic);
+      ctx.use(characteristic);
+      if (!control) return null;
+      return el("div", { class: "control" }, el("span", { text: rowLabels[characteristic.type] || sentence(characteristic.type) }), control);
+    }).filter(Boolean);
+  }
+
+  /// What no widget showed, a service at a time: one row under the service's name, or several under a heading.
+  function leftovers(ctx, services = ctx.services) {
+    return services.filter((service) => !quietServices.has(service.type))
+      .map((service) => ({ service, rows: rows(ctx, service) })).filter((group) => group.rows.length)
+      .map(({ service, rows: list }) => list.length === 1
+        ? el("div", { class: "control" }, el("span", { text: shortName(ctx.accessory, service) }), list[0].lastChild)
+        : el("div", { class: "controls" }, el("div", { class: "service-name", text: shortName(ctx.accessory, service) }), list));
+  }
+
+  // ---- Shared pieces of widgets -----------------------------------------------------------------------
+
+  /// A speed: bars when it has a few positions, else a level.
+  function speedControl(ctx, service, characteristic, color) {
+    const min = characteristic.minValue ?? 0, max = characteristic.maxValue ?? 100, count = positions(characteristic);
+    if (count <= 6 && count >= 2) {
+      const stepSize = (max - min) / count;
+      const control = steps({ label: "Speed", count }, (n) => ctx.write(service, characteristic, min + n * stepSize));
+      if (color) control.node.style.setProperty("--steps", color);
+      ctx.watch(() => control.set(Math.round((numberOf(characteristic) - min) / stepSize)));
+      return el("div", { class: "w-row" }, el("span", { class: "w-label", text: "Speed" }), control.node);
+    }
+    const control = level({ label: "Speed", min, max, step: characteristic.minStep || 1, format: (v) => `${v}${unit(characteristic)}`, fill: color }, (v) => ctx.write(service, characteristic, v));
+    ctx.watch(() => control.set(numberOf(characteristic)));
+    return control.node;
+  }
+
+  /// A writable bool or 0/1 of a service as a chip (Swing, Child lock).
+  function chipFor(ctx, service, characteristic, label) {
+    if (!canWrite(characteristic)) return null;
+    ctx.use(characteristic);
+    const control = chip(label, (on) => ctx.write(service, characteristic, onValue(characteristic, on)));
+    ctx.watch(() => control.set(isOn(characteristic)));
+    return control.node;
+  }
+
+  const presets = [
+    ["Warm white", 30, 55], ["Amber", 26, 85], ["Red", 2, 90], ["Pink", 330, 70], ["Violet", 275, 70], ["Blue", 220, 85], ["Cyan", 185, 75], ["Green", 125, 75],
+  ];
+
+  /// A light's controls, each a function that builds it (null when the light has none): `brightness` (a level,
+  /// tall with `vertical`), `swatches` (colours, in a grid with `grid`), `white` (the temperature in kelvin);
+  /// `color()`, the colour it shows now, for the tile.
+  function lightParts(ctx, service) {
+    const brightness = ctx.take(service, "Brightness"), hue = ctx.take(service, "Hue"), saturation = ctx.take(service, "Saturation");
+    const temperature = ctx.take(service, "Color Temperature");
+    // Adaptive Lighting (a controller on the bridge): on while a schedule runs, which its transition count says.
+    const transitions = ctx.char(service, "Characteristic Value Active Transition Count");
+    const adaptive = service.adaptiveLighting ? { resumable: !!service.adaptiveLighting.resumable } : null;
+    const adaptiveOn = () => !!adaptive && numberOf(transitions) > 0;
+    const setAdaptive = async (on) => {
+      const before = transitions?.value;
+      if (transitions) transitions.value = on ? 1 : 0;
+      ctx.paint();
+      try {
+        await api(`/api/accessories/${encodeURIComponent(ctx.accessory.id)}/adaptive-lighting`, { method: "PUT", body: { service: serviceKey(service), on } });
+        adaptive.resumable = true;
+      } catch (e) {
+        if (e.message === "signed out") return;
+        if (transitions) transitions.value = before;
+        ctx.flash(e.message);
+      }
+    };
+    /// The Adaptive control: a swatch among the colours, a round button beside a white slider, or a chip.
+    const adaptiveControl = (kind) => {
+      const label = "Adaptive Lighting";
+      const node = kind === "chip"
+        ? el("button", { type: "button", class: "chip adaptive-chip", "aria-pressed": "false" }, icon("sun"), el("span", { text: "Adaptive" }))
+        : el("button", { type: "button", class: kind === "swatch" ? "swatch adaptive" : "round adaptive", role: kind === "swatch" ? "radio" : null, "aria-label": label, title: label }, icon("sun"));
+      node.addEventListener("click", () => setAdaptive(!adaptiveOn()));
+      ctx.watch(() => {
+        node.setAttribute(kind === "swatch" ? "aria-checked" : "aria-pressed", String(adaptiveOn()));
+        node.classList.toggle("unset", !adaptive.resumable && !adaptiveOn());
+        node.title = adaptiveOn() ? "Adaptive Lighting: on" : adaptive.resumable ? "Adaptive Lighting: resume the Home app's schedule" : "Adaptive Lighting: turn it on once in the Home app";
+      });
+      return node;
+    };
+    const color = () => {
+      if (adaptiveOn() && temperature) return { k: kelvin(numberOf(temperature, 300)) };
+      if (hue && saturation && numberOf(saturation) > 4) return { h: numberOf(hue), s: numberOf(saturation) };
+      if (temperature) return { k: kelvin(numberOf(temperature, 300)) };
+      return null;
+    };
+    const css = (c, lightness) => c.k ? whiteColor(c.k, lightness) : `hsl(${Math.round(c.h)} ${Math.round(c.s)}% ${lightness}%)`;
+    return {
+      brightness: canWrite(brightness) ? ({ vertical = false } = {}) => {
+        const control = level({ label: "Brightness", min: brightness.minValue ?? 0, max: brightness.maxValue ?? 100, step: brightness.minStep || 1, format: (v) => `${v} %`, vertical },
+          (v) => ctx.write(service, brightness, v));
+        ctx.watch(() => {
+          control.set(numberOf(brightness));
+          const c = color();
+          control.node.style.setProperty("--fill", c ? `linear-gradient(${vertical ? "0deg" : "90deg"}, ${css(c, 64)}, ${css(c, 86)})` : "");
+        });
+        return control.node;
+      } : null,
+      swatches: canWrite(hue) && canWrite(saturation) ? ({ grid = false } = {}) => {
+        const swatches = presets.map(([name, h, s]) => {
+          const swatch = el("button", { type: "button", class: "swatch", role: "radio", "aria-label": name, title: name, onclick: () => {
+            ctx.write(service, hue, h);
+            ctx.write(service, saturation, s);
+          } });
+          swatch.style.setProperty("--swatch", `hsl(${h} ${s}% 60%)`);
+          return { swatch, h, s };
+        });
+        ctx.watch(() => {
+          const h = numberOf(hue), s = numberOf(saturation);
+          const near = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b)) <= 6;
+          for (const one of swatches) one.swatch.setAttribute("aria-checked", String(!adaptiveOn() && s > 4 && near(one.h, h) && Math.abs(one.s - s) <= 12));
+        });
+        return el("div", { class: `swatches${grid ? " grid" : ""}`, role: "radiogroup", "aria-label": "Colour" }, adaptive ? adaptiveControl("swatch") : null, swatches.map((one) => one.swatch));
+      } : null,
+      white: canWrite(temperature) ? ({ vertical = false, thin = false } = {}) => {
+        // Mireds run the other way: the track goes from warm (few kelvin, many mireds) to cool.
+        const low = kelvin(temperature.maxValue ?? 500), high = kelvin(temperature.minValue ?? 140);
+        const control = level({ label: "White", min: low, max: high, step: 50, format: (k) => `${k} K`, vertical, thin,
+          gradient: `linear-gradient(${vertical ? "0deg" : "90deg"}, ${whiteColor(low, 72)}, ${whiteColor((low + high) / 2, 88)}, ${whiteColor(high, 84)})` },
+        (k) => {
+          const mireds = clamp(Math.round(1e6 / k), temperature.minValue ?? 0, temperature.maxValue ?? 1000);
+          if (saturation && canWrite(saturation) && numberOf(saturation) > 0) ctx.write(service, saturation, 0);
+          ctx.write(service, temperature, mireds);
+        });
+        ctx.watch(() => control.set(kelvin(numberOf(temperature, 300))));
+        return control.node;
+      } : null,
+      // For a light without colours: the Adaptive control on its own ("round" beside the white, or a "chip").
+      adaptive: adaptive ? (kind = "chip") => adaptiveControl(kind) : null,
+      adaptiveOn,
+      color: () => { const c = color(); return c && { tile: `linear-gradient(160deg, ${css(c, 74)}, ${css(c, 52)})`, glow: css(c, 55) }; },
+    };
+  }
+
+  /// A light's whole body: its brightness, its colours, its white temperature, whichever it has.
+  function lightBody(ctx, service) {
+    const parts = lightParts(ctx, service);
+    const chip = !parts.swatches && parts.adaptive ? el("div", { class: "chips" }, parts.adaptive("chip")) : null;
+    return { nodes: [parts.brightness?.(), parts.swatches?.(), parts.white?.(), chip].filter(Boolean), color: parts.color };
+  }
+
+  /// A sensor service's reading: its value, its unit, a tone, and its glyph.
+  const readings = {
+    TemperatureSensor: ["Current Temperature", "thermo"], HumiditySensor: ["Current Relative Humidity", "sensor"], LightSensor: ["Current Ambient Light Level", "sensor"],
+    AirQualitySensor: ["Air Quality", "wind"], MotionSensor: ["Motion Detected", "sensor"], OccupancySensor: ["Occupancy Detected", "sensor"],
+    ContactSensor: ["Contact Sensor State", "door"], LeakSensor: ["Leak Detected", "drop"], SmokeSensor: ["Smoke Detected", "sensor"],
+    CarbonMonoxideSensor: ["Carbon Monoxide Detected", "sensor"], CarbonDioxideSensor: ["Carbon Dioxide Level", "sensor"],
+  };
+  function reading(ctx, service) {
+    const [type, glyph] = readings[service.type] ?? [];
+    const main = type && ctx.char(service, type);
+    if (!main) return null;
+    ctx.use(main, ctx.char(service, "Status Active"));
+    const extra = ["PM2.5 Density", "PM10 Density", "VOC Density", "Carbon Dioxide Detected"].map((t) => ctx.take(service, t)).filter(Boolean);
+    const active = ctx.char(service, "Status Active");
+    const value = () => {
+      const v = main.value;
+      const inactive = active && active.value === false;
+      switch (service.type) {
+        case "TemperatureSensor": return { text: typeof v === "number" ? HomeswiftCommon.temperature(v).value.toFixed(1) : "–", unit: HomeswiftCommon.temperature(0).unit, tone: inactive ? "muted" : "" };
+        case "HumiditySensor": return { text: typeof v === "number" ? String(Math.round(v)) : "–", unit: "%", tone: inactive ? "muted" : "" };
+        case "LightSensor": return { text: typeof v === "number" ? String(Math.round(v)) : "–", unit: "lx" };
+        case "CarbonDioxideSensor": return { text: typeof v === "number" ? String(Math.round(v)) : "–", unit: "ppm" };
+        case "AirQualitySensor": return { text: labelFor(main.type, v), tone: v >= 4 ? "warn" : v >= 1 ? "ok" : "muted", scale: v >= 1 ? 6 - v : 0 };
+        case "ContactSensor": return { text: v === 0 ? "Closed" : "Open", tone: v === 0 ? "" : "warn" };
+        default: return { text: labelFor(main.type, v), tone: isOn(main) ? "warn" : "" };
+      }
+    };
+    return { main, glyph, extra, value };
+  }
+
+  /// The services `widget` left: chips (switches and other on/off services), readouts (sensors), meters (a
+  /// filter, a battery), blocks (a light, a fan, a thermostat, a lock). Each one's characteristics marked shown.
+  function facets(ctx, handled = []) {
+    const out = { chips: [], readouts: [], meters: [], blocks: [] };
+    for (const service of ctx.services) {
+      if (handled.includes(service) || quietServices.has(service.type) || service.characteristics.every((c) => ctx.used.has(c))) continue;
+      const name = shortName(ctx.accessory, service);
+      const on = ctx.char(service, "On");
+      if ((service.type === "Switch" || service.type === "Outlet") && canWrite(on) && !on.security) {
+        out.chips.push(chipFor(ctx, service, on, name));
+      } else if (readings[service.type]) {
+        const one = reading(ctx, service);
+        if (!one) continue;
+        const control = readout(name);
+        ctx.watch(() => { const v = one.value(); control.set(v.text, v.unit, v.tone, v.scale); });
+        out.readouts.push(control.node);
+        for (const extra of one.extra) {
+          const more = readout(extra.type.replace(" Density", "").replace("Carbon Dioxide Detected", "CO₂"));
+          ctx.watch(() => more.set(extra.format === "bool" || enumLabels[extra.type] ? labelFor(extra.type, extra.value) : String(Math.round(numberOf(extra))), extra.type.endsWith("Density") ? "µg/m³" : ""));
+          out.readouts.push(more.node);
+        }
+      } else if (service.type === "FilterMaintenance" || service.type === "Battery") {
+        const life = ctx.take(service, service.type === "Battery" ? "Battery Level" : "Filter Life Level");
+        const flag = ctx.take(service, service.type === "Battery" ? "Status Low Battery" : "Filter Change Indication");
+        const label = service.type === "Battery" ? "Battery" : "Filter";
+        if (life) {
+          const control = meter(label === "Filter" ? "Filter life" : label);
+          ctx.watch(() => control.set(Math.round(numberOf(life))));
+          out.meters.push(control.node);
+        } else if (flag) {
+          const state = pill();
+          ctx.watch(() => { state.textContent = labelFor(flag.type, flag.value); state.className = `pill ${isOn(flag) ? "warn" : "ok"}`; });
+          out.blocks.push(el("div", { class: "w-row" }, el("span", { class: "w-label", text: label }), state));
+        }
+        if (service.type === "Battery") ctx.take(service, "Charging State");
+      } else if (service.type === "Lightbulb" && canWrite(on)) {
+        out.blocks.push(lightBlock(ctx, service, name));
+      } else if ((service.type === "Fanv2" || service.type === "Fan") && (canWrite(ctx.char(service, "Active")) || canWrite(on))) {
+        out.blocks.push(fanBlock(ctx, service, name));
+      } else if ((service.type === "Thermostat" || service.type === "HeaterCooler") && ctx.char(service, "Current Temperature")) {
+        out.blocks.push(climateBlock(ctx, service, name));
+      } else if (service.type === "LockMechanism" && ctx.char(service, "Lock Current State")) {
+        out.blocks.push(lockRow(ctx, service, name));
+      }
+    }
+    return out;
+  }
+  const hasFacets = (f) => f.chips.length + f.readouts.length + f.meters.length + f.blocks.length > 0;
+  function facetNodes(f) {
+    return [
+      f.readouts.length ? el("div", { class: "readouts" }, f.readouts) : null,
+      ...f.meters, ...f.blocks,
+      f.chips.length ? el("div", { class: "chips" }, f.chips) : null,
+    ].filter(Boolean);
+  }
+
+  /// A secondary light (a TV's Ambilight, a camera's flashlight): its name and switch, then its body.
+  function lightBlock(ctx, service, name) {
+    const on = ctx.take(service, "On");
+    const power = toggle(`${name}: on`, (v) => ctx.write(service, on, onValue(on, v)));
+    ctx.watch(() => power.set(isOn(on)));
+    const body = el("div", { class: "w-block-body" }, lightBody(ctx, service).nodes);
+    ctx.watch(() => { body.hidden = !isOn(on); });
+    return el("div", { class: "w-block" }, el("div", { class: "w-row" }, el("span", { class: "w-label", text: name }), power.node), body);
+  }
+
+  function fanBlock(ctx, service, name) {
+    const power = ctx.take(service, "Active") || ctx.take(service, "On");
+    const control = toggle(`${name}: on`, (v) => ctx.write(service, power, onValue(power, v)));
+    ctx.watch(() => control.set(isOn(power)));
+    const speed = ctx.take(service, "Rotation Speed");
+    const target = ctx.take(service, "Target Fan State");
+    ctx.take(service, "Current Fan State");
+    // Its speed and modes show while it runs: a fan beside an air conditioner's own speed reads as one row when off.
+    const body = el("div", { class: "w-block-body" },
+      canWrite(speed) ? speedControl(ctx, service, speed) : null,
+      canWrite(target) ? modeControl(ctx, service, target) : null,
+      el("div", { class: "chips" }, chipFor(ctx, service, ctx.char(service, "Swing Mode"), "Swing"), chipFor(ctx, service, ctx.char(service, "Lock Physical Controls"), "Child lock")));
+    ctx.watch(() => { body.hidden = !isOn(power); });
+    return el("div", { class: "w-block" }, el("div", { class: "w-row" }, el("span", { class: "w-label", text: name }), control.node), body);
+  }
+
+  /// A writable enumeration of two to four values as a segmented control (more stay a menu, under More).
+  function modeControl(ctx, service, characteristic, label = sentence(characteristic.type)) {
+    const values = characteristic.validValues || (enumLabels[characteristic.type] || []).map((_, i) => i);
+    if (values.length < 2 || values.length > 4) return null;
+    ctx.use(characteristic);
+    const control = segmented(values.map((value) => ({ value, label: labelFor(characteristic.type, value) })), label, (v) => ctx.write(service, characteristic, v));
+    ctx.watch(() => control.set(characteristic.value));
+    return control.node;
+  }
+
+  // ---- Climate: a heater-cooler or a thermostat ---------------------------------------------------------
+
+  /// The parts of a climate service, read the same way for both kinds: its modes as "off", "auto", "heat"
+  /// and "cool", the setpoint each mode uses, its state now.
+  function climateParts(ctx, service) {
+    const heaterCooler = service.type === "HeaterCooler";
+    const part = (type) => ctx.take(service, type);
+    const parts = {
+      service, heaterCooler,
+      active: heaterCooler ? part("Active") : null,
+      target: part(heaterCooler ? "Target Heater-Cooler State" : "Target Heating Cooling State"),
+      state: part(heaterCooler ? "Current Heater-Cooler State" : "Current Heating Cooling State"),
+      current: part("Current Temperature"),
+      heat: part("Heating Threshold Temperature"), cool: part("Cooling Threshold Temperature"),
+      single: heaterCooler ? null : part("Target Temperature"),
+      humidity: part("Current Relative Humidity"),
+    };
+    const modeNames = heaterCooler ? ["auto", "heat", "cool"] : ["off", "heat", "cool", "auto"];
+    parts.mode = () => {
+      if (parts.active && !isOn(parts.active)) return "off";
+      return modeNames[numberOf(parts.target)] ?? "auto";
+    };
+    /// The setpoints a mode shows: both thresholds in auto, else the one it heats or cools to.
+    parts.setpoints = (mode) => {
+      if (mode === "auto") return parts.heat && parts.cool ? [parts.heat, parts.cool] : [parts.single].filter(Boolean);
+      if (mode === "heat") return [parts.single || parts.heat].filter(Boolean);
+      if (mode === "cool") return [parts.single || parts.cool].filter(Boolean);
+      return [];
+    };
+    /// "heating", "cooling" or "idle", from the current state.
+    parts.working = () => {
+      const state = numberOf(parts.state);
+      if (heaterCooler) return state === 2 ? "heating" : state === 3 ? "cooling" : "idle";
+      return state === 1 ? "heating" : state === 2 ? "cooling" : "idle";
+    };
+    /// The mode as it shows when off: the one it would come back in.
+    parts.lastMode = () => modeNames[numberOf(parts.target)] ?? "auto";
+    return parts;
+  }
+
+  /// A setpoint control per temperature a service has; `show(list)` shows those a mode uses.
+  function setpointControls(ctx, parts) {
+    const labels = new Map([[parts.heat, "Heat to"], [parts.cool, "Cool to"], [parts.single, "Set to"]]);
+    const controls = [...labels.keys()].filter((c) => canWrite(c)).map((characteristic) => {
+      const control = setpoint({ label: labels.get(characteristic), min: characteristic.minValue ?? 10, max: characteristic.maxValue ?? 35, step: characteristic.minStep || 0.5 },
+        (v) => ctx.write(parts.service, characteristic, v));
+      ctx.watch(() => control.set(numberOf(characteristic)));
+      return { characteristic, control };
+    });
+    return {
+      nodes: controls.map(({ control }) => control.node),
+      show(list) {
+        for (const { characteristic, control } of controls) control.node.hidden = !list.includes(characteristic);
+        // One setpoint per mode with a single target: "Heat to" or "Cool to" rather than "Set to".
+        const single = controls.find((one) => one.characteristic === parts.single);
+        if (single) single.control.node.querySelector(".sp-value span").textContent = { heat: "Heat to", cool: "Cool to" }[parts.mode()] ?? "Set to";
+      },
+    };
+  }
+
+  /// The modes a climate service offers, as a segmented control (Auto, Heat, Cool; Off for a thermostat).
+  function climateModes(ctx, parts) {
+    if (!canWrite(parts.target)) return null;
+    const values = parts.target.validValues || enumLabels[parts.target.type].map((_, i) => i);
+    const order = parts.heaterCooler ? [0, 1, 2] : [0, 3, 1, 2];
+    const options = order.filter((v) => values.includes(v)).map((value) => ({ value, label: labelFor(parts.target.type, value) }));
+    if (options.length < 2) return null;
+    const control = segmented(options, "Mode", (v) => ctx.write(parts.service, parts.target, v));
+    ctx.watch(() => control.set(parts.target.value));
+    return control.node;
+  }
+
+  /// A thermostat inside another accessory's card (a purifier's heater): its modes and setpoint.
+  function climateBlock(ctx, service, name) {
+    const parts = climateParts(ctx, service);
+    const points = setpointControls(ctx, parts);
+    const now = el("span", { class: "muted" });
+    ctx.watch(() => {
+      points.show(parts.setpoints(parts.mode() === "off" ? parts.lastMode() : parts.mode()));
+      now.textContent = typeof parts.current?.value === "number" && parts.current.value > -40 ? `${degrees(+parts.current.value.toFixed(1))} now` : "";
+    });
+    const power = parts.active ? toggle(`${name}: on`, (v) => ctx.write(service, parts.active, v ? 1 : 0)) : null;
+    if (power) ctx.watch(() => power.set(isOn(parts.active)));
+    return el("div", { class: "w-block" },
+      el("div", { class: "w-row" }, el("span", { class: "w-label" }, name, " ", now), power?.node ?? null),
+      climateModes(ctx, parts), el("div", { class: "setpoints row-setpoints" }, points.nodes));
+  }
+
+  // ---- Locks and doors ---------------------------------------------------------------------------------
+
+  /// A lock: its state, a hold to unlock, a tap to lock.
+  function lockRow(ctx, service, name) {
+    const current = ctx.take(service, "Lock Current State"), target = ctx.take(service, "Lock Target State");
+    const state = pill();
+    const unlock = canWrite(target) ? hold("Hold to unlock", () => ctx.write(service, target, 0, { held: true })) : null;
+    const lock = canWrite(target) ? el("button", { type: "button", class: "w-button", text: "Lock", onclick: () => ctx.write(service, target, 1, { held: true }) }) : null;
+    ctx.watch(() => {
+      const value = numberOf(current, numberOf(target, 3));
+      state.textContent = labelFor(current.type, value);
+      state.className = `pill ${value === 1 ? "ok" : value === 2 ? "bad" : "warn"}`;
+      if (unlock) unlock.node.hidden = numberOf(target) === 0;
+      if (lock) lock.hidden = numberOf(target) !== 0;
+    });
+    return el("div", { class: "lock-row" }, el("div", { class: "lock-name" }, el("strong", { text: name }), state), unlock?.node ?? null, lock);
+  }
+
+  // ---- The widgets ------------------------------------------------------------------------------------
+  // Each: its `name` (the kind a default size is kept for), the service types it draws, its default `size`
+  // (or a function of the accessory), and build(ctx, primary, size). The size is "small", "medium" or "large",
+  // the fixed boxes of the wall, or "full", every control, in the sheet. build answers
+  //   body        the nodes under the header (medium, large, full); side, in full, the nodes beside them
+  //   facets      in full, the other services, as facets() makes them
+  //   power       { service, characteristic, big }: the switch in the header
+  //   status()    [text, tone]: the line under the name
+  //   on()        whether the tile is lit; color() a light's colour for it; tone the tile's colour
+  //   hero()      a small tile's figure (its temperature, its brightness)
+  //   tap()       a small tile's action, tapLabel() what it does; without, a tap opens the full view
+  //   hold        { armed(), confirm(), tap(), verb() }: a small tile held to confirm (opening a gate)
+  //   shade()     a shutter's closed share, drawn on its small tile
+
+  const widgets = [];
+  const register = (widget) => widgets.push(widget);
+  const sizes = ["small", "medium", "large"];
+
+  // Which service an accessory is drawn by, when none says it is primary: the first of these.
+  const rank = ["Television", "HeaterCooler", "Thermostat", "AirPurifier", "SecuritySystem", "GarageDoorOpener", "LockMechanism", "WindowCovering",
+    "Door", "Window", "Valve", "Fanv2", "Fan", "Lightbulb", "Outlet", "Switch", ...Object.keys(readings)];
+  function primaryOf(ctx) {
+    const candidates = ctx.services.filter((service) => !quietServices.has(service.type));
+    const flagged = candidates.find((service) => service.primary);
+    if (flagged) return flagged;
+    const order = (service) => { const index = rank.indexOf(service.type); return index < 0 ? rank.length : index; };
+    return [...candidates].sort((a, b) => order(a) - order(b))[0];
+  }
+
+  /// Chips for the bools of a service a widget offers as options (Swing, Child lock).
+  const optionChips = (ctx, service) => [chipFor(ctx, service, ctx.char(service, "Swing Mode"), "Swing"), chipFor(ctx, service, ctx.char(service, "Lock Physical Controls"), "Child lock")].filter(Boolean);
+  const chipRow = (nodes) => nodes.length ? el("div", { class: "chips" }, nodes) : null;
+  const row = (label, ...nodes) => el("div", { class: "w-row" }, label ? el("span", { class: "w-label", text: label }) : null, ...nodes);
+
+  /// A switch of a group as a tile of its own: its name and state; a tap toggles it.
+  function miniToggle(ctx, service, characteristic, name) {
+    ctx.use(characteristic);
+    const state = el("span");
+    const node = el("button", { type: "button", class: "mini-toggle", onclick: () => ctx.write(service, characteristic, onValue(characteristic, !isOn(characteristic))) }, el("b", { text: name }), state);
+    ctx.watch(() => { node.setAttribute("aria-pressed", String(isOn(characteristic))); state.textContent = isOn(characteristic) ? "On" : "Off"; });
+    return node;
+  }
+
+  /// The readings of an accessory's sensors as one line ("21.4 °C · 48 % · air good").
+  function readingLine(ctx, handled = []) {
+    const list = ctx.services.filter((s) => readings[s.type] && !handled.includes(s)).map((s) => reading(ctx, s)).filter(Boolean);
+    const filter = ctx.char(ctx.find("FilterMaintenance"), "Filter Life Level");
+    const node = el("div", { class: "w-line" });
+    ctx.watch(() => {
+      const parts = list.map((one) => { const v = one.value(); return `${v.text}${v.unit ? ` ${v.unit}` : ""}`; });
+      if (filter) parts.push(`filter ${Math.round(numberOf(filter))} %`);
+      node.textContent = parts.join(" · ");
+    });
+    return list.length || filter ? node : null;
+  }
+
+  register({
+    name: "switch-group", types: ["Switch", "Outlet"], icon: "switch", tone: "green", size: "medium",
+    // An accessory of switches only (a chime's speakers, a remote's buttons): chips, or a tile each.
+    match: (ctx) => {
+      const shown = ctx.services.filter((s) => !quietServices.has(s.type));
+      return shown.length >= 2 && shown.every((s) => (s.type === "Switch" || s.type === "Outlet") && canWrite(ctx.char(s, "On")) && !ctx.char(s, "On").security);
+    },
+    build(ctx, primary, size) {
+      const switches = ctx.services.filter((s) => !quietServices.has(s.type));
+      const ons = switches.map((s) => ctx.char(s, "On"));
+      const count = () => ons.filter(isOn).length;
+      const body = size === "large" || size === "full"
+        ? [el("div", { class: "toggles" }, switches.map((s, i) => miniToggle(ctx, s, ons[i], shortName(ctx.accessory, s))))]
+        : [chipRow(switches.map((s, i) => chipFor(ctx, s, ons[i], shortName(ctx.accessory, s))))];
+      return {
+        body, hero: () => `${count()}/${ons.length}`,
+        status: () => [count() ? `${count()} of ${ons.length} on` : "All off"],
+        on: () => count() > 0,
+      };
+    },
+  });
+
+  register({
+    name: "television", types: ["Television"], icon: "tv", tone: "blue", size: "large",
+    build(ctx, primary, size) {
+      const active = ctx.take(primary, "Active");
+      const remoteKey = ctx.take(primary, "Remote Key");
+      const input = ctx.take(primary, "Active Identifier");
+      const speaker = ctx.find("TelevisionSpeaker");
+      const volume = ctx.char(speaker, "Volume Selector"), mute = ctx.char(speaker, "Mute");
+      if (speaker) ctx.useAll(speaker);
+      const remote = () => {
+        if (!canWrite(remoteKey) || !window.HomeswiftRemote) return null;
+        const homeKitKeys = { up: 4, down: 5, left: 6, right: 7, select: 8, back: 9, playPause: 11, info: 15 };
+        const actions = [...Object.keys(homeKitKeys), ...(canWrite(volume) ? ["volumeUp", "volumeDown"] : []), ...(canWrite(mute) ? ["mute"] : [])];
+        return el("div", { class: "card-remote" }, HomeswiftRemote.build({
+          actions, label: `Remote for ${ctx.accessory.name}`,
+          send: (action) => {
+            if (action in homeKitKeys) return ctx.send(primary, remoteKey, homeKitKeys[action]);
+            if (action === "volumeUp" || action === "volumeDown") return ctx.send(speaker, volume, action === "volumeUp" ? 0 : 1);
+            return ctx.write(speaker, mute, !isOn(mute));
+          },
+        }));
+      };
+      const picker = () => canWrite(input) ? inputPicker(ctx, primary, input) : null;
+      const inputName = () => {
+        const chosen = ctx.accessory.services.find((s) => s.type === "InputSource" && ctx.char(s, "Identifier")?.value === input?.value);
+        return chosen ? ctx.char(chosen, "Configured Name")?.value || chosen.name : null;
+      };
+      const volumeKeys = () => canWrite(volume) ? ["minus", "plus"].map((glyph, i) => el("button", { type: "button", class: "round", "aria-label": i ? "Volume up" : "Volume down",
+        onclick: () => ctx.send(speaker, volume, i ? 0 : 1).catch((e) => ctx.flash(e.message)) }, icon(glyph))) : [];
+      const parts = {
+        power: canWrite(active) ? { service: primary, characteristic: active } : null,
+        status: () => isOn(active) ? [inputName() ? `On · ${inputName()}` : "On"] : ["Off"],
+        on: () => isOn(active),
+        tap: canWrite(active) ? () => ctx.write(primary, active, isOn(active) ? 0 : 1) : null,
+      };
+      if (size === "medium") parts.body = [el("div", { class: "w-row" }, picker(), el("div", { class: "w-keys" }, volumeKeys(), canWrite(mute) ? chipFor(ctx, speaker, mute, "Mute") : null))];
+      if (size === "large") parts.body = [remote(), input ? row("Input", picker()) : null].filter(Boolean);
+      if (size === "full") Object.assign(parts, { body: [remote()].filter(Boolean), side: input ? [row("Input", picker())] : [], facets: facets(ctx, [primary, speaker]) });
+      return parts;
+    },
+  });
+
+  register({
+    name: "climate", types: ["HeaterCooler", "Thermostat"], icon: "thermo", size: "large",
+    build(ctx, primary, size) {
+      const parts = climateParts(ctx, primary);
+      const now = () => typeof parts.current?.value === "number" ? parts.current.value : null;
+      const mode = () => parts.mode();
+      const shownMode = () => mode() === "off" ? parts.lastMode() : mode();
+      const built = {
+        power: canWrite(parts.active) ? { service: primary, characteristic: parts.active } : null,
+        tone: () => ({ heat: "heat", cool: "blue", auto: "green" })[shownMode()] ?? "teal",
+        on: () => mode() !== "off",
+        hero: () => now() === null ? "" : el("span", {}, degrees(+now().toFixed(1)), el("small", { text: mode() })),
+        tap: canWrite(parts.active) ? () => ctx.write(primary, parts.active, isOn(parts.active) ? 0 : 1) : null,
+        status() {
+          const inside = now() === null ? "" : `${degrees(+now().toFixed(1))} inside`;
+          if (mode() === "off") return [inside ? `Off · ${inside}` : "Off"];
+          const shown = parts.setpoints(mode());
+          const working = parts.working();
+          if (shown.length === 2) {
+            if (working === "heating") return [`Heating to ${degrees(numberOf(shown[0]))}`, "heat"];
+            if (working === "cooling") return [`Cooling to ${degrees(numberOf(shown[1]))}`, "cool"];
+            return [`Keeping ${degrees(numberOf(shown[0]))}–${degrees(numberOf(shown[1]))}`, "auto"];
+          }
+          const target = shown[0] ? degrees(numberOf(shown[0])) : "";
+          if (working === "heating") return [`Heating to ${target}`, "heat"];
+          if (working === "cooling") return [`Cooling to ${target}`, "cool"];
+          return [`Idle · ${mode()} to ${target}`];
+        },
+      };
+      if (size === "small") return built;
+      const points = setpointControls(ctx, parts);
+      if (size === "medium") {
+        // The temperature inside and one setpoint: the mode's own (Cool to in auto).
+        const big = el("b", { class: "w-big" });
+        ctx.watch(() => {
+          const shown = parts.setpoints(shownMode());
+          points.show(shown.slice(-1));
+          big.textContent = now() === null ? "–" : degrees(+now().toFixed(1));
+        });
+        built.body = [el("div", { class: "w-row" }, el("div", { class: "w-figure" }, big, el("span", { text: "Inside" })), el("div", { class: "setpoints" }, points.nodes))];
+        return built;
+      }
+      const temps = [parts.heat, parts.cool, parts.single].filter(Boolean);
+      const min = Math.min(...temps.map((c) => c.minValue ?? 10), 10), max = Math.max(...temps.map((c) => c.maxValue ?? 35), 30);
+      const dial = gauge({ min, max });
+      const colors = { heat: "var(--heat)", cool: "var(--cool)", auto: "var(--auto)" };
+      ctx.watch(() => {
+        const shown = parts.setpoints(shownMode());
+        points.show(shown);
+        const caption = typeof parts.humidity?.value === "number" ? `Inside · ${Math.round(parts.humidity.value)} %` : "Inside";
+        if (mode() === "off" || !shown.length) dial.update({ value: now(), caption });
+        else if (shown.length === 2) dial.update({ value: now(), from: numberOf(shown[0]), to: numberOf(shown[1]), color: colors.auto, caption });
+        else dial.update({ value: now(), from: now() ?? numberOf(shown[0]), to: numberOf(shown[0]), color: colors[mode()], caption });
+      });
+      const speed = ctx.take(primary, "Rotation Speed");
+      const chips = optionChips(ctx, primary);
+      built.body = [
+        el("div", { class: "climate-hero" }, dial.node, el("div", { class: "setpoints" }, points.nodes)),
+        climateModes(ctx, parts),
+        canWrite(speed) ? speedControl(ctx, primary, speed) : null,
+        chipRow(chips),
+      ].filter(Boolean);
+      if (size === "full") built.facets = facets(ctx, [primary]);
+      return built;
+    },
+  });
+
+  register({
+    name: "air-purifier", types: ["AirPurifier"], icon: "wind", tone: "teal", size: "large",
+    build(ctx, primary, size) {
+      const active = ctx.take(primary, "Active"), state = ctx.take(primary, "Current Air Purifier State");
+      const target = ctx.char(primary, "Target Air Purifier State"), speed = ctx.take(primary, "Rotation Speed");
+      const quality = ctx.char(ctx.find("AirQualitySensor"), "Air Quality");
+      const built = {
+        power: canWrite(active) ? { service: primary, characteristic: active } : null,
+        on: () => isOn(active),
+        tap: canWrite(active) ? () => ctx.write(primary, active, isOn(active) ? 0 : 1) : null,
+        hero: () => quality ? el("span", { class: "w-hero-word" }, labelFor(quality.type, quality.value)) : speed && isOn(active) ? `${numberOf(speed)}%` : "",
+        status() {
+          if (!isOn(active)) return [quality ? `Off · air ${labelFor(quality.type, quality.value).toLowerCase()}` : "Off"];
+          const how = target && numberOf(target) === 1 ? "auto" : speed ? `${numberOf(speed)} %` : "";
+          return numberOf(state) === 2 ? [how ? `Purifying · ${how}` : "Purifying", "ok"] : ["Idle"];
+        },
+      };
+      if (size === "small") return built;
+      const speedNode = canWrite(speed) ? speedControl(ctx, primary, speed, "linear-gradient(90deg, #8fe3da, #1c9c91)") : null;
+      if (size === "medium") { built.body = [speedNode ?? modeControl(ctx, primary, target, "Mode"), readingLine(ctx)].filter(Boolean); return built; }
+      const mode = modeControl(ctx, primary, target, "Mode");
+      const chips = optionChips(ctx, primary);
+      if (size === "large") {
+        const f = facets(ctx, [primary]);
+        built.body = [mode, speedNode, f.readouts.length ? el("div", { class: "readouts four" }, f.readouts.slice(0, 4)) : null, f.meters[0] ?? null, chipRow([...chips, ...f.chips])].filter(Boolean);
+        return built;
+      }
+      built.body = [mode, speedNode, chipRow(chips)].filter(Boolean);
+      built.facets = facets(ctx, [primary]);
+      return built;
+    },
+  });
+
+  register({
+    name: "fan", types: ["Fanv2", "Fan"], icon: "fan", tone: "teal", size: "medium",
+    build(ctx, primary, size) {
+      const power = ctx.take(primary, "Active") || ctx.take(primary, "On");
+      const speed = ctx.take(primary, "Rotation Speed");
+      ctx.take(primary, "Current Fan State");
+      const built = {
+        power: canWrite(power) ? { service: primary, characteristic: power } : null,
+        on: () => isOn(power), hero: () => speed && isOn(power) ? `${numberOf(speed)}%` : "",
+        tap: canWrite(power) ? () => ctx.write(primary, power, onValue(power, !isOn(power))) : null,
+        status: () => isOn(power) ? [speed ? `On · ${numberOf(speed)} %` : "On"] : ["Off"],
+      };
+      const speedNode = canWrite(speed) ? speedControl(ctx, primary, speed) : null;
+      if (size === "medium") built.body = [speedNode ?? chipRow(optionChips(ctx, primary))].filter(Boolean);
+      if (size === "large" || size === "full") {
+        built.body = [speedNode, modeControl(ctx, primary, ctx.char(primary, "Target Fan State"), "Mode"),
+          modeControl(ctx, primary, ctx.char(primary, "Rotation Direction"), "Direction"), chipRow(optionChips(ctx, primary))].filter(Boolean);
+      }
+      if (size === "full") built.facets = facets(ctx, [primary]);
+      return built;
+    },
+  });
+
+  register({
+    name: "light", types: ["Lightbulb"], icon: "bulb", tone: "light",
+    size: (ctx, primary) => canWrite(ctx.char(primary, "Brightness")) || canWrite(ctx.char(primary, "Hue")) || canWrite(ctx.char(primary, "Color Temperature")) ? "medium" : "small",
+    match: (ctx, primary) => canWrite(ctx.char(primary, "On")),
+    build(ctx, primary, size) {
+      const on = ctx.take(primary, "On");
+      const brightness = ctx.char(primary, "Brightness");
+      const light = lightParts(ctx, primary);
+      const built = {
+        power: { service: primary, characteristic: on },
+        tap: () => ctx.write(primary, on, onValue(on, !isOn(on))),
+        on: () => isOn(on), color: light.color,
+        hero: () => brightness && isOn(on) ? `${numberOf(brightness)}%` : "",
+        status: () => isOn(on) ? [[brightness ? `On · ${numberOf(brightness)} %` : "On", light.adaptiveOn() ? "Adaptive" : ""].filter(Boolean).join(" · ")] : ["Off"],
+      };
+      // A white-only light's Adaptive control sits beside its white slider.
+      const whiteRow = (options) => light.white ? (light.adaptive ? el("div", { class: "w-row" }, el("div", { class: "w-grow" }, light.white(options)), light.adaptive("round")) : light.white(options)) : null;
+      if (size === "medium") built.body = [light.brightness?.(), light.swatches?.() ?? whiteRow({ thin: true })].filter(Boolean);
+      if (size === "large") {
+        // A tall brightness beside the colours, or beside a tall white (and the Adaptive chip under it).
+        const tall = light.brightness?.({ vertical: true });
+        const side = light.swatches ? [light.swatches({ grid: true }), light.white?.({ thin: true })] : [light.white?.({ vertical: true }), light.adaptive?.("chip")];
+        built.body = [el("div", { class: "light-large" }, tall, el("div", { class: light.swatches ? "light-colours" : "light-tall" }, side.filter(Boolean)))];
+      }
+      if (size === "full") Object.assign(built, { body: lightBody(ctx, primary).nodes, facets: facets(ctx, [primary]) });
+      return built;
+    },
+  });
+
+  register({
+    name: "cover", types: ["WindowCovering", "Door", "Window"], icon: "blind", tone: "blue", size: "small",
+    match: (ctx, primary) => canWrite(ctx.char(primary, "Target Position")),
+    build(ctx, primary, size) {
+      const current = ctx.take(primary, "Current Position"), target = ctx.take(primary, "Target Position");
+      const state = ctx.take(primary, "Position State"), obstruction = ctx.take(primary, "Obstruction Detected");
+      const hold = ctx.take(primary, "Hold Position");
+      const min = target.minValue ?? 0, max = target.maxValue ?? 100;
+      const position = () => numberOf(current, numberOf(target));
+      const built = {
+        tap: () => ctx.write(primary, target, position() > min ? min : max),
+        tapLabel: () => position() > min ? "close" : "open",
+        on: () => position() > min, hero: () => `${position()}%`, shade: () => 100 - (position() - min) / (max - min) * 100,
+        // The small tile slides: dragged down it closes, up it opens, written when let go.
+        slide: { min, max, step: target.minStep || 1, value: position, commit: (v) => ctx.write(primary, target, v) },
+        status() {
+          if (isOn(obstruction)) return ["Obstructed", "warn"];
+          const moving = numberOf(state, 2);
+          if (moving === 1) return ["Opening…", "cool"];
+          if (moving === 0) return ["Closing…", "cool"];
+          const p = position();
+          return [p <= min ? "Closed" : p >= max ? "Open" : `Open · ${p} %`];
+        },
+      };
+      if (size === "small") return built;
+      // Stop: Hold Position where it has one, else the position it is at as the target.
+      const buttons = [["up", "Open", () => ctx.write(primary, target, max)],
+        ["stop", "Stop", () => canWrite(hold) ? ctx.write(primary, hold, true) : ctx.write(primary, target, position())],
+        ["down", "Close", () => ctx.write(primary, target, min)]].map(([glyph, label, act]) => el("button", { type: "button", class: "round", "aria-label": label, title: label, onclick: act }, icon(glyph)));
+      const slider = (vertical) => {
+        const control = level({ label: "Position", min, max, step: target.minStep || 1, format: (v) => `${v} %`, vertical,
+          fill: `linear-gradient(${vertical ? "0deg" : "90deg"}, #4aa3ff, #a8dbff)` }, (v) => ctx.write(primary, target, v));
+        ctx.watch(() => control.set(numberOf(target, position())));
+        return control.node;
+      };
+      const tilts = ["Target Horizontal Tilt Angle", "Target Vertical Tilt Angle"].map((type) => ctx.take(primary, type)).filter(canWrite).map((tilt) => {
+        const one = level({ label: "Tilt", min: tilt.minValue ?? -90, max: tilt.maxValue ?? 90, step: tilt.minStep || 1, format: (v) => `${v}°`, thin: true }, (v) => ctx.write(primary, tilt, v));
+        ctx.watch(() => one.set(numberOf(tilt)));
+        return one.node;
+      });
+      for (const type of ["Current Horizontal Tilt Angle", "Current Vertical Tilt Angle"]) ctx.take(primary, type);
+      if (size === "medium") built.body = [el("div", { class: "w-row" }, el("div", { class: "w-grow" }, slider(false)), ...buttons)];
+      if (size === "large") built.body = [el("div", { class: "cover-large" }, slider(true), el("div", { class: "cover-buttons" }, buttons, tilts))];
+      if (size === "full") Object.assign(built, { body: [slider(false), el("div", { class: "w-keys" }, buttons), ...tilts], facets: facets(ctx, [primary]) });
+      return built;
+    },
+  });
+
+  /// A small tile held to confirm, for what opens or unlocks; tapped, it does the safe thing.
+  register({
+    name: "garage-door", types: ["GarageDoorOpener"], icon: "gate", tone: "violet", size: "medium",
+    build(ctx, primary, size) {
+      const current = ctx.take(primary, "Current Door State"), target = ctx.take(primary, "Target Door State");
+      const obstruction = ctx.take(primary, "Obstruction Detected");
+      const doorState = () => numberOf(current, numberOf(target, 1));
+      const asked = () => numberOf(target, 1);
+      const locks = ctx.all("LockMechanism").filter((s) => ctx.char(s, "Lock Current State"));
+      const unlocked = () => locks.filter((s) => numberOf(ctx.char(s, "Lock Current State"), 1) !== 1);
+      const openIt = () => ctx.write(primary, target, 0, { held: true }), closeIt = () => ctx.write(primary, target, 1, { held: true });
+      const built = {
+        on: () => doorState() !== 1 || unlocked().length > 0,
+        hero: () => icon(unlocked().length ? "lock" : "lock"),
+        hold: canWrite(target) ? { armed: () => asked() === 1, confirm: openIt, tap: () => { if (asked() === 0) closeIt(); }, verb: () => asked() === 1 ? "hold to open" : "close" } : null,
+        status() {
+          const now = doorState();
+          const door = asked() !== now && now <= 1 ? (asked() === 0 ? "Opening" : "Closing") : labelFor(current.type, now);
+          if (isOn(obstruction)) return ["Obstructed", "warn"];
+          if (door === "Opening" || door === "Closing") return [`${door}…`, "warn"];
+          const names = unlocked().map((s) => shortName(ctx.accessory, s).toLowerCase());
+          if (now === 1 && !names.length) return [locks.length ? "Closed and locked" : "Closed", "ok"];
+          return [names.length ? `${door} · ${names.join(", ")} unlocked` : door, "warn"];
+        },
+      };
+      if (size === "small") return built;
+      const big = el("b", { class: "w-state" });
+      const warning = pill("Obstructed", "bad");
+      const open = canWrite(target) ? hold("Hold to open", openIt) : null;
+      const close = canWrite(target) ? el("button", { type: "button", class: "w-button", text: "Close", onclick: closeIt }) : null;
+      ctx.watch(() => {
+        big.textContent = labelFor(current.type, doorState());
+        warning.hidden = !isOn(obstruction);
+        if (open) open.node.hidden = asked() === 0;
+        if (close) close.hidden = asked() !== 0;
+      });
+      const actions = el("div", { class: "w-actions" }, open?.node ?? null, close);
+      if (size === "medium") { built.body = [el("div", { class: "w-row" }, el("div", { class: "big-state" }, big, warning), actions)]; return built; }
+      const lockRows = locks.map((s) => lockRow(ctx, s, shortName(ctx.accessory, s)));
+      built.body = [el("div", { class: "big-state" }, big, warning), actions, ...lockRows];
+      const f = facets(ctx, [primary, ...locks]);
+      if (size === "large") built.body.push(...(f.readouts.length ? [el("div", { class: "readouts" }, f.readouts.slice(0, 2))] : []));
+      else built.facets = f;
+      return built;
+    },
+  });
+
+  register({
+    name: "lock", types: ["LockMechanism"], icon: "lock", tone: "violet", size: "medium",
+    match: (ctx, primary) => !!ctx.char(primary, "Lock Current State"),
+    build(ctx, primary, size) {
+      const current = ctx.char(primary, "Lock Current State"), target = ctx.char(primary, "Lock Target State");
+      const built = {
+        on: () => numberOf(current, 1) !== 1,
+        hold: canWrite(target) ? { armed: () => numberOf(target, 1) === 1, confirm: () => ctx.write(primary, target, 0, { held: true }),
+          tap: () => { if (numberOf(target, 1) === 0) ctx.write(primary, target, 1, { held: true }); }, verb: () => numberOf(target, 1) === 1 ? "hold to unlock" : "lock" } : null,
+        status: () => { const v = numberOf(current, 3); return [labelFor(current.type, v), v === 1 ? "ok" : "warn"]; },
+      };
+      ctx.use(current, target);
+      if (size === "small") return built;
+      const lockNode = lockRow(ctx, primary, "");
+      lockNode.querySelector(".lock-name strong")?.remove();
+      built.body = [lockNode];
+      if (size === "full") built.facets = facets(ctx, [primary]);
+      return built;
+    },
+  });
+
+  register({
+    name: "security-system", types: ["SecuritySystem"], icon: "shield", tone: "violet", size: "medium",
+    build(ctx, primary, size) {
+      const current = ctx.take(primary, "Security System Current State"), target = ctx.take(primary, "Security System Target State");
+      const values = target?.validValues || [0, 1, 2, 3];
+      const disarm = () => ctx.write(primary, target, 3, { held: true });
+      const built = {
+        on: () => numberOf(current, 3) !== 3,
+        hold: canWrite(target) && values.includes(3) ? { armed: () => numberOf(target, 3) !== 3, confirm: disarm, tap: () => ctx.openFull(), verb: () => numberOf(target, 3) !== 3 ? "hold to turn off" : "open" } : null,
+        status: () => { const v = numberOf(current, 3); return [v === 4 ? "Alarm" : v === 3 ? "Off" : `Armed · ${labelFor(current.type, v)}`, v === 4 ? "bad" : v === 3 ? "" : "ok"]; },
+      };
+      if (size === "small") return built;
+      const big = el("b", { class: "w-state" });
+      const arm = canWrite(target) ? el("div", { class: "chips" }, values.filter((v) => v !== 3).map((value) =>
+        el("button", { type: "button", class: "chip", text: labelFor(target.type, value), onclick: () => ctx.write(primary, target, value, { held: true }) }))) : null;
+      const off = built.hold ? hold("Hold to turn off", disarm) : null;
+      ctx.watch(() => {
+        big.textContent = labelFor(current.type, numberOf(current, 3));
+        if (arm) for (const [i, button] of [...arm.children].entries()) button.setAttribute("aria-pressed", String(values.filter((v) => v !== 3)[i] === numberOf(target)));
+        if (off) off.node.hidden = numberOf(target, 3) === 3;
+      });
+      built.body = size === "medium" ? [el("div", { class: "w-row" }, big, arm), off?.node].filter(Boolean) : [el("div", { class: "big-state" }, big), arm, off?.node].filter(Boolean);
+      if (size === "full") built.facets = facets(ctx, [primary]);
+      return built;
+    },
+  });
+
+  register({
+    name: "valve", types: ["Valve"], icon: "drop", tone: "blue", size: "medium",
+    build(ctx, primary, size) {
+      const active = ctx.take(primary, "Active"), inUse = ctx.take(primary, "In Use");
+      const set = ctx.take(primary, "Set Duration"), remaining = ctx.take(primary, "Remaining Duration");
+      ctx.take(primary, "Valve Type");
+      // Remaining Duration is sent when the valve opens; the page counts down from there.
+      let endsAt = null, lastRemaining;
+      const running = () => isOn(inUse) || (isOn(active) && !inUse);
+      const left = () => endsAt ? Math.max(0, Math.round((endsAt - Date.now()) / 1000)) : numberOf(remaining);
+      ctx.watch(() => {
+        if (remaining && remaining.value !== lastRemaining) { lastRemaining = remaining.value; endsAt = running() ? Date.now() + numberOf(remaining) * 1000 : null; }
+        if (!running()) endsAt = null;
+      });
+      const toggleRun = () => ctx.write(primary, active, isOn(active) ? 0 : 1);
+      const built = {
+        on: () => running(), tap: toggleRun, tapLabel: () => isOn(active) ? "stop" : "run",
+        hero: () => running() ? clock(left()) : "",
+        status: () => running() ? [`Running · ${clock(left())} left`, "cool"] : isOn(active) ? ["Starting…"] : ["Off"],
+      };
+      // The figures move each second while it runs.
+      const ticker = setInterval(() => {
+        if (ctx.node && !ctx.node.isConnected && Date.now() - ctx.born > 2000) { clearInterval(ticker); return; }
+        if (running()) ctx.paint();
+      }, 1000);
+      if (size === "small") return built;
+      const px = size === "medium" ? 84 : 140, radius = px / 2 - 6, circumference = 2 * Math.PI * radius;
+      const ring = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      ring.setAttribute("viewBox", `0 0 ${px} ${px}`);
+      ring.setAttribute("aria-hidden", "true");
+      ring.innerHTML = `<circle class="ring-track" cx="${px / 2}" cy="${px / 2}" r="${radius}"/><circle class="ring" cx="${px / 2}" cy="${px / 2}" r="${radius}" stroke-dasharray="${circumference.toFixed(1)}"/>`;
+      const title = el("b"), detail = el("span");
+      const button = el("button", { type: "button", class: "valve-button", onclick: toggleRun }, ring, el("span", { class: "valve-text" }, title, detail));
+      button.style.width = button.style.height = `${px}px`;
+      const total = () => numberOf(set, numberOf(remaining, 0)) || 1;
+      ctx.watch(() => {
+        const on = running();
+        title.textContent = isOn(active) ? "Stop" : "Run";
+        detail.textContent = on ? `${clock(left())} left` : `for ${clock(numberOf(set, 0))}`;
+        ring.querySelector(".ring").style.strokeDashoffset = String(on ? circumference * (1 - clamp(left() / total(), 0, 1)) : circumference);
+        button.setAttribute("aria-label", `${isOn(active) ? "Stop" : "Run"} ${ctx.accessory.name}`);
+      });
+      let durations = null;
+      if (canWrite(set)) {
+        const choices = [60, 120, 300, 600, 900, 1800].filter((s) => s >= (set.minValue ?? 0) && s <= (set.maxValue ?? 3600));
+        if (!choices.includes(numberOf(set)) && numberOf(set) > 0) choices.push(numberOf(set));
+        choices.sort((a, b) => a - b);
+        const shown = choices.slice(0, 4).includes(numberOf(set)) ? choices.slice(0, 4) : [...choices.slice(0, 3), numberOf(set)];
+        const control = segmented(shown.map((s) => ({ value: s, label: s % 60 ? clock(s) : `${s / 60} min` })), "Duration", (v) => ctx.write(primary, set, v));
+        ctx.watch(() => control.set(numberOf(set)));
+        durations = control.node;
+      }
+      built.body = size === "medium" ? [el("div", { class: "w-row" }, button, el("div", { class: "w-grow" }, durations))] : [el("div", { class: "valve" }, button, durations)];
+      if (size === "full") built.facets = facets(ctx, [primary]);
+      return built;
+    },
+  });
+
+  register({
+    name: "toggle", types: ["Switch", "Outlet"],
+    match: (ctx, primary) => canWrite(ctx.char(primary, "On")),
+    icon: (ctx, primary) => primary.type === "Outlet" ? "outlet" : "switch", tone: "green", size: "small",
+    build(ctx, primary, size) {
+      const on = ctx.take(primary, "On"), inUse = ctx.take(primary, "Outlet In Use");
+      const status = () => isOn(on) ? [isOn(inUse) ? "On · in use" : "On"] : ["Off"];
+      const turn = (value) => ctx.write(primary, on, onValue(on, value), { held: true });
+      if (on.security) {
+        // A plugin's security switch (one that unlocks a door): held to turn on, a tap to turn off.
+        const built = { on: () => isOn(on), status, hold: { armed: () => !isOn(on), confirm: () => turn(true), tap: () => { if (isOn(on)) turn(false); }, verb: () => isOn(on) ? "turn off" : "hold to turn on" } };
+        if (size === "small") return built;
+        const turnOn = hold("Hold to turn on", () => turn(true));
+        const turnOff = el("button", { type: "button", class: "w-button", text: "Turn off", onclick: () => turn(false) });
+        ctx.watch(() => { turnOn.node.hidden = isOn(on); turnOff.hidden = !isOn(on); });
+        built.body = [turnOn.node, turnOff];
+        if (size === "full") built.facets = facets(ctx, [primary]);
+        return built;
+      }
+      const built = {
+        power: { service: primary, characteristic: on, big: size === "medium" },
+        tap: () => ctx.write(primary, on, onValue(on, !isOn(on))),
+        on: () => isOn(on), status,
+      };
+      if (size === "large") {
+        const button = el("button", { type: "button", class: "power-button", "aria-label": `${ctx.accessory.name}: power`, onclick: built.tap }, icon("power"));
+        ctx.watch(() => button.setAttribute("aria-pressed", String(isOn(on))));
+        built.power = null;
+        const f = facets(ctx, [primary]);
+        built.body = [button, f.readouts.length ? el("div", { class: "readouts" }, f.readouts.slice(0, 3)) : null, f.meters[0] ?? null, ...f.blocks.slice(0, 2), chipRow(f.chips)].filter(Boolean);
+      }
+      if (size === "medium") built.body = [];
+      if (size === "full") Object.assign(built, { body: [], facets: facets(ctx, [primary]) });
+      return built;
+    },
+  });
+
+  register({
+    name: "sensor", types: Object.keys(readings), icon: (ctx, primary) => readings[primary.type][1], tone: "teal", size: "small",
+    build(ctx, primary, size) {
+      const one = reading(ctx, primary);
+      const value = () => one?.value() ?? { text: "–" };
+      const built = {
+        on: () => false,
+        hero: () => { const v = value(); return el("span", { class: v.text.length > 6 ? "w-hero-word" : "" }, v.text, v.unit ? el("small", { text: v.unit }) : null); },
+        status: () => {
+          const others = ctx.services.filter((s) => s !== primary && readings[s.type]).map((s) => reading(ctx, s)?.value()).filter(Boolean);
+          const v = value();
+          return others.length ? [others.map((o) => `${o.text}${o.unit ? ` ${o.unit}` : ""}`).join(" · ")] : [labelFor(one?.main.type ?? "", one?.main.value ?? ""), v.tone === "warn" ? "warn" : ""];
+        },
+      };
+      if (size === "small") return built;
+      const f = facets(ctx, []);
+      built.body = [el("div", { class: `readouts${size === "medium" ? " three" : ""}` }, size === "medium" ? f.readouts.slice(0, 3) : f.readouts.slice(0, 6)), size !== "medium" ? f.meters[0] : null].filter(Boolean);
+      if (size === "full") built.facets = { chips: f.chips, readouts: [], meters: f.meters.slice(1), blocks: f.blocks };
+      return built;
+    },
+  });
+
+  // ---- Frames -----------------------------------------------------------------------------------------
+
+  const categoryIcons = {
+    lightbulb: ["bulb", "yellow"], television: ["tv", "blue"], tvSetTopBox: ["tv", "blue"], tvStreamingStick: ["tv", "blue"],
+    appleTV: ["tv", "blue"], switch: ["switch", "green"], programmableSwitch: ["switch", "green"], outlet: ["outlet", "green"],
+    sensor: ["sensor", "teal"], fan: ["fan", "teal"], airPurifier: ["wind", "teal"], speaker: ["speaker", "blue"], homePod: ["speaker", "blue"],
+    audioReceiver: ["speaker", "blue"], doorLock: ["lock", "violet"], thermostat: ["thermo", "yellow"], heater: ["thermo", "yellow"], airConditioner: ["thermo", "teal"],
+    garageDoorOpener: ["gate", "violet"], door: ["door", "violet"], window: ["door", "violet"], windowCovering: ["blind", "violet"],
+    ipCamera: ["camera", "grey"], videoDoorbell: ["camera", "grey"], faucet: ["drop", "blue"], sprinkler: ["drop", "blue"], securitySystem: ["shield", "violet"],
+  };
+
+  /// What no widget claims: the power in the header and the primary service's rows; in full, the rest under More.
+  const inspector = {
+    name: "inspector", size: "medium",
+    build(ctx, primary, size) {
+      const power = primary && primary.characteristics.find((c) => (c.type === "On" || c.type === "Active") && canWrite(c));
+      if (power) ctx.use(power);
+      const list = primary ? rows(ctx, primary) : [];
+      const shown = size === "medium" ? list.slice(0, 2) : size === "large" ? list.slice(0, 6) : list;
+      return {
+        body: shown.length ? [el("div", { class: "controls" }, shown)] : [],
+        power: power ? { service: primary, characteristic: power } : null,
+        tap: power ? () => ctx.write(primary, power, onValue(power, !isOn(power))) : null,
+        on: () => power ? isOn(power) : false,
+        status: () => [describeModel(ctx.accessory)],
+      };
+    },
+  };
+
+  function resolve(ctx) {
+    const primary = primaryOf(ctx);
+    const widget = primary && widgets.find((w) => w.types.includes(primary.type) && (!w.match || w.match(ctx, primary))) || inspector;
+    return { widget, primary };
+  }
+  const defaultOf = (widget, ctx, primary) => typeof widget.size === "function" ? widget.size(ctx, primary) : widget.size;
+
+  /// The kind of widget an accessory gets, and its default size there: what the page keeps defaults by.
+  function kindOf(accessory) {
+    if (accessory.camera && window.HomeswiftCamera) return { kind: "camera", size: "medium" };
+    const ctx = context(accessory);
+    const { widget, primary } = resolve(ctx);
+    return { kind: widget.name, size: defaultOf(widget, ctx, primary) };
+  }
+
+  /// The ⋯ menu: All controls (the full view), then what the page offers for the accessory, else Identify.
+  function actionsButton(ctx, full) {
+    const items = () => [
+      full ? null : { label: "All controls", icon: "edit", onSelect: () => open(ctx.accessory, ctx.options) },
+      full ? null : { separator: true },
+      ...(ctx.options.actions ? ctx.options.actions(ctx.accessory)
+        : [{ label: "Identify", icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(ctx.accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) }]),
+    ];
+    return menuButton(`Actions for ${ctx.accessory.name}`, items);
+  }
+  /// What the search box looks in: the names, the room, the plugin and the model.
+  const searchText = (accessory) => [accessory.name, accessory.displayName, accessory.room, accessory.platformName, accessory.model].filter(Boolean).join(" ").toLowerCase();
+
+  /// The widget for `accessory` at `size` ("small", "medium", "large"; the kind's default when left out), a box
+  /// of the wall's grid: 1×1, 2×1, 2×2.
+  function card(accessory, options = {}) {
+    const ctx = context(accessory, options);
+    ctx.openFull = () => open(accessory, options);
+    let node;
+    if (accessory.camera && window.HomeswiftCamera) node = cameraTile(ctx, sizes.includes(options.size) ? options.size : "medium");
+    else {
+      const { widget, primary } = resolve(ctx);
+      const size = sizes.includes(options.size) ? options.size : defaultOf(widget, ctx, primary);
+      node = frame(ctx, ...built(ctx, widget, primary, size), primary, size);
+    }
+    ctx.node = node;
+    cards.add(ctx);
+    return node;
+  }
+
+  /// A widget's parts at `size`; a widget that cannot draw this accessory leaves it to the rows rather than off the page.
+  function built(ctx, widget, primary, size) {
+    try { return [widget, widget.build(ctx, primary, size)]; } catch (e) {
+      console.error(`Widget ${widget.name} failed for ${ctx.accessory.name}`, e);
+      ctx.used.clear(); ctx.painters.length = 0;
+      return [inspector, inspector.build(ctx, primary, size)];
+    }
+  }
+
+  /// Every control of `accessory`, in a sheet over the page: its widget's, its facets, the rest under More.
+  function open(accessory, options = {}) {
+    const ctx = context(accessory, options);
+    let node;
+    if (accessory.camera && window.HomeswiftCamera) node = cameraCard(ctx);
+    else {
+      const { widget, primary } = resolve(ctx);
+      node = fullFrame(ctx, ...built(ctx, widget, primary, "full"), primary);
+    }
+    ctx.node = node;
+    cards.add(ctx);
+    const done = el("button", { type: "button", class: "link", text: "Done" });
+    const dialog = el("dialog", { class: "widget-sheet", "aria-label": accessory.name }, el("div", { class: "sheet-bar" }, done), node);
+    done.addEventListener("click", () => dialog.close());
+    dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
+    dialog.addEventListener("close", () => dialog.remove());
+    document.body.append(dialog);
+    dialog.showModal();
+    return dialog;
+  }
+
+  /// The tile's glyph, and a painter for its colour and state.
+  function glyphFor(ctx, widget, built, primary) {
+    const [fallbackIcon, fallbackTone] = categoryIcons[ctx.accessory.category] || ["generic", "grey"];
+    const pick = (value, fallback) => typeof value === "function" ? value(ctx, primary) : value ?? fallback;
+    const glyph = el("span", { class: "tile", "aria-hidden": "true" }, icon(pick(widget.icon, fallbackIcon)));
+    return [glyph, () => {
+      const on = built.on ? built.on() : true;
+      const color = on && built.color ? built.color() : null;
+      glyph.className = `tile tone-${color ? "light" : pick(built.tone, pick(widget.tone, fallbackTone))}${on ? "" : " is-off"}`;
+      glyph.style.setProperty("--light", color?.tile ?? "");
+      glyph.style.setProperty("--glow", color?.glow ?? "");
+    }];
+  }
+  function statusPainter(ctx, built, status) {
+    return () => {
+      const paused = ctx.accessory.paused ? [`Paused · ${ctx.accessory.platformName ?? "its plugin"}`, "warn"] : null;
+      const [text, tone] = ctx.flashing ? [ctx.flashing, "bad"] : paused ?? (built.status ? built.status() : [""]);
+      status.textContent = text;
+      if (tone) status.dataset.tone = tone; else delete status.dataset.tone;
+    };
+  }
+  function powerToggle(ctx, built) {
+    if (!built.power) return null;
+    const { service, characteristic, big } = built.power;
+    const control = toggle(`${ctx.accessory.name}: power`, (on) => ctx.write(service, characteristic, onValue(characteristic, on)));
+    if (big) control.node.classList.add("big");
+    ctx.watch(() => control.set(isOn(characteristic)));
+    return control.node;
+  }
+
+  /// A fixed box of the wall: a small tile (a tap acts, or a hold confirms), or a medium or large card with its
+  /// header and body; the ⋯ menu at the bottom right.
+  function frame(ctx, widget, built, primary, size) {
+    const { accessory } = ctx;
+    const [glyph, paintGlyph] = glyphFor(ctx, widget, built, primary);
+    const status = el("span", { class: "status" });
+    const who = el("div", { class: "who" }, el("strong", { text: accessory.displayName || accessory.name, title: accessory.displayName ? `${accessory.name} in the Home app` : null }), status);
+    const menu = actionsButton(ctx, false);
+    const node = el("article", { class: `card widget size-${size} widget-${widget.name}`, "data-search": searchText(accessory), "data-id": accessory.id });
+    if (size === "small") {
+      const hero = el("span", { class: "w-hero" });
+      const hit = el("button", { type: "button", class: "w-hit" });
+      const shade = built.shade ? el("span", { class: "w-shade", "aria-hidden": "true" }) : null;
+      if (built.hold) {
+        // Held to confirm: the tile fills; let go early and nothing happens. Tapped, the safe action.
+        let timer = null;
+        const cancel = () => { clearTimeout(timer); timer = null; node.classList.remove("holding"); };
+        hit.addEventListener("pointerdown", (event) => {
+          if (event.button !== 0 || !built.hold.armed()) return;
+          hit.setPointerCapture(event.pointerId);
+          node.classList.add("holding");
+          timer = setTimeout(() => { cancel(); built.hold.confirm(); }, HOLD_MS);
+        });
+        for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) hit.addEventListener(type, cancel);
+        hit.addEventListener("keydown", (event) => {
+          if ((event.key === " " || event.key === "Enter") && !event.repeat && built.hold.armed()) {
+            event.preventDefault();
+            node.classList.add("holding");
+            timer = setTimeout(() => { cancel(); built.hold.confirm(); }, HOLD_MS);
+          }
+        });
+        hit.addEventListener("keyup", (event) => { if (event.key === " " || event.key === "Enter") cancel(); });
+        hit.addEventListener("click", () => { if (!built.hold.armed()) built.hold.tap(); });
+        node.append(el("span", { class: "w-veil", "aria-hidden": "true" }));
+      } else hit.addEventListener("click", () => {
+        if (slid) { slid = false; return; }
+        built.tap ? built.tap() : ctx.openFull();
+      });
+      hit.addEventListener("contextmenu", (event) => { event.preventDefault(); menu.click(); });
+      // A shutter's tile slides: the shade follows the pointer, the position is written when it is let go. A
+      // mouse drags at once; a finger holds still a moment first, so a swipe still scrolls the page.
+      let sliding = null, slid = false;
+      if (built.slide) {
+        const { min, max, step } = built.slide;
+        let start = null, armed = false, holdTimer = null;
+        const at = (event) => {
+          const box = node.getBoundingClientRect();
+          const share = clamp((event.clientY - box.top) / box.height, 0, 1);
+          return clamp(Math.round((min + (1 - share) * (max - min)) / step) * step, min, max);
+        };
+        hit.addEventListener("pointerdown", (event) => {
+          if (event.button !== 0) return;
+          start = { x: event.clientX, y: event.clientY, id: event.pointerId };
+          armed = event.pointerType === "mouse";
+          clearTimeout(holdTimer);
+          if (!armed) holdTimer = setTimeout(() => { armed = true; node.classList.add("slide-ready"); }, 350);
+        });
+        hit.addEventListener("pointermove", (event) => {
+          if (!start) return;
+          const moved = Math.abs(event.clientY - start.y);
+          if (!armed) { if (moved > 6) { clearTimeout(holdTimer); start = null; } return; }
+          if (sliding === null && moved < 4) return;
+          if (sliding === null) { hit.setPointerCapture(start.id); node.classList.add("sliding"); }
+          sliding = at(event);
+          ctx.paint();
+        });
+        const finish = () => {
+          clearTimeout(holdTimer);
+          node.classList.remove("slide-ready", "sliding");
+          if (sliding !== null) { const value = sliding; sliding = null; slid = true; built.slide.commit(value); }
+          start = null; armed = false;
+        };
+        hit.addEventListener("pointerup", finish);
+        hit.addEventListener("pointercancel", () => { sliding = null; finish(); slid = false; ctx.paint(); });
+        // Once a finger has held still, the page does not scroll under it.
+        hit.addEventListener("touchmove", (event) => { if (armed) event.preventDefault(); }, { passive: false });
+      }
+      node.append(shade ?? "", hit, el("div", { class: "w-top" }, glyph, hero), el("div", { class: "w-bottom" }, who, menu));
+      ctx.watch(() => {
+        const on = built.on ? built.on() : false;
+        node.classList.toggle("on", on);
+        const value = sliding !== null ? `${sliding}%` : built.hero ? built.hero() : "";
+        hero.replaceChildren(...(value ? [value] : []));
+        if (shade) {
+          const { min, max } = built.slide ?? { min: 0, max: 100 };
+          shade.style.setProperty("--closed", `${sliding !== null ? 100 - (sliding - min) / (max - min) * 100 : built.shade()}%`);
+        }
+        const verb = built.hold ? built.hold.verb() : built.tap ? (built.tapLabel ? built.tapLabel() : on ? "turn off" : "turn on") : "show all controls";
+        hit.setAttribute("aria-label", `${accessory.name}: ${verb}`);
+        hit.setAttribute("aria-pressed", String(on));
+      });
+    } else {
+      const body = (built.body || []).filter(Boolean);
+      node.append(el("div", { class: "w-head" }, glyph, who, powerToggle(ctx, built)),
+        body.length ? el("div", { class: "w-body" }, body) : null, el("span", { class: "w-corner" }, menu));
+      node.classList.toggle("head-only", !body.length);
+      ctx.watch(() => node.classList.toggle("powered-off", !!built.power && !built.power.big && !isOn(built.power.characteristic)));
+    }
+    ctx.watch(paintGlyph);
+    ctx.watch(statusPainter(ctx, built, status));
+    paused(node, ctx);
+    return node;
+  }
+
+  /// A paused plugin's accessory: drawn quiet, its controls out of reach (inert: no pointer, no focus), its menu
+  /// still there to resume the plugin or change the widget.
+  function paused(node, ctx) {
+    if (!ctx.accessory.paused) return;
+    node.classList.add("paused");
+    for (const part of node.querySelectorAll(":scope > .w-hit, :scope > .w-body, :scope > .w-head .switch, :scope > .w-main, :scope > .w-split, :scope > details, :scope > .camera-view, :scope > .controls")) part.inert = true;
+  }
+
+  /// Every control: the widget's body (beside its facets when there are any), what is left under More, the foot.
+  function fullFrame(ctx, widget, built, primary) {
+    const { accessory } = ctx;
+    const [glyph, paintGlyph] = glyphFor(ctx, widget, built, primary);
+    const facetList = built.facets ? facetNodes(built.facets) : [];
+    const rest = leftovers(ctx);
+    const status = el("span", { class: "status" });
+    const body = (built.body || []).filter(Boolean), side = (built.side || []).filter(Boolean);
+    const names = rest.map((group) => group.querySelector(".service-name, .control > span")?.textContent).filter(Boolean);
+    const split = facetList.length + side.length > 0 && body.length > 0;
+    const node = el("article", { class: `card accessory-card widget widget-full widget-${widget.name}`, "data-id": accessory.id },
+      el("div", { class: "w-head" }, glyph, el("div", { class: "who" }, el("strong", { text: accessory.name }), status), powerToggle(ctx, built)),
+      split ? el("div", { class: "w-split" }, el("div", { class: "w-main" }, body), el("div", { class: "w-side" }, side, facetList))
+        : body.length + side.length + facetList.length ? el("div", { class: "w-main" }, body, side, facetList) : null,
+      rest.length ? el("details", { class: "more", open: rest.length <= 2 },
+        el("summary", { text: names.length > 3 ? `${names.slice(0, 2).join(", ")} and ${names.length - 2} more` : names.join(", ") }),
+        el("div", { class: "controls" }, rest)) : null,
+      el("div", { class: "card-foot" }, el("span", { class: "muted", text: [describeModel(accessory), accessory.bridge].filter(Boolean).join(" · ") }), actionsButton(ctx, true)));
+    if (built.power && !built.power.big) ctx.watch(() => node.classList.toggle("powered-off", !isOn(built.power.characteristic)));
+    ctx.watch(paintGlyph);
+    ctx.watch(statusPainter(ctx, built, status));
+    paused(node, ctx);
+    return node;
+  }
+
+  // Under a camera's video: its light (a package camera's flashlight), switches and HomeKit camera setting;
+  // sensors and the rest under "More".
+  const cameraFirst = new Set(["Lightbulb", "Switch", "Outlet", "CameraOperatingMode"]);
+  const cameraServiceNames = { CameraOperatingMode: "Camera", Microphone: "Microphone", Speaker: "Speaker" };
+
+  function cameraView(ctx) {
+    const { accessory } = ctx;
+    const find = (type, characteristic) => accessory.services.find((s) => s.type === type)?.characteristics.find((c) => c.type === characteristic);
+    return HomeswiftCamera.view({
+      id: accessory.id, name: accessory.name, doorbell: !!accessory.doorbell, lastRing: accessory.lastRing,
+      motion: find("MotionSensor", "Motion Detected")?.value === true, recording: find("CameraRecordingManagement", "Active")?.value === 1,
+    });
+  }
+
+  /// A camera on the wall: its picture fills the box, its name and state over it; a small one opens the full
+  /// card when tapped.
+  function cameraTile(ctx, size) {
+    const view = cameraView(ctx);
+    const node = el("article", { class: `card widget size-${size} widget-camera camera-tile`, "data-search": searchText(ctx.accessory), "data-id": ctx.accessory.id },
+      view.element, el("span", { class: "w-corner" }, actionsButton(ctx, false)));
+    if (size === "small") node.append(el("button", { type: "button", class: "w-hit", "aria-label": `${ctx.accessory.name}: show all controls`, onclick: () => ctx.openFull() }));
+    paused(node, ctx);
+    return node;
+  }
+
+  /// A camera's card: its live video or snapshots on top (camera.js), with its name and state over it, then
+  /// its controls. A doorbell's ring shows on the video rather than as a row.
+  function cameraCard(ctx) {
+    const { accessory } = ctx;
+    const view = cameraView(ctx);
+    for (const service of accessory.services) for (const c of service.characteristics) if (c.type === "Programmable Switch Event") ctx.use(c);
+    // A camera's sensors carry its own name: they read as what they are.
+    const named = (service) => {
+      const own = !service.name || service.name === accessory.name;
+      return own ? { ...service, name: cameraServiceNames[service.type] || service.type.replace(/([a-z])([A-Z])/g, "$1 $2") } : service;
+    };
+    const first = leftovers(ctx, ctx.services.filter((s) => cameraFirst.has(s.type)).map(named));
+    const more = leftovers(ctx, ctx.services.filter((s) => !cameraFirst.has(s.type)).map(named));
+    const names = more.map((group) => group.querySelector(".service-name, .control > span")?.textContent).filter(Boolean);
+    const subtitle = describeModel(accessory);
+    return el("div", { class: "card accessory-card camera-card widget widget-full widget-camera", "data-id": accessory.id },
+      view.element,
+      subtitle ? el("div", { class: "camera-meta muted", text: subtitle }) : null,
+      first.length ? el("div", { class: "controls" }, first) : null,
+      more.length ? el("details", { class: "more" },
+        el("summary", { text: names.length > 3 ? `${names.slice(0, 2).join(", ")} and ${names.length - 2} more` : names.join(", ") }),
+        el("div", { class: "controls" }, more)) : null,
+      el("div", { class: "card-foot" }, el("span", { class: "muted", text: accessory.bridge }), actionsButton(ctx, true)));
+  }
+
+  window.HomeswiftWidgets = {
+    card, open, kindOf, sizes, event, listen, describeModel, labelFor, enumLabels,
+    /// A page's own widget, tried before the built-in ones: { name, types, match?, icon, tone, size, build }.
+    register: (widget) => widgets.unshift(widget),
+    /// The controls the widgets are made of, for a page's own widget.
+    controls: { toggle, segmented, level, steps, setpoint, gauge, readout, meter, chip, hold, pill, icon },
+  };
+})();
 
 """#),
     ]

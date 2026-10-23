@@ -88,6 +88,32 @@ All notable changes to this project are documented here. The format follows
   `homeswift digest` feeds it the log on disk and the cached accessories.
 - **Organiser**: `AssistantService.suggestOrganization` suggests rooms, clearer names and orphans as
   schema-checked JSON, in batches, with aliased ids; `homeswift organize` runs it on the cached accessories.
+- **Accessory widgets** on the Accessories page (`widgets.js`): each accessory drawn by the widget of its kind,
+  from its primary service, on a wall of square units packed with no gaps, in a size chosen per accessory:
+  small (1×1, a tile a tap acts on), medium (2×1, its main control) or large (2×2). Climate (a gauge with the
+  band to the target, setpoints, modes, fan speed as bars), air purifier, fan, light (brightness, colour
+  swatches, white temperature in kelvin), shutter, gate, lock, alarm (opening, unlocking and disarming are
+  held, closing and locking a tap), valve (a run button counting down), switch groups, switches, sensors,
+  television and cameras. A widget's menu sets its size or its kind's ("Medium for every light") and opens
+  **All controls**, a sheet with every control: linked services as chips, readouts, meters and blocks, the
+  rest under More. **Edit** sets sizes and drags widgets into place; the page shows one wall, or a wall per
+  plugin. The bridge keeps the layout (`ui-layout.json`, `GET` and `PUT /api/layout`), the same for every user.
+  Changes show at once and are put back with the reason when the device refuses. Plugin pages can use them:
+  `HomeswiftWidgets.card(accessory, { size })`, `.open(accessory)` and `.listen()`.
+- **Adaptive Lighting from the web UI**: a light's sun swatch turns it off, or on again by resuming the last schedule
+  the Home app sent, moved by whole days (`AdaptiveLightingController.resumeAdaptiveLighting()`; the controller
+  keeps that schedule, saved with its state). `PUT /api/accessories/<id>/adaptive-lighting`; lights with it say so
+  in `/api/accessories`. The Elgato Key Lights and Philips Ambilight TV plugins now have Adaptive Lighting, which
+  stops when the light is set elsewhere (the Control Center app, Ambilight following video again).
+- **Paused plugins on the Accessories page**: their accessories are drawn striped, "Paused · *plugin*", their
+  controls out of reach, with **Resume** in their menu; `/api/accessories` marks them `paused`.
+- A shutter's small tile slides to a position (a finger holds it a moment first, so a swipe still scrolls), and
+  Edit drags widgets for real: the widget lifts and follows the pointer or finger, the others make room, the page
+  scrolls near its edges.
+- [docs/widgets.md](docs/widgets.md): the widgets, sizes and wall, with screenshots, and what a plugin does to get
+  good widgets (examples in Swift and for a plugin's own page, `HomeswiftWidgets.register` and `.controls`). The
+  README shows the web UI.
+
 - **The Assistant's chat** in the web UI: a sparkle button in the header, on every page, opens a chat where
   the Assistant answers and acts through the MCP server's tools, plugin actions included. Each change shows
   a card with a dry run's list of what would change and waits for Allow; writes go to the MCP audit log.
@@ -220,6 +246,11 @@ All notable changes to this project are documented here. The format follows
   the Home app's reads and writes, and of how long plugins take to reach their devices (average and longest),
   with the Logs page's time range and bridge or accessory menu, a crosshair and tooltip, and a table view. A
   record per minute is kept for 8 days under `metrics/` (`Metrics`, `GET /api/metrics`).
+- **Log payloads**: JSON of 160 bytes or more in a log line becomes a marker (`{…} 1.4 KB`) in the terminal and
+  the web UI, and the line's details: its **JSON** button on the Logs page shows them formatted, secrets
+  masked (`LogDetails`). **Save payloads** on the Logs page writes them to the log on disk as well (off by
+  default, kept in `logs/settings.json`). The Assistant's `get_recent_logs` and `search_logs` take
+  `details: true`; `search_logs` looks inside payloads and, with `hours`, back through the log on disk.
 - **`HAPServer.observeTimings`** and **`PluginHost.observeTimings`**: how long each controller request to
   `/characteristics` and each accessory read or write handler took, with the accessories it was about.
 - **MCP: child bridges**: `list_child_bridges`, `get_child_bridge_health` (status, uptime, restarts, plugins
@@ -269,8 +300,42 @@ All notable changes to this project are documented here. The format follows
   protocol version, user name or password, not authorized), not on "server unavailable".
 - Daikin Cloud's page tells the Assistant the default transport is Homeswift's built-in HTTP client, not "node".
 - The Dyson Pure Cool README says how `discoveryTimeout` is read (seconds up to 60, milliseconds above).
+- **A Synology package** (`homeswift-<arch>-<version>.spk`, x86_64 and aarch64, DSM 7.0 or later), Homeswift's
+  homebridge-syno-spk: no Docker, a `homeswift` shared folder for the data, the bridge as a systemd unit of
+  the package's own user, Homeswift in DSM's main menu, firewall entries for its ports. The install wizard
+  creates the web UI's administrator account (a weak password is refused before anything is installed) in
+  place of a default login. Over SSH, `sudo homeswift` runs any command on the package's data and adds
+  `start`, `stop`, `restart` and `status`. `Synology/build.sh` builds it with Docker, without Synology's
+  toolchain: the binary comes from Amazon Linux 2, whose glibc is DSM 7.0's; `.github/workflows/synology.yml`
+  attaches both packages to each release.
+- **A built-in mDNS responder**, HAP-NodeJS's ciao in Swift: probing, conflict renaming (`Homeswift (2)`),
+  announcements, known-answer suppression, legacy unicast answers and goodbyes, on each IPv4 interface with
+  its own addresses, under a host name of its own. The bridge falls back to it when dns_sd fails (Avahi not
+  running or out of reach, as on a NAS), and uses it with `"advertiser": "ciao"` in the bridge block;
+  `"bind"` keeps it to some interfaces, as in Homebridge.
+- **`homeswift users`** lists the web UI's accounts, adds one and sets a forgotten password, reading
+  passwords from standard input; **`homeswift logs [-n <lines>] [-f]`** prints the log on disk in the
+  console's format and follows it.
+
+### Changed
+
+- **Faster web UI and MCP server.** `JSONValue` writes and parses its JSON itself instead of through
+  `JSONEncoder`/`JSONDecoder` (the same bytes, 7–30× faster), redaction skips the expressions a line cannot
+  match, the log buffer is a ring and the archive's lines skip the Codable coders, and static files answer 304
+  to a reload. `get_recent_logs` went from 89 to 3 ms, `/api/logs` from 17 to 4.5 ms, `/api/accessories` from
+  10.7 to 2.9 ms. Adding accessories no longer costs N² (a bridge with 300 took over a minute to start): the
+  accessory cache is saved once per burst, and an accessory that replaces one of the same shape is not followed
+  by a rehash of the whole database. `Benchmarks/bridge-bench.py` times every endpoint of a whole bridge.
+
 - The Accessories page shows a section per plugin rather than per server (a card's foot still names its
   server), and the Logs page's menu groups the accessories by plugin.
+- The Logs page's Warnings and Errors buttons show those levels alone; Warnings no longer shows errors.
+- A time range of the log loads several times faster: JSON strings full of escapes decode their plain runs at once
+  (`JSONValue`), and the log on disk skips rows outside the range, or that cannot be about the chosen accessory or
+  bridge, before parsing them (`LogArchive.lines(mayMatch:)`, `TextSearch.containsAny(_:asciiCaseless:)`). Six hours
+  of one accessory went from 25 s to about 1 s on a debug build.
+- The web UI shows a spinner, not "Loading…", while a page or a log range loads; the Status page's table groups its
+  columns under homeswift, Home app requests and plugin device calls.
 - A paused plugin's pill has a colour of its own, and its card's ⋯ button keeps its size beside the paused note.
 
 - The accessory JSON (web UI, MCP) marks what only HomeKit uses as `"internal": true`: a camera's RTP stream,
@@ -386,6 +451,14 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - **Plugins** (`HomeswiftPlugin`): the `HomeswiftPlugin` protocol and `PluginContext`. `PluginHost` runs the
+### Fixed
+
+- A write the device refuses or never answers reads as a sentence ("Desk Lamp did not answer…", "eWeLink is
+  paused: resume it…") in the web UI and to MCP clients, not as `HAPStatusError(…)`.
+- Govee: a bridge restart no longer turns Adaptive Lighting off. The light's first colour report after launch was
+  compared with an empty cache (0 K) and taken for a colour set elsewhere; it now only fills the cache.
+- The Adaptive swatch's ring is no longer cut on its left in a medium light widget.
+
   plugins of a Homebridge-shaped `config.json` on one bridge, restores each platform's accessories from a
   cache before its plugin starts (aids and iids kept), and runs a block with `_bridge` on its own child
   bridge. `docs/plugins.md` explains how to write one and how to port a Homebridge plugin.

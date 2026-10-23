@@ -19,13 +19,14 @@ let testLogger: Logger = {
     return logger
 }()
 
-/// A plugin with a lamp and a lock.
+/// A plugin with a lamp, a lock, and a strip with Adaptive Lighting.
 actor LampPlugin: HomeswiftPlugin {
     struct Configuration: Decodable, Sendable { var name: String? }
     static let platform = "Lamps"
     static let name = "Lamps Plugin"
     let context: PluginContext
     let writes: NIOLockedValueBox<[(String, HAPValue)]>
+    var adaptiveLighting: AdaptiveLightingController?
 
     init(configuration: Configuration, context: PluginContext) { self.init(context: context, writes: NIOLockedValueBox([])) }
     init(context: PluginContext, writes: NIOLockedValueBox<[(String, HAPValue)]>) {
@@ -44,6 +45,9 @@ actor LampPlugin: HomeswiftPlugin {
         let lock = Service(.lockMechanism, name: "Front Door", isPrimary: true)
         lock.characteristic(.lockTargetState).onWrite { value in writes.withLockedValue { $0.append(("lock", value)) } }
         try context.add(Accessory(id: "Lamps:lock", name: "Front Door", category: .doorLock, services: [lock]))
+        let strip = Service(.lightbulb, name: "Strip", optional: [.brightness, .colorTemperature], isPrimary: true)
+        adaptiveLighting = AdaptiveLightingController(strip, mode: .automatic)
+        try context.add(Accessory(id: "Lamps:strip", name: "Strip", category: .lightbulb, services: [strip]))
     }
 
     static let webFiles: [String: WebFile] = [
@@ -366,6 +370,18 @@ final class Browser: @unchecked Sendable {
 
 @Suite(.timeLimit(.minutes(1)))
 struct LogFilterTests {
+    /// The logs answer, written directly, is the bytes of the array of `logJSON` it replaced.
+    @Test func writesLogsAsTheirJSON() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000.75)
+        let lines = [
+            LogBuffer.Line(date: start, level: .info, label: "Bench Home", text: "plain"),
+            LogBuffer.Line(date: start.addingTimeInterval(61), level: .warning, label: "Dyson \"Pure\"", text: "a\nb\té / \u{1} 😀", details: #"{"k":[1,2]}"#),
+            LogBuffer.Line(date: start.addingTimeInterval(3600), level: .error, label: "", text: ""),
+        ]
+        #expect(UIServer.logsJSON(lines) == JSONValue.array(lines.map(UIServer.logJSON)).encoded())
+        #expect(UIServer.logsJSON([]) == JSONValue.array([]).encoded())
+    }
+
     /// One accessory's lines, picked on the server, for the latest lines and for a time range.
     @Test func picksAnAccessorysLines() async throws {
         let environment = try UITestEnvironment(auth: .none)
@@ -380,6 +396,72 @@ struct LogFilterTests {
         let range = try await browser.get("/api/logs?from=\(from)Z&accessory=Lamps:lock").json?.arrayValue ?? []
         #expect(range.map { $0["text"]?.stringValue ?? "" } == ["Front Door locked"])
         #expect(try await browser.get("/api/logs").json?.arrayValue?.count ?? 0 >= 2)
+    }
+
+    /// A line's payload goes to the page beside its text, and an accessory named only in the payload finds the line.
+    /// Without a log on disk there is nothing to save payloads to.
+    @Test func servesPayloads() async throws {
+        let environment = try UITestEnvironment(auth: .none)
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        environment.logs.append(LogBuffer.Line(level: .debug, label: "Cloud", text: "state {…} 180 B", details: #"{"id":"Lamps:lamp","on":true}"#))
+        let browser = Browser(base: base)
+        let lines = try await browser.get("/api/logs?accessory=Lamps:lamp").json?.arrayValue ?? []
+        #expect(lines.map { $0["details"]?.stringValue } == [#"{"id":"Lamps:lamp","on":true}"#])
+        #expect(try await browser.get("/api/logs/settings").json == ["saveDetails": false, "available": false])
+        #expect(try await browser.put("/api/logs/settings", ["saveDetails": true]).status == 404)
+        #expect(try await browser.put("/api/logs/settings", ["saveDetails": "yes"]).status == 400)
+    }
+
+    /// The Accessories page's wall is kept beside config.json, owner-only, trimmed to what a layout holds; a size
+    /// or a grouping the page does not know is refused.
+    @Test func keepsTheAccessoryLayout() async throws {
+        let environment = try UITestEnvironment(auth: .none)
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let browser = Browser(base: base)
+        #expect(try await browser.get("/api/layout").json == ["order": [], "sizes": [:], "defaults": [:], "grouping": "none"])
+        let layout: JSONValue = ["order": ["Lamps:lamp", "Lamps:lock", "Lamps:lamp"], "sizes": ["Lamps:lamp": "large"], "defaults": ["light": "small"], "grouping": "plugin", "extra": true]
+        let kept: JSONValue = ["order": ["Lamps:lamp", "Lamps:lock"], "sizes": ["Lamps:lamp": "large"], "defaults": ["light": "small"], "grouping": "plugin"]
+        #expect(try await browser.put("/api/layout", layout).json == kept)
+        #expect(try await browser.get("/api/layout").json == kept)
+        let file = environment.directory.appendingPathComponent("ui-layout.json")
+        #expect(try JSONValue(data: Data(contentsOf: file)) == kept)
+        #if !os(Windows)
+        #expect((try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int) == 0o600)
+        #endif
+        #expect(try await browser.put("/api/layout", ["sizes": ["Lamps:lamp": "huge"]]).status == 400)
+        #expect(try await browser.put("/api/layout", ["grouping": "floor"]).status == 400)
+        #expect(try await browser.put("/api/layout", ["defaults": ["Light!": "small"]]).status == 400)
+        #expect(try await browser.put("/api/layout", ["order": [1, 2]]).status == 400)
+        #expect(try await browser.get("/api/layout").json == kept)
+    }
+
+    /// A light with Adaptive Lighting says so; on needs a schedule the Home app sent (409, with what to do), off
+    /// always works. A device that does not answer is refused in words, not as a Swift error.
+    @Test func turnsAdaptiveLightingOnAndOffAndExplainsRefusals() async throws {
+        let environment = try UITestEnvironment(auth: .none)
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let browser = Browser(base: base)
+        let accessories = try await browser.get("/api/accessories").json?.arrayValue ?? []
+        let strip = try #require(accessories.first { $0["id"]?.stringValue == "Lamps:strip" })
+        let light = try #require(strip["services"]?.arrayValue?.first { $0["type"]?.stringValue == "Lightbulb" })
+        #expect(light["adaptiveLighting"] == ["active": false, "resumable": false])
+        let lamp = try #require(accessories.first { $0["id"]?.stringValue == "Lamps:lamp" })
+        #expect(lamp["services"]?.arrayValue?.allSatisfy { $0["adaptiveLighting"] == nil } == true)
+
+        let refused = try await browser.put("/api/accessories/Lamps:strip/adaptive-lighting", ["on": true])
+        #expect(refused.status == 409)
+        #expect(refused.json?["error"]?.stringValue?.contains("Home app") == true)
+        #expect(try await browser.put("/api/accessories/Lamps:strip/adaptive-lighting", ["on": false]).json?["adaptiveLighting"] == ["active": false, "resumable": false])
+        #expect(try await browser.put("/api/accessories/Lamps:lamp/adaptive-lighting", ["on": true]).status == 409)
+        #expect(try await browser.put("/api/accessories/Lamps:strip/adaptive-lighting", [:]).status == 400)
+
+        let unreachable = try #require(environment.server.catalog.find(id: "Lamps:lamp")?.accessory)
+        unreachable.isUnavailable = true
+        let failed = try await browser.put("/api/accessories/Lamps:lamp", ["characteristic": "Brightness", "value": 10])
+        #expect(failed.json?["error"]?.stringValue == "Desk Lamp did not answer: the device may be off or out of reach")
     }
 
     /// A bridge's own lines (its server's), or every bridge's; with an accessory, both must hold.
@@ -506,7 +588,7 @@ struct UIServerTests {
         #expect(status?["restartNeeded"] == false)
         #expect(status?["username"] == "rosaly")
         let accessories = try await browser.get("/api/accessories").json?.arrayValue ?? []
-        #expect(accessories.map { $0["id"] } == ["Lamps:lamp", "Lamps:lock"])
+        #expect(accessories.map { $0["id"] } == ["Lamps:lamp", "Lamps:lock", "Lamps:strip"])
         #expect(accessories[0]["services"]?[0]?["characteristics"]?.arrayValue?.contains { $0["type"] == "Brightness" && $0["value"] == 40 } == true)
         let written = try await browser.put("/api/accessories/Lamps:lamp", ["characteristic": "Brightness", "value": 60])
         #expect(written.status == 200)

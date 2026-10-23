@@ -255,6 +255,22 @@ public final class UserStore: Sendable {
         }
     }
 
+    /// Sets a user's password without the current one: `homeswift users password`, for whoever can run the
+    /// bridge's binary and so could edit this file anyway.
+    public func resetPassword(username: String, to password: String) throws {
+        try PasswordPolicy.check(password, username: username)
+        let salt = Secrets.randomBytes(16)
+        let hash = Self.pbkdf2(password: password, salt: salt, iterations: iterations)
+        let name = username.trimmingCharacters(in: .whitespaces).lowercased()
+        try state.withLockedValue { users in
+            guard let index = users.firstIndex(where: { $0.username.lowercased() == name }) else { throw AuthError.badCredentials }
+            users[index].salt = salt
+            users[index].hash = hash
+            users[index].iterations = iterations
+            try save(users)
+        }
+    }
+
     private func save(_ users: [User]) throws {
         try OwnerOnlyFile.write(JSONEncoder().encode(users), to: url)
     }

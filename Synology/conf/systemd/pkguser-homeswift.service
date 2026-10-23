@@ -1,0 +1,15 @@
+[Unit]
+Description=Homeswift
+After=network-online.target
+
+[Service]
+Type=simple
+Slice=Homeswift.slice
+ExecStart=/var/packages/homeswift/target/app/start.sh
+# A restart from the web UI happens in place (the process execs itself); this is for a crash.
+Restart=always
+RestartSec=3
+# SIGTERM to the bridge, which stops its plugins, writes the accessory cache and sends Bonjour goodbyes;
+# FFmpeg and anything else left gets SIGKILL after the timeout.
+KillMode=mixed
+TimeoutStopSec=30

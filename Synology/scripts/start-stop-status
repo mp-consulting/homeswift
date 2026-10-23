@@ -1,0 +1,22 @@
+#!/bin/sh
+# Package Center's start, stop and status. The bridge is a systemd unit of the package's user
+# (conf/systemd/pkguser-homeswift.service); DSM runs this script as that user, or as root on some actions.
+
+run() {
+    if [ "$(id -u)" -eq 0 ]; then
+        sudo -u homeswift synosystemctl "$@"
+    else
+        synosystemctl "$@"
+    fi
+}
+
+case "$1" in
+    start) run start pkguser-homeswift ;;
+    stop) run stop pkguser-homeswift ;;
+    status) run get-active-status pkguser-homeswift ;;
+    log) echo "" ;;
+    *)
+        echo "Usage: $0 {start|stop|status}" >&2
+        exit 1
+        ;;
+esac

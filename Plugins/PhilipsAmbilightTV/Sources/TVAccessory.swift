@@ -202,6 +202,11 @@ enum TVAccessory {
                     hueService?.characteristic(.on).value = .bool(false)
                 }
             case .ambilight(let state):
+                // Following video or audio again (from the TV's menu or remote) ends Adaptive Lighting, as a colour
+                // picked elsewhere does.
+                if state.on, let style = state.style, style != "FOLLOW_COLOR", let adaptive, adaptive.isAdaptiveLightingActive {
+                    adaptive.disableAdaptiveLighting()
+                }
                 applyAmbilight(state, to: ambilightService)
                 sensorServices[.ambilight]?.characteristic(.motionDetected).value = .bool(state.on)
             case .mute(let muted):

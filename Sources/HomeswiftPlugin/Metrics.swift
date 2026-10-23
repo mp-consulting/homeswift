@@ -251,8 +251,7 @@ public final class Metrics: @unchecked Sendable {
 
     private func persist(_ minute: Minute) {
         guard let directory else { return }
-        var line = Self.entry(minute)
-        line.append(0x0A)
+        let line = Self.entry(minute) + [0x0A]
         let name = "\(Self.prefix)\(Self.days().string(from: minute.start)).jsonl"
         let days = days
         queue.async { [line] in

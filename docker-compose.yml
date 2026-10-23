@@ -1,0 +1,27 @@
+# Homeswift on a Synology NAS (docs/synology.md): Container Manager > Project > Create, with this file.
+# Create the shared folder /docker/homeswift in File Station first. Elsewhere, `docker compose up -d`.
+services:
+  homeswift:
+    image: ghcr.io/mp-consulting/homeswift:latest
+    container_name: homeswift
+    # Required: HomeKit finds the bridge over mDNS multicast and connects to its ports on the NAS's address.
+    network_mode: host
+    restart: unless-stopped
+    # Time for the bridge to stop its servers and plugins and write the accessory cache.
+    stop_grace_period: 30s
+    environment:
+      # The owner of the files in the volume: your DSM user's uid and gid (`id` over SSH). 1026:100 is the
+      # first account DSM creates and its "users" group.
+      PUID: "1026"
+      PGID: "100"
+      # Your time zone, for the log's times and the Logs page's days: Europe/Paris, America/New_York…
+      TZ: Etc/UTC
+      # Advertise only on these interfaces (ovs_eth0 when Open vSwitch is on, for Virtual Machine Manager).
+      # AVAHI_INTERFACES: eth0
+    volumes:
+      - /volume1/docker/homeswift:/homeswift
+      # Advertise through DSM's own Avahi instead of one in the container (docs/synology.md, "Bonjour").
+      # - /run/dbus/system_bus_socket:/run/host-dbus/system_bus_socket
+    # Hardware video encoding for UniFi Protect cameras on an Intel NAS (Quick Sync).
+    # devices:
+    #   - /dev/dri:/dev/dri

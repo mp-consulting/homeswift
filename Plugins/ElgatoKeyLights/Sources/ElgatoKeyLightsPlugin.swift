@@ -96,6 +96,8 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
 
     private enum Status: String { case initializing, ready, failed }
     private var devices: [String: KeyLightDevice] = [:]
+    /// Each light's Adaptive Lighting, by MAC: kept here, as the lightbulb holds it only weakly.
+    private var adaptiveLighting: [String: AdaptiveLightingController] = [:]
     private var status: [String: Status] = [:]
     /// Lights with an `ip` or `host` in config.json: announcements never move them.
     private var pinned: Set<String> = []
@@ -139,6 +141,8 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
         for device in devices.values {
             await device.stopPolling()
         }
+        // Let go, not disabled: a running schedule stays saved and resumes at the next start.
+        adaptiveLighting.removeAll()
         logger.debug("Stopped")
     }
 
@@ -332,7 +336,10 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
         let name = deviceConfiguration?.displayName?.trimmingCharacters(in: .whitespaces).nonEmpty ?? reportedName
         await device.applySettings(settings(for: device, configuration: deviceConfiguration))
 
-        let accessory = await KeyLightAccessory.make(device: device, name: name, idPrefix: Self.platform)
+        let (accessory, adaptiveLighting) = await KeyLightAccessory.make(device: device, name: name, idPrefix: Self.platform, logger: logger)
+        // Its schedule survives restarts; the controller lives as long as the light is on the bridge.
+        context.configureController(adaptiveLighting, accessoryID: accessory.id)
+        self.adaptiveLighting[light.mac] = adaptiveLighting
         do {
             try context.add(accessory)
         } catch {

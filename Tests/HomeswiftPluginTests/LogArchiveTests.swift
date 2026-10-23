@@ -1,4 +1,5 @@
 import Foundation
+import HomeswiftAI
 import Logging
 import Testing
 
@@ -30,6 +31,32 @@ import Testing
         let file = try #require(files(directory).first)
         let attributes = try FileManager.default.attributesOfItem(atPath: directory.appendingPathComponent(file).path)
         #expect((attributes[.posixPermissions] as? Int) == 0o600)
+    }
+
+    /// A line's payload reaches the disk only while saving is on, a choice kept for the next start.
+    @Test func savesPayloadsOnlyWhenAsked() throws {
+        let directory = directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let archive = LogArchive(directory: directory)
+        #expect(!archive.savesDetails)
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        func line(_ index: Int) -> LogBuffer.Line {
+            LogBuffer.Line(date: start.addingTimeInterval(Double(index)), level: .debug, label: "Govee", text: "message event {…} 1.2 KB", details: #"{"device":"\#(index)"}"#)
+        }
+        archive.append(line(0))
+        try archive.setSavesDetails(true)
+        archive.append(line(1))
+        let read = archive.lines(from: start, to: start.addingTimeInterval(10), limit: 10)
+        #expect(read.map(\.details) == [nil, #"{"device":"1"}"#])
+        #expect(read.map(\.text) == ["message event {…} 1.2 KB", "message event {…} 1.2 KB"])
+
+        let settings = directory.appendingPathComponent(LogArchive.settingsName)
+        #expect((try FileManager.default.attributesOfItem(atPath: settings.path)[.posixPermissions] as? Int) == 0o600)
+        #expect(LogArchive(directory: directory).savesDetails)
+        try archive.setSavesDetails(false)
+        #expect(!LogArchive(directory: directory).savesDetails)
+        // The settings file is not a segment: pruning and reading leave it alone.
+        #expect(!files(directory).contains(LogArchive.settingsName))
     }
 
     @Test func startsASegmentPerDayAndPastTheSizeLimit() throws {
@@ -105,10 +132,49 @@ import Testing
     }
 
     /// Segments written before the archive wrote its lines itself (JSONEncoder, keys in any order) still read.
+    /// A range skips rows before parsing them: by their time, read from the bytes whatever the key order, and by what
+    /// `mayMatch` sees in the raw row.
+    @Test func skipsRowsBeforeParsing() throws {
+        #expect(LogArchive.time(of: Data(#"{"l":"info","m":"\"t\":5 in the text","n":"x","t":1800000000.25}"#.utf8)) == 1_800_000_000.25)
+        #expect(LogArchive.time(of: Data(#"{"t":1800000000,"l":"info","m":"a","n":"x"}"#.utf8)) == 1_800_000_000)
+        #expect(LogArchive.time(of: Data("not a row".utf8)) == nil)
+
+        let directory = directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let archive = LogArchive(directory: directory)
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        for (index, text) in ["Dolphin M400 started", "Govee message", "dolphin m400 cleaning ⚡️", "Govee again"].enumerated() {
+            archive.append(LogBuffer.Line(date: start.addingTimeInterval(Double(index)), level: .info, label: "Plugins", text: text))
+        }
+        var looked = 0
+        let found = archive.lines(from: start.addingTimeInterval(1), to: start.addingTimeInterval(10), limit: 10, mayMatch: { row in
+            looked += 1
+            return TextSearch.containsAny(row, asciiCaseless: ["dolphin m400"])
+        })
+        #expect(found.map(\.text) == ["dolphin m400 cleaning ⚡️"])
+        // The first row is before the range: its time ends the scan before anything looks at it.
+        #expect(looked == 3)
+    }
+
     @Test func readsLinesInEitherKeyOrder() throws {
         let line = LogBuffer.Line(date: Date(timeIntervalSince1970: 1_800_000_000.25), level: .warning, label: "Dyson \"Pure\"", text: "a\nb é")
         #expect(LogArchive.line(LogArchive.entry(line).dropLast()) == line)
         let legacy = Data(#"{"t":1800000000.25,"l":"warning","n":"Dyson \"Pure\"","m":"a\nb é"}"#.utf8)
         #expect(LogArchive.line(legacy) == line)
+    }
+
+    /// Rows read through their members, in place, give what reading them as a dictionary gave.
+    @Test func readsRowsInPlace() throws {
+        let lines = [
+            LogBuffer.Line(date: Date(timeIntervalSince1970: 1_800_000_000.25), level: .debug, label: "L", text: "a\"b\\c é", details: #"{"x":1}"#),
+            LogBuffer.Line(date: Date(timeIntervalSince1970: 1_800_000_001), level: .info, label: "Bench Home", text: ""),
+        ]
+        for line in lines {
+            let row = LogArchive.entry(line, withDetails: true).dropLast()
+            #expect(LogArchive.line(row) == line)
+            #expect(row.withUnsafeBytes { LogArchive.time(of: $0) } == line.date.timeIntervalSince1970)
+        }
+        #expect(LogArchive.line(Data("not json".utf8)) == nil)
+        #expect(LogArchive.line(Data(#"{"t":1,"l":"info","n":"L"}"#.utf8)) == nil)
     }
 }

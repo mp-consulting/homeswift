@@ -17,10 +17,35 @@ public enum TextSearch {
         return withBytes(text) { find(lowered, in: $0, caseless: true) }
     }
 
+    /// An ASCII needle prepared once, for a search repeated over many lines: no bytes to copy per line.
+    public struct Needle: Sendable {
+        let bytes: [UInt8]
+        let caseless: Bool
+
+        /// `text` is ASCII; `caseless` ignores ASCII case.
+        public init(_ text: String, caseless: Bool = false) {
+            self.caseless = caseless
+            bytes = caseless ? text.utf8.map(TextSearch.lower) : Array(text.utf8)
+        }
+    }
+
+    /// Whether the needle occurs in the text, byte by byte: exact for ASCII text.
+    public static func contains(_ text: String, _ needle: Needle) -> Bool {
+        withBytes(text) { find(needle.bytes, in: $0, caseless: needle.caseless) }
+    }
+
     /// Whether ASCII `needle` occurs in `text` exactly.
     public static func contains(_ text: String, ascii needle: String) -> Bool {
         let bytes = Array(needle.utf8)
         return withBytes(text) { find(bytes, in: $0, caseless: false) }
+    }
+
+    /// Whether any of these ASCII needles occurs in the text, ignoring ASCII case, byte by byte whatever the text: a
+    /// UTF-8 text's other bytes never equal an ASCII one, so text with an accent or an emoji (a log line) is searched
+    /// in place too, not through Foundation. Only ASCII letters fold.
+    public static func containsAny(_ text: String, asciiCaseless needles: [String]) -> Bool {
+        let lowered = needles.map { $0.utf8.map(lower) }
+        return withBytes(text) { bytes in lowered.contains { find($0, in: bytes, caseless: true) } }
     }
 
     /// Whether any of these lower-case ASCII needles occurs in ASCII text, ignoring case.

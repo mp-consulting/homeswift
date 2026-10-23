@@ -21,6 +21,12 @@ public final class Service: @unchecked Sendable {
         set { linkedBox.withLockedValue { $0 = newValue } }
     }
 
+    /// The controller that gives a lightbulb Adaptive Lighting, once one was made for it; weak, as the controller
+    /// holds the service.
+    public var adaptiveLighting: AdaptiveLightingController? { adaptiveLightingBox.withLockedValue { $0.controller } }
+    let adaptiveLightingBox = NIOLockedValueBox(WeakAdaptiveLighting())
+    struct WeakAdaptiveLighting { weak var controller: AdaptiveLightingController? }
+
     /// Creates a service with its required characteristics, plus the `optional` ones you list; an optional type the
     /// service already has (a required one with other bounds, say) replaces it.
     ///

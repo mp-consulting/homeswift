@@ -43,7 +43,12 @@ final class ProtectTalkback {
     /// The SDP FFmpeg reads the microphone's SRTP session from.
     nonisolated static func sdp(_ request: StartStreamRequest, session: Session, sdpIpVersion: String, accessoryName: String) -> String {
         let is16 = request.audio.sampleRate == 16
-        return [
+        // Opus (ProtectStream.liveAudioCodec) is always 48 kHz and two channels in RTP (RFC 7587).
+        let format = request.audio.codec == .opus
+            ? ["a=rtpmap:" + String(request.audio.pt) + " opus/48000/2"]
+            : ["a=rtpmap:110 MPEG4-GENERIC/" + (is16 ? "16000" : "24000") + "/" + String(request.audio.channel),
+               "a=fmtp:110 profile-level-id=1;mode=AAC-hbr;sizelength=13;indexlength=3;indexdeltalength=3; config=" + (is16 ? "F8F0212C00BC00" : "F8EC212C00BC00")]
+        return ([
             "v=0",
             "o=- 0 0 IN " + sdpIpVersion + " 127.0.0.1",
             "s=" + accessoryName + " Audio Talkback",
@@ -51,17 +56,21 @@ final class ProtectTalkback {
             "t=0 0",
             "m=audio " + String(session.audioIncomingRtpPort) + " RTP/AVP " + String(request.audio.pt),
             "b=AS:24",
-            "a=rtpmap:110 MPEG4-GENERIC/" + (is16 ? "16000" : "24000") + "/" + String(request.audio.channel),
-            "a=fmtp:110 profile-level-id=1;mode=AAC-hbr;sizelength=13;indexlength=3;indexdeltalength=3; config=" + (is16 ? "F8F0212C00BC00" : "F8EC212C00BC00"),
+        ] + format + [
             "a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:" + session.audioSRTP.base64EncodedString(),
-        ].joined(separator: "\n")
+        ]).joined(separator: "\n")
     }
 
     /// FFmpeg's command line: the SDP on standard input, ADTS out at the camera's talkback rate and channels.
     func returnAudioArguments(_ request: StartStreamRequest) -> [String] {
         let talkback = camera.ufp.json
-        var arguments = ["-hide_banner", "-nostats", "-protocol_whitelist", "crypto,file,pipe,rtp,udp", "-f", "sdp", "-codec:a", options.audioDecoder,
-                         "-i", "pipe:0", "-map", "0:a:0"] + options.audioEncoder()
+        // With Opus from the Home app, FFmpeg has no AAC-ELD encoder (ProtectStream.liveAudioCodec): its own AAC-LC
+        // encoder makes the ADTS the camera takes.
+        let isOpus = request.audio.codec == .opus
+        let encoder = options.audioEncoder()
+        var arguments = ["-hide_banner", "-nostats", "-protocol_whitelist", "crypto,file,pipe,rtp,udp", "-f", "sdp",
+                         "-codec:a", isOpus ? "libopus" : options.audioDecoder, "-i", "pipe:0", "-map", "0:a:0"]
+            + (isOpus && encoder.isEmpty ? ["-codec:a", "aac"] : encoder)
             + ["-flags", "+global_header", "-ar", talkback.number("talkbackSettings.samplingRate"), "-b:a", String(request.audio.maxBitRate) + "k",
                "-ac", talkback.number("talkbackSettings.channels"), "-f", "adts"]
         if camera.hints.twoWayAudioDirect {

@@ -7,7 +7,7 @@ import Testing
     /// Random documents with the strings, numbers and nesting that trip a writer up.
     static func randomValue(depth: Int, using generator: inout some RandomNumberGenerator) -> JSONValue {
         let strings = ["", "plain", "a/b", "quote \" and \\ back", "line\nbreak\ttab\r", "\u{1}\u{8}\u{c}\u{1f}\u{7f}", "é ü ß", "😀 \u{2028}", "Entrée", "_x", "A", "a10", "a2"]
-        let numbers: [Double] = [0, -0.0, 1, -1, 0.1, 1.5, -2.25, 1e-7, 1e21, 123456789.123, .pi, 5e-324, 1.7976931348623157e308, 9_007_199_254_740_991, 9_007_199_254_740_992, -42]
+        let numbers: [Double] = [0, -0.0, 1, -1, 0.1, 1.5, -2.25, 1e-7, 1e21, 123456789.123, .pi, .leastNonzeroMagnitude, 1.7976931348623157e308, 9_007_199_254_740_991, 9_007_199_254_740_992, -42]
         switch Int.random(in: 0..<(depth > 3 ? 4 : 6), using: &generator) {
         case 0: return .null
         case 1: return .bool(Bool.random(using: &generator))
@@ -46,6 +46,23 @@ import Testing
         let deep = String(repeating: "[", count: 200) + String(repeating: "]", count: 200)
         #expect(throws: (any Error).self) { try JSONValue(string: deep) }
         #expect(JSONValue.number(.infinity).text() == "null")
+    }
+
+    /// Text with an escape every few bytes (JSON inside a log line) decodes as Foundation decodes it, the plain runs
+    /// between escapes copied whole; a control character after an escape is still refused.
+    @Test func decodesTextFullOfEscapes() throws {
+        let text = #"Received {"state":{"on":true,"name":"Café \"Lamp\""},"path":"a\\b"} done ⚡️"#
+        let encoded = JSONValue.string(text).encoded()
+        #expect(try JSONValue(data: encoded) == .string(text))
+        #expect(try JSONSerialization.jsonObject(with: encoded, options: .fragmentsAllowed) as? String == text)
+        #expect(throws: (any Error).self) { try JSONValue(string: "\"a\\nb\u{01}c\"") }
+    }
+
+    @Test func searchesASCIINeedlesInAnyText() {
+        #expect(TextSearch.containsAny("⚡️ Dolphin M400 — prêt", asciiCaseless: ["dolphin m400"]))
+        #expect(TextSearch.containsAny("état DOLPHIN", asciiCaseless: ["nope", "Dolphin"]))
+        #expect(!TextSearch.containsAny("Dolphin M600 é", asciiCaseless: ["dolphin m400"]))
+        #expect(!TextSearch.containsAny("anything", asciiCaseless: []))
     }
 
     @Test func roundTripsNumbersAndStructure() throws {
