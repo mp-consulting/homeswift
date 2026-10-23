@@ -34,6 +34,11 @@ All notable changes to this project are documented here. The format follows
   (the Assistant, the MCP server) has a form. The Logs page copies the lines shown. Selects look like the
   platform's pop-up buttons.
 - The voice language of the Assistant's chat can be chosen.
+- **Pause a plugin** (`"_paused": true` in its block, from its card's menu or its page): it stops calling its
+  devices and their cloud, so an iOS app sharing the account is not signed out; its accessories stay in HomeKit
+  answering No Response (`Accessory.isUnavailable`) until it resumes.
+- Plugin cards have a menu at their bottom right (its page, Expert form or JSON, pause, remove) in place of
+  their buttons.
 - A plugin's own page is its settings page: the Plugins list, accessory menus and `#settings/<platform>/<name>`
   open it, and the block as a form or as JSON is its **Expert** part.
 - **Add** on a plugin with its own page writes an empty block and opens the page; the Philips TV page opens

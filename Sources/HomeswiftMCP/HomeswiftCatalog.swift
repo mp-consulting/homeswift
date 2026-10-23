@@ -234,7 +234,7 @@ public struct HomeswiftCatalog: Sendable {
         let running = host.platforms
         return [
             "platforms": .array(running.map {
-                ["platform": .string($0.platform), "name": .string($0.name), "plugin": .string($0.pluginName), "bridge": .string($0.bridge.name), "accessories": .number(Double($0.accessoryIDs.count))]
+                ["platform": .string($0.platform), "name": .string($0.name), "plugin": .string($0.pluginName), "bridge": .string($0.bridge.name), "accessories": .number(Double($0.accessoryIDs.count)), "paused": .bool($0.paused)]
             }),
             "unknownPlatforms": .array(configured.subtracting(running.map(\.platform)).subtracting(Self.systemPlatforms).sorted().map(JSONValue.string)),
             "plugins": .array(host.registry.entries.map { entry in

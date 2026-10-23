@@ -146,8 +146,25 @@
   }
   const main = $("main");
   if (main) {
-    main.prepend(el("nav", { class: "breadcrumb", "aria-label": "Breadcrumb" }, trail));
+    // Pause, at the right of the breadcrumb: the plugin stops calling its devices (an app sharing the account
+    // keeps its session) until Resume, which a banner offers while it is paused.
+    const toggle = el("button", { type: "button", class: "link pause-toggle hidden" });
+    main.prepend(el("nav", { class: "breadcrumb", "aria-label": "Breadcrumb" }, trail, toggle));
     breadcrumb(null);
+    api("/api/plugins").then(({ platforms }) => {
+      const instance = platforms.find((p) => p.platform === platform && p.name === name);
+      if (!instance) return;
+      const set = (paused) => act(toggle, () => HomeswiftCommon.setPaused(platform, name, paused).then(() => location.reload()));
+      toggle.replaceChildren(icon(instance.paused ? "play" : "pause"), el("span", { text: instance.paused ? "Resume" : "Pause" }));
+      toggle.title = instance.paused ? "Run the plugin again" : "Stop the plugin's calls to its devices for now";
+      toggle.onclick = () => set(!instance.paused);
+      toggle.classList.remove("hidden");
+      if (instance.paused) {
+        main.querySelector(".breadcrumb").after(el("div", { class: "card page-note paused-note" },
+          el("p", {}, el("strong", { text: "Paused. " }), "The plugin makes no calls to its devices, and they show No Response in the Home app. This page needs it running."),
+          el("button", { class: "primary", text: "Resume", onclick: (event) => act(event.currentTarget, () => HomeswiftCommon.setPaused(platform, name, false).then(() => location.reload())) })));
+      }
+    }).catch(() => {});
     // Expert, last on the page once the page's own script has laid it out: the whole block as config.json
     // keeps it, as a form or as JSON, for what the page itself does not set.
     const expert = (mode) => `/#settings/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/${mode}`;

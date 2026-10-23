@@ -33,7 +33,11 @@ with a new code).
   update live when a device changes elsewhere. Locks, garage doors and alarms can be operated here, as in
   the Home app, since the user signed in. Each card's **⋯** menu identifies the accessory, shows its log,
   asks the Assistant about it, and opens its plugin's settings.
-- **Plugins**: every platform block of config.json, with whether it runs and where. **Open** shows a
+- **Plugins**: every platform block of config.json, with whether it runs, is paused, and where. Each card's
+  **⋯** menu, at its bottom right like every card's, opens the plugin's page, its Expert form or JSON, pauses
+  or resumes it, and removes it; its name opens its page. **Pause** (also at the top right of a plugin's page)
+  stops the plugin's calls to its devices, for when an app sharing the account would be signed out by them;
+  its accessories stay in the Home app, showing No Response, and the page offers **Resume**. **Open** shows a
   plugin's own page (see below): a running plugin's settings are that page, from the Plugins list, an
   accessory's menu or `#settings/<platform>/<name>`. Its **Expert** part, last on the page and **Expert** on
   the Plugins list, opens the whole block as a form built from the plugin's schema (the same

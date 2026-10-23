@@ -2,7 +2,7 @@
 (() => {
   "use strict";
 
-  const { $, el, tile, sparkle, menuButton, copyText, jsonEditor, fact } = HomeswiftCommon;
+  const { $, el, tile, sparkle, menuButton, copyText, jsonEditor, fact, setPaused } = HomeswiftCommon;
 
   const show = (main, ...nodes) => main.replaceChildren(...nodes.flat().filter(Boolean));
 
@@ -524,19 +524,38 @@
     const blockCard = (block) => {
       const plugin = byPlatform.get(block.platform);
       const instance = running(block);
-      const [state, kind] = block.system ? ["Built in", "standby"] : instance ? ["Running", "on"] : plugin ? ["Not running", "away"] : ["No plugin", "away"];
+      const [state, kind] = blockState(block, plugin, instance);
+      // The name opens what the menu's first item opens: the plugin's page, else the form.
+      const opens = plugin && plugin.hasPages && instance && !instance.paused ? pluginPage(block) : block.system ? settingsLink(block) : expertLink(block);
       return el("div", { class: "card server" },
         el("div", { class: "server-head" },
           tile(block.system ? "gear" : "plugin", block.system ? "grey" : "orange"),
-          el("div", { class: "who" }, el("strong", { text: block.name }), el("div", { class: "muted", text: [plugin ? plugin.name : block.platform, block.childBridge ? "child bridge" : null].filter(Boolean).join(" · ") })),
+          el("div", { class: "who" }, el("a", { class: "card-title", href: opens }, el("strong", { text: block.name })),
+            el("div", { class: "muted", text: [plugin ? plugin.name : block.platform, block.childBridge ? "child bridge" : null].filter(Boolean).join(" · ") })),
           el("span", { class: `pill status ${kind}`, text: state })),
         instance ? el("div", { class: "facts" }, fact("Bridge", instance.bridge), fact("Accessories", instance.accessories), fact("Platform", block.platform))
           : el("p", { class: "muted note", text: block.system ? "A block of the runtime itself." : plugin ? "It did not start: the log says why." : "No plugin compiled into this homeswift provides this platform." }),
-        el("div", { class: "actions" }, plugin && plugin.hasPages && instance
-          ? [el("a", { class: "button primary", href: pluginPage(block), text: "Open" }), el("a", { class: "button", href: expertLink(block), text: "Expert" })]
-          : block.system ? el("a", { class: "button", href: settingsLink(block), text: "Settings" })
-          : el("a", { class: "button", href: expertLink(block), text: "Expert" })));
+        el("div", { class: "card-foot" },
+          el("span", { class: "muted", text: instance?.paused ? "Paused: no calls to its devices; they show No Response in the Home app." : "" }),
+          menuButton(`Actions for ${block.name}`, () => blockActions(block, plugin, instance))));
     };
+
+    /// What the menu of a plugin's card offers: its page, the block as a form or as JSON (Expert), pause or
+    /// resume, and removal.
+    function blockActions(block, plugin, instance) {
+      if (block.system) return [{ label: "Settings", icon: "gear", href: settingsLink(block) }, { label: "Edit as JSON", icon: "code", href: expertLink(block, "json") }];
+      const toggle = async (paused) => {
+        try { await setPaused(block.platform, block.name, paused); route(); } catch (e) { alert(e.message); }
+      };
+      return [
+        plugin && plugin.hasPages && instance && !instance.paused ? { label: "Open its page", icon: "open", href: pluginPage(block) } : null,
+        { label: "Edit settings (Expert)", icon: "edit", href: expertLink(block) },
+        { label: "Edit as JSON (Expert)", icon: "code", href: expertLink(block, "json") },
+        instance && !instance.paused ? { label: "Pause", icon: "pause", onSelect: () => toggle(true) } : null,
+        instance?.paused ? { label: "Resume", icon: "play", onSelect: () => toggle(false) } : null,
+        { label: "Remove", icon: "trash", danger: true, onSelect: () => removeBlock(block) },
+      ];
+    }
 
     const catalog = el("div", { class: "grid" }, plugins.plugins.map((plugin) => {
       const used = plugins.blocks.some((block) => block.platform === plugin.platform);
@@ -573,6 +592,16 @@
 
   /// A block's settings: its plugin's own page when it has one, else the form. `expertLink` is always the form
   /// (or the JSON), the whole block as config.json keeps it.
+  /// A block's state pill: its label and tone.
+  const blockState = (block, plugin, instance) => block.system ? ["Built in", "standby"] : instance?.paused ? ["Paused", "standby"]
+    : instance ? ["Running", "on"] : plugin ? ["Not running", "away"] : ["No plugin", "away"];
+
+  /// Takes a block out of config.json, after asking: its accessories leave the Home app.
+  async function removeBlock(block, after = () => route()) {
+    if (!confirm(`Remove "${block.name}" from config.json? Its accessories leave the Home app.`)) return;
+    try { await api(`/api/config/platforms/${block.index}`, { method: "DELETE" }); leaveGuard = null; after(); } catch (e) { alert(e.message); }
+  }
+
   const settingsLink = (block) => `#settings/${encodeURIComponent(block.platform)}/${encodeURIComponent(block.name)}`;
   const expertLink = (block, mode = "form") => `${settingsLink(block)}/${mode}`;
   const pluginPage = (block) => `/plugins/${encodeURIComponent(block.platform)}/index.html?name=${encodeURIComponent(block.name)}`;
@@ -701,14 +730,11 @@
     });
     revert.addEventListener("click", () => { if (isNew) { location.hash = "#plugins"; return; } leaveGuard = null; route(); });
 
-    const [state, kind] = isNew ? ["New", "standby"] : block.system ? ["Built in", "standby"] : instance ? ["Running", "on"] : plugin ? ["Not running", "away"] : ["No plugin", "away"];
+    const [state, kind] = isNew ? ["New", "standby"] : blockState(block, plugin, instance);
     const remove = !isNew && !block.system ? el("div", { class: "card danger-zone" },
       el("div", {}, el("strong", { text: "Remove this plugin" }),
         el("p", { class: "muted", text: "Takes the block out of config.json. Its accessories leave the Home app, with their rooms, scenes and automations." })),
-      el("button", { class: "danger", text: "Remove", onclick: async () => {
-        if (!confirm(`Remove "${block.name}" from config.json? Its accessories leave the Home app.`)) return;
-        try { await api(`/api/config/platforms/${block.index}`, { method: "DELETE" }); leaveGuard = null; location.hash = "#plugins"; } catch (e) { alert(e.message); }
-      } })) : null;
+      el("button", { class: "danger", text: "Remove", onclick: () => removeBlock(block, () => { location.hash = "#plugins"; }) })) : null;
 
     leaveGuard = () => !dirty() || isNew || confirm("Leave without saving your changes?");
     leaveGuard.quiet = () => isNew || !dirty();

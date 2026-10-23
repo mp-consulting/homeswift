@@ -73,6 +73,8 @@ public final class Characteristic: @unchecked Sendable {
         var onWrite: WriteHandler?
         var onWriteResponse: WriteResponseHandler?
         var writesChangesOnly = false
+        /// Reads and writes fail with "No Response" without reaching the handlers (`Accessory.isUnavailable`).
+        var unavailable = false
         var observers: [Int: Observer] = [:]
         var nextObserver = 0
     }
@@ -161,6 +163,13 @@ public final class Characteristic: @unchecked Sendable {
 
     var readHandler: ReadHandler? { state.withLockedValue { $0.onRead } }
 
+    /// Whether reads and writes fail with `serviceCommunicationFailure` ("No Response" in the Home app) without
+    /// calling the handlers; the value and the handlers stay for when it is available again.
+    var isUnavailable: Bool {
+        get { state.withLockedValue { $0.unavailable } }
+        set { state.withLockedValue { $0.unavailable = newValue } }
+    }
+
     /// Writes a value the way a controller does: checks the permissions and the format, calls the write
     /// handler, stores the value and notifies subscribed controllers. For writes that come from outside
     /// HomeKit, such as an automation or an MCP tool. Timed writes are not enforced.
@@ -173,6 +182,7 @@ public final class Characteristic: @unchecked Sendable {
     @discardableResult
     func write(_ value: HAPValue, origin: ObjectIdentifier?, context: ObjectIdentifier? = nil, notify: Bool = true) async throws -> HAPValue {
         guard type.permissions.contains(.pairedWrite) else { throw HAPStatusError(.readOnlyCharacteristic) }
+        guard !isUnavailable else { throw HAPStatusError(.serviceCommunicationFailure) }
         guard let coerced = type.coerce(value) else { throw HAPStatusError(.invalidValueInRequest) }
         if let respond = state.withLockedValue({ $0.onWriteResponse }) {
             let response = try await respond(coerced)
@@ -188,6 +198,7 @@ public final class Characteristic: @unchecked Sendable {
     /// Writes from code inside the library (Adaptive Lighting's transition steps): always calls the handler, tags
     /// the change with `context` and sends no event when `notify` is off.
     func writeFromController(_ value: HAPValue, context: ObjectIdentifier, notify: Bool) async throws {
+        guard !isUnavailable else { throw HAPStatusError(.serviceCommunicationFailure) }
         let coerced = type.coerce(value) ?? value
         try await state.withLockedValue { $0.onWrite }?(coerced)
         update(coerced, origin: nil, force: false, reason: .write, context: context, notify: notify)

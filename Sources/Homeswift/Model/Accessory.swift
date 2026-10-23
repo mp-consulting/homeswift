@@ -78,7 +78,16 @@ public final class Accessory: @unchecked Sendable {
         }
     }
 
+    /// Whether the accessory answers: while it does not, every read and write of its characteristics fails with
+    /// "No Response" and reaches none of their handlers, so nothing is sent to the device (a paused plugin).
+    /// Values and handlers are kept.
+    public var isUnavailable: Bool {
+        get { services.contains { $0.characteristics.contains(where: \.isUnavailable) } }
+        set { for service in services { for characteristic in service.characteristics { characteristic.isUnavailable = newValue } } }
+    }
+
     func identify() async {
+        guard !isUnavailable else { return }
         try? await information.characteristic(.identify).writeHandler(for: .bool(true))?(.bool(true))
     }
 }
