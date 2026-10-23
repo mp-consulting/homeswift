@@ -199,14 +199,17 @@ final class ChatConversation: Sendable {
             "arguments": confirmation.arguments, "state": "pending",
         ]
         if let preview = confirmation.preview { card["preview"] = preview }
-        append(.object(card))
         let allowed = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                let cancelled = state.withLockedValue { state -> Bool in
-                    guard state.run?.isCancelled != true else { return true }
+                // The card and its continuation appear together: an answer as soon as the card shows (from a
+                // snapshot) finds something waiting for it.
+                let (index, cancelled) = state.withLockedValue { state -> (Int, Bool) in
+                    state.items.append(.object(card))
+                    guard state.run?.isCancelled != true else { return (state.items.count - 1, true) }
                     state.confirmations[id] = continuation
-                    return false
+                    return (state.items.count - 1, false)
                 }
+                broadcastItem(at: index)
                 if cancelled { continuation.resume(returning: false) }
             }
         } onCancel: {

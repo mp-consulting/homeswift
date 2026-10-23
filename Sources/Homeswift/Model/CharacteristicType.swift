@@ -73,7 +73,7 @@ public struct CharacteristicType: Sendable, Hashable {
         switch format {
         case .bool: .bool(false)
         case .uint8, .uint16, .uint32, .uint64, .int:
-            .int(validValues?.first ?? Int(minValue ?? 0))
+            .int(validValues?.first ?? minValue.flatMap { Int(saturating: $0) } ?? 0)
         case .float: .double(minValue ?? 0)
         case .string, .tlv8, .data: .string("")
         }

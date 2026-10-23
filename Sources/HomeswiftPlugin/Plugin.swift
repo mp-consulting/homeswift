@@ -361,7 +361,17 @@ public final class PluginContext: @unchecked Sendable {
     @discardableResult
     func restoreCache() -> [HAPServer] {
         var created: [HAPServer] = []
-        for (accessory, external) in cache.load(logger: logger) {
+        let cached = cache.load(logger: logger)
+        if let cached {
+            // HAP-NodeJS's purgeUnidentifiedAccessoryData: the saved controller states of accessories the
+            // instance no longer has (removed in an earlier run). A missing or unreadable cache purges nothing.
+            do {
+                try controllerStorage.purge(keeping: Set(cached.map(\.accessory.id)))
+            } catch {
+                logger.warning("Could not save a controller state", metadata: ["path": "\(controllerStorage.url.path)", "error": "\(error)"])
+            }
+        }
+        for (accessory, external) in cached ?? [] {
             do {
                 try bridge.claim(accessory.id, for: key, name: name)
                 if external {

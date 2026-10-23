@@ -202,7 +202,7 @@ public struct RetryOptions: Sendable {
         formatter.timeZone = TimeZone(identifier: "GMT")
         formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
         guard let date = formatter.date(from: value) else { return nil }
-        return .milliseconds(max(0, Int(date.timeIntervalSince(now) * 1000)))
+        return milliseconds(max(0, date.timeIntervalSince(now) * 1000))
     }
 
     /// Full-jitter exponential backoff for retry `attempt` (0-based).
@@ -210,7 +210,10 @@ public struct RetryOptions: Sendable {
         let base = Double(baseDelay.components.seconds) + Double(baseDelay.components.attoseconds) / 1e18
         let cap = Double(maxDelay.components.seconds) + Double(maxDelay.components.attoseconds) / 1e18
         let step = min(cap, base * pow(2, Double(attempt)))
-        return .milliseconds(Int(random * step * 1000))
+        // A huge maxDelay or a NaN from the settings must not trap the conversion.
+        let milliseconds = random * step * 1000
+        guard milliseconds.isFinite, milliseconds > 0 else { return .zero }
+        return .milliseconds(Int64(min(milliseconds, 9.2e18)))
     }
 }
 

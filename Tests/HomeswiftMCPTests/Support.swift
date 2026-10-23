@@ -50,7 +50,11 @@ actor DevicesPlugin: HomeswiftPlugin {
 
         let lock = Service(.lockMechanism, name: "Front Door", isPrimary: true)
         lock.characteristic(.lockTargetState).onWrite { value in writes.withLockedValue { $0.append(("lock.target", value)) } }
-        try context.add(Accessory(id: "Devices:lock", name: "Front Door", category: .doorLock, services: [lock]))
+        // A switch that unlocks the door (UniFi Access's Lock Trigger), marked as a security control, and a
+        // characteristic whose value carries keys.
+        let trigger = Service(.switch, name: "Door Trigger", subtype: "trigger", extra: [Characteristic(.setupEndpoints, value: "c3J0cC1tYXN0ZXIta2V5")])
+        trigger.characteristic(.on).securityControl().onWrite { value in writes.withLockedValue { $0.append(("trigger.on", value)) } }
+        try context.add(Accessory(id: "Devices:lock", name: "Front Door", category: .doorLock, services: [lock, trigger]))
     }
 
     static let assistantActions = [

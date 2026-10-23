@@ -162,8 +162,7 @@ public final class WebSocket: WebSocketConnection {
         }
         let secure = scheme == "wss"
         let port = url.port ?? (secure ? 443 : 80)
-        var uri = url.path.isEmpty ? "/" : url.path
-        if let query = url.query(percentEncoded: true) { uri += "?\(query)" }
+        let uri = requestTarget(of: url)
 
         var headers = HTTPHeaders()
         headers.add(name: "Host", value: port == (secure ? 443 : 80) ? host : "\(host):\(port)")

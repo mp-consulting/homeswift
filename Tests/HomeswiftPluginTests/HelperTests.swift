@@ -108,3 +108,23 @@ struct PluginContextHelperTests {
         #expect(on.value == .bool(false))
     }
 }
+
+struct ConfidentialValueTests {
+    @Test func theAccessoryCacheKeepsNoConfidentialValue() {
+        let characteristic = Characteristic(.setupEndpoints, value: "c3J0cC1tYXN0ZXIta2V5")
+        #expect(CachedCharacteristic(characteristic).value == .null)
+        #expect(CachedCharacteristic(Characteristic(.brightness, value: 40)).value == .int(40))
+    }
+}
+
+struct JSONNumberTests {
+    @Test func saturatingIntValues() {
+        #expect(JSONValue.number(1e300).saturatingIntValue == .max)
+        #expect(JSONValue.number(-1e300).saturatingIntValue == .min)
+        #expect(JSONValue.number(41.9).saturatingIntValue == 41)
+        #expect(JSONValue.number(1e300).intValue == nil)
+        #expect(JSONValue.string("12").saturatingIntValue == nil)
+        #expect(JSONValue.number(250).saturatingIntValue(in: 0...100) == 100)
+        #expect(JSONValue.null.saturatingIntValue(in: 0...100) == nil)
+    }
+}

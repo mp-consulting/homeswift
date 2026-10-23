@@ -400,6 +400,8 @@ public final class FfmpegRecordingProcess: FfmpegFMp4Process, @unchecked Sendabl
 
     private let recordingState = NIOLockedValueBox(RecordingState())
     private let mp4box = AsyncSignal()
+    /// Called by the segment generator after its end check, right before it waits for a box: lets tests stop the process there.
+    let beforeBoxWait = NIOLockedValueBox<(@Sendable () -> Void)?>(nil)
 
     public init(
         _ options: FfmpegOptions, recordingConfig: CameraRecordingConfiguration, fMp4Options: FMp4RecordingOptions = FMp4RecordingOptions(),
@@ -461,11 +463,15 @@ public final class FfmpegRecordingProcess: FfmpegFMp4Process, @unchecked Sendabl
                 while let self, !Task.isCancelled {
                     // FFmpeg has finished its output.
                     if self.isEnded { break }
-                    // Wait for FFmpeg to produce more boxes, within HKSV's timing.
+                    self.beforeBoxWait.withLockedValue { $0 }?()
+                    // Wait for FFmpeg to produce more boxes, within HKSV's timing. A stop since the check above is seen here too: it
+                    // is flagged before its signal, and the flag is read under the signal's lock.
                     let recordingState = self.recordingState
                     _ = await self.mp4box.wait(timeout: .milliseconds(HKSV_TIMEOUT)) {
-                        recordingState.withLockedValue { !$0.recordingBuffer.isEmpty }
+                        recordingState.withLockedValue { !$0.recordingBuffer.isEmpty || $0.isStopped }
                     }
+                    // The consumer went away: that is neither a timeout nor more output to hand over.
+                    if Task.isCancelled { break }
                     let box = recordingState.withLockedValue { state -> FMp4ParsedBox? in
                         state.recordingBuffer.isEmpty ? nil : state.recordingBuffer.removeFirst()
                     }
@@ -653,7 +659,9 @@ public final class FfmpegLivestreamProcess: FfmpegFMp4Process, @unchecked Sendab
         }
         var arguments = commandLineArgs ?? self.commandLineArgs
         if let segmentLength, let index = arguments.firstIndex(of: "-frag_duration"), index + 1 < arguments.count {
-            arguments[index + 1] = String(segmentLength * 1000)
+            // Microseconds; a length too large to multiply is clamped rather than trapping.
+            let (microseconds, overflow) = segmentLength.multipliedReportingOverflow(by: 1000)
+            arguments[index + 1] = String(overflow ? (segmentLength < 0 ? Int.min : Int.max) : microseconds)
         }
         super.start(arguments, errorHandler: errorHandler)
     }

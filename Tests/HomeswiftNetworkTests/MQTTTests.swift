@@ -75,6 +75,15 @@ struct MQTTPacketTests {
         #expect(secure.username == nil)
         #expect(throws: MQTTError.invalidURL("http://broker.local")) { try MQTTConfiguration(url: URL(string: "http://broker.local")!, clientID: "c") }
     }
+
+    @Test func credentialsInABrokerURLAreDecodedOnce() throws {
+        // `%25` is a percent sign: the password is `p%41`, not `pA`.
+        let configuration = try MQTTConfiguration(url: URL(string: "mqtt://u%2540x:p%2541@broker.local")!, clientID: "c")
+        #expect(configuration.username == "u%40x")
+        #expect(configuration.password == "p%41")
+        let socket = try MQTTConfiguration(url: URL(string: "ws://u:p%2541@broker.local:9001")!, clientID: "c")
+        #expect(socket.password == "p%41")
+    }
 }
 
 @Suite("MQTT client", .timeLimit(.minutes(1)))
@@ -206,6 +215,93 @@ struct MQTTClientTests {
         try await eventually { states.all.last == .disconnected }
         try await Task.sleep(for: .milliseconds(200))
         #expect(server.broker.connects.count == 1)
+    }
+
+    @Test func aConnectionLostRightAfterCONNACKIsNotReportedConnected() async throws {
+        let server = try await TestSocketServer(mode: .mqtt)
+        defer { Task { await server.stop() } }
+        // The bad packet behind the CONNACK tears the connection down before `connect()` resumes.
+        server.broker.state.withLockedValue { $0.connackThenGarbage = true }
+        let client = MQTTClient(MQTTConfiguration(transport: .tcp(host: "127.0.0.1", port: server.port), clientID: "c"))
+        let states = Recorder(client.states)
+        await #expect(throws: (any Error).self) { try await client.connect() }
+        #expect(await !client.isConnected)
+        try await eventually { states.all.last == .disconnected }
+        #expect(!states.all.contains { if case .connected = $0 { true } else { false } })
+    }
+
+    @Test func overlappingConnectionAttemptsShareOneCONNACK() async throws {
+        let server = try await TestSocketServer(mode: .mqtt)
+        defer { Task { await server.stop() } }
+        server.broker.state.withLockedValue { $0.connackDelay = .milliseconds(300) }
+        let client = MQTTClient(
+            MQTTConfiguration(
+                transport: .tcp(host: "127.0.0.1", port: server.port), clientID: "c",
+                reconnect: MQTTConfiguration.Reconnect(delay: .milliseconds(50), maximumDelay: .milliseconds(50))
+            )
+        )
+        let finished = NIOLockedValueBox(0)
+        let connect: @Sendable () -> Void = {
+            Task {
+                do {
+                    try await client.connect()
+                    finished.withLockedValue { $0 += 1 }
+                } catch {
+                    Issue.record(error)
+                }
+            }
+        }
+        // A second connect() while the first waits for its CONNACK: both return, on one connection.
+        connect()
+        try await eventually { server.broker.connects.count == 1 }
+        connect()
+        try await eventually { finished.withLockedValue { $0 } == 2 }
+        #expect(await client.isConnected)
+        #expect(server.broker.connects.count == 1)
+
+        // connect() while a reconnection waits for its CONNACK joins it.
+        server.broker.dropAll()
+        try await eventually { server.broker.connects.count == 2 }
+        connect()
+        try await eventually { finished.withLockedValue { $0 } == 3 }
+        #expect(await client.isConnected)
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(server.broker.connects.count == 2)
+        #expect(server.broker.sessionCount == 1)
+        await client.disconnect()
+    }
+
+    @Test func disconnectDuringAReconnectionEndsDisconnected() async throws {
+        let server = try await TestSocketServer(mode: .mqttOverWebSocket)
+        defer { Task { await server.stop() } }
+        let attempts = NIOLockedValueBox(0)
+        let port = server.port
+        let client = MQTTClient(
+            MQTTConfiguration(
+                transport: .webSocket(
+                    url: {
+                        let attempt = attempts.withLockedValue { value in
+                            value += 1
+                            return value
+                        }
+                        // The reconnection is slow to get its URL: disconnect() comes in the meantime.
+                        if attempt > 1 { try? await Task.sleep(for: .milliseconds(300)) }
+                        return URL(string: "ws://127.0.0.1:\(port)/mqtt")!
+                    },
+                    options: WebSocket.Options()
+                ),
+                clientID: "c", reconnect: MQTTConfiguration.Reconnect(delay: .milliseconds(20))
+            )
+        )
+        let states = Recorder(client.states)
+        try await client.connect()
+        server.broker.dropAll()
+        try await eventually { attempts.withLockedValue { $0 } == 2 }
+        await client.disconnect()
+        try await Task.sleep(for: .milliseconds(600))
+        #expect(states.all.last == .disconnected)
+        #expect(server.broker.connects.count == 1)
+        #expect(await !client.isConnected)
     }
 
     @Test func tlsWithAClientCertificateInPEMAndPKCS12() async throws {

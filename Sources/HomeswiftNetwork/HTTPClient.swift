@@ -89,10 +89,11 @@ public enum HTTPClientError: Error, CustomStringConvertible, Equatable, Sendable
 /// An HTTP/1.1 client for devices on the LAN, on NIO so it behaves the same on macOS and Linux.
 ///
 /// One connection per request, closed afterwards: the devices this is for answer a handful of requests a
-/// minute, and keep-alive would only hold a socket open on a TV that drops it anyway. The TLS mode decides
-/// what the client accepts from a server: the system's roots (`.system`), any certificate (`.any`, trust on
-/// first use), or exactly one (`.pinned`). The last two record the certificate's fingerprint on the response
-/// so the caller can pin it from then on.
+/// minute, and keep-alive would only hold a socket open on a TV that drops it anyway. A request whose connection
+/// the server closes before any of the response arrived goes once more on a new one, when its method is
+/// idempotent or it never went out. The TLS mode decides what the client accepts from a server: the system's
+/// roots (`.system`), any certificate (`.any`, trust on first use), or exactly one (`.pinned`). The last two
+/// record the certificate's fingerprint on the response so the caller can pin it from then on.
 public final class HTTPClient: HTTPSending, Sendable {
     public enum TLS: Sendable, Equatable {
         /// Verify the server's certificate against the system's trusted roots.
@@ -131,26 +132,50 @@ public final class HTTPClient: HTTPSending, Sendable {
         }
         let secure = scheme == "https"
         let port = request.url.port ?? (secure ? 443 : 80)
-        var uri = request.url.path.isEmpty ? "/" : request.url.path
-        if let query = request.url.query { uri += "?\(query)" }
+        let start = ContinuousClock.now
+        do {
+            return try await exchange(request, host: host, port: port, secure: secure, timeout: request.timeout)
+        } catch let dropped as DroppedConnection {
+            // The server closed the connection without a byte of an answer (a restart, a connection limit, an idle
+            // timeout): once more on a fresh connection, when the request never went out or may be seen twice.
+            let remaining = request.timeout - (ContinuousClock.now - start)
+            guard dropped.unsent || Self.idempotentMethods.contains(request.method.uppercased()), remaining > .zero else { throw dropped.error }
+            do {
+                return try await exchange(request, host: host, port: port, secure: secure, timeout: remaining)
+            } catch let dropped as DroppedConnection {
+                throw dropped.error
+            }
+        }
+    }
 
+    /// Methods a server may receive twice without harm (RFC 9110, 9.2.2).
+    static let idempotentMethods: Set<String> = ["GET", "HEAD", "PUT", "DELETE", "OPTIONS"]
+
+    /// One request on one new connection. A connection that closed before any of the response arrived throws
+    /// `DroppedConnection`, which `send` may retry.
+    private func exchange(_ request: HTTPRequest, host: String, port: Int, secure: Bool, timeout: Duration) async throws -> HTTPResponse {
         let observed = NIOLockedValueBox<String?>(nil)
         let mismatch = NIOLockedValueBox<HTTPClientError?>(nil)
+        let progress = NIOLockedValueBox(ResponseCollector.Progress())
+        let eventLoop = group.next()
+        let promise = eventLoop.makePromise(of: HTTPResponse.self)
+        let limit = maximumBodySize
         let channel: any Channel
         do {
-            channel = try await connect(host: host, port: port, secure: secure, observed: observed, mismatch: mismatch, timeout: request.timeout)
+            channel = try await connect(
+                host: host, port: port, secure: secure, eventLoop: eventLoop, observed: observed, mismatch: mismatch, timeout: timeout
+            ) { ResponseCollector(promise: promise, limit: limit, progress: progress) }
         } catch {
+            promise.fail(error)
             if let mismatch = mismatch.withLockedValue({ $0 }) { throw mismatch }
             throw error
         }
-        let promise = channel.eventLoop.makePromise(of: HTTPResponse.self)
-        let deadline = channel.eventLoop.scheduleTask(in: TimeAmount(request.timeout)) {
+        let deadline = channel.eventLoop.scheduleTask(in: TimeAmount(timeout)) {
             promise.fail(HTTPClientError.timeout)
             channel.close(promise: nil)
         }
         do {
-            try await channel.pipeline.addHandler(ResponseCollector(promise: promise, limit: maximumBodySize)).get()
-            var head = HTTPRequestHead(version: .http1_1, method: HTTPMethod(rawValue: request.method.uppercased()), uri: uri)
+            var head = HTTPRequestHead(version: .http1_1, method: HTTPMethod(rawValue: request.method.uppercased()), uri: requestTarget(of: request.url))
             head.headers.add(name: "Host", value: port == (secure ? 443 : 80) ? host : "\(host):\(port)")
             head.headers.add(name: "Connection", value: "close")
             if let body = request.body {
@@ -163,7 +188,12 @@ public final class HTTPClient: HTTPSending, Sendable {
             if let body = request.body, !body.isEmpty {
                 channel.write(HTTPClientRequestPart.body(.byteBuffer(ByteBuffer(bytes: body))), promise: nil)
             }
-            try await channel.writeAndFlush(HTTPClientRequestPart.end(nil)).get()
+            // The collector is in the pipeline from the start, so a connection that closes first fails the response
+            // with what it saw (`connectionClosed`, a TLS error), not NIO's "I/O on closed channel" for the write.
+            channel.writeAndFlush(HTTPClientRequestPart.end(nil)).whenFailure { error in
+                promise.fail(error is ChannelError ? HTTPClientError.connectionClosed : error)
+                channel.close(promise: nil)
+            }
             var response = try await withTaskCancellationHandler {
                 try await promise.futureResult.get()
             } onCancel: {
@@ -179,18 +209,42 @@ public final class HTTPClient: HTTPSending, Sendable {
             promise.fail(error)
             channel.close(promise: nil)
             if let mismatch = mismatch.withLockedValue({ $0 }) { throw mismatch }
+            let progress = progress.withLockedValue { $0 }
+            if !progress.responseStarted, Self.isDrop(error) {
+                let unsent = !progress.flushed || progress.handshakeIncomplete
+                throw DroppedConnection(error: error is ChannelError ? HTTPClientError.connectionClosed : error, unsent: unsent)
+            }
             throw error
         }
     }
 
+    /// A connection the server closed (or reset) under the request, as opposed to a refusal, a timeout or a TLS
+    /// failure.
+    private static func isDrop(_ error: any Error) -> Bool {
+        switch error {
+        case let error as HTTPClientError: error == .connectionClosed
+        case let error as ChannelError: error == .ioOnClosedChannel || error == .eof || error == .alreadyClosed
+        case let error as IOError: [ECONNRESET, EPIPE, ECONNABORTED].contains(error.errnoCode)
+        case let error as NIOSSLError: error == .uncleanShutdown || closedDuringHandshake(error)
+        default: false
+        }
+    }
+
+    /// NIOSSL's error for a connection closed during the TLS handshake.
+    private static func closedDuringHandshake(_ error: any Error) -> Bool {
+        guard let error = error as? NIOSSLError else { return false }
+        return error == .handshakeFailed(.sslError([.eofDuringHandshake])) || error == .handshakeFailed(.sslError([.eofDuringAdditionalCertficiateChainValidation]))
+    }
+
     private func connect(
-        host: String, port: Int, secure: Bool, observed: NIOLockedValueBox<String?>, mismatch: NIOLockedValueBox<HTTPClientError?>, timeout: Duration
+        host: String, port: Int, secure: Bool, eventLoop: any EventLoop, observed: NIOLockedValueBox<String?>,
+        mismatch: NIOLockedValueBox<HTTPClientError?>, timeout: Duration, collector: @escaping @Sendable () -> ResponseCollector
     ) async throws -> any Channel {
         let tls = tls
         let context = secure ? try self.context() : nil
         // SNI carries host names only; a TV is reached by its address.
         let serverName = host.contains(":") || host.allSatisfy({ $0.isNumber || $0 == "." }) ? nil : host
-        let bootstrap = ClientBootstrap(group: group)
+        let bootstrap = ClientBootstrap(group: eventLoop)
             .connectTimeout(TimeAmount(timeout))
             .channelOption(.tcpOption(.tcp_nodelay), value: 1)
             .channelInitializer { channel in
@@ -219,6 +273,7 @@ public final class HTTPClient: HTTPSending, Sendable {
                         try channel.pipeline.syncOperations.addHandler(handler)
                     }
                     try channel.pipeline.syncOperations.addHTTPClientHandlers()
+                    try channel.pipeline.syncOperations.addHandler(collector())
                 }
             }
         do {
@@ -244,6 +299,23 @@ public final class HTTPClient: HTTPSending, Sendable {
     }
 }
 
+/// The request target of a URL as the request line carries it: the path and query still percent-encoded, `/` for
+/// no path. (`URL.path` decodes: `%20` would put a space in the request line, `%2F` would become a separator.)
+/// Shared by the HTTP and WebSocket clients.
+func requestTarget(of url: URL) -> String {
+    let path = url.path(percentEncoded: true)
+    var target = path.isEmpty ? "/" : path
+    if let query = url.query(percentEncoded: true) { target += "?\(query)" }
+    return target
+}
+
+/// A failure `send` may retry: the connection closed before any of the response arrived. `unsent`: before any of
+/// the request went out either.
+private struct DroppedConnection: Error {
+    var error: any Error
+    var unsent: Bool
+}
+
 /// The errno of a failed connection when the system gave one, and a short reason: its message, else the error.
 /// Shared by the HTTP, WebSocket and MQTT clients.
 func connectionFailure(_ error: any Error) -> (code: Int32?, reason: String) {
@@ -252,23 +324,43 @@ func connectionFailure(_ error: any Error) -> (code: Int32?, reason: String) {
     return (nil, "\(underlying)")
 }
 
-/// Collects the parts of one response into an `HTTPResponse`.
-private final class ResponseCollector: ChannelInboundHandler {
+/// Collects the parts of one response into an `HTTPResponse`, in the pipeline from the start so that it sees how a
+/// connection ends, and records how far the exchange got for the retry.
+private final class ResponseCollector: ChannelDuplexHandler {
     typealias InboundIn = HTTPClientResponsePart
+    typealias OutboundIn = HTTPClientRequestPart
+    typealias OutboundOut = HTTPClientRequestPart
+
+    struct Progress {
+        /// The request was flushed while the connection was open: some of it may have reached the server.
+        var flushed = false
+        /// The connection ended before the server's certificate arrived, so before the TLS handshake completed:
+        /// the TLS handler still held the request.
+        var handshakeIncomplete = false
+        var responseStarted = false
+    }
 
     private let promise: EventLoopPromise<HTTPResponse>
     private let limit: Int
+    private let progress: NIOLockedValueBox<Progress>
     private var status = 0
     private var headers: [(name: String, value: String)] = []
     private var body = Data()
     private var done = false
 
-    init(promise: EventLoopPromise<HTTPResponse>, limit: Int) {
+    init(promise: EventLoopPromise<HTTPResponse>, limit: Int, progress: NIOLockedValueBox<Progress>) {
         self.promise = promise
         self.limit = limit
+        self.progress = progress
+    }
+
+    func flush(context: ChannelHandlerContext) {
+        if context.channel.isActive { progress.withLockedValue { $0.flushed = true } }
+        context.flush()
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        progress.withLockedValue { $0.responseStarted = true }
         switch unwrapInboundIn(data) {
         case .head(let head):
             status = Int(head.status.code)
@@ -287,24 +379,25 @@ private final class ResponseCollector: ChannelInboundHandler {
         }
     }
 
+    /// Before the response fails: whether the TLS handshake got as far as the server's certificate.
+    private func noteHandshake(context: ChannelHandlerContext) {
+        guard !done, let tls = try? context.pipeline.syncOperations.handler(type: NIOSSLHandler.self), tls.peerCertificate == nil else { return }
+        progress.withLockedValue { $0.handshakeIncomplete = true }
+    }
+
     func errorCaught(context: ChannelHandlerContext, error: any Error) {
+        noteHandshake(context: context)
         done = true
         promise.fail(error)
         context.close(promise: nil)
     }
 
     func channelInactive(context: ChannelHandlerContext) {
+        noteHandshake(context: context)
         if !done {
             done = true
             promise.fail(HTTPClientError.connectionClosed)
         }
         context.fireChannelInactive()
-    }
-}
-
-extension TimeAmount {
-    init(_ duration: Duration) {
-        let nanoseconds = duration.components.seconds * 1_000_000_000 + duration.components.attoseconds / 1_000_000_000
-        self = .nanoseconds(max(1, nanoseconds))
     }
 }

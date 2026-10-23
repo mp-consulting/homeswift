@@ -158,12 +158,12 @@ func eventually(timeout: Duration = .seconds(5), _ condition: () -> Bool) async 
     return condition()
 }
 
-/// Waits for the running process of `process` to end. `action` (a stop) runs once the wait is registered, so an exit it
-/// causes at once is not missed.
-func waitForExit(_ process: FfmpegProcess, timeout: Duration = .seconds(10), after action: () -> Void = {}) async -> FfmpegExitStatus? {
+/// Waits for the running process of `process` to end. `action` (a stop, closing its input) runs once the wait is registered,
+/// so an exit it causes at once is not missed.
+func waitForExit(_ process: FfmpegProcess, timeout: Duration = .seconds(10), after action: () async -> Void = {}) async -> FfmpegExitStatus? {
     let box = NIOLockedValueBox<FfmpegExitStatus?>(nil)
     guard process.onceExit({ status in box.withLockedValue { $0 = status } }) else { return nil }
-    action()
+    await action()
     await eventually(timeout: timeout) { box.withLockedValue { $0 != nil } }
     return box.withLockedValue { $0 }
 }

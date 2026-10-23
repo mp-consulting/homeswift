@@ -293,6 +293,29 @@ struct PluginHostTests {
         await second.stop()
     }
 
+    @Test func purgesTheControllerStatesOfAccessoriesThatAreGone() async throws {
+        let json = """
+            {
+              "bridge": { "port": 0 },
+              "platforms": [{ "platform": "Recording", "name": "Lamps", "lamps": ["lamp-1"] }]
+            }
+            """
+        let first = try environment.host(json)
+        try await first.start()
+        await first.stop()
+        let url = environment.directory.appendingPathComponent("controllers/Recording-Lamps.json")
+        let storage = ControllerStorage(url: url)
+        try storage.save(Data("kept".utf8), accessoryID: "Recording:lamp-1", controllerID: "characteristic-transition-1")
+        try storage.save(Data("gone".utf8), accessoryID: "Recording:removed", controllerID: "characteristic-transition-1")
+
+        // Restoring the cache drops the state of the accessory the instance no longer has.
+        let second = try environment.host(json)
+        #expect(second.mainBridge.server.accessories.contains { $0.id == "Recording:lamp-1" })
+        let reloaded = ControllerStorage(url: url)
+        #expect(reloaded.state(accessoryID: "Recording:lamp-1", controllerID: "characteristic-transition-1") == Data("kept".utf8))
+        #expect(reloaded.state(accessoryID: "Recording:removed", controllerID: "characteristic-transition-1") == nil)
+    }
+
     @Test func appliesANewConfigurationWithoutARestart() async throws {
         func configuration(_ platforms: String, port: Int = 0) throws -> HomeswiftConfiguration {
             try HomeswiftConfiguration.decode(Data(#"{ "bridge": { "port": \#(port) }, "platforms": [\#(platforms)] }"#.utf8))

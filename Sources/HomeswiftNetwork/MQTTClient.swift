@@ -134,12 +134,9 @@ public struct MQTTConfiguration: Sendable {
         default:
             throw MQTTError.invalidURL(url.absoluteString)
         }
+        // `user` and `password` come decoded: decoding them again would turn a password's `%2541` into `A`.
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        self.init(
-            transport: transport, clientID: clientID,
-            username: components?.user?.removingPercentEncoding ?? components?.user,
-            password: components?.password?.removingPercentEncoding ?? components?.password
-        )
+        self.init(transport: transport, clientID: clientID, username: components?.user, password: components?.password)
     }
 }
 
@@ -178,6 +175,10 @@ public actor MQTTClient: MQTTConnection {
     private var readTask: Task<Void, Never>?
     private var keepAliveTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
+    /// The connection attempt in flight. `connect()` and the reconnection loop join it rather than start another,
+    /// which would take over the one CONNACK continuation and leave the first attempt waiting forever.
+    private var inFlight: (id: Int, task: Task<Void, any Error>)?
+    private var attempts = 0
 
     public init(_ configuration: MQTTConfiguration, group: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton) {
         self.configuration = configuration
@@ -219,6 +220,8 @@ public actor MQTTClient: MQTTConnection {
         wantsConnection = false
         reconnectTask?.cancel()
         reconnectTask = nil
+        inFlight?.task.cancel()
+        inFlight = nil
         generation += 1
         let transport = transport
         if connected { try? await transport?.send(MQTTPacket.disconnect.encode()) }
@@ -257,7 +260,18 @@ public actor MQTTClient: MQTTConnection {
 
     // MARK: - Connection
 
+    /// Connects, or waits for the attempt already in flight.
     private func establish() async throws {
+        if let inFlight { return try await inFlight.task.value }
+        attempts += 1
+        let id = attempts
+        let task = Task { try await self.attemptConnection(id: id) }
+        inFlight = (id, task)
+        try await task.value
+    }
+
+    private func attemptConnection(id: Int) async throws {
+        defer { if inFlight?.id == id { inFlight = nil } }
         generation += 1
         let generation = generation
         stateBroadcast.yield(.connecting)
@@ -318,10 +332,18 @@ public actor MQTTClient: MQTTConnection {
                 }
             }
         } catch {
-            self.generation += 1
-            tearDown(error: error)
+            // Unless a teardown (disconnect, a lost connection) already forgot this connection.
+            if generation == self.generation {
+                self.generation += 1
+                tearDown(error: error)
+            }
             await transport.close()
             throw error
+        }
+        // Torn down between the CONNACK and here (the broker closed right after it, or disconnect()): not connected.
+        guard generation == self.generation else {
+            await transport.close()
+            throw MQTTError.connectionLost
         }
         connected = true
         stateBroadcast.yield(.connected(sessionPresent: sessionPresent))
@@ -497,8 +519,10 @@ public actor MQTTClient: MQTTConnection {
             try await establish()
             return true
         } catch {
+            // disconnect() while this attempt ran already said `.disconnected`; connect() took over and reports itself.
+            guard wantsConnection, !Task.isCancelled else { return true }
             stateBroadcast.yield(.connectionLost("\(error)"))
-            return !wantsConnection
+            return false
         }
     }
 }

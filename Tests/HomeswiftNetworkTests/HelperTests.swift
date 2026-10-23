@@ -22,6 +22,13 @@ struct BackoffTests {
         #expect(additive.delay(attempt: 1, random: 0.5) == .seconds(31))
         #expect(additive.delay(attempt: 2, random: 0) == .seconds(60))
     }
+
+    @Test func outlandishSettingsDoNotTrap() {
+        let huge = Backoff(initial: .seconds(1), maximum: .seconds(Int64.max), jitter: .proportional(1e300))
+        #expect(huge.delay(attempt: 3, random: 1) == .seconds(Int64.max))
+        #expect(Backoff(initial: .seconds(1), maximum: .seconds(5), jitter: .proportional(.nan)).delay(attempt: 0) == .zero)
+        #expect(Backoff(initial: .seconds(1), factor: -2, maximum: .seconds(5)).delay(attempt: 1) == .zero)
+    }
 }
 
 struct UDPSocketTests {

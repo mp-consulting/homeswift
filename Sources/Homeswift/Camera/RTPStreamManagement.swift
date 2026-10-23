@@ -27,6 +27,8 @@ final class RTPStreamManagement: @unchecked Sendable {
 
     private struct State {
         var activeConnection: ObjectIdentifier?
+        /// The close handler on the active connection, removed when the session ends first.
+        var closeRegistration: HAPRequestContext.CloseRegistration?
         var sessionIdentifier: String?
         var streamStatus = StreamingStatus.available
         var ipVersion: IPAddressVersion?
@@ -69,6 +71,8 @@ final class RTPStreamManagement: @unchecked Sendable {
     private func setupServiceHandlers() {
         let active = service.characteristic(adding: .active)
         active.set(.int(1), notify: false)
+        // HAP-NodeJS: `adminOnlyAccess: [Access.WRITE]`.
+        active.onWrite { _ in try HAPRequestContext.requireAdmin() }
         active.observe { [weak self] _ in self?.state.withLockedValue { $0.stateChangeDelegate }?() }
         service.characteristic(.supportedRTPConfiguration).set(.string(supportedRTPConfiguration.base64EncodedString()), notify: false)
         service.characteristic(.supportedVideoStreamConfiguration).set(.string(supportedVideoStreamConfiguration.base64EncodedString()), notify: false)
@@ -120,6 +124,10 @@ final class RTPStreamManagement: @unchecked Sendable {
 
     private func updateStreamStatus(_ status: StreamingStatus) {
         state.withLockedValue { $0.streamStatus = status }
+        publishStreamStatus(status)
+    }
+
+    private func publishStreamStatus(_ status: StreamingStatus) {
         service.characteristic(.streamingStatus).set(.string(HAPTLV.encode((1, .byte(status.rawValue))).base64EncodedString()))
     }
 
@@ -127,11 +135,15 @@ final class RTPStreamManagement: @unchecked Sendable {
     func handleSessionClosed() {
         resetSelectedStreamConfiguration()
         resetSetupEndpointsResponse()
-        state.withLockedValue { state in
+        let registration = state.withLockedValue { state in
+            defer { state.closeRegistration = nil }
             state.activeConnection = nil
             state.sessionIdentifier = nil
             state.ipVersion = nil
+            return state.closeRegistration
         }
+        // HAP-NodeJS removes its listener from the connection.
+        registration?.remove()
         updateStreamStatus(.available)
     }
 
@@ -276,6 +288,7 @@ final class RTPStreamManagement: @unchecked Sendable {
         else { throw HAPStatusError(.invalidValueInRequest) }
         let sessionIdentifier = HAPTLV.uuidString(identifierData)
 
+        // Checked and claimed under one lock: of two controllers at once, one gets the stream, the other "busy".
         let claimed = state.withLockedValue { state -> Bool in
             guard state.streamStatus == .available else {
                 state.setupEndpointsResponse = HAPTLV.encode((1, .data(HAPTLV.uuidBytes(sessionIdentifier))), (2, .byte(1))).base64EncodedString()
@@ -283,15 +296,23 @@ final class RTPStreamManagement: @unchecked Sendable {
             }
             state.activeConnection = context.connectionID
             state.sessionIdentifier = sessionIdentifier
+            state.streamStatus = .inUse
             return true
         }
         guard claimed else { return }
-        updateStreamStatus(.inUse)
+        publishStreamStatus(.inUse)
         // The stream ends with the controller's connection.
-        context.onClose { [weak self] in
+        let registration = context.onClose { [weak self] in
             guard let self, self.state.withLockedValue({ $0.activeConnection == context.connectionID && $0.sessionIdentifier == sessionIdentifier }) else { return }
             Task { try? await self.handleStopStream() }
         }
+        let keep = state.withLockedValue { state -> Bool in
+            guard state.activeConnection == context.connectionID, state.sessionIdentifier == sessionIdentifier else { return false }
+            state.closeRegistration = registration
+            return true
+        }
+        // The session already ended (the connection closed at once): nothing to keep.
+        if !keep { registration.remove() }
 
         let request: PrepareStreamRequest
         do {
@@ -342,9 +363,11 @@ final class RTPStreamManagement: @unchecked Sendable {
         case missingAudio
         case addressVersionMismatch(expected: IPAddressVersion, got: IPAddressVersion)
         case missingSRTP(String)
+        case noLocalAddress(IPAddressVersion)
 
         var description: String {
             switch self {
+            case .noLocalAddress(let version): "Could not find an \(version) address on the interface of the connection"
             case .missingAudio: "Audio was enabled but not supplied in PrepareStreamResponse!"
             case .addressVersionMismatch(let expected, let got): "Incoming and outgoing ip address versions must match! Expected \(expected) but got \(got)"
             case .missingSRTP(let stream): "SRTP was selected for the prepared \(stream) stream, but no srtpKey or srtpSalt was specified!"
@@ -364,7 +387,9 @@ final class RTPStreamManagement: @unchecked Sendable {
             addressVersion = HAPRequestContext.isIPv6(override) ? .ipv6 : .ipv4
             address = override
         } else {
-            address = context.localAddress ?? ""
+            // HAP-NodeJS: an address of the version the controller asked for, on the connection's interface.
+            guard let local = context.localAddress(for: addressVersion) else { throw ResponseError.noLocalAddress(addressVersion) }
+            address = local
         }
         guard addressVersion == request.addressVersion else {
             throw ResponseError.addressVersionMismatch(expected: request.addressVersion, got: addressVersion)

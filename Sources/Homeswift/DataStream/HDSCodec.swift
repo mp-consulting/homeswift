@@ -86,6 +86,8 @@ enum HDSCodingError: Error, Equatable {
     case invalidTag(UInt8, at: Int)
     case endOfData
     case compressionIndex(Int)
+    /// Arrays and dictionaries nested deeper than `HDSReader.maxDepth`.
+    case tooDeep
 }
 
 /// The HDS tags (`DataFormatTags`).
@@ -260,11 +262,17 @@ struct HDSWriter {
     }
 }
 
-/// Decodes like HAP-NodeJS's `DataStreamReader`, which tracks every value it reads for back references.
+/// Decodes like HAP-NodeJS's `DataStreamReader`, which tracks every value it reads for back references. Bytes from
+/// a controller never trap: lengths past the end, and nesting deeper than `maxDepth`, throw.
 struct HDSReader {
+    /// HomeKit's messages nest a few levels (`dataSend` packets: four); a frame of nested array tags would
+    /// otherwise recurse once per byte.
+    static let maxDepth = 32
+
     let data: Data
     private(set) var index: Int
     private var tracked: [HDSValue] = []
+    private var depth = 0
 
     init(_ data: Data) {
         self.data = Data(data)
@@ -277,9 +285,15 @@ struct HDSReader {
     }
 
     private mutating func bytes(_ count: Int) throws -> Data {
-        guard count >= 0, index + count <= data.count else { throw HDSCodingError.endOfData }
+        guard count >= 0, count <= data.count - index else { throw HDSCodingError.endOfData }
         defer { index += count }
         return data.subdata(in: index..<index + count)
+    }
+
+    /// A length read from the data: more than the bytes left cannot be right.
+    private mutating func length<T: FixedWidthInteger & UnsignedInteger>(_: T.Type) throws -> Int {
+        guard let length = Int(exactly: try little(T.self)) else { throw HDSCodingError.endOfData }
+        return length
     }
 
     private mutating func little<T: FixedWidthInteger>(_: T.Type) throws -> T {
@@ -304,15 +318,18 @@ struct HDSReader {
         return data.subdata(in: index..<end)
     }
 
-    /// The terminator tag, which only ends terminated arrays and dictionaries.
-    private static let terminatorMarker = HDSValue.data(Data([0xFF, 0x03, 0xFF]))
-
     mutating func read() throws -> HDSValue {
-        let value = try readAny()
+        try readAny()
+    }
+
+    private mutating func readAny() throws -> HDSValue {
+        let start = index
+        guard let value = try readAny(allowTerminator: false) else { throw HDSCodingError.invalidTag(HDSTag.terminator, at: start) }
         return value
     }
 
-    private mutating func readAny(allowTerminator: Bool = false) throws -> HDSValue {
+    /// One value; nil for the terminator tag, which only ends terminated arrays and dictionaries.
+    private mutating func readAny(allowTerminator: Bool) throws -> HDSValue? {
         let start = index
         let tag = try bytes(1)[0]
         switch tag {
@@ -322,7 +339,7 @@ struct HDSReader {
         case HDSTag.false: return track(.bool(false))
         case HDSTag.terminator:
             guard allowTerminator else { throw HDSCodingError.invalidTag(tag, at: start) }
-            return Self.terminatorMarker
+            return nil
         case HDSTag.null: return .null
         case HDSTag.uuid: return track(.uuid(HAPTLV.uuidString(try bytes(16))))
         case HDSTag.date: return track(.double(Double(bitPattern: try little(UInt64.self))))
@@ -335,30 +352,39 @@ struct HDSReader {
         case HDSTag.float32: return track(.double(Double(Float(bitPattern: try little(UInt32.self)))))
         case HDSTag.float64: return track(.double(Double(bitPattern: try little(UInt64.self))))
         case HDSTag.utf8LengthStart...HDSTag.utf8LengthStop: return try utf8(Int(tag - HDSTag.utf8LengthStart))
-        case HDSTag.utf8Length8: return try utf8(Int(try little(UInt8.self)))
-        case HDSTag.utf8Length16: return try utf8(Int(try little(UInt16.self)))
-        case HDSTag.utf8Length32: return try utf8(Int(try little(UInt32.self)))
-        case HDSTag.utf8Length64: return try utf8(Int(try little(UInt64.self)))
+        case HDSTag.utf8Length8: return try utf8(try length(UInt8.self))
+        case HDSTag.utf8Length16: return try utf8(try length(UInt16.self))
+        case HDSTag.utf8Length32: return try utf8(try length(UInt32.self))
+        case HDSTag.utf8Length64: return try utf8(try length(UInt64.self))
         case HDSTag.utf8NullTerminated: return track(.string(String(decoding: try terminated(0), as: UTF8.self)))
         case HDSTag.dataLengthStart...HDSTag.dataLengthStop: return track(.data(try bytes(Int(tag - HDSTag.dataLengthStart))))
-        case HDSTag.dataLength8: return track(.data(try bytes(Int(try little(UInt8.self)))))
-        case HDSTag.dataLength16: return track(.data(try bytes(Int(try little(UInt16.self)))))
-        case HDSTag.dataLength32: return track(.data(try bytes(Int(try little(UInt32.self)))))
-        case HDSTag.dataLength64: return track(.data(try bytes(Int(try little(UInt64.self)))))
+        case HDSTag.dataLength8: return track(.data(try bytes(try length(UInt8.self))))
+        case HDSTag.dataLength16: return track(.data(try bytes(try length(UInt16.self))))
+        case HDSTag.dataLength32: return track(.data(try bytes(try length(UInt32.self))))
+        case HDSTag.dataLength64: return track(.data(try bytes(try length(UInt64.self))))
         case HDSTag.dataTerminated: return track(.data(try terminated(HDSTag.terminator)))
         case HDSTag.compressionStart...HDSTag.compressionStop:
             let position = Int(tag - HDSTag.compressionStart)
             guard position < tracked.count else { throw HDSCodingError.compressionIndex(position) }
             return tracked[position]
+        case HDSTag.arrayLengthStart...HDSTag.arrayLengthStop, HDSTag.arrayTerminated,
+            HDSTag.dictionaryLengthStart...HDSTag.dictionaryLengthStop, HDSTag.dictionaryTerminated:
+            guard depth < Self.maxDepth else { throw HDSCodingError.tooDeep }
+            depth += 1
+            defer { depth -= 1 }
+            return try container(tag)
+        default:
+            throw HDSCodingError.invalidTag(tag, at: start)
+        }
+    }
+
+    private mutating func container(_ tag: UInt8) throws -> HDSValue {
+        switch tag {
         case HDSTag.arrayLengthStart...HDSTag.arrayLengthStop:
             return .array(try (0..<Int(tag - HDSTag.arrayLengthStart)).map { _ in try readAny() })
         case HDSTag.arrayTerminated:
             var elements: [HDSValue] = []
-            while true {
-                let element = try readAny(allowTerminator: true)
-                if element == Self.terminatorMarker { break }
-                elements.append(element)
-            }
+            while let element = try readAny(allowTerminator: true) { elements.append(element) }
             return .array(elements)
         case HDSTag.dictionaryLengthStart...HDSTag.dictionaryLengthStop:
             var dictionary = HDSDictionary()
@@ -367,25 +393,31 @@ struct HDSReader {
                 dictionary.entries.append(.init(key: key, value: try readAny()))
             }
             return .dictionary(dictionary)
-        case HDSTag.dictionaryTerminated:
+        default:  // HDSTag.dictionaryTerminated
             var dictionary = HDSDictionary()
-            while true {
-                let key = try readAny(allowTerminator: true)
-                if key == Self.terminatorMarker { break }
+            while let key = try readAny(allowTerminator: true) {
                 dictionary.entries.append(.init(key: Self.key(key), value: try readAny()))
             }
             return .dictionary(dictionary)
-        default:
-            throw HDSCodingError.invalidTag(tag, at: start)
         }
     }
 
     /// JavaScript turns every key into a string.
-    private static func key(_ value: HDSValue) -> String {
+    static func key(_ value: HDSValue) -> String {
         switch value {
         case .string(let string), .uuid(let string): string
         case .int(let number): String(number)
-        case .double(let number): number.rounded() == number ? String(Int64(number)) : String(number)
+        case .double(let number):
+            // `Int64(number)` would trap on 1e19 or ±infinity; JavaScript writes those as "1e+19", "Infinity".
+            if let integer = Int64(exactly: number) {
+                String(integer)
+            } else if number.isNaN {
+                "NaN"
+            } else if number.isInfinite {
+                number < 0 ? "-Infinity" : "Infinity"
+            } else {
+                String(number)
+            }
         case .bool(let bool): String(bool)
         case .null: "null"
         default: "\(value)"

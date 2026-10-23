@@ -241,6 +241,15 @@ let package = Package(
                 "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftElgatoKeyLights", "HomeswiftPhilipsAmbilightTV", "HomeswiftDolphinPoolCleaner", "HomeswiftDysonPureCool", "HomeswiftUniFiAccess", "HomeswiftDaikinCloud", "HomeswiftEWeLink", "HomeswiftLGThinQ", "HomeswiftGovee", "HomeswiftUniFiProtect",
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
+            ],
+            exclude: ["Info.plist"],
+            // macOS reads a command-line tool's Info.plist from its __TEXT,__info_plist section. CoreBluetooth stops a
+            // process whose Info.plist has no NSBluetoothAlwaysUsageDescription, so the Govee plugin's Bluetooth
+            // needs it. Unsafe flags are allowed in the root package only; nothing depends on this target.
+            linkerSettings: [
+                .unsafeFlags(
+                    ["-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", Context.packageDirectory + "/Sources/HomeswiftCLI/Info.plist"],
+                    .when(platforms: [.macOS])),
             ]
         ),
         .executableTarget(name: "homeswift-demo", dependencies: ["Homeswift"]),

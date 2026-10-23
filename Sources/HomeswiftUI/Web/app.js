@@ -319,6 +319,12 @@
 
   function writer(accessory, service, characteristic) {
     return async (value, onError = () => {}) => {
+      // A security control (a lock, a door, an alarm, or what a plugin marked, such as a switch that unlocks a door)
+      // asks first, as the Assistant's set_security_accessory does.
+      if (characteristic.security) {
+        const label = characteristic.format === "bool" ? (value ? "On" : "Off") : labelFor(characteristic.type, value);
+        if (!confirm(`Set ${sentence(characteristic.type).toLowerCase()} of ${accessory.name} to ${label}?`)) { onError(new Error("cancelled")); return; }
+      }
       try {
         await api(`/api/accessories/${encodeURIComponent(accessory.id)}`, { method: "PUT", body: { service: serviceKey(service), characteristic: characteristic.type, value } });
       } catch (e) { onError(e); }
@@ -351,7 +357,10 @@
     if (writable && (characteristic.validValues || labels)) {
       const values = characteristic.validValues || labels.map((_, index) => index);
       const select = el("select", attrs, ...values.map((value) => el("option", { value, text: labelFor(characteristic.type, value), selected: value === characteristic.value })));
-      select.addEventListener("change", () => write(Number(select.value)));
+      // A write that fails or is cancelled puts the menu back on the value it had.
+      let shown = select.value;
+      select.addEventListener("focus", () => { shown = select.value; });
+      select.addEventListener("change", () => { const previous = shown; shown = select.value; write(Number(select.value), () => { select.value = previous; shown = previous; }); });
       return select;
     }
     if (writable && ["int", "uint8", "uint16", "uint32", "uint64", "float"].includes(characteristic.format) && characteristic.minValue !== undefined && characteristic.maxValue !== undefined) {

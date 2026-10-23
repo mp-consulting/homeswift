@@ -2,6 +2,7 @@ import NIOConcurrencyHelpers
 
 /// One event of the TypeScript library's `EventEmitter`s (`segment`, `close`, `rtp`): listeners added with `on` or `once` and
 /// removed with `off`, or awaited with `next()`. Listeners run synchronously on the thread that emits, in the order they were added.
+/// An event that fired for the last time (`finish`, the demuxer closing) calls a listener added later at once with that value.
 public final class FfmpegEvent<Value: Sendable>: Sendable {
     /// Identifies a listener for `off`.
     public struct Listener: Hashable, Sendable {
@@ -17,6 +18,7 @@ public final class FfmpegEvent<Value: Sendable>: Sendable {
     private struct State {
         var entries: [Entry] = []
         var nextID = 0
+        var final: Value?
     }
 
     private let state = NIOLockedValueBox(State())
@@ -83,9 +85,10 @@ public final class FfmpegEvent<Value: Sendable>: Sendable {
         }
     }
 
-    /// Calls the listeners with `value`, removing the `once` ones first.
+    /// Calls the listeners with `value`, removing the `once` ones first. Nothing once the event finished.
     public func emit(_ value: Value) {
         let handlers = state.withLockedValue { state -> [@Sendable (Value) -> Void] in
+            guard state.final == nil else { return [] }
             let handlers = state.entries.map(\.handler)
             state.entries.removeAll { $0.once }
             return handlers
@@ -93,17 +96,34 @@ public final class FfmpegEvent<Value: Sendable>: Sendable {
         for handler in handlers { handler(value) }
     }
 
-    private func add(_ handler: @escaping @Sendable (Value) -> Void, once: Bool) -> Listener {
-        state.withLockedValue { state in
-            state.nextID += 1
-            state.entries.append(Entry(id: state.nextID, once: once, handler: handler))
-            return Listener(id: state.nextID)
+    /// Emits `value` for the last time: the listeners are called and removed, and any listener or `next()` that comes later gets
+    /// `value` at once, so nobody waits for an emission that can no longer happen. Later calls do nothing.
+    func finish(_ value: Value) {
+        let handlers = state.withLockedValue { state -> [@Sendable (Value) -> Void] in
+            guard state.final == nil else { return [] }
+            state.final = value
+            defer { state.entries = [] }
+            return state.entries.map(\.handler)
         }
+        for handler in handlers { handler(value) }
+    }
+
+    private func add(_ handler: @escaping @Sendable (Value) -> Void, once: Bool) -> Listener {
+        let (listener, final) = state.withLockedValue { state -> (Listener, Value?) in
+            state.nextID += 1
+            if let final = state.final { return (Listener(id: state.nextID), final) }
+            state.entries.append(Entry(id: state.nextID, once: once, handler: handler))
+            return (Listener(id: state.nextID), nil)
+        }
+        if let final { handler(final) }
+        return listener
     }
 }
 
 extension FfmpegEvent where Value == Void {
     public func emit() { emit(()) }
+
+    func finish() { finish(()) }
 }
 
 /// Wakes the tasks waiting on it; each wait can time out. The counterpart of `runWithTimeout(once(emitter, event), timeout)`.

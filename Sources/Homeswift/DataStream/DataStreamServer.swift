@@ -235,8 +235,12 @@ final class DataStreamConnection: @unchecked Sendable {
         var readCounter: UInt64 = 0
         var writeCounter: UInt64 = 0
         var protocolHandlers: [String: ProtocolHandler] = [:]
-        var closeHandlers: [@Sendable () -> Void] = []
+        /// By registration token, so a recording stream that ends first removes its own.
+        var closeHandlers: [Int: @Sendable () -> Void] = [:]
+        var nextCloseHandler = 0
         var helloTimer: Task<Void, Never>?
+        /// The close handler on the HAP connection the session was set up on.
+        var hapCloseRegistration: HAPRequestContext.CloseRegistration?
     }
 
     let channel: any Channel
@@ -271,23 +275,38 @@ final class DataStreamConnection: @unchecked Sendable {
             buffer.append(contentsOf: bytes.readableBytesView)
             onSocketData()
         }
-        let handlers = state.withLockedValue { state in
+        let (handlers, registration) = state.withLockedValue { state in
             state.state = .closed
             state.helloTimer?.cancel()
-            defer { state.closeHandlers = []; state.protocolHandlers = [:] }
-            return state.closeHandlers
+            defer {
+                state.closeHandlers = [:]
+                state.protocolHandlers = [:]
+                state.hapCloseRegistration = nil
+            }
+            return (state.closeHandlers.sorted { $0.key < $1.key }.map(\.value), state.hapCloseRegistration)
         }
+        // The HAP connection outlives this socket: it must not keep a handler for it.
+        registration?.remove()
         for handler in handlers { handler() }
         server?.connectionClosed(self)
     }
 
-    /// Runs `handler` once the socket has closed.
-    func onClose(_ handler: @escaping @Sendable () -> Void) {
-        let closed = state.withLockedValue { state in
-            if state.state != .closed { state.closeHandlers.append(handler) }
-            return state.state == .closed
+    /// Runs `handler` once the socket has closed (at once when it has). Returns the token for
+    /// `removeCloseHandler(_:)`, nil when the handler already ran.
+    @discardableResult
+    func onClose(_ handler: @escaping @Sendable () -> Void) -> Int? {
+        let token = state.withLockedValue { state -> Int? in
+            guard state.state != .closed else { return nil }
+            state.nextCloseHandler += 1
+            state.closeHandlers[state.nextCloseHandler] = handler
+            return state.nextCloseHandler
         }
-        if closed { handler() }
+        if token == nil { handler() }
+        return token
+    }
+
+    func removeCloseHandler(_ token: Int) {
+        _ = state.withLockedValue { $0.closeHandlers.removeValue(forKey: token) }
     }
 
     func addProtocolHandler(_ proto: String, _ handler: ProtocolHandler) -> Bool {
@@ -376,7 +395,13 @@ final class DataStreamConnection: @unchecked Sendable {
                 state.readCounter = 1
                 state.state = .expectingHello
             }
-            session.context.onClose { [weak self] in self?.close() }
+            let registration = session.context.onClose { [weak self] in self?.close() }
+            let closed = state.withLockedValue { state -> Bool in
+                guard state.state != .closed else { return true }
+                state.hapCloseRegistration = registration
+                return false
+            }
+            if closed { registration.remove() }
             payloads.append(plaintext)
         }
         for frame in frames {
@@ -391,7 +416,14 @@ final class DataStreamConnection: @unchecked Sendable {
             }
             payloads.append(plaintext)
         }
-        let messages = payloads.compactMap(HDSFrame.message(from:))
+        let messages = payloads.compactMap { payload -> HDSFrame.Message? in
+            guard let message = HDSFrame.message(from: payload) else {
+                // As HAP-NodeJS: a payload that does not decode is dropped.
+                server?.logger.debug("Dropping a data stream payload that does not decode", metadata: ["remote": "\(remoteAddress)", "length": "\(payload.count)"])
+                return nil
+            }
+            return message
+        }
         if state.withLockedValue({ $0.state == .expectingHello }) {
             guard let first = messages.first, first.protocol == "control", case .request = first.kind, first.topic == "hello" else {
                 close()

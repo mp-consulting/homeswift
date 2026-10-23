@@ -61,8 +61,11 @@ with `Authorization: Bearer <token>`.
 | `admin` | Plus `update_config`, `patch_config`, `restore_config`, `restart_bridge` |
 
 A token sees only the tools its scope allows. Locks, garage doors and alarms (Lock Target State, Target
-Door State, Security System Target State) change only through `set_security_accessory`; `set_accessory`
-and `set_accessories` refuse them.
+Door State, Security System Target State, Lock Control Point) change only through `set_security_accessory`;
+`set_accessory` and `set_accessories` refuse them. So do the characteristics a plugin marks as security
+controls (`isSecurityControl`, such as UniFi Access's Lock Trigger switches, whose On unlocks a door):
+`get_accessory` lists them with `"security": true`. Values that carry keys (Setup Endpoints holds a live
+stream's SRTP keys) are listed as null with `"confidential": true`, and left out of `list_accessories`.
 
 ## Confirmations
 

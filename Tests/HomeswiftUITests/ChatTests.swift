@@ -58,8 +58,10 @@ struct ChatConversationTests {
                       let data = frame.split(separator: "\n").first(where: { $0.hasPrefix("data: ") })?.dropFirst(6),
                       let value = try? JSONValue(string: String(data)) else { continue }
                 events.append((String(event), value))
-                if event == "item", value["item"]?["kind"] == "confirm", value["item"]?["state"] == "pending", let id = value["item"]?["id"]?.stringValue {
-                    onConfirm(id)
+                // A card can already be waiting in the snapshot: the run may reach it before this subscribes.
+                let items = event == "snapshot" ? value["items"]?.arrayValue ?? [] : event == "item" ? [value["item"] ?? .null] : []
+                for item in items where item["kind"] == "confirm" && item["state"] == "pending" {
+                    if let id = item["id"]?.stringValue { onConfirm(id) }
                 }
             }
         }

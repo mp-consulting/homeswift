@@ -98,6 +98,17 @@ All notable changes to this project are documented here. The format follows
   `PersistedDictionary`, `TaskBag`, `LatestCallGuard`, `context.jsonFile` and
   `context.removeAccessories(keeping:)`; `HomeswiftNetworkTestSupport` has fake MQTT and WebSocket
   connections for plugin tests.
+- **Security controls from plugins**: `Characteristic.isSecurityControl` (`.securityControl()`) puts a
+  characteristic that unlocks, opens or disarms (a switch that unlocks a door) under the rules of locks: MCP
+  writes it only through `set_security_accessory`, the web UI asks first (locks, doors and alarms too).
+- **Confidential values**: `Characteristic.isConfidential`, on by default for Setup Endpoints (SRTP keys),
+  Setup Data Stream Transport and Setup Transfer Transport, keeps a value for HomeKit only: MCP, the web UI,
+  the accessory cache and the `HAP_DEBUG` trace never show it.
+- **`Int(saturating:)`** (and `JSONValue.saturatingIntValue`, `.finite`) for numbers from devices, clouds and
+  config files: no trap on NaN, infinity or out-of-range values. The HAP core, the HomeKit Data Stream
+  decoder (also capped in depth), Adaptive Lighting and the Eve history no longer trap on hostile numbers.
+- The `homeswift` binary embeds an Info.plist on macOS with `NSBluetoothAlwaysUsageDescription`, so the Govee
+  plugin's Bluetooth works.
 
 ### Changed
 

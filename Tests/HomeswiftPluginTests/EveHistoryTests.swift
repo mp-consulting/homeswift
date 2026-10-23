@@ -188,6 +188,59 @@ struct EveHistoryTests {
         #expect(restored.state.withLockedValue { $0.history[2] } == EveHistory.Entry(unixTime: t, power: 12.3))
     }
 
+    @Test func aHistoryElementThatIsNotAnEntryIsSkipped() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("eve-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("plug_persist.json")
+        // A number, an object without a time and an array: each used to stop the decoder for ever.
+        let json = #"{"firstEntry":0,"lastEntry":3,"usedMemory":3,"refTime":\#(t - 978_307_200),"history":["noValue",42,{"power":1},[1],{"time":\#(t),"power":7}]}"#
+        try Data(json.utf8).write(to: url)
+        let restored = EveHistory(.energy, accessoryName: "Plug", averaging: false, storageURL: url)
+        let state = restored.state.withLockedValue { $0 }
+        #expect(state.history.count == 1)
+        #expect(state.history[4] == EveHistory.Entry(unixTime: t, power: 7))
+    }
+
+    @Test func nonFiniteReadingsAreLeftOutAndTheHistoryStillSaves() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("eve-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("weather_persist.json")
+        let history = EveHistory(.weather, accessoryName: "Weather", averaging: false, storageURL: url)
+        history.add(.init(unixTime: t, temp: .nan, humidity: 40, pressure: .infinity))
+        history.flush()
+        history.add(.init(unixTime: t + 600, temp: 21))
+        history.flush()
+        let restored = EveHistory(.weather, accessoryName: "Weather", averaging: false, storageURL: url)
+        let state = restored.state.withLockedValue { $0 }
+        #expect(state.history[2] == EveHistory.Entry(unixTime: t, humidity: 40))
+        #expect(state.history[3] == EveHistory.Entry(unixTime: t + 600, temp: 21))
+        // Averages that overflow are left out too.
+        let averaged = EveHistory(.energy, accessoryName: "Plug", interval: .seconds(3600), now: { Date(timeIntervalSince1970: TimeInterval(1_792_656_600)) })
+        averaged.add(.init(unixTime: t, power: .greatestFiniteMagnitude))
+        averaged.add(.init(unixTime: t, power: .greatestFiniteMagnitude))
+        averaged.tick()
+        #expect(averaged.state.withLockedValue { $0.history[2] } == nil)
+    }
+
+    @Test func aReadingAddedWhileTheTimerAveragesIsKept() {
+        let clock = NIOLockedValueBox(t)
+        let history = EveHistory(.energy, accessoryName: "Plug", interval: .seconds(3600), now: { Date(timeIntervalSince1970: TimeInterval(clock.withLockedValue { $0 })) })
+        history.add(.init(unixTime: t, power: 10))
+        // The reading arrives while the tick records its average (between averaging and clearing the backlog).
+        let added = NIOLockedValueBox(false)
+        history.service.characteristic(EveCharacteristic.historyStatus).observe { [t] _ in
+            guard !added.withLockedValue({ defer { $0 = true }; return $0 }) else { return }
+            history.add(.init(unixTime: t + 300, power: 30))
+        }
+        clock.withLockedValue { $0 = t + 600 }
+        history.tick()
+        #expect(history.state.withLockedValue { $0.backLog } == [EveHistory.Entry(unixTime: t + 300, power: 30)])
+        clock.withLockedValue { $0 = t + 1200 }
+        history.tick()
+        #expect(history.state.withLockedValue { $0.history[3] } == EveHistory.Entry(unixTime: t + 1200, power: 30))
+    }
+
     @Test func eveCharacteristicTypes() {
         #expect(EveCharacteristic.currentConsumption.uuid.uuidString == "E863F10D-079E-48FF-8F27-9C2605A29F52")
         #expect(EveCharacteristic.totalConsumption.format == .float)
