@@ -170,14 +170,18 @@ public enum Redaction {
     /// What ASCII text must contain for `secretPair` to match: a keyword of its key and a separator.
     private static let pairKeywords = ["pass", "pin", "setup", "secret", "token", "api", "private", "credential"].map { Array($0.utf8) }
 
+    private static let needles = (
+        bearer: TextSearch.Needle("Bearer"), basic: TextSearch.Needle("Basic"), openAI: TextSearch.Needle("sk-"), homebridge: TextSearch.Needle("hbg_"),
+        google: TextSearch.Needle("AIza"), jwt: TextSearch.Needle("eyJ"), setupURI: TextSearch.Needle("X-HM://"))
+
     /// What ASCII text must contain for each of `secretShapes` to match, in the same order.
     private static let shapeHints: [@Sendable (String) -> Bool] = [
-        { TextSearch.contains($0, ascii: "Bearer") || TextSearch.contains($0, ascii: "Basic") },
-        { TextSearch.contains($0, ascii: "sk-") },
-        { TextSearch.contains($0, ascii: "hbg_") },
-        { TextSearch.contains($0, ascii: "AIza") },
-        { TextSearch.contains($0, ascii: "eyJ") },
-        { TextSearch.contains($0, ascii: "X-HM://") },
+        { TextSearch.contains($0, needles.bearer) || TextSearch.contains($0, needles.basic) },
+        { TextSearch.contains($0, needles.openAI) },
+        { TextSearch.contains($0, needles.homebridge) },
+        { TextSearch.contains($0, needles.google) },
+        { TextSearch.contains($0, needles.jwt) },
+        { TextSearch.contains($0, needles.setupURI) },
         { hasDigitGroups($0, [3, 2, 3]) },
         { hasDigitGroups($0, [4, 4]) },
     ]
@@ -226,7 +230,7 @@ public enum Redaction {
     static func redactText(_ text: String, prefilter: Bool) -> String {
         var out = text
         let ascii = prefilter && TextSearch.isASCII(text)
-        let mayHoldPair = !ascii || (TextSearch.contains(text, ascii: ":") || TextSearch.contains(text, ascii: "="))
+        let mayHoldPair = !ascii || TextSearch.withBytes(text) { $0.contains { $0 == UInt8(ascii: ":") || $0 == UInt8(ascii: "=") } }
             && TextSearch.containsAny(text, caseless: pairKeywords)
         let pairs = mayHoldPair ? secretPair.matches(in: out, range: NSRange(out.startIndex..., in: out)) : []
         for match in pairs.reversed() {

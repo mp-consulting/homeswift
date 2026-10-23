@@ -69,7 +69,12 @@ public enum JSONValue: Sendable, Hashable, Codable, CustomStringConvertible {
 
     /// Parses JSON text.
     public init(data: Data) throws {
-        self = try JSONValueParser.parse([UInt8](data))
+        self = try data.withUnsafeBytes { try JSONValueParser.parse($0) }
+    }
+
+    /// Parses JSON text in place: a row of a larger buffer, without copying it out.
+    public init(bytes: UnsafeRawBufferPointer) throws {
+        self = try JSONValueParser.parse(bytes)
     }
 
     public init(string: String) throws {
@@ -279,14 +284,17 @@ struct JSONValueParser {
     private var depth = 0
 
     static func parse(_ bytes: [UInt8]) throws -> JSONValue {
-        try bytes.withUnsafeBufferPointer { buffer in
-            var parser = JSONValueParser(bytes: buffer)
-            if bytes.starts(with: [0xEF, 0xBB, 0xBF]) { parser.index = 3 }
-            let value = try parser.value()
-            parser.skipWhitespace()
-            guard parser.index == buffer.count else { throw parser.error("unexpected text after the value") }
-            return value
-        }
+        try bytes.withUnsafeBytes { try parse($0) }
+    }
+
+    static func parse(_ raw: UnsafeRawBufferPointer) throws -> JSONValue {
+        let buffer = raw.bindMemory(to: UInt8.self)
+        var parser = JSONValueParser(bytes: buffer)
+        if buffer.starts(with: [0xEF, 0xBB, 0xBF]) { parser.index = 3 }
+        let value = try parser.value()
+        parser.skipWhitespace()
+        guard parser.index == buffer.count else { throw parser.error("unexpected text after the value") }
+        return value
     }
 
     private init(bytes: UnsafeBufferPointer<UInt8>) {

@@ -17,6 +17,23 @@ public enum TextSearch {
         return withBytes(text) { find(lowered, in: $0, caseless: true) }
     }
 
+    /// An ASCII needle prepared once, for a search repeated over many lines: no bytes to copy per line.
+    public struct Needle: Sendable {
+        let bytes: [UInt8]
+        let caseless: Bool
+
+        /// `text` is ASCII; `caseless` ignores ASCII case.
+        public init(_ text: String, caseless: Bool = false) {
+            self.caseless = caseless
+            bytes = caseless ? text.utf8.map(TextSearch.lower) : Array(text.utf8)
+        }
+    }
+
+    /// Whether the needle occurs in the text, byte by byte: exact for ASCII text.
+    public static func contains(_ text: String, _ needle: Needle) -> Bool {
+        withBytes(text) { find(needle.bytes, in: $0, caseless: needle.caseless) }
+    }
+
     /// Whether ASCII `needle` occurs in `text` exactly.
     public static func contains(_ text: String, ascii needle: String) -> Bool {
         let bytes = Array(needle.utf8)
