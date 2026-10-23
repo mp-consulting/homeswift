@@ -495,14 +495,16 @@ public struct HomeswiftCatalog: Sendable {
         let redacted = Redaction.redactText(line)
         // Most lines hold neither: in ASCII text a byte search finds that out without the expression.
         let ascii = TextSearch.isASCII(redacted)
-        let hidden = !ascii || TextSearch.contains(redacted, caseless: "confirmation code ")
+        let hidden = !ascii || TextSearch.contains(redacted, confirmationNeedle)
             ? confirmationCodes.stringByReplacingMatches(in: redacted, range: NSRange(redacted.startIndex..., in: redacted), withTemplate: "$1••••••")
             : redacted
-        guard !ascii || TextSearch.contains(hidden, caseless: "untrusted-data") else { return hidden }
+        guard !ascii || TextSearch.contains(hidden, untrustedNeedle) else { return hidden }
         return hidden.replacingOccurrences(of: "untrusted-data", with: "untrusted\u{2011}data", options: [.caseInsensitive])
     }
 
     private static let confirmationCodes = try! NSRegularExpression(pattern: #"(?i)(confirmation code )\d{6}"#)
+    private static let confirmationNeedle = TextSearch.Needle("confirmation code ", caseless: true)
+    private static let untrustedNeedle = TextSearch.Needle("untrusted-data", caseless: true)
 
     // MARK: The catalog
 
@@ -613,8 +615,14 @@ public struct HomeswiftCatalog: Sendable {
                         return expression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
                     }
                 } else {
-                    // The search runs on the masked text, so a secret's value never matches.
-                    matched = lines.filter { TextSearch.contains(Self.safe($0.searchable), caseless: pattern) }
+                    // The search runs on the masked text, so a secret's value never matches. An ASCII pattern is
+                    // prepared once for the thousands of lines.
+                    let needle = TextSearch.isASCII(pattern) ? TextSearch.Needle(pattern, caseless: true) : nil
+                    matched = lines.filter { line in
+                        let text = Self.safe(line.searchable)
+                        if let needle, TextSearch.isASCII(text) { return TextSearch.contains(text, needle) }
+                        return TextSearch.contains(text, caseless: pattern)
+                    }
                 }
                 let shown = matched.suffix(limit).map { Self.logText($0, details: call.bool("details")) }
                 return .text("<untrusted-data source=\"log\">\n\(shown.joined(separator: "\n"))\n</untrusted-data>\n\(matched.count) match(es)")
