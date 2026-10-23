@@ -105,8 +105,7 @@ import Darwin
         #expect(await eventually { process.stderrLog.last == "line 499" })
         #expect(process.stderrLog.count == 100)
         #expect(process.stderrLog.first == "line 400")
-        process.stop()
-        let status = await waitForExit(process)
+        let status = await waitForExit(process) { process.stop() }
         #expect(status?.signal == "SIGTERM")
         #expect(!process.hasError)
 
@@ -135,8 +134,7 @@ import Darwin
         #expect(process.isRunning)
         #expect(process.processIdentifier != nil)
         #expect(logs.messages(.debug).contains("FFmpeg process started."))
-        process.stop()
-        let status = await waitForExit(process)
+        let status = await waitForExit(process) { process.stop() }
         #expect(status == FfmpegExitStatus(exitCode: nil, signal: "SIGTERM"))
         #expect(process.isEnded)
         #expect(!process.isStarted)
@@ -205,8 +203,7 @@ import Darwin
         process.start()
         try await process.waitForStart()
         let start = ContinuousClock.now
-        process.stop()
-        let status = await waitForExit(process, timeout: .seconds(15))
+        let status = await waitForExit(process, timeout: .seconds(15)) { process.stop() }
         #expect(status?.signal == "SIGKILL")
         #expect(ContinuousClock.now - start >= .milliseconds(FFMPEG_INPUT_TIMEOUT - 500))
         #expect(logs.messages(.debug).contains("FFmpeg process ended (Killed)."))
@@ -494,7 +491,7 @@ final class RecordingStreamingDelegate: HomebridgeStreamingDelegate {
     @Test func closesTheHealthSocketWhenTheProcessExitsOnItsOwn() async throws {
         let (_, options) = shellOptions()
         let process = FfmpegStreamingProcess(
-            delegate: RecordingStreamingDelegate(), sessionId: "session-2", ffmpegOptions: options, commandLineArgs: ["-c", "echo up >&2; sleep 0.5"],
+            delegate: RecordingStreamingDelegate(), sessionId: "session-2", ffmpegOptions: options, commandLineArgs: ["-c", "echo up >&2; sleep 3"],
             returnPort: FfmpegReturnPort(addressVersion: .ipv4, port: 0)
         )
         #expect(await process.waitForHealthSocket())

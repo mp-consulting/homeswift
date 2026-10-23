@@ -1,5 +1,6 @@
 import Foundation
 import HomeswiftAI
+import NIOConcurrencyHelpers
 import Testing
 
 @testable import HomeswiftMCP
@@ -154,19 +155,23 @@ import Testing
 
     /// The reads of one step run at the same time, and their results come back in the order asked.
     @Test func runsReadsAtTheSameTime() async throws {
+        // Each read waits until both have started: run one after the other, they would time out apart.
+        let started = NIOLockedValueBox(0)
         let slow = { (name: String) in
             AgentTool(definition: ToolDefinition(name: name, inputSchema: ["type": "object"]), title: name, readOnly: true) { _ in
-                try? await Task.sleep(for: .milliseconds(400))
-                return AgentToolOutput(text: "\(name) done")
+                started.withLockedValue { $0 += 1 }
+                let deadline = ContinuousClock.now + .seconds(5)
+                while started.withLockedValue({ $0 }) < 2, ContinuousClock.now < deadline {
+                    try? await Task.sleep(for: .milliseconds(10))
+                }
+                return AgentToolOutput(text: started.withLockedValue { $0 } == 2 ? "\(name) done" : "\(name) alone")
             }
         }
         let provider = ScriptedProvider([
             ScriptedProvider.calls([HomeswiftAI.ToolCall(id: "1", name: "first", arguments: [:]), HomeswiftAI.ToolCall(id: "2", name: "second", arguments: [:])]),
             ScriptedProvider.answer("Both done."),
         ])
-        let started = ContinuousClock.now
         let turn = try await AssistantService(provider: provider).converse(history: [.user("Look")], tools: [slow("first"), slow("second")], vault: SecretVault()) { _ in }
-        #expect(ContinuousClock.now - started < .milliseconds(750))
         let results = turn.messages.flatMap(\.content).compactMap { part -> String? in
             if case .toolResult(_, _, let content, _) = part { content } else { nil }
         }

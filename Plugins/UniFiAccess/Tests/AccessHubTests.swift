@@ -245,7 +245,7 @@ struct AccessHubTests {
     // MARK: Doorbells
 
     @Test func doorbell() async throws {
-        let host = try await environment.start(devices: [uah()], options: ["Enable.Hub.Doorbell.Trigger"], extra: ["mqttUrl": "mqtt://broker", "ringDelay": 10])
+        let host = try await environment.start(devices: [uah()], options: ["Enable.Hub.Doorbell.Trigger"], extra: ["mqttUrl": "mqtt://broker", "ringDelay": 100])
         defer { Task { await host.stop() } }
         let ring: (String) -> Void = { id in
             self.environment.send(AccessEventType.doorbellRing, "x", data: ["connected_uah_id": "test-device-unique-id", "request_id": .string(id)])
@@ -266,10 +266,9 @@ struct AccessHubTests {
         #expect(await eventually { self.environment.mqtt.connection.published(on: "unifi/access/AABBCCDDEEFF/doorbell") == ["true", "false"] })
         #expect(environment.log.contains("Doorbell ring cancelled."))
 
-        // Within the ring delay (ten units, 300 ms), the next ring is not passed on.
+        // Within the ring delay (a hundred units, 3 s, so a slow runner stays inside it), the next ring is not passed on.
         ring("ring-2")
-        try await Task.sleep(for: .milliseconds(80))
-        #expect(environment.log.contains("Doorbell ring suppressed"))
+        #expect(await eventually { self.environment.log.contains("Doorbell ring suppressed") })
 
         // The trigger cannot be switched from HomeKit.
         let trigger = try #require(accessory(host, hubID)?.service(.switch, "DoorbellTrigger")?[.on])

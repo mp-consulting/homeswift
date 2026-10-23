@@ -33,9 +33,8 @@ struct DeviceTests {
         let device = device()
         await device.start()
         #expect(cloud.count("shadow") == 1)  // the first read
-        try? await Task.sleep(for: .milliseconds(400))
+        #expect(await eventually { log.contains(.debug, "Skipping poll for Pool") })
         #expect(cloud.count("shadow") == 1)
-        #expect(log.contains(.debug, "Skipping poll for Pool"))
         await device.stop()
     }
 
@@ -144,6 +143,7 @@ struct DeviceTests {
         let device = device(interval: .seconds(3600))
         _ = await device.startCleaning(mode: "all")
         _ = await device.stopCleaning()
+        #expect(await eventually { cloud.count("shadow") >= 1 })
         try? await Task.sleep(for: .milliseconds(250))
         #expect(cloud.count("shadow") == 1)
     }

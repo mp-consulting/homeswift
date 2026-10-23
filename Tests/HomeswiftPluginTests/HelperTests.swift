@@ -49,7 +49,10 @@ struct PersistedDictionaryTests {
         store["a"] = 1
         store["b"] = 2
         #expect(!FileManager.default.fileExists(atPath: url.path))
-        try await Task.sleep(for: .milliseconds(200))
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !FileManager.default.fileExists(atPath: url.path), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
         #expect(PersistedDictionary<Int>(url: url).values == ["a": 1, "b": 2])
         #if !os(Windows)
         #expect(try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int == 0o600)
