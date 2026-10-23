@@ -59,16 +59,19 @@ extension UniFiAccessPlugin {
         public var options: [String]
         /// Seconds between doorbell rings HomeKit hears; 0 lets every ring through.
         public var ringDelay: Int
+        /// The plugin's debug lines at the info level, without `homeswift -D`.
+        public var debugAll: Bool
 
-        public init(name: String? = nil, controllers: [Controller] = [], options: [String] = [], ringDelay: Int = 0) {
+        public init(name: String? = nil, controllers: [Controller] = [], options: [String] = [], ringDelay: Int = 0, debugAll: Bool = false) {
             self.name = name
             self.controllers = controllers
             self.options = options
             self.ringDelay = ringDelay
+            self.debugAll = debugAll
         }
 
         enum CodingKeys: String, CodingKey {
-            case name, controllers, options, ringDelay
+            case name, controllers, options, ringDelay, debugAll
         }
 
         public init(from decoder: any Decoder) throws {
@@ -77,6 +80,7 @@ extension UniFiAccessPlugin {
             controllers = (try? container.decodeIfPresent([Lenient<Controller>].self, forKey: .controllers))?.compactMap(\.value) ?? []
             options = (try? container.decodeIfPresent([Lenient<String>].self, forKey: .options))?.compactMap(\.value) ?? []
             ringDelay = max(0, container.lenientInt(.ringDelay) ?? 0)
+            debugAll = container.lenientBool(.debugAll) ?? false
         }
     }
 }

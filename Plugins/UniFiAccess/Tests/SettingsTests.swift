@@ -1,6 +1,7 @@
 import Foundation
 import HomeswiftNetwork
 import HomeswiftPlugin
+import Logging
 import Testing
 
 @testable import HomeswiftUniFiAccess
@@ -97,7 +98,7 @@ import Testing
     @Test func configuration() throws {
         let json = """
             {
-              "platform": "UniFi Access", "name": "UniFi Access", "ringDelay": "5",
+              "platform": "UniFi Access", "name": "UniFi Access", "ringDelay": "5", "debugAll": "true",
               "controllers": [
                 { "address": "1.2.3.4", "username": "homebridge", "password": "pw", "name": "UDM", "mqttUrl": "mqtt://broker", "mqttTopic": "doors",
                   "mqttVerifyTls": false, "verifyTls": "true" },
@@ -111,6 +112,7 @@ import Testing
         let configuration = try JSONDecoder().decode(UniFiAccessPlugin.Configuration.self, from: Data(json.utf8))
         #expect(configuration.name == "UniFi Access")
         #expect(configuration.ringDelay == 5)
+        #expect(configuration.debugAll)
         #expect(configuration.controllers.count == 2)
         #expect(
             configuration.controllers[0]
@@ -119,7 +121,42 @@ import Testing
         #expect(configuration.options == ["Disable.Device", "Enable.Hub.LockDelayInterval.AABBCCDDEEFF.5"])
 
         let empty = try JSONDecoder().decode(UniFiAccessPlugin.Configuration.self, from: Data(#"{"platform": "UniFi Access"}"#.utf8))
-        #expect(empty.controllers.isEmpty && empty.options.isEmpty && empty.ringDelay == 0)
+        #expect(empty.controllers.isEmpty && empty.options.isEmpty && empty.ringDelay == 0 && !empty.debugAll)
+    }
+
+    /// `debugAll` logs the debug lines at info, through a log that would drop them; the other levels are as they were.
+    @Test func debugAllPromotesDebugLines() {
+        let log = LogRecorder()
+        var base = log.logger
+        base.logLevel = .info
+        let logger = DebugAllLogHandler.promoting(base)
+        logger.debug("a debug line")
+        logger.trace("a trace line")
+        logger.warning("a warning")
+        #expect(log.messages(.info) == ["a debug line"])
+        #expect(log.messages(.warning) == ["a warning"])
+        #expect(log.messages(.debug).isEmpty && log.messages(.trace).isEmpty)
+    }
+
+    @Test func debugAllReachesThePluginsLog() async throws {
+        let environment = AccessTestEnvironment()
+        let host = try await environment.start(devices: [deviceJSON()], extra: ["debugAll": true])
+        #expect(environment.log.contains("Debug logging on. Expect a lot of data.", level: .info))
+        await host.stop()
+
+        let quiet = AccessTestEnvironment()
+        let second = try await quiet.start(devices: [deviceJSON()])
+        #expect(quiet.log.contains("Debug logging on. Expect a lot of data.", level: .debug))
+        #expect(!quiet.log.contains("Debug logging on. Expect a lot of data.", level: .info))
+        await second.stop()
+    }
+
+    @Test func assistantBackgroundDescribesThePort() throws {
+        let background = try #require(UniFiAccessPlugin.assistantBackground)
+        #expect(!background.isEmpty)
+        #expect(!background.contains("Homebridge"))
+        #expect(background.contains(AccessSettings.tlsPinFile))
+        #expect(background.contains("Invalid login credentials given") && background.contains("Throttling API calls"))
     }
 
     /// The schema is the Homebridge plugin's and is embedded as written.

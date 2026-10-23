@@ -1,10 +1,11 @@
 // The Elgato Key Lights page, after the Homebridge plugin's: the lights the plugin instance knows (refreshed
-// every two seconds while the page is visible, redrawn only when something changed) and the disabled ones from
-// config.json; a light's settings (enabled, name, what it does when switched on, a connection test); adding a
-// light by its address. Saving writes this instance's block, and the plugin reloads with it.
+// every two seconds while the page is visible, redrawn only when something changed), the configured ones that
+// did not answer, and the disabled ones from config.json; a light's settings (enabled, name, what it does when
+// switched on, a connection test); the lights Bonjour finds on the network; adding a light by its address.
+// Saving writes this instance's block, and the plugin reloads with it.
 (() => {
   "use strict";
-  const { $, el, tile, request, explain, breadcrumb, act, readBlock, updateDevices, setKey, poll, renderKeyed, canonicalMAC, sameMAC } = homeswift;
+  const { $, el, tile, request, explain, assistant, breadcrumb, act, readBlock, updateDevices, setKey, poll, renderKeyed, canonicalMAC, sameMAC } = homeswift;
 
   const list = $("#lights");
   const panel = $("#light-settings");
@@ -32,11 +33,23 @@
   // MARK: The lights
 
   let lights = [];
+  let pending = [];      // lights the plugin tried that are not running: connecting, or they did not answer
+  let discovered = [];   // the lights Bonjour announces
   let configured = [];   // the block's per-light entries
 
   const entryFor = (mac) => configured.find((d) => sameMAC(d.mac, mac));
 
+  /// Why a configured light is not running, for its card and Explain.
+  function offlineProblem(light) {
+    if (light.status === "initializing") return null;
+    if (light.error) return `The Elgato light ${light.name} did not answer at ${light.host}:${light.port}: ${light.error}`;
+    return light.host
+      ? `The Elgato light ${light.name} is configured at ${light.host}:${light.port} but has not answered.`
+      : `The Elgato light ${light.name} is in config.json without an address, and Bonjour has not announced it.`;
+  }
+
   function lightCard(light) {
+    if (light.offline) return offlineCard(light);
     const disabled = light.disabled === true;
     const [state, kind] = disabled ? ["Disabled", "standby"] : !light.reachable ? ["Not responding", "away"] : light.on ? ["On", "on"] : ["Off", "standby"];
     const fact = (label, value) => el("div", { class: "fact" }, el("span", { text: label }), el("b", { text: value, title: value }));
@@ -68,18 +81,56 @@
         ])));
   }
 
-  /// The lights the plugin runs, then the disabled ones from config.json, which the plugin leaves out.
+  /// A configured light that is not running, as the Homebridge plugin lists one that did not answer: offline,
+  /// with Explain, its settings and Remove.
+  function offlineCard(light) {
+    const connecting = light.status === "initializing";
+    const [state, kind] = connecting ? ["Connecting…", "standby"] : light.host ? ["Not responding", "away"] : ["Not found yet", "away"];
+    const problem = offlineProblem(light);
+    return el("div", { class: "card light is-offline" },
+      el("div", { class: "server-head" },
+        tile("bulb", "grey"),
+        el("div", { class: "who" }, el("strong", { text: light.name }), el("div", { class: "muted", text: light.model || "Key Light" })),
+        el("span", { class: `pill status ${kind}`, text: state })),
+      el("p", { class: "muted note", text: connecting ? "Homeswift is asking the light who it is." : light.host
+        ? "It keeps its place in the Home app and is tried again when Bonjour announces it."
+        : "Bonjour finds it once it is on the network; an address in its settings reaches it without Bonjour." }),
+      problem ? explain({
+        error: problem,
+        context: "The Homeswift plugin connects to a configured light at start (GET /elgato/accessory-info, /elgato/lights and /elgato/lights/settings, 5 second timeout) and retries when Bonjour announces it.",
+        device: { model: light.model, fromConfig: true, hasAddress: Boolean(light.host) },
+      }) : null,
+      el("div", { class: "card-foot" },
+        el("span", { class: "muted", text: [light.host && `${light.host}:${light.port}`, "from config.json", light.mac].filter(Boolean).join(" · ") }),
+        HomeswiftCommon.menuButton(`Actions for ${light.name}`, () => [
+          { label: "Settings", icon: "gear", onSelect: () => openSettings(light) },
+          { label: "Show its log", icon: "logs", href: `/logs/${encodeURIComponent(`ElgatoKeyLights:${canonicalMAC(light.mac)}`)}` },
+          { label: "Remove from config.json", icon: "trash", danger: true, onSelect: () => removeLight(light) },
+        ])));
+  }
+
+  /// The lights the plugin runs, then the configured ones it does not (offline), then the disabled ones.
   function allLights() {
     const running = new Set(lights.map((light) => canonicalMAC(light.mac)));
-    const disabled = configured.filter((d) => d.enabled === false && !running.has(canonicalMAC(d.mac))).map((d) => ({
-      mac: canonicalMAC(d.mac), name: d.displayName || d.name || canonicalMAC(d.mac), model: d.model || "Key Light", host: d.ip || d.host, port: d.port || 9123, disabled: true,
-    }));
-    return [...lights, ...disabled];
+    const tried = new Map(pending.map((light) => [canonicalMAC(light.mac), light]));
+    const entries = configured.filter((d) => d.mac && !running.has(canonicalMAC(d.mac)));
+    const fromEntry = (d) => ({
+      mac: canonicalMAC(d.mac), name: d.displayName || d.name || canonicalMAC(d.mac), model: d.model || "Key Light", host: d.ip || d.host, port: d.port || 9123,
+    });
+    const offline = entries.filter((d) => d.enabled !== false).map((d) => {
+      const light = { ...fromEntry(d), offline: true, pinned: Boolean(d.ip || d.host) };
+      const attempt = tried.get(light.mac);
+      if (attempt) Object.assign(light, { host: attempt.host, port: attempt.port, status: attempt.status, error: attempt.error ?? undefined });
+      return light;
+    });
+    const disabled = entries.filter((d) => d.enabled === false).map((d) => ({ ...fromEntry(d), disabled: true }));
+    return [...lights, ...offline, ...disabled];
   }
 
   async function refresh() {
     try {
-      ({ lights } = await request("lights"));
+      ({ lights, pending = [], discovered = [] } = await request("lights"));
+      renderDiscovered();
       const all = allLights();
       if (all.length === 0) {
         if (!list.querySelector(".empty")) {
@@ -144,7 +195,7 @@
       return el("span", { class: "range" }, input, value);
     };
     const defaults = el("div", { class: "defaults" },
-      el("label", { class: "field" }, el("span", { class: "field-title", text: "Default brightness" }), slider("powerOnBrightness", 0, 100, 1, 50, (v) => `${v} %`)),
+      el("label", { class: "field" }, el("span", { class: "field-title", text: "Default brightness" }), slider("powerOnBrightness", 3, 100, 1, 50, (v) => `${v} %`)),
       el("label", { class: "field" }, el("span", { class: "field-title", text: "Default colour temperature" }), slider("powerOnTemperature", 2900, 7000, 50, 4500, (v) => `${v} K`)));
 
     const test = el("p", { class: "status-line muted" });
@@ -195,15 +246,71 @@
   /// Takes the light's entry out of the block. A light Bonjour finds comes back with the platform's settings.
   async function removeEntry() {
     const { light } = editing;
-    if (!confirm(`Remove the settings of ${light.name} from config.json? ${light.pinned ? "It is only reached through its address there, so it leaves the Home app." : "Bonjour still finds it, with the platform's settings."}`)) return;
-    await updateEntries((devices) => {
-      const index = devices.findIndex((d) => sameMAC(d.mac, light.mac));
-      if (index >= 0) devices.splice(index, 1);
-    });
+    if (!(await removeLight(light))) return;
     editing.draft = JSON.parse(editing.saved);
     closeSettings();
+  }
+
+  async function removeLight(light) {
+    if (!confirm(`Remove the settings of ${light.name} from config.json? ${light.pinned ? "It is only reached through its address there, so it leaves the Home app." : "Bonjour still finds it, with the platform's settings."}`)) return false;
+    try {
+      await updateEntries((devices) => {
+        const index = devices.findIndex((d) => sameMAC(d.mac, light.mac));
+        if (index >= 0) devices.splice(index, 1);
+      });
+    } catch (e) {
+      alert(e.message);
+      return false;
+    }
+    setTimeout(refresh, 600);
+    return true;
+  }
+
+  // MARK: On the network: what Bonjour announces (Homeswift browses all the time; the Homebridge plugin's
+  // Discover button scanned for 5 seconds). A light found here is in the Home app already when it answered;
+  // adding it to config.json gives it settings of its own.
+
+  const discoverBox = $("#discovered");
+
+  function discoveredRow(light) {
+    const entry = entryFor(light.mac);
+    const [state, kind] = entry ? ["In config.json", "on"] : light.running ? ["In the Home app", "standby"] : ["Not answering", "away"];
+    return el("div", { class: "found" },
+      el("div", { class: "who" }, el("strong", { text: light.name }),
+        el("div", { class: "muted", text: [light.model, light.address || light.host, light.mac].filter(Boolean).join(" · ") })),
+      el("span", { class: `pill status ${kind}`, text: state }),
+      entry ? null : el("button", { text: "Add to config.json", onclick: (event) => act(event.currentTarget, () => addDiscovered(light)) }));
+  }
+
+  function renderDiscovered() {
+    if (discoverBox.classList.contains("hidden")) return;
+    const rows = discovered.length
+      ? discovered.map(discoveredRow)
+      : [el("p", { class: "muted", text: "No light announces itself over Bonjour right now. A light on another network or behind a container without multicast can be added by its address." })];
+    const key = JSON.stringify([discovered, discovered.map((light) => Boolean(entryFor(light.mac)))]);
+    if (discoverBox.dataset.json === key) return;
+    discoverBox.dataset.json = key;
+    discoverBox.replaceChildren(
+      el("p", { class: "muted", text: "The lights Bonjour finds on the network, kept up to date while Homeswift runs. Adding one to config.json lets you name it and set what it does when switched on; Bonjour keeps finding it at its address." }),
+      ...rows);
+  }
+
+  /// An entry for a light Bonjour found, without an address: announcements keep moving it when its address changes.
+  async function addDiscovered(light) {
+    const entry = { mac: canonicalMAC(light.mac), name: light.name };
+    if (light.model) entry.model = light.model;
+    await putEntry(entry.mac, (old) => ({ ...old, ...entry }));
+    delete discoverBox.dataset.json;
+    renderDiscovered();
     setTimeout(refresh, 600);
   }
+
+  $("#discover-toggle").addEventListener("click", () => {
+    const open = discoverBox.classList.toggle("hidden") === false;
+    $("#discover-toggle").setAttribute("aria-expanded", String(open));
+    delete discoverBox.dataset.json;
+    renderDiscovered();
+  });
 
   // MARK: Adding a light by its address, for networks Bonjour does not cross.
 
@@ -245,6 +352,9 @@
     host.value = "";
     setTimeout(refresh, 800);
   }
+
+  // Without an Assistant, a tip on how to get one (Explain on errors), as the Homebridge plugin shows.
+  assistant().then((state) => $("#assistant-hint").classList.toggle("hidden", Boolean(state.enabled)));
 
   readBlock().then((block) => { configured = block.devices || []; refresh(); }).catch(() => {});
   poll(refresh);

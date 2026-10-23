@@ -76,6 +76,8 @@ final class ElgatoTestEnvironment: @unchecked Sendable {
     let light = FakeLight()
     let discovered: AsyncStream<ElgatoKeyLightsPlugin.DiscoveredLight>
     let discover: AsyncStream<ElgatoKeyLightsPlugin.DiscoveredLight>.Continuation
+    /// The ARP table the plugin sees, by MAC.
+    let arpTable = NIOLockedValueBox<[String: String]>([:])
     private let plugins = NIOLockedValueBox<[ElgatoKeyLightsPlugin]>([])
     private let storages = NIOLockedValueBox<[String: MemoryStorage]>([:])
 
@@ -92,7 +94,7 @@ final class ElgatoTestEnvironment: @unchecked Sendable {
             let configuration = try JSONDecoder().decode(ElgatoKeyLightsPlugin.Configuration.self, from: json)
             let plugin = ElgatoKeyLightsPlugin(
                 configuration: configuration, context: context,
-                dependencies: .init(transport: self.light, discover: { _ in discovered }))
+                dependencies: .init(transport: self.light, discover: { _ in discovered }, arp: { mac in self.arpTable.withLockedValue { $0[mac] } }))
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
         }
@@ -370,5 +372,88 @@ struct ElgatoKeyLightsTests {
         try await second.start()
         #expect(second.mainBridge.server.accessories.count == 1)
         await second.stop()
+    }
+
+    @Test func powerOnTemperatureZeroKeepsTheLightsValue() async throws {
+        var light = configuredLight
+        light["powerOnTemperature"] = 0
+        let host = try await environment.start(settings: ["devices": [light], "powerOnTemperature": 4000])
+        #expect(await environment.light.settings.powerOnTemperature == 213)
+        await host.stop()
+
+        let platformOnly = ElgatoTestEnvironment()
+        let second = try await platformOnly.start(settings: ["devices": [configuredLight], "powerOnTemperature": 0])
+        #expect(await platformOnly.light.settings.powerOnTemperature == 213)
+        await second.stop()
+    }
+
+    @Test func hostNamesAreResolvedThroughTheARPTableThenTheAnnouncedAddresses() async throws {
+        environment.arpTable.withLockedValue { $0["AA:BB:CC:DD:EE:FF"] = "10.0.0.8" }
+        let host = try await environment.start(settings: [:])
+        environment.discover.yield(.init(name: "Elgato Key Light 1234", mac: "aa:bb:cc:dd:ee:ff", host: "elgato-key-light-1234.local", port: 9123, addresses: ["10.0.0.5"]))
+        environment.discover.yield(.init(name: "Elgato Key Light 5678", mac: "11:22:33:44:55:66", host: "elgato-key-light-5678.local", port: 9123, addresses: ["fe80::1", "10.0.0.6"]))
+        #expect(await eventually { host.mainBridge.server.accessories.count == 3 })
+        #expect(await environment.plugin?.device(mac: "AA:BB:CC:DD:EE:FF")?.host == "10.0.0.8")
+        #expect(await environment.plugin?.device(mac: "11:22:33:44:55:66")?.host == "10.0.0.6")
+        await host.stop()
+    }
+
+    @Test func useIPConnectsToTheAnnouncedAddress() async throws {
+        environment.arpTable.withLockedValue { $0["AA:BB:CC:DD:EE:FF"] = "10.0.0.8" }
+        let host = try await environment.start(settings: ["useIP": true])
+        environment.discover.yield(.init(name: "Elgato Key Light 1234", mac: "aa:bb:cc:dd:ee:ff", host: "elgato-key-light-1234.local", port: 9123, addresses: ["10.0.0.5"]))
+        #expect(await eventually { host.mainBridge.server.accessories.count == 2 })
+        #expect(await environment.plugin?.device(mac: "AA:BB:CC:DD:EE:FF")?.host == "10.0.0.5")
+        await host.stop()
+    }
+
+    @Test func hostResolution() async {
+        let none: @Sendable (String) async -> String? = { _ in nil }
+        #expect(await HostResolution.resolve(host: "192.168.1.5", mac: "AA:BB:CC:DD:EE:FF", addresses: ["10.0.0.1"], arp: { _ in "10.0.0.2" }) == "192.168.1.5")
+        #expect(await HostResolution.resolve(host: "light.local", mac: "AA:BB:CC:DD:EE:FF", addresses: ["10.0.0.1"], arp: { _ in "10.0.0.2" }) == "10.0.0.2")
+        #expect(await HostResolution.resolve(host: "light.local", mac: "AA:BB:CC:DD:EE:FF", addresses: ["fe80::1", "10.0.0.1"], arp: none) == "10.0.0.1")
+        #expect(await HostResolution.resolve(host: "light.local", mac: "AA:BB:CC:DD:EE:FF", addresses: ["fe80::1"], arp: none) == "fe80::1")
+        #expect(await HostResolution.resolve(host: "light.local", mac: "AA:BB:CC:DD:EE:FF", addresses: [], arp: none) == "light.local")
+        #expect(HostResolution.isIPv4("10.0.0.255") && !HostResolution.isIPv4("10.0.0.256") && !HostResolution.isIPv4("10.0.0") && !HostResolution.isIPv4("light.local"))
+
+        let darwin = """
+            ? (192.168.1.1) at 0:11:22:aa:bb:cc on en0 ifscope [ethernet]
+            ? (192.168.1.20) at 3c:6a:9d:4:a:b on en0 ifscope [ethernet]
+            ? (192.168.1.21) at (incomplete) on en0 ifscope [ethernet]
+            """
+        #expect(HostResolution.address(in: darwin, mac: "3C:6A:9D:04:0A:0B") == "192.168.1.20")
+        let linux = """
+            IP address       HW type     Flags       HW address            Mask     Device
+            192.168.1.30     0x1         0x2         3c:6a:9d:04:0a:0b     *        eth0
+            """
+        #expect(HostResolution.address(in: linux, mac: "3c-6a-9d-04-0a-0b") == "192.168.1.30")
+        #expect(HostResolution.address(in: "192.168.1.40 dev eth0 lladdr 3c:6a:9d:04:0a:0b REACHABLE", mac: "3C:6A:9D:04:0A:0B") == "192.168.1.40")
+        #expect(HostResolution.address(in: darwin, mac: "3C:6A:9D:04:0A:0C") == nil)
+    }
+
+    @Test func thePageListsOfflineAndAnnouncedLights() async throws {
+        await environment.light.set(unreachableHosts: ["192.168.1.50"])
+        let host = try await environment.start(settings: ["devices": [configuredLight]])
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        environment.discover.yield(.init(name: "Elgato Key Light Air 1234", mac: "aa:bb:cc:dd:ee:ff", host: "elgato-key-light-air-1234.local", port: 9123, addresses: ["10.0.0.5"], model: "Elgato Key Light Air"))
+        #expect(await eventually { host.mainBridge.server.accessories.count == 2 })
+
+        let answer = try await plugin.handleWebRequest(.init(method: "GET", path: "lights", query: [:], user: "admin"))
+        #expect(answer.json["lights"]?[0]?["mac"] == "AA:BB:CC:DD:EE:FF")
+        let pending = try #require(answer.json["pending"]?[0])
+        #expect(pending["mac"] == "3C:6A:9D:04:0A:0B" && pending["status"] == "failed" && pending["host"] == "192.168.1.50")
+        #expect(pending["error"] != nil && pending["error"] != .null)
+        let discovered = try #require(answer.json["discovered"]?[0])
+        #expect(discovered["mac"] == "AA:BB:CC:DD:EE:FF" && discovered["model"] == "Elgato Key Light Air")
+        #expect(discovered["address"] == "10.0.0.5" && discovered["running"] == true)
+    }
+
+    @Test func assistantBackgroundDescribesThePort() throws {
+        let background = try #require(ElgatoKeyLightsPlugin.assistantBackground)
+        #expect(!background.isEmpty)
+        #expect(!background.contains("Homebridge"))
+        #expect(background.contains("is not responding, will keep retrying"))
+        #expect(background.contains("Could not reach"))
     }
 }

@@ -12,7 +12,11 @@
   .light .actions { margin-top: 0; }
   .glow { width: 10px; height: 10px; border-radius: 50%; flex: none; box-shadow: 0 0 0 3px var(--material-thin); }
   .fact b.colour { display: flex; align-items: center; gap: 8px; }
-  .light.is-disabled { opacity: 0.7; }
+  .light.is-disabled, .light.is-offline { opacity: 0.7; }
+  .section-head .actions { margin-top: 0; }
+  .found { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+  .found .who { flex: 1; min-width: 180px; }
+  .hint { margin: 14px 0 0; padding: 10px 14px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); font-size: 0.8125rem; }
   .facts.info { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .defaults { transition: opacity var(--normal) var(--ease-out); }
   .defaults.inactive { opacity: 0.45; pointer-events: none; }
@@ -37,10 +41,12 @@
       <p class="muted">The lights this instance knows, as it sees them right now. Identify flashes a light so you can tell which is which.</p>
     </div>
   </div>
-  <div class="section-head"><h2>Your lights</h2><button id="add-toggle" aria-expanded="false" aria-controls="add-light">Add by address</button></div>
+  <div class="section-head"><h2>Your lights</h2><div class="actions"><button id="discover-toggle" aria-expanded="false" aria-controls="discovered">On the network</button><button id="add-toggle" aria-expanded="false" aria-controls="add-light">Add by address</button></div></div>
+  <div id="discovered" class="card add-box hidden"></div>
   <div id="add-light" class="card add-box hidden"></div>
   <div id="lights" class="grid"></div>
   <div id="light-settings" class="card panel hidden"></div>
+  <p id="assistant-hint" class="hint hidden">Tip: add a <strong>HomeswiftAiKit</strong> block to config.json to get the Assistant, which explains discovery and connection problems here.</p>
 </main>
 <script src="/common.js"></script>
 <script src="/plugin.js"></script>
