@@ -174,8 +174,19 @@ public final class FfmpegCodecs: Sendable {
         }
         // Capture the version of FFmpeg, then make sure we have a working video processor before anything else.
         guard await probeFfmpegVersion() else { return false }
-        guard await probeFfmpegCodecs(), await probeFfmpegHwAccel() else { return false }
+        guard await probeFfmpegCodecs() else { return false }
+        warnWithoutSoftwareH264()
+        guard await probeFfmpegHwAccel() else { return false }
         return true
+    }
+
+    // Not in homebridge-unifi-protect: an FFmpeg without libx264 (DSM's own, a minimal build) fails every software encode with
+    // "Unrecognized option 'preset'", which says nothing about the cause.
+    private func warnWithoutSoftwareH264() {
+        guard !hasEncoder("h264", "libx264") else { return }
+        log.warning(
+            "FFmpeg \(ffmpegVersion) at '\(ffmpegExec)' has no libx264 encoder: HomeKit Secure Video recordings and livestreams fail unless a hardware encoder takes over. Use an FFmpeg built with libx264."
+        )
     }
 
     /// Whether `codec` (e.g. `h264`) has the decoder `decoder` (e.g. `h264_qsv`). Case-insensitive.

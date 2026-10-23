@@ -163,6 +163,24 @@ final class MockHost: Sendable {
         ])
     }
 
+    @Test func warnsWithoutLibx264() async {
+        // DSM's /bin/ffmpeg: H.264 decodes, but nothing encodes it.
+        let host = MockHost { command, args in
+            if args.contains("-version") { return .success("ffmpeg version 4.1.9 Copyright (c) 2000-2022 the FFmpeg developers\n") }
+            if args.contains("-codecs") { return .success(" DEV.LS h264                 H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 (decoders: h264 )\n") }
+            return MockHost.healthy(command, args)
+        }
+        let log = LogRecorder()
+        #expect(await host.codecs(log: log, ffmpegExec: "/bin/ffmpeg").probe())
+        #expect(log.messages(.warning) == [
+            "FFmpeg 4.1.9 at '/bin/ffmpeg' has no libx264 encoder: HomeKit Secure Video recordings and livestreams fail unless a hardware encoder takes over. Use an FFmpeg built with libx264."
+        ])
+
+        let healthyLog = LogRecorder()
+        _ = await MockHost().codecs(log: healthyLog).probe()
+        #expect(healthyLog.messages(.warning).isEmpty)
+    }
+
     @Test func recordsAnUnknownVersion() async {
         let host = MockHost { command, args in args.contains("-version") ? .success("something unexpected") : MockHost.healthy(command, args) }
         let codecs = host.codecs()
