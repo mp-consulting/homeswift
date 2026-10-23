@@ -55,6 +55,10 @@ public final class UIServer: Sendable {
     private let channel = NIOLockedValueBox<(any Channel)?>(nil)
     let live: LiveWebFiles?
     private let watcher = NIOLockedValueBox<Task<Void, Never>?>(nil)
+    /// The scheduled restart and the daily backup, while the server runs (Admin.swift).
+    let schedules = NIOLockedValueBox(ScheduleState())
+    /// Where the UI's own changes are recorded: the MCP audit log, as client "web UI".
+    let auditLog: AuditLog?
     /// With `https`, the certificate it serves, once started.
     private let tls = NIOLockedValueBox<UICertificate?>(nil)
     /// Where the bridge keeps its own files: the generated certificate goes there.
@@ -78,6 +82,7 @@ public final class UIServer: Sendable {
         chat = AssistantChat(catalog: catalog, storeURL: usersURL.deletingLastPathComponent().appendingPathComponent("ui-chats.json"), logger: options.logger)
         directory = usersURL.deletingLastPathComponent()
         preferences = PreferencesStore(url: usersURL.deletingLastPathComponent().appendingPathComponent("ui-preferences.json"))
+        auditLog = catalog.auditLog()
     }
 
     /// The SHA-256 fingerprint of the HTTPS certificate, for the banner: what a browser's warning shows.
@@ -101,6 +106,7 @@ public final class UIServer: Sendable {
             }
         let bound = try await bootstrap.bind(host: configuration.host, port: configuration.port).get()
         channel.withLockedValue { $0 = bound }
+        startSchedules()
         logger.info("Web UI listening", metadata: ["url": "\(configuration.scheme)://\(configuration.host):\(bound.localAddress?.port ?? configuration.port)/", "auth": "\(configuration.auth.rawValue)"])
         if let live {
             // Open pages swap a stylesheet in place and reload for a script or a page.
@@ -122,6 +128,7 @@ public final class UIServer: Sendable {
 
     public func stop() async {
         watcher.withLockedValue { $0 }?.cancel()
+        stopSchedules()
         events.close()
         runs.cancelAll()
         await chat.close()
@@ -141,6 +148,10 @@ public final class UIServer: Sendable {
         var headers: [String: String]
         var body: Data
         var remote: String
+        /// The browser reached a trusted reverse proxy over HTTPS (`trustProxy`): the cookie is Secure.
+        var secure = false
+        /// The body was larger than the route accepts and was cut.
+        var truncated = false
 
         var cookies: [String: String] {
             (headers["cookie"] ?? "").split(separator: ";").reduce(into: [:]) { result, pair in
@@ -185,7 +196,9 @@ public final class UIServer: Sendable {
         guard let username = authenticatedUser(request) else { return .error(401, "sign in first") }
         if request.method != .GET, let refused = refuseCrossSite(request) { return refused }
         do {
-            return try await api(route, request, username: username)
+            let reply = try await api(route, request, username: username)
+            if request.method != .GET { audit(route, request, username: username, reply: reply) }
+            return reply
         } catch let error as JSONRPCError {
             return .error(400, error.message)
         } catch {
@@ -281,10 +294,10 @@ public final class UIServer: Sendable {
         return sessions.username(for: token)
     }
 
-    private func cookie(_ token: String?) -> String {
+    private func cookie(_ token: String?, secure: Bool = false) -> String {
         let value = token ?? ""
         let age = token == nil ? 0 : Int(saturating: sessions.lifetime) ?? 0
-        return "\(Self.cookieName)=\(value); Path=/; HttpOnly; SameSite=Strict; Max-Age=\(age)\(configuration.https ? "; Secure" : "")"
+        return "\(Self.cookieName)=\(value); Path=/; HttpOnly; SameSite=Strict; Max-Age=\(age)\(configuration.https || secure ? "; Secure" : "")"
     }
 
     /// A browser sends `Origin` on cross-site and on same-site mutations; it must name this server.
@@ -297,7 +310,7 @@ public final class UIServer: Sendable {
             let same = url?.host.map(HostName.of) == HostName.of(host) && url?.port == HostName.port(of: host)
             if !same { return .error(403, "origin \(origin) does not match the host") }
         }
-        if !request.body.isEmpty, !(request.headers["content-type"] ?? "").lowercased().hasPrefix("application/json") {
+        if !request.body.isEmpty, !(request.headers["content-type"] ?? "").lowercased().hasPrefix("application/json"), !Self.acceptsArchive(request) {
             return .error(415, "send JSON")
         }
         return nil
@@ -340,7 +353,7 @@ public final class UIServer: Sendable {
             }
             throttle.succeeded(request.remote)
             logger.info("Web UI account created", metadata: ["username": "\(username)"])
-            return .json(["username": .string(username)], headers: ["Set-Cookie": cookie(sessions.create(username: username))])
+            return .json(["username": .string(username)], headers: ["Set-Cookie": cookie(sessions.create(username: username), secure: request.secure)])
         case (.POST, "login"):
             if let refused = refuseCrossSite(request) { return refused }
             guard configuration.auth == .form else { return .error(400, "no login is needed") }
@@ -353,7 +366,7 @@ public final class UIServer: Sendable {
                 return .error(401, AuthError.badCredentials.description)
             }
             throttle.succeeded(request.remote)
-            return .json(["username": .string(username)], headers: ["Set-Cookie": cookie(sessions.create(username: username))])
+            return .json(["username": .string(username)], headers: ["Set-Cookie": cookie(sessions.create(username: username), secure: request.secure)])
         case (.POST, "password-strength"):
             // The gauge under a new password: the server's PasswordPolicy, the one that decides, while typing.
             // No session needed: the first account is created before there is one. evaluate caps the size.
@@ -368,7 +381,7 @@ public final class UIServer: Sendable {
             ])
         case (.POST, "logout"):
             if let token = request.cookies[Self.cookieName] { sessions.revoke(token) }
-            return .json(JSONValue.object([:]), headers: ["Set-Cookie": cookie(nil)])
+            return .json(JSONValue.object([:]), headers: ["Set-Cookie": cookie(nil, secure: request.secure)])
         default:
             return .error(404, "unknown auth action")
         }
@@ -377,6 +390,8 @@ public final class UIServer: Sendable {
     // MARK: API
 
     private func api(_ route: [String], _ request: Request, username: String) async throws -> Reply {
+        // Settings, child bridges, backups, the audit log: Admin.swift.
+        if let reply = try await adminAPI(route, request, username: username) { return reply }
         let body = request.body.isEmpty ? JSONValue.null : try JSONValue(data: request.body)
         if route.count >= 4, route[0] == "plugins" {
             // A plugin page talking to its instance: /api/plugins/<platform>/<name>/<path>.
@@ -589,7 +604,8 @@ public final class UIServer: Sendable {
                 return try await chatAction(Array(route.dropFirst(2)), body: body, username: username)
             }
             if route == ["logs", "truncate"] {
-                // Every account is the bridge's administrator (docs/ui.md); the MCP tool is admin-scoped.
+                // For administrators, as the MCP tool is admin-scoped.
+                guard isAdmin(username) else { return .error(403, "only an administrator can empty the log") }
                 return .json(catalog.truncateLogs(by: "web UI user \(username)"))
             }
             if route == ["restart"] {
@@ -834,6 +850,8 @@ final class UIRequestHandler: ChannelInboundHandler {
     let server: UIServer
     private var head: HTTPRequestHead?
     private var body = Data()
+    private var limit = 4 * 1024 * 1024
+    private var truncated = false
 
     init(server: UIServer) {
         self.server = server
@@ -844,17 +862,28 @@ final class UIRequestHandler: ChannelInboundHandler {
         case .head(let head):
             self.head = head
             body = Data()
+            truncated = false
+            // A backup to restore is the one large body: an archive, up to InstanceBackups.maxArchiveSize.
+            limit = head.uri.hasPrefix("/api/backups/restore") ? InstanceBackups.maxArchiveSize : 4 * 1024 * 1024
         case .body(var buffer):
-            if body.count < 4 * 1024 * 1024, let bytes = buffer.readBytes(length: buffer.readableBytes) { body.append(contentsOf: bytes) }
+            if body.count + buffer.readableBytes > limit { truncated = true }
+            if !truncated, let bytes = buffer.readBytes(length: buffer.readableBytes) { body.append(contentsOf: bytes) }
         case .end:
             guard let head else { return }
             var headers: [String: String] = [:]
             for (name, value) in head.headers { headers[name.lowercased()] = value }
             let components = URLComponents(string: head.uri)
             let query = Dictionary((components?.queryItems ?? []).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { _, last in last })
-            let request = UIServer.Request(
+            var request = UIServer.Request(
                 method: head.method, path: components?.percentEncodedPath ?? String(head.uri.prefix { $0 != "?" }), query: query, headers: headers, body: body,
                 remote: context.remoteAddress?.ipAddress ?? "?")
+            // Behind a trusted reverse proxy, the client it names and the scheme it was reached with.
+            let proxies = server.configuration.trustProxy
+            if !proxies.isEmpty {
+                request.secure = proxies.forwardedHTTPS(remote: request.remote, proto: headers["x-forwarded-proto"])
+                request.remote = proxies.client(remote: request.remote, forwardedFor: headers["x-forwarded-for"])
+            }
+            request.truncated = truncated
             self.head = nil
             Self.respond(to: request, keepAlive: head.isKeepAlive, channel: context.channel, server: server)
         }

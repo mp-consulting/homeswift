@@ -164,7 +164,7 @@
       link.classList.toggle("active", current);
       if (current) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
     }
-    const view = name === "plugins" && args.length ? views.settings : views[name] || views.status;
+    const view = name === "plugins" && args.length ? views.settings : name === "settings" ? HomeswiftAdmin.view : views[name] || views.status;
     const main = $("#view");
     leaveGuard = null;
     shownPath = location.pathname + location.search;
@@ -291,7 +291,8 @@
           fact("Machine up", formatDuration(status.system.systemUptimeSeconds ?? 0))),
         el("div", { class: "fact wide" }, el("span", { text: "Configuration" }), el("b", { class: "mono", text: status.configPath, title: status.configPath })),
         // Changes apply without one; this is for a plugin that misbehaves.
-        el("div", { class: "actions" }, el("button", { class: "link", text: "Restart homeswift…", onclick: restartBridge })))],
+        el("div", { class: "actions" }, el("button", { class: "link", text: "Restart homeswift…", onclick: restartBridge }),
+          el("a", { class: "link", href: "/settings", text: "Settings, pairings and backups" })))],
     };
     const layout = dashboardLayout();
     show(main,
@@ -797,6 +798,7 @@
       { label: "Show its log", icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` },
       window.HomeswiftChat?.available() ? { label: "Ask the Assistant", icon: sparkle(), onSelect: () => HomeswiftChat.ask(`About ${accessory.name}: `) } : null,
       accessory.platform ? { label: "Plugin settings", icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
+      accessory.history ? { label: "History", icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
     ];
   }
 
@@ -1113,10 +1115,16 @@
     update();
   };
 
-  /// The Assistant's block, above its form: Test connection (the form's settings, saved or not), and what the
-  /// Assistant used today and this month against its budgets, by model and by user; the budgets are edited here
-  /// and saved with the block (Glass UI's Assistant settings).
-  function assistantSettings({ formValue, useValue, save, dirty }) {
+  /// The Assistant's settings card (Glass UI's): Test connection, and what the Assistant used today and this month
+  /// against its budgets, by model and by user, with the budgets to edit. Above the HomeswiftAiKit block's form it
+  /// tests the form's settings, saved or not, and its budgets go into the form and are saved with it; on Settings ›
+  /// Assistant (`block` given, no form) it tests the saved block and writes the budgets to it.
+  function assistantSettings({ formValue, useValue, save, dirty, block }) {
+    if (!formValue) {
+      formValue = () => ({ ...block });
+      dirty = () => false;
+      save = null;
+    }
     const result = el("p", { class: "muted test-result", role: "status" });
     const test = el("button", { text: "Test connection", onclick: async () => {
       test.disabled = true;
@@ -1184,10 +1192,18 @@
         for (const [key] of limits) if (inputs[key].value !== "" && Number(inputs[key].value) > 0) budget[key] = Number(inputs[key].value);
         const value = formValue();
         if (Object.keys(budget).length) value.budget = budget; else delete value.budget;
-        useValue(value);
-        save.click();
+        budgetMessage.className = "muted";
         budgetMessage.textContent = "Saving…";
-        setTimeout(() => { budgetMessage.textContent = ""; loadUsage(); }, 1200);
+        if (save) {
+          useValue(value);
+          save.click();
+          setTimeout(() => { budgetMessage.textContent = ""; loadUsage(); }, 1200);
+          return;
+        }
+        // The block itself, by platform and name: the Assistant comes back with the new budgets.
+        api(`/api/config/block/${encodeURIComponent(value.platform)}/${encodeURIComponent(value.name || value.platform)}`, { method: "PUT", body: value })
+          .then((result) => { block = value; budgetMessage.textContent = savedText(result); setTimeout(loadUsage, 600); })
+          .catch((e) => { budgetMessage.className = "error"; budgetMessage.textContent = e.message; });
       } })));
     editor.addEventListener("toggle", () => {
       if (!editor.open) return;
@@ -1199,9 +1215,26 @@
     return el("div", { class: "card assistant-settings" },
       el("div", { class: "server-head" },
         el("span", { class: "tile tone-ai", "aria-hidden": "true" }, sparkle()),
-        el("div", { class: "who" }, el("strong", { text: "The Assistant" }), el("div", { class: "muted", text: "Check the settings below before saving them, and see what it costs." })),
+        el("div", { class: "who" }, el("strong", { text: "The Assistant" }), el("div", { class: "muted", text: save ? "Check the settings below before saving them, and see what it costs." : "Whether its provider answers, and what it costs." })),
         test),
       result, usage, editor);
+  }
+
+  /// Settings › Assistant (admin.js draws the page around it): the card for the saved HomeswiftAiKit block, and a
+  /// link to all its settings.
+  async function assistantPage(main, subnav) {
+    const plugins = await api("/api/plugins");
+    const entry = plugins.blocks.find((one) => one.platform === "HomeswiftAiKit");
+    const head = pageHead("Settings", "The Assistant: whether its provider answers, what it costs, and its budgets.");
+    if (!entry) {
+      show(main, head, subnav, el("div", { class: "card empty" },
+        el("p", { class: "muted", text: "The Assistant is off: config.json has no HomeswiftAiKit block. Add one on the Config page, { \"platform\": \"HomeswiftAiKit\", \"provider\": \"anthropic\", \"apiKey\": \"…\" }, or choose apple on a Mac with Apple Intelligence." }),
+        el("a", { class: "button primary", href: "/config", text: "Open Config" })));
+      return;
+    }
+    const block = await api(`/api/config/block/${encodeURIComponent(entry.platform)}/${encodeURIComponent(entry.name)}`);
+    show(main, head, subnav, assistantSettings({ block }),
+      el("div", { class: "actions" }, el("a", { class: "link", href: settingsLink(entry), text: "All the Assistant's settings: provider, model, key, MCP server" })));
   }
 
   /// Describe your setup: the Assistant writes the block from the plugin's config.schema.json and a sentence
@@ -1241,26 +1274,10 @@
     return card;
   }
 
-  /// Two blocks as pretty JSON with sorted keys, line by line: same, add or remove (a longest common subsequence).
+  /// Two blocks as pretty JSON with sorted keys, line by line: same, add or remove (common.js's jsonDiff, which the
+  /// Settings pages' config.json backups use too).
   function blockDiff(before, after) {
-    const sortKeys = (value) => Array.isArray(value) ? value.map(sortKeys)
-      : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortKeys(value[key])])) : value;
-    const a = JSON.stringify(sortKeys(before ?? {}), null, 2).split("\n");
-    const b = JSON.stringify(sortKeys(after ?? {}), null, 2).split("\n");
-    const lengths = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
-    for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) {
-      lengths[i][j] = a[i] === b[j] ? lengths[i + 1][j + 1] + 1 : Math.max(lengths[i + 1][j], lengths[i][j + 1]);
-    }
-    const out = [];
-    let i = 0, j = 0;
-    while (i < a.length && j < b.length) {
-      if (a[i] === b[j]) { out.push({ kind: "same", text: a[i] }); i++; j++; }
-      else if (lengths[i + 1][j] >= lengths[i][j + 1]) out.push({ kind: "remove", text: a[i++] });
-      else out.push({ kind: "add", text: b[j++] });
-    }
-    while (i < a.length) out.push({ kind: "remove", text: a[i++] });
-    while (j < b.length) out.push({ kind: "add", text: b[j++] });
-    return out;
+    return HomeswiftCommon.jsonDiff(before, after);
   }
 
   /// A place to drop a file for a path field (a certificate, its key), or to choose it: the bridge keeps the
@@ -2156,6 +2173,9 @@
     openEvents();
     if (["/", "/status", "/accessories"].includes(location.pathname)) route();
   });
+
+  // The Settings pages (admin.js) draw with the same helpers.
+  window.HomeswiftApp = { api, navigate, route, pageHead, breadcrumb, show, savedText, waitForRestart, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();
