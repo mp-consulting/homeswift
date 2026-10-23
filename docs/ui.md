@@ -17,6 +17,11 @@ reduced-transparency and increased-contrast settings.
 | `allowedHosts` | `[]` | Names the UI answers to, besides IP addresses, localhost and this machine's name: a DNS name, a reverse proxy's host |
 | `auth` | `form` | A username and password, created on the first visit with the set-up code from the bridge's output. `none` for a trusted network or localhost only |
 | `sessionDays` | `7` | How long a login lasts without activity |
+| `trustProxy` | none | Reverse proxies (addresses, CIDR ranges, or `loopback`, `linklocal`, `uniquelocal`) whose `X-Forwarded-For` and `X-Forwarded-Proto` count |
+| `scheduledRestartCron` | none | Restart homeswift on a schedule: a cron expression of five fields, `0 4 * * 1` for Mondays at 4:00 |
+| `scheduledBackupDisable` | `false` | Turns off the daily backup of the instance |
+| `scheduledBackupPath` | `instance-backups` next to config.json | Where backups are kept: a folder that exists, a network share for a copy off the machine |
+| `scheduledBackupDays` | `7` | How many days daily backups are kept |
 
 Restart the bridge; the banner prints the URL and, until an account exists, a set-up code. The first visit
 asks for that code, a username and a password, and creates the administrator account (the users live in
@@ -45,7 +50,8 @@ with a new code).
   the Home app, since the user signed in; a change to one of them, or to a characteristic a plugin marked as a
   security control (a switch that unlocks a door), asks first. Values that carry keys (a camera's Setup
   Endpoints) are not shown. Each card's **⋯** menu identifies the accessory, shows its log,
-  asks the Assistant about it, and opens its plugin's settings. What only HomeKit uses (a camera's stream and
+  asks the Assistant about it, and opens its plugin's settings; for an accessory whose plugin records an Eve
+  history (temperature, humidity, power…), **History** charts it over a day, a week or four weeks. What only HomeKit uses (a camera's stream and
   recording setup) stays off the cards.
 - **Cameras** get a card of their own: the picture in 16:9 with the name, motion, the doorbell's last ring and
   recording over it, buttons to unmute, refresh and go full screen, and the camera's controls under it. While
@@ -55,7 +61,8 @@ with a new code).
   has four live viewers at most, and one turned off in the Home app, or whose plugin is paused, shows nothing.
   Plugin pages can show the same view: load `/camera.js` and call `HomeswiftCamera.view({ id, name })`.
 - **Addresses** are paths: `/status`, `/accessories`, `/plugins`, `/plugins/<slug>` and its `/expert`,
-  `/plugins/add/<platform>`, `/config`, `/account`, `/appearance`, and `/logs/<accessory>?bridge=<bridge or all>&since=24h&level=warning&q=text`
+  `/plugins/add/<platform>`, `/config`, `/account`, `/appearance`, `/settings` and its `/child-bridges`, `/backups`, `/assistant` and
+  `/audit?since=7d&outcome=failed&tool=…&client=…`, and `/logs/<accessory>?bridge=<bridge or all>&since=24h&level=warning&q=text`
   (the accessory by its name's slug; `since` is `1h`, `6h`, `24h`, `today`, `yesterday`, `7d` or `custom` with
   `from` and `to`). A link changes the view in place, Back and Forward work, and an address can be kept or
   shared; the Logs view writes its choices into its own.
@@ -84,6 +91,35 @@ with a new code).
   and applies the block at once.
 - **Config**: the whole file in an editor. Saving validates it, keeps a backup under `backups/`, sorts
   the keys, and applies it.
+- **Settings**, for administrators, after the Homebridge UI's settings, child bridges, config backups and
+  restart pages:
+  - **Bridge**: config.json's `bridge` block as a form (name, port, setup code, manufacturer, model, firmware;
+    saving restarts homeswift; the device ID stays), the network (the addresses, the advertiser), each
+    server's HomeKit pairing with **Reset pairings…** in its ⋯ menu, the cached accessories (stale ones
+    first) with **Remove from the cache…** and **Reset every cache…**, and a link to the schedules and proxy
+    settings of the HomeswiftUI block. Homeswift listens and advertises on every interface with the system's
+    mDNS (Bonjour, or Avahi on Linux): there is no interface to bind or advertiser to choose, as Homebridge's
+    `bind` and `advertiser` settings do, and no Node-specific setting (environment, debug mode, keep orphans).
+  - **Child bridges**: each with its status, uptime, restarts, the plugins that did not start and why, and,
+    until the Home app has it, its setup code and QR code; its ⋯ menu restarts, stops or starts it, shows
+    its log, and resets its pairings.
+  - **Backups**: **Download a backup** makes an archive of the instance (a tar: config.json, each bridge's
+    HomeKit identity and pairings, the accessory caches, the plugins' files under `plugins/`, `files/`, the
+    web UI's users and certificate, the MCP audit log); left out, at any depth, as upstream does: the
+    backups, `logs/`, `metrics/`, the web UI's sessions and what other systems put there (`node_modules`,
+    `.git`, `@eaDir`…), and files over 10 MB. **Back up now** keeps one in the backup folder, as the daily
+    backup does at a random time before 7:00 (unless `scheduledBackupDisable`), removing this bridge's
+    older than `scheduledBackupDays`. Each kept one downloads, restores or goes. **Restore a backup** takes
+    one (dropped or chosen, 64 MB at most): the bridge checks it whole (its `info.json`, a config.json that
+    runs, only plain files under relative paths: links, devices, absolute paths and `..` are refused), stages
+    it in `.restore-pending/` and restarts; the new process puts the files in place before it reads anything,
+    keeping this machine's bridge and web UI ports. Files the backup does not have stay. The config.json
+    backups each save keeps (the last 20) are listed too, each compared with the file as it is (a diff) or
+    restored.
+  - **Audit log**: the MCP audit log (`homeswift-mcp-audit.jsonl`): every write of MCP clients and of the
+    Assistant's chat, and every change made in this UI (client `web UI`, the user, the route, a small body
+    with its secrets masked), newest first, filtered by time, outcome, tool and client. `auditLog: false` in
+    the MCP block turns it off.
 - **Logs**: the live log, filtered by level, text, time and what the lines are about. That last is one menu:
   every line; the bridges' own lines (their servers' connections, pairings and controllers), every bridge's or
   one's; or an accessory's (those of its own server and those that name it, its id or its address), the
@@ -101,9 +137,10 @@ with a new code).
   temperatures show in °C or °F, on accessory cards and plugin pages. Each user's own, kept in
   `ui-preferences.json` (owner-only) and applied on every browser they sign in to; a browser remembers the
   last ones it saw so a page opens in them at once.
-- **The Assistant's settings**: the HomeswiftAiKit block's page has, above its form, **Test connection**
-  (a one-word request with the form's settings, saved or not), what the Assistant used today and this month
-  against its budgets, by model and by user, and **Edit the budgets**, saved with the block.
+- **Settings › Assistant** (`/settings/assistant`): **Test connection** (a one-word request with the saved
+  HomeswiftAiKit block), what the Assistant used today and this month against its budgets, by model and by
+  user, and **Edit the budgets**, written to the block. The block's own page has the same card above its form,
+  where the test takes the form's settings, saved or not, and the budgets are saved with the form.
 
 ## The Assistant's chat
 
@@ -155,6 +192,14 @@ Logins survive a restart: sessions are kept in `ui-sessions.json` next to config
 - Requests are answered only when their `Host` is an IP address, localhost, this machine's name or an
   `allowedHosts` entry (421 otherwise), so a page that rebinds its own name to this address gets nothing,
   with `auth: none` too.
+- Behind a reverse proxy, `trustProxy` names it: only a request from one of those addresses may say who the
+  client is (`X-Forwarded-For`, the right-most address that is not a trusted proxy: for the login throttle and
+  the log) and that the browser came over HTTPS (`X-Forwarded-Proto`, for a `Secure` cookie). Never every
+  address: a client could pick its own and step around the throttle. Add the proxy's host name to
+  `allowedHosts`.
+- The Settings pages' changes that cannot be undone (pairings, caches, a restore) ask first, some with a word
+  to type; the pairing and cache resets refuse without `"confirm": true` in their body. Every account is an administrator for now:
+  the routes ask `UIServer.isAdmin`, the one place a role would be checked.
 - With `"https": true` the UI serves HTTPS and the cookie carries `Secure`. Name a certificate and its key
   (`certificate`, `privateKey`, PEM files), or let the bridge make a self-signed one, kept next to
   config.json (`ui-certificate.pem`, `ui-key.pem`, owner-only): it names this machine, its `.local` name,
