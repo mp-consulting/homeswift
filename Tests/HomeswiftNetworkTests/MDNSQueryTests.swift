@@ -11,15 +11,28 @@ struct MDNSQueryTests {
     static func response(id: UInt16 = 0) -> [UInt8] {
         var packet: [UInt8] = [UInt8(id >> 8), UInt8(id & 0xFF), 0x84, 0x00, 0, 1, 0, 1, 0, 0, 0, 2]
         // Question at 12: _dyson_mqtt._tcp.local PTR IN.
-        packet += [11] + Array("_dyson_mqtt".utf8) + [4] + Array("_tcp".utf8) + [5] + Array("local".utf8) + [0, 0, 12, 0, 1]
+        // (Appended piece by piece: one long `+` chain takes Linux's type checker too long.)
+        packet.append(11)
+        packet += Array("_dyson_mqtt".utf8)
+        packet.append(4)
+        packet += Array("_tcp".utf8)
+        packet.append(5)
+        packet += Array("local".utf8)
+        packet += [0, 0, 12, 0, 1] as [UInt8]
         // Answer: the question's name (pointer to 12) PTR -> "455_ABC-AB-12345678" + pointer to 12.
-        let instance: [UInt8] = [19] + Array("455_ABC-AB-12345678".utf8) + [0xC0, 12]
+        var instance: [UInt8] = [19]
+        instance += Array("455_ABC-AB-12345678".utf8)
+        instance += [0xC0, 12] as [UInt8]
         packet += [0xC0, 12, 0, 12, 0, 1, 0, 0, 0, 120, 0, UInt8(instance.count)]
         let instanceOffset = packet.count
         packet += instance
         // Additional: the instance (pointer) SRV 0 0 1883 -> "dyson.local" (pointer to "local" at 12 + 12 + 5).
-        let target: [UInt8] = [5] + Array("dyson".utf8) + [0xC0, 12 + 12 + 5]
-        packet += [0xC0, UInt8(instanceOffset), 0, 33, 0, 1, 0, 0, 0, 120, 0, UInt8(6 + target.count), 0, 0, 0, 0, 0x07, 0x5B] + target
+        var target: [UInt8] = [5]
+        target += Array("dyson".utf8)
+        target += [0xC0, 29] as [UInt8]   // 12 + 12 + 5
+        let srv: [UInt8] = [0xC0, UInt8(instanceOffset), 0, 33, 0, 1, 0, 0, 0, 120, 0, UInt8(6 + target.count), 0, 0, 0, 0, 0x07, 0x5B]
+        packet += srv
+        packet += target
         // Additional: an A record for the target, with no usable address in this test.
         packet += [0xC0, UInt8(packet.count - target.count), 0, 1, 0, 1, 0, 0, 0, 120, 0, 4, 0, 0, 0, 0]
         return packet
@@ -52,7 +65,8 @@ struct MDNSQueryTests {
             .bind(host: "127.0.0.1", port: 0).get()
         defer { responder.close(promise: nil) }
         let port = try #require(responder.localAddress?.port)
-        let responses = try await MDNSQuery.query("_dyson_mqtt._tcp.local", duration: .milliseconds(500), host: "127.0.0.1", port: port)
+        // Two seconds: the query is sent again after one, should a loaded machine drop or delay the first.
+        let responses = try await MDNSQuery.query("_dyson_mqtt._tcp.local", duration: .seconds(2), host: "127.0.0.1", port: port)
         let first = try #require(responses.first)
         #expect(first.sender == "127.0.0.1")
         #expect(first.names.contains("455_ABC-AB-12345678._dyson_mqtt._tcp.local"))
