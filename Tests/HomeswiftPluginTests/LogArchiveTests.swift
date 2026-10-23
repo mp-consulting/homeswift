@@ -79,4 +79,36 @@ import Testing
         for index in 0..<5 { memory.append(LogBuffer.Line(date: start.addingTimeInterval(Double(index)), level: .info, label: "L", text: "\(index)")) }
         #expect(memory.lines(from: start, to: start.addingTimeInterval(10), limit: 10).map(\.text) == ["3", "4"])
     }
+
+    @Test func theRingKeepsTheLatestLinesInOrder() {
+        let buffer = LogBuffer(capacity: 5)
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        for index in 0..<13 {
+            buffer.append(LogBuffer.Line(date: start.addingTimeInterval(Double(index)), level: index % 3 == 0 ? .warning : .info, label: "L", text: "\(index)"))
+        }
+        #expect(buffer.all.map(\.text) == ["8", "9", "10", "11", "12"])
+        #expect(buffer.recent(3).map(\.text) == ["10", "11", "12"])
+        #expect(buffer.recent(10).map(\.text) == ["8", "9", "10", "11", "12"])
+        #expect(buffer.recent(10, level: .warning).map(\.text) == ["9", "12"])
+        #expect(buffer.recent(1, matching: { $0.text.hasPrefix("1") }).map(\.text) == ["12"])
+        #expect(buffer.recent(0).isEmpty)
+    }
+
+    @Test func timestampsAreWhatTheFormatStyleWrites() {
+        var generator = SystemRandomNumberGenerator()
+        for _ in 0..<2000 {
+            let date = Date(timeIntervalSince1970: Double.random(in: -2_000_000_000...4_000_000_000, using: &generator))
+            #expect(Timestamp.iso8601(date) == date.formatted(.iso8601))
+            #expect(Timestamp.iso8601(date, separator: UInt8(ascii: " ")) == date.formatted(.iso8601.dateTimeSeparator(.space)))
+        }
+        #expect(Timestamp.iso8601(Date(timeIntervalSince1970: 1_792_747_644.999)) == "2026-10-23T09:27:24Z")
+    }
+
+    /// Segments written before the archive wrote its lines itself (JSONEncoder, keys in any order) still read.
+    @Test func readsLinesInEitherKeyOrder() throws {
+        let line = LogBuffer.Line(date: Date(timeIntervalSince1970: 1_800_000_000.25), level: .warning, label: "Dyson \"Pure\"", text: "a\nb é")
+        #expect(LogArchive.line(LogArchive.entry(line).dropLast()) == line)
+        let legacy = Data(#"{"t":1800000000.25,"l":"warning","n":"Dyson \"Pure\"","m":"a\nb é"}"#.utf8)
+        #expect(LogArchive.line(legacy) == line)
+    }
 }

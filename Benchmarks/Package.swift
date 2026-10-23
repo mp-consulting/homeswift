@@ -35,5 +35,16 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
             ]
         ),
+        .executableTarget(
+            name: "bridge-bench-server",
+            dependencies: [
+                .product(name: "Homeswift", package: "homeswift"),
+                .product(name: "HomeswiftPlugin", package: "homeswift"),
+                .product(name: "HomeswiftAI", package: "homeswift"),
+                .product(name: "HomeswiftMCP", package: "homeswift"),
+                .product(name: "HomeswiftUI", package: "homeswift"),
+                .product(name: "Logging", package: "swift-log"),
+            ]
+        ),
     ]
 )
