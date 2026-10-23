@@ -1,0 +1,22 @@
+{
+  "name": "Homeswift",
+  "short_name": "Homeswift",
+  "description": "The bridge's status, accessories, plugins and log.",
+  "id": "/",
+  "start_url": "/status",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#e9edf6",
+  "theme_color": "#e9edf6",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "Accessories", "url": "/accessories" },
+    { "name": "Logs", "url": "/logs" }
+  ]
+}

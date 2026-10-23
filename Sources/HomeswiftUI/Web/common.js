@@ -49,6 +49,11 @@
     inputs: '<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/>',
     camera: '<rect x="2.5" y="6" width="13.5" height="12" rx="2.5"/><path d="m16 10.5 5.5-3.5v10L16 13.5"/>',
     identify: '<circle cx="12" cy="12" r="2.5"/><path d="M7.5 7.5a6.4 6.4 0 0 0 0 9M16.5 7.5a6.4 6.4 0 0 1 0 9"/>',
+    download: '<path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/>',
+    history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6M3.5 4.5V9H8"/><path d="M12 7.5V12l3 2"/>',
+    sliders: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
+    up: '<path d="M6 15l6-6 6 6"/>',
+    down: '<path d="M6 9l6 6 6-6"/>',
   };
 
   /// An icon as an SVG element.
@@ -346,5 +351,90 @@
     return api(path, { method: "PUT", body: block });
   }
 
-  window.HomeswiftCommon = { $, el, icon, tile, fact, markdown, sparkle, api, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, sections, tabBar, setPaused, slug, withSlugs };
+  // ---- The Assistant's one-shot requests, streamed ----------------------------------------------------------
+  // POST /api/assistant/explain, …/ask, …/diagnose, …/digest. With `onChunk` the request carries a requestId and
+  // the answer comes as server-sent events (start, chunk, done or error), each piece of text to `onChunk`; an
+  // AbortSignal stops it (POST /api/assistant/cancel). Answers the final JSON either way.
+
+  let requests = 0;
+  async function assistantRequest(path, body = {}, { onChunk, signal } = {}) {
+    if (!onChunk) return api(path, { method: "POST", body });
+    const requestId = `r${Date.now().toString(36)}-${++requests}`;
+    const cancel = () => { api("/api/assistant/cancel", { method: "POST", body: { requestId } }).catch(() => {}); };
+    if (signal?.aborted) throw Object.assign(new Error("Stopped."), { name: "AbortError" });
+    signal?.addEventListener("abort", cancel, { once: true });
+    try {
+      const response = await api(path, { method: "POST", body: { ...body, requestId }, stream: true });
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let end;
+        while ((end = buffer.indexOf("\n\n")) >= 0) {
+          const frame = buffer.slice(0, end);
+          buffer = buffer.slice(end + 2);
+          const event = frame.match(/^event: (.*)$/m)?.[1];
+          const data = frame.match(/^data: (.*)$/m)?.[1];
+          if (!event || !data) continue;
+          const payload = JSON.parse(data);
+          if (event === "chunk") onChunk(payload.text);
+          else if (event === "done") return payload;
+          else if (event === "error") throw Object.assign(new Error(payload.error), { status: payload.status });
+        }
+      }
+      throw new Error(signal?.aborted ? "Stopped." : "The connection dropped before the answer ended.");
+    } finally {
+      signal?.removeEventListener("abort", cancel);
+    }
+  }
+
+  // ---- Appearance: theme, wallpaper, temperature unit --------------------------------------------------------
+  // Each user's choices live on the server (/api/preferences); this browser keeps the last ones it saw, so a page
+  // opens in them before the server answers. Storage may be missing (a private window): it then waits.
+
+  const preferenceKey = "homeswift.preferences";
+  let preferences = { theme: "auto", wallpaper: "none", temperatureUnit: "c" };
+  try { Object.assign(preferences, JSON.parse(localStorage.getItem(preferenceKey) || "{}")); } catch {}
+
+  /// Applies the user's choices to this page (and remembers them in this browser): `data-theme` and
+  /// `data-wallpaper` on the root element, which the stylesheet reads, and the unit temperatures show in.
+  function applyPreferences(next) {
+    if (next) preferences = { ...preferences, ...next };
+    const root = document.documentElement;
+    if (preferences.theme === "light" || preferences.theme === "dark") root.dataset.theme = preferences.theme; else delete root.dataset.theme;
+    if (preferences.wallpaper && preferences.wallpaper !== "none") root.dataset.wallpaper = preferences.wallpaper; else delete root.dataset.wallpaper;
+    if (preferences.wallpaper === "custom") root.style.setProperty("--wallpaper-image", `url("/api/preferences/wallpaper?v=${encodeURIComponent(preferences.wallpaperVersion || "1")}")`);
+    else root.style.removeProperty("--wallpaper-image");
+    // The browser's bar follows a theme chosen here rather than the system's.
+    for (const meta of document.querySelectorAll('meta[name="theme-color"]')) {
+      if (!meta.dataset.media) meta.dataset.media = meta.media || "";
+      meta.media = preferences.theme === "auto" ? meta.dataset.media : (meta.dataset.media.includes(preferences.theme) ? "all" : "not all");
+    }
+    if (next) { try { localStorage.setItem(preferenceKey, JSON.stringify(preferences)); } catch {} }
+    document.dispatchEvent(new CustomEvent("homeswift:preferences", { detail: preferences }));
+    return preferences;
+  }
+  applyPreferences();
+
+  /// The user's choices from the server, applied; the ones this browser kept when it cannot be asked.
+  async function loadPreferences() {
+    try { return applyPreferences(await api("/api/preferences")); } catch { return preferences; }
+  }
+
+  /// A temperature HomeKit gives in °C, in the unit the user chose: `{ value, unit }`, the value rounded to a tenth.
+  function temperature(celsius) {
+    const value = Number(celsius);
+    if (preferences.temperatureUnit === "f") return { value: Math.round((value * 1.8 + 32) * 10) / 10, unit: "°F" };
+    return { value: Math.round(value * 10) / 10, unit: "°C" };
+  }
+  /// "21.5 °C" or "70.7 °F".
+  const formatTemperature = (celsius) => { const { value, unit } = temperature(celsius); return `${value} ${unit}`; };
+
+  window.HomeswiftCommon = {
+    $, el, icon, tile, fact, markdown, sparkle, api, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, sections, tabBar, setPaused, slug, withSlugs,
+    assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature,
+  };
 })();

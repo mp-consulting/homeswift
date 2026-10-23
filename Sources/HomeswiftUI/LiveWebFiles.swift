@@ -9,7 +9,7 @@ final class LiveWebFiles: Sendable {
     let root: URL
     static let types = [
         "html": "text/html; charset=utf-8", "js": "text/javascript; charset=utf-8", "css": "text/css; charset=utf-8",
-        "svg": "image/svg+xml", "json": "application/json",
+        "svg": "image/svg+xml", "json": "application/json", "webmanifest": "application/manifest+json", "png": "image/png",
     ]
 
     init(root: URL) {
@@ -31,8 +31,10 @@ final class LiveWebFiles: Sendable {
         if let platform, platform.contains("/") || platform.hasPrefix(".") { return nil }
         let url = directory(platform: platform).appendingPathComponent(name)
         do {
+            let type = Self.types[url.pathExtension] ?? "application/octet-stream"
+            if url.pathExtension == "png" { return WebFile(contentType: type, base64: try Data(contentsOf: url).base64EncodedString()) }
             let text = try String(contentsOf: url, encoding: .utf8)
-            return WebFile(contentType: Self.types[url.pathExtension] ?? "application/octet-stream", body: text)
+            return WebFile(contentType: type, body: text)
         } catch {
             if FileManager.default.fileExists(atPath: url.path) { unreadable(url, error) }
             return nil

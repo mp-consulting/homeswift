@@ -71,9 +71,9 @@ with `Authorization: Bearer <token>`.
 
 | Scope | Tools |
 |---|---|
-| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info` |
+| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `get_assistant_usage`, `get_daily_digest` |
 | `control` | Plus `set_accessory`, `set_accessories` (with `dryRun`), `set_security_accessory`, `identify_accessory` |
-| `admin` | Plus `update_config`, `patch_config`, `restore_config`, `put_list_entry`, `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings` |
+| `admin` | Plus `update_config`, `patch_config`, `restore_config`, `put_list_entry`, `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `truncate_logs`, `test_assistant_connection` |
 
 A token sees only the tools its scope allows. Locks, garage doors and alarms (Lock Target State, Target
 Door State, Security System Target State, Lock Control Point) change only through `set_security_accessory`;
@@ -119,6 +119,14 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   whether it is paired and with how many controllers. It never gives the setup code or the setup URI (which
   encodes the code): the user reads them where homeswift prints them, or in the web UI. `reset_pairings`
   forgets every controller of one of them (the main bridge by default); the Home app must add it again.
+- **The Assistant.** The bridge's own Assistant (its HomeswiftAiKit block): `get_assistant_usage` gives its
+  requests, tokens and cost today, this month and in total, by model and by user, and the budgets;
+  `test_assistant_connection` sends a one-word request with the saved block (it counts as one);
+  `get_daily_digest` answers the day's digest, written once a day and kept in `ai-digest.json` (the web UI's
+  Status page shows the same), `refresh` writing it again for a control or admin token. The digest is text
+  the model wrote from log lines and device names, so it comes as `<untrusted-data>`.
+- **Emptying the log.** `truncate_logs` removes the lines in memory and the files under `logs/`, then logs who
+  did it; it asks first.
 - **The machine.** `get_system_info` adds the load average (`cpuLoadPercent` is the last minute's over the
   CPUs), this process's CPU and memory from the Status page's samples, and each interface's bytes and
   throughput, since the previous call or over a second.
@@ -130,7 +138,7 @@ theirs carries `structuredContent`; a client on an older protocol version gets t
 
 `set_security_accessory`, `update_config`, `patch_config`, `restore_config`, `put_list_entry`,
 `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `remove_cached_accessory`,
-`reset_cached_accessories` and `reset_pairings` ask the user before running, as do plugin actions marked
+`reset_cached_accessories`, `reset_pairings` and `truncate_logs` ask the user before running, as do plugin actions marked
 to confirm. When the client supports MCP elicitation, the server asks
 through it. A tool with a dry run is run as one first: the question lists what would change, each setting
 with its new value, and carries the dry run's answer in `_meta` (`homeswift/preview`) for a client that

@@ -1,40 +1,105 @@
 import Foundation
+import Homeswift
 import HomeswiftAI
 import HomeswiftMCP
 import HomeswiftPlugin
 import Logging
 import NIOConcurrencyHelpers
 
-/// The web UI's chat with the Assistant: a conversation per signed-in user, kept while the process runs.
+/// The web UI's chat with the Assistant: a conversation per signed-in user, and the user's earlier ones, kept
+/// in `ui-chats.json` (owner-only) when the server has a directory, so a reload, another browser or a restart
+/// finds them; **New chat** files the conversation away, and one can be opened again (Glass UI's chat history).
 /// The Assistant acts through the MCP server's tools (`ChatToolbox`), so a change asks the user first, on
 /// the page, and lands in the MCP audit log.
 final class AssistantChat: Sendable {
     let server: MCPServer
+    let store: ChatStore?
     private let conversations = NIOLockedValueBox<[String: Task<ChatConversation, Never>]>([:])
 
-    init(catalog: HomeswiftCatalog, logger: Logger) {
+    init(catalog: HomeswiftCatalog, storeURL: URL? = nil, logger: Logger) {
         var options = MCPServer.Options(version: PluginHost.version, instructions: HomeswiftCatalog.instructions)
         options.logger = logger
         let mcp = (try? catalog.host.configuration.block(for: AIConfiguration.platform)).flatMap { try? MCPConfiguration(block: $0) } ?? MCPConfiguration()
         server = MCPServer(options: options, tools: catalog.tools, audit: mcp.makeAuditLog(configDirectory: catalog.configURL.deletingLastPathComponent(), logger: logger))
+        store = storeURL.map { ChatStore(url: $0, logger: logger) }
     }
 
-    /// The user's conversation, started on first use.
+    /// The user's conversation: the one in memory, else the one they had open last, else a new one.
     func conversation(for user: String) async -> ChatConversation {
         let task = conversations.withLockedValue { conversations in
             if let task = conversations[user] { return task }
-            let server = server
-            let task = Task { ChatConversation(toolbox: await ChatToolbox(server: server, user: user)) }
+            let (server, store) = (server, store)
+            let task = Task {
+                ChatConversation(toolbox: await ChatToolbox(server: server, user: user), record: store?.chats(of: user).current) { conversation in
+                    // Kept after every answer.
+                    store?.update(user) { $0.current = conversation.record.isEmpty ? nil : conversation.record }
+                }
+            }
             conversations[user] = task
             return task
         }
         return await task.value
     }
 
-    /// Ends the user's conversation: a run stops, and the next message starts afresh.
+    /// Ends the user's conversation: a run stops, the conversation joins the earlier ones, and the next message
+    /// starts afresh.
     func reset(user: String) async {
-        guard let task = conversations.withLockedValue({ $0.removeValue(forKey: user) }) else { return }
-        await task.value.close()
+        let record = await closeCurrent(of: user)
+        store?.update(user) { chats in
+            chats.file(record ?? chats.current)
+            chats.current = nil
+        }
+    }
+
+    /// Opens an earlier conversation: the current one joins the earlier ones. False when there is no such one.
+    func open(user: String, id: String) async -> Bool {
+        guard let store, store.chats(of: user).recent.contains(where: { $0.id == id }) else { return false }
+        let record = await closeCurrent(of: user)
+        store.update(user) { chats in
+            chats.file(record ?? chats.current)
+            chats.current = chats.recent.first { $0.id == id }
+            chats.recent.removeAll { $0.id == id }
+        }
+        return true
+    }
+
+    /// Forgets a conversation, the current one included. False when there is no such one.
+    func remove(user: String, id: String) async -> Bool {
+        guard let store else { return false }
+        let current = store.chats(of: user).current?.id
+        let inMemory = await conversations.withLockedValue({ $0[user] })?.value.id
+        if id == inMemory || id == current {
+            _ = await closeCurrent(of: user)
+            store.update(user) { $0.current = nil }
+            return true
+        }
+        var found = false
+        store.update(user) { chats in
+            found = chats.recent.contains { $0.id == id }
+            chats.recent.removeAll { $0.id == id }
+        }
+        return found
+    }
+
+    /// The user's conversations, the open one first, then the earlier ones, newest first: `id`, `title`,
+    /// `updated`, `messages`, `current`.
+    func list(user: String) async -> JSONValue {
+        let open = await conversations.withLockedValue({ $0[user] })?.value.record
+        let chats = store?.chats(of: user) ?? ChatStore.UserChats()
+        let current = open ?? chats.current
+        let entries = ([current].compactMap { $0 }.filter { !$0.isEmpty }.map { ($0, true) }) + chats.recent.filter { $0.id != current?.id }.map { ($0, false) }
+        return .array(entries.map { record, isCurrent in
+            ["id": .string(record.id), "title": .string(record.title), "updated": .string(Timestamp.iso8601(record.updated)),
+             "messages": .number(Double(record.items.filter { $0["kind"] == "user" }.count)), "current": .bool(isCurrent)]
+        })
+    }
+
+    /// Stops and forgets the conversation in memory; answers it as it stood.
+    private func closeCurrent(of user: String) async -> ChatRecord? {
+        guard let task = conversations.withLockedValue({ $0.removeValue(forKey: user) }) else { return nil }
+        let conversation = await task.value
+        await conversation.close()
+        return conversation.record
     }
 
     func close() async {
@@ -62,6 +127,7 @@ final class ChatConversation: Sendable {
         var listeners: [UUID: AsyncStream<Data>.Continuation] = [:]
         var tools: [AgentTool] = []
         var usage: UsageTracker.Summary?
+        var updated = Date()
 
         /// An item as the page shows it: the open answer with its text so far.
         func item(at index: Int) -> JSONValue {
@@ -78,17 +144,46 @@ final class ChatConversation: Sendable {
     }
 
     let toolbox: ChatToolbox
+    let id: String
+    let created: Date
     private let usage = UsageTracker()
     private let state = NIOLockedValueBox(State())
+    private let onFinish: (@Sendable (ChatConversation) -> Void)?
 
-    init(toolbox: ChatToolbox) {
+    /// `record`, an earlier conversation to go on with; `onFinish` runs after each answer (to keep it).
+    init(toolbox: ChatToolbox, record: ChatRecord? = nil, onFinish: (@Sendable (ChatConversation) -> Void)? = nil) {
         self.toolbox = toolbox
+        self.onFinish = onFinish
+        id = record?.id ?? UUID().uuidString
+        created = record?.created ?? Date()
+        if let record {
+            state.withLockedValue { state in
+                state.messages = record.messages
+                state.items = record.items
+                state.updated = record.updated
+            }
+        }
         // Built once: the tools and the user's scope do not change while the conversation lasts.
         let tools = toolbox.agentTools { [weak self] confirmation in await self?.ask(confirmation) ?? false }
         state.withLockedValue { $0.tools = tools }
     }
 
     var snapshot: JSONValue { state.withLockedValue(\.snapshot) }
+
+    /// The conversation as kept: what the model saw and what the page shows, a running step as failed and a
+    /// pending question as declined (nothing waits for them once it is filed).
+    var record: ChatRecord {
+        state.withLockedValue { state in
+            let items = state.items.indices.map { index -> JSONValue in
+                let item = state.item(at: index)
+                guard var object = item.objectValue else { return item }
+                if object["kind"] == "tool", object["state"] == "running" { object["state"] = "failed" }
+                if object["kind"] == "confirm", object["state"] == "pending" { object["state"] = "declined" }
+                return .object(object)
+            }
+            return ChatRecord(id: id, created: created, updated: state.updated, messages: state.messages, items: items)
+        }
+    }
 
     /// The conversation's events from now on, after a snapshot; ends with the run (at once when none runs).
     func subscribe() -> AsyncStream<Data> {
@@ -112,6 +207,7 @@ final class ChatConversation: Sendable {
             guard state.run == nil else { return false }
             state.messages.append(.user(text))
             state.items.append(["kind": "user", "text": .string(text)])
+            state.updated = Date()
             // The task waits for this lock before it touches the state, so it cannot finish before it is stored.
             state.run = Task { [self] in
                 await run(page: page, user: user, assistant: assistant, logger: logger)
@@ -295,6 +391,97 @@ final class ChatConversation: Sendable {
         for listener in listeners {
             listener.yield(frame)
             listener.finish()
+        }
+        onFinish?(self)
+    }
+}
+
+/// A conversation as `ui-chats.json` keeps it.
+struct ChatRecord: Sendable {
+    var id: String
+    var created: Date
+    var updated: Date
+    /// What the model saw, for going on with it.
+    var messages: [ChatMessage]
+    /// What the page shows.
+    var items: [JSONValue]
+
+    var isEmpty: Bool { items.isEmpty }
+
+    /// Its first question, on one line.
+    var title: String {
+        let first = items.first { $0["kind"] == "user" }?["text"]?.stringValue ?? "New chat"
+        let line = first.split(separator: "\n").first.map(String.init) ?? first
+        return line.count > 60 ? String(line.prefix(59)) + "…" : line
+    }
+
+    /// The latest messages that fit 100K tokens, and the last 200 items: a long conversation stays a small file.
+    var json: JSONValue {
+        let kept = ChatConversation.fitting(messages, budget: 100_000)
+        let encoded = (try? JSONEncoder().encode(kept)).flatMap { try? JSONValue(data: $0) } ?? .array([])
+        return [
+            "id": .string(id), "created": .string(Timestamp.iso8601(created)), "updated": .string(Timestamp.iso8601(updated)),
+            "messages": encoded, "items": .array(Array(items.suffix(200))),
+        ]
+    }
+
+    init(id: String, created: Date, updated: Date, messages: [ChatMessage], items: [JSONValue]) {
+        self.id = id
+        self.created = created
+        self.updated = updated
+        self.messages = messages
+        self.items = items
+    }
+
+    init?(json: JSONValue) {
+        guard let id = json["id"]?.stringValue, let items = json["items"]?.arrayValue else { return nil }
+        let date = { (key: String) in json[key]?.stringValue.flatMap(UIServer.date(iso:)) ?? Date() }
+        let messages = (try? json["messages"].map { try JSONDecoder().decode([ChatMessage].self, from: $0.encoded()) }) ?? nil
+        self.init(id: id, created: date("created"), updated: date("updated"), messages: messages ?? [], items: items)
+    }
+}
+
+/// Each user's conversations: the open one and the 10 before it, newest first.
+final class ChatStore: Sendable {
+    struct UserChats: Sendable {
+        var current: ChatRecord?
+        var recent: [ChatRecord] = []
+
+        /// Puts a conversation first among the earlier ones (an empty one is dropped).
+        mutating func file(_ record: ChatRecord?) {
+            guard let record, !record.isEmpty else { return }
+            recent = Array(([record] + recent.filter { $0.id != record.id }).prefix(ChatStore.keptConversations))
+        }
+    }
+
+    static let keptConversations = 10
+    let url: URL
+    let logger: Logger
+    private let state: NIOLockedValueBox<[String: UserChats]>
+
+    init(url: URL, logger: Logger) {
+        self.url = url
+        self.logger = logger
+        let root = (try? Data(contentsOf: url)).flatMap { try? JSONValue(data: $0) }?.objectValue ?? [:]
+        state = NIOLockedValueBox(root.mapValues { user in
+            UserChats(current: user["current"].flatMap(ChatRecord.init(json:)), recent: (user["recent"]?.arrayValue ?? []).compactMap(ChatRecord.init(json:)))
+        })
+    }
+
+    func chats(of user: String) -> UserChats { state.withLockedValue { $0[user] ?? UserChats() } }
+
+    func update(_ user: String, _ change: (inout UserChats) -> Void) {
+        let snapshot = state.withLockedValue { all -> [String: UserChats] in
+            change(&all[user, default: UserChats()])
+            return all
+        }
+        let json = JSONValue.object(snapshot.mapValues { chats in
+            ["current": chats.current?.json ?? .null, "recent": .array(chats.recent.map(\.json))]
+        })
+        do {
+            try OwnerOnlyFile.write(json.encoded(), to: url)
+        } catch {
+            logger.warning("Could not keep the Assistant's conversations", metadata: ["error": "\(error)"])
         }
     }
 }

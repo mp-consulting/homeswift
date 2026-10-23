@@ -46,12 +46,23 @@ case "web":
     let directory = arguments[arguments.startIndex + 1]
     let outputPath = arguments[arguments.startIndex + 2]
     let pluginType = arguments.count == 4 ? arguments[arguments.startIndex + 3] : nil
-    let types = ["html": "text/html; charset=utf-8", "js": "text/javascript; charset=utf-8", "css": "text/css; charset=utf-8", "svg": "image/svg+xml", "json": "application/json"]
+    let types = [
+        "html": "text/html; charset=utf-8", "js": "text/javascript; charset=utf-8", "css": "text/css; charset=utf-8", "svg": "image/svg+xml", "json": "application/json",
+        "webmanifest": "application/manifest+json", "png": "image/png",
+    ]
+    // Images other than SVG are bytes: embedded in base64.
+    let binary: Set<String> = ["png"]
     let names = try FileManager.default.contentsOfDirectory(atPath: directory).filter { !$0.hasPrefix(".") }.sorted()
     var entries: [String] = []
     for name in names {
+        let ext = (name as NSString).pathExtension
+        let type = types[ext] ?? "application/octet-stream"
+        if binary.contains(ext) {
+            let bytes = try Data(contentsOf: URL(fileURLWithPath: "\(directory)/\(name)"))
+            entries.append("        \"\(name)\": WebFile(contentType: \"\(type)\", base64: \"\(bytes.base64EncodedString())\"),")
+            continue
+        }
         let content = try String(contentsOfFile: "\(directory)/\(name)", encoding: .utf8)
-        let type = types[(name as NSString).pathExtension] ?? "application/octet-stream"
         entries.append("        \"\(name)\": WebFile(contentType: \"\(type)\", body: \(literal(content))),")
     }
     // The UI's own assets are an enum; a plugin's are its `webFiles`. Both are the same type, served the same way.

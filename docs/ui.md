@@ -34,7 +34,11 @@ with a new code).
   range that ends now refreshes every minute; a gap is a time homeswift was not running; **Show as a table**
   lists the values. The bridge samples memory and CPU every 10 seconds and keeps a record per minute under
   `metrics/` next to config.json (a file per day, 8 days), so the charts survive a restart. The view is
-  `/status?since=24h&bridge=<bridge>&accessory=<accessory>`.
+  `/status?since=24h&bridge=<bridge>&accessory=<accessory>`. With the Assistant on, a **Daily digest** says
+  what needs attention today, from the day's warnings and errors and the accessories: **Write today's
+  digest** streams it, the bridge keeps it for the day (`ai-digest.json`, owner-only), and the card's **⋯**
+  writes it again. **Customise this page**, at the bottom, shows or hides each part (overview, digest,
+  activity, bridges, system) and orders them; the layout is each user's own, on every browser.
 - **Accessories**: every accessory with its services, a section per plugin. Switches for on/off, sliders for brightness, colour
   temperature and the like, menus for lock, door and alarm targets, text for everything else. Values
   update live when a device changes elsewhere. Locks, garage doors and alarms can be operated here, as in
@@ -51,7 +55,7 @@ with a new code).
   has four live viewers at most, and one turned off in the Home app, or whose plugin is paused, shows nothing.
   Plugin pages can show the same view: load `/camera.js` and call `HomeswiftCamera.view({ id, name })`.
 - **Addresses** are paths: `/status`, `/accessories`, `/plugins`, `/plugins/<slug>` and its `/expert`,
-  `/plugins/add/<platform>`, `/config`, `/account`, and `/logs/<accessory>?bridge=<bridge or all>&since=24h&level=warning&q=text`
+  `/plugins/add/<platform>`, `/config`, `/account`, `/appearance`, and `/logs/<accessory>?bridge=<bridge or all>&since=24h&level=warning&q=text`
   (the accessory by its name's slug; `since` is `1h`, `6h`, `24h`, `today`, `yesterday`, `7d` or `custom` with
   `from` and `to`). A link changes the view in place, Back and Forward work, and an address can be kept or
   shared; the Logs view writes its choices into its own.
@@ -87,7 +91,19 @@ with a new code).
   yesterday, the last 7 days, or a custom range. The bridge keeps its log on disk for that, under `logs/`
   next to config.json: segments of 8 MB at most, a new one each day, the oldest removed past 64 MB or 7
   days, written in batches once a second so logging never waits for the disk. **Copy** puts the lines shown
-  on the clipboard as text.
+  on the clipboard as text. **Diagnose** (Log Doctor, with the Assistant on) sends the lines shown, the latest
+  3,000, to the Assistant, which groups the issues with their causes and fixes as it writes; secrets and
+  addresses are masked first. The **⋯** menu downloads the range shown, or the whole log for the latest lines,
+  as a text file, and **Empty the log** removes every line, in memory and on disk, after asking (the MCP
+  server's `truncate_logs`, admin-only, does the same).
+- **Appearance** (`/appearance`, from Account): the theme (automatic, light or dark), a wallpaper behind the
+  glass (one of the UI's or an image of your own, scaled down and kept under `ui-wallpapers/`) and whether
+  temperatures show in °C or °F, on accessory cards and plugin pages. Each user's own, kept in
+  `ui-preferences.json` (owner-only) and applied on every browser they sign in to; a browser remembers the
+  last ones it saw so a page opens in them at once.
+- **The Assistant's settings**: the HomeswiftAiKit block's page has, above its form, **Test connection**
+  (a one-word request with the form's settings, saved or not), what the Assistant used today and this month
+  against its budgets, by model and by user, and **Edit the budgets**, saved with the block.
 
 ## The Assistant's chat
 
@@ -108,8 +124,11 @@ included (find TVs, pair one, check a light's address; `docs/plugins.md`).
   read out, in the language chosen under the field (the browser's, unless you pick one; each browser keeps
   its choice). Browsers allow the microphone only on `localhost` or over HTTPS: turn on `https` below to use
   it from a phone or another computer. Safari sends the audio to Apple and Chrome to Google for recognition.
-- The conversation stays while the process runs, one per user; **New chat** starts afresh. Each answer's
-  cost shows under the field for priced models.
+- **Conversations are kept**, per user, in `ui-chats.json` (owner-only): the open one, which a reload, another
+  browser or a restart finds, and the ten before it. **New chat** files the open one away; **Earlier chats**
+  (the clock) lists them and opens one again where it was, the Assistant remembering it, or forgets one. Each
+  answer's cost shows under the field for priced models.
+- **Cmd+K** (Ctrl+K elsewhere) opens and closes the chat from any page.
 
 On a wide window the chat is a panel beside the page; on a phone a sheet you drag down to close.
 
@@ -125,8 +144,10 @@ Logins survive a restart: sessions are kept in `ui-sessions.json` next to config
 
 - Every API call needs the session cookie (`HttpOnly`, `SameSite=Strict`). Mutations must be JSON and come
   from the page: a request whose `Origin` names another site, or whose `Sec-Fetch-Site` is not the page's
-  own, is refused. Pages carry a content security policy (scripts, styles and media from the UI itself; `blob:`
-  for the camera cards' Media Source), no-store, no framing.
+  own, is refused. Pages carry a content security policy (scripts, styles, media and the web app manifest from
+  the UI itself; `blob:` for the camera cards' Media Source), no-store, no framing.
+- The Assistant's requests from pages are limited to 20 a minute per user (Glass UI's limit, then 429 with
+  `Retry-After`), stop at the HomeswiftAiKit block's budget, and count in its usage for the signed-in user.
 - The first account needs the set-up code, so nobody else on the network can claim the bridge before its
   owner does. The code is printed at startup, never logged: the MCP log tools cannot see it.
 - Passwords are hashed with PBKDF2-HMAC-SHA256 (210,000 iterations, a random salt), and verified in
@@ -145,6 +166,13 @@ Logins survive a restart: sessions are kept in `ui-sessions.json` next to config
   `auth: none`, set `host` to `127.0.0.1`.
 - The account is an administrator: the Config page shows config.json as it is, secrets included, the way
   Config UI X does. The MCP server's redaction rules are for models, not for the person who owns the file.
+
+## On a phone's home screen
+
+The UI is an installable web app: `manifest.webmanifest` (standalone, starting on Status), PNG icons (192, 512
+and a maskable 512) and an `apple-touch-icon.png`, all served without a session like the other static files.
+In Safari, Share › Add to Home Screen; in Chrome, Install app. It opens full screen with the tab bar at the
+bottom. There is no service worker: the bridge must be reachable to use it.
 
 ## For plugin authors
 
@@ -175,6 +203,15 @@ do, `homeswift.tile(icon, tone)` draws an icon on a colour and `homeswift.fact(l
 Mutations must be JSON, like the rest of the API. `homeswift.act(button, work, report)` runs `work` with the button
 disabled and a spinner, and hands an error's message to `report` (`alert` by default); with `report` null the error
 is thrown to the caller instead.
+
+**The Assistant from a page.** `homeswift.assistant()` says whether it is on. `homeswift.explain({ error,
+context, device })` is an Explain button whose answer streams into a card; `homeswift.ask(prompt, { context,
+onChunk, signal })` asks a question and resolves to `{ text, model }`, with `onChunk(text)` for each piece as it
+is written and an `AbortController`'s signal to stop it. Both carry the plugin's `assistantBackground`
+(`POST /api/assistant/explain` and `/ask`; with a `requestId` in the body the answer comes as server-sent
+events, `start`, `chunk`, then `done` or `error`, and `POST /api/assistant/cancel` with that `requestId` stops
+it, homebridge-ai-kit's `/ai/*` routes and `ai:chunk` events). `homeswift.formatTemperature(celsius)` shows a
+temperature in the user's unit (`homeswift.temperature(celsius)` gives `{ value, unit }`).
 
 The instance's own block of config.json is `homeswift.readBlock()` and `homeswift.updateBlock(change)`
 (`GET`/`PUT /api/config/block/<platform>/<name>`): a write applies at once, and the plugin reloads. For a

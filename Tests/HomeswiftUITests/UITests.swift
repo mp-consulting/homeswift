@@ -68,14 +68,16 @@ final class UITestEnvironment: @unchecked Sendable {
     let server: UIServer
     var configURL: URL { directory.appendingPathComponent("config.json") }
 
-    init(auth: UIConfiguration.AuthMode = .form, webRoot: URL? = nil, https: Bool = false, metrics: Metrics? = nil) throws {
+    /// `assistant`: a HomeswiftAiKit block whose provider answers through this transport.
+    init(auth: UIConfiguration.AuthMode = .form, webRoot: URL? = nil, https: Bool = false, metrics: Metrics? = nil, assistant: (any HTTPTransport)? = nil) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let ai = assistant == nil ? "" : #",{ "platform": "HomeswiftAiKit", "provider": "openai-compatible", "model": "llama3.1", "baseUrl": "http://127.0.0.1:9/v1", "maxRetries": 0 }"#
         let config = """
             {
               "bridge": { "name": "UI Bridge", "username": "0E:11:22:33:44:66", "pin": "031-45-154", "port": 0 },
               "platforms": [
                 { "platform": "Lamps", "name": "Lamps" },
-                { "platform": "HomeswiftUI", "port": 0 }
+                { "platform": "HomeswiftUI", "port": 0 }\(ai)
               ]
             }
             """
@@ -86,6 +88,7 @@ final class UITestEnvironment: @unchecked Sendable {
         registry.register(ElgatoKeyLightsPlugin.self)
         var options = PluginHost.Options(advertise: false, logger: testLogger) { _ in MemoryStorage() }
         options.systemPlatforms.insert(UIConfiguration.platform)
+        options.aiTransport = assistant
         host = try PluginHost(configuration: try HomeswiftConfiguration.decode(Data(config.utf8)), registry: registry, storageDirectory: directory, options: options)
         let restarts = self.restarts
         let catalog = HomeswiftCatalog(
@@ -351,8 +354,8 @@ final class Browser: @unchecked Sendable {
     static func expectCurrent(_ files: [String: WebFile], from directory: String, command: String) throws {
         let web = root.appendingPathComponent(directory)
         for name in try FileManager.default.contentsOfDirectory(atPath: web.path) where !name.hasPrefix(".") {
-            let file = try String(contentsOf: web.appendingPathComponent(name), encoding: .utf8)
-            #expect(files[name]?.body == file, "run: swift Scripts/embed-assets.swift \(command) (\(name))")
+            let file = try Data(contentsOf: web.appendingPathComponent(name))
+            #expect(files[name]?.data == file, "run: swift Scripts/embed-assets.swift \(command) (\(name))")
         }
         #expect(files["index.html"]?.contentType == "text/html; charset=utf-8")
     }

@@ -182,7 +182,7 @@ extension DolphinPoolCleanerPlugin {
     if (live.robot) {
       facts.push(fact("Filter", live.robot.filterStatus === "needs_cleaning" ? "Needs cleaning" : "OK"));
       if (live.robot.isCleaning && live.robot.cycleTimeRemaining > 0) facts.push(fact("Time left", formatDuration(live.robot.cycleTimeRemaining)));
-      if (typeof live.robot.temperature === "number") facts.push(fact("Water", `${live.robot.temperature} °C`));
+      if (typeof live.robot.temperature === "number") facts.push(fact("Water", homeswift.formatTemperature(live.robot.temperature)));
     }
     const card = el("div", { class: "card robot", role: "button", tabIndex: 0, "aria-label": `Edit ${device.name || "Dolphin Robot"}` },
       picture(device.serialNumber, el("span", { class: `pill status ${live.kind}`, text: live.text })),
