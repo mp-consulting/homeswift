@@ -14,7 +14,15 @@ import Glibc
 /// Advertises `_hap._tcp` with the HAP TXT record through dns_sd (built in on macOS, Avahi's
 /// compatibility library on Linux).
 final class BonjourAdvertiser: @unchecked Sendable {
-    enum AdvertiserError: Error { case registration(Int32) }
+    enum AdvertiserError: Error, CustomStringConvertible {
+        case registration(Int32)
+
+        var description: String {
+            switch self {
+            case .registration(let code): "dns_sd registration failed with error \(code)"
+            }
+        }
+    }
 
     private struct Registration {
         var ref: DNSServiceRef

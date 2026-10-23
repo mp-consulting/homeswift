@@ -1,0 +1,19 @@
+{
+    "systemd-user-unit": {},
+    "data-share": {
+        "shares": [
+            {
+                "name": "homeswift",
+                "permission": {
+                    "rw": ["homeswift"]
+                }
+            }
+        ]
+    },
+    "usr-local-linker": {
+        "bin": ["app/homeswift"]
+    },
+    "port-config": {
+        "protocol-file": "app/homeswift.sc"
+    }
+}

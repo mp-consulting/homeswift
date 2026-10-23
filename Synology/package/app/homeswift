@@ -1,0 +1,32 @@
+#!/bin/sh
+# The homeswift command over SSH (linked into /usr/local/bin): the bridge's binary as the package's user, on
+# the package's data, and the package's own start, stop, restart and status.
+#
+#   sudo homeswift logs -f
+#   sudo homeswift users password admin
+#   sudo homeswift restart
+
+. /var/packages/homeswift/target/app/environment.sh
+
+case "$1" in
+    start | stop | restart | status)
+        if [ "$(id -u)" -ne 0 ]; then
+            echo "homeswift $1 needs root: sudo homeswift $1" >&2
+            exit 1
+        fi
+        exec synopkg "$1" homeswift
+        ;;
+esac
+
+if [ "$(id -un)" = homeswift ]; then
+    exec "$HOMESWIFT_BINARY" -U "$HOMESWIFT_DATA" "$@"
+elif [ "$(id -u)" -eq 0 ]; then
+    # The bridge's user, so files it writes stay the bridge's.
+    cd "$HOMESWIFT_DATA" || exit 1
+    exec sudo -u homeswift env HOME=/var/packages/homeswift/home PATH="$PATH" \
+        DBUS_SYSTEM_BUS_ADDRESS="$DBUS_SYSTEM_BUS_ADDRESS" AVAHI_COMPAT_NOWARN=1 \
+        "$HOMESWIFT_BINARY" -U "$HOMESWIFT_DATA" "$@"
+else
+    echo "homeswift reads the bridge's files, which are its own: sudo homeswift $*" >&2
+    exit 1
+fi

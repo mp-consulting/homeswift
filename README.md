@@ -160,6 +160,13 @@ over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (t
 | [UniFi Access](Plugins/UniFiAccess) | `UniFi Access` | UniFi Access hubs and readers: door locks, doorbells, sensors, followed through the controller's events |
 | [UniFi Protect](Plugins/UniFiProtect) | `UniFi Protect` | UniFi Protect cameras and doorbells (live video, HomeKit Secure Video), sensors, lights, chimes |
 
+### On a Synology NAS
+
+The **Synology package** runs the bridge without Docker, on DSM 7.0 or later and on models without Container
+Manager: download `homeswift-<arch>-<version>.spk` from the release and install it in Package Center with
+**Manual Install** ([docs/synology.md](docs/synology.md#the-package)). The install wizard creates the web UI's
+account; over SSH, `sudo homeswift` runs the bridge's commands on the package's data.
+
 ## The Assistant
 
 Add a `HomeswiftAiKit` block and the bridge gets an AI assistant: it explains device errors, diagnoses

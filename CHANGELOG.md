@@ -149,6 +149,22 @@ All notable changes to this project are documented here. The format follows
   `details: true`; `search_logs` looks inside payloads and, with `hours`, back through the log on disk.
 - **`HAPServer.observeTimings`** and **`PluginHost.observeTimings`**: how long each controller request to
   `/characteristics` and each accessory read or write handler took, with the accessories it was about.
+- **A Synology package** (`homeswift-<arch>-<version>.spk`, x86_64 and aarch64, DSM 7.0 or later), Homeswift's
+  homebridge-syno-spk: no Docker, a `homeswift` shared folder for the data, the bridge as a systemd unit of
+  the package's own user, Homeswift in DSM's main menu, firewall entries for its ports. The install wizard
+  creates the web UI's administrator account (a weak password is refused before anything is installed) in
+  place of a default login. Over SSH, `sudo homeswift` runs any command on the package's data and adds
+  `start`, `stop`, `restart` and `status`. `Synology/build.sh` builds it with Docker, without Synology's
+  toolchain: the binary comes from Amazon Linux 2, whose glibc is DSM 7.0's; `.github/workflows/synology.yml`
+  attaches both packages to each release.
+- **A built-in mDNS responder**, HAP-NodeJS's ciao in Swift: probing, conflict renaming (`Homeswift (2)`),
+  announcements, known-answer suppression, legacy unicast answers and goodbyes, on each IPv4 interface with
+  its own addresses, under a host name of its own. The bridge falls back to it when dns_sd fails (Avahi not
+  running or out of reach, as on a NAS), and uses it with `"advertiser": "ciao"` in the bridge block;
+  `"bind"` keeps it to some interfaces, as in Homebridge.
+- **`homeswift users`** lists the web UI's accounts, adds one and sets a forgotten password, reading
+  passwords from standard input; **`homeswift logs [-n <lines>] [-f]`** prints the log on disk in the
+  console's format and follows it.
 
 ### Changed
 

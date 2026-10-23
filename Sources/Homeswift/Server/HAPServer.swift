@@ -18,6 +18,15 @@ import NIOPosix
 /// ```
 public final class HAPServer: @unchecked Sendable {
     public struct Options: Sendable {
+        /// How the server is advertised over Bonjour.
+        public enum Advertiser: String, Sendable {
+            /// The system's dns_sd (mDNSResponder on macOS, Avahi on Linux), or the built-in responder when it
+            /// is unavailable.
+            case system
+            /// The built-in mDNS responder (`MDNSResponder`), HAP-NodeJS's ciao.
+            case builtIn
+        }
+
         /// Overrides the stored setup code. Defaults to the stored one, or a random code on first launch.
         public var setupCode: SetupCode?
         /// Overrides the stored device ID, six hex octets such as `0E:1A:2B:3C:4D:5E` (Homebridge's
@@ -28,6 +37,10 @@ public final class HAPServer: @unchecked Sendable {
         public var port: Int?
         /// Advertise over Bonjour. Turn off for tests.
         public var advertise: Bool
+        public var advertiser: Advertiser = .system
+        /// Interface names or IPv4 addresses the built-in responder advertises on (Homebridge's `bind`); empty
+        /// for every interface.
+        public var interfaces: [String] = []
         public var logger: Logger
 
         public init(
@@ -78,6 +91,9 @@ public final class HAPServer: @unchecked Sendable {
     let state: NIOLockedValueBox<State>
     let signingKey: Curve25519.Signing.PrivateKey
     let advertiser = BonjourAdvertiser()
+    let builtInAdvertiser: MDNSAdvertiser
+    /// Whether the built-in responder advertises the server rather than dns_sd.
+    let usesBuiltInAdvertiser = NIOLockedValueBox(false)
 
     /// A bridge exposing several accessories. The bridge gets aid 1.
     public convenience init(bridge: Accessory, accessories: [Accessory], storage: any HAPStorage, options: Options = Options()) throws {
@@ -95,6 +111,7 @@ public final class HAPServer: @unchecked Sendable {
         self.options = options
         self.storage = storage
         logger = options.logger
+        builtInAdvertiser = MDNSAdvertiser(interfaces: options.interfaces, logger: options.logger)
 
         var persisted: PersistedState
         if let data = try storage.load() {
@@ -273,13 +290,30 @@ public final class HAPServer: @unchecked Sendable {
         logger.info("HAP server listening", metadata: ["port": "\(port)", "paired": "\(isPaired)"])
 
         if options.advertise {
-            try advertiser.start(name: primary.name, port: port, txt: txtRecord())
+            startAdvertising(port: port)
         }
+    }
+
+    private func startAdvertising(port: Int) {
+        if options.advertiser == .system {
+            do {
+                try advertiser.start(name: primary.name, port: port, txt: txtRecord())
+                return
+            } catch {
+                // Avahi not running, or out of reach (a Synology package, a container): HomeKit must still find
+                // the bridge.
+                logger.warning("Bonjour unavailable (\(error)); advertising with the built-in mDNS responder")
+            }
+        }
+        usesBuiltInAdvertiser.withLockedValue { $0 = true }
+        builtInAdvertiser.start(name: primary.name, port: port, txt: txtRecord())
     }
 
     /// Stops advertising, disconnects controllers and closes the socket.
     public func stop() async {
         advertiser.stop()
+        await builtInAdvertiser.stop()
+        usesBuiltInAdvertiser.withLockedValue { $0 = false }
         let (channel, connections) = state.withLockedValue { ($0.serverChannel, Array($0.connections.values)) }
         connections.forEach { $0.close() }
         try? await channel?.close()
@@ -427,7 +461,11 @@ public final class HAPServer: @unchecked Sendable {
 
     func updateAdvertisement() {
         guard options.advertise else { return }
-        advertiser.update(txt: txtRecord())
+        if usesBuiltInAdvertiser.withLockedValue({ $0 }) {
+            builtInAdvertiser.update(txt: txtRecord())
+        } else {
+            advertiser.update(txt: txtRecord())
+        }
     }
 
     // MARK: Connections

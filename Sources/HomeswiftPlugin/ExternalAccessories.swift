@@ -47,6 +47,8 @@ final class ExternalAccessories: @unchecked Sendable {
         var serverLogger = Logger(label: accessory.name)
         serverLogger.logLevel = options.logger.logLevel
         var serverOptions = HAPServer.Options(advertise: options.advertise, logger: serverLogger)
+        serverOptions.advertiser = options.advertiser
+        serverOptions.interfaces = options.interfaces
         serverOptions.setupCode = setupCode()
         let storage = options.makeStorage?(storageName)
             ?? FileStorage(url: storageDirectory.appendingPathComponent("\(storageName).json"))
