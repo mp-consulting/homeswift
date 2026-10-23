@@ -81,7 +81,7 @@ final class FakeCloudServer: HTTPSending, @unchecked Sendable {
         var headers: [(name: String, value: String)] = []
     }
 
-    private let state = NIOLockedValueBox<(routes: [String: Route], requests: [HTTPRequest])>(([:], []))
+    private let state = NIOLockedValueBox<(routes: [String: Route], requests: [HTTPRequest], gates: [String: Gate])>(([:], [], [:]))
 
     init() {
         set("InitiateAuth", Route(body: ["AuthenticationResult": ["IdToken": "id-token", "RefreshToken": "refresh-1", "AccessToken": "access"]]))
@@ -95,6 +95,13 @@ final class FakeCloudServer: HTTPSending, @unchecked Sendable {
 
     /// A Cognito target (`InitiateAuth`) or a backend path.
     func set(_ key: String, _ route: Route) { state.withLockedValue { $0.routes[key] = route } }
+
+    /// Requests to `key` wait until the gate opens.
+    func hold(_ key: String) -> Gate {
+        let gate = Gate()
+        state.withLockedValue { $0.gates[key] = gate }
+        return gate
+    }
 
     /// A Cognito error, as Cognito answers it.
     func cognitoError(_ target: String, type: String, message: String) {
@@ -116,12 +123,42 @@ final class FakeCloudServer: HTTPSending, @unchecked Sendable {
     }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        let route = state.withLockedValue { state -> Route? in
+        let gate = state.withLockedValue { state in
             state.requests.append(request)
-            return state.routes[Self.key(of: request)]
+            return state.gates[Self.key(of: request)]
         }
+        await gate?.wait()
+        let route = state.withLockedValue { $0.routes[Self.key(of: request)] }
         guard let route else { return HTTPResponse(status: 404, body: Data("not found".utf8)) }
         return HTTPResponse(status: route.status, headers: route.headers, body: route.body.encoded())
+    }
+}
+
+/// Holds whoever waits on it until it opens.
+final class Gate: Sendable {
+    private let state = NIOLockedValueBox<(open: Bool, arrivals: Int, waiters: [CheckedContinuation<Void, Never>])>((false, 0, []))
+
+    /// How many waited, or are waiting.
+    var arrivals: Int { state.withLockedValue { $0.arrivals } }
+
+    func wait() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let isOpen = state.withLockedValue { state in
+                state.arrivals += 1
+                if !state.open { state.waiters.append(continuation) }
+                return state.open
+            }
+            if isOpen { continuation.resume() }
+        }
+    }
+
+    func open() {
+        let waiters = state.withLockedValue { state in
+            state.open = true
+            defer { state.waiters.removeAll() }
+            return state.waiters
+        }
+        for waiter in waiters { waiter.resume() }
     }
 }
 
@@ -283,6 +320,7 @@ final class FakeCloud: DolphinCloud, @unchecked Sendable {
         var observers: [UUID: @Sendable (JSONValue) async -> Void] = [:]
         var calls: [String] = []
         var disconnected = false
+        var loginGate: Gate?
     }
 
     private let state = NIOLockedValueBox(State())
@@ -313,8 +351,16 @@ final class FakeCloud: DolphinCloud, @unchecked Sendable {
         for observer in observers { await observer(shadow) }
     }
 
+    /// `login()` waits until the gate opens.
+    func holdLogin() -> Gate {
+        let gate = Gate()
+        state.withLockedValue { $0.loginGate = gate }
+        return gate
+    }
+
     func login() async throws -> LoginResult {
         record("login")
+        await state.withLockedValue({ $0.loginGate })?.wait()
         if let error = state.withLockedValue({ $0.loginError }) { throw error }
         let robot = state.withLockedValue { $0.robots.first }
         return LoginResult(serialNumber: robot?.serialNumber ?? "", robotName: robot?.name ?? "", deviceType: robot?.deviceType ?? 62)

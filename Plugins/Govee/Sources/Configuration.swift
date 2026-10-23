@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftPlugin
 
 extension GoveePlugin {
@@ -48,10 +49,15 @@ extension GoveePlugin {
             return value >= 500 ? .milliseconds(value) : .seconds(value)
         }
 
-        /// A numeric option; values below the minimum (which the log mentions) and junk give the default.
+        /// The largest interval option taken, in its unit (seconds or milliseconds): about 68 years or 24 days,
+        /// so a sleep or `bleRefreshTime * 4500` never overflows.
+        static let maximumInterval = Int(Int32.max)
+
+        /// A numeric option; values below the minimum (which the log mentions) and junk give the default, values
+        /// above `maximumInterval` that maximum.
         func number(_ key: String, minimum: Int, default fallback: Int) -> Int {
             guard let value = Self.integer(raw[key]), value >= minimum else { return fallback }
-            return value
+            return min(value, Self.maximumInterval)
         }
 
         /// The numeric options set below their minimum, for a warning at start.
@@ -96,7 +102,7 @@ extension GoveePlugin {
         /// `parseInt(String(value), 10)`.
         static func integer(_ value: JSONValue?) -> Int? {
             switch value {
-            case .number(let number)?: number.isFinite ? Int(number.rounded(.towardZero)) : nil
+            case .number(let number)?: number.isFinite ? Int(saturating: number) : nil
             case .string(let string)?: Govee.parseInt(string)
             default: nil
             }

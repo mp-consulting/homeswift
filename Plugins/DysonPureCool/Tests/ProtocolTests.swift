@@ -1,4 +1,5 @@
 import Foundation
+import HomeswiftNetwork
 import HomeswiftPlugin
 import Testing
 
@@ -156,6 +157,24 @@ struct MessageCodecTests {
         #expect(MessageCodec.speedToPercent(12) == 100)
     }
 
+    /// Numbers no device or HomeKit write should send still convert without trapping.
+    @Test func outOfRangeNumbers() {
+        #expect(MessageCodec.value(.number(1e300)) == String(1e300))
+        #expect(MessageCodec.value(.number(.infinity)) == String(Double.infinity))
+        #expect(MessageCodec.value(.number(42)) == "42")
+        #expect(MessageCodec.value(.number(2.5)) == "2.5")
+        #expect(parsed(["fnsp": .number(1e300), "filf": .number(1e300), "fltf": .number(-1e300)]).hepaFilterLife == 0)
+        #expect(parsed(["filf": "99999999999999999999"]).hepaFilterLife == nil)
+        #expect(MessageCodec.clampPercent(1e300) == 100)
+        #expect(MessageCodec.clampPercent(-.infinity) == 0)
+        #expect(MessageCodec.clampPercent(.nan) == 0)
+        #expect(MessageCodec.percentToSpeed(.infinity) == 10)
+        #expect(MessageCodec.percentToSpeed(.nan) == 1)
+        #expect(MessageCodec.speedToPercent(.max) == 100)
+        #expect(MessageCodec.encodeTemperature(1e300) == String(Int.max))
+        #expect(MessageCodec.encodeTemperature(.nan) == "0")
+    }
+
     @Test func temperatures() {
         // Kelvin × 10: 2951 is 21.95 °C.
         #expect(MessageCodec.encodeTemperature(21) == "2942")
@@ -244,6 +263,11 @@ struct DiscoveryTests {
         #expect(Discovery.address(of: ["8.8.8.8"]) == nil)
         #expect(!Discovery.isIPv4("192.168.1"))
         #expect(!Discovery.isIPv4("192.168.1.256"))
+        // UInt8("+19") is 19: a sign is not a digit.
+        #expect(!Discovery.isIPv4("+19.168.1.1"))
+        #expect(!Discovery.isIPv4("192.+16.1.1"))
+        #expect(!Discovery.isPrivateIPv4("+10.0.0.1"))
+        #expect(Discovery.isIPv4("192.168.1.1"))
     }
 }
 
@@ -302,6 +326,24 @@ struct CloudTests {
         #expect(cloud.requests.last?.header("Authorization") == "Bearer token-1")
         cloud.expire(token: "token-1")
         await #expect(throws: DysonCloud.Failure(status: 401, message: "Session expired")) { _ = try await api.devices(token: "token-1") }
+    }
+
+    /// A refusal with no body is a refusal, not an empty manifest.
+    @Test func anEmptyRefusal() async throws {
+        struct Refusing: HTTPSending {
+            let status: Int
+            func send(_ request: HomeswiftNetwork.HTTPRequest) async throws -> HomeswiftNetwork.HTTPResponse {
+                HomeswiftNetwork.HTTPResponse(status: status)
+            }
+        }
+        for status in [401, 403] {
+            let api = DysonCloud(transport: Refusing(status: status), logger: testLogger)
+            await #expect(throws: DysonCloud.Failure(status: 401, message: "Session expired")) { _ = try await api.devices(token: "t") }
+            await #expect(throws: DysonCloud.Failure(status: status, message: "HTTP \(status)")) { _ = try await api.request("/v1/provisioningservice/application/Android/version") }
+        }
+        // Other empty answers are still nothing, as in Homebridge.
+        let api = DysonCloud(transport: Refusing(status: 204), logger: testLogger)
+        #expect(try await api.request("/v1/provisioningservice/application/Android/version") == nil)
     }
 
     @Test func inputChecks() throws {

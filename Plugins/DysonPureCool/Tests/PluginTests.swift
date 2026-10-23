@@ -286,6 +286,25 @@ struct PluginTests {
         #expect(await eventually(timeout: .seconds(10)) { await environment.plugin?.device(serial: serial)?.isConnected == true })
     }
 
+    /// stop() while a device is still connecting: the connection that lands afterwards is closed.
+    @Test func stopWhileConnectingLeavesNothingOpen() async throws {
+        let environment = DysonTestEnvironment()
+        let gate = Gate()
+        environment.dyson.set(connectGate: gate)
+        let host = try environment.host(settings: ["devices": [deviceBlock()]])
+        try await host.start()
+        #expect(await eventually { await gate.arrivals == 1 })
+        await host.stop()
+        await gate.open()
+        await environment.plugin?.settle()
+        #expect(await eventually { environment.dyson.openConnections.isEmpty })
+        #expect(await environment.plugin?.device(serial: serial)?.isConnected == false)
+        // Nothing reconnects later either.
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(environment.dyson.connects.count <= 1)
+        #expect(environment.dyson.openConnections.isEmpty)
+    }
+
     @Test func unconfiguredAccessoriesLeave() async throws {
         let environment = DysonTestEnvironment()
         let host = try await environment.start(settings: ["devices": [deviceBlock(), ["serial": "XYZ-AB-87654321", "productType": "438", "localCredentials": "s", "ipAddress": "192.168.1.51"]]])
@@ -381,6 +400,19 @@ struct WebRequestTests {
         #expect(try await request(plugin, "authenticate", ["email": "nobody@example.com", "password": "x"]) == .error(401, "Account not active or not found"))
     }
 
+    /// The password waits for the emailed code ten minutes at most, on a timer, not only until the next attempt.
+    @Test func aPendingSignInExpires() async throws {
+        let environment = DysonTestEnvironment()
+        environment.pendingSignInLifetime = .milliseconds(100)
+        let host = try await environment.start(settings: [:])
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        let started = try await request(plugin, "authenticate", ["email": "user@example.com", "password": "secret"])
+        #expect(started == PluginWebResponse(["success": true, "requires2FA": true]))
+        #expect(await eventually { await !plugin.hasPendingSignIn })
+        #expect(try await request(plugin, "verify-otp", ["otpCode": "123456"]) == .error(400, "No pending authentication"))
+    }
+
     @Test func productTypes() async throws {
         let environment = DysonTestEnvironment()
         let host = try await environment.start(settings: [:])
@@ -418,6 +450,36 @@ struct WebRequestTests {
         environment.set(discovered: [serial: "8.8.8.8"])
         environment.dyson.set(reachableHosts: nil)
         #expect(try await request(plugin, "get-device-state", .object(device)) == .error(404, "Device \(serial) not found on network"))
+    }
+
+    /// Each Assistant action's request reaches its route.
+    @Test func assistantActionsReachTheirRoutes() async throws {
+        let environment = DysonTestEnvironment(productState: FakeStates.tp04)
+        let host = try await environment.start(settings: ["devices": [deviceBlock()]])
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        #expect(await eventually { await plugin.device(serial: serial)?.state.temperature != nil })
+        let actions = Dictionary(uniqueKeysWithValues: DysonPureCoolPlugin.assistantActions.map { ($0.name, $0) })
+        #expect(Set(actions.keys) == ["list_devices", "product_types", "device_state", "set_continuous_monitoring"])
+        func call(_ name: String, _ arguments: JSONValue = [:]) async throws -> PluginWebResponse {
+            let action = try #require(actions[name])
+            return try await plugin.handleWebRequest(action.request(arguments: arguments, user: "admin"))
+        }
+
+        let devices = try await call("list_devices")
+        #expect(devices.json["devices"]?[0]?["serial"] == .string(serial))
+        #expect(devices.json["devices"]?[0]?["localCredentials"] == nil)
+        #expect(try await call("product_types").json["productTypes"]?["438"] == "TP04 - Dyson Pure Cool Tower")
+        // A configured device by its serial alone: the plugin has its product type and credential.
+        #expect(try await call("device_state", ["serial": .string(serial)]) == PluginWebResponse(["success": true, "continuousMonitoring": true]))
+        environment.dyson.clearPublished()
+        #expect(try await call("set_continuous_monitoring", ["serial": .string(serial), "enabled": false]) == PluginWebResponse(["success": true, "continuousMonitoring": false]))
+        #expect(environment.dyson.commands.last == ["rhtm": "OFF"])
+        #expect(try await call("device_state", ["serial": "XYZ-AB-87654321"]) == .error(400, "Missing device info (serial, productType, localCredentials)"))
+
+        let set = try #require(actions["set_continuous_monitoring"])
+        #expect(set.access == .configure && set.confirm)
+        #expect(actions.values.filter { $0.name != "set_continuous_monitoring" }.allSatisfy { $0.access == .read && !$0.confirm })
     }
 
     @Test func theRunningConnectionIsUsed() async throws {

@@ -150,8 +150,17 @@ actor AccessAPI {
     private func loginController() async -> Bool {
         if headers["cookie"] != nil, headers["x-csrf-token"] != nil { return true }
         // UniFi OS protects its API against cross-site requests: the token is in the headers of its home page.
-        if headers["x-csrf-token"] == nil, let response = await retrieve("https://\(address)", logErrors: false), let token = response.header("X-CSRF-Token") {
+        // It also pins the certificate on first use, before any credentials go out: the pin is recorded from a
+        // response, so without one the password would go to a certificate no request has seen. Then this
+        // request's failure is the one to log, as the login's would have been.
+        let unpinned = isUnpinned
+        if headers["x-csrf-token"] == nil || unpinned, let response = await retrieve("https://\(address)", logErrors: unpinned),
+            let token = response.header("X-CSRF-Token") {
             headers["x-csrf-token"] = token
+        }
+        guard !isUnpinned else {
+            logger.debug("\(name): No TLS certificate pinned for \(address) yet: not sending the login credentials.")
+            return false
         }
         let body = (try? JSONSerialization.data(withJSONObject: ["password": password, "rememberMe": true, "token": "", "username": username], options: [.sortedKeys])) ?? Data()
         guard let response = await retrieve(endpoint("login"), method: "POST", body: body) else {
@@ -168,6 +177,9 @@ actor AccessAPI {
         logout()
         return false
     }
+
+    /// Trust on first use, with no certificate pinned yet.
+    private var isUnpinned: Bool { !verifyTLS && trust.fingerprint == nil }
 
     /// Forgets the session, keeping the CSRF token.
     func logout() {
@@ -207,6 +219,8 @@ actor AccessAPI {
     }
 
     private func bootstrapController(retry: Bool) async -> Bool {
+        // Closed (the plugin stopped) during a reconnection: no new session, no new events connection.
+        guard !isClosed else { return false }
         guard await loginController() else { return retry ? await bootstrapController(retry: false) : false }
 
         func fetch(_ name: String) async -> JSONValue? {
@@ -298,10 +312,10 @@ actor AccessAPI {
             logError("Error connecting to the realtime update events API: \(error)")
             return false
         }
-        if socket != nil {
-            // Another bootstrap connected meanwhile.
+        if isClosed || socket != nil {
+            // Closed while connecting (the plugin stopped), or another bootstrap connected meanwhile.
             await opened.close()
-            return true
+            return !isClosed
         }
         socket = opened
         socketGeneration += 1
@@ -376,10 +390,13 @@ actor AccessAPI {
         }
     }
 
+    /// The reconnection stays `reconnectTask` while it bootstraps, so `close()` cancels it there too.
     private func reconnect() async {
+        guard !isClosed, !Task.isCancelled else { return }
+        let connected = await getBootstrap()
         reconnectTask = nil
-        guard !isClosed else { return }
-        if !(await getBootstrap()) { scheduleReconnect() }
+        // Failed, or the new connection dropped while this one finished (its own reconnection was skipped).
+        if !isClosed, !connected || socket == nil { scheduleReconnect() }
     }
 
     // MARK: Unlocking
@@ -459,6 +476,8 @@ actor AccessAPI {
         do {
             response = try await send(request, retrying: ["GET", "HEAD"].contains(method.uppercased()))
         } catch {
+            // Cancelled (the plugin stops): not the controller's fault.
+            if error is CancellationError || Task.isCancelled { return nil }
             apiErrorCount += 1
             describe(error, url: url, log: fail)
             return nil

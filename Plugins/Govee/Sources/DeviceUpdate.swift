@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftPlugin
 
 /// A device's status as the handlers take it, whatever transport it came over (`ExternalUpdateParams`).
@@ -71,15 +72,18 @@ struct DeviceUpdate: Sendable, Equatable {
         // Brightness is a percentage, except for models that report on a 0-254 scale.
         if let raw = src["brightness"]?.doubleValue, raw.isFinite {
             let scaled = GoveeConstants.apiBrightnessScale.contains(model.uppercased()) || raw > 100 ? Govee.round(raw / 2.54) : raw
-            brightness = Int(min(max(scaled, 0), 100))
+            brightness = Int(saturating: scaled, in: 0...100)
         }
 
         // A colour temperature of 0 means the light is in colour mode.
+        // Device numbers saturate rather than trap: a colour channel is 0 to 255, a junk channel (NaN) drops the colour.
         if let kelvin = (src["colorTemInKelvin"] ?? src["kelvin"])?.doubleValue, kelvin.isFinite, kelvin > 0 {
-            self.kelvin = Int(kelvin)
+            self.kelvin = Int(saturating: kelvin)
         }
-        if let colour = src["color"] ?? src["rgb"], let r = colour["r"]?.doubleValue, let g = colour["g"]?.doubleValue, let b = colour["b"]?.doubleValue {
-            rgb = RGB(Int(r), Int(g), Int(b))
+        if let colour = src["color"] ?? src["rgb"], let r = colour["r"]?.doubleValue.flatMap({ Int(saturating: $0, in: 0...255) }),
+            let g = colour["g"]?.doubleValue.flatMap({ Int(saturating: $0, in: 0...255) }), let b = colour["b"]?.doubleValue.flatMap({ Int(saturating: $0, in: 0...255) })
+        {
+            rgb = RGB(r, g, b)
         }
 
         let opCommand = src["op"]?["command"]
@@ -89,7 +93,7 @@ struct DeviceUpdate: Sendable, Equatable {
         }
 
         let dual = src["sta"]?.objectValue != nil ? src["sta"]?["stateCode"] : src["stateDual"]
-        if let dual = dual?.doubleValue, dual.isFinite { stateDual = Int(dual) }
+        if let dual = dual?.doubleValue, dual.isFinite { stateDual = Int(saturating: dual) }
 
         if let battery = src["battery"]?.doubleValue, battery.isFinite { self.battery = min(max(battery, 0), 100) }
         if let value = src["temperature"]?.doubleValue, value.isFinite { temperature = value }

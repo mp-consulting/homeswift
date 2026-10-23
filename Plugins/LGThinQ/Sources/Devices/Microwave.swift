@@ -279,7 +279,7 @@ final class Microwave: CookingAppliance {
 
     func subCookProgram() -> (label: String, defaultTempF: Double)? {
         guard let code = status["LWOSubCookName"], code != .null, code != .number(0) else { return nil }
-        return Self.subCookPrograms[Int(Cooking.toNumber(code))] ?? Self.otherSubCook
+        return Int(saturating: Cooking.toNumber(code)).flatMap { Self.subCookPrograms[$0] } ?? Self.otherSubCook
     }
 
     /// A sub-cook program's default temperature (°F) while cooking.

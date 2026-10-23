@@ -265,6 +265,8 @@ let forestParam = "AyYAAQAKAgH/GQG0CgoCyBQF//8AAP//////AP//lP8AFAGWAAAAACMAAg8FA
         let frames = SceneCodes.encodeScene(scenceParam: forestParam, sceneCode: 212, sceneType: 2)
         #expect(SceneCodes.codeToFrames(SceneCodes.framesToCode(frames)) == frames)
         #expect(SceneCodes.codeToFrames(" AAA, BBB ,, ") == ["AAA", "BBB"])
+        // JavaScript's trim(): a code pasted over several lines.
+        #expect(SceneCodes.codeToFrames("AAA,\nBBB\r\n,\tCCC\n") == ["AAA", "BBB", "CCC"])
     }
 }
 
@@ -348,6 +350,32 @@ let forestParam = "AyYAAQAKAgH/GQG0CgoCyBQF//8AAP//////AP//lP8AFAGWAAAAACMAAg8FA
         #expect(update.online == true && update.leakDetected == false)
         let junk = DeviceUpdate(raw: ["brightness": "50", "color": ["r": "x", "g": 0, "b": 0], "online": "yes", "op": ["command": [1, 2]]], source: .aws)
         #expect(!junk.hasValues)
+    }
+
+    /// Numbers no device sends, which trapped: they saturate (a colour channel to 0-255).
+    @Test func hugeNumbersSaturate() {
+        let update = DeviceUpdate(
+            raw: ["brightness": 1e300, "colorTemInKelvin": 1e300, "color": ["r": 1e300, "g": -1e300, "b": 300], "stateDual": -1e300], source: .lan)
+        #expect(update.brightness == 100)
+        #expect(update.kelvin == Int.max)
+        #expect(update.rgb == RGB(255, 0, 255))
+        #expect(update.stateDual == Int.min)
+        #expect(Govee.roundInt(1e300) == Int.max && Govee.roundInt(-.infinity) == Int.min && Govee.roundInt(.nan) == 0)
+        #expect(Govee.speedPercentToValue(1e300, maxSpeed: 8) == 8)
+        #expect(Colour.rgb2hs(Int.max, Int.min, 0) == Colour.rgb2hs(255, 0, 0))
+        _ = Colour.hs2rgb(1e300, 100)
+        #expect(Colour.hs2rgb(.nan, 100) == RGB(255, 0, 0))
+    }
+
+    @Test func hugeConfigNumbersSaturate() {
+        #expect(GoveePlugin.Configuration.integer(.number(1e300)) == Int.max)
+        #expect(GoveePlugin.Configuration.integer(.number(-1e300)) == Int.min)
+        #expect(GoveePlugin.Configuration.integer(.number(.infinity)) == nil)
+        // Intervals stop at about 68 years (seconds) or 24 days (milliseconds), so sleeps and products never overflow.
+        let huge = GoveePlugin.Configuration(["httpRefreshTime": 1e300, "bleRefreshTime": 1e300, "bleControlInterval": 1e300])
+        #expect(huge.httpRefreshTime == Int(Int32.max) && huge.bleRefreshTime == Int(Int32.max))
+        #expect(huge.bleQueueInterval == .milliseconds(Int(Int32.max)))
+        #expect(huge.belowMinimum.isEmpty)
     }
 }
 

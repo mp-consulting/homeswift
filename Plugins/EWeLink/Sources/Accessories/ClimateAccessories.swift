@@ -348,7 +348,7 @@ final class AirConditionerAccessory: BaseAccessory {
             }
         }
         if let wind = params["wind_speed"]?.jsNumber {
-            cacheWindSpeed = Int(wind)
+            cacheWindSpeed = wind.clampedInt
             update(service.characteristic(.rotationSpeed), Self.rotationSpeed(cacheWindSpeed))
             if !initial { logDebug("Wind speed updated to \(Self.rotationSpeed(cacheWindSpeed).jsDescription)%") }
         }
@@ -384,7 +384,7 @@ final class HumidifierAccessory: BaseAccessory {
             service.characteristic(.on).value = .bool(cacheState == "on")
         }
         if let mode = deviceParams["state"]?.jsNumber {
-            cacheMode = Int(mode)
+            cacheMode = mode.clampedInt
             update(service.characteristic(.rotationSpeed), cacheState == "on" ? cacheMode * 33 : 0)
         }
     }
@@ -437,8 +437,8 @@ final class HumidifierAccessory: BaseAccessory {
             logDebug("State updated to \(cacheState)")
             if cacheState != "on" { update(service.characteristic(.rotationSpeed), 0) }
         }
-        if let modeNumber = params["state"]?.jsNumber, Int(modeNumber) != cacheMode {
-            cacheMode = Int(modeNumber)
+        if let modeNumber = params["state"]?.jsNumber, modeNumber.clampedInt != cacheMode {
+            cacheMode = modeNumber.clampedInt
             if cacheState == "on" {
                 update(service.characteristic(.rotationSpeed), cacheMode * 33)
                 logDebug("Mode updated to \(Self.labels[cacheMode] ?? "\(cacheMode)")")
@@ -487,7 +487,7 @@ final class DiffuserAccessory: BaseAccessory {
             update(fanService.characteristic(.rotationSpeed), cacheSpeed)
         }
         if let light = deviceParams["lightswitch"]?.jsNumber {
-            cacheLight = Int(light)
+            cacheLight = light.clampedInt
             lightService.characteristic(.on).value = .bool(cacheLight == 1)
         }
         if let bright = deviceParams["lightbright"]?.jsNumber {
@@ -585,8 +585,8 @@ final class DiffuserAccessory: BaseAccessory {
                 logDebug("Diffuser speed updated to \(cacheSpeed.jsDescription)%")
             }
         }
-        if let light = params["lightswitch"]?.jsNumber, Int(light) != cacheLight {
-            cacheLight = Int(light)
+        if let light = params["lightswitch"]?.jsNumber, light.clampedInt != cacheLight {
+            cacheLight = light.clampedInt
             lightService.characteristic(.on).value = .bool(cacheLight == 1)
             logDebug("Light state updated to \(cacheLight == 1 ? "on" : "off")")
         }
@@ -604,7 +604,7 @@ final class DiffuserAccessory: BaseAccessory {
                 cacheHue = Double(EWeLinkColor.rgbToHS(red, green, blue).h)
                 update(lightService.characteristic(.hue), cacheHue)
                 update(lightService.characteristic(.saturation), 100)
-                logDebug("Light color updated to RGB(\(Int(red)), \(Int(green)), \(Int(blue)))")
+                logDebug("Light color updated to RGB(\(red.clampedInt), \(green.clampedInt), \(blue.clampedInt))")
             }
         }
     }

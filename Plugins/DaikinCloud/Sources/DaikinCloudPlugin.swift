@@ -52,6 +52,8 @@ public actor DaikinCloudPlugin: HomeswiftPlugin {
 
     // The settings page's state.
     var pendingAuth: PendingAuth?
+    /// Counts logins started or cancelled on the page, so a failed exchange restores only its own login.
+    var authAttempt = 0
     var authResult: JSONValue?
     var devicesCache: [AuthMode: (result: [String: JSONValue], fetchedAt: Date)] = [:]
     let callbackServer: CallbackServer
@@ -128,8 +130,9 @@ public actor DaikinCloudPlugin: HomeswiftPlugin {
         logger.debug("Stopped")
     }
 
-    /// Starts the work in the background: `start()` returns at once.
+    /// Starts the work in the background: `start()` returns at once. Never after `stop()`.
     private func startSession() {
+        guard !stopped else { return }
         let session = DaikinSession(
             settings: settings, context: context, logger: logger, http: http, webSocket: dependencies.webSocket, timing: dependencies.sessionTiming,
             apiDependencies: dependencies.apiDependencies)
@@ -146,7 +149,10 @@ public actor DaikinCloudPlugin: HomeswiftPlugin {
         if let session, await session.isRunning { return }
         guard settings.authMode == .mobileApp ? settings.mobileCredentials != nil : settings.hasDeveloperCredentials else { return }
         logger.info("[Auth] Authenticated from the settings page; connecting")
-        await session?.stop()
+        let previous = session
+        await previous?.stop()
+        // `stop()`, or another resume, may have run during the await.
+        guard !stopped, session === previous else { return }
         startSession()
     }
 }
@@ -174,9 +180,12 @@ enum NetworkInfo {
         return false
     }
 
+    /// Dotted-quad, ASCII digits only: `isNumber` also takes "½" or "٣", which `Int` cannot read.
     static func isIPv4(_ string: String) -> Bool {
         let parts = string.split(separator: ".", omittingEmptySubsequences: false)
-        return parts.count == 4 && parts.allSatisfy { !$0.isEmpty && $0.count <= 3 && $0.allSatisfy(\.isNumber) && Int($0)! <= 255 }
+        return parts.count == 4 && parts.allSatisfy { part in
+            !part.isEmpty && part.count <= 3 && part.allSatisfy { $0.isASCII && $0.isWholeNumber } && (Int(part).map { $0 <= 255 } ?? false)
+        }
     }
 
     /// The bind address when it is an IP literal, else the default.

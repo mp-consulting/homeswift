@@ -375,14 +375,33 @@ struct LANControlTests {
         #expect(await eventually { updates.withLockedValue { $0.count } == 1 })
         #expect(updates.withLockedValue { $0[0].0 == "1000bbbbbb" && $0[0].1 == ["switch": "off"] })
 
-        // An encrypted update decrypts with the key, so the device may have moved.
+        // An encrypted update decrypts with the key: it counts from any address, but a replayed datagram from
+        // another host does not move where commands go.
         let iv = Data("0123456789abcdef".utf8)
         let data = try #require(LANControl.encrypt(["switch": "on"], deviceKey: "a1b2c3d4-e5f6-7890-abcd-ef0123456789", iv: iv))
         network.deliver(["action": "update", "deviceid": "1000aaaaaa", "encrypt": true, "iv": .string(iv.base64EncodedString()), "data": .string(data)], from: "10.0.0.50")
         #expect(await eventually { updates.withLockedValue { $0.count } == 2 })
-        #expect(await lan.lanDevice("1000aaaaaa")?.ip == "10.0.0.50")
+        #expect(updates.withLockedValue { $0[1].0 == "1000aaaaaa" && $0[1].1 == ["switch": "on"] })
+        #expect(await lan.lanDevice("1000aaaaaa")?.ip == "10.0.0.5")
         network.deliver(["action": "update", "deviceid": "1000aaaaaa", "encrypt": true, "iv": .string(iv.base64EncodedString()), "data": "garbage"], from: "10.0.0.51")
         try await Task.sleep(for: .milliseconds(50))
+        #expect(updates.withLockedValue { $0.count } == 2)
+        #expect(await lan.lanDevice("1000aaaaaa")?.ip == "10.0.0.5")
+        // mDNS moves it.
+        await lan.handle(.found(name: "eWeLink_1000aaaaaa", addresses: ["10.0.0.50"], port: 8081, txt: ["encrypt": "true"]))
         #expect(await lan.lanDevice("1000aaaaaa")?.ip == "10.0.0.50")
+    }
+
+    @Test func stopDuringStartLeavesNothingListening() async throws {
+        let network = SlowLAN()
+        let lan = LANControl(
+            dependencies: .init(network: network, clock: testClock), logger: testLogger, selfAPIKey: { "" }, deviceInfo: { _ in nil },
+            knownDevices: { [] }, onUpdate: { _, _ in })
+        let starting = Task { await lan.start() }
+        #expect(await eventually { network.state.withLockedValue { $0.waiting } })
+        await lan.stop()
+        network.state.withLockedValue { $0.release = true }
+        await starting.value
+        #expect(network.listener.closed.withLockedValue { $0 })
     }
 }

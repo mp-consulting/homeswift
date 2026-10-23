@@ -81,23 +81,41 @@ enum DeviceValueParser {
 /// Switch state for single-channel (`switch`) and multi-channel (`switches`) devices.
 enum SwitchHelper {
     static func currentState(_ params: DeviceParams, channel: Int = 0) -> Bool {
+        currentState(params, outlets: [channel])
+    }
+
+    /// Whether any of `outlets` is on (`switches`), or `switch` for a single-channel device.
+    static func currentState(_ params: DeviceParams, outlets: [Int]) -> Bool {
         if let switches = params.switches {
-            return isOn(switches.first { $0["outlet"]?.jsNumber == Double(channel) }?["switch"])
+            return switches.contains { entry in entry.outletNumber.map(outlets.contains) == true && isOn(entry["switch"]) }
         }
         return isOn(params["switch"])
     }
 
     /// The command for one channel: the whole `switches` array with that outlet changed, or `switch`.
     static func switchParams(_ params: DeviceParams, channel: Int, on: Bool) -> DeviceParams {
+        switchParams(params, outlets: [channel], on: on)
+    }
+
+    /// The command for `outlets`: the whole `switches` array with those outlets changed, or `switch`.
+    static func switchParams(_ params: DeviceParams, outlets: [Int], on: Bool) -> DeviceParams {
         if let switches = params.switches {
             let updated: [JSONValue] = switches.map { entry in
-                guard var object = entry.objectValue, entry["outlet"]?.jsNumber == Double(channel) else { return entry }
+                guard var object = entry.objectValue, entry.outletNumber.map(outlets.contains) == true else { return entry }
                 object["switch"] = onOff(on)
                 return .object(object)
             }
             return ["switches": .array(updated)]
         }
         return ["switch": onOff(on)]
+    }
+
+    /// The outlets a switch or outlet accessory drives. eWeLink numbers a device's outlets from 0
+    /// (`switches[].outlet`) and the plugin its channel accessories from 1 (`SW1`...), with the master `SW0`:
+    /// channel n drives outlet n - 1, the master all of them; an accessory for the whole device, outlet 0.
+    static func outlets(switchNumber: Int?, channelCount: Int?) -> [Int] {
+        guard let switchNumber, let channelCount, channelCount > 0 else { return [0] }
+        return switchNumber == 0 ? Array(0..<channelCount) : [switchNumber - 1]
     }
 
     static func channelCount(_ params: DeviceParams) -> Int {
@@ -164,7 +182,7 @@ enum EWeLinkColor {
         guard h.isFinite, s.isFinite else { return (255, 255, 255) }
         let f = h - h.rounded(.down)
         let p = 255 * (1 - s), q = 255 * (1 - s * f), t = 255 * (1 - s * (1 - f))
-        let sector = Int(h.rounded(.down)) % 6
+        let sector = h.rounded(.down).clampedInt % 6
         var rgb: [Double]
         switch sector {
         case 0: rgb = [255, t, p]
@@ -180,7 +198,7 @@ enum EWeLinkColor {
             rgb[1] = 0
             rgb[2] = 0
         }
-        return (Int(jsRound(rgb[0])), Int(jsRound(rgb[1])), Int(jsRound(rgb[2])))
+        return (jsRound(rgb[0]).clampedInt, jsRound(rgb[1]).clampedInt, jsRound(rgb[2]).clampedInt)
     }
 
     static func rgbToHS(_ red: Double, _ green: Double, _ blue: Double) -> (h: Int, s: Int) {
@@ -199,7 +217,7 @@ enum EWeLinkColor {
         }
         hue = min(hue * 60, 360)
         if hue < 0 { hue += 360 }
-        return (Int(jsRound(hue)), Int(jsRound(saturation)))
+        return (jsRound(hue).clampedInt, jsRound(saturation).clampedInt)
     }
 }
 

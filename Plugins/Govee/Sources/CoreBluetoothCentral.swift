@@ -15,18 +15,26 @@ final class CoreBluetoothCentral: NSObject, BLECentral, CBCentralManagerDelegate
     private let logger: Logger
 
     // Everything below is touched on `queue` only.
-    private var powerWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var powerWaiters: [UUID: QueueWait<Bool>] = [:]
     private var onDiscover: (@Sendable (BLEAdvertisement) -> Void)?
     private var scanServices: [CBUUID]?
     private var searching: (match: @Sendable (CBPeripheral, String?) -> Bool, continuation: CheckedContinuation<Found, any Error>)?
-    private var seen: [UUID: (peripheral: CBPeripheral, name: String?)] = [:]
-    private var connecting: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    /// Named peripherals seen advertising, the latest `seenLimit` (a Mac nearby sees many, and their identifiers change).
+    private var seen: [UUID: (peripheral: CBPeripheral, name: String)] = [:]
+    private var seenOrder: [UUID] = []
+    private var connecting: [UUID: QueueWait<Result<Void, any Error>>] = [:]
     private var connections: [UUID: CoreBluetoothConnection] = [:]
 
+    static let seenLimit = 256
+    static let usageDescriptionKey = "NSBluetoothAlwaysUsageDescription"
+
     /// Whether this process may use Bluetooth: macOS kills a process that does without a usage description in
-    /// its Info.plist, so without one the plugin runs without BLE.
-    static var isPermitted: Bool {
-        Bundle.main.object(forInfoDictionaryKey: "NSBluetoothAlwaysUsageDescription") != nil
+    /// its Info.plist, so without one the plugin runs without BLE. The `homeswift` binary embeds one
+    /// (Sources/HomeswiftCLI/Info.plist, in its `__TEXT,__info_plist` section), which `Bundle.main` reads.
+    static var isPermitted: Bool { isPermitted(infoDictionary: Bundle.main.infoDictionary) }
+
+    static func isPermitted(infoDictionary: [String: Any]?) -> Bool {
+        (infoDictionary?[usageDescriptionKey] as? String).map { !$0.isEmpty } ?? false
     }
 
     /// A peripheral handed between tasks; CoreBluetooth objects are used on `queue` only.
@@ -62,16 +70,13 @@ final class CoreBluetoothCentral: NSObject, BLECentral, CBCentralManagerDelegate
         let id = UUID()
         let powered = await withTaskGroup(of: Bool.self) { group in
             group.addTask {
-                await withTaskCancellationHandler {
-                    await withCheckedContinuation { continuation in
-                        self.queue.async {
-                            if self.manager.state == .poweredOn { continuation.resume() } else { self.powerWaiters[id] = continuation }
-                        }
-                    }
-                } onCancel: {
-                    self.queue.async { self.powerWaiters.removeValue(forKey: id)?.resume() }
+                // Ends on power on, or when cancelled (the timeout won, or the caller was cancelled, even before this).
+                let wait = QueueWait<Bool>(queue: self.queue)
+                let powered = await wait.wait(cancelled: false) { wait in
+                    if self.manager.state == .poweredOn { wait.resume(true) } else { self.powerWaiters[id] = wait }
                 }
-                return await self.queue.run { self.manager.state == .poweredOn }
+                await self.queue.run { self.powerWaiters[id] = nil }
+                return powered
             }
             group.addTask {
                 try? await Task.sleep(for: timeout)
@@ -89,6 +94,9 @@ final class CoreBluetoothCentral: NSObject, BLECentral, CBCentralManagerDelegate
         await queue.run {
             self.onDiscover = onDiscover
             self.scanServices = services.map { CBUUID(string: $0) }
+            // A device search (find) scans for every peripheral, and goes back to this scan when it ends: starting
+            // this one now would hide the device it looks for.
+            guard self.searching == nil else { return }
             self.manager.scanForPeripherals(withServices: self.scanServices, options: [CBCentralManagerScanOptionAllowDuplicatesKey: allowDuplicates])
         }
     }
@@ -105,21 +113,21 @@ final class CoreBluetoothCentral: NSObject, BLECentral, CBCentralManagerDelegate
 
     func connect(_ target: BLETarget) async throws -> any BLEConnection {
         let found = try await find(target)
-        let peripheral = found.peripheral
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                queue.async {
-                    self.connecting[peripheral.identifier] = continuation
-                    self.manager.connect(peripheral)
-                }
-            }
-        } onCancel: {
-            queue.async {
-                guard let continuation = self.connecting.removeValue(forKey: peripheral.identifier) else { return }
-                self.manager.cancelPeripheralConnection(peripheral)
-                continuation.resume(throwing: CancellationError())
-            }
+        let handle = Unchecked(value: found.peripheral)
+        // CoreBluetooth never gives up on a connection: it ends when the device answers or the caller is cancelled.
+        let wait = QueueWait<Result<Void, any Error>>(queue: queue)
+        let result = await wait.wait(cancelled: .failure(CancellationError())) { wait in
+            self.connecting[handle.value.identifier] = wait
+            self.manager.connect(handle.value)
         }
+        await queue.run {
+            // Still listed: it did not connect (cancelled), so the attempt is called off.
+            guard self.connecting[handle.value.identifier] === wait else { return }
+            self.connecting[handle.value.identifier] = nil
+            self.manager.cancelPeripheralConnection(handle.value)
+        }
+        try result.get()
+        let peripheral = found.peripheral
         let connection = CoreBluetoothConnection(peripheral: peripheral, queue: queue) { [weak self] peripheral in
             self?.manager.cancelPeripheralConnection(peripheral)
         }
@@ -179,13 +187,17 @@ final class CoreBluetoothCentral: NSObject, BLECentral, CBCentralManagerDelegate
         if central.state == .poweredOn {
             let waiters = powerWaiters.values
             powerWaiters.removeAll()
-            for waiter in waiters { waiter.resume() }
+            for waiter in waiters { waiter.resume(true) }
         }
     }
 
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
         let name = advertisementData[CBAdvertisementDataLocalNameKey] as? String ?? peripheral.name
-        if name != nil || seen[peripheral.identifier] == nil { seen[peripheral.identifier] = (peripheral, name) }
+        // Only a name finds a device again.
+        if let name, seen.updateValue((peripheral, name), forKey: peripheral.identifier) == nil {
+            seenOrder.append(peripheral.identifier)
+            if seenOrder.count > Self.seenLimit { seen[seenOrder.removeFirst()] = nil }
+        }
         if let searching, searching.match(peripheral, name) {
             self.searching = nil
             searching.continuation.resume(returning: Found(peripheral))
@@ -196,15 +208,15 @@ final class CoreBluetoothCentral: NSObject, BLECentral, CBCentralManagerDelegate
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        connecting.removeValue(forKey: peripheral.identifier)?.resume()
+        connecting.removeValue(forKey: peripheral.identifier)?.resume(.success(()))
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: (any Error)?) {
-        connecting.removeValue(forKey: peripheral.identifier)?.resume(throwing: error ?? BLEError.unavailable("could not connect"))
+        connecting.removeValue(forKey: peripheral.identifier)?.resume(.failure(error ?? BLEError.unavailable("could not connect")))
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: (any Error)?) {
-        connecting.removeValue(forKey: peripheral.identifier)?.resume(throwing: error ?? BLEError.unavailable("disconnected"))
+        connecting.removeValue(forKey: peripheral.identifier)?.resume(.failure(error ?? BLEError.unavailable("disconnected")))
         connections.removeValue(forKey: peripheral.identifier)?.didDisconnect(error)
     }
 }

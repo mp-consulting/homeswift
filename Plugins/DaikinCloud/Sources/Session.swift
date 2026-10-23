@@ -115,7 +115,9 @@ actor DaikinSession {
                 logger.info("[Auth] Authenticating with Daikin Cloud using mobile app credentials...")
                 do {
                     let mobile = MobileOAuth(email: credentials.email, password: credentials.password, http: http, log: { [logger] in logger.info("\($0)") })
-                    await tokens.store(try await mobile.authenticate())
+                    let fresh = try await mobile.authenticate()
+                    guard !shuttingDown else { return false }
+                    await tokens.store(fresh)
                     logger.info("[Auth] Authentication successful!")
                 } catch {
                     logger.error("[Auth] Authentication failed: \(message(of: error))")
@@ -126,6 +128,7 @@ actor DaikinSession {
                 return false
             }
         }
+        guard !shuttingDown else { return false }
         let found = await discover()
         guard !found.isEmpty, !shuttingDown else { return false }
         createAccessories(found)
@@ -133,7 +136,7 @@ actor DaikinSession {
         pollingStarted = true
         schedulePoll()
         if settings.webSocketEnabled { await enableWebSocket() }
-        return true
+        return isRunning
     }
 
     private func startEvents() {
@@ -339,7 +342,7 @@ actor DaikinSession {
     // MARK: WebSocket
 
     private func enableWebSocket() async {
-        guard mode == .mobileApp else { return }
+        guard mode == .mobileApp, !shuttingDown else { return }
         guard let connectWebSocket else {
             logger.info("[WebSocket] No WebSocket client: polling only")
             return
@@ -349,6 +352,8 @@ actor DaikinSession {
         let socket = DaikinWebSocket(oauth: tokens, connect: connectWebSocket) { continuation.yield(.webSocket($0)) }
         webSocket = socket
         await socket.connect()
+        // A stop while connecting may have reached the socket before the connect did.
+        if shuttingDown { await socket.disconnect() }
     }
 
     private func webSocketEvent(_ event: DaikinWebSocket.Event) async {

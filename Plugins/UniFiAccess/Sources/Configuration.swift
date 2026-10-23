@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 
 extension UniFiAccessPlugin {
     /// The platform block of `homebridge-unifi-access`, key for key. Decoding is lenient where Homebridge was:
@@ -111,9 +112,11 @@ extension KeyedDecodingContainer {
 
     func lenientInt(_ key: Key) -> Int? {
         if let int = try? decodeIfPresent(Int.self, forKey: key) { return int }
-        if let double = try? decodeIfPresent(Double.self, forKey: key), double.isFinite { return Int(double) }
+        // Saturating: 1e300 in config.json is a large number, not a crash.
+        if let double = try? decodeIfPresent(Double.self, forKey: key), let finite = double.finite { return Int(saturating: finite) }
         if let string = try? decodeIfPresent(String.self, forKey: key) {
-            return Int(string.trimmingCharacters(in: .whitespaces)) ?? Double(string.trimmingCharacters(in: .whitespaces)).flatMap { $0.isFinite ? Int($0) : nil }
+            let trimmed = string.trimmingCharacters(in: .whitespaces)
+            return Int(trimmed) ?? Double(trimmed)?.finite.flatMap { Int(saturating: $0) }
         }
         return nil
     }
@@ -129,6 +132,8 @@ enum AccessSettings {
     static let deviceRemovalDelay = 60
     /// Seconds of a full gate cycle: opening, open, closing (`Hub.GateDirectionDuration`).
     static let gateDirectionDuration = 90
+    /// The largest number of seconds or minutes a feature option sets: about 68 years, far from overflowing a `Duration`.
+    static let maximumOptionValue = Int(Int32.max)
     /// Minutes before a relay unlocked from HomeKit locks again (`Hub.LockDelayInterval`).
     static let deviceUnlockInterval = 0
     /// Where the pinned controller certificates are kept, in the plugin's storage directory.

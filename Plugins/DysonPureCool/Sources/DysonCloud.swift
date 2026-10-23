@@ -159,6 +159,10 @@ struct DysonCloud: Sendable {
             throw Failure(status: 500, message: "Network error: \(error)")
         }
         logger.info("Response status: \(response.status) (\(response.body.count) bytes)")
+        // A refusal without a body is still a refusal (Homebridge read it as an empty success: no devices).
+        if response.status == 401 || response.status == 403, String(decoding: response.body, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw Failure(status: response.status, message: "HTTP \(response.status)")
+        }
         guard !response.body.isEmpty, !String(decoding: response.body, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }

@@ -37,32 +37,32 @@ final class AirConditionerV1: AirConditioner {
             return
         }
         let isAuto = Normalize.number(value).map { $0 == 1 } ?? Normalize.boolean(value)
-        await thinq.thinq1DeviceControl(device, key: "WindStrength", value: .number(Double(isAuto ? ACFan.auto : ACFan.high)))
+        try await thinq.thinq1DeviceControl(device, key: "WindStrength", value: .number(Double(isAuto ? ACFan.auto : ACFan.high)))
     }
 
     override func setJetModeActive(_ value: HAPValue) async throws {
         let jet = Normalize.number(value) ?? (Normalize.boolean(value) ? 1 : 0)
         if status.isPowerOn, status.opMode == ACOpMode.cool {
-            await thinq.thinq1DeviceControl(device, key: "Jet", value: .number(jet))
+            try await thinq.thinq1DeviceControl(device, key: "Jet", value: .number(jet))
         }
     }
 
     override func setActive(_ value: HAPValue) async throws {
         let isOn = Normalize.number(value).map { $0 == 1 } ?? Normalize.boolean(value)
         let operation = device.deviceModel.enumValue("Operation", isOn ? ThinQ1.acOperationRightOn : ThinQ1.acOperationOff)
-        await thinq.thinq1DeviceControl(device, key: "Operation", value: operation.map { .string($0) } ?? .null)
+        try await thinq.thinq1DeviceControl(device, key: "Operation", value: operation.map { .string($0) } ?? .null)
     }
 
     override func setTargetTemperature(_ value: HAPValue) async throws {
         guard status.isPowerOn, let temperature = Normalize.number(value) else { return }
-        await thinq.thinq1DeviceControl(device, key: "TempCfg", value: .string(JS.format(temperature)))
+        try await thinq.thinq1DeviceControl(device, key: "TempCfg", value: .string(JS.format(temperature)))
         setSnapshotValues(["airState.tempState.target": .number(temperature)])
         updateAccessoryCharacteristic(device)
     }
 
     override func setFanSpeed(_ value: HAPValue) async throws {
         guard status.isPowerOn, let percent = Normalize.number(value) else { return }
-        await thinq.thinq1DeviceControl(device, key: "WindStrength", value: .number(Double(ACFan.windStrength(percent: percent))))
+        try await thinq.thinq1DeviceControl(device, key: "WindStrength", value: .number(Double(ACFan.windStrength(percent: percent))))
     }
 
     override func setSwingMode(_ value: HAPValue) async throws {
@@ -70,18 +70,18 @@ final class AirConditionerV1: AirConditioner {
         let swing: JSONValue = Normalize.boolean(value) ? "100" : "0"
         let mode = config.string("ac_swing_mode")
         if mode == "BOTH" || mode == "VERTICAL" {
-            await thinq.thinq1DeviceControl(device, key: "WDirVStep", value: swing)
+            try await thinq.thinq1DeviceControl(device, key: "WDirVStep", value: swing)
             setSnapshotValues(["airState.wDir.vStep": swing])
         }
         if mode == "BOTH" || mode == "HORIZONTAL" {
-            await thinq.thinq1DeviceControl(device, key: "WDirHStep", value: swing)
+            try await thinq.thinq1DeviceControl(device, key: "WDirHStep", value: swing)
             setSnapshotValues(["airState.wDir.hStep": swing])
         }
         updateAccessoryCharacteristic(device)
     }
 
     override func setOpMode(_ opMode: Double) async throws -> Bool {
-        let result = await thinq.thinq1DeviceControl(device, key: "OpMode", value: .number(opMode))
+        let result = try await thinq.thinq1DeviceControl(device, key: "OpMode", value: .number(opMode))
         guard result != nil else { return false }
         setSnapshotValues(["airState.opMode": .number(opMode)])
         updateAccessoryCharacteristic(device)
@@ -89,51 +89,51 @@ final class AirConditionerV1: AirConditioner {
     }
 
     override func setLight(_ value: HAPValue) async throws {
-        await thinq.thinq1DeviceControl(device, key: "DisplayControl", value: value.boolValue == true ? "1" : "0")
+        try await thinq.thinq1DeviceControl(device, key: "DisplayControl", value: value.boolValue == true ? "1" : "0")
     }
 }
 
 /// A ThinQ1 air purifier.
 final class AirPurifierV1: AirPurifier {
     override func setActive(_ value: HAPValue) async throws {
-        await thinq.thinq1DeviceControl(device, key: "Operation", value: value.boolValue == true ? "1" : "0")
+        try await thinq.thinq1DeviceControl(device, key: "Operation", value: value.boolValue == true ? "1" : "0")
     }
 
     override func setTargetAirPurifierState(_ value: HAPValue) async throws {
         let auto = value.boolValue ?? false
         guard status.isPowerOn, auto == status.isNormalMode else { return }
-        await thinq.thinq1DeviceControl(device, key: "OpMode", value: auto ? "16" : "14")
+        try await thinq.thinq1DeviceControl(device, key: "OpMode", value: auto ? "16" : "14")
     }
 
     override func setRotationSpeed(_ value: HAPValue) async throws {
         guard status.isPowerOn, status.isNormalMode, let speed = Normalize.number(value) else { return }
-        await thinq.thinq1DeviceControl(device, key: "WindStrength", value: .string(JS.format(AirPurifierStatus.windStrength(rotationSpeed: speed))))
+        try await thinq.thinq1DeviceControl(device, key: "WindStrength", value: .string(JS.format(AirPurifierStatus.windStrength(rotationSpeed: speed))))
     }
 
     override func setSwingMode(_ value: HAPValue) async throws {
         guard status.isPowerOn, status.isNormalMode else { return }
-        await thinq.thinq1DeviceControl(device, key: "CirculateDir", value: value.boolValue == true ? "1" : "0")
+        try await thinq.thinq1DeviceControl(device, key: "CirculateDir", value: value.boolValue == true ? "1" : "0")
     }
 
     override func setLight(_ value: HAPValue) async throws {
         guard status.isPowerOn else { return }
-        await thinq.thinq1DeviceControl(device, key: "SignalLighting", value: value.boolValue == true ? "1" : "0")
+        try await thinq.thinq1DeviceControl(device, key: "SignalLighting", value: value.boolValue == true ? "1" : "0")
     }
 
     override func setAirFastActive(_ value: HAPValue) async throws {
         guard status.isPowerOn else { return }
-        await thinq.thinq1DeviceControl(device, key: "AirFast", value: value.boolValue == true ? "1" : "0")
+        try await thinq.thinq1DeviceControl(device, key: "AirFast", value: value.boolValue == true ? "1" : "0")
     }
 }
 
 /// A ThinQ1 range hood.
 final class RangeHoodV1: RangeHood {
     override func setHoodRotationSpeed(_ value: HAPValue) async throws {
-        await thinq.thinq1DeviceControl(device, key: "VentLevel", value: Self.json(value))
+        try await thinq.thinq1DeviceControl(device, key: "VentLevel", value: Self.json(value))
     }
 
     override func setLightBrightness(_ value: HAPValue) async throws {
-        await thinq.thinq1DeviceControl(device, key: "LampLevel", value: Self.json(value))
+        try await thinq.thinq1DeviceControl(device, key: "LampLevel", value: Self.json(value))
     }
 }
 
@@ -163,24 +163,24 @@ final class RefrigeratorV1: Refrigerator {
     }
 
     override func setTemperature(_ key: String, _ index: String) async throws {
-        await thinq.thinq1DeviceControl(device, key: key, value: .string(index))
+        try await thinq.thinq1DeviceControl(device, key: key, value: .string(index))
     }
 
     /// IcePlus, ExpressFridge, EcoFriendly.
-    func setV1Toggle(_ key: String, _ value: HAPValue) async {
+    func setV1Toggle(_ key: String, _ value: HAPValue) async throws {
         let model = device.deviceModel
         let label = value.boolValue == true ? model.enumValue(key, "@CP_ON_EN_W") : model.enumValue(key, "@CP_OFF_EN_W")
-        await thinq.thinq1DeviceControl(device, key: key, value: label.map { .string($0) } ?? .null)
+        try await thinq.thinq1DeviceControl(device, key: key, value: label.map { .string($0) } ?? .null)
     }
 
-    override func setExpressMode(_ value: HAPValue) async throws { await setV1Toggle("IcePlus", value) }
-    override func setExpressFridge(_ value: HAPValue) async throws { await setV1Toggle("ExpressFridge", value) }
-    override func setEcoFriendly(_ value: HAPValue) async throws { await setV1Toggle("EcoFriendly", value) }
+    override func setExpressMode(_ value: HAPValue) async throws { try await setV1Toggle("IcePlus", value) }
+    override func setExpressFridge(_ value: HAPValue) async throws { try await setV1Toggle("ExpressFridge", value) }
+    override func setEcoFriendly(_ value: HAPValue) async throws { try await setV1Toggle("EcoFriendly", value) }
 }
 
 /// A ThinQ1 washer or dryer, which can be switched on and off.
 final class WasherV1: WasherDryer {
     override func setActive(_ value: HAPValue) async throws {
-        await thinq.thinq1DeviceControl(device, key: "Power", value: value.boolValue == true ? "On" : "Off")
+        try await thinq.thinq1DeviceControl(device, key: "Power", value: value.boolValue == true ? "On" : "Off")
     }
 }

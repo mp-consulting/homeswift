@@ -182,7 +182,7 @@ final class ValveAccessory: BaseAccessory {
     private var remaining: Int {
         guard let startedAt, let runDuration else { return 0 }
         let elapsed = (platform.clock.nowMilliseconds - startedAt) / 1000
-        return Int(max(0, jsRound(runDuration - elapsed)))
+        return max(0, jsRound(runDuration - elapsed)).clampedInt
     }
 
     override func updateState(_ params: DeviceParams) {

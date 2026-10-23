@@ -28,9 +28,10 @@ enum ThinQ1 {
     }
 
     /// The `rti/rtiControl` payload: the model's byte template filled from the last monitoring data for binary
-    /// devices, `{key: value}` otherwise.
+    /// devices, `{key: value}` otherwise. A template that is not a JSON array once filled throws, as
+    /// `JSON.parse` does, rather than sending an empty command that would look accepted.
     @ThinQActor
-    static func prepareControlData(_ device: ThinQDevice, key: String, value: JSONValue, workID: String = UUID().uuidString.lowercased()) -> JSONValue {
+    static func prepareControlData(_ device: ThinQDevice, key: String, value: JSONValue, workID: String = UUID().uuidString.lowercased()) throws -> JSONValue {
         var data: [String: JSONValue] = ["cmd": "Control", "cmdOpt": "Set", "deviceId": .string(device.id), "workId": .string(workID)]
         let controlWifi = device.deviceModel.data["ControlWifi"]
         if controlWifi?["type"]?.stringValue == "BINARY(BYTE)" {
@@ -46,7 +47,11 @@ enum ThinQ1 {
                 let number = JS.number(text)
                 template = template.replacingOccurrences(of: "{{\(name)}}", with: JS.format(number.isNaN ? 0 : number))
             }
-            let bytes = (try? JSONValue(string: template))?.arrayValue?.map { UInt8(truncatingIfNeeded: Int(JS.number($0).isNaN ? 0 : JS.number($0))) } ?? []
+            guard let items = (try? JSONValue(string: template))?.arrayValue else {
+                throw ThinQError.invalid("The model's control template is not a byte array: \(template.prefix(200))")
+            }
+            // new Uint8Array(array): each element ToUint8 (NaN and infinities are 0, the rest wrap modulo 256).
+            let bytes = items.map { UInt8(truncatingIfNeeded: JS.int32(JS.number($0))) }
             // Buffer.from(String.fromCharCode(...bytes)): each byte a code point, encoded as UTF-8.
             let text = String(String.UnicodeScalarView(bytes.map { Unicode.Scalar($0) }))
             data["value"] = "ControlData"

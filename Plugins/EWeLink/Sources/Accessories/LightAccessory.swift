@@ -30,16 +30,16 @@ final class LightAccessory: BaseAccessory {
         if supportsBrightness {
             onRead(service.characteristic(.brightness), "Brightness") { [weak self] in
                 guard let self else { return nil }
-                if let br = self.deviceParams["white"]?["br"] { return .int(Int(br.jsNumber ?? 0)) }
+                if let br = self.deviceParams["white"]?["br"] { return .int((br.jsNumber ?? 0).clampedInt) }
                 let bright = self.deviceParams["bright"]?.jsNumber ?? 0
-                return .int(Int(bright == 0 ? 100 : bright))
+                return .int((bright == 0 ? 100 : bright).clampedInt)
             }
             onWrite(service.characteristic(.brightness)) { [weak self] value in try await self?.setBrightness(value) }
         }
         if supportsColorTemperature {
             onRead(service.characteristic(.colorTemperature), "ColorTemperature") { [weak self] in
                 guard let self else { return nil }
-                return .int(Int(clamp(self.mired(self.deviceParams), EWeLinkColor.minimumMired, EWeLinkColor.maximumMired)))
+                return .int(clamp(self.mired(self.deviceParams), EWeLinkColor.minimumMired, EWeLinkColor.maximumMired).clampedInt)
             }
             onWrite(service.characteristic(.colorTemperature)) { [weak self] value in try await self?.setColorTemperature(value) }
         }

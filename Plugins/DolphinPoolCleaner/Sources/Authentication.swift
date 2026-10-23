@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
@@ -188,7 +189,7 @@ actor AuthenticationManager {
     static func deviceType(_ value: JSONValue?) -> Int {
         let parsed: Int? = switch value {
         case .string(let text)?: Int(text.prefix { $0.isNumber || $0 == "-" })
-        case .number(let number)?: Int(number)
+        case .number(let number)?: Int(saturating: number)
         default: nil
         }
         guard let parsed, parsed != 0 else { return Maytronics.defaultDeviceType }

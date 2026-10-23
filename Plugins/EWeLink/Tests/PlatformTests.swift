@@ -79,6 +79,34 @@ struct PlatformTests {
         await host.stop()
     }
 
+    @Test func aSocketThatDropsRightAfterSigningInIsReplaced() async throws {
+        environment.socket.update { $0.dropAfterAuthentication = true }
+        let host = try await environment.start(devices: [device("1000aaaaaa", uiid: 1)], settings: ["mode": "wan"])
+        #expect(await eventually { environment.socket.connections == 2 })
+        #expect(await environment.socketReady())
+        #expect(environment.socket.current?.isOpen == true)
+        await host.stop()
+    }
+
+    /// Another client signing in to the account ends this session each time: the backoff keeps growing
+    /// instead of starting over after every login, and starts over once a connection lasts.
+    @Test func aSessionTakenOverAgainAndAgainBacksOff() async throws {
+        let host = try await environment.start(devices: [device("1000aaaaaa", uiid: 1)], settings: ["mode": "wan"])
+        #expect(await environment.socketReady())
+        for attempt in 1...3 {
+            environment.socket.current?.drop()
+            #expect(await eventually { environment.socket.connections == attempt + 1 })
+            #expect(await environment.socketReady())
+            #expect(await environment.platform()?.socket?.reconnectAttempts == attempt)
+        }
+        // A minute of plugin time (600 ms here) connected: the next drop starts over.
+        try await Task.sleep(for: .milliseconds(Timing.socketStableConnection / 100 + 200))
+        environment.socket.current?.drop()
+        #expect(await eventually { environment.socket.connections == 5 })
+        #expect(await environment.platform()?.socket?.reconnectAttempts == 1)
+        await host.stop()
+    }
+
     @Test func multiChannelDevicesGetAnAccessoryPerChannel() async throws {
         let switches: JSONValue = [["outlet": 0, "switch": "off"], ["outlet": 1, "switch": "off"], ["outlet": 2, "switch": "on"], ["outlet": 3, "switch": "off"]]
         let host = try await environment.start(
@@ -88,19 +116,43 @@ struct PlatformTests {
         #expect((0...3).allSatisfy { environment.accessory(host, "1000bbbbbbSW\($0)") != nil })
         #expect(environment.accessory(host, "1000bbbbbbSW4") == nil)
         #expect(environment.accessory(host, "1000bbbbbbSW1")?.name == "Four 1")
-        #expect(environment.accessory(host, "1000bbbbbbSW0")?.service(.switch)?[.on]?.value == true)
+        // Channel n is outlet n - 1 (eWeLink counts outlets from 0); the master shows on when any is.
+        @Sendable func on(_ channel: Int) -> HAPValue? { environment.accessory(host, "1000bbbbbbSW\(channel)")?.service(.switch)?[.on]?.value }
+        #expect(on(0) == true && on(1) == false && on(2) == false && on(3) == true)
 
         #expect(await environment.socketReady())
         let channel = try #require(environment.accessory(host, "1000bbbbbbSW1")?.service(.switch)?[.on])
         try await channel.homeKitWrite(true)
-        #expect(environment.socket.commands.last == ["switches": [["outlet": 0, "switch": "off"], ["outlet": 1, "switch": "on"], ["outlet": 2, "switch": "on"], ["outlet": 3, "switch": "off"]]])
+        #expect(environment.socket.commands.last == ["switches": [["outlet": 0, "switch": "on"], ["outlet": 1, "switch": "off"], ["outlet": 2, "switch": "on"], ["outlet": 3, "switch": "off"]]])
         // Another channel sees the change before the device confirms it.
-        try await environment.accessory(host, "1000bbbbbbSW3")?.service(.switch)?[.on]?.homeKitWrite(true)
-        #expect(environment.socket.commands.last?["switches"]?[1]?["switch"] == "on")
+        try await environment.accessory(host, "1000bbbbbbSW2")?.service(.switch)?[.on]?.homeKitWrite(true)
+        #expect(environment.socket.commands.last == ["switches": [["outlet": 0, "switch": "on"], ["outlet": 1, "switch": "on"], ["outlet": 2, "switch": "on"], ["outlet": 3, "switch": "off"]]])
+        // The master switches every outlet.
+        try await environment.accessory(host, "1000bbbbbbSW0")?.service(.switch)?[.on]?.homeKitWrite(false)
+        #expect(environment.socket.commands.last == ["switches": [["outlet": 0, "switch": "off"], ["outlet": 1, "switch": "off"], ["outlet": 2, "switch": "off"], ["outlet": 3, "switch": "off"]]])
 
-        environment.push("1000bbbbbb", ["switches": [["outlet": 0, "switch": "off"], ["outlet": 1, "switch": "off"], ["outlet": 2, "switch": "off"], ["outlet": 3, "switch": "off"]]])
-        #expect(await eventually { environment.accessory(host, "1000bbbbbbSW0")?.service(.switch)?[.on]?.value == false })
-        #expect(channel.value == false)
+        environment.push("1000bbbbbb", ["switches": [["outlet": 0, "switch": "off"], ["outlet": 1, "switch": "off"], ["outlet": 2, "switch": "off"], ["outlet": 3, "switch": "on"]]])
+        #expect(await eventually { on(4) == nil && on(0) == true })
+        #expect(channel.value == false && on(3) == false)
+        environment.push("1000bbbbbb", ["switches": [["outlet": 0, "switch": "on"], ["outlet": 1, "switch": "off"], ["outlet": 2, "switch": "off"], ["outlet": 3, "switch": "off"]]])
+        #expect(await eventually { channel.value == true })
+        #expect(on(2) == false && on(3) == false)
+        await host.stop()
+    }
+
+    @Test func multiChannelOutletsDriveTheirOwnOutlet() async throws {
+        let switches: JSONValue = [["outlet": 0, "switch": "off"], ["outlet": 1, "switch": "on"]]
+        let host = try await environment.start(
+            devices: [device("1000eeeeee", uiid: 2, name: "Two", params: ["switches": switches])],
+            settings: ["mode": "wan", "multiDevices": [["deviceId": "1000eeeeee", "showAs": "outlet"]]])
+        let first = try #require(environment.accessory(host, "1000eeeeeeSW1")?.service(.outlet)?[.on])
+        let second = try #require(environment.accessory(host, "1000eeeeeeSW2")?.service(.outlet)?[.on])
+        #expect(first.value == false && second.value == true)
+        #expect(await environment.socketReady())
+        try await first.homeKitWrite(true)
+        #expect(environment.socket.commands.last == ["switches": [["outlet": 0, "switch": "on"], ["outlet": 1, "switch": "on"]]])
+        try await second.homeKitWrite(false)
+        #expect(environment.socket.commands.last == ["switches": [["outlet": 0, "switch": "on"], ["outlet": 1, "switch": "off"]]])
         await host.stop()
     }
 
@@ -229,6 +281,31 @@ struct PlatformTests {
         #expect(try await call("GET", "nothing").status == 404)
         await host.stop()
     }
+
+    @Test func theAssistantActionsReachTheirRoutes() async throws {
+        let host = try await environment.start(devices: [device("1000aaaaaa", uiid: 1, name: "Lamp")])
+        let plugin = try #require(environment.plugin)
+        let actions = Dictionary(uniqueKeysWithValues: EWeLinkPlugin.assistantActions.map { ($0.name, $0) })
+        #expect(Set(actions.keys) == ["status", "list_devices", "test_device"])
+        func run(_ name: String, _ arguments: JSONValue = [:]) async throws -> PluginWebResponse {
+            let action = try #require(actions[name])
+            return try await plugin.handleWebRequest(action.request(arguments: arguments, user: "admin"))
+        }
+        let status = try await run("status")
+        #expect(status.status == 200 && status.json["configured"] == true && status.json["initialized"] == true)
+        let devices = try await run("list_devices")
+        #expect(devices.status == 200 && devices.json["devices"]?[0]?["deviceId"] == "1000aaaaaa")
+
+        let test = try #require(actions["test_device"])
+        #expect(test.access == .configure && test.confirm)
+        #expect(try await run("test_device", ["deviceId": "1000aaaaaa", "params": ["switch": "off"]]).json["success"] == true)
+        let body = try JSONValue(data: try #require(environment.cloud.requests(path: "/v2/device/thing/status").last?.body))
+        #expect(body["id"] == "1000aaaaaa" && body["params"] == ["switch": "off"])
+        #expect(try await run("test_device").status == 400)
+        // Only the plugin's own routes, none that takes the account's password.
+        #expect(EWeLinkPlugin.assistantActions.allSatisfy { $0.path != "login" })
+        await host.stop()
+    }
 }
 
 /// The accessory types, each on a bridge, commands going over the fake WebSocket.
@@ -243,7 +320,8 @@ struct AccessoryTests {
     }
 
     @Test func inchingAlwaysSendsOnAndTogglesTheState() async throws {
-        let environment = EWeLinkTestEnvironment(clock: EWeLinkClock(scale: 0.1))
+        // The echo window is real time: 450 ms here, so a loaded machine does not close it early.
+        let environment = EWeLinkTestEnvironment(clock: EWeLinkClock(scale: 0.3))
         let host = try await environment.start(devices: [device("1000aaaaaa", uiid: 1)], settings: ["mode": "wan", "singleDevices": [["deviceId": "1000aaaaaa", "isInched": true]]])
         _ = await environment.socketReady()
         let on = try #require(environment.accessory(host, "1000aaaaaa")?.service(.switch)?[.on])
@@ -257,7 +335,7 @@ struct AccessoryTests {
         environment.push("1000aaaaaa", ["switch": "on"])
         try await Task.sleep(for: .milliseconds(30))
         #expect(try await on.read() == false)
-        try await Task.sleep(for: .milliseconds(Timing.inchingDebounce / 10))
+        try await Task.sleep(for: .milliseconds(Timing.inchingDebounce * 3 / 10))
         environment.push("1000aaaaaa", ["switch": "on"])
         #expect(await eventually { (try? await on.read()) == true })
         await host.stop()
@@ -419,7 +497,8 @@ struct AccessoryTests {
         let now = ISO8601DateFormatter().string(from: environment.clock.now)
         environment.push("1000aaaaaa", ["outlet": 2, "key": 1, "actionTime": .string(now)])
         #expect(await eventually { mini.service(.statelessProgrammableSwitch, subtype: "channel3")?[.programmableSwitchEvent]?.value == 1 })
-        environment.push("1000bbbbbb", ["outlet": 2, "actionTime": .string(now)])
+        // A press is fresh for 500 ms here: stamp it when it is sent.
+        environment.push("1000bbbbbb", ["outlet": 2, "actionTime": .string(ISO8601DateFormatter().string(from: environment.clock.now))])
         #expect(await eventually { environment.accessory(host, "1000bbbbbb")?.service(.statelessProgrammableSwitch)?[.programmableSwitchEvent]?.value == 2 })
         await host.stop()
     }

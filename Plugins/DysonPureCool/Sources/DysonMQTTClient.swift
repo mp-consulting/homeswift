@@ -98,6 +98,8 @@ actor DysonMQTTClient {
     private var isReconnecting = false
     private var intentionalDisconnect = false
     private var lastSuccessfulVariant: Int?
+    /// Bumped by every `disconnect()`: a CONNECT still in flight when it changes is closed, not kept.
+    private var disconnects = 0
     private(set) var activeVariant: Variant?
 
     init(settings: Settings, mqtt: @escaping Connect, backoff: @escaping @Sendable (Int) -> Duration = DysonMQTTClient.exponentialBackoff) {
@@ -136,12 +138,13 @@ actor DysonMQTTClient {
         // A fresh connect() re-enables reconnection after an earlier disconnect().
         if !isReconnecting { intentionalDisconnect = false }
         let start = lastSuccessfulVariant ?? 0
+        let epoch = disconnects
         var lastError: (any Error)?
         for offset in 0..<Self.variants.count {
             let index = (start + offset) % Self.variants.count
             let variant = Self.variants[index]
             do {
-                try await connect(with: variant)
+                try await connect(with: variant, epoch: epoch)
                 lastSuccessfulVariant = index
                 activeVariant = variant
                 return
@@ -153,7 +156,9 @@ actor DysonMQTTClient {
         throw lastError ?? DysonMQTTError.unreachable("All MQTT connect variants exhausted")
     }
 
-    private func connect(with variant: Variant) async throws {
+    /// One CONNECT. A `disconnect()` while it is in flight (`epoch` changed) closes the new connection and
+    /// throws `notConnected`, so a session opened after a stop does not stay up.
+    private func connect(with variant: Variant, epoch: Int) async throws {
         let version: MQTTProtocolVersion
         switch variant.protocolLevel {
         case 3: version = .v3_1
@@ -172,6 +177,10 @@ actor DysonMQTTClient {
                 protocolVersion: version, connectTimeout: timeout, reconnect: nil))
         } catch {
             throw Self.failure(error, timeout: timeout)
+        }
+        guard disconnects == epoch else {
+            await opened.disconnect()
+            throw DysonMQTTError.notConnected
         }
         // Taken before connecting, so nothing that follows the CONNACK is missed.
         let messages = opened.messages
@@ -193,6 +202,10 @@ actor DysonMQTTClient {
             // Also drops a connection that lands after the deadline.
             await opened.disconnect()
             throw Self.failure(error, timeout: timeout)
+        }
+        guard disconnects == epoch else {
+            await opened.disconnect()
+            throw DysonMQTTError.notConnected
         }
         cleanupConnection()
         generation += 1
@@ -261,6 +274,7 @@ actor DysonMQTTClient {
 
     /// Disconnects; an intentional disconnect also stops reconnection and forgets the topics.
     func disconnect(intentional: Bool = true) async {
+        disconnects += 1
         if intentional {
             intentionalDisconnect = true
             reconnectTask?.cancel()

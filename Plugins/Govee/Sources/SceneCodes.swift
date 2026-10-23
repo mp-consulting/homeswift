@@ -208,7 +208,8 @@ enum SceneCodes {
     static func framesToCode(_ frames: [String]) -> String { frames.joined(separator: ",") }
 
     static func codeToFrames(_ code: String) -> [String] {
-        code.split(separator: ",", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        // JavaScript's trim(): newlines too (a code pasted over several lines).
+        code.split(separator: ",", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
     }
 
     static func base64(_ frame: [UInt8]) -> String { Data(frame).base64EncodedString() }

@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftPlugin
 
 /// What a device reports, as the plugin keeps it; `MessageCodec.apply(_:to:)` merges each message in. Readings
@@ -75,7 +76,7 @@ enum MessageCodec {
         switch raw {
         case .string(let string)?: string
         case .array(let pair)?: pair.count > 1 ? pair[1].stringValue : nil
-        case .number(let number)?: number.rounded() == number ? String(Int(number)) : String(number)
+        case .number(let number)?: Int(exactly: number).map(String.init) ?? String(number)
         default: nil
         }
     }
@@ -199,7 +200,7 @@ enum MessageCodec {
 
     /// Rounds JavaScript's way (half up) and clamps to 0...100.
     static func clampPercent(_ value: Double) -> Int {
-        Swift.max(0, Swift.min(100, Int((value + 0.5).rounded(.down))))
+        Int(saturating: (value + 0.5).rounded(.down), in: 0...100) ?? 0
     }
 
     /// Merges what a message reports into `state`. Returns false for messages that carry no state.
@@ -239,17 +240,17 @@ enum MessageCodec {
     /// HomeKit's 0-100% to a speed of 1-10, rounding up (55% is 6).
     static func percentToSpeed(_ percent: Double) -> Int {
         guard percent > 0 else { return FanSpeed.min }
-        return Swift.max(FanSpeed.min, Swift.min(FanSpeed.max, Int((percent / 10).rounded(.up))))
+        return Int(saturating: (percent / 10).rounded(.up), in: FanSpeed.min...FanSpeed.max) ?? FanSpeed.min
     }
 
     static func speedToPercent(_ speed: Int) -> Int {
         guard speed >= 0 else { return 0 }
-        return Swift.max(0, Swift.min(100, speed * 10))
+        return Swift.min(speed, 10) * 10
     }
 
     /// Celsius to Kelvin × 10, as `hmax` takes it (21 °C is `2941`).
     static func encodeTemperature(_ celsius: Double) -> String {
-        String(Int(((celsius + kelvinOffset) * 10).rounded(.toNearestOrAwayFromZero)))
+        String(Int(saturating: ((celsius + kelvinOffset) * 10).rounded(.toNearestOrAwayFromZero)) ?? 0)
     }
 
     static func decodeTemperature(_ kelvinTimes10: Int) -> Double {

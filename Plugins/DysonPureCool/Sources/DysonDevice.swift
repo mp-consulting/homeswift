@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftPlugin
 import Logging
 
@@ -124,8 +125,13 @@ actor DysonDevice {
             try await client.requestCurrentState()
             try await client.requestEnvironment()
         } catch {
-            await disposeClient()
+            await dispose(client)
             throw error
+        }
+        // disconnect() (or another connect()) while this one was in flight: its session is closed, not kept.
+        guard self.client === client else {
+            await dispose(client)
+            throw DysonMQTTError.notConnected
         }
         startPolling()
         markConnected(true)
@@ -142,9 +148,16 @@ actor DysonDevice {
 
     private func disposeClient() async {
         guard let client else { return }
-        self.client = nil
-        eventTask?.cancel()
-        eventTask = nil
+        await dispose(client)
+    }
+
+    /// Closes `client`, and forgets it when it is the current one (a newer one stays).
+    private func dispose(_ client: DysonMQTTClient) async {
+        if self.client === client {
+            self.client = nil
+            eventTask?.cancel()
+            eventTask = nil
+        }
         await client.disconnect()
         await client.finish()
     }
@@ -300,6 +313,7 @@ actor DysonDevice {
 
     /// Celsius, clamped to 1-37.
     func setTargetTemperature(_ celsius: Double) async throws {
+        guard !celsius.isNaN else { return }
         let clamped = min(max(celsius, MessageCodec.HeatingTemperature.minCelsius), MessageCodec.HeatingTemperature.maxCelsius)
         try await send([["hmax": MessageCodec.encodeTemperature(clamped)]])
     }
@@ -309,8 +323,8 @@ actor DysonDevice {
 
     /// Percent, clamped to 0-100.
     func setTargetHumidity(_ percent: Double) async throws {
-        let rounded = Int((percent + 0.5).rounded(.down))
-        let clamped = min(max(rounded, MessageCodec.Humidity.minPercent), MessageCodec.Humidity.maxPercent)
+        let range = MessageCodec.Humidity.minPercent...MessageCodec.Humidity.maxPercent
+        guard let clamped = Int(saturating: (percent + 0.5).rounded(.down), in: range) else { return }
         try await send([["humt": MessageCodec.pad(clamped)]])
     }
 }

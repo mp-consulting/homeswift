@@ -241,7 +241,7 @@ final class Heater1bDevice: Heater1aDevice {
             }
         }
         if let target = update.setTemperature {
-            let converted = Int(Govee.round(Govee.farToCen(target / Self.temperatureThreshold)))
+            let converted = Govee.roundInt(Govee.farToCen(target / Self.temperatureThreshold))
             if converted != cacheTarget {
                 cacheTarget = converted
                 self.update(service[.heatingThresholdTemperature], cacheTarget)
@@ -441,7 +441,7 @@ final class Heater2Device: GoveeDevice {
             }
         }
         if let target = update.setTemperature {
-            let converted = Int(Govee.round(Govee.farToCen(target / 100)))
+            let converted = Govee.roundInt(Govee.farToCen(target / 100))
             if converted != cacheTarget {
                 cacheTarget = converted
                 cacheFanState = "off"

@@ -82,6 +82,8 @@ enum Timing {
     static let socketReconnectMaximum = 300_000
     static let socketReconnectJitter = 0.2
     static let socketMaxReconnectAttempts = 10
+    /// A connection that lasted this long resets the reconnection backoff.
+    static let socketStableConnection = 60_000
 
     static let discoveryRetryBase = 15_000
     static let discoveryRetryMaximum = 300_000

@@ -46,7 +46,7 @@ enum Cooking {
 
     /// `H:MM:SS`, the hour without its leading zero, wrapping at a day like the ISO time it comes from.
     nonisolated static func formatClock(_ seconds: Double) -> String {
-        let total = Int(max(0, seconds.isFinite ? seconds.rounded(.down) : 0)) % 86_400
+        let total = (Int(saturating: max(0, seconds.rounded(.down))) ?? 0) % 86_400
         let clock = String(format: "%02d:%02d:%02d", total / 3600, total % 3600 / 60, total % 60)
         return clock.hasPrefix("0") ? String(clock.dropFirst()) : clock
     }
@@ -281,7 +281,7 @@ extension BaseDevice {
                 logger.error("\(identifierLabel) is not a number")
                 return
             }
-            activeInput = identifier > Double(inputs) || identifier < 1 ? 1 : Int(identifier)
+            activeInput = identifier > Double(inputs) || identifier < 1 ? 1 : Int(saturating: identifier) ?? 1
         }.onGet { [weak self] in .int(self?.activeInput ?? 1) }
         return append(television)
     }

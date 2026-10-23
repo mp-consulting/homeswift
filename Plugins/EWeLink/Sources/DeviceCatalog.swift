@@ -46,14 +46,14 @@ enum DeviceCatalog {
 
     /// A device's brightness (`min...max`) as 0...100.
     static func normalizeBrightness(_ uiid: Int, _ value: Double) -> Int {
-        guard let range = brightness(uiid) else { return Int(jsRound(value)) }
-        return Int(jsRound((value - Double(range.min)) / Double(range.max - range.min) * 100))
+        guard let range = brightness(uiid) else { return jsRound(value).clampedInt }
+        return jsRound((value - Double(range.min)) / Double(range.max - range.min) * 100).clampedInt
     }
 
     /// 0...100 as the device's brightness range.
     static func denormalizeBrightness(_ uiid: Int, _ percent: Double) -> Int {
-        guard let range = brightness(uiid) else { return Int(jsRound(percent)) }
-        return Int(jsRound(percent / 100 * Double(range.max - range.min) + Double(range.min)))
+        guard let range = brightness(uiid) else { return jsRound(percent).clampedInt }
+        return jsRound(percent / 100 * Double(range.max - range.min) + Double(range.min)).clampedInt
     }
 
     /// The simulations a `showAs` can name, as the Homebridge plugin lists them.

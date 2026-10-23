@@ -22,6 +22,8 @@ final class LGThinQPlatform {
     private var thinq2Poll: Task<Void, Never>?
     private var thinq1Poll: Task<Void, Never>?
     private var mqttStarted = false
+    /// Set by `stop()`: start-up work that was waiting on LG adds nothing and starts nothing afterwards.
+    private(set) var stopped = false
     /// Overridable in tests.
     var discoveryRetryDelay = ThinQConstants.deviceDiscoveryDelay
 
@@ -39,17 +41,22 @@ final class LGThinQPlatform {
         thinq = ThinQ(api: api, persist: Persist(directory: context.storageDirectory.appendingPathComponent("persist")), mqtt: mqtt, logger: context.logger)
         thinq1Enabled = configuration.thinq1 ?? false
         intervalSeconds = configuration.refresh_interval.flatMap { $0 > 0 ? $0 : nil } ?? 5
-        interval = .milliseconds(Int64(intervalSeconds * 1000))
+        // Saturated: a huge or infinite refresh_interval polls (almost) never instead of trapping.
+        interval = .milliseconds(Int64(saturating: intervalSeconds * 1000, in: 1...Int64(Int32.max) * 1000) ?? 5000)
     }
 
     /// The configured devices (empty: all of them).
     var configuredDevices: [LGThinQPlugin.DeviceConfiguration] { configuration.devices ?? [] }
 
+    /// Whether the block has a region and a sign-in (an account or a refresh token).
+    var isConfigured: Bool {
+        guard let country = configuration.country, !country.isEmpty, let language = configuration.language, !language.isEmpty else { return false }
+        return (configuration.username?.isEmpty == false && configuration.password?.isEmpty == false) || configuration.refresh_token?.isEmpty == false
+    }
+
     /// Signs in and discovers in the background; start() itself returns at once.
     func start() {
-        guard let country = configuration.country, !country.isEmpty, let language = configuration.language, !language.isEmpty,
-              (configuration.username?.isEmpty == false && configuration.password?.isEmpty == false) || configuration.refresh_token?.isEmpty == false
-        else {
+        guard isConfigured else {
             logger.error("Missing required config parameter.")
             return
         }
@@ -57,8 +64,10 @@ final class LGThinQPlatform {
             guard let self else { return }
             do {
                 try await thinq.isReady()
+                guard !stopped else { return }
                 logger.info("Successfully connected to the ThinQ API.")
             } catch {
+                guard !stopped else { return }
                 if case ThinQError.notConnected = error {
                     logger.error("LG ThinQ internal server error, try again later.")
                 } else if "\(error)" == "Internal Server Error" {
@@ -74,9 +83,10 @@ final class LGThinQPlatform {
     }
 
     private func discoverAndMonitor() async {
-        while !Task.isCancelled {
+        while !Task.isCancelled, !stopped {
             do {
                 try await discoverDevices()
+                guard !stopped else { return }
                 startMonitor()
                 return
             } catch ThinQError.notConnected {
@@ -89,11 +99,14 @@ final class LGThinQPlatform {
     }
 
     func stop() async {
+        stopped = true
         startTask?.cancel()
         thinq2Poll?.cancel()
         thinq1Poll?.cancel()
         await thinq.stopMQTT()
-        for handler in handlers.values {
+        let running = handlers.values
+        handlers = [:]
+        for handler in running {
             handler.destroy()
             await thinq.unregister(handler.device)
         }
@@ -102,9 +115,11 @@ final class LGThinQPlatform {
     // MARK: Discovery
 
     /// Adds or replaces an accessory per supported device; cached accessories of devices that are gone,
-    /// skipped or unsupported leave HomeKit.
+    /// skipped or unsupported leave HomeKit, once LG answered for every home.
     func discoverDevices() async throws {
-        let devices = await thinq.devices()
+        let listing = await thinq.deviceListing()
+        guard !stopped else { return }
+        let devices = listing.devices
         if devices.isEmpty { logger.warning("No ThinQ devices in your account.") }
         var kept = Set<String>()
         for device in devices {
@@ -120,7 +135,9 @@ final class LGThinQPlatform {
                 continue
             }
             logger.info("[\(device.name)] Setting up device!")
-            guard try await thinq.setup(device) else {
+            let ready = try await thinq.setup(device)
+            guard !stopped else { return }
+            guard ready else {
                 logger.warning("[\(device.name)] Failed to setup device!")
                 continue
             }
@@ -141,6 +158,10 @@ final class LGThinQPlatform {
                     if cached, !context.isExternal(id: accessory.id) { logger.info("Migrating accessory to external: \(device.description)") }
                     logger.info("Publishing external accessory: \(device.description)")
                     try await context.publishExternal(accessory)
+                    guard !stopped else {
+                        handler.destroy()
+                        return
+                    }
                 } else {
                     logger.info("\(cached ? "Restoring existing accessory" : "Adding new accessory"): \(device.description)")
                     try context.add(accessory)
@@ -153,8 +174,12 @@ final class LGThinQPlatform {
             handlers[device.id] = handler
             kept.insert(accessory.id)
         }
-        // A failed listing must not empty HomeKit: accessories leave only when LG answered.
-        guard !devices.isEmpty else { return }
+        // A failed listing must not empty HomeKit: accessories leave only when LG answered for every home (a
+        // home whose request failed or was rate-limited would otherwise lose its accessories) and listed some.
+        guard listing.complete, !devices.isEmpty else {
+            if !listing.complete { logger.debug("The device list is incomplete; keeping the accessories LG did not list.") }
+            return
+        }
         let prefix = "\(BaseDevice.platformPrefix):"
         var keep = kept
         for accessory in context.accessories {
@@ -170,6 +195,7 @@ final class LGThinQPlatform {
     // MARK: Monitoring
 
     func startMonitor() {
+        guard !stopped else { return }
         let thinq2 = handlers.values.filter { $0.device.platform == PlatformType.thinq2 }
         if !thinq2.isEmpty {
             thinq2Poll?.cancel()
@@ -177,7 +203,9 @@ final class LGThinQPlatform {
                 while !Task.isCancelled {
                     try? await Task.sleep(for: ThinQConstants.thinq2PollInterval)
                     guard !Task.isCancelled, let self else { return }
-                    for device in await thinq.devices() where device.platform == PlatformType.thinq2 {
+                    let devices = await thinq.devices()
+                    guard !Task.isCancelled else { return }
+                    for device in devices where device.platform == PlatformType.thinq2 {
                         handlers[device.id]?.update(device.snapshot)
                     }
                 }
@@ -199,6 +227,7 @@ final class LGThinQPlatform {
                 do {
                     for handler in handlers.values.sorted(by: { $0.device.id < $1.device.id }) where handler.device.platform == PlatformType.thinq1 && thinq1Enabled {
                         try await thinq.pollMonitor(handler.device)
+                        guard !Task.isCancelled else { return }
                         if handler.device.snapshot["raw"] != nil, handler.device.snapshot["raw"] != .null {
                             handler.update(handler.device.snapshot)
                         }

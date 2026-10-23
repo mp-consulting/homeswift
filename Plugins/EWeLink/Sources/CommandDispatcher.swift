@@ -57,7 +57,7 @@ final class CommandQueue {
             if elapsed < minInterval {
                 if throttle == nil {
                     let wait = minInterval - elapsed
-                    log("Throttling: scheduling next command in \(Int(wait.rounded()))ms")
+                    log("Throttling: scheduling next command in \(wait.rounded().clampedInt)ms")
                     let clock = clock
                     throttle = Task { [weak self] in
                         try? await clock.sleep(milliseconds: wait)
@@ -71,7 +71,7 @@ final class CommandQueue {
             let command = queue.removeFirst()
             activeCount += 1
             lastCommandTime = clock.nowMilliseconds
-            log("Executing command for \(deviceName(command.deviceID)) (waited \(Int((clock.nowMilliseconds - command.queuedAt).rounded()))ms in queue)")
+            log("Executing command for \(deviceName(command.deviceID)) (waited \((clock.nowMilliseconds - command.queuedAt).rounded().clampedInt)ms in queue)")
             Task {
                 do {
                     command.continuation.resume(returning: try await command.execute())

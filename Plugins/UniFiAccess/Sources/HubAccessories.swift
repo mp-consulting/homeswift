@@ -231,7 +231,8 @@ extension AccessHub {
         let revertDelay = environment.timing.revert
         let service = Service(.switch, name: label, subtype: reserved.rawValue, optional: [.configuredName])
         service[.configuredName]?.value = .string(label)
-        let on = service.characteristic(.on)
+        // On unlocks the door: the bridge's own surfaces (MCP, the Assistant, the web UI) confirm it like a lock.
+        let on = service.characteristic(.on).securityControl()
         on.value = .bool(!Self.isLocked(side ? sideLockBacking : lockBacking))
         // On is unlocked, off locked.
         on.onWrite { [weak self] value in
@@ -270,7 +271,14 @@ extension AccessHub {
             if !(await doorLockCommand(locking: close)) { failed() }
             return
         }
-        // UA Gate: one command toggles the motor. Events right after it are noise while the gate starts moving.
+        // UA Gate: one command toggles the motor, so closing a gate that is closed (or closing) would open it.
+        if close, [HK.doorClosed, HK.doorClosing].contains(doorState()) {
+            logger.debug("\(prefix)The gate is already \(doorState() == HK.doorClosed ? "closed" : "closing"): not triggering it.")
+            target.value = .int(HK.doorClosed)
+            current.value = .int(doorState())
+            return
+        }
+        // Events right after the command are noise while the gate starts moving.
         gateTransitionUntil = .now + environment.timing.gateCooldown
         if close { beginGateClosing() } else { startGateCycle() }
         if !(await doorLockCommand(locking: false)) {

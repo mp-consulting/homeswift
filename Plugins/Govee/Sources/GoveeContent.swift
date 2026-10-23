@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftPlugin
 
 /// The Govee app's content: the scene library of a device, the account's DIY effects, and the modes a device
@@ -126,7 +127,7 @@ enum GoveeContent {
 
     private static func number(_ value: JSONValue?) -> Int? {
         guard let double = value?.doubleValue, double.isFinite else { return nil }
-        return Int(double)
+        return Int(saturating: double)
     }
 
     private static func nonEmpty(_ string: String) -> String? { string.isEmpty ? nil : string }

@@ -94,6 +94,12 @@ struct ProtocolTests {
         #expect(SwitchHelper.channelCount(["switches": []]) == 1 && SwitchHelper.channelCount(params) == 3)
         #expect(SwitchHelper.isMultiChannel(params) && !SwitchHelper.isMultiChannel(["switches": [["outlet": 0]]]))
         #expect(SwitchHelper.isSCMDevice(["switches": []]) && !SwitchHelper.isSCMDevice([:]))
+
+        // Channel accessories: SWn drives outlet n - 1, the master SW0 all of them, a whole device outlet 0.
+        #expect(SwitchHelper.outlets(switchNumber: 1, channelCount: 3) == [0] && SwitchHelper.outlets(switchNumber: 3, channelCount: 3) == [2])
+        #expect(SwitchHelper.outlets(switchNumber: 0, channelCount: 3) == [0, 1, 2] && SwitchHelper.outlets(switchNumber: nil, channelCount: nil) == [0])
+        #expect(SwitchHelper.currentState(params, outlets: [0, 1, 2]) && !SwitchHelper.currentState(params, outlets: [0, 2]))
+        #expect(SwitchHelper.switchParams(params, outlets: [0, 1, 2], on: false) == ["switches": [["outlet": 0, "switch": "off"], ["outlet": 1, "switch": "off"], ["outlet": 2, "switch": "off"]]])
     }
 
     @Test func coloursConvertAsTheHomebridgePluginDoes() {
@@ -171,6 +177,19 @@ struct ProtocolTests {
         #expect(JSONValue.string(" 7").jsParseInt == 7)
         #expect(JSONValue.string("abc").jsParseFloat == nil)
         #expect(JSONValue.bool(true).jsNumber == 1 && JSONValue.string("").jsNumber == 0 && JSONValue.string("x").jsNumber == nil)
+        // What a device or the LAN sends never traps: NaN and the infinities are missing, big numbers clamp.
+        #expect(JSONValue.string("nan").jsNumber == nil && JSONValue.string("inf").jsNumber == nil && JSONValue.string("-Infinity").jsNumber == nil)
+        #expect(JSONValue.string("1e999").jsParseFloat == nil && JSONValue.number(1e300).jsParseInt == Int.max)
+        #expect(JSONValue.string("99999999999999999999999").jsParseInt == Int.max)
+        let huge = EWeLinkDevice(raw: ["deviceid": "1000aaaaaa", "extra": ["uiid": 1e300], "localtype": "nan", "port": 1e20])
+        #expect(huge.uiid == Int.max && huge.localtype == nil && huge.port == 65_535)
+        #expect(DeviceCatalog.normalizeBrightness(0, 1e300) == Int.max)
+        #expect((-1e300).clampedInt == Int.min && Double.nan.clampedInt == 0)
+    }
+
+    @Test @EWeLinkActor func hugeValuesClampToTheCharacteristic() {
+        #expect(BaseAccessory.hapValue(1e300, for: .rotationSpeed) == .double(100))
+        #expect(BaseAccessory.hapValue(1e300, for: .brightness) == .int(100) && BaseAccessory.hapValue(-1e300, for: .currentPosition) == .int(0))
         #expect(JSONValue.number(25).jsString == "25" && JSONValue.number(2.5).jsString == "2.5")
         #expect(jsRound(2.5) == 3 && jsRound(-2.5) == -2)
     }

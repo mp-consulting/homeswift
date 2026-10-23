@@ -80,11 +80,20 @@ Per device: `name`, `serial_number`, and
   The Assistant's Explain buttons come from the Homeswift UI.
 - Accessories are `LGThinQ:<device id>`. Dishwashers, ovens and microwaves are published on their own, as the
   Homebridge plugin publishes them as external accessories: add each in the Home app with the bridge's code.
-- When LG's device list comes back empty (an outage, a rate limit), cached accessories stay instead of
-  leaving HomeKit with their rooms and automations; a device that is gone from a list LG did answer, or
-  deselected, still leaves.
+- When LG's device list comes back empty (an outage, a rate limit), or the request for one of the account's
+  homes fails, cached accessories stay instead of leaving HomeKit with their rooms and automations; a device
+  that is gone from a list LG did answer for every home, or deselected, still leaves.
 - The MQTT client certificate is requested with a key and a certificate request made with swift-crypto
   instead of node-forge; the broker's root is bundled, never downloaded. The key, the request and each
-  device's model JSON are kept, owner-only, in the plugin's storage directory.
+  device's model JSON are kept, owner-only, in the plugin's storage directory. A key made anew (its file lost
+  or unreadable) also gets a new certificate request: the Homebridge plugin kept the old request, whose
+  certificate the new key cannot use, and MQTT then never connected.
+- ThinQ1 monitoring data is decoded as leniently as Node's `Buffer.from(…, 'base64')`. A ThinQ1 model whose
+  control template is not valid JSON fails the HomeKit write, as the Homebridge plugin's `JSON.parse` does,
+  instead of sending an empty command. Numbers out of range (a huge `refresh_interval`, a device type or a
+  byte layout LG reports oddly) are clamped or skipped instead of stopping the bridge.
+- The Assistant (the web UI's chat, MCP clients) can list the appliances this instance runs and every
+  appliance of its LG account (`GET devices`, `GET account-devices`), and get LG's sign-in page for
+  Google, Apple, Facebook or Amazon accounts. Signing in stays on the plugin's page.
 - The schema is the Homebridge plugin's, unchanged; its `condition` keys and layout types the Homeswift form
   does not know are ignored.

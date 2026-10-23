@@ -18,8 +18,10 @@ configuration works unchanged, `options` array included.
 
 Locks are `LockMechanism` services (and the gate a `GarageDoorOpener`), so the MCP server only opens them
 through `set_security_accessory`. The optional `Hub.Lock.Trigger` and `Hub.SideDoor.Lock.Trigger` switches exist,
-as in Homebridge, to let automations work around HomeKit's confirmation for locks: they are plain switches, off
-by default; leave them off unless you want that.
+as in Homebridge, to let automations work around HomeKit's confirmation for locks: plain switches to HomeKit, off
+by default; leave them off unless you want that. Homeswift's own surfaces treat them as the locks they open
+(security controls): MCP clients and the Assistant turn them only through `set_security_accessory`, after the
+user confirmed, and the web UI asks first.
 
 Names follow the controller (`Device.SyncName`), including a UA Gate's door names. With
 `Hub.Sensors.SeparateAccessory`, `Hub.Doorbell.SeparateAccessory` and `AccessMethod.SeparateAccessory` the
@@ -109,6 +111,14 @@ Homebridge plugin's settings page:
 With the Assistant on, **Explain** sits next to a controller that does not answer, a failed connection, an
 empty discovery and a disconnected device; addresses, credentials, IP and MAC addresses are left out.
 
+## The Assistant
+
+With the Assistant on (the web UI's chat, MCP clients), the plugin's page routes are tools of its own:
+`list_controllers` (the controllers, their hubs and readers, and whether each door is locked, open or closed,
+and a reader's access methods), `list_options` (the feature options), `discover` (UniFi consoles on the network)
+and `check_controller` (whether an address answers). None of them unlocks anything, and the page's sign-in to a
+controller, which takes its password, is not one of them.
+
 ## What differs from Homebridge
 
 - The controller scope of the feature options page is the controller's MAC address, which the plugin
@@ -117,6 +127,14 @@ empty discovery and a disconnected device; addresses, credentials, IP and MAC ad
 - Removing a controller from the block leaves its accessories in HomeKit until it is added again, as in
   Homebridge; which controller owns an accessory is kept in `accessory-owners.json` in the plugin's directory.
 - A UA Gate's garage door starts with its target matching the gate's position instead of HAP's default.
+- A UA Gate is driven through its doors' unlock endpoint, which toggles the motor. Homebridge sent it for a
+  close, lock or off command too, so closing a closed gate (or locking a locked side door) from a Lock Trigger
+  switch, MQTT or the Home app opened it. Such a command now does nothing when the gate is already closed (or
+  closing) with its relay locked, or the side door locked.
+- Trust on first use (`verifyTls` off): Homebridge pinned the certificate during the TLS handshake; the port
+  pins it from the first response (the console's home page, which carries no credentials). The login waits
+  until a certificate is pinned, so when that first request fails the password is not sent over an unchecked
+  connection; the next attempt tries again.
 - Not ported: the `homebridge-ai-core` Assistant routes (the runtime provides the Assistant), the Homebridge
   UI's Support links beyond the documentation, and `debugAll`.
 - The events WebSocket and MQTT run on `HomeswiftNetwork`'s `WebSocket` and `MQTTClient`. MQTT over WebSockets

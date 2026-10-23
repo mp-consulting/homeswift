@@ -556,4 +556,89 @@ struct AccessHubTests {
         let missing = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "nope", user: "admin"))
         #expect(missing.status == 404)
     }
+
+    // MARK: Fix phase B
+
+    /// A UA Gate's location endpoint only toggles: a lock, close or off command for a door already there sends nothing.
+    @Test func gateCommandsForASecuredDoorSendNothing() async throws {
+        let host = try await environment.start(
+            devices: [ugt()], doors: Self.gateDoors, options: ["Enable.Hub.Lock.Trigger", "Enable.Hub.SideDoor.Lock.Trigger"], extra: ["mqttUrl": "mqtt://broker"])
+        defer { Task { await host.stop() } }
+        let gate = try #require(accessory(host, gateID))
+        let garage = try #require(gate.service(.garageDoorOpener, nil))
+        let trigger = try #require(gate.service(.switch, "LockTrigger")?[.on])
+        let sideTrigger = try #require(gate.service(.switch, "Switch.Lock.Door.Side.Trigger")?[.on])
+        #expect(trigger.isSecurityControl && sideTrigger.isSecurityControl)
+        #expect(garage[.currentDoorState]?.value.intValue == 1)
+        #expect(await eventually { Set(self.environment.mqtt.connection.subscriptions.keys).contains("unifi/access/112233445566/sidedoor/lock/set") })
+
+        try await garage.characteristic(.targetDoorState).write(.int(1))
+        try await trigger.write(.bool(false))
+        try await sideTrigger.write(.bool(false))
+        environment.mqtt.connection.receive("unifi/access/112233445566/lock/set", string: "true")
+        environment.mqtt.connection.receive("unifi/access/112233445566/sidedoor/lock/set", string: "true")
+        #expect(await eventually { self.environment.log.messages(.debug).filter { $0.contains("is already locked: not triggering it.") }.count == 4 })
+        #expect(environment.controller.requests(matching: "/unlock").isEmpty)
+        #expect(garage[.currentDoorState]?.value.intValue == 1)
+        #expect(garage[.targetDoorState]?.value.intValue == 1)
+
+        // The gate opens elsewhere: closing it now does trigger it.
+        environment.send(AccessEventType.locationUpdate, "door-1", data: ["id": "door-1", "name": "Main Gate", "state": ["dps": "open", "lock": "locked"]])
+        #expect(await eventually { garage[.currentDoorState]?.value.intValue == 2 })
+        try await garage.characteristic(.targetDoorState).write(.int(1))
+        #expect(environment.controller.requests(matching: "/location/door-1/unlock").count == 1)
+        // Unlocking still goes through.
+        try await sideTrigger.write(.bool(true))
+        #expect(environment.controller.requests(matching: "/location/door-2/unlock").count == 1)
+    }
+
+    /// The live test: one failed refresh (a dropped connection) ended the sync for good. It retries now.
+    @Test func refreshRetriesAfterAFailure() async throws {
+        environment.refreshInterval = .milliseconds(100)
+        let host = try await environment.start(devices: [uah()])
+        defer { Task { await host.stop() } }
+        environment.controller.fail("devices/topology4", with: HTTPClientError.connectionClosed)
+        #expect(await eventually { self.environment.log.contains("Unable to refresh the controller configuration. Retrying.", level: .error) })
+        let failed = environment.controller.requests(matching: "devices/topology4").count
+        #expect(await eventually { self.environment.controller.requests(matching: "devices/topology4").count > failed + 2 })
+        environment.controller.fail("devices/topology4", with: nil)
+        environment.controller.setDevices([uah(), ugt()])
+        #expect(await eventually { accessory(host, gateID) != nil })
+        #expect(environment.log.messages(.error).filter { $0.contains("Unable to refresh the controller configuration") }.count == 1)
+        // And the refreshes go on.
+        let after = environment.controller.requests(matching: "devices/topology4").count
+        #expect(await eventually { self.environment.controller.requests(matching: "devices/topology4").count > after })
+    }
+
+    /// The access method switches follow the device at every refresh, not only its events.
+    @Test func accessMethodsFollowRefreshes() async throws {
+        let host = try await environment.start(devices: [ultra()])
+        defer { Task { await host.stop() } }
+        #expect(flag(host, ultraID, .switch, "AccessMethod.Face") == true)
+        #expect(flag(host, ultraID, .switch, "AccessMethod.PIN") == false)
+        environment.controller.setDevices([
+            ultra(["configs": configs([("input_d1_button", "off"), ("input_d1_dps", "close"), ("output_d1_lock_relay", "off"), ("nfc", "yes"), ("pin_code", "yes"), ("face", "no")])])
+        ])
+        _ = await environment.controllerActor()?.api.getBootstrap()
+        #expect(await eventually { flag(host, ultraID, .switch, "AccessMethod.Face") == false })
+        #expect(flag(host, ultraID, .switch, "AccessMethod.PIN") == true)
+    }
+
+    /// Option values and config numbers of any size saturate instead of trapping.
+    @Test func hugeNumbersSaturate() async throws {
+        let huge = "99999999999999999999999"
+        let host = try await environment.start(
+            devices: [uah(), ugt()], options: ["Enable.Hub.LockDelayInterval.AABBCCDDEEFF.\(huge)", "Enable.Hub.GateDirectionDuration.\(huge)", "Enable.Controller.DelayDeviceRemoval.\(huge)"],
+            extra: ["ringDelay": 1e300])
+        defer { Task { await host.stop() } }
+        let hub = try #require(await environment.hub(id: hubID))
+        #expect(await hub.lockDelayInterval == AccessSettings.maximumOptionValue)
+        #expect(await environment.plugin?.configuration.ringDelay == Int.max)
+        environment.controller.setDevices([ugt()])
+        _ = await environment.controllerActor()?.api.getBootstrap()
+        #expect(await eventually { self.environment.log.contains("Delaying device removal for at least \(AccessSettings.maximumOptionValue) seconds.") })
+        // Device configs with numbers: JavaScript's spelling, no trap beyond Int64.
+        #expect(AccessDevice.text(.number(1e20)) == "1e+20")
+        #expect(AccessDevice.text(.number(-0.0)) == "0")
+    }
 }

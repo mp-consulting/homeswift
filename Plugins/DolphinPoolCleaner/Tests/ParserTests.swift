@@ -110,6 +110,24 @@ import Testing
         #expect(ShadowParser.cleaningMode(input.isNull ? nil : input) == expected)
     }
 
+    /// Numbers far outside Int's range clamp instead of trapping; sums that overflow are ignored.
+    @Test func hugeNumbers() {
+        let state = ShadowParser.parse(["version": 1e300, "state": ["reported": [
+            "mu_state": 1e300, "sm_state": -1e300, "cleaning_mode": 1e300,
+            "cycleInfo": ["cycleTimeRemaining": ["hours": 1e308, "minutes": 1]],
+            "delayedOperation": ["time": ["hours": -1e308, "minutes": 1]],
+            "robotError": ["errorCode": 1e300, "turnOnCount": 1e300], "systemState": ["rTurnOnCount": 1e300],
+        ]]])
+        #expect(!state.isCleaning)
+        #expect(state.pwsState == Int.min)
+        #expect(state.cleaningMode == "all")
+        #expect(state.cycleTimeRemaining.isFinite)
+        #expect(state.delayTime == nil)
+        #expect(state.faultCode == Int.max)
+        #expect(ShadowParser.version(of: ["version": 1e300]) == Int.max)
+        #expect(ShadowParser.cleaningMode(.number(-1e300)) == "all")
+    }
+
     @Test func versions() {
         #expect(ShadowParser.version(of: ["version": 4]) == 4)
         #expect(ShadowParser.version(of: [:]) == nil)

@@ -65,7 +65,10 @@ enum JS {
     static func format(_ number: Double) -> String {
         if number.isNaN { return "NaN" }
         if number.isInfinite { return number < 0 ? "-Infinity" : "Infinity" }
-        if number == number.rounded(), abs(number) < 1e21 { return String(Int64(number)) }
+        if number == number.rounded(), abs(number) < 1e21 {
+            // Whole numbers past Int64 (to 1e21) are still printed in full.
+            return Int64(exactly: number).map { String($0) } ?? String(format: "%.0f", number)
+        }
         return "\(number)"
     }
 
@@ -146,7 +149,7 @@ enum JS {
 
     static func int(_ value: JSONValue?, fallback: Int = 0) -> Int {
         let parsed = parseInt(string(value))
-        return parsed.isNaN || !parsed.isFinite ? fallback : Int(parsed)
+        return parsed.isFinite ? Int(saturating: parsed) ?? fallback : fallback
     }
 
     /// `safeParseFloat(value, fallback)`.

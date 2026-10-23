@@ -32,6 +32,29 @@ import _CryptoExtras
         #expect(JS.shiftLeft(1, 8) == 256)
         #expect(JS.shiftLeft(.nan, 8) == 0)
         #expect(JS.shiftLeft(16_777_216, 8) == 0)
+        // Whole numbers past Int64 print in full up to 1e21, as JavaScript does, without trapping.
+        #expect(JS.format(1e19) == "10000000000000000000" && JS.format(-9.3e18) == "-9300000000000000000")
+        #expect(JS.format(9.223372036854775807e18) == "9223372036854775808" && JS.format(-0.0) == "0")
+        #expect(JS.format(1e21) == "1e+21")
+        #expect(JS.int(.string("99999999999999999999999")) == Int.max && JS.int(.string(String(repeating: "9", count: 400)), fallback: 7) == 7)
+        #expect(JS.int(.string("-99999999999999999999999")) == Int.min && JS.int(.string("x"), fallback: 3) == 3)
+    }
+
+    @Test func fitsValuesToCharacteristics() {
+        let counter = CharacteristicType(name: "Counter", uuid: HAPUUID("00000000-0000-1000-8000-0026BB765291"), format: .uint64, permissions: [.pairedRead])
+        #expect(Service.fit(.double(1e300), to: counter) == .int(Int.max))
+        #expect(Service.fit(.double(-5), to: counter) == .int(0) && Service.fit(.double(.nan), to: counter) == nil)
+        #expect(Service.fit(.double(2.6), to: .remainingDuration) == .int(3))
+    }
+
+    @Test func decodesBase64AsNodeDoes() {
+        #expect(ThinQAPI.decodeBase64("AQID") == Data([1, 2, 3]))
+        // Line breaks and spaces are skipped, padding is optional, decoding stops at the first "=".
+        #expect(ThinQAPI.decodeBase64("AQ\r\nID") == Data([1, 2, 3]) && ThinQAPI.decodeBase64(" A Q I D ") == Data([1, 2, 3]))
+        #expect(ThinQAPI.decodeBase64("AQI") == Data([1, 2]) && ThinQAPI.decodeBase64("AQ==AQID") == Data([1]))
+        // The URL-safe alphabet too.
+        #expect(ThinQAPI.decodeBase64("-_8") == Data([0xFB, 0xFF]) && ThinQAPI.decodeBase64("+/8=") == Data([0xFB, 0xFF]))
+        #expect(ThinQAPI.decodeBase64("") == Data() && ThinQAPI.decodeBase64("***") == Data())
     }
 
     @Test func normalizesHomeKitValues() {

@@ -47,6 +47,11 @@ you make them, and **Re-sync from Dyson Cloud** signs in again to add devices or
 Assistant is set up (a `HomeswiftAiKit` block), failed sign-ins and unreachable devices get an **Explain** button;
 it never sees the email, password, codes, credentials, serial numbers or addresses.
 
+The Assistant (the web UI's chat, MCP clients) can also list the devices with their state, list the product
+types, check a device and, after you confirm, switch its continuous monitoring (`Sources/AssistantActions.swift`).
+Those tools name a configured device by its serial number and see its address; the credentials stay in the
+bridge, and the Dyson sign-in is not one of them.
+
 ## Configuration
 
 ```json
@@ -139,4 +144,6 @@ A device's own keys win over the platform's toggles. Numbers and booleans writte
   sensors keep their last reading with **Status Active** off, so the Home app shows them as not current, and turn
   active again with the next reading. Homebridge showed the old reading as current.
 - The settings page uses the bridge's connection to a device when there is one, instead of a second MQTT session.
+- A Dyson cloud answer of 401 or 403 with an empty body fails the request ("Session expired" for the device list);
+  Homebridge read it as an empty success and listed no devices.
 - `config.schema.json` is the Homebridge plugin's, with the CF1 added to the product types.

@@ -277,7 +277,14 @@ struct MobileOAuth: Sendable {
         guard let code = json["errorCode"]?.doubleValue, json.objectValue != nil else {
             throw DaikinError("\(context): \(target.host ?? "") returned an unexpected response (HTTP \(response.status))")
         }
-        return GigyaResult(json: json, errorCode: Int(code))
+        return GigyaResult(json: json, errorCode: Self.errorCode(code))
+    }
+
+    /// Gigya's code as an integer that never traps; anything but an exact 0 stays a failure (`errorCode !== 0`).
+    static func errorCode(_ code: Double) -> Int {
+        if code == 0 { return 0 }
+        guard let integer = Int(saturating: code), integer != 0 else { return -1 }
+        return integer
     }
 
     // MARK: Requests, with retries for transient network failures

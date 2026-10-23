@@ -3,15 +3,19 @@ import Homeswift
 import HomeswiftPlugin
 
 /// A switch or one channel of a multi-channel switch; with `isInched`, inching mode (always "on", the state
-/// shown toggles). The master channel (0) of a multi-channel device shows on when any channel is.
+/// shown toggles). Channel n of a multi-channel device drives outlet n - 1; the master channel (0) drives them
+/// all and shows on when any is.
 final class SwitchAccessory: BaseAccessory {
     let channel: Int
+    /// The device outlets this accessory drives (`SwitchHelper.outlets`).
+    let outlets: [Int]
     let isInched: Bool
     private var cacheState = false
     private let ignoreUpdates = InchingFlag()
 
     override init(platform: EWeLinkPlatform, record: AccessoryRecord, box: DeviceBox) {
         channel = record.switchNumber ?? 0
+        outlets = SwitchHelper.outlets(switchNumber: record.switchNumber, channelCount: record.channelCount)
         isInched = platform.configuration.single(record.deviceID)?.isInched ?? false
         super.init(platform: platform, record: record, box: box)
         category = .switch
@@ -26,7 +30,7 @@ final class SwitchAccessory: BaseAccessory {
         applyInitialState()
     }
 
-    private var currentState: Bool { SwitchHelper.currentState(deviceParams, channel: channel) }
+    private var currentState: Bool { SwitchHelper.currentState(deviceParams, outlets: outlets) }
 
     private func readOn() throws -> HAPValue {
         if isInched { return .bool(cacheState) }
@@ -35,18 +39,20 @@ final class SwitchAccessory: BaseAccessory {
 
     private func setOn(_ value: HAPValue) async throws {
         if isInched {
-            cacheState = try await handleInchingModeSet(service.characteristic(.on), channel: channel, cacheState: cacheState, ignoreUpdates: ignoreUpdates)
+            cacheState = try await handleInchingModeSet(service.characteristic(.on), outlets: outlets, cacheState: cacheState, ignoreUpdates: ignoreUpdates)
             return
         }
         try await handleSet("On", value) {
-            await sendCommand(SwitchHelper.switchParams(deviceParams, channel: channel, on: value.boolValue ?? false))
+            await sendCommand(SwitchHelper.switchParams(deviceParams, outlets: outlets, on: value.boolValue ?? false))
         }
     }
 
     override func updateState(_ params: DeviceParams) {
         mergeDeviceParams(params)
         if isInched {
-            let received = SwitchHelper.isSCMDevice(deviceParams) ? params.switches?[safe: channel]?["switch"] == "on" : params["switch"] == "on"
+            let received = SwitchHelper.isSCMDevice(deviceParams)
+                ? params.switches?.contains { $0.outletNumber.map(outlets.contains) == true && $0["switch"] == "on" } == true
+                : params["switch"] == "on"
             if received, !ignoreUpdates.value {
                 startInchingIgnoreWindow(ignoreUpdates)
                 cacheState.toggle()
@@ -55,21 +61,20 @@ final class SwitchAccessory: BaseAccessory {
             }
             return
         }
-        var on = currentState
-        // The master channel shows on when any channel is.
+        // The master channel's outlets are all of them: it shows on when any channel is.
+        let on = currentState
         let isPrimary = channel == 0 && (record.channelCount ?? 0) != 0
-        if isPrimary, SwitchHelper.isSCMDevice(deviceParams), let switches = params.switches {
-            on = switches.contains { $0["switch"] == "on" }
-        }
         service.characteristic(.on).value = .bool(on)
         logDebug("State updated: \(on ? "ON" : "OFF")\(isPrimary ? " (primary state)" : "")")
     }
 }
 
 /// An outlet: on/off, "in use" from the power reading (above `inUsePowerThreshold`) or the state, Eve power
-/// characteristics when the device reports power, and inching mode.
+/// characteristics when the device reports power, and inching mode. As a channel of a multi-channel device
+/// (`showAs: outlet`), it drives the outlets a `SwitchAccessory` channel would.
 final class OutletAccessory: BaseAccessory {
-    let channel = 0
+    /// The device outlets this accessory drives (`SwitchHelper.outlets`).
+    let outlets: [Int]
     let isInched: Bool
     let inUsePowerThreshold: Double
     let hasFullPowerReadings: Bool
@@ -79,6 +84,7 @@ final class OutletAccessory: BaseAccessory {
 
     override init(platform: EWeLinkPlatform, record: AccessoryRecord, box: DeviceBox) {
         let entry = platform.configuration.single(record.deviceID)
+        outlets = SwitchHelper.outlets(switchNumber: record.switchNumber, channelCount: record.channelCount)
         isInched = entry?.isInched ?? false
         inUsePowerThreshold = entry?.inUsePowerThreshold ?? 0
         hasFullPowerReadings = DeviceCatalog.hasFullPowerReadings(box.device.uiid)
@@ -102,7 +108,7 @@ final class OutletAccessory: BaseAccessory {
         applyInitialState()
     }
 
-    private var currentState: Bool { SwitchHelper.currentState(deviceParams, channel: channel) }
+    private var currentState: Bool { SwitchHelper.currentState(deviceParams, outlets: outlets) }
 
     private func readOn() throws -> HAPValue {
         if isInched { return .bool(cacheState) }
@@ -111,11 +117,11 @@ final class OutletAccessory: BaseAccessory {
 
     private func setOn(_ value: HAPValue) async throws {
         if isInched {
-            cacheState = try await handleInchingModeSet(service.characteristic(.on), channel: channel, cacheState: cacheState, ignoreUpdates: ignoreUpdates)
+            cacheState = try await handleInchingModeSet(service.characteristic(.on), outlets: outlets, cacheState: cacheState, ignoreUpdates: ignoreUpdates)
             return
         }
         try await handleSet("On", value) {
-            await sendCommand(SwitchHelper.switchParams(deviceParams, channel: channel, on: value.boolValue ?? false))
+            await sendCommand(SwitchHelper.switchParams(deviceParams, outlets: outlets, on: value.boolValue ?? false))
         }
     }
 
@@ -123,7 +129,9 @@ final class OutletAccessory: BaseAccessory {
         mergeDeviceParams(params)
         let readings = DeviceValueParser.powerReadings(params)
         if isInched {
-            let received = SwitchHelper.isSCMDevice(deviceParams) ? params.switches?[safe: channel]?["switch"] == "on" : params["switch"] == "on"
+            let received = SwitchHelper.isSCMDevice(deviceParams)
+                ? params.switches?.contains { $0.outletNumber.map(outlets.contains) == true && $0["switch"] == "on" } == true
+                : params["switch"] == "on"
             if received, !ignoreUpdates.value {
                 startInchingIgnoreWindow(ignoreUpdates)
                 cacheState.toggle()
@@ -174,9 +182,8 @@ final class SwitchMiniAccessory: BaseAccessory {
     override func updateState(_ params: DeviceParams) {
         mergeDeviceParams(params)
         guard case .number(let outletNumber) = params["outlet"], case .string(let actionTime) = params["actionTime"] else { return }
-        let outlet = Int(outletNumber)
-        guard Double(outlet) == outletNumber, (0...5).contains(outlet) else { return }
-        let key = (params["key"]?.doubleValue).map { Int($0) } ?? 0
+        guard let outlet = Int(exactly: outletNumber), (0...5).contains(outlet) else { return }
+        let key = params["key"]?.doubleValue?.clampedInt ?? 0
         let channel = outlet + 1
         guard !debouncing.contains(channel) else { return }
         debouncing.insert(channel)
@@ -203,8 +210,7 @@ final class SwitchMateAccessory: BaseAccessory {
     override func updateState(_ params: DeviceParams) {
         mergeDeviceParams(params)
         guard case .number(let outletNumber) = params["outlet"], case .string(let actionTime) = params["actionTime"] else { return }
-        let outlet = Int(outletNumber)
-        guard Double(outlet) == outletNumber, (0...2).contains(outlet), !debouncing.contains(outlet) else { return }
+        guard let outlet = Int(exactly: outletNumber), (0...2).contains(outlet), !debouncing.contains(outlet) else { return }
         debouncing.insert(outlet)
         setTrackedTimeout(Double(Timing.eventDebounce)) { [weak self] in self?.debouncing.remove(outlet) }
         guard isRecent(actionTime, now: platform.clock.nowMilliseconds) else { return }

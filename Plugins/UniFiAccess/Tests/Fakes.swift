@@ -241,6 +241,7 @@ final class AccessTestEnvironment: @unchecked Sendable {
     let mqtt = FakeBroker()
     let log = LogRecorder()
     var discovered: [DiscoveredConsole] = []
+    var refreshInterval: Duration = .seconds(60)
     private let plugins = NIOLockedValueBox<[UniFiAccessPlugin]>([])
     private let storages = NIOLockedValueBox<[String: MemoryStorage]>([:])
 
@@ -260,7 +261,7 @@ final class AccessTestEnvironment: @unchecked Sendable {
             throttle: .milliseconds(300), retryMinimum: .milliseconds(1), retryMaximum: .milliseconds(5))
         dependencies.hubTiming = AccessHub.Timing(second: .milliseconds(30), revert: .milliseconds(10))
         dependencies.controllerRetryInterval = .milliseconds(20)
-        dependencies.controllerRefreshInterval = .seconds(60)
+        dependencies.controllerRefreshInterval = refreshInterval
         dependencies.logger = log.logger
         return dependencies
     }
@@ -299,6 +300,9 @@ final class AccessTestEnvironment: @unchecked Sendable {
         let expected = count ?? devices.count
         _ = await eventually { host.mainBridge.server.accessories.count >= expected + 1 }
         if expected > 0 { _ = await eventually { await self.hub(0) != nil } }
+        // Publishes are dropped until the broker is connected, which happens in the background: under load, after
+        // the hubs are up.
+        if (extra["mqttUrl"] as? String)?.hasPrefix("mqtt://") == true { _ = await eventually { self.mqtt.connection.isConnected } }
         return host
     }
 

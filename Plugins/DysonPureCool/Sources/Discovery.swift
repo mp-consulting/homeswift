@@ -54,6 +54,7 @@ enum Discovery {
 
     static func isIPv4(_ string: String) -> Bool {
         let parts = string.split(separator: ".", omittingEmptySubsequences: false)
-        return parts.count == 4 && parts.allSatisfy { !$0.isEmpty && $0.count <= 3 && $0.allSatisfy(\.isASCII) && UInt8($0) != nil }
+        // Digits only: `UInt8("+19")` alone would take a sign.
+        return parts.count == 4 && parts.allSatisfy { !$0.isEmpty && $0.count <= 3 && $0.allSatisfy { $0.isASCII && $0.isNumber } && UInt8($0) != nil }
     }
 }

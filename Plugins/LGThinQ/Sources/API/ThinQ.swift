@@ -34,7 +34,13 @@ final class ThinQ {
 
     /// The account's devices with a valid id.
     func devices() async -> [ThinQDevice] {
-        await api.listDevices().compactMap { $0.objectValue }.map(ThinQDevice.init).filter(\.hasValidID)
+        await deviceListing().devices
+    }
+
+    /// The account's devices with a valid id, and whether every home answered.
+    func deviceListing() async -> (devices: [ThinQDevice], complete: Bool) {
+        let listing = await api.deviceListing()
+        return (listing.devices.compactMap { $0.objectValue }.map(ThinQDevice.init).filter(\.hasValidID), listing.complete)
     }
 
     func setup(_ device: ThinQDevice) async throws -> Bool {
@@ -117,8 +123,8 @@ final class ThinQ {
     }
 
     @discardableResult
-    func thinq1DeviceControl(_ device: ThinQDevice, key: String, value: JSONValue) async -> JSONValue? {
-        let data = ThinQ1.prepareControlData(device, key: key, value: value)
+    func thinq1DeviceControl(_ device: ThinQDevice, key: String, value: JSONValue) async throws -> JSONValue? {
+        let data = try ThinQ1.prepareControlData(device, key: key, value: value)
         return await api.thinq1PostRequest("rti/rtiControl", data)
     }
 
@@ -191,12 +197,14 @@ final class ThinQ {
                     try await self?.connectMQTT(callback)
                     return
                 } catch {
+                    guard !Task.isCancelled else { return }
                     tries -= 1
                     self?.logger.debug("Cannot start MQTT, retrying in 5s.")
                     self?.logger.debug("mqtt err: \(error)")
                     try? await Task.sleep(for: ThinQConstants.mqttRetryDelay)
                 }
             }
+            guard !Task.isCancelled else { return }
             self?.logger.error("Cannot start MQTT! Retrying every \(ThinQConstants.mqttSlowRetryDelay.components.seconds / 60) minutes.")
             while !Task.isCancelled {
                 try? await Task.sleep(for: ThinQConstants.mqttSlowRetryDelay)
@@ -237,12 +245,16 @@ final class ThinQ {
         } else {
             logger.debug("Generating 2048-bit key-pair...")
             keys = try await Task.detached { try ClientIdentity.generateKeys() }.value
+            try Task.checkCancellation()
             try persist.setItem("keys", try JSONValue(encoding: keys))
+            // A request kept from an earlier key would get a certificate this key cannot use.
+            persist.removeItem("csr")
         }
         let csr = try await persist.cacheForever("csr") {
             logger.debug("Creating certification request (CSR)...")
             return .string(try await Task.detached { try ClientIdentity.certificationRequest(keys: keys) }.value)
         }
+        try Task.checkCancellation()
         try await openMQTT(server: server, host: host, keys: keys, csr: JS.string(csr), callback)
     }
 
@@ -254,12 +266,16 @@ final class ThinQ {
         let tls = TLSOptions(trust: RootCAs.forMQTTHost(host), clientIdentity: .pem(certificate: certificatePEM, privateKey: keys.privateKey))
         let configuration = MQTTConfiguration(transport: .tls(host: host, port: 8883, options: tls), clientID: api.clientID ?? "", keepAlive: .seconds(300), reconnect: nil)
         logger.debug("open mqtt connection to \(server)")
+        // stopMQTT() cancels the task this runs in: a connection made after it is closed, not kept.
+        try Task.checkCancellation()
         let connection = try await mqtt(configuration)
         // Read before connecting, so the connection's own state change is seen.
         let states = connection.states
         let messages = connection.messages
         do {
+            try Task.checkCancellation()
             try await connection.connect()
+            try Task.checkCancellation()
         } catch {
             await connection.disconnect()
             throw error
@@ -294,6 +310,8 @@ final class ThinQ {
                 case .disconnected where wasConnected:
                     receiving.cancel()
                     await connection.disconnect()
+                    // Stopped meanwhile: no reconnection.
+                    guard !Task.isCancelled else { return }
                     logger.info("MQTT disconnected, retrying in 60 seconds!")
                     reconnect(server: server, host: host, keys: keys, csr: csr, callback)
                     return

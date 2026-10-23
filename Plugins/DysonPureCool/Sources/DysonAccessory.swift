@@ -427,11 +427,9 @@ final class DysonAccessory: @unchecked Sendable {
         case .stateChanged(let state):
             apply(state)
         case .connected:
+            // The `stateChanged` just before it (the state's `connected` changed) carried the whole state. Reading
+            // the state again from a task here could apply it after a newer one.
             logger.info("Device connected: \(name)")
-            Task { [weak self] in
-                guard let self else { return }
-                self.apply(await self.device.state)
-            }
         case .disconnected:
             logger.warning("Device disconnected: \(name)")
         case .reconnectFailed, .error:

@@ -39,6 +39,7 @@ extension DaikinCloudPlugin {
         case ("GET", "auth/poll"): return PluginWebResponse(await pollAuthorization())
         case ("POST", "auth/stop-server"):
             pendingAuth = nil
+            authAttempt += 1
             authResult = nil
             await callbackServer.stop()
             return PluginWebResponse(["success": true])
@@ -129,10 +130,11 @@ extension DaikinCloudPlugin {
                 + "so Daikin's redirect could never reach it. Set \"Callback Server Bind Address\" to 0.0.0.0 (or this host's LAN IP) in Settings > Network, "
                 + "then start authentication again.")
         }
-        let port = DaikinSettings.port(body["callbackServerPort"]) ?? Int(DaikinSettings.display(body["callbackServerPort"]).prefix { $0.isNumber }) ?? DaikinSettings.defaultCallbackPort
+        let port = try Self.callbackPort(body["callbackServerPort"])
         let redirectURI = DeveloperPortalOAuth.redirectURI(address: address, port: port)
         let state = DeveloperPortalOAuth.makeState()
         pendingAuth = PendingAuth(state: state, clientID: clientID, clientSecret: clientSecret, redirectURI: redirectURI, port: port, createdAt: Date())
+        authAttempt += 1
         authResult = nil
         devicesCache.removeAll()
         let url = DeveloperPortalOAuth.authorizationURL(clientID: clientID, redirectURI: redirectURI, state: state)
@@ -162,6 +164,17 @@ extension DaikinCloudPlugin {
         ]
     }
 
+    /// The port as `parseInt` reads the field ("8582 " works, unset is the default); one no socket can have is
+    /// refused here rather than reaching the bind.
+    static func callbackPort(_ value: JSONValue?) throws -> Int {
+        if let port = DaikinSettings.port(value) { return port }
+        let digits = DaikinSettings.display(value).trimmingCharacters(in: .whitespaces).prefix { $0.isASCII && $0.isWholeNumber }
+        // 0 is falsy in `callbackServerPort || "8582"`.
+        guard !digits.isEmpty, digits.contains(where: { $0 != "0" }) else { return DaikinSettings.defaultCallbackPort }
+        guard let port = Int(digits), (1...65535).contains(port) else { throw DaikinError("Callback Server Port must be between 1 and 65535") }
+        return port
+    }
+
     private var pendingExpired: Bool {
         guard let pendingAuth else { return false }
         return Date().timeIntervalSince(pendingAuth.createdAt) > Double(Self.authorizationWindow / .seconds(1))
@@ -175,7 +188,7 @@ extension DaikinCloudPlugin {
         let state = URLQuery.parameter("state", in: url)
         let error = URLQuery.parameter("error", in: url)
         let description = URLQuery.parameter("error_description", in: url)
-        guard let pending = pendingAuth, let state, state == pending.state else {
+        guard let pending = pendingAuth, let state, Self.isPendingState(state, of: pending) else {
             return (400, CallbackServer.page(success: false, message: "Invalid or missing state parameter"))
         }
         if pendingExpired {
@@ -193,6 +206,10 @@ extension DaikinCloudPlugin {
             authResult = ["success": false, "error": "Missing code parameter"]
             return (400, CallbackServer.page(success: false, message: "Missing authorization code"))
         }
+        // Taken before the exchange: a second request with the same state (a browser retry, a pasted URL) is
+        // refused instead of exchanging the code again and racing this one.
+        pendingAuth = nil
+        let attempt = authAttempt
         do {
             let tokens = try await DeveloperPortalOAuth.exchangeCode(code, clientID: pending.clientID, clientSecret: pending.clientSecret, redirectURI: pending.redirectURI, http: http)
             try TokenFile.save(tokens, to: tokenFile(.developerPortal))
@@ -201,15 +218,26 @@ extension DaikinCloudPlugin {
                 "success": true, "message": "Authentication successful!",
                 "expiresAt": tokens.expiresAt.map { .string(ISO8601DateFormatter.withFractionalSeconds.string(from: $0)) } ?? .null,
             ]
-            pendingAuth = nil
             Task { await callbackServer.stop() }
             logger.info("[Auth] Developer Portal authentication successful")
             await resumeIfIdle(.developerPortal)
             return (200, CallbackServer.page(success: true, message: "Authentication successful! You can close this window."))
         } catch {
+            restore(pending, attempt)
             authResult = ["success": false, "error": .string(message(of: error))]
             return (200, CallbackServer.page(success: false, message: "Token exchange failed: \(message(of: error))"))
         }
+    }
+
+    /// The state the login started with, compared in constant time.
+    static func isPendingState(_ state: String, of pending: PendingAuth) -> Bool {
+        Secrets.constantTimeEqual(Array(state.utf8), Array(pending.state.utf8))
+    }
+
+    /// A failed exchange leaves the login pending, as the Homebridge plugin does (the URL can still be pasted),
+    /// unless it was cancelled or another one started meanwhile.
+    private func restore(_ pending: PendingAuth, _ attempt: Int) {
+        if attempt == authAttempt, pendingAuth == nil { pendingAuth = pending }
     }
 
     /// The callback URL pasted on the page, when the redirect could not reach this host.
@@ -223,16 +251,17 @@ extension DaikinCloudPlugin {
         }
         guard let code, !code.isEmpty else { throw DaikinError("Authorization code is required") }
         guard let pending = pendingAuth else { throw DaikinError("No pending authorization. Please start the auth flow again.") }
-        guard let state, state == pending.state else { throw DaikinError("Invalid or missing state parameter. Please paste the full callback URL or start again.") }
+        guard let state, Self.isPendingState(state, of: pending) else { throw DaikinError("Invalid or missing state parameter. Please paste the full callback URL or start again.") }
         if pendingExpired {
             pendingAuth = nil
             throw DaikinError("Authorization request expired. Please try again.")
         }
+        pendingAuth = nil
+        let attempt = authAttempt
         do {
             let tokens = try await DeveloperPortalOAuth.exchangeCode(code, clientID: pending.clientID, clientSecret: pending.clientSecret, redirectURI: pending.redirectURI, http: http)
             try TokenFile.save(tokens, to: tokenFile(.developerPortal))
             devicesCache.removeAll()
-            pendingAuth = nil
             await callbackServer.stop()
             logger.info("[Auth] Developer Portal authentication successful")
             await resumeIfIdle(.developerPortal)
@@ -241,6 +270,7 @@ extension DaikinCloudPlugin {
                 "expiresAt": tokens.expiresAt.map { .string(ISO8601DateFormatter.withFractionalSeconds.string(from: $0)) } ?? .null,
             ]
         } catch {
+            restore(pending, attempt)
             throw DaikinError("Token exchange failed: \(message(of: error))")
         }
     }

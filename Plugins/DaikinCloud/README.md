@@ -51,6 +51,10 @@ Tokens are kept in the plugin's folder (`~/.homeswift/plugins/DaikinCloud-<name>
 plugin's files, so one copied from a Homebridge storage path works. The callback server's certificate is in
 `daikin-cloud-certs/`, the last quota in `.daikin-rate-limit.json`.
 
+The Assistant (the web UI's chat, MCP clients) can check the login, list the units, read the quota, test the
+connection and show this host's addresses for the callback; signing out (`DaikinCloud_revoke`) asks first. It never
+logs in: the secret, the password and the one-time code are entered on the page.
+
 ## Options
 
 | Option | Type | Default | Description |
@@ -105,3 +109,5 @@ The environment variables of the Homebridge plugin work too: `DAIKIN_HTTP_TRANSP
   iids), where Homebridge added or removed RotationSpeed in place.
 - The settings page's polling of a Developer Portal login no longer reports success at once when a token file
   already exists (re-authenticating).
+- The callback server accepts TLS 1.2 and later only, and refuses a Callback Server Port outside 1–65535 when the
+  login starts. The redirect arriving twice (a browser retry, or the URL also pasted) exchanges the code once.

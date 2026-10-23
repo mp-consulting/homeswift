@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftPlugin
 
 /// Whether the filter bag needs emptying.
@@ -73,14 +74,14 @@ enum ShadowParser {
 
     /// The shadow's version, which says whether anything changed since the last one.
     static func version(of shadow: JSONValue?) -> Int? {
-        shadow?["version"]?.doubleValue.map { Int($0) }
+        shadow?["version"]?.saturatingIntValue
     }
 
     /// A mode name or number as the plugin names it: `regular` and `standard` are `all`, unknown names stay.
     static func cleaningMode(_ mode: JSONValue?) -> String {
         switch mode {
         case .string(let name)?: cleaningMode(name)
-        case .number(let number)?: numericModes[Int(number)] ?? "all"
+        case .number(let number)?: numericModes[Int(saturating: number) ?? 0] ?? "all"
         default: "all"
         }
     }
@@ -155,7 +156,10 @@ enum ShadowParser {
                 if let cycleTime = mode["cycleTime"].truthyNumber { state.cycleTime = cycleTime }
             }
             if let remaining = cycle["cycleTimeRemaining"], remaining.isTruthy {
-                state.cycleTimeRemaining = (remaining["hours"].truthyNumber ?? 0) * 60 + (remaining["minutes"].truthyNumber ?? 0)
+                // Hours near the largest double would overflow to infinity, which JSON cannot carry.
+                if let minutes = ((remaining["hours"].truthyNumber ?? 0) * 60 + (remaining["minutes"].truthyNumber ?? 0)).finite {
+                    state.cycleTimeRemaining = minutes
+                }
             }
         }
         if let isCleaning { state.isCleaning = isCleaning }
@@ -190,19 +194,19 @@ enum ShadowParser {
         if let delayed = reported["delayedOperation"], delayed.isTruthy {
             if let enabled = delayed["enabled"]?.boolValue { state.delayEnabled = enabled }
             if let time = delayed["time"], time.isTruthy {
-                state.delayTime = (time["hours"].truthyNumber ?? 0) * 60 + (time["minutes"].truthyNumber ?? 0)
+                if let minutes = ((time["hours"].truthyNumber ?? 0) * 60 + (time["minutes"].truthyNumber ?? 0)).finite { state.delayTime = minutes }
             }
         }
     }
 
     private static func applyLegacyFormat(_ reported: JSONValue, to state: inout RobotState) {
         // The motor unit's state.
-        if let muState = reported["mu_state"]?.doubleValue {
-            state.isCleaning = isCleaning(muState: Int(muState))
+        if let muState = reported["mu_state"]?.saturatingIntValue {
+            state.isCleaning = isCleaning(muState: muState)
         }
         // The power supply's state machine.
-        if let smState = reported["sm_state"]?.doubleValue {
-            state.pwsState = Int(smState)
+        if let smState = reported["sm_state"]?.saturatingIntValue {
+            state.pwsState = smState
         }
         if let mode = reported["cleaning_mode"] {
             state.cleaningMode = cleaningMode(mode)
@@ -299,9 +303,9 @@ enum FaultParser {
 
     static func robotError(_ data: JSONValue?, currentTurnOnCount: Int?, isPWSError: Bool = false) -> FaultInfo? {
         guard let data, data.isTruthy else { return nil }
-        let code = data["errorCode"]?.doubleValue.map { Int($0) }
+        let code = data["errorCode"]?.saturatingIntValue
         guard isRealErrorCode(code), let code else { return nil }
-        let turnOnCount = data["turnOnCount"]?.doubleValue.map { Int($0) }
+        let turnOnCount = data["turnOnCount"]?.saturatingIntValue
         // A stale robot error still counts while the power supply is in error.
         guard isCurrentSessionError(turnOnCount, currentTurnOnCount) || isPWSError else { return nil }
         return FaultInfo(code: code, description: description(of: code))
@@ -326,12 +330,12 @@ enum FaultParser {
 
     /// The robot's error first, then the power supply's, then the legacy codes.
     static func all(robotError: JSONValue?, pwsError: JSONValue?, faultCodes: JSONValue?, systemState: JSONValue?) -> FaultInfo? {
-        let currentTurnOnCount = systemState?["rTurnOnCount"]?.doubleValue.map { Int($0) }
+        let currentTurnOnCount = systemState?["rTurnOnCount"]?.saturatingIntValue
         let isPWSError = systemState?["pwsState"]?.stringValue == "error"
         if let fault = self.robotError(robotError, currentTurnOnCount: currentTurnOnCount, isPWSError: isPWSError) { return fault }
         if let fault = self.pwsError(pwsError, currentTurnOnCount: currentTurnOnCount) { return fault }
         if let faultCodes, faultCodes.isTruthy {
-            return legacyFaultCodes(code: faultCodes["faultCode"]?.doubleValue.map { Int($0) }, description: faultCodes["faultDescription"]?.stringValue)
+            return legacyFaultCodes(code: faultCodes["faultCode"]?.saturatingIntValue, description: faultCodes["faultDescription"]?.stringValue)
         }
         return nil
     }

@@ -99,7 +99,8 @@ enum Govee {
     /// JavaScript's `Math.round`: halves go up, towards +∞.
     static func round(_ value: Double) -> Double { (value + 0.5).rounded(.down) }
 
-    static func roundInt(_ value: Double) -> Int { Int(round(value)) }
+    /// `Math.round` to an integer; a device or cloud number out of range saturates rather than trapping, NaN gives 0.
+    static func roundInt(_ value: Double) -> Int { Int(saturating: round(value)) ?? 0 }
 
     static func cenToFar(_ temperature: Double) -> Double { round(((temperature * 9) / 5 + 32) * 10) / 10 }
 
@@ -110,7 +111,7 @@ enum Govee {
     /// A rotation speed percentage to a device speed, 1 to `maxSpeed`.
     static func speedPercentToValue(_ speed: Double, maxSpeed: Int, rounding: (Double) -> Double = { $0.rounded(.down) }) -> Int {
         let increment = 100 / Double(maxSpeed)
-        return min(max(Int(rounding(speed / increment)), 1), maxSpeed)
+        return min(max(Int(saturating: rounding(speed / increment)) ?? 1, 1), maxSpeed)
     }
 
     static func speedValueToPercent(_ value: Int, maxSpeed: Int) -> Int {

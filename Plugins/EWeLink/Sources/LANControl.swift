@@ -112,6 +112,8 @@ actor LANControl {
         }
         logger.debug("[LAN] Bonjour browser started for _ewelink._tcp services")
         await startUDPListener()
+        // `stop()` ran while the socket opened.
+        guard running else { return }
         logger.info("LAN control started - listening for device announcements")
         let clock = dependencies.clock
         reportTask = Task { [weak self] in
@@ -125,6 +127,7 @@ actor LANControl {
         browser?.cancel()
         browser = nil
         reportTask?.cancel()
+        reportTask = nil
         udpTask?.cancel()
         udpTask = nil
         await listener?.close()
@@ -194,6 +197,7 @@ actor LANControl {
     private func startUDPListener() async {
         do {
             let listener = try await dependencies.network.listen(port: Timing.lanUDPPort, logger: logger)
+            guard running else { return await listener.close() }
             self.listener = listener
             udpTask = Task { [weak self] in
                 for await datagram in listener.datagrams {
@@ -207,14 +211,17 @@ actor LANControl {
         }
     }
 
-    /// An `update` a device sent over UDP. An encrypted device's update must decrypt with its key, which also
-    /// authenticates it, so the device may have moved; a plaintext update counts only from the known address.
+    /// An `update` a device sent over UDP. An encrypted device's update must decrypt with its key, which
+    /// authenticates its content (from any address); a plaintext update counts only from the known address.
+    /// A datagram never moves the address commands go to: anyone on the LAN can replay a captured encrypted
+    /// update from another host, so the address comes from mDNS (which a device announces again when its
+    /// address changes) and the cloud.
     func handleDatagram(_ data: Data, from address: String) async {
         guard let message = try? JSONValue(data: data) else {
             logger.debug("Error parsing UDP message")
             return
         }
-        guard let deviceID = message["deviceid"]?.stringValue, message["action"]?.stringValue == "update", var device = devices[deviceID] else { return }
+        guard let deviceID = message["deviceid"]?.stringValue, message["action"]?.stringValue == "update", let device = devices[deviceID] else { return }
         var params = message["params"]?.objectValue
         if device.encrypt {
             let key = await resolveDeviceKey(deviceID)
@@ -229,11 +236,8 @@ actor LANControl {
                 return
             }
             params = decrypted
-            device = devices[deviceID] ?? device
-            if device.ip != address {
-                logger.debug("[LAN] \(deviceID) address changed: \(device.ip) -> \(address)")
-                device.ip = address
-                devices[deviceID] = device
+            if let known = devices[deviceID]?.ip, known != address {
+                logger.debug("[LAN] Encrypted UDP update for \(deviceID) from \(address), not its address \(known): commands still go to \(known)")
             }
         } else if !device.ip.isEmpty, address != device.ip {
             logger.debug("[LAN] Ignoring UDP update for \(deviceID) from unexpected address \(address)")

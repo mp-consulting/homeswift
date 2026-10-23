@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftNetwork
 #if canImport(FoundationNetworking)
 import FoundationNetworking
@@ -30,10 +31,11 @@ struct EWeLinkClock: Sendable {
         originInstant = ContinuousClock.now
     }
 
-    /// Sleeps for `milliseconds` of plugin time; throws when the task is cancelled.
+    /// Sleeps for `milliseconds` of plugin time; throws when the task is cancelled. A delay from a device, the
+    /// cloud or the configuration that is negative, NaN or huge sleeps 0 or as long as `Int64` allows.
     func sleep(milliseconds: Double) async throws {
-        let real = max(0, milliseconds * scale)
-        try await Task.sleep(for: .microseconds(Int64((real * 1000).rounded())))
+        let microseconds = Int64(saturating: (milliseconds * scale * 1000).rounded()) ?? 0
+        try await Task.sleep(for: .microseconds(max(0, microseconds)))
     }
 
     /// Milliseconds since 1970, in plugin time.

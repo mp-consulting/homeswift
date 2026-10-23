@@ -47,14 +47,14 @@ struct CameraHardeningTests {
 
     @Test func snapshotTimeoutHoldsAgainstADelegateThatIgnoresCancellation() async throws {
         let camera = try CameraController(
-            CameraControllerOptions(delegate: StubbornSnapshotDelegate(delay: 5), streamingOptions: CameraStreamingOptions(video: CameraTLVTests.video)),
+            CameraControllerOptions(delegate: StubbornSnapshotDelegate(delay: 60), streamingOptions: CameraStreamingOptions(video: CameraTLVTests.video)),
             extraEventTriggers: [], logger: CameraTLVTests.logger, snapshotTimeouts: (.milliseconds(50), .milliseconds(200)))
         let start = ContinuousClock.now
         await #expect(throws: HAPStatusError(.operationTimedOut)) {
             _ = try await camera.handleSnapshotRequest(height: 720, width: 1280)
         }
-        // A task group would have waited the five seconds of the delegate.
-        #expect(ContinuousClock.now - start < .seconds(2))
+        // A task group would have waited the delegate's minute; a busy test runner may take a few seconds anyway.
+        #expect(ContinuousClock.now - start < .seconds(20))
 
         // A delegate in time still answers.
         let quick = try CameraController(

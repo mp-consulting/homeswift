@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftNetwork
 import HomeswiftPlugin
 
@@ -40,7 +41,7 @@ struct CognitoClient: Sendable {
         var request = HTTPRequest(method: "POST", url: Self.url, body: payload.encoded(), timeout: timeout)
         request.setHeader("Content-Type", "application/x-amz-json-1.1")
         request.setHeader("X-Amz-Target", "AWSCognitoIdentityProviderService.\(target)")
-        let response = try await transport.send(request)
+        let response = try await HTTPRedirects.send(request, through: transport)
         if response.status >= 500 {
             throw DolphinError.requestFailed("Cognito service error: HTTP \(response.status)")
         }
@@ -83,7 +84,7 @@ struct MyDolphinClient: Sendable {
         init(json: JSONValue) {
             switch json["Status"] {
             case .string(let value)?: status = value
-            case .number(let value)?: status = value == value.rounded() ? String(Int(value)) : String(value)
+            case .number(let value)?: status = value == value.rounded() ? String(Int(saturating: value) ?? 0) : String(value)
             default: status = nil
             }
             alert = json["Alert"]?.stringValue
@@ -118,7 +119,7 @@ struct MyDolphinClient: Sendable {
 
         let response: HTTPResponse
         do {
-            response = try await transport.send(request)
+            response = try await HTTPRedirects.send(request, through: transport)
         } catch {
             throw DolphinError.requestFailed("\(method) \(path) failed: \(error)")
         }
@@ -140,4 +141,55 @@ struct MyDolphinHTTPError: Error, Sendable, CustomStringConvertible {
     var body: Data
 
     var description: String { "\(method) \(path) failed: HTTP \(status)" }
+}
+
+/// Redirects followed the way the Homebridge plugin's `fetch` follows them (`redirect: "follow"`): MyDolphin
+/// answers `POST /mobapi/user/authenticate-user/` with a 307 at times, and `HTTPClient` returns redirects as
+/// they are.
+enum HTTPRedirects {
+    /// `fetch` gives up after 20.
+    static let limit = 20
+    static let statuses: Set<Int> = [301, 302, 303, 307, 308]
+    /// The headers that describe a body, dropped with it.
+    static let bodyHeaders = ["Content-Type", "Content-Length", "Content-Encoding", "Content-Language", "Content-Location"]
+
+    /// Sends `request` through `transport`, following redirects: 307 and 308 keep the method and the body;
+    /// 301 and 302 turn a POST into a GET without a body, 303 anything but a GET or HEAD; `Authorization`
+    /// does not follow a redirect to another origin. A redirect without a usable `Location` is the answer.
+    static func send(_ request: HTTPRequest, through transport: any HTTPSending) async throws -> HTTPResponse {
+        var request = request
+        var response = try await transport.send(request)
+        var redirects = 0
+        while statuses.contains(response.status), let next = redirected(request, by: response) {
+            redirects += 1
+            guard redirects <= limit else { throw DolphinError.requestFailed("\(request.method) \(request.url.path): too many redirects") }
+            request = next
+            response = try await transport.send(request)
+        }
+        return response
+    }
+
+    /// The request a redirect asks for, nil when its `Location` is missing or not an HTTP(S) URL.
+    static func redirected(_ request: HTTPRequest, by response: HTTPResponse) -> HTTPRequest? {
+        guard let location = response.header("Location"), let target = URL(string: location, relativeTo: request.url)?.absoluteURL,
+            let scheme = target.scheme?.lowercased(), scheme == "https" || scheme == "http", target.host != nil
+        else { return nil }
+        var next = request
+        next.url = target
+        let method = request.method.uppercased()
+        if (response.status == 303 && method != "GET" && method != "HEAD") || ((response.status == 301 || response.status == 302) && method == "POST") {
+            next.method = "GET"
+            next.body = nil
+            next.headers.removeAll { header in bodyHeaders.contains { $0.caseInsensitiveCompare(header.name) == .orderedSame } }
+        }
+        if origin(of: target) != origin(of: request.url) {
+            next.headers.removeAll { $0.name.caseInsensitiveCompare("Authorization") == .orderedSame }
+        }
+        return next
+    }
+
+    private static func origin(of url: URL) -> String {
+        let scheme = url.scheme?.lowercased() ?? ""
+        return "\(scheme)://\(url.host?.lowercased() ?? ""):\(url.port ?? (scheme == "https" ? 443 : 80))"
+    }
 }
