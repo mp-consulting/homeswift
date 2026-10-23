@@ -105,13 +105,22 @@ public final class HTTPClient: HTTPSending, Sendable {
     }
 
     public let tls: TLS
+    /// The TLS 1.2 cipher suites offered, as an OpenSSL cipher list (`"DEFAULT"`,
+    /// `"ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256"`); nil for NIOSSL's own list. They shape the
+    /// ClientHello, which some cloud firewalls fingerprint. A list that leaves no suite fails every HTTPS request with
+    /// `TLSCipherListError`.
+    public let cipherSuites: String?
     /// Responses larger than this fail instead of filling memory.
     public let maximumBodySize: Int
     private let group: any EventLoopGroup
     private let sslContext: NIOLockedValueBox<NIOSSLContext?> = .init(nil)
 
-    public init(tls: TLS = .system, maximumBodySize: Int = 4 * 1024 * 1024, group: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton) {
+    public init(
+        tls: TLS = .system, cipherSuites: String? = nil, maximumBodySize: Int = 4 * 1024 * 1024,
+        group: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton
+    ) {
         self.tls = tls
+        self.cipherSuites = cipherSuites
         self.maximumBodySize = maximumBodySize
         self.group = group
     }
@@ -291,6 +300,11 @@ public final class HTTPClient: HTTPSending, Sendable {
             if case .system = tls {} else {
                 // The callback decides; nothing a self-signed certificate lacks should fail the handshake first.
                 configuration.certificateVerification = .noHostnameVerification
+            }
+            if let cipherSuites {
+                // NIOSSL stops the process on a list BoringSSL refuses.
+                guard TLSCipherList.isUsable(cipherSuites) else { throw TLSCipherListError(list: cipherSuites) }
+                configuration.cipherSuites = cipherSuites
             }
             let context = try NIOSSLContext(configuration: configuration)
             cached = context
