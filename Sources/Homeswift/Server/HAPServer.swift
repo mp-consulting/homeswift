@@ -273,7 +273,13 @@ public final class HAPServer: @unchecked Sendable {
                 self.state.withLockedValue { $0.connections[connection.id] = connection }
                 return channel.eventLoop.makeCompletedFuture {
                     try channel.pipeline.syncOperations.addHandler(connection.inboundHandler)
-                    Task { await connection.run() }
+                    // The connection's task runs on its channel's event loop where the runtime allows it: a request
+                    // and its answer then need no hop from the loop to the task and back, and no wake-up between them.
+                    if #available(macOS 15, iOS 18, tvOS 18, watchOS 11, *) {
+                        Task(executorPreference: EventLoopTaskExecutor(channel.eventLoop)) { await connection.run() }
+                    } else {
+                        Task { await connection.run() }
+                    }
                 }
             }
 
@@ -504,4 +510,20 @@ extension HAPServer {
 struct CharacteristicKey: Hashable {
     var aid: Int
     var iid: Int
+}
+
+/// Runs a task's jobs on one event loop: a connection's work stays on the thread its channel's I/O runs on.
+/// Nothing in a connection's path may block (NIO refuses `wait()` there); its awaits still go where they go.
+@available(macOS 15, iOS 18, tvOS 18, watchOS 11, *)
+final class EventLoopTaskExecutor: TaskExecutor {
+    let eventLoop: any EventLoop
+
+    init(_ eventLoop: any EventLoop) {
+        self.eventLoop = eventLoop
+    }
+
+    func enqueue(_ job: consuming ExecutorJob) {
+        let job = UnownedJob(job)
+        eventLoop.execute { job.runSynchronously(on: self.asUnownedTaskExecutor()) }
+    }
 }
