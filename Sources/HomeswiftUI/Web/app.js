@@ -447,6 +447,10 @@
       { label: "Show its log", icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` },
       window.HomeswiftChat?.available() ? { label: "Ask the Assistant", icon: sparkle(), onSelect: () => HomeswiftChat.ask(`About ${accessory.name}: `) } : null,
       accessory.platform ? { label: "Plugin settings", icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
+      // A paused plugin's accessories do nothing until it runs again.
+      accessory.paused ? { label: `Resume ${accessory.platformName}`, icon: "play", onSelect: async () => {
+        try { await setPaused(accessory.platform, accessory.platformName, false); route(); } catch (e) { alert(e.message); }
+      } } : null,
     ];
   }
 
@@ -532,27 +536,104 @@
     /// In Edit: the sizes and the arrows over the widget, and the widget dragged into place.
     function editable(node, accessory) {
       const size = sizeOf(accessory);
-      node.draggable = true;
       node.append(el("div", { class: "edit-bar", role: "group", "aria-label": `Size and place of ${accessory.name}` },
         el("button", { type: "button", "aria-label": "Move earlier", title: "Move earlier", text: "‹", "data-step": "-1", onclick: () => step(accessory, -1) }),
         HomeswiftWidgets.sizes.map((one) => el("button", { type: "button", text: one[0].toUpperCase(), title: sizeNames[one], "aria-label": sizeNames[one], "aria-pressed": String(one === size), onclick: () => resize(accessory, one) })),
         el("button", { type: "button", "aria-label": "Move later", title: "Move later", text: "›", "data-step": "1", onclick: () => step(accessory, 1) })));
-      node.addEventListener("dragstart", (event) => { event.dataTransfer.setData("text/plain", accessory.id); event.dataTransfer.effectAllowed = "move"; node.classList.add("dragging"); });
-      node.addEventListener("dragend", () => node.classList.remove("dragging"));
-      node.addEventListener("dragover", (event) => {
-        event.preventDefault();
-        const box = node.getBoundingClientRect(), before = event.clientX < box.left + box.width / 2;
-        node.classList.toggle("drop-before", before);
-        node.classList.toggle("drop-after", !before);
-      });
-      node.addEventListener("dragleave", () => node.classList.remove("drop-before", "drop-after"));
-      node.addEventListener("drop", (event) => {
-        event.preventDefault();
-        const after = node.classList.contains("drop-after");
-        node.classList.remove("drop-before", "drop-after");
-        const dragged = accessories.find((one) => one.id === event.dataTransfer.getData("text/plain"));
-        if (dragged) place(dragged, accessory, after);
-      });
+      node.addEventListener("pointerdown", (event) => drag(event, node));
+    }
+
+    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+    /// Moves widgets of `wall` by `change` and slides them from where they were seen to where they land (FLIP): taken
+    /// from their on-screen place, so a slide already under way turns smoothly.
+    function slide(wall, change, except) {
+      const siblings = [...wall.children].filter((node) => node !== except);
+      const seen = new Map(siblings.map((node) => [node, node.getBoundingClientRect()]));
+      change();
+      for (const node of siblings) { node.style.transition = "none"; node.style.transform = ""; }
+      for (const node of siblings) {
+        const was = seen.get(node), now = node.getBoundingClientRect();
+        const dx = was.left - now.left, dy = was.top - now.top;
+        if (!dx && !dy) { node.style.transition = ""; continue; }
+        node.style.transform = `translate(${dx}px, ${dy}px)`;
+        node.getBoundingClientRect();
+        node.style.transition = reducedMotion.matches ? "none" : "transform 220ms var(--ease-out)";
+        node.style.transform = "";
+      }
+    }
+
+    /// Dragging in Edit: the widget lifts and follows the pointer, a dashed slot holds its place in the grid and
+    /// moves as it passes over the others, which slide aside; near the window's top or bottom the page scrolls.
+    /// Let go, it lands in the slot, and the wall's order is kept. A finger drags at once: in Edit the widgets do not
+    /// scroll the page.
+    function drag(event, node) {
+      if (event.button !== 0 || event.target.closest(".edit-bar")) return;
+      // A press that drags selects no text.
+      event.preventDefault();
+      getSelection()?.removeAllRanges();
+      const wall = node.parentElement;
+      const start = { x: event.clientX, y: event.clientY };
+      let slot = null, pointer = event, scroller = null;
+      node.setPointerCapture(event.pointerId);
+      const lift = () => {
+        const box = node.getBoundingClientRect();
+        slot = el("div", { class: `${[...node.classList].filter((name) => name.startsWith("size-")).join(" ")} widget drag-slot`, "aria-hidden": "true" });
+        node.before(slot);
+        node.classList.add("lifted");
+        Object.assign(node.style, { left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px` });
+        scroller = setInterval(() => {
+          const edge = 80, speed = 14;
+          if (pointer.clientY < edge) scrollBy(0, -speed);
+          else if (pointer.clientY > innerHeight - edge) scrollBy(0, speed);
+          else return;
+          hover();
+        }, 16);
+      };
+      // The widget under the pointer: the slot goes before it, or after it past its middle.
+      const hover = () => {
+        const under = document.elementFromPoint(pointer.clientX, pointer.clientY)?.closest(".wall > .widget");
+        if (!under || under === slot || under.parentElement !== wall) return;
+        const box = under.getBoundingClientRect();
+        const after = pointer.clientX > box.left + box.width / 2;
+        if ((after ? under.nextElementSibling : under.previousElementSibling) === slot) return;
+        slide(wall, () => (after ? under.after(slot) : under.before(slot)), node);
+      };
+      const move = (moved) => {
+        pointer = moved;
+        if (!slot) {
+          if (Math.hypot(moved.clientX - start.x, moved.clientY - start.y) < 5) return;
+          lift();
+        }
+        node.style.transform = `translate(${moved.clientX - start.x}px, ${moved.clientY - start.y}px) scale(1.04)`;
+        hover();
+      };
+      const end = () => {
+        node.removeEventListener("pointermove", move);
+        node.removeEventListener("pointerup", end);
+        node.removeEventListener("pointercancel", end);
+        clearInterval(scroller);
+        if (!slot) return;
+        // Lands in the slot from where it was let go.
+        const from = node.getBoundingClientRect();
+        slot.replaceWith(node);
+        node.classList.remove("lifted");
+        node.style.cssText = "";
+        const to = node.getBoundingClientRect();
+        node.style.transition = "none";
+        node.style.transform = `translate(${from.left - to.left}px, ${from.top - to.top}px)`;
+        node.getBoundingClientRect();
+        node.style.transition = reducedMotion.matches ? "none" : "transform 220ms var(--ease-out)";
+        node.style.transform = "";
+        // The wall's accessories take the places they had in the order, in the order they now stand.
+        const ids = [...wall.children].map((child) => child.dataset.id).filter(Boolean);
+        const places = ordered.flatMap((accessory, index) => ids.includes(accessory.id) ? [index] : []);
+        const byID = new Map(ordered.map((accessory) => [accessory.id, accessory]));
+        ids.forEach((id, index) => { ordered[places[index]] = byID.get(id); });
+        save();
+      };
+      node.addEventListener("pointermove", move);
+      node.addEventListener("pointerup", end);
+      node.addEventListener("pointercancel", end);
     }
 
     const content = el("div", { class: "accessory-walls" });

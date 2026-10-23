@@ -25,7 +25,12 @@ Homeswift takes care of pairing, encryption, Bonjour and keeping the accessory's
 
 It is also a Homebridge written in Swift: the `homeswift` bridge reads a Homebridge-style `config.json` and
 runs the plugins compiled into it, one small binary, no Node.js, no npm. Ten plugins come with it, from Elgato Key
-Lights to UniFi Protect cameras; [docs/plugins.md](docs/plugins.md) explains how to write or port one.
+Lights to UniFi Protect cameras; [docs/plugins.md](docs/plugins.md) explains how to write or port one. Its web UI
+shows every accessory as a widget of its kind, on a wall you arrange.
+
+<p align="center">
+  <img src="docs/images/widgets/wall.png" width="820" alt="The web UI's Accessories page: air conditioners with their gauges, a purifier with its air readings, lights, shutters and switches as tiles, on one wall">
+</p>
 
 ## What it does
 
@@ -42,10 +47,11 @@ Lights to UniFi Protect cameras; [docs/plugins.md](docs/plugins.md) explains how
 - **Bonjour**: `_hap._tcp` advertising through dns_sd on macOS and Avahi on Linux, updated when pairing changes.
 - **Setup code and setup URI**: a random code on first launch (or your own), shown as the Home app shows it
   (`0052-1956`), and the `X-HM://` URI for a QR code.
+- **Cameras and doorbells**: live video and snapshots over SRTP, HomeKit Secure Video recording, two-way audio
+  and the doorbell's ring, with HAP-NodeJS's `CameraController` API; `HomeswiftFFmpeg` does the encoding.
 
-Not included: Bluetooth LE and Thread accessories, camera and doorbell video streaming (RTP), Siri audio,
-MFi authentication. Without MFi, the Home app shows the accessory as uncertified when you add it and asks you to
-confirm.
+Not included: Bluetooth LE and Thread accessories, Siri audio, MFi authentication. Without MFi, the Home app shows
+the accessory as uncertified when you add it and asks you to confirm.
 
 ## Install
 
@@ -187,10 +193,8 @@ configuration changes, and an audit log. `homeswift mcp --snippets` prints the c
 
 ## The web UI
 
-A `HomeswiftUI` block adds a web interface on port 8581: status with the pairing code and its QR code,
-accessories with live control, each plugin's settings as a form from its `config.schema.json` and its own
-page when it has one, the raw config.json, the live log, and a Restart button, behind a login created on
-the first visit with a set-up code from the bridge's output. See [docs/ui.md](docs/ui.md).
+A `HomeswiftUI` block adds a web interface on port 8581, behind a login created on the first visit with a set-up
+code from the bridge's output:
 
 ```json
 { "platform": "HomeswiftUI" }
@@ -207,6 +211,24 @@ brew install mp-consulting/tap/homeswift
 
 ```bash
 homeswift-demo
+- **Accessories** as widgets of their kind, chosen from what HomeKit knows about each one: an air conditioner's
+  gauge, setpoints and modes, a purifier's air readings and filter, a light's brightness, colours, white and
+  Adaptive Lighting, a shutter you slide, a valve that counts down, a gate held to open, cameras live. Each in
+  the size you choose (a 1×1 tile, a 2×1 or a 2×2 card) on a wall you arrange by dragging, kept by the bridge.
+  Every control of an accessory is a tap away in its sheet; a paused plugin's accessories rest, striped.
+- **Status**: the bridges and their pairing codes with QR codes, memory, CPU and how fast the bridge and the
+  plugins answer, over the last hour to the last week.
+- **Plugins**: each one's settings as a form from its `config.schema.json`, its own page when it has one, pause and
+  resume; the raw config.json; the live log with its history; a Restart button; the Assistant's chat.
+
+<p align="center">
+  <img src="docs/images/widgets/sizes.png" width="560" alt="An air conditioner, a light and a shutter, each as a small tile, a medium card and a large card">
+  <img src="docs/images/widgets/phone.png" width="220" alt="The Accessories page on a phone: two columns">
+</p>
+
+See [docs/ui.md](docs/ui.md) for the UI and [docs/widgets.md](docs/widgets.md) for the widgets, with how a plugin
+gets the best of them.
+
 ```
 
 Or run it in the background, at login, with `brew services start homeswift`; the setup code is then in
@@ -257,6 +279,17 @@ On macOS, if `swift test` fails to code sign the test bundle (files under `~/Doc
 metadata), build outside the repository with `--scratch-path ~/Library/Caches/homeswift-build`.
 
 ## License
+## Documentation
+
+| | |
+|---|---|
+| [docs/plugins.md](docs/plugins.md) | Writing a plugin, porting one from Homebridge, the runtime's files |
+| [docs/widgets.md](docs/widgets.md) | The Accessories page's widgets: sizes, the wall, and what a plugin does to get good ones |
+| [docs/ui.md](docs/ui.md) | The web UI: configuration, pages, security, a plugin's own page |
+| [docs/mcp.md](docs/mcp.md) | The MCP server: scopes, confirmations, resources, prompts |
+| [docs/ai.md](docs/ai.md) | The Assistant: providers, the command line, what reaches a provider |
+| [docs/synology.md](docs/synology.md) | The Synology package and the container image |
+
 
 MIT, see [LICENSE](LICENSE). The service and characteristic definitions come from HAP-NodeJS (Apache-2.0).
 

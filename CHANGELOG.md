@@ -20,6 +20,20 @@ All notable changes to this project are documented here. The format follows
   plugin. The bridge keeps the layout (`ui-layout.json`, `GET` and `PUT /api/layout`), the same for every user.
   Changes show at once and are put back with the reason when the device refuses. Plugin pages can use them:
   `HomeswiftWidgets.card(accessory, { size })`, `.open(accessory)` and `.listen()`.
+- **Adaptive Lighting from the web UI**: a light's sun swatch turns it off, or on again by resuming the last schedule
+  the Home app sent, moved by whole days (`AdaptiveLightingController.resumeAdaptiveLighting()`; the controller
+  keeps that schedule, saved with its state). `PUT /api/accessories/<id>/adaptive-lighting`; lights with it say so
+  in `/api/accessories`. The Elgato Key Lights and Philips Ambilight TV plugins now have Adaptive Lighting, which
+  stops when the light is set elsewhere (the Control Center app, Ambilight following video again).
+- **Paused plugins on the Accessories page**: their accessories are drawn striped, "Paused · *plugin*", their
+  controls out of reach, with **Resume** in their menu; `/api/accessories` marks them `paused`.
+- A shutter's small tile slides to a position (a finger holds it a moment first, so a swipe still scrolls), and
+  Edit drags widgets for real: the widget lifts and follows the pointer or finger, the others make room, the page
+  scrolls near its edges.
+- [docs/widgets.md](docs/widgets.md): the widgets, sizes and wall, with screenshots, and what a plugin does to get
+  good widgets (examples in Swift and for a plugin's own page, `HomeswiftWidgets.register` and `.controls`). The
+  README shows the web UI.
+
 - **The Assistant's chat** in the web UI: a sparkle button in the header, on every page, opens a chat where
   the Assistant answers and acts through the MCP server's tools, plugin actions included. Each change shows
   a card with a dry run's list of what would change and waits for Allow; writes go to the MCP audit log.
@@ -252,6 +266,11 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - **Plugins** (`HomeswiftPlugin`): the `HomeswiftPlugin` protocol and `PluginContext`. `PluginHost` runs the
+### Fixed
+
+- A write the device refuses or never answers reads as a sentence ("Desk Lamp did not answer…", "eWeLink is
+  paused: resume it…") in the web UI and to MCP clients, not as `HAPStatusError(…)`.
+
   plugins of a Homebridge-shaped `config.json` on one bridge, restores each platform's accessories from a
   cache before its plugin starts (aids and iids kept), and runs a block with `_bridge` on its own child
   bridge. `docs/plugins.md` explains how to write one and how to port a Homebridge plugin.

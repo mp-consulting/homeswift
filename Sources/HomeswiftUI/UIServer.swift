@@ -518,6 +518,18 @@ public final class UIServer: Sendable {
             if route.count == 3, route[0] == "config", route[1] == "platforms" {
                 return try await replacePlatformBlock(at: route[2], with: body, username: username)
             }
+            if route.count == 3, route[0] == "accessories", route[2] == "adaptive-lighting" {
+                // { "on": true } resumes the schedule the Home app last sent; false turns it off.
+                guard let found = catalog.find(id: route[1]) else { return .error(404, "no accessory \(route[1])") }
+                guard let on = body["on"]?.boolValue else { return .error(400, "on (true or false) is required") }
+                do {
+                    let result = try catalog.setAdaptiveLighting(found, service: body["service"]?.stringValue, on: on)
+                    logger.info("Web UI turned Adaptive Lighting \(on ? "on" : "off")", metadata: ["user": "\(username)", "accessory": "\(found.accessory.name)"])
+                    return .json(result)
+                } catch let error as CatalogError {
+                    return .error(409, error.description)
+                }
+            }
             if route.count == 4, route[0] == "config", route[1] == "block" {
                 // A block by platform and name, for a plugin's own page: its read-modify-write never needs
                 // the whole file, nor an index that may have moved.

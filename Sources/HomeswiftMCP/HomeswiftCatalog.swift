@@ -125,7 +125,28 @@ public struct HomeswiftCatalog: Sendable {
 
     /// Makes the accessory identify itself (a light blinks, a speaker chimes).
     public func identify(_ located: Located) async throws {
-        try await located.accessory.information.characteristic(.identify).write(.bool(true))
+        do {
+            try await located.accessory.information.characteristic(.identify).write(.bool(true))
+        } catch let error as HAPStatusError {
+            throw CatalogError(Self.describe(error, of: located))
+        }
+    }
+
+    /// A device's refusal in words: a paused plugin's accessory, a device out of reach, a value it would not take.
+    static func describe(_ error: HAPStatusError, of located: Located) -> String {
+        let name = located.accessory.name
+        if let platform = located.platform, platform.paused {
+            return "\(platform.name) is paused: resume it on the Plugins page to control \(name)"
+        }
+        switch error.status {
+        case .serviceCommunicationFailure: return "\(name) did not answer: the device may be off or out of reach"
+        case .resourceBusy: return "\(name) is busy: try again in a moment"
+        case .operationTimedOut: return "\(name) took too long to answer"
+        case .invalidValueInRequest: return "\(name) refused that value"
+        case .notAllowedInCurrentState: return "\(name) cannot do that now"
+        case .readOnlyCharacteristic: return "\(name) only reports this value"
+        default: return "\(name) refused the change (\(error.status))"
+        }
     }
 
     public static func json(_ value: HAPValue) -> JSONValue {
@@ -169,6 +190,8 @@ public struct HomeswiftCatalog: Sendable {
         if let platform = located.platform {
             object["platform"] = .string(platform.platform)
             object["platformName"] = .string(platform.name)
+            // Its plugin does not run: the accessory answers No Response until it is resumed.
+            if platform.paused { object["paused"] = true }
         }
         if let camera = accessory.cameraController {
             // The web UI gives it a camera card: live video or snapshots, from /api/cameras/<id>/…
@@ -181,6 +204,7 @@ public struct HomeswiftCatalog: Sendable {
             if let name = service[.name]?.value.stringValue { entry["name"] = .string(name) }
             if service.isPrimary { entry["primary"] = true }
             if isInternal(service) { entry["internal"] = true }
+            if let controller = service.adaptiveLighting { entry["adaptiveLighting"] = adaptiveLightingJSON(controller) }
             if detailed {
                 entry["characteristics"] = .array(service.characteristics.map { characteristic in
                     let type = characteristic.type
@@ -270,8 +294,41 @@ public struct HomeswiftCatalog: Sendable {
             throw CatalogError("\(characteristic.type.name) of \(located.accessory.name) unlocks, opens or disarms: use set_security_accessory")
         }
         guard let hap = Self.hapValue(value) else { throw CatalogError("value must be a boolean, a number or a string") }
-        try await characteristic.write(hap)
+        do {
+            try await characteristic.write(hap)
+        } catch let error as HAPStatusError {
+            throw CatalogError(Self.describe(error, of: located))
+        }
         return ["id": .string(located.accessory.id), "characteristic": .string(characteristic.type.name), "value": Self.value(of: characteristic)]
+    }
+
+    /// Turns a light's Adaptive Lighting on or off. On resumes the last schedule the Home app sent (the bridge keeps
+    /// it), as the web UI's Adaptive swatch does; HomeKit alone can start one. `service` picks the lightbulb when the
+    /// accessory has several with Adaptive Lighting.
+    public func setAdaptiveLighting(_ located: Located, service serviceName: String?, on: Bool) throws -> JSONValue {
+        let lights = located.accessory.services.filter { service in
+            guard service.adaptiveLighting != nil else { return false }
+            guard let serviceName else { return true }
+            let wanted = Self.normalized(serviceName)
+            return Self.normalized(service.type.name) == wanted || service.subtype.map(Self.normalized) == wanted || service[.name]?.value.stringValue.map(Self.normalized) == wanted
+        }
+        guard let light = lights.first, let controller = light.adaptiveLighting else {
+            throw CatalogError("\(located.accessory.name) has no Adaptive Lighting\(serviceName.map { " on service \($0)" } ?? "")")
+        }
+        if lights.count > 1, serviceName == nil { throw CatalogError("\(located.accessory.name) has \(lights.count) lights with Adaptive Lighting; name the service") }
+        if !on {
+            controller.disableAdaptiveLighting()
+        } else if !controller.isAdaptiveLightingActive, !controller.resumeAdaptiveLighting() {
+            throw CatalogError(controller.canResumeAdaptiveLighting
+                ? "the Adaptive Lighting schedule of \(located.accessory.name) does not cover this time of day; turn it on in the Home app"
+                : "turn Adaptive Lighting on once in the Home app (the light's settings): the bridge then keeps the schedule and can resume it")
+        }
+        return ["id": .string(located.accessory.id), "adaptiveLighting": Self.adaptiveLightingJSON(controller)]
+    }
+
+    /// Whether a light's Adaptive Lighting runs, and whether the bridge has a schedule to resume when it does not.
+    static func adaptiveLightingJSON(_ controller: AdaptiveLightingController) -> JSONValue {
+        ["active": .bool(controller.isAdaptiveLightingActive), "resumable": .bool(controller.canResumeAdaptiveLighting)]
     }
 
     // MARK: Status, plugins, system

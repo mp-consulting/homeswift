@@ -144,6 +144,47 @@ struct AdaptiveLightingTests {
         #expect(!controller.isAdaptiveLightingActive)
     }
 
+    /// Off, the last schedule stays (saved too) and resumes moved by whole days, at the same time of day; at a time
+    /// its curve does not reach, it does not.
+    @Test func resumesTheLastScheduleWholeDaysLater() async throws {
+        let lightbulb = Self.lightbulb(hueAndSaturation: true)
+        lightbulb.characteristic(.brightness).value = .int(50)
+        lightbulb.characteristic(.colorTemperature).onWrite { _ in }
+        let clock = Clock()
+        let controller = Self.controller(lightbulb, mode: .automatic, clock: clock)
+        #expect(lightbulb.adaptiveLighting === controller)
+        #expect(!controller.canResumeAdaptiveLighting)
+        #expect(!controller.resumeAdaptiveLighting())
+
+        let start = 1_699_999_400_000 + 600_000
+        clock.now = start + 30 * 60_000
+        try controller.deserialize(Data(Self.serialized.utf8))
+        controller.disableAdaptiveLighting()
+        #expect(controller.canResumeAdaptiveLighting)
+        // Saved while off, the schedule is kept for later.
+        let restored = Self.controller(Self.lightbulb(), mode: .automatic, clock: clock)
+        try restored.deserialize(try #require(controller.serialize()))
+        #expect(!restored.isAdaptiveLightingActive)
+        #expect(restored.canResumeAdaptiveLighting)
+
+        // Three days later, five hours in: past the four hours of the curve.
+        clock.now = start + 3 * 86_400_000 + 5 * 3_600_000
+        #expect(!controller.resumeAdaptiveLighting())
+        // Three days later, thirty minutes in: the temperature of thirty minutes in, and a save.
+        clock.now = start + 3 * 86_400_000 + 30 * 60_000
+        let saves = NIOLockedValueBox(0)
+        controller.setupStateChangeDelegate { saves.withLockedValue { $0 += 1 } }
+        #expect(controller.resumeAdaptiveLighting())
+        #expect(controller.isAdaptiveLightingActive)
+        #expect(!controller.canResumeAdaptiveLighting)
+        #expect(controller.timeOffset == 600_000 + 3 * 86_400_000)
+        #expect(lightbulb[.characteristicValueActiveTransitionCount]?.value == .int(1))
+        #expect(saves.withLockedValue { $0 } == 1)
+        await controller.scheduleNextUpdate(dryRun: true)
+        #expect(lightbulb.characteristic(.colorTemperature).value == .int(213))
+        controller.disableAdaptiveLighting()
+    }
+
     @Test func colorUtilsMatchesTheLookupTable() {
         #expect(ColorUtils.colorTemperatureToHueAndSaturation(140) == (hue: 237, saturation: 6))
         #expect(ColorUtils.colorTemperatureToHueAndSaturation(500) == (hue: 28, saturation: 64))

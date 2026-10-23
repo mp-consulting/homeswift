@@ -117,6 +117,8 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
 
     private struct State {
         var activeTransition: Transition?
+        /// The last schedule HomeKit sent, kept when Adaptive Lighting goes off, so it can be resumed.
+        var lastTransition: Transition?
         var didRunFirstInitializationStep = false
         var updateTimer: Task<Void, Never>?
         var lastTransitionPointInfo: (curveIndex: Int, lowerBoundTimeOffset: Int)?
@@ -164,6 +166,7 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
         activeTransitionCount = lightbulb.characteristic(adding: .characteristicValueActiveTransitionCount)
         transitionControl.set(.string(""), notify: false)
         activeTransitionCount.set(.int(0), notify: false)
+        lightbulb.adaptiveLightingBox.withLockedValue { $0.controller = self }
 
         supportedTransitionConfiguration.onRead { [weak self] in
             .string(self?.supportedTransitionConfigurationTLV().base64EncodedString() ?? "")
@@ -199,6 +202,37 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
 
     /// The active schedule, if any.
     public var activeTransition: Transition? { state.withLockedValue { $0.activeTransition } }
+
+    /// Whether `resumeAdaptiveLighting()` can turn it on: off, with a schedule HomeKit sent before.
+    public var canResumeAdaptiveLighting: Bool { state.withLockedValue { $0.activeTransition == nil && $0.lastTransition != nil } }
+
+    /// Turns Adaptive Lighting on again with the last schedule the Home app sent, its clock moved by whole days so
+    /// that now falls in it (the curve keeps its times of day): the web UI's Adaptive swatch. The Home app sees it
+    /// on, and a home hub renews it as it renews any. False when it is on already, when HomeKit never sent a
+    /// schedule, or when the schedule's curve does not reach the time of day it is now.
+    @discardableResult
+    public func resumeAdaptiveLighting() -> Bool {
+        let now = clock()
+        let resumed = state.withLockedValue { state -> Bool in
+            guard state.activeTransition == nil, var transition = state.lastTransition else { return false }
+            let day = 86_400_000
+            let elapsed = now - transition.timeMillisOffset - transition.transitionStartMillis
+            // Whole days, rounded down, also for a schedule that starts later than now.
+            let days = elapsed >= 0 ? elapsed / day : -((day - 1 - elapsed) / day)
+            transition.timeMillisOffset += days * day
+            let length = transition.transitionCurve.reduce(0) { $0 + $1.transitionTime + ($1.duration ?? 0) }
+            let position = now - transition.timeMillisOffset - transition.transitionStartMillis
+            guard position >= 0, position <= length else { return false }
+            state.activeTransition = transition
+            state.lastTransition = transition
+            state.lastTransitionPointInfo = nil
+            return true
+        }
+        guard resumed else { return false }
+        logger.debug("Adaptive lighting was resumed", metadata: ["lightbulb": "\(displayName)"])
+        handleActiveTransitionUpdated(fromDeserializer: false)
+        return true
+    }
 
     /// When the current schedule started, in milliseconds since 1970 (see `timeOffset`).
     public var startTimeOfTransition: Int? { activeTransition?.transitionStartMillis }
@@ -257,20 +291,28 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
         "characteristic-transition-" + lightbulb.type.uuid.uuidString + (lightbulb.subtype ?? "")
     }
 
+    /// The active schedule, and the last one, which stays once Adaptive Lighting is off (a state saved before it
+    /// existed has the active one only).
     private struct Serialized: Codable {
-        var activeTransition: Transition
+        var activeTransition: Transition?
+        var lastTransition: Transition?
     }
 
     public func serialize() -> Data? {
-        guard let active = activeTransition else { return nil }
-        return try? JSONEncoder().encode(Serialized(activeTransition: active))
+        let (active, last) = state.withLockedValue { ($0.activeTransition, $0.lastTransition) }
+        guard active != nil || last != nil else { return nil }
+        return try? JSONEncoder().encode(Serialized(activeTransition: active, lastTransition: last))
     }
 
     public func deserialize(_ data: Data) throws {
         let serialized = try JSONDecoder().decode(Serialized.self, from: data)
-        let transition = serialized.activeTransition.clamped()
-        state.withLockedValue { $0.activeTransition = transition }
-        handleActiveTransitionUpdated(fromDeserializer: true)
+        let active = serialized.activeTransition?.clamped()
+        let last = (serialized.lastTransition ?? serialized.activeTransition)?.clamped()
+        state.withLockedValue {
+            $0.activeTransition = active
+            $0.lastTransition = last
+        }
+        if active != nil { handleActiveTransitionUpdated(fromDeserializer: true) }
     }
 
     public func setupStateChangeDelegate(_ delegate: (@Sendable () -> Void)?) {
@@ -727,6 +769,7 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
 
         let renewed = state.withLockedValue { state -> Bool in
             state.activeTransition = transition
+            state.lastTransition = transition
             // A new schedule starts from the beginning of its curve.
             state.lastTransitionPointInfo = nil
             guard let timer = state.updateTimer else { return false }

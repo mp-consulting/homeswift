@@ -344,6 +344,7 @@ struct TelevisionTests {
         #expect(await tv.keys.last == "VolumeDown")
 
         let ambilight = try #require(accessory.service(.lightbulb, subtype: "ambilight"))
+        #expect(ambilight.adaptiveLighting != nil)
         try await ambilight.characteristic(.on).write(.bool(true))
         let configuration = await tv.ambilight
         #expect(configuration.style == "FOLLOW_VIDEO" && configuration.menuSetting == "NATURAL")
