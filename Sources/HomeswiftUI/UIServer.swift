@@ -755,11 +755,28 @@ public final class UIServer: Sendable {
 
     /// An ISO 8601 date and time, with or without fractional seconds (`Date.toISOString()` sends them).
     static func date(iso text: String) -> Date? {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: text) { return date }
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: text)
+        isoParsers.date(text)
+    }
+
+    private static let isoParsers = ISOParsers()
+
+    /// The two formatters `date(iso:)` tries, made once: making them cost more than the rest of a log range's request.
+    /// Formatters are not Sendable, so one caller at a time uses them.
+    private final class ISOParsers: @unchecked Sendable {
+        private let lock = NSLock()
+        private let fractional = ISO8601DateFormatter()
+        private let plain = ISO8601DateFormatter()
+
+        init() {
+            fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            plain.formatOptions = [.withInternetDateTime]
+        }
+
+        func date(_ text: String) -> Date? {
+            lock.lock()
+            defer { lock.unlock() }
+            return fractional.date(from: text) ?? plain.date(from: text)
+        }
     }
 
     /// A history for the Status page's charts: `step` in seconds, then a point per step with something recorded,
