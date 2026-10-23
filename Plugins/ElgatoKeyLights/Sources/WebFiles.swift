@@ -72,7 +72,7 @@ extension ElgatoKeyLightsPlugin {
         HomeswiftCommon.menuButton(`Actions for ${light.name}`, () => [
           !disabled && light.reachable ? { label: "Identify", icon: "identify", onSelect: () => request(`identify?mac=${encodeURIComponent(light.mac)}`, { method: "POST" }).catch((e) => alert(e.message)) } : null,
           { label: "Settings", icon: "gear", onSelect: () => openSettings(light) },
-          disabled ? null : { label: "Show its log", icon: "logs", href: `/#logs/${encodeURIComponent(`ElgatoKeyLights:${canonicalMAC(light.mac)}`)}` },
+          disabled ? null : { label: "Show its log", icon: "logs", href: `/logs/${encodeURIComponent(`ElgatoKeyLights:${canonicalMAC(light.mac)}`)}` },
           window.HomeswiftChat?.available() ? { label: "Ask the Assistant", icon: HomeswiftCommon.sparkle(), onSelect: () => HomeswiftChat.ask(`About my light ${light.name}: `) } : null,
         ])));
   }
@@ -291,7 +291,7 @@ extension ElgatoKeyLightsPlugin {
 </style>
 </head>
 <body>
-<header><a class="brand" href="/#status"><img src="/icon.svg" class="logo" alt="">Homeswift</a></header>
+<header><a class="brand" href="/"><img src="/icon.svg" class="logo" alt="">Homeswift</a></header>
 <main>
   <div class="page-head">
     <span class="tile large tone-yellow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></svg></span>

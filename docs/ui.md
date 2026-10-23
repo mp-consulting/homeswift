@@ -33,17 +33,22 @@ with a new code).
   update live when a device changes elsewhere. Locks, garage doors and alarms can be operated here, as in
   the Home app, since the user signed in. Each card's **⋯** menu identifies the accessory, shows its log,
   asks the Assistant about it, and opens its plugin's settings.
+- **Addresses** are paths: `/status`, `/accessories`, `/plugins`, `/plugins/<slug>` and its `/expert`,
+  `/plugins/add/<platform>`, `/config`, `/account`, and `/logs/<accessory>?since=24h&level=warning&q=text`
+  (the accessory by its name's slug; `since` is `1h`, `6h`, `24h`, `today`, `yesterday`, `7d` or `custom` with
+  `from` and `to`). A link changes the view in place, Back and Forward work, and an address can be kept or
+  shared; the Logs view writes its choices into its own.
 - **Plugins**: every platform block of config.json, with whether it runs, is paused, and where. Each card's
   **⋯** menu, at its bottom right like every card's, opens the plugin's page, its Expert form or JSON, pauses
   or resumes it, and removes it; its name opens its page. **Pause** (also at the top right of a plugin's page)
   stops the plugin's calls to its devices, for when an app sharing the account would be signed out by them;
   its accessories stay in the Home app, showing No Response, and the page offers **Resume**. **Open** shows a
-  plugin's own page (see below): a running plugin's settings are that page, from the Plugins list, an
-  accessory's menu or `#settings/<platform>/<name>`. Its **Expert** part, last on the page and **Expert** on
-  the Plugins list, opens the whole block as a form built from the plugin's schema (the same
-  `config.schema.json` the Homebridge version ships) or as JSON (`#settings/<platform>/<name>/form` or
-  `/json`); a plugin that does not run, or has no page, opens there directly, and the runtime's own blocks
-  under **Settings**. **Add a platform** lists the plugins compiled in. The JSON view is coloured as you
+  plugin's own page (see below): a running plugin's settings are that page, at `/plugins/<slug>` (the
+  block's name in lower case, dashes for spaces: `/plugins/dyson-pure-cool`), from the Plugins list or an
+  accessory's menu. Its **Expert** part, last on the page and in the card's menu, opens the whole block as a
+  form built from the plugin's schema (the same `config.schema.json` the Homebridge version ships) or as JSON
+  (`/plugins/<slug>/expert` or `/expert/json`); a plugin that does not run, or has no page, shows the form at
+  its address, and so do the runtime's own blocks. **Add a platform** lists the plugins compiled in. The JSON view is coloured as you
   type, like the Config page; Save takes the view on screen. A certificate or key field takes a
   dropped PEM file, which the bridge checks and keeps owner-only under `files/` next to config.json. The
   runtime's own blocks, `HomeswiftUI` and `HomeswiftAiKit` (the Assistant and the MCP server), have forms too.
@@ -128,9 +133,10 @@ values, nested objects, and the top-level `layout` with `fieldset` groups. Keys 
 **A page of its own.** A plugin that has more to show than settings (the devices it sees, a scan, a
 diagnostic) ships a `Web/` directory with an `index.html` and whatever files it needs, embedded by `swift
 Scripts/embed-assets.swift web Plugins/<Name>/Web Plugins/<Name>/Sources/WebFiles.swift <Type>` (a test
-checks it is current). The UI serves them at `/plugins/<platform>/`, to signed-in users only, and the
-Plugins page shows **Open** for every running instance, linking to `index.html?name=<block name>`. The
-page is a full document: link `/style.css` for the look of the rest of the UI, then `/common.js` and
+checks it is current). The UI serves each instance's page at `/plugins/<slug>` and its files beside it, to
+signed-in users only (anyone else gets the sign-in page, then this one); the page gets a `<base>` for its
+relative files and a `<meta name="homeswift-plugin">` naming its platform and instance, which `plugin.js`
+reads. The page is a full document: link `/style.css` for the look of the rest of the UI, then `/common.js` and
 `/plugin.js` for the helpers. The content security policy allows scripts and styles from files only, no
 inline script.
 

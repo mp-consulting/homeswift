@@ -2,7 +2,7 @@
 (() => {
   "use strict";
 
-  const { $, el, tile, sparkle, menuButton, copyText, jsonEditor, fact, setPaused } = HomeswiftCommon;
+  const { $, el, tile, sparkle, menuButton, copyText, jsonEditor, fact, setPaused, slug, withSlugs } = HomeswiftCommon;
 
   const show = (main, ...nodes) => main.replaceChildren(...nodes.flat().filter(Boolean));
 
@@ -145,32 +145,48 @@
 
   // ---- Routing -------------------------------------------------------------
 
-  // A route is a view and its arguments: #settings/ElgatoKeyLights/Desk%20lights is the settings view for that
-  // block. Pages below a section keep the section lit in the header.
+  // A path is a view and its arguments: /status (or /), /accessories, /plugins, /plugins/<slug>/expert[/json]
+  // (a block's settings; /plugins/<slug> itself is the plugin's own page when it has one), /plugins/add/<platform>,
+  // /config, /logs[/<accessory>]?since=…&level=…&q=…, /account. Pages below a section keep it lit in the header.
   const views = {};
-  const sectionOf = { settings: "plugins" };
   let leaveGuard = null;   // a page with unsaved changes: false keeps it
-  let shownHash = null;
+  let shownPath = null;
   function route() {
     const decode = (part) => { try { return decodeURIComponent(part); } catch { return part; } };
-    const [name, ...args] = (location.hash || "#status").slice(1).split("/").map(decode);
-    const section = sectionOf[name] || name;
+    const [name = "status", ...args] = location.pathname.split("/").filter(Boolean).map(decode);
     for (const link of document.querySelectorAll("nav a")) {
-      const current = link.getAttribute("href") === `#${section}`;
+      const current = link.getAttribute("href") === `/${name}`;
       link.classList.toggle("active", current);
       if (current) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
     }
-    const view = views[name] || views.status;
+    const view = name === "plugins" && args.length ? views.settings : views[name] || views.status;
     const main = $("#view");
     leaveGuard = null;
-    shownHash = location.hash;
+    shownPath = location.pathname + location.search;
     main.replaceChildren(el("p", { class: "muted", text: "Loading…" }));
     view(main, args).catch((e) => { if (e.status !== 401) main.replaceChildren(el("p", { class: "error", text: e.message })); });
   }
-  window.addEventListener("hashchange", () => {
-    if (!(auth && auth.authenticated)) return;
-    if (leaveGuard && !leaveGuard()) { history.replaceState(null, "", shownHash); return; }
+  /// Shows the view at `path` without loading the page again; `replace` keeps it out of the history.
+  function navigate(path, { replace = false } = {}) {
+    if (leaveGuard && !leaveGuard()) return;
+    history[replace ? "replaceState" : "pushState"](null, "", path);
     route();
+  }
+  window.addEventListener("popstate", () => {
+    if (!(auth && auth.authenticated)) return;
+    if (leaveGuard && !leaveGuard()) { history.pushState(null, "", shownPath); return; }
+    route();
+  });
+  // A link within the UI changes the view in place. A plugin's own page (/plugins/<slug>) is a page of its own,
+  // and a click with a modifier opens where the browser puts it.
+  document.addEventListener("click", (event) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const link = event.target.closest("a[href]");
+    if (!link || link.target || link.hasAttribute("download") || !(auth && auth.authenticated)) return;
+    const url = new URL(link.href, location.href);
+    if (url.origin !== location.origin || url.pathname.startsWith("/api/") || /\.[a-z0-9]+$/i.test(url.pathname) || /^\/plugins\/[^/]+\/?$/.test(url.pathname)) return;
+    event.preventDefault();
+    if (url.pathname + url.search !== location.pathname + location.search) navigate(url.pathname + url.search);
   });
   // Closing the tab or reloading: the browser asks, when the page has unsaved changes.
   window.addEventListener("beforeunload", (event) => { if (leaveGuard?.quiet && !leaveGuard.quiet()) event.preventDefault(); });
@@ -458,14 +474,14 @@
   function accessoryActions(accessory) {
     return [
       { label: "Identify", icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) },
-      { label: "Show its log", icon: "logs", href: `#logs/${encodeURIComponent(accessory.id)}` },
+      { label: "Show its log", icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` },
       window.HomeswiftChat?.available() ? { label: "Ask the Assistant", icon: sparkle(), onSelect: () => HomeswiftChat.ask(`About ${accessory.name}: `) } : null,
-      accessory.platform ? { label: "Plugin settings", icon: "gear", href: `#settings/${encodeURIComponent(accessory.platform)}/${encodeURIComponent(accessory.platformName || accessory.platform)}` } : null,
+      accessory.platform ? { label: "Plugin settings", icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
     ];
   }
 
   views.accessories = async (main) => {
-    const accessories = await api("/api/accessories");
+    const accessories = withSlugs(await api("/api/accessories"), "accessory");
     const byBridge = new Map();
     for (const accessory of accessories) {
       if (!byBridge.has(accessory.bridge)) byBridge.set(accessory.bridge, []);
@@ -567,7 +583,7 @@
           // A plugin with its own page sets itself up there (pairing a TV, finding lights), as Homebridge's
           // custom UIs do: Add writes an empty block and opens the page.
           ? el("button", { class: used ? "" : "primary", text: used ? "Add another" : "Add", onclick: (event) => addWithPage(plugin, event.currentTarget) })
-          : el("a", { class: `button ${used ? "" : "primary"}`, href: `#settings/new/${encodeURIComponent(plugin.platform)}`, text: used ? "Add another" : "Add" })));
+          : el("a", { class: `button ${used ? "" : "primary"}`, href: `/plugins/add/${encodeURIComponent(plugin.platform)}`, text: used ? "Add another" : "Add" })));
     }));
 
     async function addWithPage(plugin, button) {
@@ -590,8 +606,6 @@
       catalog);
   };
 
-  /// A block's settings: its plugin's own page when it has one, else the form. `expertLink` is always the form
-  /// (or the JSON), the whole block as config.json keeps it.
   /// A block's state pill: its label and tone.
   const blockState = (block, plugin, instance) => block.system ? ["Built in", "standby"] : instance?.paused ? ["Paused", "standby"]
     : instance ? ["Running", "on"] : plugin ? ["Not running", "away"] : ["No plugin", "away"];
@@ -602,9 +616,11 @@
     try { await api(`/api/config/platforms/${block.index}`, { method: "DELETE" }); leaveGuard = null; after(); } catch (e) { alert(e.message); }
   }
 
-  const settingsLink = (block) => `#settings/${encodeURIComponent(block.platform)}/${encodeURIComponent(block.name)}`;
-  const expertLink = (block, mode = "form") => `${settingsLink(block)}/${mode}`;
-  const pluginPage = (block) => `/plugins/${encodeURIComponent(block.platform)}/index.html?name=${encodeURIComponent(block.name)}`;
+  /// A block's address: its plugin's own page when it has one, else its settings. `expertLink` is always the form
+  /// (or the JSON), the whole block as config.json keeps it.
+  const settingsLink = (block) => `/plugins/${block.slug}`;
+  const pluginPage = settingsLink;
+  const expertLink = (block, mode = "form") => `${settingsLink(block)}/expert${mode === "json" ? "/json" : ""}`;
 
   /// Where a page sits, each level a way back; the last is the page itself.
   function breadcrumb(...levels) {
@@ -613,27 +629,28 @@
   }
 
   // ---- A plugin's settings: its own page ------------------------------------
-  // #settings/<platform>/<name> for a block of config.json, #settings/new/<platform> to add one. A running plugin
-  // with its own page opens that page: the form is its Expert part, at #settings/<platform>/<name>/form (or
-  // /json). The form comes from the plugin's config.schema.json (or the runtime's own for the web UI's block),
+  // /plugins/<slug> for a block of config.json, /plugins/add/<platform> to add one. A running plugin with its own
+  // page shows that page there: the form is its Expert part, at /plugins/<slug>/expert (or /expert/json). The form comes from the plugin's config.schema.json (or the runtime's own for the web UI's block),
   // JSON otherwise; the save bar stays in view, and leaving with unsaved changes asks first.
 
-  views.settings = async (main, [first, second, view]) => {
-    const isNew = first === "new";
+  views.settings = async (main, [first, second, third]) => {
+    const isNew = first === "add";
     const [plugins, config] = await Promise.all([api("/api/plugins"), api("/api/config", { raw: true }).then(JSON.parse)]);
-    const platform = isNew ? second : first;
-    const plugin = plugins.plugins.find((p) => p.platform === platform);
-    const found = isNew ? null : plugins.blocks.find((b) => b.platform === platform && b.name === second);
+    const found = isNew ? null : plugins.blocks.find((b) => b.slug === first);
     if (!isNew && !found) {
-      show(main, breadcrumb(["Plugins", "#plugins"], ["Settings"]),
-        el("div", { class: "card empty" }, el("p", { class: "muted", text: `No block "${second}" of ${platform} in config.json.` })));
+      show(main, breadcrumb(["Plugins", "/plugins"], ["Settings"]),
+        el("div", { class: "card empty" }, el("p", { class: "muted", text: `No plugin at /plugins/${first} in config.json.` })));
       return;
     }
+    const platform = isNew ? second : found.platform;
+    const plugin = plugins.plugins.find((p) => p.platform === platform);
+    const view = isNew ? null : second === "expert" ? (third === "json" ? "json" : "form") : null;
     if (isNew && !plugin) throw new Error(`No plugin provides ${platform}.`);
     const block = found ?? { index: plugins.blocks.length, platform, name: uniqueName(plugin.name, plugins.blocks), system: false };
     const instance = plugins.platforms.find((p) => p.platform === block.platform && p.name === block.name);
     const hasPage = Boolean(!isNew && plugin && plugin.hasPages && instance);
-    if (hasPage && !view) { location.replace(pluginPage(block)); return; }
+    // Its page is a page of its own, which the server sends for this address once signed in.
+    if (hasPage && !view) { location.reload(); return; }
     const current = isNew ? { platform, name: block.name } : (config.platforms || [])[block.index] || { platform, name: block.name };
 
     let schema = null;
@@ -719,27 +736,27 @@
         const scheme = value.https === true ? "https:" : "http:";
         if (port && (String(port) !== (location.port || (location.protocol === "https:" ? "443" : "80")) || scheme !== location.protocol)) {
           message.textContent = scheme !== location.protocol ? `Saved. The web UI moves to ${scheme.slice(0, -1).toUpperCase()}…` : `Saved. The web UI moves to port ${port}…`;
-          setTimeout(() => { location.href = `${scheme}//${location.hostname}:${port}/${settingsLink({ platform, name: value.name || block.name })}`; }, 1500);
+          setTimeout(() => { location.href = `${scheme}//${location.hostname}:${port}${location.pathname}`; }, 1500);
           return;
         }
         // A new block, or a renamed one, lives at its own address now.
         const name = value.name || platform;
-        if (isNew || name !== block.name) { leaveGuard = null; location.hash = (hasPage ? expertLink : settingsLink)({ platform, name }); return; }
+        if (isNew || name !== block.name) { leaveGuard = null; navigate((hasPage ? expertLink : settingsLink)({ slug: slug(name) }), { replace: true }); return; }
         update();
       } catch (e) { message.className = "error"; message.textContent = e.message; save.disabled = false; }
     });
-    revert.addEventListener("click", () => { if (isNew) { location.hash = "#plugins"; return; } leaveGuard = null; route(); });
+    revert.addEventListener("click", () => { if (isNew) { navigate("/plugins"); return; } leaveGuard = null; route(); });
 
     const [state, kind] = isNew ? ["New", "standby"] : blockState(block, plugin, instance);
     const remove = !isNew && !block.system ? el("div", { class: "card danger-zone" },
       el("div", {}, el("strong", { text: "Remove this plugin" }),
         el("p", { class: "muted", text: "Takes the block out of config.json. Its accessories leave the Home app, with their rooms, scenes and automations." })),
-      el("button", { class: "danger", text: "Remove", onclick: () => removeBlock(block, () => { location.hash = "#plugins"; }) })) : null;
+      el("button", { class: "danger", text: "Remove", onclick: () => removeBlock(block, () => navigate("/plugins")) })) : null;
 
     leaveGuard = () => !dirty() || isNew || confirm("Leave without saving your changes?");
     leaveGuard.quiet = () => isNew || !dirty();
     show(main,
-      breadcrumb(["Plugins", "#plugins"], [block.name, isNew ? "#plugins" : hasPage ? pluginPage(block) : settingsLink(block)], [isNew ? "Add" : hasPage ? "Expert" : "Settings"]),
+      breadcrumb(["Plugins", "/plugins"], [block.name, isNew ? "/plugins" : settingsLink(block)], [isNew ? "Add" : hasPage ? "Expert" : "Settings"]),
       el("div", { class: "page-head settings-head" },
         tile(block.system ? "gear" : "plugin", block.system ? "grey" : "orange"),
         el("div", { class: "who" },
@@ -1115,8 +1132,13 @@
   const levelChoices = [["trace", "All"], ["info", "Info"], ["warning", "Warnings"], ["error", "Errors"]];
   let logState = null;
 
-  views.logs = async (main, [accessoryID] = []) => {
-    const [lines, accessories] = await Promise.all([api(`/api/logs${accessoryID ? `?accessory=${encodeURIComponent(accessoryID)}` : ""}`), api("/api/accessories").catch(() => [])]);
+  // /logs/<accessory>?since=24h&level=warning&q=text: the accessory by its slug (a plugin's page may give its id),
+  // the range (latest, 1h, 6h, 24h, today, yesterday, 7d, or custom with from= and to=), the lowest level and the
+  // text. The address follows what is chosen, so it can be kept or shared.
+  views.logs = async (main, [wanted] = []) => {
+    const accessories = withSlugs(await api("/api/accessories").catch(() => []), "accessory");
+    const accessoryID = accessories.find((accessory) => accessory.slug === wanted || accessory.id === wanted)?.id ?? "";
+    const params = new URLSearchParams(location.search);
     const output = el("div", { class: "log", role: "log", "aria-live": "off" });
     const filter = el("input", { type: "search", class: "search", placeholder: "Filter text", "aria-label": "Filter the log" });
     const follow = el("input", { type: "checkbox", checked: true });
@@ -1136,14 +1158,15 @@
       return [accessory.name, id, address, accessory.serialNumber].filter((term) => typeof term === "string" && term.length >= 3).map((term) => term.toLowerCase());
     };
     // `live`: new lines join the page (not while a span in the past is shown); `cap`: how many it keeps.
-    logState = { output, level: "info", filter, follow, count, lines: [], accessory: termsFor(accessoryID), live: true, cap: latestLines, capped: false };
+    filter.value = params.get("q") ?? "";
+    const level = levelChoices.some(([value]) => value === params.get("level")) ? params.get("level") : "info";
+    logState = { output, level, filter, follow, count, lines: [], accessory: termsFor(accessoryID), live: true, cap: latestLines, capped: false };
     accessoryPicker.classList.toggle("chosen", Boolean(accessoryPicker.value));
     accessoryPicker.addEventListener("change", () => {
       logState.accessory = termsFor(accessoryPicker.value);
       accessoryPicker.classList.toggle("chosen", Boolean(accessoryPicker.value));
-      // The address keeps the choice (a link, a reload) without drawing the page again; the server picks
-      // the accessory's lines before its limit, so a week of one accessory is not cut short by the others'.
-      history.replaceState(null, "", accessoryPicker.value ? `#logs/${encodeURIComponent(accessoryPicker.value)}` : "#logs");
+      // The server picks the accessory's lines before its limit, so a week of one accessory is not cut short by
+      // the others'.
       load();
     });
     const levels = el("div", { class: "group", role: "group", "aria-label": "Lowest level shown" }, levelChoices.map(([level, text]) =>
@@ -1151,6 +1174,7 @@
         logState.level = level;
         for (const button of levels.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
         render();
+        keepAddress();
       } })));
     const render = () => {
       const needle = filter.value.toLowerCase();
@@ -1161,18 +1185,19 @@
     };
     // Typing filters once it pauses: thousands of lines are not drawn again per key.
     let typing = null;
-    filter.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(render, 120); });
+    filter.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => { render(); keepAddress(); }, 120); });
     follow.addEventListener("change", () => { if (follow.checked) output.scrollTop = output.scrollHeight; });
 
     // A time range: the latest lines from memory, or a span from the log the bridge keeps on disk (rotated, a
     // week at most). A span that ends now keeps following; one in the past stays as it is.
     const ranges = [["latest", "Latest lines"], ["1h", "Last hour"], ["6h", "Last 6 hours"], ["24h", "Last 24 hours"],
       ["today", "Today"], ["yesterday", "Yesterday"], ["7d", "Last 7 days"], ["custom", "Custom range…"]];
-    const rangePicker = el("select", { class: "popup", "aria-label": "Time range" }, ranges.map(([value, text]) => el("option", { value, text })));
+    const since = ranges.some(([value]) => value === params.get("since")) ? params.get("since") : "latest";
+    const rangePicker = el("select", { class: `popup ${since === "latest" ? "" : "chosen"}`, "aria-label": "Time range" }, ranges.map(([value, text]) => el("option", { value, text, selected: value === since })));
     const localInput = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    const fromInput = el("input", { type: "datetime-local", "aria-label": "From", value: localInput(new Date(Date.now() - 3600000)) });
-    const toInput = el("input", { type: "datetime-local", "aria-label": "To", value: localInput(new Date()) });
-    const customRow = el("div", { class: "log-range hidden" },
+    const fromInput = el("input", { type: "datetime-local", "aria-label": "From", value: params.get("from") ?? localInput(new Date(Date.now() - 3600000)) });
+    const toInput = el("input", { type: "datetime-local", "aria-label": "To", value: params.get("to") ?? localInput(new Date()) });
+    const customRow = el("div", { class: `log-range ${since === "custom" ? "" : "hidden"}` },
       el("label", {}, "From", fromInput), el("label", {}, "To", toInput),
       el("button", { text: "Show", onclick: () => load() }));
     const span = (choice) => {
@@ -1192,7 +1217,19 @@
       default: return null;
       }
     };
+    /// The address of what is shown, in place: no new history entry per choice.
+    function keepAddress() {
+      const query = new URLSearchParams();
+      if (rangePicker.value !== "latest") query.set("since", rangePicker.value);
+      if (rangePicker.value === "custom") { query.set("from", fromInput.value); if (toInput.value) query.set("to", toInput.value); }
+      if (logState.level !== "info") query.set("level", logState.level);
+      if (filter.value) query.set("q", filter.value);
+      const accessory = byID.get(accessoryPicker.value);
+      const path = `/logs${accessory ? `/${accessory.slug}` : ""}${query.size ? `?${query}` : ""}`;
+      if (path !== location.pathname + location.search) history.replaceState(null, "", path);
+    }
     async function load() {
+      keepAddress();
       const chosen = span(rangePicker.value);
       const query = new URLSearchParams();
       if (chosen) query.set("from", chosen[0].toISOString());
@@ -1232,7 +1269,6 @@
       rangePicker.classList.toggle("chosen", rangePicker.value !== "latest");
       if (rangePicker.value === "custom") fromInput.focus(); else load();
     });
-    logState.lines = lines.map(prepared);
     show(main,
       pageHead("Logs", "This homeswift's log, live, and up to a week back."),
       el("div", { class: "card log-card" },
@@ -1240,7 +1276,7 @@
           el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: "Follow" })),
           customRow),
         output));
-    render();
+    await load();
   };
 
   /// Whether a prepared line passes the level, the text (`needle`, in lower case) and the accessory.
@@ -1275,7 +1311,7 @@
     if (!(auth && auth.authenticated)) return;
     if (document.hidden) { closeEvents(); return; }
     openEvents();
-    if (["#status", "#accessories"].includes(location.hash || "#status")) route();
+    if (["/", "/status", "/accessories"].includes(location.pathname)) route();
   });
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });

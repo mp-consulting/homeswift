@@ -11,7 +11,7 @@ enum WebAssets {
 (() => {
   "use strict";
 
-  const { $, el, tile, sparkle, menuButton, copyText, jsonEditor, fact, setPaused } = HomeswiftCommon;
+  const { $, el, tile, sparkle, menuButton, copyText, jsonEditor, fact, setPaused, slug, withSlugs } = HomeswiftCommon;
 
   const show = (main, ...nodes) => main.replaceChildren(...nodes.flat().filter(Boolean));
 
@@ -154,32 +154,48 @@ enum WebAssets {
 
   // ---- Routing -------------------------------------------------------------
 
-  // A route is a view and its arguments: #settings/ElgatoKeyLights/Desk%20lights is the settings view for that
-  // block. Pages below a section keep the section lit in the header.
+  // A path is a view and its arguments: /status (or /), /accessories, /plugins, /plugins/<slug>/expert[/json]
+  // (a block's settings; /plugins/<slug> itself is the plugin's own page when it has one), /plugins/add/<platform>,
+  // /config, /logs[/<accessory>]?since=…&level=…&q=…, /account. Pages below a section keep it lit in the header.
   const views = {};
-  const sectionOf = { settings: "plugins" };
   let leaveGuard = null;   // a page with unsaved changes: false keeps it
-  let shownHash = null;
+  let shownPath = null;
   function route() {
     const decode = (part) => { try { return decodeURIComponent(part); } catch { return part; } };
-    const [name, ...args] = (location.hash || "#status").slice(1).split("/").map(decode);
-    const section = sectionOf[name] || name;
+    const [name = "status", ...args] = location.pathname.split("/").filter(Boolean).map(decode);
     for (const link of document.querySelectorAll("nav a")) {
-      const current = link.getAttribute("href") === `#${section}`;
+      const current = link.getAttribute("href") === `/${name}`;
       link.classList.toggle("active", current);
       if (current) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
     }
-    const view = views[name] || views.status;
+    const view = name === "plugins" && args.length ? views.settings : views[name] || views.status;
     const main = $("#view");
     leaveGuard = null;
-    shownHash = location.hash;
+    shownPath = location.pathname + location.search;
     main.replaceChildren(el("p", { class: "muted", text: "Loading…" }));
     view(main, args).catch((e) => { if (e.status !== 401) main.replaceChildren(el("p", { class: "error", text: e.message })); });
   }
-  window.addEventListener("hashchange", () => {
-    if (!(auth && auth.authenticated)) return;
-    if (leaveGuard && !leaveGuard()) { history.replaceState(null, "", shownHash); return; }
+  /// Shows the view at `path` without loading the page again; `replace` keeps it out of the history.
+  function navigate(path, { replace = false } = {}) {
+    if (leaveGuard && !leaveGuard()) return;
+    history[replace ? "replaceState" : "pushState"](null, "", path);
     route();
+  }
+  window.addEventListener("popstate", () => {
+    if (!(auth && auth.authenticated)) return;
+    if (leaveGuard && !leaveGuard()) { history.pushState(null, "", shownPath); return; }
+    route();
+  });
+  // A link within the UI changes the view in place. A plugin's own page (/plugins/<slug>) is a page of its own,
+  // and a click with a modifier opens where the browser puts it.
+  document.addEventListener("click", (event) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const link = event.target.closest("a[href]");
+    if (!link || link.target || link.hasAttribute("download") || !(auth && auth.authenticated)) return;
+    const url = new URL(link.href, location.href);
+    if (url.origin !== location.origin || url.pathname.startsWith("/api/") || /\.[a-z0-9]+$/i.test(url.pathname) || /^\/plugins\/[^/]+\/?$/.test(url.pathname)) return;
+    event.preventDefault();
+    if (url.pathname + url.search !== location.pathname + location.search) navigate(url.pathname + url.search);
   });
   // Closing the tab or reloading: the browser asks, when the page has unsaved changes.
   window.addEventListener("beforeunload", (event) => { if (leaveGuard?.quiet && !leaveGuard.quiet()) event.preventDefault(); });
@@ -467,14 +483,14 @@ enum WebAssets {
   function accessoryActions(accessory) {
     return [
       { label: "Identify", icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) },
-      { label: "Show its log", icon: "logs", href: `#logs/${encodeURIComponent(accessory.id)}` },
+      { label: "Show its log", icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` },
       window.HomeswiftChat?.available() ? { label: "Ask the Assistant", icon: sparkle(), onSelect: () => HomeswiftChat.ask(`About ${accessory.name}: `) } : null,
-      accessory.platform ? { label: "Plugin settings", icon: "gear", href: `#settings/${encodeURIComponent(accessory.platform)}/${encodeURIComponent(accessory.platformName || accessory.platform)}` } : null,
+      accessory.platform ? { label: "Plugin settings", icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
     ];
   }
 
   views.accessories = async (main) => {
-    const accessories = await api("/api/accessories");
+    const accessories = withSlugs(await api("/api/accessories"), "accessory");
     const byBridge = new Map();
     for (const accessory of accessories) {
       if (!byBridge.has(accessory.bridge)) byBridge.set(accessory.bridge, []);
@@ -576,7 +592,7 @@ enum WebAssets {
           // A plugin with its own page sets itself up there (pairing a TV, finding lights), as Homebridge's
           // custom UIs do: Add writes an empty block and opens the page.
           ? el("button", { class: used ? "" : "primary", text: used ? "Add another" : "Add", onclick: (event) => addWithPage(plugin, event.currentTarget) })
-          : el("a", { class: `button ${used ? "" : "primary"}`, href: `#settings/new/${encodeURIComponent(plugin.platform)}`, text: used ? "Add another" : "Add" })));
+          : el("a", { class: `button ${used ? "" : "primary"}`, href: `/plugins/add/${encodeURIComponent(plugin.platform)}`, text: used ? "Add another" : "Add" })));
     }));
 
     async function addWithPage(plugin, button) {
@@ -599,8 +615,6 @@ enum WebAssets {
       catalog);
   };
 
-  /// A block's settings: its plugin's own page when it has one, else the form. `expertLink` is always the form
-  /// (or the JSON), the whole block as config.json keeps it.
   /// A block's state pill: its label and tone.
   const blockState = (block, plugin, instance) => block.system ? ["Built in", "standby"] : instance?.paused ? ["Paused", "standby"]
     : instance ? ["Running", "on"] : plugin ? ["Not running", "away"] : ["No plugin", "away"];
@@ -611,9 +625,11 @@ enum WebAssets {
     try { await api(`/api/config/platforms/${block.index}`, { method: "DELETE" }); leaveGuard = null; after(); } catch (e) { alert(e.message); }
   }
 
-  const settingsLink = (block) => `#settings/${encodeURIComponent(block.platform)}/${encodeURIComponent(block.name)}`;
-  const expertLink = (block, mode = "form") => `${settingsLink(block)}/${mode}`;
-  const pluginPage = (block) => `/plugins/${encodeURIComponent(block.platform)}/index.html?name=${encodeURIComponent(block.name)}`;
+  /// A block's address: its plugin's own page when it has one, else its settings. `expertLink` is always the form
+  /// (or the JSON), the whole block as config.json keeps it.
+  const settingsLink = (block) => `/plugins/${block.slug}`;
+  const pluginPage = settingsLink;
+  const expertLink = (block, mode = "form") => `${settingsLink(block)}/expert${mode === "json" ? "/json" : ""}`;
 
   /// Where a page sits, each level a way back; the last is the page itself.
   function breadcrumb(...levels) {
@@ -622,27 +638,28 @@ enum WebAssets {
   }
 
   // ---- A plugin's settings: its own page ------------------------------------
-  // #settings/<platform>/<name> for a block of config.json, #settings/new/<platform> to add one. A running plugin
-  // with its own page opens that page: the form is its Expert part, at #settings/<platform>/<name>/form (or
-  // /json). The form comes from the plugin's config.schema.json (or the runtime's own for the web UI's block),
+  // /plugins/<slug> for a block of config.json, /plugins/add/<platform> to add one. A running plugin with its own
+  // page shows that page there: the form is its Expert part, at /plugins/<slug>/expert (or /expert/json). The form comes from the plugin's config.schema.json (or the runtime's own for the web UI's block),
   // JSON otherwise; the save bar stays in view, and leaving with unsaved changes asks first.
 
-  views.settings = async (main, [first, second, view]) => {
-    const isNew = first === "new";
+  views.settings = async (main, [first, second, third]) => {
+    const isNew = first === "add";
     const [plugins, config] = await Promise.all([api("/api/plugins"), api("/api/config", { raw: true }).then(JSON.parse)]);
-    const platform = isNew ? second : first;
-    const plugin = plugins.plugins.find((p) => p.platform === platform);
-    const found = isNew ? null : plugins.blocks.find((b) => b.platform === platform && b.name === second);
+    const found = isNew ? null : plugins.blocks.find((b) => b.slug === first);
     if (!isNew && !found) {
-      show(main, breadcrumb(["Plugins", "#plugins"], ["Settings"]),
-        el("div", { class: "card empty" }, el("p", { class: "muted", text: `No block "${second}" of ${platform} in config.json.` })));
+      show(main, breadcrumb(["Plugins", "/plugins"], ["Settings"]),
+        el("div", { class: "card empty" }, el("p", { class: "muted", text: `No plugin at /plugins/${first} in config.json.` })));
       return;
     }
+    const platform = isNew ? second : found.platform;
+    const plugin = plugins.plugins.find((p) => p.platform === platform);
+    const view = isNew ? null : second === "expert" ? (third === "json" ? "json" : "form") : null;
     if (isNew && !plugin) throw new Error(`No plugin provides ${platform}.`);
     const block = found ?? { index: plugins.blocks.length, platform, name: uniqueName(plugin.name, plugins.blocks), system: false };
     const instance = plugins.platforms.find((p) => p.platform === block.platform && p.name === block.name);
     const hasPage = Boolean(!isNew && plugin && plugin.hasPages && instance);
-    if (hasPage && !view) { location.replace(pluginPage(block)); return; }
+    // Its page is a page of its own, which the server sends for this address once signed in.
+    if (hasPage && !view) { location.reload(); return; }
     const current = isNew ? { platform, name: block.name } : (config.platforms || [])[block.index] || { platform, name: block.name };
 
     let schema = null;
@@ -728,27 +745,27 @@ enum WebAssets {
         const scheme = value.https === true ? "https:" : "http:";
         if (port && (String(port) !== (location.port || (location.protocol === "https:" ? "443" : "80")) || scheme !== location.protocol)) {
           message.textContent = scheme !== location.protocol ? `Saved. The web UI moves to ${scheme.slice(0, -1).toUpperCase()}…` : `Saved. The web UI moves to port ${port}…`;
-          setTimeout(() => { location.href = `${scheme}//${location.hostname}:${port}/${settingsLink({ platform, name: value.name || block.name })}`; }, 1500);
+          setTimeout(() => { location.href = `${scheme}//${location.hostname}:${port}${location.pathname}`; }, 1500);
           return;
         }
         // A new block, or a renamed one, lives at its own address now.
         const name = value.name || platform;
-        if (isNew || name !== block.name) { leaveGuard = null; location.hash = (hasPage ? expertLink : settingsLink)({ platform, name }); return; }
+        if (isNew || name !== block.name) { leaveGuard = null; navigate((hasPage ? expertLink : settingsLink)({ slug: slug(name) }), { replace: true }); return; }
         update();
       } catch (e) { message.className = "error"; message.textContent = e.message; save.disabled = false; }
     });
-    revert.addEventListener("click", () => { if (isNew) { location.hash = "#plugins"; return; } leaveGuard = null; route(); });
+    revert.addEventListener("click", () => { if (isNew) { navigate("/plugins"); return; } leaveGuard = null; route(); });
 
     const [state, kind] = isNew ? ["New", "standby"] : blockState(block, plugin, instance);
     const remove = !isNew && !block.system ? el("div", { class: "card danger-zone" },
       el("div", {}, el("strong", { text: "Remove this plugin" }),
         el("p", { class: "muted", text: "Takes the block out of config.json. Its accessories leave the Home app, with their rooms, scenes and automations." })),
-      el("button", { class: "danger", text: "Remove", onclick: () => removeBlock(block, () => { location.hash = "#plugins"; }) })) : null;
+      el("button", { class: "danger", text: "Remove", onclick: () => removeBlock(block, () => navigate("/plugins")) })) : null;
 
     leaveGuard = () => !dirty() || isNew || confirm("Leave without saving your changes?");
     leaveGuard.quiet = () => isNew || !dirty();
     show(main,
-      breadcrumb(["Plugins", "#plugins"], [block.name, isNew ? "#plugins" : hasPage ? pluginPage(block) : settingsLink(block)], [isNew ? "Add" : hasPage ? "Expert" : "Settings"]),
+      breadcrumb(["Plugins", "/plugins"], [block.name, isNew ? "/plugins" : settingsLink(block)], [isNew ? "Add" : hasPage ? "Expert" : "Settings"]),
       el("div", { class: "page-head settings-head" },
         tile(block.system ? "gear" : "plugin", block.system ? "grey" : "orange"),
         el("div", { class: "who" },
@@ -1124,8 +1141,13 @@ enum WebAssets {
   const levelChoices = [["trace", "All"], ["info", "Info"], ["warning", "Warnings"], ["error", "Errors"]];
   let logState = null;
 
-  views.logs = async (main, [accessoryID] = []) => {
-    const [lines, accessories] = await Promise.all([api(`/api/logs${accessoryID ? `?accessory=${encodeURIComponent(accessoryID)}` : ""}`), api("/api/accessories").catch(() => [])]);
+  // /logs/<accessory>?since=24h&level=warning&q=text: the accessory by its slug (a plugin's page may give its id),
+  // the range (latest, 1h, 6h, 24h, today, yesterday, 7d, or custom with from= and to=), the lowest level and the
+  // text. The address follows what is chosen, so it can be kept or shared.
+  views.logs = async (main, [wanted] = []) => {
+    const accessories = withSlugs(await api("/api/accessories").catch(() => []), "accessory");
+    const accessoryID = accessories.find((accessory) => accessory.slug === wanted || accessory.id === wanted)?.id ?? "";
+    const params = new URLSearchParams(location.search);
     const output = el("div", { class: "log", role: "log", "aria-live": "off" });
     const filter = el("input", { type: "search", class: "search", placeholder: "Filter text", "aria-label": "Filter the log" });
     const follow = el("input", { type: "checkbox", checked: true });
@@ -1145,14 +1167,15 @@ enum WebAssets {
       return [accessory.name, id, address, accessory.serialNumber].filter((term) => typeof term === "string" && term.length >= 3).map((term) => term.toLowerCase());
     };
     // `live`: new lines join the page (not while a span in the past is shown); `cap`: how many it keeps.
-    logState = { output, level: "info", filter, follow, count, lines: [], accessory: termsFor(accessoryID), live: true, cap: latestLines, capped: false };
+    filter.value = params.get("q") ?? "";
+    const level = levelChoices.some(([value]) => value === params.get("level")) ? params.get("level") : "info";
+    logState = { output, level, filter, follow, count, lines: [], accessory: termsFor(accessoryID), live: true, cap: latestLines, capped: false };
     accessoryPicker.classList.toggle("chosen", Boolean(accessoryPicker.value));
     accessoryPicker.addEventListener("change", () => {
       logState.accessory = termsFor(accessoryPicker.value);
       accessoryPicker.classList.toggle("chosen", Boolean(accessoryPicker.value));
-      // The address keeps the choice (a link, a reload) without drawing the page again; the server picks
-      // the accessory's lines before its limit, so a week of one accessory is not cut short by the others'.
-      history.replaceState(null, "", accessoryPicker.value ? `#logs/${encodeURIComponent(accessoryPicker.value)}` : "#logs");
+      // The server picks the accessory's lines before its limit, so a week of one accessory is not cut short by
+      // the others'.
       load();
     });
     const levels = el("div", { class: "group", role: "group", "aria-label": "Lowest level shown" }, levelChoices.map(([level, text]) =>
@@ -1160,6 +1183,7 @@ enum WebAssets {
         logState.level = level;
         for (const button of levels.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
         render();
+        keepAddress();
       } })));
     const render = () => {
       const needle = filter.value.toLowerCase();
@@ -1170,18 +1194,19 @@ enum WebAssets {
     };
     // Typing filters once it pauses: thousands of lines are not drawn again per key.
     let typing = null;
-    filter.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(render, 120); });
+    filter.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => { render(); keepAddress(); }, 120); });
     follow.addEventListener("change", () => { if (follow.checked) output.scrollTop = output.scrollHeight; });
 
     // A time range: the latest lines from memory, or a span from the log the bridge keeps on disk (rotated, a
     // week at most). A span that ends now keeps following; one in the past stays as it is.
     const ranges = [["latest", "Latest lines"], ["1h", "Last hour"], ["6h", "Last 6 hours"], ["24h", "Last 24 hours"],
       ["today", "Today"], ["yesterday", "Yesterday"], ["7d", "Last 7 days"], ["custom", "Custom range…"]];
-    const rangePicker = el("select", { class: "popup", "aria-label": "Time range" }, ranges.map(([value, text]) => el("option", { value, text })));
+    const since = ranges.some(([value]) => value === params.get("since")) ? params.get("since") : "latest";
+    const rangePicker = el("select", { class: `popup ${since === "latest" ? "" : "chosen"}`, "aria-label": "Time range" }, ranges.map(([value, text]) => el("option", { value, text, selected: value === since })));
     const localInput = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    const fromInput = el("input", { type: "datetime-local", "aria-label": "From", value: localInput(new Date(Date.now() - 3600000)) });
-    const toInput = el("input", { type: "datetime-local", "aria-label": "To", value: localInput(new Date()) });
-    const customRow = el("div", { class: "log-range hidden" },
+    const fromInput = el("input", { type: "datetime-local", "aria-label": "From", value: params.get("from") ?? localInput(new Date(Date.now() - 3600000)) });
+    const toInput = el("input", { type: "datetime-local", "aria-label": "To", value: params.get("to") ?? localInput(new Date()) });
+    const customRow = el("div", { class: `log-range ${since === "custom" ? "" : "hidden"}` },
       el("label", {}, "From", fromInput), el("label", {}, "To", toInput),
       el("button", { text: "Show", onclick: () => load() }));
     const span = (choice) => {
@@ -1201,7 +1226,19 @@ enum WebAssets {
       default: return null;
       }
     };
+    /// The address of what is shown, in place: no new history entry per choice.
+    function keepAddress() {
+      const query = new URLSearchParams();
+      if (rangePicker.value !== "latest") query.set("since", rangePicker.value);
+      if (rangePicker.value === "custom") { query.set("from", fromInput.value); if (toInput.value) query.set("to", toInput.value); }
+      if (logState.level !== "info") query.set("level", logState.level);
+      if (filter.value) query.set("q", filter.value);
+      const accessory = byID.get(accessoryPicker.value);
+      const path = `/logs${accessory ? `/${accessory.slug}` : ""}${query.size ? `?${query}` : ""}`;
+      if (path !== location.pathname + location.search) history.replaceState(null, "", path);
+    }
     async function load() {
+      keepAddress();
       const chosen = span(rangePicker.value);
       const query = new URLSearchParams();
       if (chosen) query.set("from", chosen[0].toISOString());
@@ -1241,7 +1278,6 @@ enum WebAssets {
       rangePicker.classList.toggle("chosen", rangePicker.value !== "latest");
       if (rangePicker.value === "custom") fromInput.focus(); else load();
     });
-    logState.lines = lines.map(prepared);
     show(main,
       pageHead("Logs", "This homeswift's log, live, and up to a week back."),
       el("div", { class: "card log-card" },
@@ -1249,7 +1285,7 @@ enum WebAssets {
           el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: "Follow" })),
           customRow),
         output));
-    render();
+    await load();
   };
 
   /// Whether a prepared line passes the level, the text (`needle`, in lower case) and the accessory.
@@ -1284,7 +1320,7 @@ enum WebAssets {
     if (!(auth && auth.authenticated)) return;
     if (document.hidden) { closeEvents(); return; }
     openEvents();
-    if (["#status", "#accessories"].includes(location.hash || "#status")) route();
+    if (["/", "/status", "/accessories"].includes(location.pathname)) route();
   });
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
@@ -1514,8 +1550,8 @@ enum WebAssets {
 
   function page() {
     const path = location.pathname.split("/").filter(Boolean);
-    if (path[0] === "plugins") return `plugin page of ${decodeURIComponent(path[1] || "")}`;
-    return (location.hash.slice(1).split("/")[0] || "status");
+    if (path[0] === "plugins" && path.length === 2 && document.querySelector('meta[name="homeswift-plugin"]')) return `plugin page of ${decodeURIComponent(path[1])}`;
+    return path[0] || "status";
   }
 
   async function submit(text = panel.input.value.trim(), byVoice = false) {
@@ -1864,7 +1900,7 @@ enum WebAssets {
 
   window.HomeswiftChat = { mount, ask, open: () => toggle(true), available: () => Boolean(info?.enabled) };
   // The UI's own page mounts it once signed in; a plugin page is signed in already.
-  if (location.pathname.startsWith("/plugins/")) mount();
+  if (document.querySelector('meta[name="homeswift-plugin"]')) mount();
 })();
 
 """#),
@@ -2174,18 +2210,36 @@ enum WebAssets {
 
   // ---- The sections, and the tab bar a phone shows them in -----------------------------------------------
 
-  const sections = [["#status", "Status", "bridge"], ["#accessories", "Accessories", "bulb"], ["#plugins", "Plugins", "plugin"], ["#config", "Config", "code"], ["#logs", "Logs", "logs"]];
+  const sections = [["/status", "Status", "bridge"], ["/accessories", "Accessories", "bulb"], ["/plugins", "Plugins", "plugin"], ["/config", "Config", "code"], ["/logs", "Logs", "logs"]];
 
   /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
-  /// a label each, the current one in the accent. `prefix` is "/" on a plugin's page; `parent` is what hides it
-  /// with the app (the sign-in screen has none). Hidden on wider windows, where the header holds them.
-  function tabBar({ prefix = "", active, parent = document.body } = {}) {
+  /// a label each, the current one in the accent. `parent` is what hides it with the app (the sign-in screen has
+  /// none). Hidden on wider windows, where the header holds them.
+  function tabBar({ active, parent = document.body } = {}) {
     const existing = document.querySelector("nav.tabbar");
     if (existing) return existing;
-    const bar = el("nav", { class: "tabbar", "aria-label": "Sections" }, sections.map(([hash, text, glyph]) =>
-      el("a", { href: `${prefix}${hash}`, class: hash === active ? "active" : "", "aria-current": hash === active ? "page" : null }, icon(glyph), el("span", { text }))));
+    const bar = el("nav", { class: "tabbar", "aria-label": "Sections" }, sections.map(([path, text, glyph]) =>
+      el("a", { href: path, class: path === active ? "active" : "", "aria-current": path === active ? "page" : null }, icon(glyph), el("span", { text }))));
     parent.append(bar);
     return bar;
+  }
+
+  /// A name as a path segment, as the server makes them (Slug.swift): lower case, accents dropped, anything but
+  /// letters and digits as one dash.
+  const slug = (text) => String(text).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+
+  /// Gives each item of `list` a `slug` from its name, unique in the list (a second "Lamp" is lamp-2); answers
+  /// the list.
+  function withSlugs(list, fallback = "item") {
+    const taken = new Set();
+    for (const item of list) {
+      const base = slug(item.name) || fallback;
+      let candidate = base;
+      for (let n = 2; taken.has(candidate); n++) candidate = `${base}-${n}`;
+      taken.add(candidate);
+      item.slug = candidate;
+    }
+    return list;
   }
 
   /// Pauses or resumes a plugin instance: `_paused` in its block of config.json, applied at once. Paused, the
@@ -2198,7 +2252,7 @@ enum WebAssets {
     return api(path, { method: "PUT", body: block });
   }
 
-  window.HomeswiftCommon = { $, el, icon, tile, fact, markdown, sparkle, api, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, sections, tabBar, setPaused };
+  window.HomeswiftCommon = { $, el, icon, tile, fact, markdown, sparkle, api, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, sections, tabBar, setPaused, slug, withSlugs };
 })();
 
 """#),
@@ -2251,16 +2305,16 @@ enum WebAssets {
 </div>
 <div id="app" class="hidden">
   <header>
-    <a class="brand" href="#status"><img src="/icon.svg" class="logo" alt="">Homeswift</a>
+    <a class="brand" href="/"><img src="/icon.svg" class="logo" alt="">Homeswift</a>
     <nav>
-      <a href="#status">Status</a>
-      <a href="#accessories">Accessories</a>
-      <a href="#plugins">Plugins</a>
-      <a href="#config">Config</a>
-      <a href="#logs">Logs</a>
+      <a href="/status">Status</a>
+      <a href="/accessories">Accessories</a>
+      <a href="/plugins">Plugins</a>
+      <a href="/config">Config</a>
+      <a href="/logs">Logs</a>
     </nav>
     <span class="spacer"></span>
-    <a id="user" href="#account" title="Your account: change the password"></a>
+    <a id="user" href="/account" title="Your account: change the password"></a>
     <button id="logout" class="link">Sign out</button>
   </header>
   <div id="banner" class="banner hidden">Some changes need a restart of homeswift. <button id="restart" class="link">Restart now</button></div>
@@ -2275,13 +2329,16 @@ enum WebAssets {
 
 """#),
         "plugin.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
-// For a plugin's own pages, served at /plugins/<platform>/ after common.js: homeswift.request() talks to the plugin
-// instance named in the page's URL (?name=), with the session cookie; homeswift.el(), .$(), .tile() and .fact() are
+// For a plugin's own pages, served at /plugins/<slug> after common.js: homeswift.request() talks to the plugin
+// instance the server names in the page (<meta name="homeswift-plugin">), with the session cookie; homeswift.el(), .$(), .tile() and .fact() are
 // the UI's own (common.js). A signed-out visitor is sent to the login page.
 (() => {
   "use strict";
-  const platform = decodeURIComponent(location.pathname.split("/")[2] || "");
-  const name = new URLSearchParams(location.search).get("name") || platform;
+  const instance = document.querySelector('meta[name="homeswift-plugin"]')?.dataset ?? {};
+  const platform = instance.platform || "";
+  const name = instance.name || platform;
+  /// The page's address, /plugins/<slug>: its Expert part is below it.
+  const address = `/plugins/${location.pathname.split("/")[2] || ""}`;
   const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
 
   const { $, el, icon, tile, fact, markdown, sparkle, api } = HomeswiftCommon;
@@ -2362,18 +2419,18 @@ enum WebAssets {
   const sections = HomeswiftCommon.sections;
   const header = $("header");
   if (header) {
-    const user = el("a", { id: "user", href: "/#account", title: "Your account: change the password" });
+    const user = el("a", { id: "user", href: "/account", title: "Your account: change the password" });
     const logout = el("button", { id: "logout", class: "link hidden", text: "Sign out", onclick: async () => {
       try { await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }); } catch {}
       location.href = "/";
     } });
     header.replaceChildren(
-      el("a", { class: "brand", href: "/#status" }, el("img", { src: "/icon.svg", class: "logo", alt: "" }), "Homeswift"),
-      el("nav", { "aria-label": "Sections" }, sections.map(([hash, text]) => el("a", { href: `/${hash}`, text, class: hash === "#plugins" ? "active" : "" }))),
+      el("a", { class: "brand", href: "/" }, el("img", { src: "/icon.svg", class: "logo", alt: "" }), "Homeswift"),
+      el("nav", { "aria-label": "Sections" }, sections.map(([path, text]) => el("a", { href: path, text, class: path === "/plugins" ? "active" : "" }))),
       el("span", { class: "spacer" }), user, logout);
     // On a phone the sections sit in a tab bar at the bottom, as on the UI's own pages; the page also extends
     // under the notch and the home indicator, which the layout pads around.
-    HomeswiftCommon.tabBar({ prefix: "/", active: "#plugins" });
+    HomeswiftCommon.tabBar({ active: "/plugins" });
     const viewport = document.querySelector('meta[name="viewport"]');
     if (viewport && !viewport.content.includes("viewport-fit")) viewport.content += ", viewport-fit=cover";
     // The Assistant's chat, as on the UI's own pages.
@@ -2413,7 +2470,7 @@ enum WebAssets {
   function breadcrumb(text, close) {
     opened = text ? { text, close } : null;
     const crumb = (content, current) => el("li", current ? { "aria-current": "page" } : {}, content);
-    const levels = [crumb(el("a", { href: "/#plugins", text: "Plugins" }))];
+    const levels = [crumb(el("a", { href: "/plugins", text: "Plugins" }))];
     const pageLevel = name !== pageTitle ? `${pageTitle} · ${name}` : pageTitle;
     levels.push(opened
       ? crumb(el("a", { href: "#", text: pageLevel, onclick: (event) => { event.preventDefault(); opened?.close?.(); } }))
@@ -2444,7 +2501,7 @@ enum WebAssets {
     }).catch(() => {});
     // Expert, last on the page once the page's own script has laid it out: the whole block as config.json
     // keeps it, as a form or as JSON, for what the page itself does not set.
-    const expert = (mode) => `/#settings/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/${mode}`;
+    const expert = (mode) => `${address}/expert${mode === "json" ? "/json" : ""}`;
     const section = el("section", { class: "expert", "aria-labelledby": "expert-title" },
       el("div", { class: "section-head" }, el("h2", { id: "expert-title", text: "Expert" })),
       el("div", { class: "card page-note" },
@@ -2561,7 +2618,7 @@ enum WebAssets {
   }
 
   window.homeswift = {
-    platform, name, request, home: "/#plugins", $, el, icon, tile, fact, assistant, explain, breadcrumb, api, act,
+    platform, name, request, home: "/plugins", $, el, icon, tile, fact, assistant, explain, breadcrumb, api, act,
     readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, poll, renderKeyed,
     canonicalMAC, isMAC, sameMAC,
   };

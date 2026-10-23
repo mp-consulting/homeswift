@@ -30,10 +30,14 @@ final class OneToolModel: Provider, @unchecked Sendable {
     func stream(_ request: ChatRequest) -> AsyncThrowingStream<ChatChunk, any Error> {
         AsyncThrowingStream { continuation in
             Task {
-                let result = try await self.chat(request)
-                for word in result.text.split(separator: " ") { continuation.yield(.text(word + " ")) }
-                continuation.yield(.done(result))
-                continuation.finish()
+                do {
+                    let result = try await self.chat(request)
+                    for word in result.text.split(separator: " ") { continuation.yield(.text(word + " ")) }
+                    continuation.yield(.done(result))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
             }
         }
     }

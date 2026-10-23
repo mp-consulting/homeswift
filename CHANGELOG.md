@@ -39,8 +39,11 @@ All notable changes to this project are documented here. The format follows
   answering No Response (`Accessory.isUnavailable`) until it resumes.
 - Plugin cards have a menu at their bottom right (its page, Expert form or JSON, pause, remove) in place of
   their buttons.
-- A plugin's own page is its settings page: the Plugins list, accessory menus and `#settings/<platform>/<name>`
-  open it, and the block as a form or as JSON is its **Expert** part.
+- **Addresses are paths with readable names**: `/plugins/dyson-pure-cool`, `/plugins/dyson-pure-cool/expert/json`,
+  `/logs/desk-lamp?since=24h&level=warning&q=text`; Back and Forward work, and the Logs view keeps its choices
+  in its address. The `#…` addresses and `/plugins/<platform>/index.html?name=` are gone.
+- A plugin's own page is its settings page: the Plugins list and accessory menus open it, and the block as a
+  form or as JSON is its **Expert** part.
 - **Add** on a plugin with its own page writes an empty block and opens the page; the Philips TV page opens
   its pairing wizard from an **Add a TV** button, and on its own while there is no TV.
 

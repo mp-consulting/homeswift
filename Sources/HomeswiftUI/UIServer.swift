@@ -181,16 +181,22 @@ public final class UIServer: Sendable {
 
     // MARK: Pages
 
+    /// The pages. The UI's own are one page whose script draws the view its path names (`/accessories`,
+    /// `/plugins/dyson-pure-cool/expert`, `/logs/desk-lamp?since=24h`), so any path without a file is that page.
+    /// A plugin instance's own page is at `/plugins/<its slug>`, its files beside it.
     private func page(for parts: [String], _ request: Request) -> Reply {
         let files: [String: WebFile]
-        let name: String
+        var name: String
         var platform: String?
-        if parts.first == "plugins", parts.count >= 2 {
-            // A plugin's own pages, for a signed-in user; anyone else lands on the login page.
-            guard authenticatedUser(request) != nil else { return .redirect(to: "/") }
-            platform = parts[1]
-            files = catalog.host.registry.entry(for: parts[1])?.webFiles ?? [:]
+        var instance: (slug: String, name: String)?
+        if parts.first == "plugins", parts.count >= 2, authenticatedUser(request) != nil, let target = pluginPage(slug: parts[1]),
+                  parts.count > 2 ? parts.last?.contains(".") == true : target.hasPage {
+            // An instance's page, or one of its files, by its slug, for a signed-in user; anyone else gets the UI's
+            // page, which signs them in and then shows it.
+            platform = target.platform
+            files = catalog.host.registry.entry(for: target.platform)?.webFiles ?? [:]
             name = parts.count == 2 ? "index.html" : parts.dropFirst(2).joined(separator: "/")
+            if parts.count == 2 { instance = (parts[1], target.name) }
         } else {
             // The HTTPS certificate, for a phone or a computer to trust: public, like any served certificate.
             if parts == ["homeswift-ui.crt"], let certificate = tls.withLockedValue({ $0 }) {
@@ -199,14 +205,36 @@ public final class UIServer: Sendable {
             }
             files = WebAssets.files
             name = parts.isEmpty ? "index.html" : parts.joined(separator: "/")
+            // A view's address, not a file: the page, which draws it.
+            if files[name] == nil, parts.last?.contains(".") != true { name = "index.html" }
         }
-        if let live, let file = live.file(name, platform: platform, unreadable: { url, error in
+        let file = live?.file(name, platform: platform, unreadable: { url, error in
             logger.warning("Live web file unreadable; serving the compiled-in copy", metadata: ["file": "\(url.path)", "error": "\(error)"])
-        }) {
-            return .data(status: 200, contentType: file.contentType, body: Data(file.body.utf8))
+        }) ?? files[name]
+        guard let file else { return .text("Not found", status: 404, contentType: "text/plain") }
+        var body = file.body
+        if let instance, let platform {
+            // Its files are beside it (`app.js` is /plugins/<slug>/app.js), and plugin.js reads which instance it is.
+            let head = #"<base href="/plugins/\#(Self.attribute(instance.slug))/"><meta name="homeswift-plugin" data-platform="\#(Self.attribute(platform))" data-name="\#(Self.attribute(instance.name))">"#
+            body = body.range(of: "<head>").map { body.replacingCharacters(in: $0, with: "<head>" + head) } ?? head + body
         }
-        guard let file = files[name] else { return .text("Not found", status: 404, contentType: "text/plain") }
-        return .data(status: 200, contentType: file.contentType, body: Data(file.body.utf8))
+        return .data(status: 200, contentType: file.contentType, body: Data(body.utf8))
+    }
+
+    /// The block whose slug this is: its platform, its name, and whether its plugin has a page to show for it (a
+    /// running or paused instance of a plugin with pages); without one, its address is the settings view.
+    private func pluginPage(slug: String) -> (platform: String, name: String, hasPage: Bool)? {
+        let platforms = catalog.host.configuration.platforms
+        guard let index = Slug.unique(platforms.map(\.name), fallback: "plugin").firstIndex(of: slug) else { return nil }
+        let block = platforms[index]
+        let hasPage = catalog.host.registry.entry(for: block.platform)?.hasPages == true
+            && catalog.host.platforms.contains { $0.platform == block.platform && $0.name == block.name }
+        return (block.platform, block.name, hasPage)
+    }
+
+    /// Text for an HTML attribute value in double quotes.
+    private static func attribute(_ text: String) -> String {
+        text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "\"", with: "&quot;").replacingOccurrences(of: "<", with: "&lt;")
     }
 
     // MARK: Authentication
@@ -338,9 +366,11 @@ public final class UIServer: Sendable {
             case ["accessories"]:
                 return .json(.array(catalog.located().map { HomeswiftCatalog.accessoryJSON($0, detailed: true) }))
             case ["plugins"]:
-                let blocks = catalog.host.configuration.platforms.enumerated().map { index, block -> JSONValue in
+                let platforms = catalog.host.configuration.platforms
+                let slugs = Slug.unique(platforms.map(\.name), fallback: "plugin")
+                let blocks = platforms.enumerated().map { index, block -> JSONValue in
                     ["index": .number(Double(index)), "platform": .string(block.platform), "name": .string(block.name), "childBridge": .bool(block.childBridge != nil),
-                     "system": .bool(HomeswiftCatalog.systemPlatforms.contains(block.platform))]
+                     "system": .bool(HomeswiftCatalog.systemPlatforms.contains(block.platform)), "slug": .string(slugs[index])]
                 }
                 var plugins = catalog.pluginsJSON().objectValue ?? [:]
                 plugins["blocks"] = .array(blocks)

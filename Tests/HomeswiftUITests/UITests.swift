@@ -300,10 +300,18 @@ final class Browser: @unchecked Sendable {
         let base = try await environment.start()
         let browser = Browser(base: base)
         #expect(try await browser.get("/style.css").body == "body { color: red; }")
-        // /plugins alone names no plugin: an answer, not a crash.
-        #expect(try await browser.get("/plugins").status == 404)
-        #expect(try await browser.get("/plugins/Lamps/app.js").body == "// lamps")
+        // /plugins alone is the Plugins view: the UI's page, not a crash.
+        #expect(try await browser.get("/plugins").status == 200)
+        #expect(try await browser.get("/plugins/lamps/app.js").body == "// lamps")
         await environment.server.stop()
+    }
+
+    /// Names as path segments, the same as common.js's `slug`.
+    @Test func makesSlugs() {
+        #expect(Slug.make("Dyson Pure Cool") == "dyson-pure-cool")
+        #expect(Slug.make("  Café — Salon #2 ") == "cafe-salon-2")
+        #expect(Slug.make("灯") == "")
+        #expect(Slug.unique(["Lamps", "lamps", "灯", "Lamps"], fallback: "plugin") == ["lamps", "lamps-2", "plugin", "lamps-3"])
     }
 
     @Test func reportsAChangedFile() async throws {
@@ -455,6 +463,7 @@ struct UIServerTests {
         // Plugins, schemas, config.
         let plugins = try await browser.get("/api/plugins").json
         #expect(plugins?["blocks"]?[0]?["platform"] == "Lamps")
+        #expect(plugins?["blocks"]?[0]?["slug"] == "lamps")
         #expect(plugins?["blocks"]?[1]?["system"] == true)
         #expect(plugins?["plugins"]?.arrayValue?.contains { $0["platform"] == "ElgatoKeyLights" && $0["hasSchema"] == true } == true)
         let schema = try await browser.get("/api/plugins/ElgatoKeyLights/schema")
@@ -462,15 +471,24 @@ struct UIServerTests {
 
         // A plugin's own page and its API, for the signed-in user only.
         #expect(plugins?["plugins"]?.arrayValue?.contains { $0["platform"] == "Lamps" && $0["hasPages"] == true } == true)
-        let pluginPage = try await browser.get("/plugins/Lamps/index.html")
+        // At /plugins/<slug>, its files beside it, the page told which instance it is.
+        let pluginPage = try await browser.get("/plugins/lamps")
         #expect(pluginPage.status == 200)
         #expect(pluginPage.body.contains("<title>Lamps</title>"))
-        #expect(try await browser.get("/plugins/Lamps/missing.js").status == 404)
-        #expect(try await browser.get("/plugins/Nope/index.html").status == 404)
+        #expect(pluginPage.body.contains(#"<base href="/plugins/lamps/">"#))
+        #expect(pluginPage.body.contains(#"data-platform="Lamps" data-name="Lamps""#))
+        #expect(try await browser.get("/plugins/lamps/missing.js").status == 404)
+        #expect(try await browser.get("/plugins/nope/app.js").status == 404)
         #expect(try await browser.get("/plugin.js").status == 200)
+        // The UI's views are the UI's page, whatever their path.
+        for path in ["/plugins/lamps/expert/json", "/plugins/nope", "/logs/desk-lamp?since=24h", "/accessories"] {
+            let view = try await browser.get(path)
+            #expect(view.status == 200 && view.body.contains("<title>Homeswift</title>"), "\(path)")
+        }
+        // Signed out: the UI's page, which signs in first.
         let anonymous = Browser(base: base)
-        let landed = try await anonymous.get("/plugins/Lamps/index.html")   // sent to the login page
-        #expect(landed.status == 302 || landed.body.contains("<title>Homeswift</title>"))
+        #expect(try await anonymous.get("/plugins/lamps").body.contains("<title>Homeswift</title>"))
+        #expect(try await anonymous.get("/plugins/lamps/app.js").status == 404)
         #expect(try await anonymous.get("/api/plugins/Lamps/Lamps/hello").status == 401)
         let hello = try await browser.get("/api/plugins/Lamps/Lamps/hello?q=1").json
         #expect(hello?["hello"] == "rosaly")
