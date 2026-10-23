@@ -118,13 +118,16 @@
         return;
       }
       const rooms = [...new Set(favourites.map((a) => a.room).filter(Boolean))];
-      section.append(
+      // `append` is the DOM's: it writes null and arrays as text, so the parts go in flat and without the empty ones.
+      section.append(...[
         standalone ? null : el("div", { class: "section-head" }, el("h2", { text: "Quick controls" }), el("a", { href: "/quick", class: "muted", text: "Open on its own" })),
         scenes.length ? el("div", { class: "quick-scenes" }, scenes.map((scene) => sceneButton(scene))) : null,
         groupByRoom(favourites, rooms).map(([room, members]) => [
           rooms.length ? el("div", { class: "service-name", text: room }) : null,
-          el("div", { class: "grid" }, members.map(app.accessoryCard)),
-        ]));
+          // The accessories' widgets, as the Accessories page draws them.
+          el("div", { class: "wall" }, members.map((accessory) => app.accessoryCard(accessory))),
+        ]),
+      ].flat(2).filter(Boolean));
     })().catch((e) => section.append(el("p", { class: "error", text: e.message })));
     return section;
   }
