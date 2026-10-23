@@ -3,7 +3,8 @@ import Foundation
 /// A cron expression of five fields, minute hour day-of-month month day-of-week, in this machine's time zone:
 /// numbers, `*`, ranges (`1-5`), lists (`1,15`), steps (`*/15`, `0-30/10`) and the names of months and days
 /// (`JAN`, `MON`). Day 0 and 7 are Sunday. As in cron, when both day fields are restricted, either matching is
-/// enough. The schedule of `scheduledRestartCron`, upstream's setting.
+/// enough. Six fields have seconds first, which are ignored (Glass UI's scenes take them; schedules run on the
+/// minute). The schedule of `scheduledRestartCron` and of scene automations.
 public struct CronSchedule: Sendable, Equatable {
     public struct ParseError: Error, CustomStringConvertible, Equatable {
         public let description: String
@@ -19,7 +20,8 @@ public struct CronSchedule: Sendable, Equatable {
     public let expression: String
 
     public init(_ expression: String) throws {
-        let fields = expression.split(whereSeparator: \.isWhitespace).map { String($0).uppercased() }
+        var fields = expression.split(whereSeparator: \.isWhitespace).map { String($0).uppercased() }
+        if fields.count == 6 { fields.removeFirst() }
         guard fields.count == 5 else { throw ParseError(description: "\"\(expression)\" is not a cron expression of five fields (minute hour day month weekday), e.g. 0 4 * * *") }
         let monthNames = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
         let dayNames = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
@@ -71,6 +73,13 @@ public struct CronSchedule: Sendable, Equatable {
         if anyDay { return weekdayMatches }
         if anyWeekday { return dayMatches }
         return dayMatches || weekdayMatches
+    }
+
+    /// Whether it names this local minute.
+    public func matches(_ date: Date, calendar: Calendar = .current) -> Bool {
+        let components = calendar.dateComponents([.month, .day, .hour, .minute, .weekday], from: date)
+        guard let minute = components.minute, let hour = components.hour else { return false }
+        return minutes.contains(minute) && hours.contains(hour) && matchesDay(components)
     }
 
     /// The first minute after `date` the expression names, within the next four years.

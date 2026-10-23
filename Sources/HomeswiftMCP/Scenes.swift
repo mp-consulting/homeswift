@@ -189,7 +189,7 @@ enum SceneRules {
             guard onDay, let at = trigger.at, let minutes = minutesOfDay(at, on: now, location: nil, calendar: calendar) else { return false }
             return minutes == (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
         case "cron":
-            return trigger.cron.flatMap(CronExpression.init)?.matches(now, calendar: calendar) ?? false
+            return trigger.cron.flatMap { try? CronSchedule($0) }?.matches(now, calendar: calendar) ?? false
         case "sun":
             guard let location, let event = trigger.event else { return false }
             // The event of the day the shifted time falls on: sunset + 30 minutes may be after midnight.
@@ -237,7 +237,7 @@ enum SceneRules {
             trigger.at = at
             trigger.days = try days(object["days"], label)
         case "cron":
-            guard let cron = object["cron"]?.stringValue?.trimmingCharacters(in: .whitespaces), cron.count <= 100, CronExpression(cron) != nil else {
+            guard let cron = object["cron"]?.stringValue?.trimmingCharacters(in: .whitespaces), cron.count <= 100, (try? CronSchedule(cron)) != nil else {
                 throw CatalogError("\(label): invalid cron expression")
             }
             trigger.cron = cron

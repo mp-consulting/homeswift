@@ -244,17 +244,17 @@ struct SceneToolTests {
 
     @Test func readsCronLikeCron() throws {
         let utcCalendar = calendar("UTC")
-        let every15 = try #require(CronExpression("*/15 * * * *"))
+        let every15 = try #require(try? CronSchedule("*/15 * * * *"))
         #expect(every15.matches(utc("2026-01-05T10:45:00Z"), calendar: utcCalendar))
         #expect(!every15.matches(utc("2026-01-05T10:44:00Z"), calendar: utcCalendar))
         // Day of month or day of week, both restricted: either.
-        let firstOrMonday = try #require(CronExpression("0 9 1 * 1"))
+        let firstOrMonday = try #require(try? CronSchedule("0 9 1 * 1"))
         #expect(firstOrMonday.matches(utc("2026-01-05T09:00:00Z"), calendar: utcCalendar))   // a Monday
         #expect(firstOrMonday.matches(utc("2026-01-01T09:00:00Z"), calendar: utcCalendar))   // the 1st, a Thursday
         #expect(!firstOrMonday.matches(utc("2026-01-06T09:00:00Z"), calendar: utcCalendar))
         // Sunday is 0 or 7.
-        #expect(try #require(CronExpression("0 9 * * 7")).matches(utc("2026-01-04T09:00:00Z"), calendar: utcCalendar))
-        for bad in ["", "* * * *", "60 * * * *", "* 24 * * *", "*/0 * * * *", "a * * * *", "5-1 * * * *"] { #expect(CronExpression(bad) == nil, "\(bad)") }
+        #expect(try #require(try? CronSchedule("0 9 * * 7")).matches(utc("2026-01-04T09:00:00Z"), calendar: utcCalendar))
+        for bad in ["", "* * * *", "60 * * * *", "* 24 * * *", "*/0 * * * *", "a * * * *", "5-1 * * * *"] { #expect((try? CronSchedule(bad)) == nil, "\(bad)") }
     }
 
     @Test func comparesAndFiresAsGlassUI() {
