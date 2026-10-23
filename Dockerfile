@@ -42,6 +42,8 @@ COPY Scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 # Avahi's compatibility layer otherwise prints a warning on every start.
 ENV AVAHI_COMPAT_NOWARN=1
+# The Status page's update notice gives the image's new tag.
+ENV HOMESWIFT_INSTALL=docker
 # config.json, the pairings, the accessory cache, logs and metrics.
 VOLUME /homeswift
 # HAP (the bridge's port in config.json), the web UI, mDNS. Informational: host networking publishes nothing.

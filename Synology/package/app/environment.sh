@@ -6,7 +6,9 @@ PACKAGE=/var/packages/homeswift
 # The shared folder the package created: config.json, the pairings, the accessory cache, logs and metrics.
 HOMESWIFT_DATA="$(readlink -f "$PACKAGE/shares/homeswift")"
 HOMESWIFT_BINARY="$PACKAGE/target/bin/homeswift"
-export HOMESWIFT_DATA HOMESWIFT_BINARY
+# The Status page's update notice offers the .spk.
+HOMESWIFT_INSTALL=synology
+export HOMESWIFT_DATA HOMESWIFT_BINARY HOMESWIFT_INSTALL
 
 # FFmpeg for cameras: SynoCommunity's packages, then Entware's.
 for directory in /var/packages/ffmpeg7/target/bin /var/packages/ffmpeg6/target/bin /var/packages/ffmpeg/target/bin /opt/bin; do

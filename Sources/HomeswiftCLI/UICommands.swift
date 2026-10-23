@@ -7,6 +7,9 @@ import Logging
 
 /// Starts the web UI when config.json has a `HomeswiftUI` block.
 enum UICommands {
+    /// One for the process: the web UI restarts with its settings, the checks go on.
+    static let releases = ReleaseWatcher()
+
     static func startServer(catalog: HomeswiftCatalog, configuration: HomeswiftConfiguration, logger: Logger) async -> UIServer? {
         do {
             guard let block = try configuration.block(for: UIConfiguration.platform) else { return nil }
@@ -15,6 +18,12 @@ enum UICommands {
             options.logger = logger
             if let root = ProcessInfo.processInfo.environment["HOMESWIFT_WEB_ROOT"], !root.isEmpty {
                 options.webRoot = URL(fileURLWithPath: NSString(string: root).expandingTildeInPath)
+            }
+            if ui.checkForUpdates {
+                releases.start()
+                options.releases = releases
+            } else {
+                releases.stop()
             }
             let server = UIServer(configuration: ui, catalog: catalog, usersURL: catalog.configURL.deletingLastPathComponent().appendingPathComponent("ui-users.json"), options: options)
             try await server.start()
