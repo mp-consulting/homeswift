@@ -258,13 +258,14 @@ func scanReply(_ device: String, sku: String = "H6008", extra: [String: JSONValu
         let (client, socket, _) = client()
         socket.scanReplies = [(deviceID, "H6008", "192.168.1.20")]
         await client.start()
-        let started = ContinuousClock.now
+        // Timed from inside the task, so a loaded runner's late start of it does not count.
         let task = Task {
             withUnsafeCurrentTask { $0?.cancel() }
-            return await client.discover()
+            let started = ContinuousClock.now
+            _ = await client.discover()
+            return ContinuousClock.now - started
         }
-        _ = await task.value
-        #expect(ContinuousClock.now - started < LANClient.scanSettleTime)
+        #expect(await task.value < LANClient.scanSettleTime)
         await client.close()
     }
 }

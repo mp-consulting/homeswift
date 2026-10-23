@@ -46,8 +46,10 @@ public enum MDNSQuery {
         let socket = try await UDPSocket.bind()
         let packet = Data(encodeQuery(name: name, type: type))
         let deadline = ContinuousClock.now + duration
+        // The first query goes at once, here; the repeats from a task (a loaded machine may run it late).
+        try? await socket.send(packet, to: host, port: port)
         let sender = Task {
-            for delay in [Duration.zero, .seconds(1), .seconds(2)] {
+            for delay in [Duration.seconds(1), .seconds(2)] {
                 try? await Task.sleep(for: delay)
                 guard !Task.isCancelled, ContinuousClock.now < deadline else { return }
                 try? await socket.send(packet, to: host, port: port)
