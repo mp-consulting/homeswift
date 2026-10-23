@@ -7,9 +7,19 @@ import HomeswiftNetwork
 /// The Daikin endpoints sit behind a firewall that classifies clients by their TLS fingerprint and drops
 /// some silently. The plugin identifies as OkHttp, as the Onecta app whose OAuth client the Mobile App
 /// login emulates, and never as a browser (a browser User-Agent with a non-browser fingerprint is flagged).
+/// The TLS cipher list is OpenSSL's `DEFAULT`, as the Homebridge plugin sets it: the generic fingerprint curl
+/// and many clients share passes, a hand-picked list (Node's, NIOSSL's) may be singled out.
 struct DaikinHTTP: Sendable {
     /// Overridable for diagnostics, as in the Homebridge plugin.
     static let userAgent = ProcessInfo.processInfo.environment["DAIKIN_USER_AGENT"] ?? "okhttp/4.12.0"
+    /// The cipher list of the built-in client and the WebSocket; `DAIKIN_TLS_CIPHERS` overrides it.
+    static let cipherSuites = cipherSuites(environment: ProcessInfo.processInfo.environment)
+
+    /// `DAIKIN_TLS_CIPHERS` when set and not empty, else `DEFAULT` (the plugin's `process.env.X || 'DEFAULT'`).
+    static func cipherSuites(environment: [String: String]) -> String {
+        guard let value = environment["DAIKIN_TLS_CIPHERS"], !value.isEmpty else { return "DEFAULT" }
+        return value
+    }
     static let timeout: Duration = .seconds(30)
 
     let transport: any HTTPSending
@@ -22,7 +32,7 @@ struct DaikinHTTP: Sendable {
 
     static func makeTransport(_ mode: TransportMode) -> any HTTPSending {
         switch mode {
-        case .node: HTTPClient(tls: .system, maximumBodySize: 10 * 1024 * 1024)
+        case .node: HTTPClient(tls: .system, cipherSuites: cipherSuites, maximumBodySize: 10 * 1024 * 1024)
         case .curl: CurlTransport()
         }
     }

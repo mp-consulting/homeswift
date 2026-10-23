@@ -149,6 +149,16 @@ All notable changes to this project are documented here. The format follows
 - The Govee plugin turns Bluetooth off, with a warning naming the app, when macOS holds an app without a
   Bluetooth usage description responsible for homeswift (started from that app's shell); macOS aborted the
   whole bridge at the first Bluetooth call.
+- **Govee Bluetooth on Linux**, as noble reached it for the Homebridge plugin: a raw HCI socket on `hci0` (or
+  `NOBLE_HCI_DEVICE_ID`) scans for the thermo-hygrometers' advertisements, and commands go over the kernel's
+  L2CAP socket on the ATT channel (characteristic discovery, write commands). Devices and readings are matched
+  by MAC address there, as upstream; macOS keeps matching by advertised name, since CoreBluetooth hides MACs.
+- The Govee plugin imports the Homebridge plugin's kept login (`govee_cache` and `persist/govee.pfx` of
+  `homebridgeStoragePath`, else `~/.homebridge`) once, at a first start of the same account, so Govee does not
+  email a verification code again.
+- The Govee plugin logs `devNotRef` for a sensor whose data cannot be read, `storageWriteErr` when a
+  thermo-hygrometer's temperature cannot be saved, and AWS IoT's `error event` when the connection drops, as
+  the Homebridge plugin does; it gives the Assistant its background (`assistantBackground`).
 - **Camera cards** on the Accessories page: a 16:9 live video with the camera's name, motion, the doorbell's
   last ring and HomeKit Secure Video recording over it, mute, refresh and full screen buttons, and the camera's
   own controls (its light, switches, whether it is on in the Home app) under it. The video plays muted through
@@ -192,9 +202,29 @@ All notable changes to this project are documented here. The format follows
   `sessionIdleMinutes` (30); `homebridge-ai-kit`'s environment variables (`HOMEBRIDGE_AI_MCP_MAX_SESSIONS`,
   `…_SESSION_IDLE_MINUTES`, `HOMEBRIDGE_READ_ONLY`, `HOMEBRIDGE_AI_MCP_TOKENS`, `…_ALLOWED_ORIGINS`,
   `HOMEBRIDGE_AI_AUDIT_LOG`) and their `HOMESWIFT_` names override the block.
+- **MQTT 5** in `HomeswiftNetwork`'s `MQTTClient` (`protocolVersion: .v5`, 3.1.1 stays the default): properties in
+  CONNECT, CONNACK, PUBLISH, SUBSCRIBE and the acknowledgements, reason codes for refused connections,
+  subscriptions and publishes (`MQTTError.publishRefused`), the broker's DISCONNECT (`disconnectedByBroker`) and
+  its Server Keep Alive.
+- **Cipher suites** for `HTTPClient` and `TLSOptions` (`cipherSuites`, an OpenSSL cipher list such as `DEFAULT`).
+- **`MDNSQuery`**: one-shot mDNS queries answered by unicast, with the address of each responder (which dns_sd
+  does not give).
+- Dyson Pure Cool: the CONNECT ladder's MQTT 5 step is tried as in Homebridge.
+- Dyson Pure Cool: a device whose mDNS records carry no local IPv4 address is reached at the private address that
+  answered for it, as the Homebridge plugin's `referer` fallback.
+- Daikin Cloud: `DAIKIN_TLS_CIPHERS`, and the built-in client and the WebSocket offer the `DEFAULT` cipher list as
+  the Homebridge plugin does.
+- eWeLink: the page's `GET accessories` request (the instance's accessories and their kept values), and the page
+  fills its settings in again when the block changed elsewhere (Homebridge's `configChanged`).
+- Dyson Pure Cool, Daikin Cloud and eWeLink give the Assistant their Homebridge background
+  (`assistantBackground`), with Homeswift's files and the errors the ports log.
 
 ### Changed
 
+- Dyson Pure Cool climbs the CONNECT ladder only on the refusals the Homebridge plugin does (identifier rejected,
+  protocol version, user name or password, not authorized), not on "server unavailable".
+- Daikin Cloud's page tells the Assistant the default transport is Homeswift's built-in HTTP client, not "node".
+- The Dyson Pure Cool README says how `discoveryTimeout` is read (seconds up to 60, milliseconds above).
 - The Accessories page shows a section per plugin rather than per server (a card's foot still names its
   server), and the Logs page's menu groups the accessories by plugin.
 - A paused plugin's pill has a colour of its own, and its card's ⋯ button keeps its size beside the paused note.
@@ -307,6 +337,8 @@ All notable changes to this project are documented here. The format follows
 - LG ThinQ: the settings page has the options of AeroTowers (`air_fast_mode`) and WashTower 2 (the washer's).
 - UniFi Protect and LG ThinQ give the Assistant their background (`assistantBackground`): the errors they log,
   their files and the usual fixes, after the Homebridge plugins' `*_AI_CONTEXT`.
+- Govee plugs shown as an audio receiver, set-top box or streaming stick are on the bridge, as in Homebridge,
+  rather than accessories with a pairing of their own.
 
 ## [0.3.0] - 2026-10-21
 

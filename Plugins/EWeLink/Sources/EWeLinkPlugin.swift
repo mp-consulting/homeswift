@@ -80,7 +80,8 @@ public actor EWeLinkPlugin: HomeswiftPlugin {
     /// The Homebridge plugin's settings page: `POST login` checks an account (and keeps the session here, not
     /// in the browser), `GET session` says whether the plugin has a session to reuse, `GET devices` lists the
     /// account's devices and RF sub-devices with what a 3 s mDNS scan found, `POST test-device` sends a
-    /// command, `GET status` the connection.
+    /// command, `GET accessories` the instance's accessories (Homebridge's `/getCachedAccessories`), `GET status`
+    /// the connection.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         switch (request.method, request.path) {
         case ("POST", "login"):
@@ -113,6 +114,8 @@ public actor EWeLinkPlugin: HomeswiftPlugin {
             let params = request.body["params"]?.objectValue ?? ["switch": "on"]
             let success = await api.setDeviceState(deviceID, params: params)
             return PluginWebResponse(["success": .bool(success), "message": .string(success ? "Command sent successfully" : "Failed to send command")])
+        case ("GET", "accessories"):
+            return PluginWebResponse(await accessories())
         case ("GET", "status"):
             return PluginWebResponse(await status())
         default:
@@ -127,6 +130,20 @@ public actor EWeLinkPlugin: HomeswiftPlugin {
         let api = CloudAPI(credentials: .init(countryCode: configuration.countryCode), transport: dependencies.transport, storage: nil, logger: logger)
         await api.setCredentials(accessToken: tokens.accessToken, apiKey: tokens.apiKey, refreshToken: tokens.refreshToken, region: tokens.region)
         return api
+    }
+
+    /// The instance's accessories, those restored from the cache included, as the Homebridge page's cached
+    /// accessory entries: the id, name, category, and the values the handler keeps (`accessory-context.json`).
+    @EWeLinkActor
+    private func accessories() async -> JSONValue {
+        let contexts = holder.platform?.contexts
+        return .array(context.accessories.sorted { $0.aid < $1.aid }.map { accessory in
+            [
+                "id": .string(accessory.id), "aid": .number(Double(accessory.aid)), "displayName": .string(accessory.name),
+                "category": .number(Double(accessory.category.rawValue)), "platform": .string(Self.platform),
+                "context": .object(contexts?[accessory.id] ?? [:]),
+            ]
+        })
     }
 
     @EWeLinkActor

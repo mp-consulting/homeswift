@@ -1,4 +1,6 @@
 import Foundation
+import Logging
+import NIOConcurrencyHelpers
 
 // Self-signed test identities (CN=govee-test), password "secret": one with the legacy 3DES and SHA-1 MAC
 // encryption older OpenSSL and Java write, one with PBES2 and AES-256 as OpenSSL 3 and later do.
@@ -41,3 +43,29 @@ let modernPKCS12 =
     "SD1+in5NOmws/yMJvaDq6PcIuHttTMubkOlfSKLz9aDjK1qq2X1RpQ5FaIfy1kGC9hTQhqzru8hLM+RGtj2P0oMbw6LHZgKcje+ab286TpmaVMsVY6nxccIN" +
     "lygA+OAL5mIvQ9efmAkUGYHjgRhP3HuMWNDVEuTPkzElMCMGCSqGSIb3DQEJFTEWBBTSXkskcNqfkoyiUgj9YkU6wy7MXTBJMDEwDQYJYIZIAWUDBAIBBQAE" +
     "IE/AchkpqRYhyFQG1A1WRumgr48TiecTdgigh3QWcLoGBBBXUE+XfyRQDpysQQt87Y8TAgIIAA=="
+
+/// A logger whose lines a test reads.
+final class LogRecorder: @unchecked Sendable {
+    private let lock = NIOLock()
+    private var recorded: [String] = []
+
+    var lines: [String] { lock.withLock { recorded } }
+    var logger: Logger { Logger(label: "govee-test") { _ in Handler(recorder: self) } }
+
+    func contains(_ text: String) -> Bool { lines.contains { $0.contains(text) } }
+
+    private func record(_ line: String) { lock.withLock { recorded.append(line) } }
+
+    private struct Handler: LogHandler {
+        let recorder: LogRecorder
+        var metadata: Logger.Metadata = [:]
+        var logLevel: Logger.Level = .trace
+
+        subscript(metadataKey key: String) -> Logger.Metadata.Value? {
+            get { metadata[key] }
+            set { metadata[key] = newValue }
+        }
+
+        func log(event: LogEvent) { recorder.record("\(event.message)") }
+    }
+}

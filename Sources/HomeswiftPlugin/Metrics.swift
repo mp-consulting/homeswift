@@ -255,7 +255,7 @@ public final class Metrics: @unchecked Sendable {
         line.append(0x0A)
         let name = "\(Self.prefix)\(Self.days().string(from: minute.start)).jsonl"
         let days = days
-        queue.async {
+        queue.async { [line] in
             let manager = FileManager.default
             let url = directory.appendingPathComponent(name)
             if !manager.fileExists(atPath: url.path) {

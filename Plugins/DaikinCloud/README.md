@@ -86,7 +86,7 @@ logs in: the secret, the password and the one-time code are entered on the page.
 | `showSeparateFanControl` | boolean | `false` | A standalone Fan tile with fan speed and oscillation |
 | `showFirmwareUpdateSwitch` | boolean | `false` | A switch that installs staged gateway firmware updates |
 
-The environment variables of the Homebridge plugin work too: `DAIKIN_HTTP_TRANSPORT`, `DAIKIN_USER_AGENT`,
+The environment variables of the Homebridge plugin work too: `DAIKIN_HTTP_TRANSPORT`, `DAIKIN_USER_AGENT`, `DAIKIN_TLS_CIPHERS`,
 `DAIKIN_WEBSOCKET_URL` and the Mobile App client's `DAIKIN_API_KEY`, `DAIKIN_CLIENT_ID`, `DAIKIN_CLIENT_SECRET`,
 `DAIKIN_REDIRECT_URI`, `DAIKIN_GIGYA_BASE_URL`, `DAIKIN_IDP_TOKEN_ENDPOINT`, `DAIKIN_SCOPE`.
 
@@ -102,7 +102,9 @@ The environment variables of the Homebridge plugin work too: `DAIKIN_HTTP_TRANSP
 - Revoke on the page also disconnects the running instance at once.
 - The callback server's certificate is made by the plugin (P-256, the address as subject alternative name), not by
   the `openssl` binary, and is made again for another address or after 300 days.
-- The `node` transport is Homeswift's NIO client (BoringSSL); `DAIKIN_TLS_CIPHERS` has no equivalent.
+- The `node` transport is Homeswift's built-in HTTP client (NIO and BoringSSL). It offers BoringSSL's `DEFAULT`
+  cipher list, as the Homebridge plugin asks Node for OpenSSL's, and `DAIKIN_TLS_CIPHERS` overrides it for both the
+  requests and the WebSocket; the ClientHello is BoringSSL's, so it is not byte for byte the same as Node's.
 - The Assistant's Explain buttons are the web UI's (`HomeswiftAiKit`); the "Describe your setup" card is the
   runtime's config copilot on the Settings page.
 - Accessory ids are `DaikinCloud:<Daikin device id>`; feature switches always carry the management point in their

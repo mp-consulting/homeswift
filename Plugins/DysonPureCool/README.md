@@ -131,8 +131,11 @@ A device's own keys win over the platform's toggles. Numbers and booleans writte
 ## What differs from Homebridge
 
 - The cloud is reached with Homeswift's HTTP client and the credentials decrypted with swift-crypto; MQTT goes
-  through `HomeswiftNetwork`'s client (see `Sources/DysonMQTTClient.swift`), which speaks MQTT 3.1 and 3.1.1: the
-  CONNECT ladder's MQTT 5 step is skipped, the others are tried as in Homebridge.
+  through `HomeswiftNetwork`'s client (see `Sources/DysonMQTTClient.swift`), and the CONNECT ladder (MQTT 5 and
+  3.1 included) is tried as in Homebridge.
+- `discoveryTimeout` is read as seconds up to 60 and as milliseconds above: the Homebridge plugin's README says
+  seconds but its code uses milliseconds (`10000` by default), so both kinds of config.json mean what they meant.
+  The scan lasts between 1 and 60 seconds.
 - HomeKit writes arrive one by one: a mode or speed write within a second of an OFF is dropped (Homebridge dropped
   those in the same tick), so turning the fan off does not switch it back on.
 - Values the Home app showed, and service names it was given, carry over from the accessory cache until the device
