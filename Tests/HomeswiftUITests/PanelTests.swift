@@ -60,7 +60,7 @@ struct PanelTests {
     /// reads the lines it is given.
     @Test func streamsTheAssistantsAnswers() async throws {
         let model = CannedModel()
-        let environment = try UITestEnvironment(auth: .none, assistant: model)
+        let environment = try UITestEnvironment(auth: .none, model: model)
         let base = try await environment.start()
         defer { Task { await environment.stop() } }
         let browser = Browser(base: base)
@@ -94,7 +94,7 @@ struct PanelTests {
 
     /// A streamed request stops on cancel, with an error event, and the next one runs.
     @Test func cancelsAStreamedRequest() async throws {
-        let environment = try UITestEnvironment(auth: .none, assistant: CannedModel(hold: true))
+        let environment = try UITestEnvironment(auth: .none, model: CannedModel(hold: true))
         let base = try await environment.start()
         defer { Task { await environment.stop() } }
         let browser = Browser(base: base)
@@ -112,7 +112,7 @@ struct PanelTests {
 
     /// The digest is written on demand, kept for the day owner-only, and given back from then on.
     @Test func keepsTheDigestForTheDay() async throws {
-        let environment = try UITestEnvironment(auth: .none, assistant: CannedModel())
+        let environment = try UITestEnvironment(auth: .none, model: CannedModel())
         let base = try await environment.start()
         defer { Task { await environment.stop() } }
         environment.logs.append(LogBuffer.Line(level: .error, label: "Lamps", text: "Desk Lamp unreachable"))
@@ -130,7 +130,7 @@ struct PanelTests {
 
     /// Test connection with the saved block and with the form's, and its failure in words.
     @Test func testsTheConnection() async throws {
-        let environment = try UITestEnvironment(auth: .none, assistant: CannedModel())
+        let environment = try UITestEnvironment(auth: .none, model: CannedModel())
         let base = try await environment.start()
         defer { Task { await environment.stop() } }
         let browser = Browser(base: base)
@@ -192,7 +192,7 @@ struct PanelTests {
 
     /// The chat's conversations: New chat files the current one away, it opens again with its messages, and goes.
     @Test func keepsEarlierChats() async throws {
-        let environment = try UITestEnvironment(auth: .none, assistant: CannedModel())
+        let environment = try UITestEnvironment(auth: .none, model: CannedModel())
         let base = try await environment.start()
         defer { Task { await environment.stop() } }
         let browser = Browser(base: base)
@@ -242,5 +242,35 @@ struct PanelTests {
         let page = try await browser.get("/status")
         #expect(page.body.contains(#"<link rel="manifest" href="/manifest.webmanifest">"#))
         #expect(page.body.contains(#"<link rel="apple-touch-icon" href="/apple-touch-icon.png">"#))
+    }
+
+    /// The new routes follow the roles: a user who is not an administrator reads today's digest, keeps their own
+    /// chats and appearance, and stops their own requests; writing the digest, the Assistant's other requests, its
+    /// usage and test, and the log's download and emptying are an administrator's.
+    @Test func followsTheRoles() async throws {
+        let environment = try UITestEnvironment(model: CannedModel())
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let origin = "http://127.0.0.1:\(environment.server.port!)"
+        let admin = Browser(base: base)
+        admin.origin = origin
+        let code = try #require(environment.server.setupCode)
+        #expect(try await admin.post("/api/auth/setup", ["username": "rosaly", "password": "correct horse battery", "setupCode": .string(code)]).status == 200)
+        #expect(try await admin.post("/api/users", ["username": "milo", "password": "battery staple lamp"]).status == 201)
+        let milo = Browser(base: base)
+        milo.origin = origin
+        #expect(try await milo.post("/api/auth/login", ["username": "milo", "password": "battery staple lamp"]).status == 200)
+
+        #expect(try await milo.get("/api/assistant/digest").status == 200)
+        #expect(try await milo.get("/api/assistant/chats").status == 200)
+        #expect(try await milo.put("/api/preferences", ["theme": "dark"]).json?["theme"] == "dark")
+        #expect(try await admin.get("/api/preferences").json?["theme"] == "auto")   // each user's own
+        #expect(try await milo.post("/api/assistant/cancel", ["requestId": "x"]).status == 200)
+        for (method, path) in [("POST", "/api/assistant/digest"), ("POST", "/api/assistant/ask"), ("POST", "/api/assistant/diagnose"), ("POST", "/api/assistant/test"),
+                               ("GET", "/api/assistant/usage"), ("GET", "/api/logs/download"), ("POST", "/api/logs/truncate")] {
+            #expect(try await milo.send(method, path, body: method == "GET" ? nil : "{}").status == 403, "\(method) \(path)")
+        }
+        #expect(try await admin.get("/api/assistant/usage").status == 200)
+        #expect(try await admin.get("/api/logs/download").status == 200)
     }
 }

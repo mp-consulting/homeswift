@@ -23,7 +23,9 @@ import CoreImage
         #expect(QRCode.capacity(version: 1) == 14)
         #expect(QRCode.capacity(version: 6) == 106)
         #expect(try QRCode(String(repeating: "x", count: 106)).version == 6)
-        #expect(throws: QRCode.Error.tooLong(maximum: 106)) { try QRCode(String(repeating: "x", count: 107)) }
+        #expect(QRCode.capacity(version: 9) == 180)
+        #expect(try QRCode(String(repeating: "x", count: 107)).version == 7)
+        #expect(throws: QRCode.Error.tooLong(maximum: 180)) { try QRCode(String(repeating: "x", count: 181)) }
     }
 
     #if canImport(CoreImage)
@@ -32,6 +34,10 @@ import CoreImage
             "X-HM://0023ISYWYGYD8",
             "https://example.com/a-longer-payload-that-needs-version-four?with=a-query&and=more-text",
             String(repeating: "Homeswift ", count: 10),
+            // Versions 7 to 9: version information, three alignment patterns a side, blocks of unequal length.
+            "otpauth://totp/Homeswift%20%28UI%20Bridge%29:rosaly?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=Homeswift",
+            String(repeating: "0123456789abcdef", count: 9),
+            "otpauth://totp/Homeswift:" + String(repeating: "u", count: 64) + "?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=Homeswift&algorithm=SHA1&digits=6&period=30",
         ]
         for text in payloads {
             let code = try QRCode(text)

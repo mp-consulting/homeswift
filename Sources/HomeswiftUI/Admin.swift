@@ -18,9 +18,9 @@ struct ScheduleState: Sendable {
 // Everything but the history is for administrators; every change is in the audit log as client "web UI".
 
 extension UIServer {
-    /// Whether this user may administer the bridge. Every account of the web UI is an administrator for now
-    /// (docs/ui.md); the Settings routes ask here, so a role that is not one is refused in one place.
-    func isAdmin(_ username: String) -> Bool { true }
+    /// Whether this user may administer the bridge: their role in `ui-users.json` (UserStore), or everyone with
+    /// `auth: none`. A request's own check is its `Caller` (`caller.isAdmin`), which knows API tokens too.
+    func isAdmin(_ username: String) -> Bool { configuration.auth == .none || users.isAdmin(username) }
 
     /// The restore route takes the archive itself, not JSON.
     static func acceptsArchive(_ request: Request) -> Bool {
@@ -29,7 +29,8 @@ extension UIServer {
     }
 
     /// The Settings routes, or nil for another route.
-    func adminAPI(_ route: [String], _ request: Request, username: String) async throws -> Reply? {
+    func adminAPI(_ route: [String], _ request: Request, caller: Caller) async throws -> Reply? {
+        let username = caller.username
         let method = request.method
         // An accessory's history is anyone's to read: the accessory is on the page already.
         if method == .GET, route.count == 3, route[0] == "accessories", route[2] == "history" {
@@ -45,7 +46,7 @@ extension UIServer {
         let routes: Set<String> = ["settings", "pairings", "cached-accessories", "child-bridges", "backups", "audit"]
         let isConfigBackups = route.count >= 2 && route[0] == "config" && route[1] == "backups"
         guard let first = route.first, routes.contains(first) || isConfigBackups else { return nil }
-        guard isAdmin(username) else { return .error(403, "only an administrator can do this") }
+        guard caller.isAdmin else { return .error(403, "only an administrator can do this") }
         if request.truncated { return .error(413, "the upload is larger than \(InstanceBackups.maxArchiveSize / 1_048_576) MB") }
         // Everything but the archive upload is JSON.
         let body: JSONValue = request.body.isEmpty || Self.acceptsArchive(request) ? .null : try JSONValue(data: request.body)
@@ -164,8 +165,8 @@ extension UIServer {
 
     /// Records a change made from the UI in the MCP audit log, as client "web UI" with the user as principal: the
     /// route, the outcome and a small JSON body with its secrets masked. The Assistant's chat is recorded by its own
-    /// tool calls; a password change without its body.
-    func audit(_ route: [String], _ request: Request, username: String, reply: Reply) {
+    /// tool calls; the account's own routes (passwords, two-factor codes) without their body.
+    func audit(_ route: [String], _ request: Request, caller: Caller, reply: Reply) {
         // The Assistant's requests and each user's own preferences change nothing of the bridge.
         guard let auditLog, route.first != "assistant", route.first != "preferences" else { return }
         var status = 200
@@ -175,7 +176,7 @@ extension UIServer {
             if code >= 400 { error = (try? JSONValue(data: body))?["error"]?.stringValue }
         }
         var arguments: JSONValue = [:]
-        if route != ["account", "password"], !request.body.isEmpty {
+        if route.first != "account", !request.body.isEmpty {
             if request.body.count <= 2048, !Self.acceptsArchive(request), let json = try? JSONValue(data: request.body) {
                 arguments = Redaction.redactSecrets(json)
             } else {
@@ -184,7 +185,7 @@ extension UIServer {
         }
         auditLog.record(AuditLog.Entry(
             tool: "\(request.method.rawValue) /api/\(route.joined(separator: "/"))", arguments: arguments, ok: status < 400, error: error,
-            session: "web-ui", client: "web UI", principal: username, scope: .admin))
+            session: "web-ui", client: "web UI", principal: caller.username, scope: caller.scope))
     }
 
     // MARK: Schedules

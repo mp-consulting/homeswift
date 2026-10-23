@@ -68,10 +68,12 @@ final class UITestEnvironment: @unchecked Sendable {
     let server: UIServer
     var configURL: URL { directory.appendingPathComponent("config.json") }
 
-    /// `assistant`: a HomeswiftAiKit block whose provider answers through this transport.
-    init(auth: UIConfiguration.AuthMode = .form, webRoot: URL? = nil, https: Bool = false, metrics: Metrics? = nil, assistant: (any HTTPTransport)? = nil) throws {
+    /// `assistant`: a HomeswiftAiKit block whose provider nothing answers for (it is never reached in the tests);
+    /// `model`: one whose provider answers through this transport.
+    init(auth: UIConfiguration.AuthMode = .form, webRoot: URL? = nil, https: Bool = false, metrics: Metrics? = nil, assistant: Bool = false,
+         model: (any HTTPTransport)? = nil, options configure: (inout UIServer.Options) -> Void = { _ in }) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let ai = assistant == nil ? "" : #",{ "platform": "HomeswiftAiKit", "provider": "openai-compatible", "model": "llama3.1", "baseUrl": "http://127.0.0.1:9/v1", "maxRetries": 0 }"#
+        let ai = assistant || model != nil ? #",{ "platform": "HomeswiftAiKit", "provider": "openai-compatible", "model": "llama3.1", "baseUrl": "http://127.0.0.1:9/v1", "maxRetries": 0 }"# : ""
         let config = """
             {
               "bridge": { "name": "UI Bridge", "username": "0E:11:22:33:44:66", "pin": "031-45-154", "port": 0 },
@@ -88,7 +90,7 @@ final class UITestEnvironment: @unchecked Sendable {
         registry.register(ElgatoKeyLightsPlugin.self)
         var options = PluginHost.Options(advertise: false, logger: testLogger) { _ in MemoryStorage() }
         options.systemPlatforms.insert(UIConfiguration.platform)
-        options.aiTransport = assistant
+        options.aiTransport = model
         host = try PluginHost(configuration: try HomeswiftConfiguration.decode(Data(config.utf8)), registry: registry, storageDirectory: directory, options: options)
         let restarts = self.restarts
         let catalog = HomeswiftCatalog(
@@ -102,6 +104,7 @@ final class UITestEnvironment: @unchecked Sendable {
         serverOptions.hashIterations = 1000
         serverOptions.logger = testLogger
         serverOptions.webRoot = webRoot
+        configure(&serverOptions)
         server = UIServer(configuration: configuration, catalog: catalog, usersURL: directory.appendingPathComponent("ui-users.json"), options: serverOptions)
     }
 

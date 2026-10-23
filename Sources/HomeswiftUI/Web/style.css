@@ -190,6 +190,9 @@ button.busy::after {
 .account h2 { margin-top: 0; }
 .account-form .field { max-width: 420px; }
 @media (max-width: 640px) { .account { grid-template-columns: 1fr; } }
+.stack { display: grid; gap: 14px; align-content: start; min-width: 0; }
+.check { display: flex; gap: 8px; align-items: center; margin: 14px 0 4px; font-weight: 500; }
+.secret { word-break: break-all; user-select: all; }
 main { max-width: 1100px; margin: 0 auto; padding: 22px 12px 40px; }
 
 /* Type: the system font with its optical sizes, sizes in rem so the reader's text size applies, tracking
