@@ -135,6 +135,8 @@ final class Subprocess: @unchecked Sendable {
     /// Only touched on `stdinQueue`.
     nonisolated(unsafe) private var stdinFDClosed = false
     private let state = NIOLockedValueBox(State())
+    /// The pipes' read sources, kept: a source nothing holds is released and never fires.
+    private let readSources = NIOLockedValueBox<[any DispatchSourceRead]>([])
     private let pidBox = NIOLockedValueBox<Int32>(0)
 
     /// Starts `executable` (a name looked up in `PATH`, or a path). Nothing is read until `beginReading()`. The child keeps
@@ -241,11 +243,19 @@ final class Subprocess: @unchecked Sendable {
             return !state.reading
         }
         guard first else { return }
-        stdoutHandle.readabilityHandler = { handle in self.readable(handle, isStdout: true) }
-        stderrHandle.readabilityHandler = { handle in self.readable(handle, isStdout: false) }
+        // A read source per pipe rather than FileHandle's readabilityHandler: at end of file the source is
+        // cancelled from its own handler, and the pipe is closed in the cancel handler, once nothing watches its
+        // descriptor (closing it earlier makes libdispatch's event loop crash on Linux).
+        for (handle, isStdout) in [(stdoutHandle, true), (stderrHandle, false)] {
+            let source = DispatchSource.makeReadSource(fileDescriptor: handle.fileDescriptor, queue: DispatchQueue(label: "HomeswiftFFmpeg.read"))
+            source.setEventHandler { [unowned source] in self.readable(source, isStdout: isStdout) }
+            source.setCancelHandler { try? handle.close() }
+            readSources.withLockedValue { $0.append(source) }
+            source.resume()
+        }
     }
 
-    private func readable(_ handle: FileHandle, isStdout: Bool) {
+    private func readable(_ source: any DispatchSourceRead, isStdout: Bool) {
         guard state.withLockedValue({ isStdout ? !$0.stdoutEOF : !$0.stderrEOF }) else { return }
         let fd = isStdout ? stdoutFD : stderrFD
         var buffer = [UInt8](repeating: 0, count: 65536)
@@ -255,16 +265,11 @@ final class Subprocess: @unchecked Sendable {
         } while count < 0 && errno == EINTR
         if count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) { return }
         guard count > 0 else {
-            // Marked first, so a callback that follows reads nothing from a descriptor that may be closed.
             let deliver = state.withLockedValue { state -> Bool in
                 if isStdout { state.stdoutEOF = true } else { state.stderrEOF = true }
                 return Self.readyToDeliver(&state)
             }
-            // Not from inside the handler: Foundation on Linux waits on the queue running it, and traps.
-            DispatchQueue.global().async {
-                handle.readabilityHandler = nil
-                try? handle.close()
-            }
+            source.cancel()
             if deliver { deliverExit() }
             return
         }
