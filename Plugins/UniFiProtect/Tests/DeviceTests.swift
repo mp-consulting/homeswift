@@ -46,6 +46,8 @@ import Testing
         #expect(sensor.service(.motionSensor)?[.statusActive]?.value == .bool(true))
         #expect(sensor.information[.manufacturer]?.value == "Ubiquiti Inc." && sensor.information[.model]?.value == "UP Sense")
         #expect(sensor.information[.serialNumber]?.value == .string(Fixtures.sensorMAC))
+        // Protect reports no hardware revision for this sensor: the characteristic stays off, as upstream leaves it.
+        #expect(sensor.information[.hardwareRevision] == nil)
         #expect(await eventually { environment.mqtt.published.filter { $0.topic.hasPrefix("unifi/protect/\(Fixtures.sensorMAC)/") }.count >= 7 })
         let published = environment.mqtt.published.filter { $0.topic.hasPrefix("unifi/protect/\(Fixtures.sensorMAC)/") }.map { ($0.topic.split(separator: "/").last.map(String.init) ?? "", $0.string ?? "") }
         #expect(published.map(\.0) == ["alarm", "ambientlight", "contact", "humidity", "leak-external", "leak", "temperature"])
@@ -137,6 +139,7 @@ import Testing
         ], waitFor: Self.cameraID)
         defer { Task { await host.stop() } }
         let camera = try #require(environment.accessory(host, Self.cameraID))
+        #expect(camera.information[.hardwareRevision]?.value == "11")
         let types = camera.services.compactMap(\.subtype).filter { $0.hasPrefix(ProtectReservedNames.contactMotionSmartDetect) }.sorted()
         #expect(types == [
             "ContactMotionSmartDetect.alrmSmoke", "ContactMotionSmartDetect.licensePlate", "ContactMotionSmartDetect.person", "ContactMotionSmartDetect.vehicle",
@@ -277,6 +280,7 @@ import Testing
         let security = try #require(environment.accessory(host, ProtectPlatform.accessoryID(Fixtures.nvrMAC + ".Security")))
         let system = try #require(security.service(.securitySystem))
         #expect(security.information[.model]?.value == "UniFi Protect Liveview Security System")
+        #expect(security.information[.hardwareRevision]?.value == "3")
         #expect(security.service(.switch) != nil)
         let garage = try #require(await eventually { environment.accessory(host, ProtectPlatform.accessoryID(Fixtures.nvrMAC + ".Liveview.GARAGE")) != nil }
             ? environment.accessory(host, ProtectPlatform.accessoryID(Fixtures.nvrMAC + ".Liveview.GARAGE")) : nil)

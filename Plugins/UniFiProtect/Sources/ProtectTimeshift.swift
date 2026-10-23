@@ -30,7 +30,7 @@ final class ProtectTimeshiftBuffer {
         case .close:
             // A restart closes the connection on purpose.
             if isRestarting { return }
-            log.error("Livestream API connection closed by the controller. Retrying shortly.")
+            log.error("\(camera.hasFeature("Debug.Video.HKSV.UseRtsp") ? "RTSP" : "Livestream API") connection closed by the controller. Retrying shortly.")
         case .segment(let segment):
             if isTransmitting { onSegment?(segment) }
             segments.append(segment)

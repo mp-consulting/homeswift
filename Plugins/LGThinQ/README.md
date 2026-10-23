@@ -56,12 +56,12 @@ Per device: `name`, `serial_number`, and
 
 | Option | Devices | What it does |
 |---|---|---|
-| `washer_trigger` | washer, dryer | A Program Finished occupancy sensor, on for ten minutes |
+| `washer_trigger` | washer, dryer, wash tower | A Program Finished occupancy sensor, on for ten minutes |
 | `washer_door_lock` | washer, dryer (ThinQ2) | The door lock as a Lock Mechanism |
 | `washer_tub_clean` | washer | The Tub Clean Coach sensor (on from 30 cycles) |
 | `dishwasher_trigger` | dishwasher | A Program Finished occupancy sensor |
-| `ac_mode` | AC | `BOTH`, `COOLING` or `HEATING`: the target states offered |
-| `ac_swing_mode` | AC | `BOTH`, `VERTICAL` or `HORIZONTAL`: the axes swing switches |
+| `ac_mode` | AC | `BOTH`, `COOLING` or `HEATING` (any case): the target states offered |
+| `ac_swing_mode` | AC | `BOTH`, `VERTICAL` or `HORIZONTAL` (any case): the axes swing switches |
 | `ac_air_quality` | AC | An air quality sensor, when the unit has one |
 | `ac_temperature_sensor`, `ac_humidity_sensor` | AC | The current temperature and humidity as sensors |
 | `ac_led_control` | AC | The display light as a light |
@@ -71,7 +71,7 @@ Per device: `name`, `serial_number`, and
 | `ac_temperature_unit` | AC | `C` or `F`: in `F`, temperatures follow the unit's own Fahrenheit table |
 | `ac_buttons` | AC | `[{ "name": "Dry", "op_mode": 1 }]`: switches that select an operation mode |
 | `ref_express_freezer`, `ref_express_fridge`, `ref_eco_friendly` | refrigerator | Switches for those modes |
-| `air_fast_mode` | air purifier | An Air Fast switch |
+| `air_fast_mode` | air purifier, AeroTower | An Air Fast switch |
 
 ## What differs from the Homebridge plugin
 
@@ -95,5 +95,8 @@ Per device: `name`, `serial_number`, and
 - The Assistant (the web UI's chat, MCP clients) can list the appliances this instance runs and every
   appliance of its LG account (`GET devices`, `GET account-devices`), and get LG's sign-in page for
   Google, Apple, Facebook or Amazon accounts. Signing in stays on the plugin's page.
-- The schema is the Homebridge plugin's, unchanged; its `condition` keys and layout types the Homeswift form
-  does not know are ignored.
+- `ac_mode` and `ac_swing_mode` are read in any case: the Homebridge plugin's documentation writes `both` and
+  `vertical`, which it then ignored. The settings page has the options of AeroTowers (`air_fast_mode`) and
+  WashTower 2 (the washer's), which the Homebridge page left out.
+- The schema is the Homebridge plugin's, with `air_fast_mode` shown for AeroTowers too; its `condition` keys and
+  layout types the Homeswift form does not know are ignored.
