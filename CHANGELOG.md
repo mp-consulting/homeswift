@@ -168,6 +168,11 @@ All notable changes to this project are documented here. The format follows
   `details: true`; `search_logs` looks inside payloads and, with `hours`, back through the log on disk.
 - **`HAPServer.observeTimings`** and **`PluginHost.observeTimings`**: how long each controller request to
   `/characteristics` and each accessory read or write handler took, with the accessories it was about.
+- **A container image**, `ghcr.io/mp-consulting/homeswift`, for `linux/amd64` and `linux/arm64`, pushed for each
+  release tag: the bridge linked with the Swift runtime, Avahi (its own daemon, or the host's through a
+  mounted D-Bus socket), FFmpeg, a `config.json` with the web UI on the first run, the bridge running as
+  `PUID:PGID`. `docker-compose.yml` and [docs/synology.md](docs/synology.md) set it up on a Synology NAS
+  with Container Manager.
 - **A Synology package** (`homeswift-<arch>-<version>.spk`, x86_64 and aarch64, DSM 7.0 or later), Homeswift's
   homebridge-syno-spk: no Docker, a `homeswift` shared folder for the data, the bridge as a systemd unit of
   the package's own user, Homeswift in DSM's main menu, firewall entries for its ports. The install wizard
