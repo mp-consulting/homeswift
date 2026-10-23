@@ -36,6 +36,24 @@ import Testing
         }
     }
 
+    /// Short decimals take a division instead of strtod: the same Double, to the bit.
+    @Test func parsesDecimalsAsStrtodDoes() throws {
+        var generator = SystemRandomNumberGenerator()
+        var texts = ["0.1", "0.3", "-0.0", "1792747644.182", "999999999999.999", "0.000000000000001", "123456789012345.6", "9007199254.740993"]
+        for _ in 0..<20_000 {
+            let digits = Int.random(in: 2...17, using: &generator)
+            let point = Int.random(in: 1..<digits, using: &generator)
+            var text = String((0..<digits).map { _ in "0123456789".randomElement(using: &generator)! })
+            text.insert(".", at: text.index(text.startIndex, offsetBy: point))
+            while text.hasPrefix("0"), text.dropFirst().first != "." { text.removeFirst() }
+            texts.append(Bool.random(using: &generator) ? "-" + text : text)
+        }
+        for text in texts {
+            let parsed = try #require(try JSONValue(string: text).doubleValue)
+            #expect(parsed.bitPattern == Double(text)!.bitPattern, "\(text)")
+        }
+    }
+
     @Test func parsesEscapesAndRejectsWhatJSONDecoderRejects() throws {
         #expect(try JSONValue(string: #" "a\u00e9\ud83d\ude00\/\b" "#) == "aé😀/\u{8}")
         #expect(try JSONValue(data: Data([0xEF, 0xBB, 0xBF] + Array(#"{"k":[1,-0.5e2]}"#.utf8))) == ["k": [1, -50]])

@@ -66,19 +66,23 @@ public final class LogArchive: @unchecked Sendable {
         row.withUnsafeBytes { line($0) }
     }
 
-    /// The row's members are read in place, without a dictionary for each of the thousands of rows a range has.
+    /// The row's members are read in place, without a dictionary or an array for each of the thousands of rows a
+    /// range has.
     static func line(_ row: UnsafeRawBufferPointer) -> LogBuffer.Line? {
-        guard let members = try? JSONValue.members(of: row) else { return nil }
         var time: Double?, level: String?, label: String?, text: String?, details: String?
-        for (key, value) in members {
-            switch key {
-            case "t": time = value.doubleValue
-            case "l": level = value.stringValue
-            case "n": label = value.stringValue
-            case "m": text = value.stringValue
-            case "d": details = value.stringValue
-            default: break
+        do {
+            try JSONValue.forEachMember(of: row) { key, value in
+                switch key {
+                case "t": time = value.doubleValue
+                case "l": level = value.stringValue
+                case "n": label = value.stringValue
+                case "m": text = value.stringValue
+                case "d": details = value.stringValue
+                default: break
+                }
             }
+        } catch {
+            return nil
         }
         guard let time, let level, let label, let text else { return nil }
         return LogBuffer.Line(date: Date(timeIntervalSince1970: time), level: Logger.Level(rawValue: level) ?? .info, label: label, text: text, details: details)
@@ -221,7 +225,11 @@ public final class LogArchive: @unchecked Sendable {
             chunks.append(found)
             if done { break scan }
         }
-        return chunks.joined().reversed()
+        // Oldest first, in one array.
+        var lines: [LogBuffer.Line] = []
+        lines.reserveCapacity(count)
+        for chunk in chunks.reversed() { lines.append(contentsOf: chunk.reversed()) }
+        return lines
     }
 
     /// A row's `t`, read from its bytes without parsing the row: inside a JSON string every quote is escaped, so the
@@ -242,7 +250,8 @@ public final class LogArchive: @unchecked Sendable {
         guard index >= 0 else { return nil }
         var end = index + 4
         while end < bytes.count, bytes[end] != UInt8(ascii: ","), bytes[end] != UInt8(ascii: "}") { end += 1 }
-        return Double(String(decoding: UnsafeBufferPointer(rebasing: bytes[(index + 4)..<end]), as: UTF8.self))
+        // Parsed as JSON, in place: no text to make for it.
+        return (try? JSONValue(bytes: UnsafeRawBufferPointer(rebasing: raw[(index + 4)..<end])))?.doubleValue
     }
 
     /// Segment names' times.
