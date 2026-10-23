@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# Everyday commands for working on Homeswift. Run from anywhere in the checkout: `bin/dev help`.
+#
+# Builds go outside the repository (files under ~/Documents carry Finder metadata that codesign rejects).
+# HOMESWIFT_SCRATCH   the SwiftPM scratch path   (default ~/Library/Caches/homeswift-build)
+# HOMESWIFT_DEV_DIR   the test server's config directory, its -U   (default ~/.homeswift-tvtest)
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRATCH="${HOMESWIFT_SCRATCH:-$HOME/Library/Caches/homeswift-build}"
+DIR="${HOMESWIFT_DEV_DIR:-$HOME/.homeswift-tvtest}"
+PIDFILE="$DIR/dev-server.pid"
+LOGFILE="$DIR/dev-server.log"
+cd "$ROOT"
+
+swiftpm() { local command="$1"; shift; swift "$command" --scratch-path "$SCRATCH" "$@"; }
+
+# The test server's pid, when it runs (from its pid file, else a homeswift serving $DIR).
+server_pid() {
+  local pid
+  if [[ -f "$PIDFILE" ]] && pid="$(cat "$PIDFILE")" && kill -0 "$pid" 2>/dev/null; then echo "$pid"; return; fi
+  pgrep -f "homeswift -U $DIR( |$)" | head -1 || true
+}
+
+# The web UI's address, from the HomeswiftUI block of config.json.
+ui_url() {
+  python3 - "$DIR/config.json" <<'EOF' 2>/dev/null || true
+import json, sys
+config = json.load(open(sys.argv[1]))
+ui = next((p for p in config.get("platforms", []) if p.get("platform") == "HomeswiftUI"), None)
+if ui is not None:
+    host = ui.get("host", "0.0.0.0")
+    print(f"{'https' if ui.get('https') else 'http'}://{'127.0.0.1' if host in ('0.0.0.0', '::') else host}:{ui.get('port', 8581)}/")
+EOF
+}
+
+embed() {
+  swift Scripts/embed-assets.swift web Sources/HomeswiftUI/Web Sources/HomeswiftUI/WebAssets.swift
+  for plugin in Plugins/*/; do
+    plugin="${plugin%/}"
+    local type
+    type="$(basename "$plugin")Plugin"
+    [[ -f "$plugin/config.schema.json" ]] && swift Scripts/embed-assets.swift plugin "$plugin" "$type"
+    [[ -d "$plugin/Web" ]] && swift Scripts/embed-assets.swift web "$plugin/Web" "$plugin/Sources/WebFiles.swift" "$type"
+  done
+  [[ -f Plugins/Govee/Scripts/embed-scene-library.swift ]] && swift Plugins/Govee/Scripts/embed-scene-library.swift
+  git status --short -- '*WebAssets.swift' '*WebFiles.swift' '*ConfigurationSchema.swift' '*SceneLibraryData.swift'
+}
+
+start() {
+  local pid
+  pid="$(server_pid)"
+  if [[ -n "$pid" ]]; then
+    echo "The test server already runs (pid $pid): bin/dev restart to replace it." >&2
+    return 1
+  fi
+  [[ -f "$DIR/config.json" ]] || { echo "No config.json in $DIR (set HOMESWIFT_DEV_DIR)." >&2; return 1; }
+  swiftpm build --product homeswift
+  # Where SwiftPM puts products depends on its build system (.build/debug, or out/Products/Debug).
+  local binary
+  binary="$(swiftpm build --show-bin-path)/homeswift"
+  # Pages are served from the checkout: a CSS save swaps in place, a JS or HTML save reloads.
+  HOMESWIFT_WEB_ROOT="$ROOT" nohup "$binary" -U "$DIR" -D "$@" >>"$LOGFILE" 2>&1 &
+  echo $! >"$PIDFILE"
+  local url
+  url="$(ui_url)"
+  for _ in $(seq 1 60); do
+    kill -0 "$(cat "$PIDFILE")" 2>/dev/null || { echo "The test server stopped; its log:" >&2; tail -20 "$LOGFILE" >&2; return 1; }
+    if [[ -z "$url" ]] || curl -s -o /dev/null -m 1 "$url"; then break; fi
+    sleep 1
+  done
+  echo "Test server running (pid $(cat "$PIDFILE")), config $DIR"
+  [[ -n "$url" ]] && echo "Web UI: $url"
+  echo "Log: bin/dev logs"
+}
+
+stop() {
+  local pid
+  pid="$(server_pid)"
+  [[ -n "$pid" ]] || { echo "The test server is not running."; rm -f "$PIDFILE"; return 0; }
+  kill -INT "$pid"
+  for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+  if kill -0 "$pid" 2>/dev/null; then kill -TERM "$pid"; sleep 1; fi
+  rm -f "$PIDFILE"
+  echo "Test server stopped (pid $pid)."
+}
+
+status() {
+  local pid
+  pid="$(server_pid)"
+  if [[ -z "$pid" ]]; then echo "Test server: not running (config $DIR)"; return 0; fi
+  echo "Test server: running, pid $pid, up $(ps -o etime= -p "$pid" | tr -d ' '), config $DIR"
+  local url
+  url="$(ui_url)"
+  [[ -n "$url" ]] && echo "Web UI: $url"
+  echo "Recent problems:"
+  grep -E "\[(ERROR|WARNING)\]" "$LOGFILE" 2>/dev/null | tail -5 | cut -c1-200 || true
+}
+
+usage() {
+  cat <<EOF
+bin/dev <command>   (scratch path $SCRATCH, test server config $DIR)
+
+  build [args]       swift build
+  test [filter]      swift test, only the tests matching filter when given (e.g. GoveeTests)
+  check              embed, then build and run every test: what to run before committing
+  embed              regenerate WebAssets.swift, each plugin's WebFiles.swift and ConfigurationSchema.swift
+                     (and Govee's scene library) after editing pages or schemas
+  start [-- args]    build and start the test server in the background (pages live from the checkout)
+  stop | restart     stop it, or stop and start it again on a fresh build
+  status             whether it runs, its web UI's address and its latest errors and warnings
+  logs [lines]       follow its log (from the last 100 lines)
+  run [dir]          run homeswift in the foreground (default: a throwaway /tmp/homeswift-dev)
+  plugins            list the plugins compiled in
+  demo               run homeswift-demo (HAP_DEBUG=1 logs every request)
+EOF
+}
+
+command="${1:-help}"
+[[ $# -gt 0 ]] && shift
+case "$command" in
+  build) swiftpm build "$@" ;;
+  test) if [[ $# -gt 0 ]]; then swiftpm test --filter "$1"; else swiftpm test; fi ;;
+  check) embed && swiftpm build --build-tests && swiftpm test ;;
+  embed) embed ;;
+  start) [[ "${1:-}" == "--" ]] && shift; start "$@" ;;
+  stop) stop ;;
+  restart) stop; start "$@" ;;
+  status) status ;;
+  logs) tail -n "${1:-100}" -f "$LOGFILE" ;;
+  run) dir="${1:-/tmp/homeswift-dev}"; [[ $# -gt 0 ]] && shift
+       HOMESWIFT_WEB_ROOT="$ROOT" swiftpm run homeswift -U "$dir" "$@" ;;
+  plugins) swiftpm run homeswift plugins ;;
+  demo) swiftpm run homeswift-demo ;;
+  help | -h | --help) usage ;;
+  *) echo "Unknown command: $command" >&2; usage >&2; exit 2 ;;
+esac
