@@ -310,8 +310,13 @@ public actor GoveePlugin: HomeswiftPlugin {
     /// CoreBluetooth on a Mac whose binary may use Bluetooth; nothing on Linux yet.
     @Sendable static func systemCentral(_ logger: Logger) -> (any BLECentral)? {
         #if canImport(CoreBluetooth)
-        guard CoreBluetoothCentral.isPermitted else {
+        guard CoreBluetoothCentral.isPermitted(infoDictionary: Bundle.main.infoDictionary) else {
             logger.info("[BLE] Bluetooth needs NSBluetoothAlwaysUsageDescription in the homeswift binary's Info.plist")
+            return nil
+        }
+        if let app = CoreBluetoothCentral.responsibleApp, !CoreBluetoothCentral.isPermitted(infoDictionary: app.infoDictionary) {
+            // macOS would abort the whole bridge at the first Bluetooth call.
+            logger.warning("[BLE] disabled: macOS holds \(app.path) responsible for homeswift, and it declares no Bluetooth use. Run homeswift on its own (launchd, brew services) or from a terminal that does, to use Bluetooth.")
             return nil
         }
         return CoreBluetoothCentral(logger: logger)

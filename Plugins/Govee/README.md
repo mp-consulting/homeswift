@@ -114,7 +114,10 @@ Each device type has its list: `lightDevices`, `switchDevices`, `thermoDevices`,
 - **Bluetooth** runs on macOS through CoreBluetooth, which hides MAC addresses: a device is found by the name it
   advertises (Govee's `bleName`) or by the end of its MAC in that name. macOS allows Bluetooth only to a binary
   whose Info.plist describes the use (`NSBluetoothAlwaysUsageDescription`); without it the plugin logs that
-  Bluetooth is unavailable and runs without it. There is no Bluetooth on Linux yet (noble was optional upstream
+  Bluetooth is unavailable and runs without it. macOS asks the *responsible* process: homeswift started on its
+  own (launchd, `brew services`) is responsible for itself, but started from a shell it is the app that opened
+  that shell (an IDE, an agent's app). When that app declares no Bluetooth use, macOS would abort the whole
+  bridge at the first Bluetooth call, so the plugin turns Bluetooth off and logs which app is responsible. There is no Bluetooth on Linux yet (noble was optional upstream
   too).
 - A plug shown as an **audio receiver, set-top box or streaming stick** is published as an accessory of its
   own, as HomeKit wants televisions: add it in the Home app with the bridge's setup code.

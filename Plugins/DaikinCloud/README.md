@@ -92,6 +92,8 @@ The environment variables of the Homebridge plugin work too: `DAIKIN_HTTP_TRANSP
 
 ## What differs from Homebridge
 
+- **Test connection** on the Authentication tab refreshes an expired token first, through the running instance;
+  the Homebridge page sent the saved token as it was and reported "Token expired or invalid" once it had expired.
 - No restart after logging in or saving: saving the block on the page reloads the plugin, and a login on the page
   connects an instance that was waiting for it. The Settings tab therefore saves with a Save button instead of on
   every change, since each save is a reload and the first poll of a reload costs a call.

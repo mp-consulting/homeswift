@@ -355,11 +355,15 @@ extension DaikinCloudPlugin {
     }
 
     func testConnection() async -> JSONValue {
-        guard let tokens = activeToken().tokens, !tokens.access_token.isEmpty else {
+        let (tokens, mode) = activeToken()
+        guard let tokens, !tokens.access_token.isEmpty else {
             return ["success": false, "message": "Not authenticated. Please authenticate first."]
         }
         do {
-            let (data, _) = try await DaikinAPI.get("/v1/gateway-devices", accessToken: tokens.access_token, http: http)
+            // The running instance's token client refreshes an expired token first; the Homebridge page sent the
+            // saved one as it was, and failed once it had expired.
+            let accessToken = session?.mode == mode ? try await session?.tokens.accessToken() ?? tokens.access_token : tokens.access_token
+            let (data, _) = try await DaikinAPI.get("/v1/gateway-devices", accessToken: accessToken, http: http)
             let count = data?.arrayValue?.count ?? 0
             return ["success": true, "message": .string("Connection successful! Found \(count) device(s)."), "deviceCount": .number(Double(count))]
         } catch {
