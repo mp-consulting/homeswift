@@ -303,6 +303,28 @@ extension UniFiProtectPlugin {
     }
   }
 
+  // The camera of the scope, live while it is on screen (the UI's camera.js and /api/cameras), when it is one of
+  // the accessories this bridge runs.
+  let preview = null;
+  let cameraIDs = null;
+  async function showPreview(device) {
+    const panel = $("#infoPreview");
+    const id = device && device.modelKey === "camera" ? `UniFi Protect:${device.mac}` : null;
+    if (preview && preview.camera.id === id) return;
+    preview?.destroy();
+    preview = null;
+    panel.replaceChildren();
+    panel.classList.add("hidden");
+    if (!id || !window.HomeswiftCamera) return;
+    try {
+      cameraIDs ||= new Set((await HomeswiftCommon.api("/api/accessories")).filter((a) => a.camera).map((a) => a.id));
+    } catch { return; }
+    if (!cameraIDs.has(id) || currentScope().device !== device) return;
+    preview = HomeswiftCamera.view({ id, name: device.name || device.marketName || "Camera", doorbell: device.featureFlags?.isDoorbell === true });
+    panel.append(preview.element);
+    panel.classList.remove("hidden");
+  }
+
   function currentScope() {
     const value = $("#scopeSelect").value || "global";
     if (value === "global") return { device: null, id: null, type: "global" };
@@ -358,7 +380,9 @@ extension UniFiProtectPlugin {
         status.className = "ok";
       }
       showDeviceProblem(scope.device, P.deviceProblem(scope.device));
+      showPreview(scope.device);
     } else {
+      showPreview(null);
       $("#deviceInfoPanel").classList.add("hidden");
       showDeviceProblem(null, null);
     }
@@ -786,6 +810,7 @@ extension UniFiProtectPlugin {
           <div class="scope-level" data-scope="device"><span class="scope-dot">D</span><span><b>Device</b><span class="scope-hint muted">Final value</span></span></div>
         </div>
         <div id="deviceInfoPanel" class="card compact-card hidden">
+          <div id="infoPreview" class="info-preview hidden"></div>
           <div class="facts">
             <div class="fact"><span>Model</span><b id="infoModel"></b></div>
             <div class="fact"><span>MAC</span><b id="infoMac" class="mono"></b></div>
@@ -865,6 +890,7 @@ extension UniFiProtectPlugin {
 </main>
 <script src="/common.js"></script>
 <script src="/plugin.js"></script>
+<script src="/camera.js"></script>
 <script src="options.js"></script>
 <script src="app.js"></script>
 </body>
@@ -1185,6 +1211,10 @@ extension UniFiProtectPlugin {
   .options-layout { grid-template-columns: 1fr; }
   .scope-side { position: static; }
 }
+
+/* The scope's camera, live, over its facts. */
+.info-preview { margin: -4px -6px 12px; }
+.info-preview .camera-view { margin: 0; border-radius: 12px; }
 
 """#),
     ]

@@ -276,7 +276,7 @@ label > input, label > select { margin-top: 5px; }
 .section-head h2 { margin: 0; }
 .section-head .muted { font-size: 0.8125rem; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 14px; }
-.grid > .card { margin: 0; }
+.grid > .card { margin: 0; min-width: 0; }
 .card.empty { text-align: center; padding: 28px 20px; grid-column: 1 / -1; }
 .card.empty p { margin: 0; }
 .card.notice { color: var(--warn); font-weight: 500; }
@@ -411,7 +411,8 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .control select, .control input[type=text] { width: auto; max-width: 62%; }
 .control .range { flex: 1; justify-content: flex-end; min-width: 0; }
 .control input[type=range] { flex: 1 1 auto; width: auto; min-width: 60px; max-width: 190px; }
-.control .value { white-space: nowrap; }
+/* A value wraps anywhere rather than widen its card: no text a device sends can push the page sideways. */
+.control .value { min-width: 0; overflow-wrap: anywhere; }
 .control .range .value { flex: none; min-width: 3.6em; text-align: right; }
 .keys { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .keys button { padding: 5px 11px; font-size: 0.8125rem; }
@@ -894,3 +895,74 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
 }
 @media (prefers-reduced-motion: reduce) { .tabbar a { transition: none; } }
 @media (prefers-reduced-transparency: reduce) { .tabbar { background: var(--material-solid); -webkit-backdrop-filter: none; backdrop-filter: none; } }
+
+/* Camera cards: the picture on top, in 16:9, inset in the card like the Home app's camera tiles; the name and
+   state over it on a shade, and round glass buttons that a pointer reveals on hover (always there for touch).
+   camera.js swaps the snapshot for the live video once it plays. */
+.camera-card { gap: 12px; }
+.camera-view {
+  position: relative; flex: none; margin: -8px -10px 0; aspect-ratio: 16 / 9; overflow: hidden; isolation: isolate;
+  border-radius: calc(var(--radius) - 8px); background: #10131a; color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+.camera-view > video, .camera-view > .camera-still {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block;
+  transition: opacity var(--normal) var(--ease-out);
+}
+.camera-view > video { opacity: 0; }
+.camera-view.is-live > video { opacity: 1; }
+.camera-view > .camera-still:not([src]) { opacity: 0; }
+.camera-view:fullscreen { margin: 0; border-radius: 0; aspect-ratio: auto; }
+.camera-view:fullscreen > video, .camera-view:fullscreen > .camera-still { object-fit: contain; }
+.camera-top, .camera-controls { position: absolute; left: 0; right: 0; display: flex; align-items: center; gap: 8px; padding: 10px 12px; z-index: 1; }
+.camera-top {
+  top: 0; flex-wrap: wrap; padding-bottom: 26px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0));
+}
+.camera-name {
+  flex: 1 1 auto; min-width: 0; font-size: 0.9375rem; font-weight: 600; letter-spacing: -0.01em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+.camera-badges { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.camera-badge {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.02em; font-variant-numeric: tabular-nums;
+  background: rgba(20, 22, 28, 0.45); -webkit-backdrop-filter: blur(12px) saturate(160%); backdrop-filter: blur(12px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+.camera-badge.live::before, .camera-badge.recording::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #ff453a; }
+.camera-badge.live { text-transform: uppercase; }
+.camera-badge.recording::before { background: transparent; box-shadow: inset 0 0 0 1.5px #ff453a; }
+.camera-badge.motion { background: rgba(255, 204, 0, 0.9); color: #2b2100; border-color: transparent; }
+.camera-badge.ring { background: rgba(255, 122, 26, 0.92); color: #fff; border-color: transparent; }
+.camera-badge.ring.fresh { animation: camera-ring 1.2s var(--ease-out) 2; }
+@keyframes camera-ring { 0%, 100% { transform: scale(1); } 30% { transform: scale(1.12); } }
+.camera-view.motion { box-shadow: inset 0 0 0 2px rgba(255, 204, 0, 0.9); }
+.camera-controls {
+  bottom: 0; justify-content: flex-end; padding-top: 24px;
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0));
+  transition: opacity var(--normal) var(--ease-out);
+}
+.camera-button {
+  display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border-radius: 50%; color: #fff;
+  background: rgba(30, 32, 40, 0.42); -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: none;
+}
+.camera-button:hover { transform: none; background: rgba(30, 32, 40, 0.62); }
+.camera-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.camera-message {
+  position: absolute; inset: 0; display: grid; place-items: center; padding: 48px 16px; text-align: center; z-index: 1;
+  font-size: 0.8125rem; font-weight: 500; color: rgba(255, 255, 255, 0.82); background: rgba(10, 12, 18, 0.35);
+}
+.camera-view:not(.has-still) > .camera-message { background: radial-gradient(80% 80% at 50% 40%, #232836, #10131a); }
+.camera-meta { font-size: 0.8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: -2px; }
+@media (hover: hover) and (pointer: fine) {
+  .camera-controls { opacity: 0; }
+  .camera-view:hover > .camera-controls, .camera-view:focus-within > .camera-controls { opacity: 1; }
+}
+@media (pointer: coarse) { .camera-button { width: 40px; height: 40px; } }
+@media (max-width: 640px) { .camera-view { margin: -6px -8px 0; } }
+@media (prefers-reduced-motion: reduce) { .camera-badge.ring.fresh { animation: none; } .camera-view > video, .camera-controls { transition: none; } }
+@media (prefers-reduced-transparency: reduce) {
+  .camera-badge, .camera-button { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(20, 22, 28, 0.85); }
+}

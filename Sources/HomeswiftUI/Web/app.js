@@ -312,7 +312,9 @@
   /// The text for an enumerated value, or the value itself.
   function labelFor(type, value) {
     const labels = enumLabels[type];
-    return labels && labels[value] !== undefined ? labels[value] : String(value);
+    // Motion Detected and the like are booleans whose labels are listed for 0 and 1.
+    const index = typeof value === "boolean" ? Number(value) : value;
+    return labels && labels[index] !== undefined ? labels[index] : String(value);
   }
   /// "Color Temperature" reads "Color temperature".
   const sentence = (type) => type.charAt(0) + type.slice(1).toLowerCase();
@@ -331,13 +333,16 @@
     };
   }
 
+  // On and off as 1 and 0.
+  const numericSwitches = new Set(["HomeKit Camera Active"]);
+
   function controlFor(accessory, service, characteristic) {
     const writable = characteristic.permissions.includes("pw");
     const readable = characteristic.permissions.includes("pr");
     const attrs = { "data-id": accessory.id, "data-service": serviceKey(service), "data-char": characteristic.type };
     const write = writer(accessory, service, characteristic);
     const labels = enumLabels[characteristic.type];
-    if (writable && characteristic.format === "bool") return powerSwitch(accessory, service, characteristic);
+    if (writable && (characteristic.format === "bool" || numericSwitches.has(characteristic.type))) return powerSwitch(accessory, service, characteristic);
     if (writable && characteristic.type === "Active Identifier") {
       // The TV's input picker: the input services' identifiers under their names.
       const inputs = accessory.services.filter((s) => s.type === "InputSource").map((s) => {
@@ -402,13 +407,19 @@
   /// Rows for the characteristics of a service a person reads or changes; `skip` are shown elsewhere (the
   /// power switch in the header, the remote).
   function controlRows(accessory, service, ...skip) {
-    return service.characteristics.filter((c) => !skip.includes(c) && !plumbing.has(c.type)).map((characteristic) => {
+    // `internal`: what only HomeKit uses (TLV8 stream configurations, snapshot settings), never a row.
+    return service.characteristics.filter((c) => !skip.includes(c) && !plumbing.has(c.type) && !c.internal).map((characteristic) => {
       const control = controlFor(accessory, service, characteristic);
       if (!control) return null;
-      const label = characteristic.type === "Active Identifier" ? "Input" : characteristic.type === "Remote Key" ? "Remote" : characteristic.type === "Volume Selector" ? "Volume" : sentence(characteristic.type);
+      const label = rowLabels[characteristic.type] || sentence(characteristic.type);
       return el("div", { class: "control" }, el("span", { text: label }), control);
     }).filter(Boolean);
   }
+
+  const rowLabels = {
+    "Active Identifier": "Input", "Remote Key": "Remote", "Volume Selector": "Volume",
+    "HomeKit Camera Active": "On in the Home app", "Camera Operating Mode Indicator": "Status light",
+  };
 
   // An accessory's category as its tile: the icon and the colour.
   const categoryIcons = {
@@ -417,6 +428,7 @@
     sensor: ["sensor", "teal"], fan: ["fan", "teal"], airPurifier: ["fan", "teal"], speaker: ["speaker", "blue"], homePod: ["speaker", "blue"],
     audioReceiver: ["speaker", "blue"], doorLock: ["lock", "violet"], thermostat: ["thermo", "yellow"], heater: ["thermo", "yellow"], airConditioner: ["thermo", "teal"],
     garageDoorOpener: ["door", "violet"], door: ["door", "violet"], window: ["door", "violet"], windowCovering: ["door", "violet"],
+    ipCamera: ["camera", "grey"], videoDoorbell: ["camera", "grey"],
   };
 
   // A television's remote: HomeKit's Remote Key values, and its speaker's volume and mute.
@@ -445,7 +457,8 @@
   const quietServices = new Set(["InputSource", "ProtocolInformation"]);
 
   function accessoryCard(accessory) {
-    const services = accessory.services;
+    if (accessory.camera && window.HomeswiftCamera) return cameraCard(accessory);
+    const services = accessory.services.filter((s) => !s.internal);
     const primary = services.find((s) => s.primary) || services[0];
     const power = primary && primary.characteristics.find((c) => (c.type === "On" || c.type === "Active") && c.permissions.includes("pw"));
     const remoteKey = primary && primary.characteristics.find((c) => c.type === "Remote Key" && c.permissions.includes("pw"));
@@ -477,6 +490,47 @@
         el("span", { class: "muted", text: accessory.bridge }),
         menuButton(`Actions for ${accessory.name}`, () => accessoryActions(accessory))));
     return card;
+  }
+
+  // Under a camera's video: its light (a package camera's flashlight), switches and HomeKit camera setting;
+  // sensors and the rest under "More".
+  const cameraFirst = new Set(["Lightbulb", "Switch", "Outlet", "CameraOperatingMode"]);
+  const cameraServiceNames = { CameraOperatingMode: "Camera", Microphone: "Microphone", Speaker: "Speaker" };
+
+  /// A camera's card: its live video or snapshots on top (camera.js), with its name and state over it, then
+  /// its controls. A doorbell's ring shows on the video rather than as a row.
+  function cameraCard(accessory) {
+    const find = (type, characteristic) => accessory.services.find((s) => s.type === type)?.characteristics.find((c) => c.type === characteristic);
+    const view = HomeswiftCamera.view({
+      id: accessory.id, name: accessory.name, doorbell: !!accessory.doorbell, lastRing: accessory.lastRing,
+      motion: find("MotionSensor", "Motion Detected")?.value === true, recording: find("CameraRecordingManagement", "Active")?.value === 1,
+    });
+    const rings = accessory.services.flatMap((s) => s.characteristics.filter((c) => c.type === "Programmable Switch Event"));
+    // A camera's sensors carry its own name: they read as what they are.
+    const shortName = (service) => {
+      const own = !service.name || service.name === accessory.name;
+      const name = own ? cameraServiceNames[service.type] || service.type.replace(/([a-z])([A-Z])/g, "$1 $2") : service.name;
+      return name.startsWith(`${accessory.name} `) ? name.slice(accessory.name.length + 1) : name;
+    };
+    const groups = accessory.services.filter((s) => !s.internal && !quietServices.has(s.type))
+      .map((service) => ({ service, rows: controlRows(accessory, service, ...rings) })).filter((group) => group.rows.length);
+    const node = ({ service, rows }) => rows.length === 1
+      ? el("div", { class: "control" }, el("span", { text: shortName(service) }), rows[0].lastChild)
+      : el("div", { class: "controls" }, el("div", { class: "service-name", text: shortName(service) }), rows);
+    const first = groups.filter((group) => cameraFirst.has(group.service.type));
+    const more = groups.filter((group) => !cameraFirst.has(group.service.type));
+    const names = more.map(({ service }) => shortName(service));
+    const subtitle = [...new Set([describeModel(accessory), accessory.platformName].filter(Boolean))].join(" · ");
+    return el("div", { class: "card accessory-card camera-card", "data-search": `${accessory.name} ${accessory.platformName || ""} ${accessory.model || ""}`.toLowerCase() },
+      view.element,
+      subtitle ? el("div", { class: "camera-meta muted", text: subtitle }) : null,
+      first.length ? el("div", { class: "controls" }, first.map(node)) : null,
+      more.length ? el("details", { class: "more" },
+        el("summary", { text: names.length > 3 ? `${names.slice(0, 2).join(", ")} and ${names.length - 2} more` : names.join(", ") }),
+        el("div", { class: "controls" }, more.map(node))) : null,
+      el("div", { class: "card-foot" },
+        el("span", { class: "muted", text: accessory.bridge }),
+        menuButton(`Actions for ${accessory.name}`, () => accessoryActions(accessory))));
   }
 
   /// What the menu of an accessory's card offers.
@@ -528,6 +582,7 @@
   }
 
   function applyAccessoryEvent(event) {
+    window.HomeswiftCamera?.event(event);
     const selector = `[data-id="${CSS.escape(event.id)}"][data-char="${CSS.escape(event.characteristic)}"]`;
     for (const node of document.querySelectorAll(selector)) {
       if (event.subtype && node.dataset.service !== event.subtype) continue;
@@ -535,7 +590,7 @@
       else if (node.classList.contains("range")) { $("input", node).value = event.value; $(".value", node).textContent = `${event.value}${node.dataset.unit || ""}`; }
       else if (node.tagName === "SELECT") node.value = String(event.value);
       else if (node.tagName === "INPUT") node.value = event.value;
-      else node.textContent = typeof event.value === "boolean" ? (event.value ? "On" : "Off") : labelFor(event.characteristic, event.value);
+      else node.textContent = typeof event.value === "boolean" && !enumLabels[event.characteristic] ? (event.value ? "On" : "Off") : labelFor(event.characteristic, event.value);
     }
   }
 

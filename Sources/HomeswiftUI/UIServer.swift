@@ -42,6 +42,8 @@ public final class UIServer: Sendable {
     let throttle = FailureThrottle()
     let events = EventHub()
     let chat: AssistantChat
+    /// Who watches which camera's live feed, to cap them.
+    let cameraViewers = CameraViewers()
     private let channel = NIOLockedValueBox<(any Channel)?>(nil)
     let live: LiveWebFiles?
     private let watcher = NIOLockedValueBox<Task<Void, Never>?>(nil)
@@ -141,6 +143,8 @@ public final class UIServer: Sendable {
     enum Reply: Sendable {
         case data(status: Int, contentType: String, body: Data, headers: [String: String] = [:])
         case events(AsyncStream<Data>)
+        /// A camera's live feed, chunked: the initialization segment, then each fragment until the browser leaves.
+        case media(MediaStream)
 
         static func json(_ value: JSONValue, status: Int = 200, headers: [String: String] = [:]) -> Reply {
             .data(status: status, contentType: "application/json", body: value.encoded(), headers: headers)
@@ -364,7 +368,14 @@ public final class UIServer: Sendable {
                 // The conversation so far, then the run going on, if any, as it goes.
                 return .events(await chat.conversation(for: username).subscribe())
             case ["accessories"]:
-                return .json(.array(catalog.located().map { HomeswiftCatalog.accessoryJSON($0, detailed: true) }))
+                let rings = events.lastRings
+                return .json(.array(catalog.located().map { located in
+                    let json = HomeswiftCatalog.accessoryJSON(located, detailed: true)
+                    // A doorbell's last ring since the bridge started, for its camera card.
+                    guard let ring = rings[located.accessory.id], var object = json.objectValue else { return json }
+                    object["lastRing"] = .string(ring.formatted(.iso8601))
+                    return .object(object)
+                }))
             case ["plugins"]:
                 let platforms = catalog.host.configuration.platforms
                 let slugs = Slug.unique(platforms.map(\.name), fallback: "plugin")
@@ -414,6 +425,10 @@ public final class UIServer: Sendable {
                         return svg
                     }
                     return .text(svg, contentType: "image/svg+xml")
+                }
+                if route.count == 3, route[0] == "cameras" {
+                    // A camera card's snapshot or live video: /api/cameras/<accessory id>/snapshot or …/live.
+                    return await camera(route[1], route[2], request, username: username)
                 }
                 if route.count == 3, route[0] == "plugins", route[2] == "schema" {
                     // The runtime's own blocks, the web UI's and the Assistant's, have forms too.
@@ -658,11 +673,19 @@ public final class UIServer: Sendable {
 final class EventHub: Sendable {
     private let listeners = NIOLockedValueBox<[UUID: AsyncStream<Data>.Continuation]>([:])
     private let observations = NIOLockedValueBox<[Observation]?>(nil)
+    private let rings = NIOLockedValueBox<[String: Date]>([:])
+
+    /// When each doorbell last rang, by accessory id, since the bridge started.
+    var lastRings: [String: Date] { rings.withLockedValue { $0 } }
 
     func attach(to catalog: HomeswiftCatalog) {
         guard observations.withLockedValue({ $0 == nil }) else { return }
         // The host's feed covers the servers it adds later too (a new TV, a child bridge from a live reload).
         let changes = catalog.host.observeChanges { [self] accessory, characteristic, value in
+            if characteristic.type.uuid == CharacteristicType.programmableSwitchEvent.uuid, value != .null,
+               accessory.services.contains(where: { $0.type.uuid == ServiceType.doorbell.uuid && $0.characteristics.contains { $0 === characteristic } }) {
+                rings.withLockedValue { $0[accessory.id] = Date() }
+            }
             // Nothing is looked up while no page listens: `payload` is only built for a listener.
             broadcast(event: "accessory", payload: {
                 let service = accessory.services.first { $0.characteristics.contains { $0 === characteristic } }
@@ -747,7 +770,7 @@ final class UIRequestHandler: ChannelInboundHandler {
         ("X-Content-Type-Options", "nosniff"),
         ("X-Frame-Options", "DENY"),
         ("Referrer-Policy", "no-referrer"),
-        ("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'"),
+        ("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'"),
         ("Cache-Control", "no-store"),
     ]
 
@@ -764,6 +787,8 @@ final class UIRequestHandler: ChannelInboundHandler {
             if !body.isEmpty { channel.write(HTTPServerResponsePart.body(.byteBuffer(ByteBuffer(bytes: body))), promise: nil) }
             channel.writeAndFlush(HTTPServerResponsePart.end(nil), promise: nil)
             if !keepAlive { channel.close(promise: nil) }
+        case .media(let media):
+            await writeMedia(media, head: head, to: channel)
         case .events(let stream):
             head.headers.add(name: "Content-Type", value: "text/event-stream")
             head.headers.add(name: "Connection", value: "close")

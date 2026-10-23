@@ -34,7 +34,15 @@ with a new code).
   the Home app, since the user signed in; a change to one of them, or to a characteristic a plugin marked as a
   security control (a switch that unlocks a door), asks first. Values that carry keys (a camera's Setup
   Endpoints) are not shown. Each card's **⋯** menu identifies the accessory, shows its log,
-  asks the Assistant about it, and opens its plugin's settings.
+  asks the Assistant about it, and opens its plugin's settings. What only HomeKit uses (a camera's stream and
+  recording setup) stays off the cards.
+- **Cameras** get a card of their own: the picture in 16:9 with the name, motion, the doorbell's last ring and
+  recording over it, buttons to unmute, refresh and go full screen, and the camera's controls under it. While
+  the card is on screen and the page visible, it plays the live feed muted (`GET /api/cameras/<id>/live`, fMP4
+  through Media Source Extensions, ManagedMediaSource on iOS Safari), when the plugin has one; otherwise a
+  snapshot every 3 seconds (`/api/cameras/<id>/snapshot?width=&height=`). Off screen it fetches nothing. A camera
+  has four live viewers at most, and one turned off in the Home app, or whose plugin is paused, shows nothing.
+  Plugin pages can show the same view: load `/camera.js` and call `HomeswiftCamera.view({ id, name })`.
 - **Addresses** are paths: `/status`, `/accessories`, `/plugins`, `/plugins/<slug>` and its `/expert`,
   `/plugins/add/<platform>`, `/config`, `/account`, and `/logs/<accessory>?bridge=<bridge or all>&since=24h&level=warning&q=text`
   (the accessory by its name's slug; `since` is `1h`, `6h`, `24h`, `today`, `yesterday`, `7d` or `custom` with
@@ -103,7 +111,8 @@ Logins survive a restart: sessions are kept in `ui-sessions.json` next to config
 
 - Every API call needs the session cookie (`HttpOnly`, `SameSite=Strict`). Mutations must be JSON and come
   from the page: a request whose `Origin` names another site, or whose `Sec-Fetch-Site` is not the page's
-  own, is refused. Pages carry a content security policy, no-store, no framing.
+  own, is refused. Pages carry a content security policy (scripts, styles and media from the UI itself; `blob:`
+  for the camera cards' Media Source), no-store, no framing.
 - The first account needs the set-up code, so nobody else on the network can claim the bridge before its
   owner does. The code is printed at startup, never logged: the MCP log tools cannot see it.
 - Passwords are hashed with PBKDF2-HMAC-SHA256 (210,000 iterations, a random salt), and verified in
