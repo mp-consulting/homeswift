@@ -7,7 +7,9 @@
 #
 # An .spk is a tar of INFO, package.tgz (what lands in /var/packages/homeswift/target), the scripts, the
 # DSM configuration, the wizard and the icons. No Synology toolchain is needed: the binary comes from
-# Amazon Linux 2, whose glibc is DSM 7.0's.
+# Amazon Linux 2, whose glibc is DSM 7.0's. INFO names no admin port or protocol: it is fixed at install, while
+# the web UI's port and HTTPS live in config.json. Package Center opens the main menu's entry (dsmappname),
+# which start.sh keeps on them.
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -79,9 +81,6 @@ silent_install="no"
 silent_upgrade="yes"
 dsmuidir="ui"
 dsmappname="homeswift.homeswift"
-adminprotocol="http"
-adminport="8581"
-adminurl="/"
 checkport="no"
 extractsize="$(du -sk "$work/package" | cut -f1)"
 checksum="$( (md5sum "$work/spk/package.tgz" 2>/dev/null || md5 -r "$work/spk/package.tgz") | cut -d' ' -f1)"
