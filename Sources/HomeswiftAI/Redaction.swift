@@ -10,8 +10,8 @@ public enum Redaction {
 
     /// Keys whose values are secrets: password, mqttPass, apiKey, clientSecret, bridge.pin.
     private static let secretKey = try! NSRegularExpression(pattern: #"pass(word|wd|phrase)?$|secret|token|api[-_]?key|private[-_]?key|credential|^pin$"#, options: [.caseInsensitive])
-    /// Keys that look secret but hold token counts: maxOutputTokens, contextTokens.
-    private static let notSecretKey = try! NSRegularExpression(pattern: #"(max|min|context|input|output|total)\w*tokens$"#, options: [.caseInsensitive])
+    /// Keys that look secret but hold token counts: maxOutputTokens, contextTokens, a budget's dailyTokens.
+    private static let notSecretKey = try! NSRegularExpression(pattern: #"(max|min|context|input|output|total|daily|monthly)\w*tokens$"#, options: [.caseInsensitive])
     /// `key: value`, `key=value` and `"key": "value"` pairs whose key names a secret (including HomeKit's
     /// pin and setup code).
     private static let secretPair = try! NSRegularExpression(
