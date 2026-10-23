@@ -71,7 +71,7 @@ public actor MyDevicesPlugin: HomeswiftPlugin {
 ```
 
 - **`Configuration`** is decoded from the whole block with `JSONDecoder`, so unknown keys (`platform`,
-  `name`, `_bridge`) cost nothing. Make every option optional and apply defaults in code, as Homebridge
+  `name`, `_bridge`, `_paused`) cost nothing. Make every option optional and apply defaults in code, as Homebridge
   plugins do, and keep the option names of the Homebridge plugin you port so users can paste their block.
   A block that fails to decode is logged with the key that is wrong and skipped; the other plugins run.
 - **`init`** should not talk to devices; `start()` runs once the bridge is listening. Throwing from either
@@ -163,8 +163,12 @@ public actor MyDevicesPlugin: HomeswiftPlugin {
 
 `username` is the HAP device ID and `pin` the setup code; both are optional (generated and kept on first
 launch). `port` is honoured when free. A block with `_bridge` runs on a **child bridge**: its own HAP server,
-identity and pairing, like Homebridge's. `disabledPlugins` lists platform names to skip. Homebridge's
-`accessories` blocks are not supported.
+identity and pairing, like Homebridge's. A block with `"_paused": true` is **paused**: its plugin does not
+run, so nothing reaches its devices or their cloud (an iOS app sharing the account keeps its session), and its
+accessories stay in HomeKit, with their rooms and automations, answering No Response until it resumes (reads,
+writes, identify and snapshots fail without reaching the plugin's handlers: `Accessory.isUnavailable`).
+`disabledPlugins` lists platform names to skip; their accessories leave HomeKit. Homebridge's `accessories`
+blocks are not supported.
 
 **The accessory cache.** When a plugin adds or removes an accessory, and at shutdown, the runtime writes
 the instance's accessories (services, characteristics, values) to its cache file. At the next launch they

@@ -31,6 +31,7 @@ extension HAPConnection {
                 continue
             }
             do {
+                if characteristic.isUnavailable { throw HAPStatusError(.serviceCommunicationFailure) }
                 if let read = characteristic.readHandler {
                     let value = try await HAPRequestContext.$current.withValue(requestContext) { try await read() }
                     characteristic.update(value, origin: id, force: false, reason: .read)
@@ -149,6 +150,7 @@ extension HAPConnection {
             return .hapStatus(404, .resourceDoesNotExist)
         }
         let accessory = (object["aid"] as? Int).flatMap(server.accessory(aid:)) ?? (object["aid"] == nil ? server.primary : nil)
+        if let accessory, accessory.isUnavailable { return .hapStatus(207, .serviceCommunicationFailure) }
         guard let accessory, let camera = accessory.cameraController else {
             server.logger.debug("Snapshot request though no camera controller is associated")
             return .hapStatus(404, .resourceDoesNotExist)

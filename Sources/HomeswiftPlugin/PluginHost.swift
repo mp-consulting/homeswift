@@ -81,6 +81,8 @@ public final class PluginHost: @unchecked Sendable {
         public let bridge: Bridge
         /// The ids of the accessories this instance has on its bridge right now.
         public let accessoryIDs: [String]
+        /// Its block has `_paused`: the plugin does not run, its accessories answer No Response.
+        public var paused = false
     }
 
     /// What `apply(_:)` did with a new configuration, by platform instance name.
@@ -123,7 +125,7 @@ public final class PluginHost: @unchecked Sendable {
         instances.map {
             PlatformInstance(
                 name: $0.context.name, platform: $0.context.platform, pluginName: $0.entry.name, bridge: $0.context.bridge,
-                accessoryIDs: $0.context.accessories.map(\.id))
+                accessoryIDs: $0.context.accessories.map(\.id), paused: $0.block.paused)
         }
     }
 
@@ -440,6 +442,14 @@ public final class PluginHost: @unchecked Sendable {
 
     private func launch(_ instance: Instance, as verb: String = "Started") async {
         let context = instance.context
+        // A paused block: no plugin, so nothing reaches the devices; its accessories stay in HomeKit, answering
+        // No Response, and come back as they were when it resumes.
+        let paused = instance.block.paused
+        for accessory in context.accessories where accessory.isUnavailable != paused { accessory.isUnavailable = paused }
+        if paused {
+            context.logger.info("Paused: the plugin does not run, and its accessories show No Response until it resumes")
+            return
+        }
         do {
             let plugin = try await instance.entry.make(instance.block.json, context)
             instance.plugin.withLockedValue { $0 = plugin }

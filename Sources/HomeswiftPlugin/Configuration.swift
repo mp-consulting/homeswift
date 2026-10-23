@@ -16,7 +16,9 @@ import Homeswift
 ///
 /// `bridge.username` is the HAP device ID and `bridge.pin` the setup code; both are optional here (Homeswift
 /// generates and keeps them). A block with `_bridge` runs as a child bridge: its own HAP server, identity
-/// and pairing. `accessories` blocks (Homebridge's accessory plugins) are not supported.
+/// and pairing. A block with `"_paused": true` keeps its accessories in HomeKit, showing No Response, while its
+/// plugin does not run, so nothing reaches the devices or their cloud. `accessories` blocks (Homebridge's
+/// accessory plugins) are not supported.
 public struct HomeswiftConfiguration: Sendable {
     public struct Bridge: Codable, Sendable, Equatable {
         public var name: String
@@ -74,23 +76,27 @@ public struct HomeswiftConfiguration: Sendable {
         /// The block's `name`, or the platform when it has none.
         public var name: String
         public var childBridge: ChildBridge?
+        /// `_paused`: the plugin does not run; its accessories stay, unavailable.
+        public var paused: Bool
         /// The whole block as JSON, what the plugin's `Configuration` is decoded from.
         public var json: Data
 
-        public init(platform: String, name: String? = nil, childBridge: ChildBridge? = nil, json: Data? = nil) {
+        public init(platform: String, name: String? = nil, childBridge: ChildBridge? = nil, paused: Bool = false, json: Data? = nil) {
             self.platform = platform
             self.name = name ?? platform
             self.childBridge = childBridge
+            self.paused = paused
             self.json = json ?? Data("{\"platform\":\(jsonQuoted(platform)),\"name\":\(jsonQuoted(name ?? platform))}".utf8)
         }
 
         /// A block from a dictionary, for building configurations in code and tests.
-        public init(platform: String, name: String? = nil, childBridge: ChildBridge? = nil, settings: [String: Any]) throws {
+        public init(platform: String, name: String? = nil, childBridge: ChildBridge? = nil, paused: Bool = false, settings: [String: Any]) throws {
             var block = settings
             block["platform"] = platform
             block["name"] = name ?? platform
+            if paused { block["_paused"] = true }
             let json = try JSONSerialization.data(withJSONObject: block, options: [.sortedKeys])
-            self.init(platform: platform, name: name, childBridge: childBridge, json: json)
+            self.init(platform: platform, name: name, childBridge: childBridge, paused: paused, json: json)
         }
 
     }
@@ -162,8 +168,11 @@ public struct HomeswiftConfiguration: Sendable {
                     guard child is [String: Any] else { throw ConfigurationError.invalidValue(key: "platforms[\(index)]._bridge", expected: "an object") }
                     childBridge = try decoder.decode(ChildBridge.self, from: JSONSerialization.data(withJSONObject: child))
                 }
+                if let paused = block["_paused"], !(paused is Bool) {
+                    throw ConfigurationError.invalidValue(key: "platforms[\(index)]._paused", expected: "true or false")
+                }
                 let json = try JSONSerialization.data(withJSONObject: block, options: [.sortedKeys])
-                configuration.platforms.append(Platform(platform: platform, name: name, childBridge: childBridge, json: json))
+                configuration.platforms.append(Platform(platform: platform, name: name, childBridge: childBridge, paused: block["_paused"] as? Bool == true, json: json))
             }
         }
         if let disabled = root["disabledPlugins"] {

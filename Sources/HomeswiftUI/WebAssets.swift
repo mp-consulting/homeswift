@@ -11,7 +11,7 @@ enum WebAssets {
 (() => {
   "use strict";
 
-  const { $, el, tile, sparkle, menuButton, copyText, jsonEditor, fact } = HomeswiftCommon;
+  const { $, el, tile, sparkle, menuButton, copyText, jsonEditor, fact, setPaused } = HomeswiftCommon;
 
   const show = (main, ...nodes) => main.replaceChildren(...nodes.flat().filter(Boolean));
 
@@ -533,19 +533,38 @@ enum WebAssets {
     const blockCard = (block) => {
       const plugin = byPlatform.get(block.platform);
       const instance = running(block);
-      const [state, kind] = block.system ? ["Built in", "standby"] : instance ? ["Running", "on"] : plugin ? ["Not running", "away"] : ["No plugin", "away"];
+      const [state, kind] = blockState(block, plugin, instance);
+      // The name opens what the menu's first item opens: the plugin's page, else the form.
+      const opens = plugin && plugin.hasPages && instance && !instance.paused ? pluginPage(block) : block.system ? settingsLink(block) : expertLink(block);
       return el("div", { class: "card server" },
         el("div", { class: "server-head" },
           tile(block.system ? "gear" : "plugin", block.system ? "grey" : "orange"),
-          el("div", { class: "who" }, el("strong", { text: block.name }), el("div", { class: "muted", text: [plugin ? plugin.name : block.platform, block.childBridge ? "child bridge" : null].filter(Boolean).join(" · ") })),
+          el("div", { class: "who" }, el("a", { class: "card-title", href: opens }, el("strong", { text: block.name })),
+            el("div", { class: "muted", text: [plugin ? plugin.name : block.platform, block.childBridge ? "child bridge" : null].filter(Boolean).join(" · ") })),
           el("span", { class: `pill status ${kind}`, text: state })),
         instance ? el("div", { class: "facts" }, fact("Bridge", instance.bridge), fact("Accessories", instance.accessories), fact("Platform", block.platform))
           : el("p", { class: "muted note", text: block.system ? "A block of the runtime itself." : plugin ? "It did not start: the log says why." : "No plugin compiled into this homeswift provides this platform." }),
-        el("div", { class: "actions" }, plugin && plugin.hasPages && instance
-          ? [el("a", { class: "button primary", href: pluginPage(block), text: "Open" }), el("a", { class: "button", href: expertLink(block), text: "Expert" })]
-          : block.system ? el("a", { class: "button", href: settingsLink(block), text: "Settings" })
-          : el("a", { class: "button", href: expertLink(block), text: "Expert" })));
+        el("div", { class: "card-foot" },
+          el("span", { class: "muted", text: instance?.paused ? "Paused: no calls to its devices; they show No Response in the Home app." : "" }),
+          menuButton(`Actions for ${block.name}`, () => blockActions(block, plugin, instance))));
     };
+
+    /// What the menu of a plugin's card offers: its page, the block as a form or as JSON (Expert), pause or
+    /// resume, and removal.
+    function blockActions(block, plugin, instance) {
+      if (block.system) return [{ label: "Settings", icon: "gear", href: settingsLink(block) }, { label: "Edit as JSON", icon: "code", href: expertLink(block, "json") }];
+      const toggle = async (paused) => {
+        try { await setPaused(block.platform, block.name, paused); route(); } catch (e) { alert(e.message); }
+      };
+      return [
+        plugin && plugin.hasPages && instance && !instance.paused ? { label: "Open its page", icon: "open", href: pluginPage(block) } : null,
+        { label: "Edit settings (Expert)", icon: "edit", href: expertLink(block) },
+        { label: "Edit as JSON (Expert)", icon: "code", href: expertLink(block, "json") },
+        instance && !instance.paused ? { label: "Pause", icon: "pause", onSelect: () => toggle(true) } : null,
+        instance?.paused ? { label: "Resume", icon: "play", onSelect: () => toggle(false) } : null,
+        { label: "Remove", icon: "trash", danger: true, onSelect: () => removeBlock(block) },
+      ];
+    }
 
     const catalog = el("div", { class: "grid" }, plugins.plugins.map((plugin) => {
       const used = plugins.blocks.some((block) => block.platform === plugin.platform);
@@ -582,6 +601,16 @@ enum WebAssets {
 
   /// A block's settings: its plugin's own page when it has one, else the form. `expertLink` is always the form
   /// (or the JSON), the whole block as config.json keeps it.
+  /// A block's state pill: its label and tone.
+  const blockState = (block, plugin, instance) => block.system ? ["Built in", "standby"] : instance?.paused ? ["Paused", "standby"]
+    : instance ? ["Running", "on"] : plugin ? ["Not running", "away"] : ["No plugin", "away"];
+
+  /// Takes a block out of config.json, after asking: its accessories leave the Home app.
+  async function removeBlock(block, after = () => route()) {
+    if (!confirm(`Remove "${block.name}" from config.json? Its accessories leave the Home app.`)) return;
+    try { await api(`/api/config/platforms/${block.index}`, { method: "DELETE" }); leaveGuard = null; after(); } catch (e) { alert(e.message); }
+  }
+
   const settingsLink = (block) => `#settings/${encodeURIComponent(block.platform)}/${encodeURIComponent(block.name)}`;
   const expertLink = (block, mode = "form") => `${settingsLink(block)}/${mode}`;
   const pluginPage = (block) => `/plugins/${encodeURIComponent(block.platform)}/index.html?name=${encodeURIComponent(block.name)}`;
@@ -710,14 +739,11 @@ enum WebAssets {
     });
     revert.addEventListener("click", () => { if (isNew) { location.hash = "#plugins"; return; } leaveGuard = null; route(); });
 
-    const [state, kind] = isNew ? ["New", "standby"] : block.system ? ["Built in", "standby"] : instance ? ["Running", "on"] : plugin ? ["Not running", "away"] : ["No plugin", "away"];
+    const [state, kind] = isNew ? ["New", "standby"] : blockState(block, plugin, instance);
     const remove = !isNew && !block.system ? el("div", { class: "card danger-zone" },
       el("div", {}, el("strong", { text: "Remove this plugin" }),
         el("p", { class: "muted", text: "Takes the block out of config.json. Its accessories leave the Home app, with their rooms, scenes and automations." })),
-      el("button", { class: "danger", text: "Remove", onclick: async () => {
-        if (!confirm(`Remove "${block.name}" from config.json? Its accessories leave the Home app.`)) return;
-        try { await api(`/api/config/platforms/${block.index}`, { method: "DELETE" }); leaveGuard = null; location.hash = "#plugins"; } catch (e) { alert(e.message); }
-      } })) : null;
+      el("button", { class: "danger", text: "Remove", onclick: () => removeBlock(block, () => { location.hash = "#plugins"; }) })) : null;
 
     leaveGuard = () => !dirty() || isNew || confirm("Leave without saving your changes?");
     leaveGuard.quiet = () => isNew || !dirty();
@@ -1887,6 +1913,9 @@ enum WebAssets {
     logs: '<path d="M8 6h12M8 12h12M8 18h8M4 6h.01M4 12h.01M4 18h.01"/>',
     code: '<path d="M8 4c-2 0-3 1-3 3v2c0 1.5-1 3-2.5 3C4 12 5 13.5 5 15v2c0 2 1 3 3 3M16 4c2 0 3 1 3 3v2c0 1.5 1 3 2.5 3-1.5 0-2.5 1.5-2.5 3v2c0 2-1 3-3 3"/>',
     trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+    pause: '<path d="M9 5v14M15 5v14"/>',
+    play: '<path d="M8 5.5v13l10-6.5z"/>',
+    open: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
     edit: '<path d="M12 20h8M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
     inputs: '<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/>',
     identify: '<circle cx="12" cy="12" r="2.5"/><path d="M7.5 7.5a6.4 6.4 0 0 0 0 9M16.5 7.5a6.4 6.4 0 0 1 0 9"/>',
@@ -2159,7 +2188,17 @@ enum WebAssets {
     return bar;
   }
 
-  window.HomeswiftCommon = { $, el, icon, tile, fact, markdown, sparkle, api, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, sections, tabBar };
+  /// Pauses or resumes a plugin instance: `_paused` in its block of config.json, applied at once. Paused, the
+  /// plugin does not run, so it makes no call to its devices or their cloud (an app sharing the account keeps its
+  /// session); its accessories stay in HomeKit, showing No Response.
+  async function setPaused(platform, name, paused) {
+    const path = `/api/config/block/${encodeURIComponent(platform)}/${encodeURIComponent(name)}`;
+    const block = await api(path);
+    if (paused) block._paused = true; else delete block._paused;
+    return api(path, { method: "PUT", body: block });
+  }
+
+  window.HomeswiftCommon = { $, el, icon, tile, fact, markdown, sparkle, api, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, sections, tabBar, setPaused };
 })();
 
 """#),
@@ -2384,8 +2423,25 @@ enum WebAssets {
   }
   const main = $("main");
   if (main) {
-    main.prepend(el("nav", { class: "breadcrumb", "aria-label": "Breadcrumb" }, trail));
+    // Pause, at the right of the breadcrumb: the plugin stops calling its devices (an app sharing the account
+    // keeps its session) until Resume, which a banner offers while it is paused.
+    const toggle = el("button", { type: "button", class: "link pause-toggle hidden" });
+    main.prepend(el("nav", { class: "breadcrumb", "aria-label": "Breadcrumb" }, trail, toggle));
     breadcrumb(null);
+    api("/api/plugins").then(({ platforms }) => {
+      const instance = platforms.find((p) => p.platform === platform && p.name === name);
+      if (!instance) return;
+      const set = (paused) => act(toggle, () => HomeswiftCommon.setPaused(platform, name, paused).then(() => location.reload()));
+      toggle.replaceChildren(icon(instance.paused ? "play" : "pause"), el("span", { text: instance.paused ? "Resume" : "Pause" }));
+      toggle.title = instance.paused ? "Run the plugin again" : "Stop the plugin's calls to its devices for now";
+      toggle.onclick = () => set(!instance.paused);
+      toggle.classList.remove("hidden");
+      if (instance.paused) {
+        main.querySelector(".breadcrumb").after(el("div", { class: "card page-note paused-note" },
+          el("p", {}, el("strong", { text: "Paused. " }), "The plugin makes no calls to its devices, and they show No Response in the Home app. This page needs it running."),
+          el("button", { class: "primary", text: "Resume", onclick: (event) => act(event.currentTarget, () => HomeswiftCommon.setPaused(platform, name, false).then(() => location.reload())) })));
+      }
+    }).catch(() => {});
     // Expert, last on the page once the page's own script has laid it out: the whole block as config.json
     // keeps it, as a form or as JSON, for what the page itself does not set.
     const expert = (mode) => `/#settings/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/${mode}`;
@@ -2708,6 +2764,11 @@ nav a.active { background: linear-gradient(180deg, var(--accent-2), var(--accent
 .page-note .button, .danger-zone button { flex: none; white-space: nowrap; }
 /* A plugin page's Expert part, last: the block as a form or as JSON, in the UI's own settings view. */
 .expert .page-note { flex-wrap: wrap; }
+/* A plugin card's name opens its page; Pause sits at the right of a plugin page's breadcrumb. */
+.card-title { color: inherit; text-decoration: none; }
+.card-title:hover strong { text-decoration: underline; }
+.pause-toggle { display: inline-flex; align-items: center; gap: 5px; font-size: 0.8125rem; font-weight: 500; }
+.pause-toggle svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .expert-links { display: flex; gap: 8px; flex: none; }
 .settings-bar {
   position: sticky; bottom: 14px; z-index: 3; display: flex; align-items: center; gap: 10px; margin: 14px 0 0;

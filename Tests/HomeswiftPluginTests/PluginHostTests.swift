@@ -349,6 +349,40 @@ struct PluginHostTests {
         await host.stop()
     }
 
+    /// A paused block keeps its accessories in HomeKit, answering No Response, and runs no plugin; resuming
+    /// starts a fresh one on the same accessories.
+    @Test func pausesAPluginAndResumesIt() async throws {
+        func configuration(paused: Bool) throws -> HomeswiftConfiguration {
+            try HomeswiftConfiguration.decode(Data(#"{ "bridge": { "port": 0 }, "platforms": [{ "platform": "Recording", "name": "Lamps", "lamps": ["lamp-1"], "_paused": \#(paused) }] }"#.utf8))
+        }
+        #expect(throws: ConfigurationError.self) {
+            try HomeswiftConfiguration.decode(Data(#"{ "platforms": [{ "platform": "Recording", "_paused": "yes" }] }"#.utf8))
+        }
+        let host = try PluginHost(configuration: try configuration(paused: false), registry: environment.registry, storageDirectory: environment.directory, options: environment.options)
+        try await host.start()
+        let lamp = try #require(host.mainBridge.server.accessories.last)
+        let brightness = try #require(lamp.service(.lightbulb)?[.brightness])
+        let writes = NIOLockedValueBox(0)
+        brightness.onWrite { _ in writes.withLockedValue { $0 += 1 } }
+
+        let paused = await host.apply(try configuration(paused: true))
+        #expect(paused == PluginHost.ReloadReport(reloaded: ["Lamps"]))
+        #expect(environment.createdPlugins.count == 1)
+        #expect(await environment.createdPlugins[0].stopped)
+        #expect(host.platforms.map(\.paused) == [true])
+        #expect(host.mainBridge.server.accessories.last === lamp)
+        #expect(lamp.isUnavailable)
+        await #expect(throws: HAPStatusError.self) { try await brightness.write(.int(50)) }
+        #expect(writes.withLockedValue { $0 } == 0)
+
+        let resumed = await host.apply(try configuration(paused: false))
+        #expect(resumed == PluginHost.ReloadReport(reloaded: ["Lamps"]))
+        #expect(await environment.createdPlugins[1].started)
+        #expect(!lamp.isUnavailable)
+        #expect(host.platforms.map(\.paused) == [false])
+        await host.stop()
+    }
+
     @Test func runsChildBridges() async throws {
         let host = try environment.host("""
             {
