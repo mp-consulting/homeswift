@@ -251,9 +251,19 @@ either side, from run to run), so those are left out; CPU per request is the ste
 | Idle CPU | 0.0 % | 0.0 % | 0.2 % | 0.0 % |
 
 The before `search_logs` on 300 accessories ran past the client's 30 s timeout in a first attempt; the script now
-gives each endpoint a 15 s budget (at least five samples) and always stops the server it started. `logs?from=` with
-60 accessories did not move: its time is reading the archive back, which another change was reworking at the same
-time.
+gives each endpoint a 15 s budget (at least five samples) and always stops the server it started.
+
+`logs?from=` did not move with `cbde386`: its time went to reading the archive back. Commit `01c6cc3` walks a
+segment from its end in place, reads each row's members without a dictionary (`JSONValue.members(of:)`), and writes
+the log answers directly (`UIServer.logsJSON`, the same bytes). Measured the same way, interleaved with `7c45fef`
+twice, the better run of each:
+
+| Log route, p50 | before, 60 | after `01c6cc3`, 60 | before, 300 | after `01c6cc3`, 300 |
+|---|---:|---:|---:|---:|
+| `GET /api/logs?from=` (an hour from the archive, 600 KB) | 35 ms | 9.5 ms | 37 ms | 8.1 ms |
+| `GET /api/logs` (2 000 lines) | 9.1 ms | 1.2 ms | 13 ms | 1.1 ms |
+| `GET /api/logs?accessory=` | 22 ms | 3.2 ms | 23 ms | 3.1 ms |
+| `GET /api/logs`, 4 connections, CPU per request | 10 538 µs | 2 849 µs | 11 176 µs | 2 198 µs |
 
 Where the time went, from `sample`:
 
