@@ -658,8 +658,9 @@ enum WebAssets {
     const block = found ?? { index: plugins.blocks.length, platform, name: uniqueName(plugin.name, plugins.blocks), system: false };
     const instance = plugins.platforms.find((p) => p.platform === block.platform && p.name === block.name);
     const hasPage = Boolean(!isNew && plugin && plugin.hasPages && instance);
-    // Its page is a page of its own, which the server sends for this address once signed in.
-    if (hasPage && !view) { location.reload(); return; }
+    // Its page is a page of its own, which the server sends for this address once signed in: load it, once (should
+    // the server answer with this page again, the form shows rather than a loop).
+    if (hasPage && !view && !history.state?.reloaded) { history.replaceState({ reloaded: true }, ""); location.reload(); return; }
     const current = isNew ? { platform, name: block.name } : (config.platforms || [])[block.index] || { platform, name: block.name };
 
     let schema = null;
@@ -1141,43 +1142,66 @@ enum WebAssets {
   const levelChoices = [["trace", "All"], ["info", "Info"], ["warning", "Warnings"], ["error", "Errors"]];
   let logState = null;
 
-  // /logs/<accessory>?since=24h&level=warning&q=text: the accessory by its slug (a plugin's page may give its id),
+  // /logs/<accessory>?bridge=<bridge>&since=24h&level=warning&q=text: the accessory by its slug (a plugin's page
+  // may give its id), the bridge by its slug,
   // the range (latest, 1h, 6h, 24h, today, yesterday, 7d, or custom with from= and to=), the lowest level and the
   // text. The address follows what is chosen, so it can be kept or shared.
   views.logs = async (main, [wanted] = []) => {
-    const accessories = withSlugs(await api("/api/accessories").catch(() => []), "accessory");
+    const [accessories, bridges] = await Promise.all([
+      api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
+      api("/api/status").then((status) => withSlugs(status.bridges, "bridge")).catch(() => []),
+    ]);
     const accessoryID = accessories.find((accessory) => accessory.slug === wanted || accessory.id === wanted)?.id ?? "";
     const params = new URLSearchParams(location.search);
     const output = el("div", { class: "log", role: "log", "aria-live": "off" });
     const filter = el("input", { type: "search", class: "search", placeholder: "Filter text", "aria-label": "Filter the log" });
     const follow = el("input", { type: "checkbox", checked: true });
     const count = el("span", { class: "muted count" });
-    // One accessory's lines: those of its own server, and those naming it, its id or its address.
+    // What the lines are about, one menu: every line; the bridges' own lines (their servers': connections, pairings,
+    // controllers), every bridge's or one's; or one accessory's (those of its own server and those naming it, its id
+    // or its address). The server picks them before its limit (UIServer.logMatcher), so a week of one accessory
+    // is not cut short by the others'. Values: "", "bridge:all", "bridge:<device ID>", "accessory:<id>".
     const byID = new Map(accessories.map((accessory) => [accessory.id, accessory]));
-    const accessoryPicker = el("select", { class: "popup", "aria-label": "Only the lines about an accessory" },
-      el("option", { value: "", text: "All accessories" }),
-      [...accessories].sort((a, b) => a.name.localeCompare(b.name)).map((accessory) =>
-        el("option", { value: accessory.id, text: accessory.platformName ? `${accessory.name} · ${accessory.platformName}` : accessory.name, selected: accessory.id === accessoryID })));
     const termsFor = (id) => {
       const accessory = byID.get(id);
       if (!accessory) return null;
-      // ElgatoKeyLights:3C:6A:… → the MAC, as the server matches (UIServer.logMatcher).
+      // ElgatoKeyLights:3C:6A:… → the MAC, as the server matches.
       const rest = id.includes(":") ? id.slice(id.indexOf(":") + 1) : "";
       const address = /^([0-9a-f]{1,2}[:-]){5}[0-9a-f]{1,2}$/i.test(rest) ? rest : null;
       return [accessory.name, id, address, accessory.serialNumber].filter((term) => typeof term === "string" && term.length >= 3).map((term) => term.toLowerCase());
     };
+    const bridgeFor = (choice) => {
+      const chosen = choice === "all" ? bridges : bridges.filter((b) => b.deviceId === choice);
+      if (!chosen.length) return null;
+      const labels = new Set(chosen.map((bridge) => bridge.name));
+      return (line) => labels.has(line.label);
+    };
+    const wantedBridge = params.get("bridge") === "all" ? "all" : bridges.find((bridge) => bridge.slug === params.get("bridge"))?.deviceId;
+    const initial = accessoryID ? `accessory:${accessoryID}` : wantedBridge ? `bridge:${wantedBridge}` : "";
+    const option = (value, text) => el("option", { value, text, selected: value === initial });
+    const sourcePicker = el("select", { class: "popup", "aria-label": "What the lines are about" },
+      option("", "All lines"),
+      bridges.length ? el("optgroup", { label: "Bridges" }, option("bridge:all", "Bridges only"),
+        bridges.map((bridge) => option(`bridge:${bridge.deviceId}`, bridge.external ? `${bridge.name} · its own server` : bridge.childBridge ? `${bridge.name} · child bridge` : bridge.name))) : null,
+      accessories.length ? el("optgroup", { label: "Accessories" }, [...accessories].sort((a, b) => a.name.localeCompare(b.name)).map((accessory) =>
+        option(`accessory:${accessory.id}`, accessory.platformName ? `${accessory.name} · ${accessory.platformName}` : accessory.name))) : null);
+    /// The picker's choice: its kind and value.
+    const source = () => {
+      const [kind, ...rest] = sourcePicker.value.split(":");
+      return { kind, value: rest.join(":") };
+    };
+    const choose = () => {
+      const { kind, value } = source();
+      logState.accessory = kind === "accessory" ? termsFor(value) : null;
+      logState.bridge = kind === "bridge" ? bridgeFor(value) : null;
+      sourcePicker.classList.toggle("chosen", Boolean(sourcePicker.value));
+    };
     // `live`: new lines join the page (not while a span in the past is shown); `cap`: how many it keeps.
     filter.value = params.get("q") ?? "";
     const level = levelChoices.some(([value]) => value === params.get("level")) ? params.get("level") : "info";
-    logState = { output, level, filter, follow, count, lines: [], accessory: termsFor(accessoryID), live: true, cap: latestLines, capped: false };
-    accessoryPicker.classList.toggle("chosen", Boolean(accessoryPicker.value));
-    accessoryPicker.addEventListener("change", () => {
-      logState.accessory = termsFor(accessoryPicker.value);
-      accessoryPicker.classList.toggle("chosen", Boolean(accessoryPicker.value));
-      // The server picks the accessory's lines before its limit, so a week of one accessory is not cut short by
-      // the others'.
-      load();
-    });
+    logState = { output, level, filter, follow, count, lines: [], accessory: null, bridge: null, live: true, cap: latestLines, capped: false };
+    choose();
+    sourcePicker.addEventListener("change", () => { choose(); load(); });
     const levels = el("div", { class: "group", role: "group", "aria-label": "Lowest level shown" }, levelChoices.map(([level, text]) =>
       el("button", { text, class: level === logState.level ? "on" : "", "aria-pressed": String(level === logState.level), onclick: (event) => {
         logState.level = level;
@@ -1233,7 +1257,10 @@ enum WebAssets {
       if (rangePicker.value === "custom") { query.set("from", fromInput.value); if (toInput.value) query.set("to", toInput.value); }
       if (logState.level !== "info") query.set("level", logState.level);
       if (filter.value) query.set("q", filter.value);
-      const accessory = byID.get(accessoryPicker.value);
+      const { kind, value } = source();
+      const bridge = kind === "bridge" ? bridges.find((b) => b.deviceId === value) : null;
+      if (kind === "bridge") query.set("bridge", bridge ? bridge.slug : "all");
+      const accessory = kind === "accessory" ? byID.get(value) : null;
       const path = `/logs${accessory ? `/${accessory.slug}` : ""}${query.size ? `?${query}` : ""}`;
       if (path !== location.pathname + location.search) history.replaceState(null, "", path);
     }
@@ -1243,7 +1270,8 @@ enum WebAssets {
       const query = new URLSearchParams();
       if (chosen) query.set("from", chosen[0].toISOString());
       if (chosen?.[1]) query.set("to", chosen[1].toISOString());
-      if (accessoryPicker.value) query.set("accessory", accessoryPicker.value);
+      const { kind, value } = source();
+      if (kind) query.set(kind, value);
       count.textContent = "Loading…";
       try {
         logState.lines = (await api(`/api/logs${query.size ? `?${query}` : ""}`)).map(prepared);
@@ -1281,7 +1309,7 @@ enum WebAssets {
     show(main,
       pageHead("Logs", "This homeswift's log, live, and up to a week back."),
       el("div", { class: "card log-card" },
-        el("div", { class: "editor-bar" }, levels, rangePicker, accessoryPicker, filter, el("span", { class: "spacer" }), count, copy,
+        el("div", { class: "editor-bar" }, levels, rangePicker, sourcePicker, filter, el("span", { class: "spacer" }), count, copy,
           el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: "Follow" })),
           customRow),
         output));
@@ -1291,7 +1319,8 @@ enum WebAssets {
   /// Whether a prepared line passes the level, the text (`needle`, in lower case) and the accessory.
   function visible(line, needle = logState.filter.value.toLowerCase()) {
     return (levelRank[line.level] ?? 0) >= (levelRank[logState.level] ?? 0) && (!needle || line.haystack.includes(needle))
-      && (!logState.accessory || logState.accessory.some((term) => line.haystack.includes(term)));
+      && (!logState.accessory || logState.accessory.some((term) => line.haystack.includes(term)))
+      && (!logState.bridge || logState.bridge(line));
   }
   function lineNode(line) {
     const time = isNaN(line.date) ? line.time : timeFormat.format(line.date);
@@ -2741,6 +2770,9 @@ enum WebAssets {
   --material-thick: rgba(255, 255, 255, 0.7); --material: rgba(255, 255, 255, 0.52); --material-thin: rgba(255, 255, 255, 0.38);
   --material-solid: #f7f8fb;
   --control: rgba(255, 255, 255, 0.82); --field: rgba(255, 255, 255, 0.6);
+  /* A search field's fill, as iOS's search bars: grey, so it reads on a white card too. */
+  --search-fill: rgba(118, 118, 128, 0.14); --search-glyph: rgba(60, 60, 67, 0.6);
+  --search-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a8a92' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='10.5' cy='10.5' r='6'/%3E%3Cpath d='m15 15 5 5'/%3E%3C/svg%3E");
   --edge: rgba(255, 255, 255, 0.85); --edge-light: rgba(255, 255, 255, 0.6);
   --shadow-thick: 0 10px 30px rgba(25, 34, 56, 0.16); --shadow: 0 12px 36px rgba(25, 34, 56, 0.12); --shadow-control: 0 2px 8px rgba(25, 34, 56, 0.08);
   --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0) 45%);
@@ -2757,6 +2789,8 @@ enum WebAssets {
     --material-thick: rgba(28, 31, 40, 0.74); --material: rgba(34, 38, 48, 0.54); --material-thin: rgba(255, 255, 255, 0.06);
     --material-solid: #1d2129;
     --control: rgba(70, 76, 92, 0.75); --field: rgba(0, 0, 0, 0.28);
+    --search-fill: rgba(118, 118, 128, 0.26); --search-glyph: rgba(235, 235, 245, 0.6);
+    --search-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a7a7b0' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='10.5' cy='10.5' r='6'/%3E%3Cpath d='m15 15 5 5'/%3E%3C/svg%3E");
     --edge: rgba(255, 255, 255, 0.16); --edge-light: rgba(255, 255, 255, 0.14);
     --shadow-thick: 0 10px 30px rgba(0, 0, 0, 0.5); --shadow: 0 14px 40px rgba(0, 0, 0, 0.42); --shadow-control: 0 2px 8px rgba(0, 0, 0, 0.3);
     --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0) 45%);
@@ -3011,7 +3045,14 @@ label > input, label > select { margin-top: 5px; }
 .card.notice { color: var(--warn); font-weight: 500; }
 .card.notice p { margin: 0; }
 .search { width: 240px; max-width: 100%; }
-input[type=search] { -webkit-appearance: none; appearance: none; }
+/* Search fields: a grey pill with a magnifier, the text after it; the edge only on focus. */
+input[type=search] {
+  -webkit-appearance: none; appearance: none; border-radius: 999px; padding-left: 34px;
+  background: var(--search-fill) var(--search-icon) no-repeat 12px center / 16px 16px; border-color: transparent; box-shadow: none;
+}
+input[type=search]:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(255, 122, 26, 0.18); }
+input[type=search]::placeholder { color: var(--search-glyph); }
+input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .note { margin: 0; font-size: 0.8125rem; }
 .spacer { flex: 1; }
 .link.danger { color: var(--error); }

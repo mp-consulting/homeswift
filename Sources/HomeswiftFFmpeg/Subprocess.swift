@@ -300,13 +300,15 @@ final class Subprocess: @unchecked Sendable {
         if deliver {
             deliverExit()
         } else {
-            // A grandchild holding the pipes open must not keep the exit from being reported.
+            // A grandchild holding the pipes open must not keep the exit from being reported, nor the pipes and
+            // their sources (which hold this process) from being let go.
             DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
                 let deliver = self.state.withLockedValue { state -> Bool in
                     state.stdoutEOF = true
                     state.stderrEOF = true
                     return Self.readyToDeliver(&state)
                 }
+                for source in self.readSources.withLockedValue({ Array($0.values) }) where !source.isCancelled { source.cancel() }
                 if deliver { self.deliverExit() }
             }
         }

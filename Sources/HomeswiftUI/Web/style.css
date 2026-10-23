@@ -7,6 +7,9 @@
   --material-thick: rgba(255, 255, 255, 0.7); --material: rgba(255, 255, 255, 0.52); --material-thin: rgba(255, 255, 255, 0.38);
   --material-solid: #f7f8fb;
   --control: rgba(255, 255, 255, 0.82); --field: rgba(255, 255, 255, 0.6);
+  /* A search field's fill, as iOS's search bars: grey, so it reads on a white card too. */
+  --search-fill: rgba(118, 118, 128, 0.14); --search-glyph: rgba(60, 60, 67, 0.6);
+  --search-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a8a92' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='10.5' cy='10.5' r='6'/%3E%3Cpath d='m15 15 5 5'/%3E%3C/svg%3E");
   --edge: rgba(255, 255, 255, 0.85); --edge-light: rgba(255, 255, 255, 0.6);
   --shadow-thick: 0 10px 30px rgba(25, 34, 56, 0.16); --shadow: 0 12px 36px rgba(25, 34, 56, 0.12); --shadow-control: 0 2px 8px rgba(25, 34, 56, 0.08);
   --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0) 45%);
@@ -23,6 +26,8 @@
     --material-thick: rgba(28, 31, 40, 0.74); --material: rgba(34, 38, 48, 0.54); --material-thin: rgba(255, 255, 255, 0.06);
     --material-solid: #1d2129;
     --control: rgba(70, 76, 92, 0.75); --field: rgba(0, 0, 0, 0.28);
+    --search-fill: rgba(118, 118, 128, 0.26); --search-glyph: rgba(235, 235, 245, 0.6);
+    --search-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a7a7b0' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='10.5' cy='10.5' r='6'/%3E%3Cpath d='m15 15 5 5'/%3E%3C/svg%3E");
     --edge: rgba(255, 255, 255, 0.16); --edge-light: rgba(255, 255, 255, 0.14);
     --shadow-thick: 0 10px 30px rgba(0, 0, 0, 0.5); --shadow: 0 14px 40px rgba(0, 0, 0, 0.42); --shadow-control: 0 2px 8px rgba(0, 0, 0, 0.3);
     --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0) 45%);
@@ -277,7 +282,14 @@ label > input, label > select { margin-top: 5px; }
 .card.notice { color: var(--warn); font-weight: 500; }
 .card.notice p { margin: 0; }
 .search { width: 240px; max-width: 100%; }
-input[type=search] { -webkit-appearance: none; appearance: none; }
+/* Search fields: a grey pill with a magnifier, the text after it; the edge only on focus. */
+input[type=search] {
+  -webkit-appearance: none; appearance: none; border-radius: 999px; padding-left: 34px;
+  background: var(--search-fill) var(--search-icon) no-repeat 12px center / 16px 16px; border-color: transparent; box-shadow: none;
+}
+input[type=search]:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(255, 122, 26, 0.18); }
+input[type=search]::placeholder { color: var(--search-glyph); }
+input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .note { margin: 0; font-size: 0.8125rem; }
 .spacer { flex: 1; }
 .link.danger { color: var(--error); }

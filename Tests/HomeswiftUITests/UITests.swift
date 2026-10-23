@@ -372,6 +372,24 @@ struct LogFilterTests {
         #expect(range.map { $0["text"]?.stringValue ?? "" } == ["Front Door locked"])
         #expect(try await browser.get("/api/logs").json?.arrayValue?.count ?? 0 >= 2)
     }
+
+    /// A bridge's own lines (its server's), or every bridge's; with an accessory, both must hold.
+    @Test func picksABridgesLines() async throws {
+        let environment = try UITestEnvironment(auth: .none)
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        environment.logs.append(LogBuffer.Line(level: .info, label: "UI Bridge", text: "Connection opened"))
+        environment.logs.append(LogBuffer.Line(level: .info, label: "Lamps", text: "Desk Lamp turned on"))
+        environment.logs.append(LogBuffer.Line(level: .info, label: "homeswift", text: "Web UI listening"))
+        let browser = Browser(base: base)
+        let bridge = try #require(environment.server.catalog.host.mainBridge.server.deviceID.addingPercentEncoding(withAllowedCharacters: .alphanumerics))
+        environment.logs.append(LogBuffer.Line(level: .info, label: "UI Bridge", text: "Desk Lamp read by a controller"))
+        let lines = try await browser.get("/api/logs?bridge=\(bridge)").json?.arrayValue ?? []
+        #expect(lines.map { $0["text"]?.stringValue ?? "" } == ["Connection opened", "Desk Lamp read by a controller"])
+        #expect(try await browser.get("/api/logs?bridge=all").json?.arrayValue?.count == 2)
+        let both = try await browser.get("/api/logs?bridge=\(bridge)&accessory=Lamps:lamp").json?.arrayValue ?? []
+        #expect(both.map { $0["text"]?.stringValue ?? "" } == ["Desk Lamp read by a controller"])
+    }
 }
 
 @Suite(.timeLimit(.minutes(1)))
