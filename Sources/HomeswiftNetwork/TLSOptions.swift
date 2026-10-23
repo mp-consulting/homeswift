@@ -3,7 +3,7 @@ import NIOConcurrencyHelpers
 import NIOCore
 import NIOSSL
 
-/// How a WebSocket or MQTT client sets up TLS: whom it trusts, the certificate it presents, ALPN.
+/// How a WebSocket or MQTT client sets up TLS: whom it trusts, the certificate it presents, ALPN, the cipher suites.
 ///
 /// The trust modes are `HTTPClient.TLS`'s, plus a bundled root (`.roots`) for clouds such as AWS IoT whose
 /// certificate a plugin ships the CA of. A client certificate (`clientIdentity`) is for mutual TLS: AWS IoT
@@ -60,6 +60,9 @@ public struct TLSOptions: Sendable, Equatable {
     public var alpn: [String]
     /// The name sent as SNI and checked against the certificate, when it is not the host connected to.
     public var serverName: String?
+    /// The TLS 1.2 cipher suites offered, as an OpenSSL cipher list (`"DEFAULT"`); nil for NIOSSL's own. See
+    /// `HTTPClient.cipherSuites`.
+    public var cipherSuites: String?
 
     /// The context built from these options, reused while they stay the same (one per client, not per connection).
     private let contextCache = ContextCache()
@@ -68,11 +71,14 @@ public struct TLSOptions: Sendable, Equatable {
         lhs.contextKey == rhs.contextKey && lhs.serverName == rhs.serverName
     }
 
-    public init(trust: Trust = .system, clientIdentity: ClientIdentity? = nil, alpn: [String] = [], serverName: String? = nil) {
+    public init(
+        trust: Trust = .system, clientIdentity: ClientIdentity? = nil, alpn: [String] = [], serverName: String? = nil, cipherSuites: String? = nil
+    ) {
         self.trust = trust
         self.clientIdentity = clientIdentity
         self.alpn = alpn
         self.serverName = serverName
+        self.cipherSuites = cipherSuites
     }
 
     /// The same trust as an `HTTPClient` with this mode.
@@ -91,9 +97,10 @@ public struct TLSOptions: Sendable, Equatable {
         var trust: Trust
         var clientIdentity: ClientIdentity?
         var alpn: [String]
+        var cipherSuites: String?
     }
 
-    private var contextKey: ContextKey { ContextKey(trust: trust, clientIdentity: clientIdentity, alpn: alpn) }
+    private var contextKey: ContextKey { ContextKey(trust: trust, clientIdentity: clientIdentity, alpn: alpn, cipherSuites: cipherSuites) }
 
     private final class ContextCache: Sendable {
         let entry = NIOLockedValueBox<(key: ContextKey, context: NIOSSLContext)?>(nil)
@@ -133,6 +140,10 @@ public struct TLSOptions: Sendable, Equatable {
             configuration.privateKey = .privateKey(bundle.privateKey)
         }
         if !alpn.isEmpty { configuration.applicationProtocols = alpn }
+        if let cipherSuites {
+            guard TLSCipherList.isUsable(cipherSuites) else { throw TLSCipherListError(list: cipherSuites) }
+            configuration.cipherSuites = cipherSuites
+        }
         return try NIOSSLContext(configuration: configuration)
     }
 
@@ -167,4 +178,111 @@ public struct TLSOptions: Sendable, Equatable {
             }
         }
     }
+}
+
+/// A cipher list BoringSSL would refuse: NIOSSL stops the process on one (a precondition), so the clients check
+/// first and throw this instead.
+public struct TLSCipherListError: Error, CustomStringConvertible, Equatable, Sendable {
+    public var list: String
+    public var description: String { "no TLS cipher suite matches the cipher list \"\(list)\"" }
+}
+
+/// OpenSSL cipher lists as BoringSSL reads them (`ssl_create_cipher_list`, not strict): which TLS 1.2 suites a
+/// list leaves, to tell a usable list from one NIOSSL would stop the process on.
+public enum TLSCipherList {
+    /// Whether BoringSSL accepts the list: no unknown command, and at least one suite left. Unknown names are
+    /// skipped, as BoringSSL does; equal-preference groups (`[A|B]`) are refused, to be safe.
+    public static func isUsable(_ list: String) -> Bool {
+        guard !list.contains(where: { "[]|".contains($0) }) else { return false }
+        var rules = Substring(list)
+        var active: [Int] = []
+        var killed: Set<Int> = []
+        // DEFAULT is read only at the start, as BoringSSL's ALL.
+        if rules.hasPrefix("DEFAULT") {
+            active = suites.indices.filter { !suites[$0].deprecated }
+            rules = rules.dropFirst(7)
+        }
+        for rule in rules.split(whereSeparator: { ":, ;".contains($0) }) {
+            var rule = rule
+            let operation = rule.first.flatMap { "!-+".contains($0) ? $0 : nil }
+            if operation != nil { rule = rule.dropFirst() }
+            if rule.hasPrefix("@") {
+                guard rule == "@STRENGTH" else { return false }
+                continue
+            }
+            let terms = rule.split(separator: "+").map(String.init)
+            if terms.isEmpty { continue }
+            // A suite named outright is the only match, deprecated or not; aliases leave deprecated suites out
+            // unless they name them (3DES).
+            let named = terms.count == 1 ? suites.indices.first { suites[$0].names.contains(terms[0]) } : nil
+            let matches: [Int]
+            if let named {
+                matches = [named]
+            } else if terms.allSatisfy({ aliases.contains($0) }) {
+                matches = suites.indices.filter { index in
+                    terms.allSatisfy { suites[index].tags.contains($0) } && (!suites[index].deprecated || terms.contains("3DES"))
+                }
+            } else {
+                continue
+            }
+            switch operation {
+            case "!":
+                killed.formUnion(matches)
+                active.removeAll { matches.contains($0) }
+            case "-":
+                active.removeAll { matches.contains($0) }
+            case "+":
+                break
+            default:
+                for index in matches where !killed.contains(index) && !active.contains(index) { active.append(index) }
+            }
+        }
+        return !active.isEmpty
+    }
+
+    private static let aliases: Set<String> = [
+        "ALL", "kRSA", "kECDHE", "kEECDH", "ECDH", "kPSK", "aRSA", "aECDSA", "ECDSA", "aPSK", "ECDHE", "EECDH", "RSA", "PSK",
+        "3DES", "AES128", "AES256", "AES", "AESGCM", "CHACHA20", "SHA1", "SHA", "SSLv3", "TLSv1", "TLSv1.2", "HIGH", "FIPS", "SHA256", "SHA384",
+    ]
+
+    /// BoringSSL's TLS 1.2 suites (TLS 1.3's cannot be configured): their OpenSSL and standard names and the aliases
+    /// that match them.
+    private static let suites: [(names: [String], tags: Set<String>, deprecated: Bool)] = {
+        func suite(_ name: String, _ standard: String, _ tags: [String], version: String = "SSLv3", deprecated: Bool = false)
+            -> (names: [String], tags: Set<String>, deprecated: Bool)
+        {
+            var all = Set(tags + ["ALL", "HIGH", "FIPS", version])
+            if version == "SSLv3" { all.insert("TLSv1") }
+            if all.contains("kRSA") { all.formUnion(["RSA"]) }
+            if all.contains("kECDHE") { all.formUnion(["ECDHE", "EECDH", "kEECDH", "ECDH"]) }
+            if all.contains("aECDSA") { all.insert("ECDSA") }
+            if all.contains("kPSK") { all.insert("PSK") }
+            if all.contains("SHA1") { all.insert("SHA") }
+            if all.contains("AES128") || all.contains("AES256") { all.insert("AES") }
+            return ([name, standard], all, deprecated)
+        }
+        return [
+            suite("DES-CBC3-SHA", "TLS_RSA_WITH_3DES_EDE_CBC_SHA", ["kRSA", "aRSA", "3DES", "SHA1"], deprecated: true),
+            suite("AES128-SHA", "TLS_RSA_WITH_AES_128_CBC_SHA", ["kRSA", "aRSA", "AES128", "SHA1"]),
+            suite("AES256-SHA", "TLS_RSA_WITH_AES_256_CBC_SHA", ["kRSA", "aRSA", "AES256", "SHA1"]),
+            suite("PSK-AES128-CBC-SHA", "TLS_PSK_WITH_AES_128_CBC_SHA", ["kPSK", "aPSK", "AES128", "SHA1"]),
+            suite("PSK-AES256-CBC-SHA", "TLS_PSK_WITH_AES_256_CBC_SHA", ["kPSK", "aPSK", "AES256", "SHA1"]),
+            suite("AES128-GCM-SHA256", "TLS_RSA_WITH_AES_128_GCM_SHA256", ["kRSA", "aRSA", "AES128", "AESGCM"], version: "TLSv1.2"),
+            suite("AES256-GCM-SHA384", "TLS_RSA_WITH_AES_256_GCM_SHA384", ["kRSA", "aRSA", "AES256", "AESGCM"], version: "TLSv1.2"),
+            suite("ECDHE-ECDSA-AES128-SHA", "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA", ["kECDHE", "aECDSA", "AES128", "SHA1"]),
+            suite("ECDHE-ECDSA-AES256-SHA", "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA", ["kECDHE", "aECDSA", "AES256", "SHA1"]),
+            suite("ECDHE-RSA-AES128-SHA", "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA", ["kECDHE", "aRSA", "AES128", "SHA1"]),
+            suite("ECDHE-RSA-AES256-SHA", "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA", ["kECDHE", "aRSA", "AES256", "SHA1"]),
+            suite("ECDHE-RSA-AES128-SHA256", "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256", ["kECDHE", "aRSA", "AES128"], version: "TLSv1.2", deprecated: true),
+            suite("ECDHE-ECDSA-AES128-GCM-SHA256", "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256", ["kECDHE", "aECDSA", "AES128", "AESGCM"], version: "TLSv1.2"),
+            suite("ECDHE-ECDSA-AES256-GCM-SHA384", "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384", ["kECDHE", "aECDSA", "AES256", "AESGCM"], version: "TLSv1.2"),
+            suite("ECDHE-RSA-AES128-GCM-SHA256", "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", ["kECDHE", "aRSA", "AES128", "AESGCM"], version: "TLSv1.2"),
+            suite("ECDHE-RSA-AES256-GCM-SHA384", "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384", ["kECDHE", "aRSA", "AES256", "AESGCM"], version: "TLSv1.2"),
+            suite("ECDHE-PSK-AES128-CBC-SHA", "TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA", ["kECDHE", "aPSK", "AES128", "SHA1"]),
+            suite("ECDHE-PSK-AES256-CBC-SHA", "TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA", ["kECDHE", "aPSK", "AES256", "SHA1"]),
+            suite("ECDHE-RSA-CHACHA20-POLY1305", "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256", ["kECDHE", "aRSA", "CHACHA20"], version: "TLSv1.2"),
+            suite("ECDHE-ECDSA-CHACHA20-POLY1305", "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256", ["kECDHE", "aECDSA", "CHACHA20"], version: "TLSv1.2"),
+            suite("ECDHE-PSK-CHACHA20-POLY1305", "TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256", ["kECDHE", "aPSK", "CHACHA20"], version: "TLSv1.2"),
+        ]
+    }()
 }

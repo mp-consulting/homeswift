@@ -1,5 +1,6 @@
 import Foundation
 import Homeswift
+import HomeswiftNetwork
 import Logging
 
 /// Finds Dyson devices over mDNS: each announces `_dyson_mqtt._tcp` under a name with its serial number.
@@ -9,20 +10,53 @@ enum Discovery {
     /// Browses for `duration` and answers serial number → address. Only addresses on the local network count:
     /// the plugin sends the device's credentials to whatever answers, so a spoofed record pointing at a public
     /// address is ignored.
+    ///
+    /// A one-shot mDNS query runs alongside: its answers come with the device's own address, which dns_sd does
+    /// not give. When a device's records carry no local IPv4 address, that sender is used if it is a private IPv4
+    /// one, as the Homebridge plugin falls back to bonjour-service's `referer`.
     @Sendable static func discover(duration: Duration, logger: Logger) async -> [String: String] {
         let deadline = ContinuousClock.now + duration
-        let task = Task { () -> [String: String] in
-            var found: [String: String] = [:]
+        let browse = Task { () -> [String: [String]] in
+            var addresses: [String: [String]] = [:]
             for await event in BonjourBrowser.browse(type: serviceType, logger: logger) {
-                guard case .found(let service) = event, let serial = serial(fromServiceName: service.name),
-                      let address = address(of: service.addresses), found[serial] == nil else { continue }
-                found[serial] = address
+                guard case .found(let service) = event, let serial = serial(fromServiceName: service.name) else { continue }
+                addresses[serial, default: []].append(contentsOf: service.addresses)
             }
-            return found
+            return addresses
+        }
+        let query = Task { () -> [MDNSQuery.Response] in
+            do {
+                return try await MDNSQuery.query("\(serviceType).local", duration: duration)
+            } catch {
+                logger.debug("mDNS query for \(serviceType) failed: \(error)")
+                return []
+            }
         }
         try? await Task.sleep(until: deadline)
-        task.cancel()
-        return await task.value
+        browse.cancel()
+        return merge(addresses: await browse.value, referers: senders(of: await query.value))
+    }
+
+    /// Serial number → the address that answered for it, from one-shot query answers.
+    static func senders(of responses: [MDNSQuery.Response]) -> [String: String] {
+        var senders: [String: String] = [:]
+        for response in responses {
+            for name in response.names {
+                // Only the instance names: `<serial>._dyson_mqtt._tcp.local`, not the host names.
+                guard name.lowercased().contains(serviceType), let serial = serial(fromServiceName: name), senders[serial] == nil else { continue }
+                senders[serial] = response.sender
+            }
+        }
+        return senders
+    }
+
+    /// Each serial's address: from its records, else from who answered for it.
+    static func merge(addresses: [String: [String]], referers: [String: String]) -> [String: String] {
+        var found: [String: String] = [:]
+        for serial in Set(addresses.keys).union(referers.keys) {
+            if let address = address(of: addresses[serial] ?? [], referer: referers[serial]) { found[serial] = address }
+        }
+        return found
     }
 
     /// The serial in a service name: `ABC-AB-12345678`, `ABC-AB-12345678_dyson_mqtt`, `455_ABC-AB-12345678`.
@@ -32,10 +66,13 @@ enum Discovery {
         return String(match.output.1).uppercased()
     }
 
-    /// The first local IPv4 address, else the first local IPv6 one.
-    static func address(of addresses: [String]) -> String? {
+    /// The first local IPv4 address, else the sender of the answer (`referer`) if it is a private IPv4 address,
+    /// else the first local IPv6 one.
+    static func address(of addresses: [String], referer: String? = nil) -> String? {
         let local = addresses.filter(isLocalNetworkAddress)
-        return local.first(where: isIPv4) ?? local.first
+        if let ipv4 = local.first(where: isIPv4) { return ipv4 }
+        if let referer, isIPv4(referer), isLocalNetworkAddress(referer) { return referer }
+        return local.first
     }
 
     /// RFC 1918 private IPv4, or IPv6 link-local (fe80::/10) and unique-local (fc00::/7).

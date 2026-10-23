@@ -258,6 +258,17 @@ class GoveeDevice {
     func logDebug(_ message: String) { deviceLog.debug(message) }
     func logDebugWarn(_ message: String) { deviceLog.debugWarn(message) }
 
+    /// Keeps a sensor's temperature for the plugs that follow it, written at once as the Homebridge plugin's
+    /// `updateCache` wrote `<id>_temp`.
+    func storeTemperature(_ value: Double) {
+        environment.store.setTemperature(value, of: info.id)
+        do {
+            try environment.store.flush()
+        } catch {
+            logWarn("\(Lang.storageWriteErr) \(error)")
+        }
+    }
+
     /// The options the device starts with, like the Homebridge plugin's `devInitOpts` line.
     func logInitOptions(_ options: [(String, String)]) {
         let text = "{" + options.map { "\"\($0.0)\":\($0.1)" }.joined(separator: ",") + "}"

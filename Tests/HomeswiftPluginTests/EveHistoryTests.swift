@@ -230,7 +230,7 @@ struct EveHistoryTests {
         // The reading arrives while the tick records its average (between averaging and clearing the backlog).
         let added = NIOLockedValueBox(false)
         history.service.characteristic(EveCharacteristic.historyStatus).observe { [t] _ in
-            guard !added.withLockedValue({ defer { $0 = true }; return $0 }) else { return }
+            guard !added.withLockedValue({ value in defer { value = true }; return value }) else { return }
             history.add(.init(unixTime: t + 300, power: 30))
         }
         clock.withLockedValue { $0 = t + 600 }
