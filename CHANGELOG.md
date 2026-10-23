@@ -416,6 +416,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Metrics: the first memory and CPU sample is taken when recording starts, so the Status page (and
+  `MetricsAPITests.servesTheHistory` on a slow CI runner) has a value at once.
 - Philips Ambilight TV: the mute and Ambilight state sensors follow a mute or Ambilight switched from HomeKit
   at once, as the Homebridge plugin's do, instead of waiting for a change the TV reports.
 - Philips Ambilight TV: source switches only for the inputs shown in the Home app, as the Homebridge plugin
