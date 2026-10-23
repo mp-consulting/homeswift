@@ -18,11 +18,11 @@ struct AccessAPITests {
         requestTimeout: .seconds(2), heartbeatTimeout: .milliseconds(150), reconnectMinimum: .milliseconds(20), reconnectMaximum: .milliseconds(100),
         throttle: .milliseconds(300), retryMinimum: .milliseconds(1), retryMaximum: .milliseconds(5))
 
-    func makeAPI(trust: HTTPClient.TrustOnFirstUse = .init(), verifyTLS: Bool = false, events: Bool = true, mismatchHint: String? = nil) -> AccessAPI {
+    func makeAPI(trust: HTTPClient.TrustOnFirstUse = .init(), verifyTLS: Bool = false, events: Bool = true, mismatchHint: String? = nil, timing: AccessAPI.Timing = Self.timing) -> AccessAPI {
         let controller = controller
         return AccessAPI(
             logger: log.logger, http: { controller.client(tls: $0) }, events: events ? self.events.connector : nil, verifyTLS: verifyTLS, trust: trust,
-            mismatchHint: mismatchHint, timing: Self.timing)
+            mismatchHint: mismatchHint, timing: timing)
     }
 
     static let bootstrap: JSONValue = [
@@ -71,7 +71,10 @@ struct AccessAPITests {
     }
 
     @Test func retriesOnlyTransientIdempotentRequests() async {
-        let api = makeAPI()
+        // The retries count here, not the deadline that also bounds them: a slow runner must not cut them short.
+        var timing = Self.timing
+        timing.requestTimeout = .seconds(30)
+        let api = makeAPI(timing: timing)
         controller.override("/flaky") { _ in HTTPResponse(status: 503) }
         _ = await api.retrieve("https://10.0.0.1/flaky")
         #expect(controller.requests(matching: "/flaky").count == 6)

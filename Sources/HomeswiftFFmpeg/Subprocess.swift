@@ -101,6 +101,22 @@ private let ignoreSIGPIPEOnce: Void = {
     #endif
 }()
 
+#if canImport(Glibc) || canImport(Musl)
+/// Runs `body` with the signals that stop a process unblocked on this thread. posix_spawn gives the child the
+/// calling thread's signal mask, Foundation's `Process` does not reset it on Linux, and the threads Swift's
+/// concurrency and libdispatch run on block signals: FFmpeg started from one would ignore SIGTERM and only end
+/// with the SIGKILL failsafe.
+private func withStopSignalsUnblocked<T>(_ body: () throws -> T) rethrows -> T {
+    var stops = sigset_t()
+    sigemptyset(&stops)
+    for signal in [SIGTERM, SIGINT, SIGHUP, SIGQUIT, SIGUSR1, SIGUSR2] { sigaddset(&stops, signal) }
+    var previous = sigset_t()
+    pthread_sigmask(SIG_UNBLOCK, &stops, &previous)
+    defer { pthread_sigmask(SIG_SETMASK, &previous, nil) }
+    return try body()
+}
+#endif
+
 /// One child process with its three pipes: the counterpart of Node's `ChildProcess`. Standard output and standard error are read
 /// as soon as `beginReading()` is called and handed to the registered handlers in order; the exit handlers run once the process
 /// has ended and both pipes have reached end of file (Node's `close`), so every byte is delivered before them. Standard input is
@@ -166,7 +182,11 @@ final class Subprocess: @unchecked Sendable {
             child.terminated(status)
         }
         do {
+            #if canImport(Glibc) || canImport(Musl)
+            try withStopSignalsUnblocked { try process.run() }
+            #else
             try process.run()
+            #endif
         } catch {
             process.terminationHandler = nil
             throw .launchFailed((error as NSError).localizedDescription)
