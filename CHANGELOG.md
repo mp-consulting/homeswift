@@ -8,6 +8,20 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Settings in the web UI** (`/settings`), after Glass UI's settings, child bridges, config editor backups,
+  restart and backup modules, for administrators: the bridge block as a form, the network and advertiser,
+  each server's pairings with Reset pairings, cached accessories with remove and reset; a **Child bridges**
+  page with health, restart, stop, start and the setup code of one not yet paired; **Backups**: a download
+  of the whole instance (a tar of config.json, HomeKit identities and pairings, caches, plugin files, users),
+  kept backups with a daily one (`scheduledBackupDisable`, `scheduledBackupPath`, `scheduledBackupDays`),
+  restore from an upload (checked whole, staged, applied as homeswift restarts) and config.json backups
+  compared as a diff and restored; the **Audit log** with filters, the web UI's own changes now in it as
+  client `web UI`. Accessories with an Eve history get **History** charts.
+- **`scheduledRestartCron`** and **`trustProxy`** in the HomeswiftUI block: a restart on a cron schedule, and
+  the reverse proxies whose `X-Forwarded-For` and `X-Forwarded-Proto` count.
+- **MCP tools** `list_backups`, `create_backup`, `get_audit_log` and `update_bridge_settings`; accessories with
+  an Eve history say `"history": true`.
+
 - **Plugin backgrounds for the Assistant**: `HomeswiftPlugin.assistantBackground`, the troubleshooting notes
   each Homebridge plugin sent with its Assistant requests (`*_AI_CONTEXT`), goes with every Explain from a
   plugin's page and with `context.assistant`.
