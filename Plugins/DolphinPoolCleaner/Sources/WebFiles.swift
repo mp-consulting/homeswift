@@ -12,7 +12,7 @@ extension DolphinPoolCleanerPlugin {
 // its settings, and done. Saving writes the block with a refresh token instead of a password; the plugin reloads.
 (() => {
   "use strict";
-  const { $, el, request, explain, breadcrumb, act, poll, fact, readBlock, updateBlock } = homeswift;
+  const { $, el, request, explain, assistant, breadcrumb, act, poll, fact, readBlock, updateBlock } = homeswift;
 
   const IOT_REGION = "eu-west-1";
   const DEVICE_TYPE_LABELS = { 62: "IoT Connected (M400/M600)", 60: "IoT Connected", 50: "BLE Connected" };
@@ -208,7 +208,11 @@ extension DolphinPoolCleanerPlugin {
         el("span", { class: "help", text: "The email associated with your MyDolphin Plus account" })),
       line,
       el("div", { class: "actions" }, cancellable ? el("button", { type: "button", text: "Cancel", onclick: showConfigured }) : null, send));
-    show("login", ...head("Connect Your MyDolphin Account", "Enter your MyDolphin Plus email address. A verification code will be sent to you."), form);
+    // Without an Assistant, a tip on how to get one, as the Homebridge plugin's wizard shows.
+    const hint = el("p", { class: "hint muted hidden" }, "Tip: add a ", el("strong", { text: "HomeswiftAiKit" }),
+      " block to config.json to get the Assistant, which explains sign-in errors here.");
+    assistant().then((status) => hint.classList.toggle("hidden", Boolean(status.enabled)));
+    show("login", ...head("Connect Your MyDolphin Account", "Enter your MyDolphin Plus email address. A verification code will be sent to you."), form, hint);
   }
 
   function loginProblem(line, message) {
