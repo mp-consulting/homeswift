@@ -27,6 +27,9 @@ public final class UIServer: Sendable {
         public var webRoot: URL?
         /// How many Assistant requests (an explanation, a block written, a chat message) each user may make.
         public var assistantRateLimiter = SlidingWindowRateLimiter.assistant()
+        /// What the Status page says about a newer release; the CLI's, kept across restarts of the UI. Libraries
+        /// and tests have none.
+        public var releases: ReleaseWatcher?
         public init() {}
     }
 
@@ -973,6 +976,7 @@ public final class UIServer: Sendable {
         var status = catalog.statusJSON(includePairing: admin).objectValue ?? [:]
         status["username"] = .string(username)
         status["system"] = HomeswiftCatalog.systemJSON()
+        if let update = options.releases?.json() { status["update"] = update }
         return .object(status)
     }
 

@@ -44,6 +44,11 @@ with a new code). More users are added on the **Users** page (see below).
   digest** streams it, the bridge keeps it for the day (`ai-digest.json`, owner-only), and the card's **⋯**
   writes it again; any user reads today's digest, an administrator writes it. **Customise this page**, at the bottom, shows or hides each part (overview, digest,
   activity, bridges, system) and orders them; the layout is each user's own, on every browser.
+  When GitHub has a newer release, a card under the summary says
+  so, with its notes and how to upgrade this install: the `.spk` to download on a Synology NAS, the image tag
+  to pull in Docker, `brew upgrade` or the tag to check out. The bridge asks GitHub's API a minute after it
+  starts and then twice a day, sending only its version (`ReleaseWatcher`); `"checkForUpdates": false` in the
+  `HomeswiftUI` block turns it off. It never upgrades itself.
 - **Accessories**: a wall of widgets (`widgets.js`), each accessory drawn by the widget of its kind, in a fixed
   box of the size chosen for it: small (1×1, a tile a tap acts on), medium (2×1) or large (2×2). A widget's
   **⋯** menu (a right click on a tile) sets its size or its kind's, opens **All controls** (every control in a
