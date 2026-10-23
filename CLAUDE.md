@@ -32,6 +32,7 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `docs/ai.md` | The Assistant: configuration, providers, command line, use from a plugin, what reaches a provider |
 | `docs/mcp.md` | The MCP server: configuration, scopes, confirmations, resources, prompts, security |
 | `docs/ui.md` | The web UI: configuration, pages, security, what plugin authors ship |
+| `docs/widgets.md` | The Accessories page's widgets: sizes, the wall, Adaptive Lighting, paused plugins, what a plugin does to get good widgets; screenshots in `docs/images/widgets` |
 | `Tests/HomeswiftUITests` | Users and sessions, embedded assets are current, the server end to end with a cookie-keeping client |
 | `Tests/HomeswiftMCPTests` | The protocol on a direct session (scopes, elicitation, config tools, resources), the HTTP transport and the stdio proxy against a real server on port 0 |
 | `Tests/HomeswiftAITests` | Providers against a fake transport (request shapes, parsing, streaming, retries), redaction, schema checks, the Assistant on a fake provider |

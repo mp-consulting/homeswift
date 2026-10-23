@@ -216,6 +216,14 @@ A plugin can give the web UI a page of its own: a `Web/` directory next to `Sour
 `webFiles`, and a `handleWebRequest(_:)` that answers the page's requests. `docs/ui.md` has the details
 and `Plugins/ElgatoKeyLights/Web` is the example.
 
+### In the web UI
+
+Every accessory shows on the web UI's Accessories page as a widget of its kind, built from its services: mark the
+primary service, link the others to it, give ranges their real `minStep` and bounds, restrict `validValues` to
+what the device does, mark what opens or unlocks with `isSecurityControl`, and give a light with a white
+temperature an `AdaptiveLightingController`. [widgets.md](widgets.md) shows what each choice does, with examples,
+and how a plugin's own page draws its accessories with the same widgets.
+
 ### What the Assistant can do
 
 `assistantActions` describes routes of `handleWebRequest` for a model, so the Assistant (the web UI's chat,

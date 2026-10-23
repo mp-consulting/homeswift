@@ -94,6 +94,8 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
         }
         // Changes between the build and the observer reached the previous accessory.
         await binding.sync(with: device)
+        // The Ambilight's Adaptive Lighting schedule survives restarts and rebuilds of the accessory.
+        context.configureController(binding.adaptiveLighting, accessoryID: binding.accessory.id)
         do {
             try await context.publishExternal(binding.accessory)
         } catch {

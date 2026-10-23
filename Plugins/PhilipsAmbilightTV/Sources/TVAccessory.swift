@@ -13,6 +13,8 @@ enum TVAccessory {
         let accessory: Accessory
         /// Pushes a change of the device into the characteristics.
         let apply: @Sendable (TVDevice.Change) -> Void
+        /// The Ambilight's Adaptive Lighting, whose schedule the plugin saves.
+        let adaptiveLighting: AdaptiveLightingController
 
         /// Pushes the device's whole state: what changed while the accessory was being built.
         func sync(with device: TVDevice) async {
@@ -83,6 +85,9 @@ enum TVAccessory {
         ambilightService.characteristic(.hue).onWrite(changesOnly: true) { value in try await device.setAmbilightHue(value.doubleValue ?? 0) }
         ambilightService.characteristic(.saturation).onWrite(changesOnly: true) { value in try await device.setAmbilightSaturation(value.doubleValue ?? 0) }
         ambilightService.characteristic(.colorTemperature).onWrite(changesOnly: true) { value in try await device.setAmbilightColorTemperature(value.intValue ?? 280) }
+        // Adaptive Lighting, once turned on in the Home app: the controller sets the temperature through the handler
+        // above, which shows it while Ambilight is on.
+        let adaptiveLighting = AdaptiveLightingController(ambilightService, mode: .automatic, logger: logger)
 
         let television = Service(
             .television, name: name, optional: [.displayOrder],
@@ -185,6 +190,11 @@ enum TVAccessory {
                     for service in switches.values { service.characteristic(.on).value = .bool(false) }
                 }
             case .ambilight(let state):
+                // Following video or audio again (from the TV's menu or remote) ends Adaptive Lighting, as a colour
+                // picked elsewhere does.
+                if state.on, let style = state.style, style != "FOLLOW_COLOR", adaptiveLighting.isAdaptiveLightingActive {
+                    adaptiveLighting.disableAdaptiveLighting()
+                }
                 applyAmbilight(state, to: ambilightService)
                 sensorServices[.ambilight]?.characteristic(.motionDetected).value = .bool(state.on)
             case .mute(let muted):
@@ -201,7 +211,7 @@ enum TVAccessory {
                 break
             }
         }
-        return Binding(accessory: accessory, apply: apply)
+        return Binding(accessory: accessory, apply: apply, adaptiveLighting: adaptiveLighting)
     }
 
     private static func applyAmbilight(_ state: TVDevice.AmbilightState, to service: Service) {

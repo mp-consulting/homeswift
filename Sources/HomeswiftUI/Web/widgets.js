@@ -137,6 +137,8 @@
     /// value back and says why in the status line. A security control (a lock, a door, an alarm, what a plugin
     /// marked) asks first unless the control was held to confirm (`held`).
     ctx.write = async (service, characteristic, value, { held = false } = {}) => {
+      // A paused plugin's accessory answers nothing: say so rather than ask.
+      if (accessory.paused) { ctx.flash(`${accessory.platformName ?? "Its plugin"} is paused: resume it to control ${accessory.name}`); return; }
       if (characteristic.security && !held) {
         const label = characteristic.format === "bool" ? (value ? "On" : "Off") : labelFor(characteristic.type, value);
         if (!confirm(`Set ${sentence(characteristic.type).toLowerCase()} of ${accessory.name} to ${label}?`)) { ctx.paint(); return; }
@@ -446,7 +448,8 @@
     shield: '<path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/>',
     tv: '<rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/>',
     up: '<path d="m6 15 6-6 6 6"/>', down: '<path d="m6 9 6 6 6-6"/>', stop: '<rect x="7" y="7" width="10" height="10" rx="2"/>',
-    power: '<path d="M12 3v9"/><path d="M6.3 7.2a8 8 0 1 0 11.4 0"/>', mute: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6M21 9l-5 6"/>',
+    power: '<path d="M12 3v9"/><path d="M6.3 7.2a8 8 0 1 0 11.4 0"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>', mute: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6M21 9l-5 6"/>',
   };
   /// One of these glyphs, else one of common.js's icons.
   function icon(name) {
@@ -577,7 +580,39 @@
   function lightParts(ctx, service) {
     const brightness = ctx.take(service, "Brightness"), hue = ctx.take(service, "Hue"), saturation = ctx.take(service, "Saturation");
     const temperature = ctx.take(service, "Color Temperature");
+    // Adaptive Lighting (a controller on the bridge): on while a schedule runs, which its transition count says.
+    const transitions = ctx.char(service, "Characteristic Value Active Transition Count");
+    const adaptive = service.adaptiveLighting ? { resumable: !!service.adaptiveLighting.resumable } : null;
+    const adaptiveOn = () => !!adaptive && numberOf(transitions) > 0;
+    const setAdaptive = async (on) => {
+      const before = transitions?.value;
+      if (transitions) transitions.value = on ? 1 : 0;
+      ctx.paint();
+      try {
+        await api(`/api/accessories/${encodeURIComponent(ctx.accessory.id)}/adaptive-lighting`, { method: "PUT", body: { service: serviceKey(service), on } });
+        adaptive.resumable = true;
+      } catch (e) {
+        if (e.message === "signed out") return;
+        if (transitions) transitions.value = before;
+        ctx.flash(e.message);
+      }
+    };
+    /// The Adaptive control: a swatch among the colours, a round button beside a white slider, or a chip.
+    const adaptiveControl = (kind) => {
+      const label = "Adaptive Lighting";
+      const node = kind === "chip"
+        ? el("button", { type: "button", class: "chip adaptive-chip", "aria-pressed": "false" }, icon("sun"), el("span", { text: "Adaptive" }))
+        : el("button", { type: "button", class: kind === "swatch" ? "swatch adaptive" : "round adaptive", role: kind === "swatch" ? "radio" : null, "aria-label": label, title: label }, icon("sun"));
+      node.addEventListener("click", () => setAdaptive(!adaptiveOn()));
+      ctx.watch(() => {
+        node.setAttribute(kind === "swatch" ? "aria-checked" : "aria-pressed", String(adaptiveOn()));
+        node.classList.toggle("unset", !adaptive.resumable && !adaptiveOn());
+        node.title = adaptiveOn() ? "Adaptive Lighting: on" : adaptive.resumable ? "Adaptive Lighting: resume the Home app's schedule" : "Adaptive Lighting: turn it on once in the Home app";
+      });
+      return node;
+    };
     const color = () => {
+      if (adaptiveOn() && temperature) return { k: kelvin(numberOf(temperature, 300)) };
       if (hue && saturation && numberOf(saturation) > 4) return { h: numberOf(hue), s: numberOf(saturation) };
       if (temperature) return { k: kelvin(numberOf(temperature, 300)) };
       return null;
@@ -606,9 +641,9 @@
         ctx.watch(() => {
           const h = numberOf(hue), s = numberOf(saturation);
           const near = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b)) <= 6;
-          for (const one of swatches) one.swatch.setAttribute("aria-checked", String(s > 4 && near(one.h, h) && Math.abs(one.s - s) <= 12));
+          for (const one of swatches) one.swatch.setAttribute("aria-checked", String(!adaptiveOn() && s > 4 && near(one.h, h) && Math.abs(one.s - s) <= 12));
         });
-        return el("div", { class: `swatches${grid ? " grid" : ""}`, role: "radiogroup", "aria-label": "Colour" }, swatches.map((one) => one.swatch));
+        return el("div", { class: `swatches${grid ? " grid" : ""}`, role: "radiogroup", "aria-label": "Colour" }, adaptive ? adaptiveControl("swatch") : null, swatches.map((one) => one.swatch));
       } : null,
       white: canWrite(temperature) ? ({ vertical = false, thin = false } = {}) => {
         // Mireds run the other way: the track goes from warm (few kelvin, many mireds) to cool.
@@ -623,6 +658,9 @@
         ctx.watch(() => control.set(kelvin(numberOf(temperature, 300))));
         return control.node;
       } : null,
+      // For a light without colours: the Adaptive control on its own ("round" beside the white, or a "chip").
+      adaptive: adaptive ? (kind = "chip") => adaptiveControl(kind) : null,
+      adaptiveOn,
       color: () => { const c = color(); return c && { tile: `linear-gradient(160deg, ${css(c, 74)}, ${css(c, 52)})`, glow: css(c, 55) }; },
     };
   }
@@ -630,7 +668,8 @@
   /// A light's whole body: its brightness, its colours, its white temperature, whichever it has.
   function lightBody(ctx, service) {
     const parts = lightParts(ctx, service);
-    return { nodes: [parts.brightness?.(), parts.swatches?.(), parts.white?.()].filter(Boolean), color: parts.color };
+    const chip = !parts.swatches && parts.adaptive ? el("div", { class: "chips" }, parts.adaptive("chip")) : null;
+    return { nodes: [parts.brightness?.(), parts.swatches?.(), parts.white?.(), chip].filter(Boolean), color: parts.color };
   }
 
   /// A sensor service's reading: its value, its unit, a tone, and its glyph.
@@ -1117,13 +1156,15 @@
         tap: () => ctx.write(primary, on, onValue(on, !isOn(on))),
         on: () => isOn(on), color: light.color,
         hero: () => brightness && isOn(on) ? `${numberOf(brightness)}%` : "",
-        status: () => isOn(on) ? [brightness ? `On · ${numberOf(brightness)} %` : "On"] : ["Off"],
+        status: () => isOn(on) ? [[brightness ? `On · ${numberOf(brightness)} %` : "On", light.adaptiveOn() ? "Adaptive" : ""].filter(Boolean).join(" · ")] : ["Off"],
       };
-      if (size === "medium") built.body = [light.brightness?.(), light.swatches?.() ?? light.white?.({ thin: true })].filter(Boolean);
+      // A white-only light's Adaptive control sits beside its white slider.
+      const whiteRow = (options) => light.white ? (light.adaptive ? el("div", { class: "w-row" }, el("div", { class: "w-grow" }, light.white(options)), light.adaptive("round")) : light.white(options)) : null;
+      if (size === "medium") built.body = [light.brightness?.(), light.swatches?.() ?? whiteRow({ thin: true })].filter(Boolean);
       if (size === "large") {
-        // A tall brightness beside the colours, or beside a tall white.
+        // A tall brightness beside the colours, or beside a tall white (and the Adaptive chip under it).
         const tall = light.brightness?.({ vertical: true });
-        const side = light.swatches ? [light.swatches({ grid: true }), light.white?.({ thin: true })] : [light.white?.({ vertical: true })];
+        const side = light.swatches ? [light.swatches({ grid: true }), light.white?.({ thin: true })] : [light.white?.({ vertical: true }), light.adaptive?.("chip")];
         built.body = [el("div", { class: "light-large" }, tall, el("div", { class: light.swatches ? "light-colours" : "light-tall" }, side.filter(Boolean)))];
       }
       if (size === "full") Object.assign(built, { body: lightBody(ctx, primary).nodes, facets: facets(ctx, [primary]) });
@@ -1144,6 +1185,8 @@
         tap: () => ctx.write(primary, target, position() > min ? min : max),
         tapLabel: () => position() > min ? "close" : "open",
         on: () => position() > min, hero: () => `${position()}%`, shade: () => 100 - (position() - min) / (max - min) * 100,
+        // The small tile slides: dragged down it closes, up it opens, written when let go.
+        slide: { min, max, step: target.minStep || 1, value: position, commit: (v) => ctx.write(primary, target, v) },
         status() {
           if (isOn(obstruction)) return ["Obstructed", "warn"];
           const moving = numberOf(state, 2);
@@ -1507,7 +1550,8 @@
   }
   function statusPainter(ctx, built, status) {
     return () => {
-      const [text, tone] = ctx.flashing ? [ctx.flashing, "bad"] : built.status ? built.status() : [""];
+      const paused = ctx.accessory.paused ? [`Paused · ${ctx.accessory.platformName ?? "its plugin"}`, "warn"] : null;
+      const [text, tone] = ctx.flashing ? [ctx.flashing, "bad"] : paused ?? (built.status ? built.status() : [""]);
       status.textContent = text;
       if (tone) status.dataset.tone = tone; else delete status.dataset.tone;
     };
@@ -1555,15 +1599,59 @@
         hit.addEventListener("keyup", (event) => { if (event.key === " " || event.key === "Enter") cancel(); });
         hit.addEventListener("click", () => { if (!built.hold.armed()) built.hold.tap(); });
         node.append(el("span", { class: "w-veil", "aria-hidden": "true" }));
-      } else hit.addEventListener("click", () => built.tap ? built.tap() : ctx.openFull());
+      } else hit.addEventListener("click", () => {
+        if (slid) { slid = false; return; }
+        built.tap ? built.tap() : ctx.openFull();
+      });
       hit.addEventListener("contextmenu", (event) => { event.preventDefault(); menu.click(); });
+      // A shutter's tile slides: the shade follows the pointer, the position is written when it is let go. A
+      // mouse drags at once; a finger holds still a moment first, so a swipe still scrolls the page.
+      let sliding = null, slid = false;
+      if (built.slide) {
+        const { min, max, step } = built.slide;
+        let start = null, armed = false, holdTimer = null;
+        const at = (event) => {
+          const box = node.getBoundingClientRect();
+          const share = clamp((event.clientY - box.top) / box.height, 0, 1);
+          return clamp(Math.round((min + (1 - share) * (max - min)) / step) * step, min, max);
+        };
+        hit.addEventListener("pointerdown", (event) => {
+          if (event.button !== 0) return;
+          start = { x: event.clientX, y: event.clientY, id: event.pointerId };
+          armed = event.pointerType === "mouse";
+          clearTimeout(holdTimer);
+          if (!armed) holdTimer = setTimeout(() => { armed = true; node.classList.add("slide-ready"); }, 350);
+        });
+        hit.addEventListener("pointermove", (event) => {
+          if (!start) return;
+          const moved = Math.abs(event.clientY - start.y);
+          if (!armed) { if (moved > 6) { clearTimeout(holdTimer); start = null; } return; }
+          if (sliding === null && moved < 4) return;
+          if (sliding === null) { hit.setPointerCapture(start.id); node.classList.add("sliding"); }
+          sliding = at(event);
+          ctx.paint();
+        });
+        const finish = () => {
+          clearTimeout(holdTimer);
+          node.classList.remove("slide-ready", "sliding");
+          if (sliding !== null) { const value = sliding; sliding = null; slid = true; built.slide.commit(value); }
+          start = null; armed = false;
+        };
+        hit.addEventListener("pointerup", finish);
+        hit.addEventListener("pointercancel", () => { sliding = null; finish(); slid = false; ctx.paint(); });
+        // Once a finger has held still, the page does not scroll under it.
+        hit.addEventListener("touchmove", (event) => { if (armed) event.preventDefault(); }, { passive: false });
+      }
       node.append(shade ?? "", hit, el("div", { class: "w-top" }, glyph, hero), el("div", { class: "w-bottom" }, who, menu));
       ctx.watch(() => {
         const on = built.on ? built.on() : false;
         node.classList.toggle("on", on);
-        const value = built.hero ? built.hero() : "";
+        const value = sliding !== null ? `${sliding}%` : built.hero ? built.hero() : "";
         hero.replaceChildren(...(value ? [value] : []));
-        if (shade) shade.style.setProperty("--closed", `${built.shade()}%`);
+        if (shade) {
+          const { min, max } = built.slide ?? { min: 0, max: 100 };
+          shade.style.setProperty("--closed", `${sliding !== null ? 100 - (sliding - min) / (max - min) * 100 : built.shade()}%`);
+        }
         const verb = built.hold ? built.hold.verb() : built.tap ? (built.tapLabel ? built.tapLabel() : on ? "turn off" : "turn on") : "show all controls";
         hit.setAttribute("aria-label", `${accessory.name}: ${verb}`);
         hit.setAttribute("aria-pressed", String(on));
@@ -1577,7 +1665,16 @@
     }
     ctx.watch(paintGlyph);
     ctx.watch(statusPainter(ctx, built, status));
+    paused(node, ctx);
     return node;
+  }
+
+  /// A paused plugin's accessory: drawn quiet, its controls out of reach (inert: no pointer, no focus), its menu
+  /// still there to resume the plugin or change the widget.
+  function paused(node, ctx) {
+    if (!ctx.accessory.paused) return;
+    node.classList.add("paused");
+    for (const part of node.querySelectorAll(":scope > .w-hit, :scope > .w-body, :scope > .w-head .switch, :scope > .w-main, :scope > .w-split, :scope > details, :scope > .camera-view, :scope > .controls")) part.inert = true;
   }
 
   /// Every control: the widget's body (beside its facets when there are any), what is left under More, the foot.
@@ -1601,6 +1698,7 @@
     if (built.power && !built.power.big) ctx.watch(() => node.classList.toggle("powered-off", !isOn(built.power.characteristic)));
     ctx.watch(paintGlyph);
     ctx.watch(statusPainter(ctx, built, status));
+    paused(node, ctx);
     return node;
   }
 
@@ -1625,6 +1723,7 @@
     const node = el("article", { class: `card widget size-${size} widget-camera camera-tile`, "data-search": searchText(ctx.accessory), "data-id": ctx.accessory.id },
       view.element, el("span", { class: "w-corner" }, actionsButton(ctx, false)));
     if (size === "small") node.append(el("button", { type: "button", class: "w-hit", "aria-label": `${ctx.accessory.name}: show all controls`, onclick: () => ctx.openFull() }));
+    paused(node, ctx);
     return node;
   }
 
@@ -1653,5 +1752,11 @@
       el("div", { class: "card-foot" }, el("span", { class: "muted", text: accessory.bridge }), actionsButton(ctx, true)));
   }
 
-  window.HomeswiftWidgets = { card, open, kindOf, sizes, event, listen, register, describeModel, labelFor };
+  window.HomeswiftWidgets = {
+    card, open, kindOf, sizes, event, listen, describeModel, labelFor,
+    /// A page's own widget, tried before the built-in ones: { name, types, match?, icon, tone, size, build }.
+    register: (widget) => widgets.unshift(widget),
+    /// The controls the widgets are made of, for a page's own widget.
+    controls: { toggle, segmented, level, steps, setpoint, gauge, readout, meter, chip, hold, pill, icon },
+  };
 })();

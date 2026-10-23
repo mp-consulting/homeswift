@@ -487,7 +487,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .w-body > * { flex-shrink: 0; }
 .widget:not(.widget-full) .seg > button { white-space: nowrap; padding-inline: 2px; }
 .size-medium .w-body { padding-right: 26px; overflow: hidden; justify-content: safe center; }
-.size-medium .swatches { gap: 6px; flex-wrap: nowrap; padding: 3px; }
+.size-medium .swatches { gap: 6px; flex-wrap: nowrap; }
 .widget.size-medium .swatch { width: 24px; height: 24px; }
 .size-large .w-body { justify-content: flex-start; overflow-y: auto; scrollbar-width: none; }
 .size-large .w-body > :last-child { margin-right: 26px; }
@@ -495,6 +495,13 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget.size-large .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 2px; margin: -2px; }
 .widget.size-large .chips > * { flex: none; }
 .head-only { justify-content: center; }
+/* A phone: two columns that fill the width. */
+@container (max-width: 520px) { .wall { --unit: calc((100cqw - var(--unit-gap)) / 2); } }
+/* The Accessories page's tools on a phone: the search on a line of its own. */
+@media (max-width: 600px) {
+  .page-head .tools:has(> .search) { flex-wrap: wrap; width: 100%; }
+  .page-head .tools > .search { flex: 1 1 100%; width: 100%; }
+}
 .powered-off .w-body, .powered-off .w-main { opacity: 0.55; transition: opacity var(--normal) var(--ease-out); }
 /* The menu at the bottom right of the box, over its content's corner. */
 .w-corner { position: absolute; right: 6px; bottom: 6px; z-index: 2; }
@@ -541,7 +548,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget .w-button { width: 100%; border-radius: 12px; padding: 9px 14px; font-weight: 600; }
 .light-large, .cover-large { flex: 1; min-height: 0; display: flex; gap: 16px; align-items: stretch; }
 .light-large > .level.vertical { width: 96px; flex: none; }
-.light-tall { display: flex; flex: none; width: 96px; }
+.light-tall { display: flex; flex-direction: column; gap: 8px; flex: none; width: 96px; }
 .light-tall > .level { flex: 1; }
 .light-colours { flex: 1; display: grid; align-content: center; gap: 12px; min-width: 0; }
 .cover-large > .level.vertical { width: 112px; flex: none; border-radius: 14px; }
@@ -561,6 +568,16 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .switch.big span::before { width: 28px; height: 28px; }
 .switch.big input:checked + span::before { transform: translateX(26px); }
 
+/* A shutter's tile slid: the shade follows the pointer one to one; held on a phone, it lifts a little first. */
+.size-small.sliding > .w-shade { transition: none; }
+.size-small.slide-ready, .size-small.sliding { transform: scale(1.02); box-shadow: var(--shadow-thick); }
+.widget-cover.size-small > .w-hit { cursor: ns-resize; user-select: none; -webkit-user-select: none; }
+
+/* A paused plugin's accessory: quiet and striped, its controls out of reach; the menu stays to resume it. */
+.widget.paused { background-image: repeating-linear-gradient(135deg, transparent 0 10px, color-mix(in srgb, var(--muted) 9%, transparent) 10px 20px); }
+.widget.paused > :not(.w-corner):not(.w-bottom):not(.w-head), .widget.paused .w-bottom .who, .widget.paused .w-head > .tile, .widget.paused .w-head > .switch { opacity: 0.45; filter: grayscale(1); }
+.widget.paused.size-small.on { background-color: var(--material); color: var(--text); }
+.widget.paused .w-hit { cursor: default; }
 /* A camera on the wall: its picture fills the box. */
 .widget.camera-tile { padding: 0; }
 .camera-tile .camera-view { position: absolute; inset: 0; margin: 0; aspect-ratio: auto; border-radius: inherit; }
@@ -582,6 +599,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .w-block { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
 .w-main > .w-block:first-child, .w-side > .w-block:first-child { border-top: 0; padding-top: 0; }
 .w-block-body { display: grid; gap: 10px; }
+.light-tall > .adaptive-chip { justify-content: center; }
 
 /* Edit: each widget shows its sizes and arrows; the widget itself rests, and drags into place. */
 .wall.editing > .widget { cursor: grab; }
@@ -592,9 +610,14 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .edit-bar button { min-width: 28px; height: 28px; padding: 0 7px; border: 0; background: none; box-shadow: none; border-radius: 999px; font-size: 0.75rem; font-weight: 600; color: var(--muted); }
 .edit-bar button:hover { transform: none; color: var(--text); }
 .edit-bar button[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); }
-.widget.dragging { opacity: 0.4; }
-.widget.drop-before { box-shadow: -4px 0 0 var(--accent), var(--shadow); }
-.widget.drop-after { box-shadow: 4px 0 0 var(--accent), var(--shadow); }
+/* Dragged: the widget lifts over the page and follows the pointer; a dashed slot shows where it will land. In
+   Edit, a finger on a widget drags it rather than scrolling the page. */
+.wall.editing { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.wall.editing > .widget { touch-action: none; }
+.widget.lifted { position: fixed; z-index: 40; margin: 0; pointer-events: none; cursor: grabbing; box-shadow: 0 24px 60px rgba(15, 18, 24, 0.3); }
+.widget.lifted::after { display: none; }
+.wall > .drag-slot::after { display: none; }
+.wall > .drag-slot { border: 2px dashed color-mix(in srgb, var(--accent) 55%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--accent) 6%, transparent); box-shadow: none; }
 
 /* Segmented: equal columns, a thumb sliding to the one chosen. */
 .seg { position: relative; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 3px; border-radius: 12px; background: var(--track); }
@@ -684,7 +707,9 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
 .swatches.grid { display: grid; grid-template-columns: repeat(4, 30px); gap: 10px; }
 .widget .swatch { width: 30px; height: 30px; padding: 0; border-radius: 50%; background: var(--swatch); border: 2px solid var(--edge); }
-.widget .swatch[aria-checked="true"] { outline: 2px solid var(--text); outline-offset: 2px; }
+.widget .swatch[aria-checked="true"] { outline: 2px solid var(--text); outline-offset: 1px; }
+/* Room for that ring: a box that clips (a fixed widget's body) would cut it. */
+.widget .swatches { padding: 3px; }
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; background: var(--material-thin); border: 1px solid var(--edge); }
 .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .pill.ok::before { background: var(--ok); } .pill.warn::before { background: var(--warn); } .pill.bad::before { background: var(--error); }
@@ -722,6 +747,13 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .server.editor { grid-column: 1 / -1; gap: 18px; }
 .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 4px 18px; align-items: start; }
 .fields > fieldset, .fields > .group-box { grid-column: 1 / -1; }
+/* Adaptive Lighting: the day's whites, a sun on them; dimmed until the Home app has sent a schedule to resume. */
+.widget .swatch.adaptive { display: grid; place-items: center; color: #5c3b00; background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); }
+.widget .swatch.adaptive svg, .widget .round.adaptive svg, .adaptive-chip svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.size-medium .swatch.adaptive svg { width: 13px; height: 13px; }
+.widget .round.adaptive[aria-pressed="true"] { background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); color: #5c3b00; border-color: transparent; }
+.widget .adaptive-chip { display: inline-flex; align-items: center; gap: 6px; }
+.widget .adaptive.unset { opacity: 0.55; }
 .field { margin: 10px 0 4px; }
 .field-title { display: block; font-weight: 500; margin-bottom: 6px; }
 .field > input, .field > select { margin-top: 0; }

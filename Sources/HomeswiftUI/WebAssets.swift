@@ -456,6 +456,10 @@ enum WebAssets {
       { label: "Show its log", icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` },
       window.HomeswiftChat?.available() ? { label: "Ask the Assistant", icon: sparkle(), onSelect: () => HomeswiftChat.ask(`About ${accessory.name}: `) } : null,
       accessory.platform ? { label: "Plugin settings", icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
+      // A paused plugin's accessories do nothing until it runs again.
+      accessory.paused ? { label: `Resume ${accessory.platformName}`, icon: "play", onSelect: async () => {
+        try { await setPaused(accessory.platform, accessory.platformName, false); route(); } catch (e) { alert(e.message); }
+      } } : null,
     ];
   }
 
@@ -541,27 +545,104 @@ enum WebAssets {
     /// In Edit: the sizes and the arrows over the widget, and the widget dragged into place.
     function editable(node, accessory) {
       const size = sizeOf(accessory);
-      node.draggable = true;
       node.append(el("div", { class: "edit-bar", role: "group", "aria-label": `Size and place of ${accessory.name}` },
         el("button", { type: "button", "aria-label": "Move earlier", title: "Move earlier", text: "‹", "data-step": "-1", onclick: () => step(accessory, -1) }),
         HomeswiftWidgets.sizes.map((one) => el("button", { type: "button", text: one[0].toUpperCase(), title: sizeNames[one], "aria-label": sizeNames[one], "aria-pressed": String(one === size), onclick: () => resize(accessory, one) })),
         el("button", { type: "button", "aria-label": "Move later", title: "Move later", text: "›", "data-step": "1", onclick: () => step(accessory, 1) })));
-      node.addEventListener("dragstart", (event) => { event.dataTransfer.setData("text/plain", accessory.id); event.dataTransfer.effectAllowed = "move"; node.classList.add("dragging"); });
-      node.addEventListener("dragend", () => node.classList.remove("dragging"));
-      node.addEventListener("dragover", (event) => {
-        event.preventDefault();
-        const box = node.getBoundingClientRect(), before = event.clientX < box.left + box.width / 2;
-        node.classList.toggle("drop-before", before);
-        node.classList.toggle("drop-after", !before);
-      });
-      node.addEventListener("dragleave", () => node.classList.remove("drop-before", "drop-after"));
-      node.addEventListener("drop", (event) => {
-        event.preventDefault();
-        const after = node.classList.contains("drop-after");
-        node.classList.remove("drop-before", "drop-after");
-        const dragged = accessories.find((one) => one.id === event.dataTransfer.getData("text/plain"));
-        if (dragged) place(dragged, accessory, after);
-      });
+      node.addEventListener("pointerdown", (event) => drag(event, node));
+    }
+
+    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+    /// Moves widgets of `wall` by `change` and slides them from where they were seen to where they land (FLIP): taken
+    /// from their on-screen place, so a slide already under way turns smoothly.
+    function slide(wall, change, except) {
+      const siblings = [...wall.children].filter((node) => node !== except);
+      const seen = new Map(siblings.map((node) => [node, node.getBoundingClientRect()]));
+      change();
+      for (const node of siblings) { node.style.transition = "none"; node.style.transform = ""; }
+      for (const node of siblings) {
+        const was = seen.get(node), now = node.getBoundingClientRect();
+        const dx = was.left - now.left, dy = was.top - now.top;
+        if (!dx && !dy) { node.style.transition = ""; continue; }
+        node.style.transform = `translate(${dx}px, ${dy}px)`;
+        node.getBoundingClientRect();
+        node.style.transition = reducedMotion.matches ? "none" : "transform 220ms var(--ease-out)";
+        node.style.transform = "";
+      }
+    }
+
+    /// Dragging in Edit: the widget lifts and follows the pointer, a dashed slot holds its place in the grid and
+    /// moves as it passes over the others, which slide aside; near the window's top or bottom the page scrolls.
+    /// Let go, it lands in the slot, and the wall's order is kept. A finger drags at once: in Edit the widgets do not
+    /// scroll the page.
+    function drag(event, node) {
+      if (event.button !== 0 || event.target.closest(".edit-bar")) return;
+      // A press that drags selects no text.
+      event.preventDefault();
+      getSelection()?.removeAllRanges();
+      const wall = node.parentElement;
+      const start = { x: event.clientX, y: event.clientY };
+      let slot = null, pointer = event, scroller = null;
+      node.setPointerCapture(event.pointerId);
+      const lift = () => {
+        const box = node.getBoundingClientRect();
+        slot = el("div", { class: `${[...node.classList].filter((name) => name.startsWith("size-")).join(" ")} widget drag-slot`, "aria-hidden": "true" });
+        node.before(slot);
+        node.classList.add("lifted");
+        Object.assign(node.style, { left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px` });
+        scroller = setInterval(() => {
+          const edge = 80, speed = 14;
+          if (pointer.clientY < edge) scrollBy(0, -speed);
+          else if (pointer.clientY > innerHeight - edge) scrollBy(0, speed);
+          else return;
+          hover();
+        }, 16);
+      };
+      // The widget under the pointer: the slot goes before it, or after it past its middle.
+      const hover = () => {
+        const under = document.elementFromPoint(pointer.clientX, pointer.clientY)?.closest(".wall > .widget");
+        if (!under || under === slot || under.parentElement !== wall) return;
+        const box = under.getBoundingClientRect();
+        const after = pointer.clientX > box.left + box.width / 2;
+        if ((after ? under.nextElementSibling : under.previousElementSibling) === slot) return;
+        slide(wall, () => (after ? under.after(slot) : under.before(slot)), node);
+      };
+      const move = (moved) => {
+        pointer = moved;
+        if (!slot) {
+          if (Math.hypot(moved.clientX - start.x, moved.clientY - start.y) < 5) return;
+          lift();
+        }
+        node.style.transform = `translate(${moved.clientX - start.x}px, ${moved.clientY - start.y}px) scale(1.04)`;
+        hover();
+      };
+      const end = () => {
+        node.removeEventListener("pointermove", move);
+        node.removeEventListener("pointerup", end);
+        node.removeEventListener("pointercancel", end);
+        clearInterval(scroller);
+        if (!slot) return;
+        // Lands in the slot from where it was let go.
+        const from = node.getBoundingClientRect();
+        slot.replaceWith(node);
+        node.classList.remove("lifted");
+        node.style.cssText = "";
+        const to = node.getBoundingClientRect();
+        node.style.transition = "none";
+        node.style.transform = `translate(${from.left - to.left}px, ${from.top - to.top}px)`;
+        node.getBoundingClientRect();
+        node.style.transition = reducedMotion.matches ? "none" : "transform 220ms var(--ease-out)";
+        node.style.transform = "";
+        // The wall's accessories take the places they had in the order, in the order they now stand.
+        const ids = [...wall.children].map((child) => child.dataset.id).filter(Boolean);
+        const places = ordered.flatMap((accessory, index) => ids.includes(accessory.id) ? [index] : []);
+        const byID = new Map(ordered.map((accessory) => [accessory.id, accessory]));
+        ids.forEach((id, index) => { ordered[places[index]] = byID.get(id); });
+        save();
+      };
+      node.addEventListener("pointermove", move);
+      node.addEventListener("pointerup", end);
+      node.addEventListener("pointercancel", end);
     }
 
     const content = el("div", { class: "accessory-walls" });
@@ -3976,7 +4057,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .w-body > * { flex-shrink: 0; }
 .widget:not(.widget-full) .seg > button { white-space: nowrap; padding-inline: 2px; }
 .size-medium .w-body { padding-right: 26px; overflow: hidden; justify-content: safe center; }
-.size-medium .swatches { gap: 6px; flex-wrap: nowrap; padding: 3px; }
+.size-medium .swatches { gap: 6px; flex-wrap: nowrap; }
 .widget.size-medium .swatch { width: 24px; height: 24px; }
 .size-large .w-body { justify-content: flex-start; overflow-y: auto; scrollbar-width: none; }
 .size-large .w-body > :last-child { margin-right: 26px; }
@@ -3984,6 +4065,13 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget.size-large .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 2px; margin: -2px; }
 .widget.size-large .chips > * { flex: none; }
 .head-only { justify-content: center; }
+/* A phone: two columns that fill the width. */
+@container (max-width: 520px) { .wall { --unit: calc((100cqw - var(--unit-gap)) / 2); } }
+/* The Accessories page's tools on a phone: the search on a line of its own. */
+@media (max-width: 600px) {
+  .page-head .tools:has(> .search) { flex-wrap: wrap; width: 100%; }
+  .page-head .tools > .search { flex: 1 1 100%; width: 100%; }
+}
 .powered-off .w-body, .powered-off .w-main { opacity: 0.55; transition: opacity var(--normal) var(--ease-out); }
 /* The menu at the bottom right of the box, over its content's corner. */
 .w-corner { position: absolute; right: 6px; bottom: 6px; z-index: 2; }
@@ -4030,7 +4118,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget .w-button { width: 100%; border-radius: 12px; padding: 9px 14px; font-weight: 600; }
 .light-large, .cover-large { flex: 1; min-height: 0; display: flex; gap: 16px; align-items: stretch; }
 .light-large > .level.vertical { width: 96px; flex: none; }
-.light-tall { display: flex; flex: none; width: 96px; }
+.light-tall { display: flex; flex-direction: column; gap: 8px; flex: none; width: 96px; }
 .light-tall > .level { flex: 1; }
 .light-colours { flex: 1; display: grid; align-content: center; gap: 12px; min-width: 0; }
 .cover-large > .level.vertical { width: 112px; flex: none; border-radius: 14px; }
@@ -4050,6 +4138,16 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .switch.big span::before { width: 28px; height: 28px; }
 .switch.big input:checked + span::before { transform: translateX(26px); }
 
+/* A shutter's tile slid: the shade follows the pointer one to one; held on a phone, it lifts a little first. */
+.size-small.sliding > .w-shade { transition: none; }
+.size-small.slide-ready, .size-small.sliding { transform: scale(1.02); box-shadow: var(--shadow-thick); }
+.widget-cover.size-small > .w-hit { cursor: ns-resize; user-select: none; -webkit-user-select: none; }
+
+/* A paused plugin's accessory: quiet and striped, its controls out of reach; the menu stays to resume it. */
+.widget.paused { background-image: repeating-linear-gradient(135deg, transparent 0 10px, color-mix(in srgb, var(--muted) 9%, transparent) 10px 20px); }
+.widget.paused > :not(.w-corner):not(.w-bottom):not(.w-head), .widget.paused .w-bottom .who, .widget.paused .w-head > .tile, .widget.paused .w-head > .switch { opacity: 0.45; filter: grayscale(1); }
+.widget.paused.size-small.on { background-color: var(--material); color: var(--text); }
+.widget.paused .w-hit { cursor: default; }
 /* A camera on the wall: its picture fills the box. */
 .widget.camera-tile { padding: 0; }
 .camera-tile .camera-view { position: absolute; inset: 0; margin: 0; aspect-ratio: auto; border-radius: inherit; }
@@ -4071,6 +4169,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .w-block { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
 .w-main > .w-block:first-child, .w-side > .w-block:first-child { border-top: 0; padding-top: 0; }
 .w-block-body { display: grid; gap: 10px; }
+.light-tall > .adaptive-chip { justify-content: center; }
 
 /* Edit: each widget shows its sizes and arrows; the widget itself rests, and drags into place. */
 .wall.editing > .widget { cursor: grab; }
@@ -4081,9 +4180,14 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .edit-bar button { min-width: 28px; height: 28px; padding: 0 7px; border: 0; background: none; box-shadow: none; border-radius: 999px; font-size: 0.75rem; font-weight: 600; color: var(--muted); }
 .edit-bar button:hover { transform: none; color: var(--text); }
 .edit-bar button[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); }
-.widget.dragging { opacity: 0.4; }
-.widget.drop-before { box-shadow: -4px 0 0 var(--accent), var(--shadow); }
-.widget.drop-after { box-shadow: 4px 0 0 var(--accent), var(--shadow); }
+/* Dragged: the widget lifts over the page and follows the pointer; a dashed slot shows where it will land. In
+   Edit, a finger on a widget drags it rather than scrolling the page. */
+.wall.editing { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.wall.editing > .widget { touch-action: none; }
+.widget.lifted { position: fixed; z-index: 40; margin: 0; pointer-events: none; cursor: grabbing; box-shadow: 0 24px 60px rgba(15, 18, 24, 0.3); }
+.widget.lifted::after { display: none; }
+.wall > .drag-slot::after { display: none; }
+.wall > .drag-slot { border: 2px dashed color-mix(in srgb, var(--accent) 55%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--accent) 6%, transparent); box-shadow: none; }
 
 /* Segmented: equal columns, a thumb sliding to the one chosen. */
 .seg { position: relative; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 3px; border-radius: 12px; background: var(--track); }
@@ -4173,7 +4277,9 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
 .swatches.grid { display: grid; grid-template-columns: repeat(4, 30px); gap: 10px; }
 .widget .swatch { width: 30px; height: 30px; padding: 0; border-radius: 50%; background: var(--swatch); border: 2px solid var(--edge); }
-.widget .swatch[aria-checked="true"] { outline: 2px solid var(--text); outline-offset: 2px; }
+.widget .swatch[aria-checked="true"] { outline: 2px solid var(--text); outline-offset: 1px; }
+/* Room for that ring: a box that clips (a fixed widget's body) would cut it. */
+.widget .swatches { padding: 3px; }
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; background: var(--material-thin); border: 1px solid var(--edge); }
 .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .pill.ok::before { background: var(--ok); } .pill.warn::before { background: var(--warn); } .pill.bad::before { background: var(--error); }
@@ -4211,6 +4317,13 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .server.editor { grid-column: 1 / -1; gap: 18px; }
 .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 4px 18px; align-items: start; }
 .fields > fieldset, .fields > .group-box { grid-column: 1 / -1; }
+/* Adaptive Lighting: the day's whites, a sun on them; dimmed until the Home app has sent a schedule to resume. */
+.widget .swatch.adaptive { display: grid; place-items: center; color: #5c3b00; background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); }
+.widget .swatch.adaptive svg, .widget .round.adaptive svg, .adaptive-chip svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.size-medium .swatch.adaptive svg { width: 13px; height: 13px; }
+.widget .round.adaptive[aria-pressed="true"] { background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); color: #5c3b00; border-color: transparent; }
+.widget .adaptive-chip { display: inline-flex; align-items: center; gap: 6px; }
+.widget .adaptive.unset { opacity: 0.55; }
 .field { margin: 10px 0 4px; }
 .field-title { display: block; font-weight: 500; margin-bottom: 6px; }
 .field > input, .field > select { margin-top: 0; }
@@ -4955,6 +5068,8 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
     /// value back and says why in the status line. A security control (a lock, a door, an alarm, what a plugin
     /// marked) asks first unless the control was held to confirm (`held`).
     ctx.write = async (service, characteristic, value, { held = false } = {}) => {
+      // A paused plugin's accessory answers nothing: say so rather than ask.
+      if (accessory.paused) { ctx.flash(`${accessory.platformName ?? "Its plugin"} is paused: resume it to control ${accessory.name}`); return; }
       if (characteristic.security && !held) {
         const label = characteristic.format === "bool" ? (value ? "On" : "Off") : labelFor(characteristic.type, value);
         if (!confirm(`Set ${sentence(characteristic.type).toLowerCase()} of ${accessory.name} to ${label}?`)) { ctx.paint(); return; }
@@ -5264,7 +5379,8 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
     shield: '<path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/>',
     tv: '<rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/>',
     up: '<path d="m6 15 6-6 6 6"/>', down: '<path d="m6 9 6 6 6-6"/>', stop: '<rect x="7" y="7" width="10" height="10" rx="2"/>',
-    power: '<path d="M12 3v9"/><path d="M6.3 7.2a8 8 0 1 0 11.4 0"/>', mute: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6M21 9l-5 6"/>',
+    power: '<path d="M12 3v9"/><path d="M6.3 7.2a8 8 0 1 0 11.4 0"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>', mute: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6M21 9l-5 6"/>',
   };
   /// One of these glyphs, else one of common.js's icons.
   function icon(name) {
@@ -5395,7 +5511,39 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   function lightParts(ctx, service) {
     const brightness = ctx.take(service, "Brightness"), hue = ctx.take(service, "Hue"), saturation = ctx.take(service, "Saturation");
     const temperature = ctx.take(service, "Color Temperature");
+    // Adaptive Lighting (a controller on the bridge): on while a schedule runs, which its transition count says.
+    const transitions = ctx.char(service, "Characteristic Value Active Transition Count");
+    const adaptive = service.adaptiveLighting ? { resumable: !!service.adaptiveLighting.resumable } : null;
+    const adaptiveOn = () => !!adaptive && numberOf(transitions) > 0;
+    const setAdaptive = async (on) => {
+      const before = transitions?.value;
+      if (transitions) transitions.value = on ? 1 : 0;
+      ctx.paint();
+      try {
+        await api(`/api/accessories/${encodeURIComponent(ctx.accessory.id)}/adaptive-lighting`, { method: "PUT", body: { service: serviceKey(service), on } });
+        adaptive.resumable = true;
+      } catch (e) {
+        if (e.message === "signed out") return;
+        if (transitions) transitions.value = before;
+        ctx.flash(e.message);
+      }
+    };
+    /// The Adaptive control: a swatch among the colours, a round button beside a white slider, or a chip.
+    const adaptiveControl = (kind) => {
+      const label = "Adaptive Lighting";
+      const node = kind === "chip"
+        ? el("button", { type: "button", class: "chip adaptive-chip", "aria-pressed": "false" }, icon("sun"), el("span", { text: "Adaptive" }))
+        : el("button", { type: "button", class: kind === "swatch" ? "swatch adaptive" : "round adaptive", role: kind === "swatch" ? "radio" : null, "aria-label": label, title: label }, icon("sun"));
+      node.addEventListener("click", () => setAdaptive(!adaptiveOn()));
+      ctx.watch(() => {
+        node.setAttribute(kind === "swatch" ? "aria-checked" : "aria-pressed", String(adaptiveOn()));
+        node.classList.toggle("unset", !adaptive.resumable && !adaptiveOn());
+        node.title = adaptiveOn() ? "Adaptive Lighting: on" : adaptive.resumable ? "Adaptive Lighting: resume the Home app's schedule" : "Adaptive Lighting: turn it on once in the Home app";
+      });
+      return node;
+    };
     const color = () => {
+      if (adaptiveOn() && temperature) return { k: kelvin(numberOf(temperature, 300)) };
       if (hue && saturation && numberOf(saturation) > 4) return { h: numberOf(hue), s: numberOf(saturation) };
       if (temperature) return { k: kelvin(numberOf(temperature, 300)) };
       return null;
@@ -5424,9 +5572,9 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
         ctx.watch(() => {
           const h = numberOf(hue), s = numberOf(saturation);
           const near = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b)) <= 6;
-          for (const one of swatches) one.swatch.setAttribute("aria-checked", String(s > 4 && near(one.h, h) && Math.abs(one.s - s) <= 12));
+          for (const one of swatches) one.swatch.setAttribute("aria-checked", String(!adaptiveOn() && s > 4 && near(one.h, h) && Math.abs(one.s - s) <= 12));
         });
-        return el("div", { class: `swatches${grid ? " grid" : ""}`, role: "radiogroup", "aria-label": "Colour" }, swatches.map((one) => one.swatch));
+        return el("div", { class: `swatches${grid ? " grid" : ""}`, role: "radiogroup", "aria-label": "Colour" }, adaptive ? adaptiveControl("swatch") : null, swatches.map((one) => one.swatch));
       } : null,
       white: canWrite(temperature) ? ({ vertical = false, thin = false } = {}) => {
         // Mireds run the other way: the track goes from warm (few kelvin, many mireds) to cool.
@@ -5441,6 +5589,9 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
         ctx.watch(() => control.set(kelvin(numberOf(temperature, 300))));
         return control.node;
       } : null,
+      // For a light without colours: the Adaptive control on its own ("round" beside the white, or a "chip").
+      adaptive: adaptive ? (kind = "chip") => adaptiveControl(kind) : null,
+      adaptiveOn,
       color: () => { const c = color(); return c && { tile: `linear-gradient(160deg, ${css(c, 74)}, ${css(c, 52)})`, glow: css(c, 55) }; },
     };
   }
@@ -5448,7 +5599,8 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   /// A light's whole body: its brightness, its colours, its white temperature, whichever it has.
   function lightBody(ctx, service) {
     const parts = lightParts(ctx, service);
-    return { nodes: [parts.brightness?.(), parts.swatches?.(), parts.white?.()].filter(Boolean), color: parts.color };
+    const chip = !parts.swatches && parts.adaptive ? el("div", { class: "chips" }, parts.adaptive("chip")) : null;
+    return { nodes: [parts.brightness?.(), parts.swatches?.(), parts.white?.(), chip].filter(Boolean), color: parts.color };
   }
 
   /// A sensor service's reading: its value, its unit, a tone, and its glyph.
@@ -5935,13 +6087,15 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
         tap: () => ctx.write(primary, on, onValue(on, !isOn(on))),
         on: () => isOn(on), color: light.color,
         hero: () => brightness && isOn(on) ? `${numberOf(brightness)}%` : "",
-        status: () => isOn(on) ? [brightness ? `On · ${numberOf(brightness)} %` : "On"] : ["Off"],
+        status: () => isOn(on) ? [[brightness ? `On · ${numberOf(brightness)} %` : "On", light.adaptiveOn() ? "Adaptive" : ""].filter(Boolean).join(" · ")] : ["Off"],
       };
-      if (size === "medium") built.body = [light.brightness?.(), light.swatches?.() ?? light.white?.({ thin: true })].filter(Boolean);
+      // A white-only light's Adaptive control sits beside its white slider.
+      const whiteRow = (options) => light.white ? (light.adaptive ? el("div", { class: "w-row" }, el("div", { class: "w-grow" }, light.white(options)), light.adaptive("round")) : light.white(options)) : null;
+      if (size === "medium") built.body = [light.brightness?.(), light.swatches?.() ?? whiteRow({ thin: true })].filter(Boolean);
       if (size === "large") {
-        // A tall brightness beside the colours, or beside a tall white.
+        // A tall brightness beside the colours, or beside a tall white (and the Adaptive chip under it).
         const tall = light.brightness?.({ vertical: true });
-        const side = light.swatches ? [light.swatches({ grid: true }), light.white?.({ thin: true })] : [light.white?.({ vertical: true })];
+        const side = light.swatches ? [light.swatches({ grid: true }), light.white?.({ thin: true })] : [light.white?.({ vertical: true }), light.adaptive?.("chip")];
         built.body = [el("div", { class: "light-large" }, tall, el("div", { class: light.swatches ? "light-colours" : "light-tall" }, side.filter(Boolean)))];
       }
       if (size === "full") Object.assign(built, { body: lightBody(ctx, primary).nodes, facets: facets(ctx, [primary]) });
@@ -5962,6 +6116,8 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
         tap: () => ctx.write(primary, target, position() > min ? min : max),
         tapLabel: () => position() > min ? "close" : "open",
         on: () => position() > min, hero: () => `${position()}%`, shade: () => 100 - (position() - min) / (max - min) * 100,
+        // The small tile slides: dragged down it closes, up it opens, written when let go.
+        slide: { min, max, step: target.minStep || 1, value: position, commit: (v) => ctx.write(primary, target, v) },
         status() {
           if (isOn(obstruction)) return ["Obstructed", "warn"];
           const moving = numberOf(state, 2);
@@ -6325,7 +6481,8 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   }
   function statusPainter(ctx, built, status) {
     return () => {
-      const [text, tone] = ctx.flashing ? [ctx.flashing, "bad"] : built.status ? built.status() : [""];
+      const paused = ctx.accessory.paused ? [`Paused · ${ctx.accessory.platformName ?? "its plugin"}`, "warn"] : null;
+      const [text, tone] = ctx.flashing ? [ctx.flashing, "bad"] : paused ?? (built.status ? built.status() : [""]);
       status.textContent = text;
       if (tone) status.dataset.tone = tone; else delete status.dataset.tone;
     };
@@ -6373,15 +6530,59 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
         hit.addEventListener("keyup", (event) => { if (event.key === " " || event.key === "Enter") cancel(); });
         hit.addEventListener("click", () => { if (!built.hold.armed()) built.hold.tap(); });
         node.append(el("span", { class: "w-veil", "aria-hidden": "true" }));
-      } else hit.addEventListener("click", () => built.tap ? built.tap() : ctx.openFull());
+      } else hit.addEventListener("click", () => {
+        if (slid) { slid = false; return; }
+        built.tap ? built.tap() : ctx.openFull();
+      });
       hit.addEventListener("contextmenu", (event) => { event.preventDefault(); menu.click(); });
+      // A shutter's tile slides: the shade follows the pointer, the position is written when it is let go. A
+      // mouse drags at once; a finger holds still a moment first, so a swipe still scrolls the page.
+      let sliding = null, slid = false;
+      if (built.slide) {
+        const { min, max, step } = built.slide;
+        let start = null, armed = false, holdTimer = null;
+        const at = (event) => {
+          const box = node.getBoundingClientRect();
+          const share = clamp((event.clientY - box.top) / box.height, 0, 1);
+          return clamp(Math.round((min + (1 - share) * (max - min)) / step) * step, min, max);
+        };
+        hit.addEventListener("pointerdown", (event) => {
+          if (event.button !== 0) return;
+          start = { x: event.clientX, y: event.clientY, id: event.pointerId };
+          armed = event.pointerType === "mouse";
+          clearTimeout(holdTimer);
+          if (!armed) holdTimer = setTimeout(() => { armed = true; node.classList.add("slide-ready"); }, 350);
+        });
+        hit.addEventListener("pointermove", (event) => {
+          if (!start) return;
+          const moved = Math.abs(event.clientY - start.y);
+          if (!armed) { if (moved > 6) { clearTimeout(holdTimer); start = null; } return; }
+          if (sliding === null && moved < 4) return;
+          if (sliding === null) { hit.setPointerCapture(start.id); node.classList.add("sliding"); }
+          sliding = at(event);
+          ctx.paint();
+        });
+        const finish = () => {
+          clearTimeout(holdTimer);
+          node.classList.remove("slide-ready", "sliding");
+          if (sliding !== null) { const value = sliding; sliding = null; slid = true; built.slide.commit(value); }
+          start = null; armed = false;
+        };
+        hit.addEventListener("pointerup", finish);
+        hit.addEventListener("pointercancel", () => { sliding = null; finish(); slid = false; ctx.paint(); });
+        // Once a finger has held still, the page does not scroll under it.
+        hit.addEventListener("touchmove", (event) => { if (armed) event.preventDefault(); }, { passive: false });
+      }
       node.append(shade ?? "", hit, el("div", { class: "w-top" }, glyph, hero), el("div", { class: "w-bottom" }, who, menu));
       ctx.watch(() => {
         const on = built.on ? built.on() : false;
         node.classList.toggle("on", on);
-        const value = built.hero ? built.hero() : "";
+        const value = sliding !== null ? `${sliding}%` : built.hero ? built.hero() : "";
         hero.replaceChildren(...(value ? [value] : []));
-        if (shade) shade.style.setProperty("--closed", `${built.shade()}%`);
+        if (shade) {
+          const { min, max } = built.slide ?? { min: 0, max: 100 };
+          shade.style.setProperty("--closed", `${sliding !== null ? 100 - (sliding - min) / (max - min) * 100 : built.shade()}%`);
+        }
         const verb = built.hold ? built.hold.verb() : built.tap ? (built.tapLabel ? built.tapLabel() : on ? "turn off" : "turn on") : "show all controls";
         hit.setAttribute("aria-label", `${accessory.name}: ${verb}`);
         hit.setAttribute("aria-pressed", String(on));
@@ -6395,7 +6596,16 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
     }
     ctx.watch(paintGlyph);
     ctx.watch(statusPainter(ctx, built, status));
+    paused(node, ctx);
     return node;
+  }
+
+  /// A paused plugin's accessory: drawn quiet, its controls out of reach (inert: no pointer, no focus), its menu
+  /// still there to resume the plugin or change the widget.
+  function paused(node, ctx) {
+    if (!ctx.accessory.paused) return;
+    node.classList.add("paused");
+    for (const part of node.querySelectorAll(":scope > .w-hit, :scope > .w-body, :scope > .w-head .switch, :scope > .w-main, :scope > .w-split, :scope > details, :scope > .camera-view, :scope > .controls")) part.inert = true;
   }
 
   /// Every control: the widget's body (beside its facets when there are any), what is left under More, the foot.
@@ -6419,6 +6629,7 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
     if (built.power && !built.power.big) ctx.watch(() => node.classList.toggle("powered-off", !isOn(built.power.characteristic)));
     ctx.watch(paintGlyph);
     ctx.watch(statusPainter(ctx, built, status));
+    paused(node, ctx);
     return node;
   }
 
@@ -6443,6 +6654,7 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
     const node = el("article", { class: `card widget size-${size} widget-camera camera-tile`, "data-search": searchText(ctx.accessory), "data-id": ctx.accessory.id },
       view.element, el("span", { class: "w-corner" }, actionsButton(ctx, false)));
     if (size === "small") node.append(el("button", { type: "button", class: "w-hit", "aria-label": `${ctx.accessory.name}: show all controls`, onclick: () => ctx.openFull() }));
+    paused(node, ctx);
     return node;
   }
 
@@ -6471,7 +6683,13 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
       el("div", { class: "card-foot" }, el("span", { class: "muted", text: accessory.bridge }), actionsButton(ctx, true)));
   }
 
-  window.HomeswiftWidgets = { card, open, kindOf, sizes, event, listen, register, describeModel, labelFor };
+  window.HomeswiftWidgets = {
+    card, open, kindOf, sizes, event, listen, describeModel, labelFor,
+    /// A page's own widget, tried before the built-in ones: { name, types, match?, icon, tone, size, build }.
+    register: (widget) => widgets.unshift(widget),
+    /// The controls the widgets are made of, for a page's own widget.
+    controls: { toggle, segmented, level, steps, setpoint, gauge, readout, meter, chip, hold, pill, icon },
+  };
 })();
 
 """#),

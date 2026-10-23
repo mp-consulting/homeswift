@@ -35,27 +35,18 @@ with a new code).
   lists the values. The bridge samples memory and CPU every 10 seconds and keeps a record per minute under
   `metrics/` next to config.json (a file per day, 8 days), so the charts survive a restart. The view is
   `/status?since=24h&bridge=<bridge>&accessory=<accessory>`.
-- **Accessories**: a wall of widgets (`widgets.js`), each accessory drawn by the widget of its kind, chosen
-  from its primary service, in one of three fixed sizes on a grid of square units packed with no gaps:
-  **small** (1×1, a tile a tap acts on, lit while the accessory is on), **medium** (2×1, its main control) and
-  **large** (2×2). An air conditioner or thermostat has a gauge, its setpoints and modes; a purifier its mode,
-  speed and air readings; a light its brightness, colours and white temperature in kelvin; a shutter its
-  position, with its closed part drawn on the small tile; a valve a run button that counts down; a gate, a
-  lock or an alarm its state, with **Hold to open**, **Hold to unlock** or **Hold to turn off** (on a small
-  tile, the tile itself is held), while closing, locking and arming are a tap. A few positions (a fan's speeds
-  in steps of 20) are bars, two to four choices a segmented control. A widget's **⋯** menu (a right click on a
-  tile) opens **All controls**: every control of the accessory in a sheet, its other services as chips,
-  readouts, meters and blocks, and what no widget shows under **More**, as rows; an accessory no widget knows
-  gets those rows. The same menu sets the widget's size, makes it the size of every accessory of that kind
-  ("Medium for every light"), identifies the accessory, shows its log, asks the Assistant about it and opens
-  its plugin's settings. **Edit** shows the sizes and arrows on every widget and lets them be dragged into
-  place; the accessories share **One wall** until **By plugin** gives each plugin a wall of its own. The bridge keeps
-  the layout in `ui-layout.json` next to config.json (`/api/layout`), the same for every user. A change shows
-  at once and goes to the device; a refusal puts the value back and says why under the name. Values update
-  live when a device changes elsewhere. A characteristic a plugin marked as a security control (a switch that
-  unlocks a door) is held to turn on, or asks first in a row. Values that carry keys (a camera's Setup
-  Endpoints) are not shown, nor what only HomeKit uses (a camera's stream and recording setup, Adaptive
-  Lighting's bookkeeping).
+- **Accessories**: a wall of widgets (`widgets.js`), each accessory drawn by the widget of its kind, in a fixed
+  box of the size chosen for it: small (1×1, a tile a tap acts on), medium (2×1) or large (2×2). A widget's
+  **⋯** menu (a right click on a tile) sets its size or its kind's, opens **All controls** (every control in a
+  sheet, the rest under More), identifies the accessory, shows its log, asks the Assistant about it, opens its
+  plugin's settings, and resumes a paused plugin. **Edit** shows sizes and arrows on every widget and lets them be
+  dragged into place; **One wall** (the default) or **By plugin**. The bridge keeps the layout in
+  `ui-layout.json` next to config.json (`/api/layout`), the same for every user. Opening, unlocking and disarming
+  are held; a shutter's tile slides; a light with Adaptive Lighting has a sun swatch that turns it off or resumes
+  the Home app's schedule. A paused plugin's accessories are drawn striped, their controls out of reach. A change
+  shows at once and goes to the device; a refusal puts the value back and says why. Values that carry keys (a
+  camera's Setup Endpoints) are not shown, nor what only HomeKit uses. [widgets.md](widgets.md) has it all, with
+  screenshots and what a plugin does to get good widgets.
 - **Cameras** get a card of their own: the picture in 16:9 with the name, motion, the doorbell's last ring and
   recording over it, buttons to unmute, refresh and go full screen, and the camera's controls under it. While
   the card is on screen and the page visible, it plays the live feed muted (`GET /api/cameras/<id>/live`, fMP4
