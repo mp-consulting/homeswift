@@ -16,6 +16,19 @@ All notable changes to this project are documented here. The format follows
   Homebridge plugin's page offered.
 - **Schema conditions** in the settings form: fields with a `condition` (`functionBody` or an expression) show
   only when it holds, per list entry too, read without running the schema's code.
+- **Assistant usage on disk, and budgets**: requests, tokens and cost per model, per local day and month and
+  per user, kept in `ai-usage.json` (owner-only); `budget` in the HomeswiftAiKit block (`dailyTokens`,
+  `monthlyTokens`, `dailyUsd`, `monthlyUsd`, homebridge-ai-kit's names) refuses requests with
+  `BudgetExceededError` once one is used up. `UsageTracker.report()` gives today, this month, the budgets, by
+  model and by user; `homeswift usage` prints it.
+- **`SlidingWindowRateLimiter`**, homebridge-ai-kit's per-key limiter (Glass UI's 20 Assistant requests a minute
+  per user), for the web UI.
+- **Assistant connection test**: `AssistantService.testConnection(block:)` checks a block's provider, key and
+  model with a one-word request and reports the latency and model, or the error; `homeswift test-ai`.
+- **Daily digest**: `AssistantService.dailyDigest` summarises a day from log lines, accessory states and events;
+  `homeswift digest` feeds it the log on disk and the cached accessories.
+- **Organiser**: `AssistantService.suggestOrganization` suggests rooms, clearer names and orphans as
+  schema-checked JSON, in batches, with aliased ids; `homeswift organize` runs it on the cached accessories.
 - **The Assistant's chat** in the web UI: a sparkle button in the header, on every page, opens a chat where
   the Assistant answers and acts through the MCP server's tools, plugin actions included. Each change shows
   a card with a dry run's list of what would change and waits for Allow; writes go to the MCP audit log.

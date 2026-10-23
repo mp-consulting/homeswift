@@ -140,9 +140,10 @@ extension AssistantService {
         var model = provider.model
         for _ in 0..<maxSteps {
             try Task.checkCancellation()
+            try await self.usage.checkBudget()
             let request = ChatRequest(system: instructions, messages: messages, tools: definitions, maxOutputTokens: maxOutputTokens)
             let result = try await complete(provider, request) { onEvent(.text($0)) }
-            await self.usage.record(model: result.model, usage: result.usage)
+            await record(model: result.model, usage: result.usage)
             usage += result.usage
             model = result.model
             messages.append(result.message)
