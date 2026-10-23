@@ -1,5 +1,6 @@
 import Foundation
 import HomeswiftAI
+import HomeswiftPlugin
 
 /// The `HomeswiftUI` platform block: where the web UI listens and how it authenticates.
 ///
