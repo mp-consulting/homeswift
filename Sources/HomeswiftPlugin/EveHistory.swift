@@ -406,6 +406,28 @@ public final class EveHistory: Sendable {
         }
         service.characteristic(EveCharacteristic.historySetTime).onWrite { _ in }
         load()
+        let id = ObjectIdentifier(service)
+        Self.registry.withLockedValue { $0[id] = Weak(history: self) }
+    }
+
+    private struct Weak: @unchecked Sendable {
+        weak var history: EveHistory?
+    }
+
+    /// Each live history by its service, so the runtime finds an accessory's history (`histories(of:)`).
+    private static let registry = NIOLockedValueBox<[ObjectIdentifier: Weak]>([:])
+
+    /// The histories of the Eve history services of an accessory, while their plugin keeps them.
+    public static func histories(of accessory: Accessory) -> [EveHistory] {
+        let services = accessory.services.filter { $0.type.uuid == ServiceType.eveHistory.uuid }
+        guard !services.isEmpty else { return [] }
+        return registry.withLockedValue { registry in services.compactMap { registry[ObjectIdentifier($0)]?.history } }
+    }
+
+    /// The readings in the ring, oldest first, from `since` on; the markers of restarts left out.
+    public func entries(since: Date? = nil) -> [Entry] {
+        let cutoff = since.map { Int($0.timeIntervalSince1970) } ?? .min
+        return state.withLockedValue { Array($0.history.values) }.filter { $0.setRefTime == nil && $0.time >= cutoff }.sorted { $0.time < $1.time }
     }
 
     /// The custom fields fakegato would find on these services (every characteristic it knows, in order).
@@ -414,6 +436,10 @@ public final class EveHistory: Sendable {
     }
 
     deinit {
+        let id = ObjectIdentifier(service)
+        Self.registry.withLockedValue { registry in
+            if registry[id]?.history == nil { registry[id] = nil }
+        }
         state.withLockedValue { $0.timer?.cancel() }
         flush()
     }

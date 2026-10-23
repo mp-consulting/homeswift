@@ -508,23 +508,24 @@ public struct HomeswiftCatalog: Sendable {
             MCPTool(
                 name: "get_server_status", title: "Server status",
                 description: "The bridge: version, uptime, each bridge's name, device id, port, pairing and platforms, and the Assistant's provider.",
-                scope: .read, idempotent: true
+                outputSchema: Output.status, scope: .read, idempotent: true
             ) { _ in .json(catalog.statusJSON()) },
             MCPTool(
                 name: "list_accessories", title: "List accessories",
-                description: "Every accessory on every bridge with its services and current values. detailed adds each characteristic's format, permissions and range.",
-                inputSchema: ["type": "object", "properties": ["detailed": ["type": "boolean"], "platform": ["type": "string", "description": "Only this platform"]]],
-                scope: .read, idempotent: true
+                description: "Every accessory on every bridge with its services and current values, or those the filters pick (all must match): "
+                    + "platform, type (a category or service type), name, manufacturer, excludeManufacturer. Homeswift has no rooms: HomeKit keeps them. "
+                    + "detailed adds each characteristic's format, permissions and range.",
+                inputSchema: ["type": "object", "properties": .object(Self.filterProperties.merging(["detailed": ["type": "boolean"]]) { a, _ in a })],
+                outputSchema: Output.accessories, scope: .read, idempotent: true
             ) { call in
-                let platform = call.optionalString("platform")
-                let all = catalog.located().filter { platform == nil || $0.platform?.platform == platform }
+                let all = catalog.located(matching: AccessoryFilter(call.arguments))
                 return .json(["accessories": .array(all.map { Self.accessoryJSON($0, detailed: call.bool("detailed")) })])
             },
             MCPTool(
                 name: "get_accessory", title: "Get accessory",
                 description: "One accessory with every characteristic: value, format, permissions and range. \"internal\" marks what only HomeKit uses (a camera's stream and recording setup); TLV8 and data values are null, with their size in bytes.",
                 inputSchema: ["type": "object", "required": ["id"], "properties": ["id": idSchema]],
-                scope: .read, idempotent: true
+                outputSchema: Output.accessory, scope: .read, idempotent: true
             ) { call in
                 let found = try catalog.accessory(in: call)
                 return .json(Self.accessoryJSON(found, detailed: true))
@@ -532,7 +533,7 @@ public struct HomeswiftCatalog: Sendable {
             MCPTool(
                 name: "list_plugins", title: "List plugins",
                 description: "The platform instances running, on which bridge and with how many accessories, and the platforms in config.json that no plugin provides.",
-                scope: .read, idempotent: true
+                outputSchema: Output.plugins, scope: .read, idempotent: true
             ) { _ in .json(catalog.pluginsJSON()) },
             MCPTool(
                 name: "get_plugin_config_schema", title: "A plugin's config schema",
@@ -561,7 +562,7 @@ public struct HomeswiftCatalog: Sendable {
             MCPTool(
                 name: "list_config_backups", title: "List config backups",
                 description: "The backups update_config, patch_config and restore_config made, oldest first.",
-                scope: .read, idempotent: true
+                outputSchema: Output.backups, scope: .read, idempotent: true
             ) { _ in .json(["backups": .array(catalog.backups().map(JSONValue.string))]) },
             MCPTool(
                 name: "get_recent_logs", title: "Recent log lines",
@@ -574,22 +575,50 @@ public struct HomeswiftCatalog: Sendable {
             },
             MCPTool(
                 name: "search_logs", title: "Search the log",
-                description: "Log lines containing the text (case-insensitive), newest last, at most maxMatches (default 100). An admin token may pass regex: true for a regular expression. Secrets are masked.",
-                inputSchema: ["type": "object", "required": ["pattern"], "properties": ["pattern": ["type": "string", "maxLength": 200], "regex": ["type": "boolean"], "maxMatches": ["type": "integer", "minimum": 1, "maximum": 1000]]],
-                scope: .read, idempotent: true
+                description: "Log lines containing the text (case-insensitive unless caseSensitive), newest last, at most maxMatches (default 100), with context lines around each when asked. "
+                    + "Narrow by time (since/until: ISO such as 2026-10-04T18:00, in the bridge's local time without a zone, or back from now such as 30m, 1h, 2d; "
+                    + "with either, the log archive on disk is searched, else the lines kept in memory), by minimum level (error, warning, info, debug) "
+                    + "and by plugin (part of the label after the time: the plugin instance or bridge name). pattern may be left out when a filter is given. "
+                    + "An admin token may pass regex: true for a regular expression, stopped after 5 seconds. Secrets are masked.",
+                inputSchema: ["type": "object", "properties": [
+                    "pattern": ["type": "string", "minLength": 1, "maxLength": 200], "regex": ["type": "boolean"], "caseSensitive": ["type": "boolean"],
+                    "maxMatches": ["type": "integer", "minimum": 1, "maximum": 2000], "limit": ["type": "integer", "minimum": 1, "maximum": 2000, "description": "The same as maxMatches"],
+                    "since": ["type": "string", "description": "Only lines at or after: ISO time or 30m, 1h, 2d back from now"],
+                    "until": ["type": "string", "description": "Only lines at or before, same formats as since"],
+                    "level": ["type": "string", "enum": ["trace", "debug", "info", "notice", "warn", "warning", "error", "critical"], "description": "Minimum level: warning gives warnings and errors"],
+                    "plugin": ["type": "string", "minLength": 1, "description": "Only lines whose label contains this, case aside"],
+                    "context": ["type": "integer", "minimum": 0, "maximum": 20, "description": "Lines before and after each match (default 0)"],
+                ]],
+                outputSchema: Output.logSearch, scope: .read, idempotent: true
             ) { call in
-                let pattern = try call.string("pattern")
-                let limit = call.int("maxMatches", default: 100)
-                let lines = catalog.logs.all.map { Self.safe($0.formatted) }
-                let matches: [String]
-                if call.bool("regex") {
-                    guard call.session.principal.scope == .admin else { return .error("regex needs an admin token; search for plain text instead") }
-                    guard let expression = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return .error("Invalid regular expression") }
-                    matches = lines.filter { expression.firstMatch(in: $0, range: NSRange($0.startIndex..., in: $0)) != nil }
-                } else {
-                    matches = lines.filter { TextSearch.contains($0, caseless: pattern) }
+                var query = LogQuery(pattern: call.optionalString("pattern"))
+                query.regex = call.bool("regex")
+                query.caseSensitive = call.bool("caseSensitive")
+                query.limit = call.arguments["maxMatches"]?.intValue ?? call.int("limit", default: 100)
+                query.context = call.int("context", default: 0)
+                query.plugin = call.optionalString("plugin")
+                query.level = call.optionalString("level").flatMap(Self.logLevel)
+                for (key, keyPath) in [("since", \LogQuery.since), ("until", \LogQuery.until)] {
+                    guard let text = call.optionalString(key) else { continue }
+                    guard let date = Self.parseTimeBound(text) else { return .error("\(key): use an ISO time such as 2026-10-04T18:00 or a duration such as 30m, 1h, 2d") }
+                    query[keyPath: keyPath] = date
                 }
-                return .text("<untrusted-data source=\"log\">\n\(matches.suffix(limit).joined(separator: "\n"))\n</untrusted-data>\n\(matches.count) match(es)")
+                guard query.pattern != nil || query.since != nil || query.until != nil || query.level != nil || query.plugin != nil else {
+                    return .error("Give a pattern or at least one filter (since, until, level, plugin)")
+                }
+                if query.regex, call.session.principal.scope != .admin { return .error("regex needs an admin token; search for plain text instead") }
+                let found: JSONValue
+                do {
+                    found = try catalog.searchLogs(query)
+                } catch let timeout as LogSearchTimeout {
+                    return .error("Not finished: \(timeout)")
+                }
+                let total = found["total"]?.intValue ?? 0
+                let shown = found["shown"]?.intValue ?? 0
+                var structured = found.objectValue ?? [:]
+                let lines = structured.removeValue(forKey: "text")?.stringValue ?? ""
+                let header = "Showing \(shown) of \(total) match(es)."
+                return ToolResult(text: lines.isEmpty ? header : "\(header)\n<untrusted-data source=\"log\">\n\(lines)\n</untrusted-data>", structured: .object(structured))
             },
             MCPTool(
                 name: "restart_bridge", title: "Restart the bridge",
@@ -603,9 +632,10 @@ public struct HomeswiftCatalog: Sendable {
             },
             MCPTool(
                 name: "get_system_info", title: "System information",
-                description: "The machine: OS, hostname, CPUs, memory, uptime.",
-                scope: .read, idempotent: true
-            ) { _ in .json(Self.systemJSON()) },
+                description: "The machine: OS, hostname, CPUs, memory, uptime, load average (cpuLoadPercent: the last minute's load over the CPUs), "
+                    + "this process's CPU and memory, and the network throughput of each interface (since the previous call, or over a second).",
+                outputSchema: Output.system, scope: .read, idempotent: true
+            ) { _ in .json(await catalog.systemInfoJSON()) },
             MCPTool(
                 name: "set_accessory", title: "Set a characteristic",
                 description: "Writes one characteristic of an accessory (On, Brightness, Target Temperature…). Locks, garage doors, alarms and other security controls (\"security\": true in get_accessory) refuse: use set_security_accessory.",
@@ -617,13 +647,25 @@ public struct HomeswiftCatalog: Sendable {
             },
             MCPTool(
                 name: "set_accessories", title: "Set several characteristics",
-                description: "Writes several characteristics at once; dryRun lists what would change. Locks, garage doors, alarms and other security controls are refused.",
+                description: "Writes several characteristics at once: a list of changes, or one characteristic and value on the accessories that ids or filter pick "
+                    + "(the list_accessories filters: platform, type, name, manufacturer, excludeManufacturer), refused when more than maxTargets (default 25) would change. "
+                    + "Accessories without the characteristic are skipped and reported. dryRun lists what would change. Locks, garage doors, alarms and other security controls are refused or skipped.",
                 inputSchema: [
-                    "type": "object", "required": ["changes"],
-                    "properties": ["changes": ["type": "array", "minItems": 1, "maxItems": 50, "items": ["type": "object", "required": ["id", "characteristic", "value"], "properties": writeProperties]]],
+                    "type": "object",
+                    "properties": [
+                        "changes": ["type": "array", "minItems": 1, "maxItems": 50, "items": ["type": "object", "required": ["id", "characteristic", "value"], "properties": writeProperties]],
+                        "ids": ["type": "array", "minItems": 1, "maxItems": 200, "items": ["type": "string"], "description": "The accessories to change, with characteristic and value"],
+                        "filter": ["type": "object", "properties": .object(Self.filterProperties), "additionalProperties": false, "description": "Pick the accessories like list_accessories, with characteristic and value"],
+                        "service": writeProperties["service"] ?? [:], "characteristic": writeProperties["characteristic"] ?? [:], "value": writeProperties["value"] ?? [:],
+                        "maxTargets": ["type": "integer", "minimum": 1, "maximum": 200, "description": "Refuse when more accessories than this would change (default 25)"],
+                    ],
                 ],
                 scope: .control, supportsDryRun: true
             ) { call in
+                if call.arguments["changes"] == nil {
+                    return try await catalog.setMany(call)
+                }
+                guard call.arguments["ids"] == nil, call.arguments["filter"] == nil else { return .error("Pass changes, or ids or filter with characteristic and value, not both") }
                 var results: [JSONValue] = []
                 var failures = 0
                 for change in call.arguments["changes"]?.arrayValue ?? [] {
@@ -734,7 +776,63 @@ public struct HomeswiftCatalog: Sendable {
                     block[list] = .array(entries)
                 })
             },
-        ] + pluginActionTools
+        ] + hostTools + pluginActionTools
+    }
+
+    /// `set_accessories` with `ids` or `filter`: one characteristic and value on every target.
+    func setMany(_ call: ToolCall) async throws -> ToolResult {
+        let ids = call.arguments["ids"]?.arrayValue?.compactMap(\.stringValue)
+        let filter = call.arguments["filter"].map { AccessoryFilter($0) }
+        guard (ids == nil) != (filter == nil) else { return .error("Pass exactly one of changes, ids or filter") }
+        if let filter, filter.isEmpty { return .error("The filter picks every accessory: give at least one of its fields") }
+        let characteristicName = try call.string("characteristic")
+        guard let value = call.arguments["value"], Self.hapValue(value) != nil else { return .error("value must be a boolean, a number or a string") }
+        let service = call.optionalString("service")
+        var targets: [Located] = []
+        var skipped: [JSONValue] = []
+        if let ids {
+            var seen: Set<String> = []
+            for id in ids where seen.insert(id).inserted {
+                if let found = find(id: id) { targets.append(found) } else { skipped.append(["id": .string(id), "reason": "no such accessory"]) }
+            }
+        } else if let filter {
+            targets = located(matching: filter)
+        }
+        var planned: [(located: Located, characteristic: Characteristic)] = []
+        for target in targets {
+            do {
+                let characteristic = try self.characteristic(in: target, service: service, characteristic: characteristicName)
+                if characteristic.isSecurityControl {
+                    skipped.append(["id": .string(target.accessory.id), "name": .string(target.accessory.name), "reason": "a security control: use set_security_accessory, one at a time"])
+                } else {
+                    planned.append((target, characteristic))
+                }
+            } catch {
+                skipped.append(["id": .string(target.accessory.id), "name": .string(target.accessory.name), "reason": .string("\(error)")])
+            }
+        }
+        let cap = call.int("maxTargets", default: 25)
+        if planned.count > cap {
+            return .error("\(planned.count) accessories would change, more than maxTargets (\(cap)). Narrow the filter, or pass maxTargets: \(planned.count) if that many is meant.")
+        }
+        if call.isDryRun || planned.isEmpty {
+            let plan: JSONValue = .array(planned.map {
+                ["id": .string($0.located.accessory.id), "name": .string($0.located.accessory.name), "characteristic": .string($0.characteristic.type.name), "from": Self.value(of: $0.characteristic), "to": value]
+            })
+            return .json(["dryRun": .bool(call.isDryRun), "wouldChange": .number(Double(planned.count)), "planned": plan, "skipped": .array(skipped)])
+        }
+        var results: [JSONValue] = []
+        var failures = 0
+        for (target, characteristic) in planned {
+            do {
+                results.append(try await write(target, service: service, characteristic: characteristic.type.name, value: value, allowSecurity: false))
+            } catch {
+                failures += 1
+                results.append(["id": .string(target.accessory.id), "characteristic": .string(characteristic.type.name), "error": .string("\(error)")])
+            }
+        }
+        let structured: JSONValue = ["changed": .number(Double(results.count - failures)), "failed": .number(Double(failures)), "results": .array(results), "skipped": .array(skipped)]
+        return ToolResult(text: structured.text(pretty: true), structured: structured, isError: failures > 0 && failures == results.count)
     }
 
     /// Whether two list keys name the same entry: a MAC however it is spelled, anything else case aside.
@@ -810,6 +908,14 @@ public struct HomeswiftCatalog: Sendable {
                 guard name == "id" else { return [] }
                 return catalog.located().map(\.accessory.id).filter { typed.isEmpty || $0.lowercased().hasPrefix(typed.lowercased()) }.sorted()
             },
+            MCPResourceTemplate(uriTemplate: "homeswift://child-bridge/{id}", name: "Child bridge", description: "One child bridge: status, health and what runs on it") { variables in
+                guard let bridge = catalog.host.childBridge(id: variables["id"] ?? ""),
+                      let status = catalog.host.childBridges.first(where: { $0.id == bridge.server.deviceID }) else { return nil }
+                return Self.childBridgeJSON(status, health: true).text(pretty: true)
+            } complete: { name, typed in
+                guard name == "id" else { return [] }
+                return catalog.host.childBridges.map(\.id).filter { typed.isEmpty || $0.lowercased().hasPrefix(typed.lowercased()) }.sorted()
+            },
             MCPResourceTemplate(uriTemplate: "homeswift://plugin/{platform}", name: "Plugin", description: "One platform's instances and accessories") { variables in
                 let instances = catalog.host.platforms.filter { $0.platform == variables["platform"] }
                 guard !instances.isEmpty else { return nil }
@@ -834,8 +940,19 @@ public struct HomeswiftCatalog: Sendable {
             MCPPrompt(name: "troubleshoot-device", title: "Troubleshoot a device", description: "Check one accessory's state and log lines and say what is wrong.",
                       arguments: [.init(name: "device", description: "The accessory's name or id", required: true), .init(name: "symptom", description: "What the user sees")]) { arguments in
                 "Troubleshoot the accessory \"\(arguments["device"] ?? "")\"\(arguments["symptom"].map { " (symptom: \($0))" } ?? ""). "
-                    + "Use list_accessories to find it and get_accessory for its characteristics, search_logs for lines mentioning it, and get_config for its platform block. "
+                    + "Use list_accessories (name filter) to find it and get_accessory for its characteristics; list_plugins and, when its block runs on a child bridge, "
+                    + "get_child_bridge_health for a plugin that did not start; search_logs for lines mentioning it and for its plugin with level warning since 24h, context 2; "
+                    + "get_accessory_history for a sensor, to see when it stopped reporting; get_cached_accessories when it may be a stale cached accessory; and get_config for its platform block. "
                     + "Say what is wrong, the likely cause and the steps to fix it. Do not change anything unless the user asks."
+            },
+            MCPPrompt(name: "scene-builder", title: "Build a scene", description: "Turn a description (\"cosy movie night in the living room\") into accessory values, set them, and save the scene in the Home app.",
+                      arguments: [.init(name: "description", description: "The mood or purpose, e.g. movie night", required: true), .init(name: "area", description: "A word the accessories' names share, e.g. Living Room")]) { arguments in
+                let area = arguments["area"]?.nonEmpty
+                return "Build a scene for: \"\(arguments["description"] ?? "")\"\(area.map { " in \"\($0)\"" } ?? ""). "
+                    + "1) list_accessories\(area.map { " with name \"\($0)\"" } ?? "") to find the relevant lights, switches, blinds, thermostats and so on (Homeswift has no rooms; names often carry them). "
+                    + "2) Propose the values (On, Brightness, Color Temperature, Target Position, Target Temperature…) as a short table and ask the user to confirm or adjust. "
+                    + "3) Apply them with set_accessories, dryRun first. Homeswift keeps no scenes: once the devices are set, tell the user to save the scene in the Home app "
+                    + "(add a scene with these accessories, which records their current state), or describe it so they can create it there. Never include locks, garage doors or alarms."
             },
             MCPPrompt(name: "audit-config", title: "Audit config.json", description: "Review config.json for mistakes, duplicates and security issues.") { _ in
                 "Use get_config to read config.json and list_plugins to see which platforms run. Report: blocks for platforms no plugin provides, "

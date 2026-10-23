@@ -32,6 +32,8 @@ public final class MCPSession: Sendable, Identifiable {
         var nextRequestID = 1
         var lastActivity = Date()
         var hasStandingStream = false
+        /// Requests being answered: a session with one is never evicted or expired.
+        var inFlight = 0
     }
 
     let state: NIOLockedValueBox<State>
@@ -56,6 +58,9 @@ public final class MCPSession: Sendable, Identifiable {
     public var supportsElicitation: Bool { state.withLockedValue { $0.clientCapabilities["elicitation"] != nil } }
 
     func touch() { state.withLockedValue { $0.lastActivity = Date() } }
+
+    /// Neither answering a request nor holding a standing stream: a session that may be evicted or expire.
+    public var isIdle: Bool { state.withLockedValue { $0.inFlight == 0 && !$0.hasStandingStream } }
 
     /// Whether a transport stream for server-initiated messages is open (`GET` over HTTP).
     public var hasStandingStream: Bool { state.withLockedValue { $0.hasStandingStream } }
@@ -232,15 +237,18 @@ public struct MCPTool: Sendable {
     /// Honours `dryRun: true`: previews, changes nothing, and then needs no confirmation.
     public var supportsDryRun: Bool
     public var idempotent: Bool
+    /// The shape of the tool's `structuredContent` (MCP 2025-06-18): every successful result then carries one.
+    public var outputSchema: JSONValue?
     public var handler: @Sendable (ToolCall) async throws -> ToolResult
 
     /// The schema gets `dryRun` and `confirmationCode` where they apply, and refuses unknown arguments.
     public init(
         name: String, title: String? = nil, description: String, inputSchema: JSONValue = ["type": "object", "properties": [:]],
-        scope: Scope, readOnly: Bool? = nil, destructive: Bool = false, supportsDryRun: Bool = false, idempotent: Bool = false,
-        handler: @escaping @Sendable (ToolCall) async throws -> ToolResult
+        outputSchema: JSONValue? = nil, scope: Scope, readOnly: Bool? = nil, destructive: Bool = false, supportsDryRun: Bool = false,
+        idempotent: Bool = false, handler: @escaping @Sendable (ToolCall) async throws -> ToolResult
     ) {
         self.name = name
+        self.outputSchema = outputSchema
         self.title = title
         self.description = description
         var schema = inputSchema.objectValue ?? ["type": "object"]
@@ -269,6 +277,14 @@ public struct MCPTool: Sendable {
             ],
         ]
         if let title { object["title"] = .string(title) }
+        if let outputSchema { object["outputSchema"] = outputSchema }
+        return .object(object)
+    }
+
+    /// As `tools/list` gives it to a session on `protocolVersion`: no `outputSchema` before 2025-06-18.
+    func json(protocolVersion: String?) -> JSONValue {
+        guard outputSchema != nil, (protocolVersion ?? MCPServer.protocolVersion) < "2025-06-18", var object = json.objectValue else { return json }
+        object.removeValue(forKey: "outputSchema")
         return .object(object)
     }
 }
@@ -417,6 +433,23 @@ public final class MCPServer: Sendable {
         return session
     }
 
+    /// A new session when there are fewer than `limit`, else after ending the least recently used idle one;
+    /// nil when every session is busy.
+    public func makeSession(principal: Principal, limit: Int) -> MCPSession? {
+        let evicted = sessions.withLockedValue { sessions -> (session: MCPSession?, full: Bool) in
+            guard sessions.count >= max(1, limit) else { return (nil, false) }
+            guard let oldest = sessions.values.filter(\.isIdle).min(by: { $0.lastActivity < $1.lastActivity }) else { return (nil, true) }
+            sessions.removeValue(forKey: oldest.id)
+            return (oldest, false)
+        }
+        if let session = evicted.session {
+            logger.info("MCP session evicted: too many sessions", metadata: ["session": "\(session.id)", "limit": "\(limit)"])
+            session.close()
+        }
+        guard !evicted.full else { return nil }
+        return makeSession(principal: principal)
+    }
+
     public func session(id: String) -> MCPSession? {
         sessions.withLockedValue { $0[id] }
     }
@@ -431,7 +464,7 @@ public final class MCPServer: Sendable {
     /// Ends sessions idle for longer than `limit`.
     public func expireSessions(idleFor limit: Duration) {
         let cutoff = Date().addingTimeInterval(-(Double(limit.components.seconds)))
-        for session in activeSessions where session.lastActivity < cutoff {
+        for session in activeSessions where session.lastActivity < cutoff && session.isIdle {
             logger.debug("Session expired", metadata: ["session": "\(session.id)"])
             endSession(session)
         }
@@ -492,8 +525,13 @@ public final class MCPServer: Sendable {
         return AsyncStream { continuation in
             switch message {
             case .request(let id, let method, let params):
+                session.state.withLockedValue { $0.inFlight += 1 }
                 let task = Task {
                     let response = await self.respond(id: id, method: method, params: params ?? [:], session: session, serverRequests: serverRequests) { continuation.yield($0) }
+                    session.state.withLockedValue {
+                        $0.inFlight -= 1
+                        $0.lastActivity = Date()
+                    }
                     continuation.yield(response)
                     continuation.finish()
                 }
@@ -552,7 +590,8 @@ public final class MCPServer: Sendable {
         }
         switch method {
         case "tools/list":
-            return ["tools": .array(tools.filter { $0.scope <= session.principal.scope }.map(\.json))]
+            let version = session.protocolVersion
+            return ["tools": .array(tools.filter { $0.scope <= session.principal.scope }.map { $0.json(protocolVersion: version) })]
         case "tools/call":
             return try await callTool(params, session: session, serverRequests: serverRequests, emit: emit)
         case "resources/list":
