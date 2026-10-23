@@ -41,7 +41,7 @@ In the `HomeswiftAiKit` block of config.json (the Assistant's provider settings 
 | `clients` | `[]` | More tokens, each with a `scope`: `read`, `control` or `admin` |
 | `readOnly` | `false` | Caps every token at `read` |
 | `allowedOrigins` | `[]` | Browser origins allowed besides localhost and the server's own address (`*` for any) |
-| `auditLog`, `auditLogPath` | `true`, next to config.json | Every write tool call, one JSON line each |
+| `auditLog`, `auditLogPath` | `true`, next to config.json | Every write tool call, one JSON line each; the web UI's changes too, and its Settings › Audit log shows them |
 | `maxSessions` | `32` | Sessions at once: a new one ends the least recently used idle session, or gets 503 when all are busy |
 | `sessionIdleMinutes` | `30` | A session idle this long ends |
 
@@ -71,9 +71,9 @@ with `Authorization: Bearer <token>`.
 
 | Scope | Tools |
 |---|---|
-| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `get_accessory_layout`, `list_scenes` |
+| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `list_backups`, `get_accessory_layout`, `list_scenes` |
 | `control` | Plus `set_accessory`, `set_accessories` (with `dryRun`), `set_security_accessory`, `identify_accessory`, `run_scene` |
-| `admin` | Plus `update_config`, `patch_config`, `restore_config`, `put_list_entry`, `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `set_accessory_layout`, `save_scene` (with `dryRun`), `send_test_notification` |
+| `admin` | Plus `update_config`, `patch_config`, `restore_config`, `put_list_entry`, `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `create_backup`, `get_audit_log`, `update_bridge_settings`, `set_accessory_layout`, `save_scene` (with `dryRun`), `send_test_notification` |
 
 A token sees only the tools its scope allows. Locks, garage doors and alarms (Lock Target State, Target
 Door State, Security System Target State, Lock Control Point) change only through `set_security_accessory`;
@@ -133,6 +133,17 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   whether it is paired and with how many controllers. It never gives the setup code or the setup URI (which
   encodes the code): the user reads them where homeswift prints them, or in the web UI. `reset_pairings`
   forgets every controller of one of them (the main bridge by default); the Home app must add it again.
+- **Backups.** `list_backups` lists the whole-instance backups in the backup folder (the daily ones the web
+  UI makes, and those `create_backup` or the web UI's Back up now made), newest first; `create_backup` makes
+  one there, before a risky change say: config.json, each bridge's HomeKit identity and pairings, the
+  accessory caches, the plugins' files, the web UI's users (docs/ui.md, Backups). They are downloaded and
+  restored from the web UI.
+- **The bridge block.** `update_bridge_settings` changes config.json's `bridge` block (`name`, `port`, `pin`,
+  `manufacturer`, `model`, `firmwareRevision`; null removes one, an automatic port) and restarts homeswift to
+  apply it. The device ID is not one of them: a new one is a new bridge to the Home app.
+- **The audit log.** `get_audit_log` reads it back, newest first, filtered by `tool`, `client` (or the
+  principal), `outcome` (`ok`, `failed`, `notConfirmed`) and `since`; the web UI's own changes are there too,
+  as client `web UI`.
 - **The machine.** `get_system_info` adds the load average (`cpuLoadPercent` is the last minute's over the
   CPUs), this process's CPU and memory from the Status page's samples, and each interface's bytes and
   throughput, since the previous call or over a second.
@@ -144,7 +155,7 @@ theirs carries `structuredContent`; a client on an older protocol version gets t
 
 `set_security_accessory`, `update_config`, `patch_config`, `restore_config`, `put_list_entry`,
 `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `remove_cached_accessory`,
-`reset_cached_accessories` and `reset_pairings` ask the user before running, as do plugin actions marked
+`reset_cached_accessories`, `reset_pairings` and `update_bridge_settings` ask the user before running, as do plugin actions marked
 to confirm. When the client supports MCP elicitation, the server asks
 through it. A tool with a dry run is run as one first: the question lists what would change, each setting
 with its new value, and carries the dry run's answer in `_meta` (`homeswift/preview`) for a client that

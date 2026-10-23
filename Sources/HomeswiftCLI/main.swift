@@ -109,6 +109,10 @@ if command == "plugins" {
 }
 
 let configURL = storagePath.appendingPathComponent("config.json")
+if command == "run" {
+    // A backup restored from the web UI was staged before the restart: its files go in before anything reads them.
+    InstanceBackups.applyPendingRestore(storage: storagePath, logger: logger)
+}
 if !FileManager.default.fileExists(atPath: configURL.path) {
     do {
         // Owner-only, like the bridge's state file: config.json holds the setup code and plugin secrets.
