@@ -1849,14 +1849,14 @@ enum WebAssets {
         const { platform: __, ...was } = before || {};
         const lines = blockDiff(was, after);
         const changed = lines.some((line) => line.kind !== "same");
-        result.replaceChildren(
+        result.replaceChildren(...[
           reply.explanation ? el("div", { class: "markdown" }, HomeswiftCommon.markdown(reply.explanation)) : null,
           changed ? el("pre", { class: "diff" }, lines.map((line) => el("span", { class: `diff-${line.kind}`, text: `${line.kind === "add" ? "+ " : line.kind === "remove" ? "- " : "  "}${line.text}\n` })))
             : el("p", { class: "muted", text: "No change to the block." }),
           changed ? el("div", { class: "actions" },
             el("button", { class: "primary", text: "Use it", onclick: () => { use(after); result.replaceChildren(el("p", { class: "ok", text: "In the form: review it, then Save." })); } }),
             el("button", { text: "Discard", onclick: () => result.replaceChildren() })) : null,
-          el("p", { class: "muted", text: `Written by ${reply.model}. Passwords and tokens never reach it; check addresses and names before saving.` }));
+          el("p", { class: "muted", text: `Written by ${reply.model}. Passwords and tokens never reach it; check addresses and names before saving.` })].filter(Boolean));
       } catch (e) {
         result.replaceChildren(el("p", { class: "error", text: e.message }));
       } finally { ask.disabled = false; }
