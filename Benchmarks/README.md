@@ -336,6 +336,22 @@ writing it (sorted keys); a writer of its own would duplicate the accessory JSON
 that loads it once. HAP's `GET /accessories` (2.5 ms for 145 KB at 100 accessories) is the server's own JSON writer
 and the session's encryption, fetched when the configuration number changes.
 
+The Status page's history (`GET /api/metrics`, the last hour, and one accessory's), the Accessories page's layout
+(`GET /api/layout`), a plugin's own web API (`/api/plugins/<platform>/<name>/…`, the bench plugin's device list) and
+the status routes all answer within a millisecond, at 60 and at 300 accessories (quiet machine, `0518b4b`):
+
+| p50 | 60 accessories | 300 accessories |
+|---|---:|---:|
+| `GET /api/metrics` / `?accessory=` | 0.11 / 0.12 ms | 0.09 / 0.17 ms |
+| `GET /api/layout` | 0.10 ms | 0.11 ms |
+| `GET /api/plugins/BenchHome/…/devices` (4 / 20 KB) | 0.19 ms | 0.53 ms |
+| `GET /api/status`, MCP `get_server_status` | 0.12 / 0.11 ms | 0.20 / 0.40 ms |
+| a write → its event on `/api/events` | 0.29 ms | 0.91 ms |
+
+`bridge-bench-server` binds the web UI and the MCP server to free ports unless `UI_PORT` and `MCP_PORT` say
+otherwise, and READY says which: two runs side by side (another session's, say) no longer collide, and a server that
+cannot start exits with its error instead of leaving the script waiting for READY.
+
 ### Adding accessories
 
 A plugin adds its accessories one at a time. Each add rewrote the whole accessory cache with `JSONEncoder`, and

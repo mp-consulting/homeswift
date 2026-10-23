@@ -23,7 +23,13 @@ model has. 32-bit ARM models (armv7: DS216j, DS218j, DS416…) cannot run Swift,
 3. The wizard asks for the **web UI's administrator account**: a username and a password of at least 12
    characters that is not a common word. A password that is too weak is refused with the reason before
    anything is installed.
-4. Once installed, **Homeswift** is in DSM's main menu: it opens the web UI on port `8581`. Sign in, add
+4. The **Ports** step proposes `8581` for the web UI and `51826` for the HomeKit bridge. A port another
+   service listens on, such as a Homebridge on the same NAS, is refused with the reason before anything is
+   installed; go back and pick another. The same step asks for **HTTPS** (the default) or **HTTP**. HTTPS
+   keeps the password and session private on the network, and Safari allows the Assistant's microphone only
+   over HTTPS; the bridge makes its own certificate, so the browser warns once (or install it from
+   `/homeswift-ui.crt` to trust it). HTTP sends everything in the clear.
+5. Once installed, **Homeswift** is in DSM's main menu: it opens the web UI on the port and scheme you chose. Sign in, add
    plugins on the **Plugins** page, then add the bridge in the Home app: scan the QR code on the **Status**
    page, or **Add Accessory > More options**, **Homeswift**, and the setup code.
 
@@ -36,8 +42,20 @@ The package creates:
 | The bridge | `/var/packages/homeswift/target/bin/homeswift`, a systemd unit DSM restarts if it stops |
 | The `homeswift` command | Over SSH, see below |
 
-On the first install, `config.json` has the bridge on port `51826` and the web UI on `8581`. The bridge
-generates and keeps its device ID and setup code. An upgrade or a reinstall leaves the shared folder as it is.
+On the first install, `config.json` has the bridge and the web UI on the wizard's ports (and `"https"` as
+chosen), and DSM's firewall
+entries name them. The bridge generates and keeps its device ID and setup code. An upgrade or a reinstall
+leaves the shared folder as it is.
+
+When a new release is out, the web UI's **Status** page says so, with a **Download the package** button for
+the NAS's architecture: install it with **Package Center > Manual Install**, which upgrades in place. Package
+Center itself does not watch GitHub, and the bridge cannot upgrade itself (DSM runs it as its own user).
+
+When the web UI moves (another `port`, or `"https": true` in its block), the page you are on cannot follow it:
+open the new address yourself. DSM's menu entry follows at the package's next start
+(**Package Center > Homeswift > Stop**, then **Run**). Do not paste a whole config.json from another bridge:
+its `bridge` block holds that bridge's HomeKit identity (`username`, `pin`), and two bridges with one
+identity make the Home app drop the pairing. Copy the `platforms` instead.
 
 ### Over SSH
 
