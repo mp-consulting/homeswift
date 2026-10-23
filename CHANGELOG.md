@@ -39,6 +39,8 @@ All notable changes to this project are documented here. The format follows
   answering No Response (`Accessory.isUnavailable`) until it resumes.
 - Plugin cards have a menu at their bottom right (its page, Expert form or JSON, pause, remove) in place of
   their buttons.
+- The Logs page can keep only the bridges' own lines (connections, pairings, controllers), every bridge's or one's
+  (`?bridge=all` or `?bridge=<slug>`). Search fields have a grey fill and a magnifier, so they read on a white card.
 - **Addresses are paths with readable names**: `/plugins/dyson-pure-cool`, `/plugins/dyson-pure-cool/expert/json`,
   `/logs/desk-lamp?since=24h&level=warning&q=text`; Back and Forward work, and the Logs view keeps its choices
   in its address. The `#…` addresses and `/plugins/<platform>/index.html?name=` are gone.

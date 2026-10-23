@@ -383,8 +383,14 @@ public final class UIServer: Sendable {
                 return .json(block)
             case ["logs"]:
                 // `from` (and `to`, now when left out) as ISO 8601: that span, from the archive on disk; else the latest lines.
-                // `accessory`: only the lines about it, picked before the limit.
-                let matching = request.query["accessory"].flatMap { catalog.find(id: $0) }.map(Self.logMatcher(for:))
+                // `accessory`, `bridge` (a device ID, or `all`): only the lines about them, picked before the limit.
+                let accessory = request.query["accessory"].flatMap { catalog.find(id: $0) }.map(Self.logMatcher(for:))
+                let bridges = catalog.host.bridges
+                let bridge = request.query["bridge"].map { id in id == "all" ? bridges : bridges.filter { $0.server.deviceID == id } }.map(Self.logMatcher(for:))
+                let matching: (@Sendable (LogBuffer.Line) -> Bool)? = switch (accessory, bridge) {
+                case let (accessory?, bridge?): { accessory($0) && bridge($0) }
+                case let (accessory, bridge): accessory ?? bridge
+                }
                 if let from = request.query["from"].flatMap(Self.date(iso:)) {
                     let to = request.query["to"].flatMap(Self.date(iso:)) ?? Date()
                     // The archive is read off the concurrency pool: up to a week of files.
@@ -619,6 +625,12 @@ public final class UIServer: Sendable {
             let haystack = "\(line.label) \(line.text)".lowercased()
             return terms.contains { haystack.contains($0) }
         }
+    }
+
+    /// The lines of these bridges' own servers (connections, pairings, controllers), not their plugins'.
+    static func logMatcher(for bridges: [PluginHost.Bridge]) -> @Sendable (LogBuffer.Line) -> Bool {
+        let labels = Set(bridges.map(\.name))
+        return { labels.contains($0.label) }
     }
 
     /// An ISO 8601 date and time, with or without fractional seconds (`Date.toISOString()` sends them).

@@ -34,7 +34,7 @@ with a new code).
   the Home app, since the user signed in. Each card's **⋯** menu identifies the accessory, shows its log,
   asks the Assistant about it, and opens its plugin's settings.
 - **Addresses** are paths: `/status`, `/accessories`, `/plugins`, `/plugins/<slug>` and its `/expert`,
-  `/plugins/add/<platform>`, `/config`, `/account`, and `/logs/<accessory>?since=24h&level=warning&q=text`
+  `/plugins/add/<platform>`, `/config`, `/account`, and `/logs/<accessory>?bridge=<bridge or all>&since=24h&level=warning&q=text`
   (the accessory by its name's slug; `since` is `1h`, `6h`, `24h`, `today`, `yesterday`, `7d` or `custom` with
   `from` and `to`). A link changes the view in place, Back and Forward work, and an address can be kept or
   shared; the Logs view writes its choices into its own.
@@ -57,8 +57,9 @@ with a new code).
   and applies the block at once.
 - **Config**: the whole file in an editor. Saving validates it, keeps a backup under `backups/`, sorts
   the keys, and applies it.
-- **Logs**: the live log, filtered by level, text, accessory (the lines of its own server and those that
-  name it, its id or its address) and time: the latest lines, the last hour, 6 or 24 hours, today,
+- **Logs**: the live log, filtered by level, text, time and what the lines are about. That last is one menu:
+  every line; the bridges' own lines (their servers' connections, pairings and controllers), every bridge's or
+  one's; or an accessory's (those of its own server and those that name it, its id or its address). The time: the latest lines, the last hour, 6 or 24 hours, today,
   yesterday, the last 7 days, or a custom range. The bridge keeps its log on disk for that, under `logs/`
   next to config.json: segments of 8 MB at most, a new one each day, the oldest removed past 64 MB or 7
   days, written in batches once a second so logging never waits for the disk. **Copy** puts the lines shown
