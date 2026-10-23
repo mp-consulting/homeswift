@@ -248,6 +248,13 @@ public final class PluginContext: @unchecked Sendable {
     private let assistantBox: NIOLockedValueBox<AssistantService?>
     // Mutable state is behind the lock; the class is otherwise immutable.
     private let list = NIOLockedValueBox<Entries>(Entries())
+    /// A save of the cache is due: changes in a burst (a plugin adding its devices at launch) write it once.
+    private let cacheSaveDue = NIOLockedValueBox(false)
+    /// Where the due saves run, one at a time.
+    private let cacheQueue = DispatchQueue(label: "homeswift.accessory-cache", qos: .utility)
+
+    /// How long changes wait for the next before the cache is written.
+    static let cacheSaveDelay: DispatchTimeInterval = .milliseconds(250)
 
     private struct Entries {
         var accessories: [Accessory] = []
@@ -301,7 +308,7 @@ public final class PluginContext: @unchecked Sendable {
         }
         try bridge.server.add(accessory)
         list.withLockedValue { $0.put(accessory) }
-        saveCache()
+        scheduleCacheSave()
     }
 
     /// Publishes an accessory on a HAP server of its own instead of the bridge, as Homebridge publishes
@@ -320,7 +327,7 @@ public final class PluginContext: @unchecked Sendable {
             entries.put(accessory)
             entries.external.insert(accessory.id)
         }
-        saveCache()
+        scheduleCacheSave()
         if isNew, externals.isRunning {
             try await published.server.start()
         }
@@ -344,7 +351,7 @@ public final class PluginContext: @unchecked Sendable {
             entries.accessories.removeAll { $0.id == id }
             entries.external.remove(id)
         }
-        saveCache()
+        scheduleCacheSave()
     }
 
     /// Removes the accessories of this instance whose id is not in `ids` (devices gone from the account or the
@@ -417,7 +424,30 @@ public final class PluginContext: @unchecked Sendable {
         }
     }
 
+    /// Saves the cache shortly, with whatever else changes meanwhile: written whole each time, it made adding
+    /// N accessories cost N² (a minute for 300). The aids and iids HomeKit depends on are the server's own state,
+    /// saved as they are assigned; this cache only restores the accessories before the plugin starts.
+    func scheduleCacheSave() {
+        let first = cacheSaveDue.withLockedValue { due in
+            defer { due = true }
+            return !due
+        }
+        guard first else { return }
+        cacheQueue.asyncAfter(deadline: .now() + Self.cacheSaveDelay) { [self] in
+            // A save since then (the plugin stopped) took this one's place.
+            guard cacheSaveDue.withLockedValue({ $0 }) else { return }
+            writeCache()
+        }
+    }
+
+    /// Saves the cache now, after a save under way; the runtime does when the plugin stops.
     func saveCache() {
+        cacheQueue.sync { writeCache() }
+    }
+
+    /// On `cacheQueue`.
+    private func writeCache() {
+        cacheSaveDue.withLockedValue { $0 = false }
         do {
             let (accessories, external) = list.withLockedValue { ($0.accessories, $0.external) }
             try cache.save(accessories, external: external)
