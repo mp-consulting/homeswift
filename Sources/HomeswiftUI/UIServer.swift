@@ -378,6 +378,8 @@ public final class UIServer: Sendable {
             }
             return .json(response.json, status: response.status)
         }
+        // Rooms, scenes and notifications (HomeRoutes.swift).
+        if let reply = try await homeAPI(route, request.method, body: body, username: username) { return reply }
         switch request.method {
         case .GET:
             switch route {

@@ -8,6 +8,21 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Rooms and hidden accessories** (Glass UI's accessory layout): the Accessories page groups by room, hides
+  accessories, gives them display names and Quick Controls, kept for the bridge in `accessory-layout.json`;
+  **Suggest rooms** shows the Assistant's rooms and names to review and apply. MCP: `get_accessory_layout`,
+  `set_accessory_layout`, and `room` on `list_accessories` and `set_accessories`.
+- **Quick controls**: favourite accessories by room and the scenes, on the Status page and at `/quick`.
+- **Scenes and automations** (Glass UI's scenes): values set together by hand, at a time on chosen days, at
+  sunrise or sunset with an offset (Glass UI's solar equation, from a location set on the page), on a
+  characteristic change or a cron expression, with time and value conditions; `scenes.json`. Locks, doors and
+  alarms are confirmed by a person: the page asks, `run_scene` refuses, automations skip them. MCP: `list_scenes`,
+  `run_scene`, `save_scene`; the `scene-builder` prompt saves its scene.
+- **Notifications** (Glass UI's notifications): webhook, ntfy, Pushover, Telegram and Web Push (VAPID keys made by
+  the bridge, a service worker at `/sw.js`), for homeswift started or stopped, plugin errors, accessories not
+  responding, failed automations and the Assistant's daily digest, with Glass UI's rate limits and a test per
+  channel; `notifications.json`, secrets never shown back. MCP: `send_test_notification`.
+
 - **Plugin backgrounds for the Assistant**: `HomeswiftPlugin.assistantBackground`, the troubleshooting notes
   each Homebridge plugin sent with its Assistant requests (`*_AI_CONTEXT`), goes with every Explain from a
   plugin's page and with `context.assistant`.

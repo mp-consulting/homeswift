@@ -332,10 +332,12 @@ extension HomeswiftCatalog {
 
     // MARK: Accessory filters
 
-    /// What `list_accessories` and `set_accessories` pick accessories by. Homeswift has no rooms: HomeKit keeps
-    /// them, and a bridge never learns them.
+    /// What `list_accessories` and `set_accessories` pick accessories by. The rooms are the web UI's layout
+    /// (`AccessoryLayout`): the Home app's own never reach a bridge.
     public struct AccessoryFilter: Sendable {
         public var platform: String?
+        /// A room of the web UI's layout, case aside.
+        public var room: String?
         /// The category (lightbulb, outlet…) or a service type (Lightbulb, Switch, Thermostat…).
         public var type: String?
         /// Part of the accessory's name or of one of its services' names.
@@ -343,8 +345,9 @@ extension HomeswiftCatalog {
         public var manufacturer: String?
         public var excludeManufacturer: String?
 
-        public init(platform: String? = nil, type: String? = nil, name: String? = nil, manufacturer: String? = nil, excludeManufacturer: String? = nil) {
+        public init(platform: String? = nil, room: String? = nil, type: String? = nil, name: String? = nil, manufacturer: String? = nil, excludeManufacturer: String? = nil) {
             self.platform = platform
+            self.room = room
             self.type = type
             self.name = name
             self.manufacturer = manufacturer
@@ -353,14 +356,15 @@ extension HomeswiftCatalog {
 
         init(_ json: JSONValue?) {
             func string(_ key: String) -> String? { json?[key]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty }
-            self.init(platform: string("platform"), type: string("type"), name: string("name"), manufacturer: string("manufacturer"), excludeManufacturer: string("excludeManufacturer"))
+            self.init(platform: string("platform"), room: string("room"), type: string("type"), name: string("name"), manufacturer: string("manufacturer"), excludeManufacturer: string("excludeManufacturer"))
         }
 
-        public var isEmpty: Bool { platform == nil && type == nil && name == nil && manufacturer == nil && excludeManufacturer == nil }
+        public var isEmpty: Bool { platform == nil && room == nil && type == nil && name == nil && manufacturer == nil && excludeManufacturer == nil }
 
         public func matches(_ located: Located) -> Bool {
             let accessory = located.accessory
             if let platform, located.platform?.platform != platform { return false }
+            if let room, located.layout?.room?.caseInsensitiveCompare(room) != .orderedSame { return false }
             if let type {
                 let wanted = HomeswiftCatalog.normalized(type)
                 let services = accessory.services.filter { $0.type.uuid != ServiceType.accessoryInformation.uuid }
@@ -383,6 +387,7 @@ extension HomeswiftCatalog {
 
     static let filterProperties: [String: JSONValue] = [
         "platform": ["type": "string", "description": "Only this platform"],
+        "room": ["type": "string", "description": "Only this room of the web UI's layout (get_accessory_layout), case aside"],
         "type": ["type": "string", "description": "A category (lightbulb, outlet, thermostat…) or a service type (Lightbulb, Switch…)"],
         "name": ["type": "string", "description": "Part of the accessory's or a service's name, case aside"],
         "manufacturer": ["type": "string", "description": "Part of the manufacturer, case aside"],

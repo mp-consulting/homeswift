@@ -30,6 +30,8 @@ public struct HomeswiftCatalog: Sendable {
     /// config.json has a change that only a restart applies, and this process could not restart itself.
     public let restartNeeded = NIOLockedValueBox(false)
     public let startedAt = Date()
+    /// Rooms and hidden accessories, scenes and their automations, notifications: files next to config.json.
+    public let home: HomeState
     let logger: Logger
 
     public init(
@@ -44,6 +46,7 @@ public struct HomeswiftCatalog: Sendable {
         self.restart = restart
         self.reloadServices = reloadServices
         self.logger = logger
+        home = HomeState(directory: configURL.deletingLastPathComponent())
     }
 
     /// Runs the restart hook once the current reply has left. False when this process cannot restart itself.
@@ -77,13 +80,16 @@ public struct HomeswiftCatalog: Sendable {
         public var accessory: Accessory
         public var bridge: PluginHost.Bridge
         public var platform: PluginHost.PlatformInstance?
+        /// Its room, hidden flag, display name and Quick Controls flag in the web UI's layout.
+        public var layout: AccessoryLayout.Entry?
     }
 
     public func located() -> [Located] {
         let owners = Owners(host.platforms)
+        let layout = home.layout.value.accessories
         return host.bridges.flatMap { bridge in
             bridge.server.accessories.filter { $0.id != "bridge" }.map { accessory in
-                Located(accessory: accessory, bridge: bridge, platform: owners.instance(of: accessory.id, on: bridge))
+                Located(accessory: accessory, bridge: bridge, platform: owners.instance(of: accessory.id, on: bridge), layout: layout[accessory.id])
             }
         }
     }
@@ -92,7 +98,7 @@ public struct HomeswiftCatalog: Sendable {
         guard id != "bridge" else { return nil }
         for bridge in host.bridges {
             guard let accessory = bridge.server.accessories.first(where: { $0.id == id }) else { continue }
-            return Located(accessory: accessory, bridge: bridge, platform: Owners(host.platforms).instance(of: id, on: bridge))
+            return Located(accessory: accessory, bridge: bridge, platform: Owners(host.platforms).instance(of: id, on: bridge), layout: home.layout.value.accessories[id])
         }
         return nil
     }
@@ -169,6 +175,12 @@ public struct HomeswiftCatalog: Sendable {
         if let platform = located.platform {
             object["platform"] = .string(platform.platform)
             object["platformName"] = .string(platform.name)
+        }
+        if let layout = located.layout {
+            if let room = layout.room { object["room"] = .string(room) }
+            if let name = layout.name { object["displayName"] = .string(name) }
+            if layout.hidden == true { object["hidden"] = true }
+            if layout.favourite == true { object["favourite"] = true }
         }
         if let camera = accessory.cameraController {
             // The web UI gives it a camera card: live video or snapshots, from /api/cameras/<id>/…
@@ -513,12 +525,14 @@ public struct HomeswiftCatalog: Sendable {
             MCPTool(
                 name: "list_accessories", title: "List accessories",
                 description: "Every accessory on every bridge with its services and current values, or those the filters pick (all must match): "
-                    + "platform, type (a category or service type), name, manufacturer, excludeManufacturer. Homeswift has no rooms: HomeKit keeps them. "
+                    + "platform, room (the web UI's rooms, get_accessory_layout), type (a category or service type), name, manufacturer, excludeManufacturer. "
                     + "detailed adds each characteristic's format, permissions and range.",
                 inputSchema: ["type": "object", "properties": .object(Self.filterProperties.merging(["detailed": ["type": "boolean"]]) { a, _ in a })],
                 outputSchema: Output.accessories, scope: .read, idempotent: true
             ) { call in
-                let all = catalog.located(matching: AccessoryFilter(call.arguments))
+                let filter = AccessoryFilter(call.arguments)
+                if let error = catalog.unknownRoom(filter) { return .error(error) }
+                let all = catalog.located(matching: filter)
                 return .json(["accessories": .array(all.map { Self.accessoryJSON($0, detailed: call.bool("detailed")) })])
             },
             MCPTool(
@@ -648,7 +662,7 @@ public struct HomeswiftCatalog: Sendable {
             MCPTool(
                 name: "set_accessories", title: "Set several characteristics",
                 description: "Writes several characteristics at once: a list of changes, or one characteristic and value on the accessories that ids or filter pick "
-                    + "(the list_accessories filters: platform, type, name, manufacturer, excludeManufacturer), refused when more than maxTargets (default 25) would change. "
+                    + "(the list_accessories filters: platform, room, type, name, manufacturer, excludeManufacturer), refused when more than maxTargets (default 25) would change. "
                     + "Accessories without the characteristic are skipped and reported. dryRun lists what would change. Locks, garage doors, alarms and other security controls are refused or skipped.",
                 inputSchema: [
                     "type": "object",
@@ -776,7 +790,7 @@ public struct HomeswiftCatalog: Sendable {
                     block[list] = .array(entries)
                 })
             },
-        ] + hostTools + pluginActionTools
+        ] + hostTools + layoutTools + sceneTools + notificationTools + pluginActionTools
     }
 
     /// `set_accessories` with `ids` or `filter`: one characteristic and value on every target.
@@ -785,6 +799,7 @@ public struct HomeswiftCatalog: Sendable {
         let filter = call.arguments["filter"].map { AccessoryFilter($0) }
         guard (ids == nil) != (filter == nil) else { return .error("Pass exactly one of changes, ids or filter") }
         if let filter, filter.isEmpty { return .error("The filter picks every accessory: give at least one of its fields") }
+        if let filter, let error = unknownRoom(filter) { return .error(error) }
         let characteristicName = try call.string("characteristic")
         guard let value = call.arguments["value"], Self.hapValue(value) != nil else { return .error("value must be a boolean, a number or a string") }
         let service = call.optionalString("service")
@@ -945,14 +960,15 @@ public struct HomeswiftCatalog: Sendable {
                     + "get_accessory_history for a sensor, to see when it stopped reporting; get_cached_accessories when it may be a stale cached accessory; and get_config for its platform block. "
                     + "Say what is wrong, the likely cause and the steps to fix it. Do not change anything unless the user asks."
             },
-            MCPPrompt(name: "scene-builder", title: "Build a scene", description: "Turn a description (\"cosy movie night in the living room\") into accessory values, set them, and save the scene in the Home app.",
-                      arguments: [.init(name: "description", description: "The mood or purpose, e.g. movie night", required: true), .init(name: "area", description: "A word the accessories' names share, e.g. Living Room")]) { arguments in
+            MCPPrompt(name: "scene-builder", title: "Build a scene", description: "Turn a description (\"cosy movie night in the living room\") into accessory values, set them, and save them as a Homeswift scene.",
+                      arguments: [.init(name: "description", description: "The mood or purpose, e.g. movie night", required: true), .init(name: "area", description: "A room, or a word the accessories' names share, e.g. Living Room")]) { arguments in
                 let area = arguments["area"]?.nonEmpty
                 return "Build a scene for: \"\(arguments["description"] ?? "")\"\(area.map { " in \"\($0)\"" } ?? ""). "
-                    + "1) list_accessories\(area.map { " with name \"\($0)\"" } ?? "") to find the relevant lights, switches, blinds, thermostats and so on (Homeswift has no rooms; names often carry them). "
+                    + "1) list_accessories\(area.map { " with room \"\($0)\" (get_accessory_layout lists the rooms; when it is not one, use name \"\($0)\")" } ?? "") to find the relevant lights, switches, blinds, thermostats and so on. "
                     + "2) Propose the values (On, Brightness, Color Temperature, Target Position, Target Temperature…) as a short table and ask the user to confirm or adjust. "
-                    + "3) Apply them with set_accessories, dryRun first. Homeswift keeps no scenes: once the devices are set, tell the user to save the scene in the Home app "
-                    + "(add a scene with these accessories, which records their current state), or describe it so they can create it there. Never include locks, garage doors or alarms."
+                    + "3) Apply them with set_accessories, dryRun first. "
+                    + "4) Save the state as a scene with save_scene (dryRun first, characteristics limited to the ones you set), so the user can run it again with run_scene or from the web UI's Scenes page, "
+                    + "where it can also get a schedule or a sunrise or sunset trigger. Never include locks, garage doors or alarms."
             },
             MCPPrompt(name: "audit-config", title: "Audit config.json", description: "Review config.json for mistakes, duplicates and security issues.") { _ in
                 "Use get_config to read config.json and list_plugins to see which platforms run. Report: blocks for platforms no plugin provides, "

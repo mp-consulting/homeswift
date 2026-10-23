@@ -50,7 +50,45 @@ with a new code).
   snapshot every 3 seconds (`/api/cameras/<id>/snapshot?width=&height=`). Off screen it fetches nothing. A camera
   has four live viewers at most, and one turned off in the Home app, or whose plugin is paused, shows nothing.
   Plugin pages can show the same view: load `/camera.js` and call `HomeswiftCamera.view({ id, name })`.
-- **Addresses** are paths: `/status`, `/accessories`, `/plugins`, `/plugins/<slug>` and its `/expert`,
+- **Rooms** (Glass UI's accessory layout): a card's **⋯** menu puts the accessory in a room (a new name adds
+  the room), gives it a name for these pages (the Home app keeps its own), adds it to the Quick Controls, or
+  hides it. The page then groups by room (or by plugin, from the menu at the top: `/accessories?group=plugin`);
+  hidden accessories stay out unless **Show hidden** (`?hidden=1`). The layout is the bridge's, shared by every
+  user, in `accessory-layout.json` next to config.json (owner-only); the Home app never sees it, but the MCP
+  tools do: `list_accessories` and `set_accessories` filter by these rooms. With the Assistant on, **Suggest
+  rooms** asks it for rooms and clearer names for every accessory (`AssistantService.suggestOrganization`; the ids
+  reach the model as aliases) and shows them to review: untick what you do not want, then **Apply** saves the
+  rooms and the names as display names. Accessories it finds odd are listed as advice.
+- **Quick controls**: the favourite accessories, by room, and a button per scene, at the top of the Status page
+  and on their own at `/quick` (a page to keep on a phone's home screen).
+- **Scenes** (`/scenes`, Glass UI's scenes): accessory values set together, by hand or by triggers: a time of day
+  on chosen days, sunrise or sunset with an offset (from -12 to +12 hours), a characteristic change (the motion
+  sensor turns on), or a cron expression (`30 7 * * 1-5`; five fields, or six with seconds, which are ignored).
+  Conditions hold an automatic run back: a time window (`sunset` to `23:00`, across midnight too) or a
+  characteristic's value; a run by hand ignores them. Sunrise and sunset come from Glass UI's equation for the
+  location set on the page (typed, or this device's position). **Add an accessory as it is now** fills the actions
+  from its current values. Automations run on the minute; a characteristic trigger runs a scene at most once per 5
+  seconds. Kept in `scenes.json` next to config.json (owner-only), with each scene's last run. **Locks, garage
+  doors and alarms** keep Homeswift's rule: a person confirms them. Glass UI sets them like any value, by hand and
+  from automations; here the page asks before running a scene that has them, the MCP server's `run_scene` refuses
+  such a scene (as homebridge-mcp-server's does), and automations, with nobody to ask, leave those actions out and
+  say so in the scene's last run.
+- **Notifications** (`/notifications`, from the Status page; Glass UI's notifications): a webhook (a JSON POST
+  with event, title, message, instance and timestamp), ntfy (ntfy.sh or your own server, with an access token),
+  Pushover, Telegram, and Web Push to the browsers that turn it on. Events: homeswift started (not after a restart
+  it made itself) and stopped, a plugin logged an error, an accessory answered No Response for 5 minutes while its
+  plugin is not paused, an automation failed, and the Assistant's daily digest at a time of your choice (off
+  until turned on: it uses the provider's quota). Glass UI's update, rollback and backup events have no Homeswift
+  counterpart (plugins are compiled in; there are no scheduled backups). The same event about the same thing
+  goes once per 15 minutes, 12 notifications an hour at most, 5 tests a minute. Each channel's card sends a test.
+  The settings live in `notifications.json` next to config.json (owner-only), not in config.json: tokens, keys and
+  the webhook URL come back to the page as `********` (sent back unchanged, they keep the stored value), and
+  neither `get_config` nor the Assistant ever reads them. Web Push: the bridge makes its VAPID key pair the first
+  time a browser asks and keeps it in that file; the page registers `/sw.js`, a service worker that only shows
+  the notifications and opens the page one is about (the content security policy allows it: same origin).
+  Browsers allow it over HTTPS or on localhost only; iOS needs the page added to the home screen.
+- **Addresses** are paths: `/status`, `/accessories`, `/quick`, `/scenes` (and `/scenes/<id>`, `/scenes/new`),
+  `/notifications`, `/plugins`, `/plugins/<slug>` and its `/expert`,
   `/plugins/add/<platform>`, `/config`, `/account`, and `/logs/<accessory>?bridge=<bridge or all>&since=24h&level=warning&q=text`
   (the accessory by its name's slug; `since` is `1h`, `6h`, `24h`, `today`, `yesterday`, `7d` or `custom` with
   `from` and `to`). A link changes the view in place, Back and Forward work, and an address can be kept or
