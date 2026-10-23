@@ -395,14 +395,16 @@ public final class UIServer: Sendable {
                 // The conversation so far, then the run going on, if any, as it goes.
                 return .events(await chat.conversation(for: username).subscribe())
             case ["accessories"]:
+                // A doorbell's last ring since the bridge started, for its camera card. The list is written straight
+                // to bytes: the same JSON as its value would encode to, without the tree.
                 let rings = events.lastRings
-                return .json(.array(catalog.located().map { located in
-                    let json = HomeswiftCatalog.accessoryJSON(located, detailed: true)
-                    // A doorbell's last ring since the bridge started, for its camera card.
-                    guard let ring = rings[located.accessory.id], var object = json.objectValue else { return json }
-                    object["lastRing"] = .string(ring.formatted(.iso8601))
-                    return .object(object)
-                }))
+                var json = JSONBytesWriter(capacity: 64 * 1024)
+                json.array { json in
+                    for located in catalog.located() {
+                        HomeswiftCatalog.writeAccessory(located, detailed: true, lastRing: rings[located.accessory.id].map { $0.formatted(.iso8601) }, to: &json)
+                    }
+                }
+                return .data(status: 200, contentType: "application/json", body: Data(json.bytes))
             case ["plugins"]:
                 let platforms = catalog.host.configuration.platforms
                 let slugs = Slug.unique(platforms.map(\.name), fallback: "plugin")
