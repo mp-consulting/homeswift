@@ -109,8 +109,26 @@ All notable changes to this project are documented here. The format follows
   decoder (also capped in depth), Adaptive Lighting and the Eve history no longer trap on hostile numbers.
 - The `homeswift` binary embeds an Info.plist on macOS with `NSBluetoothAlwaysUsageDescription`, so the Govee
   plugin's Bluetooth works.
+- **Camera cards** on the Accessories page: a 16:9 live video with the camera's name, motion, the doorbell's
+  last ring and HomeKit Secure Video recording over it, mute, refresh and full screen buttons, and the camera's
+  own controls (its light, switches, whether it is on in the Home app) under it. The video plays muted through
+  Media Source Extensions (ManagedMediaSource on iOS Safari) only while the card is on screen and the page is
+  visible; a camera without a live feed, or a browser that cannot play it, shows a snapshot every 3 seconds.
+  The UniFi Protect page shows the same view for the camera whose feature options are open.
+- **`HomeswiftPlugin.liveFeed(accessoryID:)`** hands the web UI a camera's live video as a `CameraLiveFeed`
+  (the MSE type, the fMP4 initialization segment, the fragments, cancellation); `CameraLiveFeed.mimeType(initSegment:)`
+  names the codecs from the avcC, hvcC and esds boxes. UniFi Protect serves it from the livestream API on the
+  camera's lowest-resolution channel, sharing the session with HomeKit's streams and recordings.
+- **`GET /api/cameras/<id>/snapshot`** and **`/live`** in the web UI, for signed-in users: a JPEG, and a chunked
+  `video/mp4` stream (`X-Camera-Mime-Type` carries its codecs) that stops when the browser disconnects, four
+  viewers per camera at most. Both refuse while the camera is off in the Home app.
 
 ### Changed
+
+- The accessory JSON (web UI, MCP) marks what only HomeKit uses as `"internal": true`: a camera's RTP stream,
+  recording and data stream services, and the operating mode's snapshot settings. TLV8 and data values are
+  null there with their size in `bytes`, and left out of `list_accessories`. The web UI leaves them off its
+  cards, whose value cells now wrap, so a camera's stream configurations no longer push the page sideways.
 
 - `Service(optional:)` and `Service(extra:)` with a characteristic the service already has replace it in
   place, so they set a required characteristic's props as HAP-NodeJS's `setProps` does (they used to be

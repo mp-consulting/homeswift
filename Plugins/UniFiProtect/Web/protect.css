@@ -104,3 +104,7 @@
   .options-layout { grid-template-columns: 1fr; }
   .scope-side { position: static; }
 }
+
+/* The scope's camera, live, over its facts. */
+.info-preview { margin: -4px -6px 12px; }
+.info-preview .camera-view { margin: 0; border-radius: 12px; }

@@ -321,7 +321,9 @@ enum WebAssets {
   /// The text for an enumerated value, or the value itself.
   function labelFor(type, value) {
     const labels = enumLabels[type];
-    return labels && labels[value] !== undefined ? labels[value] : String(value);
+    // Motion Detected and the like are booleans whose labels are listed for 0 and 1.
+    const index = typeof value === "boolean" ? Number(value) : value;
+    return labels && labels[index] !== undefined ? labels[index] : String(value);
   }
   /// "Color Temperature" reads "Color temperature".
   const sentence = (type) => type.charAt(0) + type.slice(1).toLowerCase();
@@ -340,13 +342,16 @@ enum WebAssets {
     };
   }
 
+  // On and off as 1 and 0.
+  const numericSwitches = new Set(["HomeKit Camera Active"]);
+
   function controlFor(accessory, service, characteristic) {
     const writable = characteristic.permissions.includes("pw");
     const readable = characteristic.permissions.includes("pr");
     const attrs = { "data-id": accessory.id, "data-service": serviceKey(service), "data-char": characteristic.type };
     const write = writer(accessory, service, characteristic);
     const labels = enumLabels[characteristic.type];
-    if (writable && characteristic.format === "bool") return powerSwitch(accessory, service, characteristic);
+    if (writable && (characteristic.format === "bool" || numericSwitches.has(characteristic.type))) return powerSwitch(accessory, service, characteristic);
     if (writable && characteristic.type === "Active Identifier") {
       // The TV's input picker: the input services' identifiers under their names.
       const inputs = accessory.services.filter((s) => s.type === "InputSource").map((s) => {
@@ -411,13 +416,19 @@ enum WebAssets {
   /// Rows for the characteristics of a service a person reads or changes; `skip` are shown elsewhere (the
   /// power switch in the header, the remote).
   function controlRows(accessory, service, ...skip) {
-    return service.characteristics.filter((c) => !skip.includes(c) && !plumbing.has(c.type)).map((characteristic) => {
+    // `internal`: what only HomeKit uses (TLV8 stream configurations, snapshot settings), never a row.
+    return service.characteristics.filter((c) => !skip.includes(c) && !plumbing.has(c.type) && !c.internal).map((characteristic) => {
       const control = controlFor(accessory, service, characteristic);
       if (!control) return null;
-      const label = characteristic.type === "Active Identifier" ? "Input" : characteristic.type === "Remote Key" ? "Remote" : characteristic.type === "Volume Selector" ? "Volume" : sentence(characteristic.type);
+      const label = rowLabels[characteristic.type] || sentence(characteristic.type);
       return el("div", { class: "control" }, el("span", { text: label }), control);
     }).filter(Boolean);
   }
+
+  const rowLabels = {
+    "Active Identifier": "Input", "Remote Key": "Remote", "Volume Selector": "Volume",
+    "HomeKit Camera Active": "On in the Home app", "Camera Operating Mode Indicator": "Status light",
+  };
 
   // An accessory's category as its tile: the icon and the colour.
   const categoryIcons = {
@@ -426,6 +437,7 @@ enum WebAssets {
     sensor: ["sensor", "teal"], fan: ["fan", "teal"], airPurifier: ["fan", "teal"], speaker: ["speaker", "blue"], homePod: ["speaker", "blue"],
     audioReceiver: ["speaker", "blue"], doorLock: ["lock", "violet"], thermostat: ["thermo", "yellow"], heater: ["thermo", "yellow"], airConditioner: ["thermo", "teal"],
     garageDoorOpener: ["door", "violet"], door: ["door", "violet"], window: ["door", "violet"], windowCovering: ["door", "violet"],
+    ipCamera: ["camera", "grey"], videoDoorbell: ["camera", "grey"],
   };
 
   // A television's remote: HomeKit's Remote Key values, and its speaker's volume and mute.
@@ -454,7 +466,8 @@ enum WebAssets {
   const quietServices = new Set(["InputSource", "ProtocolInformation"]);
 
   function accessoryCard(accessory) {
-    const services = accessory.services;
+    if (accessory.camera && window.HomeswiftCamera) return cameraCard(accessory);
+    const services = accessory.services.filter((s) => !s.internal);
     const primary = services.find((s) => s.primary) || services[0];
     const power = primary && primary.characteristics.find((c) => (c.type === "On" || c.type === "Active") && c.permissions.includes("pw"));
     const remoteKey = primary && primary.characteristics.find((c) => c.type === "Remote Key" && c.permissions.includes("pw"));
@@ -486,6 +499,47 @@ enum WebAssets {
         el("span", { class: "muted", text: accessory.bridge }),
         menuButton(`Actions for ${accessory.name}`, () => accessoryActions(accessory))));
     return card;
+  }
+
+  // Under a camera's video: its light (a package camera's flashlight), switches and HomeKit camera setting;
+  // sensors and the rest under "More".
+  const cameraFirst = new Set(["Lightbulb", "Switch", "Outlet", "CameraOperatingMode"]);
+  const cameraServiceNames = { CameraOperatingMode: "Camera", Microphone: "Microphone", Speaker: "Speaker" };
+
+  /// A camera's card: its live video or snapshots on top (camera.js), with its name and state over it, then
+  /// its controls. A doorbell's ring shows on the video rather than as a row.
+  function cameraCard(accessory) {
+    const find = (type, characteristic) => accessory.services.find((s) => s.type === type)?.characteristics.find((c) => c.type === characteristic);
+    const view = HomeswiftCamera.view({
+      id: accessory.id, name: accessory.name, doorbell: !!accessory.doorbell, lastRing: accessory.lastRing,
+      motion: find("MotionSensor", "Motion Detected")?.value === true, recording: find("CameraRecordingManagement", "Active")?.value === 1,
+    });
+    const rings = accessory.services.flatMap((s) => s.characteristics.filter((c) => c.type === "Programmable Switch Event"));
+    // A camera's sensors carry its own name: they read as what they are.
+    const shortName = (service) => {
+      const own = !service.name || service.name === accessory.name;
+      const name = own ? cameraServiceNames[service.type] || service.type.replace(/([a-z])([A-Z])/g, "$1 $2") : service.name;
+      return name.startsWith(`${accessory.name} `) ? name.slice(accessory.name.length + 1) : name;
+    };
+    const groups = accessory.services.filter((s) => !s.internal && !quietServices.has(s.type))
+      .map((service) => ({ service, rows: controlRows(accessory, service, ...rings) })).filter((group) => group.rows.length);
+    const node = ({ service, rows }) => rows.length === 1
+      ? el("div", { class: "control" }, el("span", { text: shortName(service) }), rows[0].lastChild)
+      : el("div", { class: "controls" }, el("div", { class: "service-name", text: shortName(service) }), rows);
+    const first = groups.filter((group) => cameraFirst.has(group.service.type));
+    const more = groups.filter((group) => !cameraFirst.has(group.service.type));
+    const names = more.map(({ service }) => shortName(service));
+    const subtitle = [...new Set([describeModel(accessory), accessory.platformName].filter(Boolean))].join(" · ");
+    return el("div", { class: "card accessory-card camera-card", "data-search": `${accessory.name} ${accessory.platformName || ""} ${accessory.model || ""}`.toLowerCase() },
+      view.element,
+      subtitle ? el("div", { class: "camera-meta muted", text: subtitle }) : null,
+      first.length ? el("div", { class: "controls" }, first.map(node)) : null,
+      more.length ? el("details", { class: "more" },
+        el("summary", { text: names.length > 3 ? `${names.slice(0, 2).join(", ")} and ${names.length - 2} more` : names.join(", ") }),
+        el("div", { class: "controls" }, more.map(node))) : null,
+      el("div", { class: "card-foot" },
+        el("span", { class: "muted", text: accessory.bridge }),
+        menuButton(`Actions for ${accessory.name}`, () => accessoryActions(accessory))));
   }
 
   /// What the menu of an accessory's card offers.
@@ -537,6 +591,7 @@ enum WebAssets {
   }
 
   function applyAccessoryEvent(event) {
+    window.HomeswiftCamera?.event(event);
     const selector = `[data-id="${CSS.escape(event.id)}"][data-char="${CSS.escape(event.characteristic)}"]`;
     for (const node of document.querySelectorAll(selector)) {
       if (event.subtype && node.dataset.service !== event.subtype) continue;
@@ -544,7 +599,7 @@ enum WebAssets {
       else if (node.classList.contains("range")) { $("input", node).value = event.value; $(".value", node).textContent = `${event.value}${node.dataset.unit || ""}`; }
       else if (node.tagName === "SELECT") node.value = String(event.value);
       else if (node.tagName === "INPUT") node.value = event.value;
-      else node.textContent = typeof event.value === "boolean" ? (event.value ? "On" : "Off") : labelFor(event.characteristic, event.value);
+      else node.textContent = typeof event.value === "boolean" && !enumLabels[event.characteristic] ? (event.value ? "On" : "Off") : labelFor(event.characteristic, event.value);
     }
   }
 
@@ -1365,6 +1420,330 @@ enum WebAssets {
 })();
 
 """#),
+        "camera.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
+// Camera views, for the Accessories page's camera cards and plugin pages: a 16:9 picture with the camera's name
+// and state over it. While the view is on screen and the page visible, it plays the camera's live feed
+// (/api/cameras/<id>/live, fMP4 through Media Source Extensions: ManagedMediaSource on iOS Safari 17 and later,
+// MediaSource elsewhere), muted; otherwise, or when the camera has no live feed or the browser cannot play its
+// codecs, a snapshot every few seconds (/api/cameras/<id>/snapshot). Off screen it fetches nothing, so a page
+// of ten cameras does not pull ten streams. Loaded after common.js.
+(() => {
+  "use strict";
+
+  const { el } = HomeswiftCommon;
+  const MediaSourceType = window.ManagedMediaSource || window.MediaSource;
+  const SNAPSHOT_EVERY = 3000;
+  // Behind the live edge by more than this, the video jumps forward; buffer older than KEEP seconds goes.
+  const MAX_LAG = 3, KEEP = 20;
+
+  const glyphs = {
+    muted: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6M21 9l-5 6"/>',
+    sound: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>',
+    fullscreen: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+    refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>',
+  };
+  function glyph(name) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    svg.innerHTML = glyphs[name];
+    return svg;
+  }
+  const button = (name, label, onclick) => el("button", { type: "button", class: "camera-button", "aria-label": label, title: label, onclick }, glyph(name));
+
+  /// "just now", "4 min ago", "2 h ago", or the date.
+  function ago(date) {
+    const seconds = (Date.now() - date) / 1000;
+    if (seconds < 45) return "just now";
+    if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
+    if (seconds < 86400) return `${Math.round(seconds / 3600)} h ago`;
+    return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+
+  // Every view on the page, for the accessory events and the page's visibility.
+  const views = new Set();
+  const observer = "IntersectionObserver" in window ? new IntersectionObserver((entries) => {
+    for (const entry of entries) entry.target.cameraView?.setVisible(entry.isIntersecting);
+  }, { threshold: 0.2 }) : null;
+  document.addEventListener("visibilitychange", () => { for (const view of views) view.update(); });
+  // Views whose element left the page (another tab of the UI, a redrawn grid) stop and go.
+  setInterval(() => { for (const view of views) if (!view.element.isConnected) view.destroy(); }, 5000);
+  setInterval(() => { for (const view of views) view.tick(); }, 30000);
+
+  /// A view of `camera` ({ id, name, doorbell, motion, recording, lastRing }): the element to place, and
+  /// `motion(on)`, `ring(date)`, `recording(on)` to change what it shows.
+  function view(camera) {
+    const video = el("video", { muted: true, playsInline: true, autoplay: true, disablePictureInPicture: true, "aria-label": `Live video of ${camera.name}` });
+    // ManagedMediaSource plays only with AirPlay off (or an AirPlay alternative), and a muted video autoplays.
+    video.disableRemotePlayback = true;
+    video.muted = true;
+    video.setAttribute("muted", "");
+    video.setAttribute("playsinline", "");
+    const still = el("img", { class: "camera-still", alt: `Snapshot of ${camera.name}`, decoding: "async" });
+    const liveBadge = el("span", { class: "camera-badge live hidden", text: "Live" });
+    const stillBadge = el("span", { class: "camera-badge hidden" });
+    const motionBadge = el("span", { class: "camera-badge motion hidden", text: "Motion" });
+    const ringBadge = el("span", { class: "camera-badge ring hidden" });
+    const recordingBadge = el("span", { class: "camera-badge recording hidden", text: "Recording", title: "HomeKit Secure Video records this camera's events" });
+    const message = el("div", { class: "camera-message", text: "Connecting…" });
+    const sound = button("muted", "Unmute", () => {
+      video.muted = !video.muted;
+      sound.replaceChildren(glyph(video.muted ? "muted" : "sound"));
+      sound.setAttribute("aria-label", video.muted ? "Unmute" : "Mute");
+      sound.title = sound.getAttribute("aria-label");
+      if (!video.muted) video.play().catch(() => {});
+    });
+    sound.classList.add("hidden");
+    const fullscreen = button("fullscreen", "Full screen", () => {
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      else if (element.requestFullscreen) element.requestFullscreen().catch(() => {});
+      else if (element.webkitRequestFullscreen) element.webkitRequestFullscreen();
+      // An iPhone has full screen for videos only.
+      else if (video.webkitEnterFullscreen && state.live) video.webkitEnterFullscreen();
+    });
+    const refresh = button("refresh", "Refresh", () => { state.noLive = false; restart(); });
+    const element = el("div", { class: "camera-view", "data-camera": camera.id },
+      still, video, message,
+      el("div", { class: "camera-top" },
+        el("strong", { class: "camera-name", text: camera.name }),
+        el("span", { class: "camera-badges" }, liveBadge, stillBadge, recordingBadge, motionBadge, ringBadge)),
+      el("div", { class: "camera-controls" }, sound, refresh, fullscreen));
+
+    const state = { visible: false, running: false, live: false, noLive: !MediaSourceType, abort: null, timer: null, lastRing: camera.lastRing ? new Date(camera.lastRing) : null, stalls: 0 };
+    // A gap in the buffer (a fragment the server dropped for a slow reader): jump over it.
+    video.addEventListener("waiting", () => {
+      const ranges = video.buffered;
+      for (let i = 0; i < ranges.length; i++) {
+        if (ranges.start(i) > video.currentTime) { video.currentTime = ranges.start(i) + 0.05; break; }
+      }
+    });
+    const url = (what, query = "") => `/api/cameras/${encodeURIComponent(camera.id)}/${what}${query}`;
+
+    function show(what, text = "") {
+      // "live" the video, "still" the snapshot, "message" a line over a dim picture.
+      element.classList.toggle("is-live", what === "live");
+      element.classList.toggle("has-still", !!still.src);
+      message.textContent = text;
+      message.classList.toggle("hidden", !text);
+      liveBadge.classList.toggle("hidden", what !== "live");
+      // The time a snapshot was taken, while one shows.
+      stillBadge.classList.toggle("hidden", what !== "still");
+    }
+
+    // ---- Snapshots ----
+
+    let stillURL = null;
+    async function snapshot(signal) {
+      const width = Math.min(1920, Math.max(320, Math.round(element.clientWidth * (window.devicePixelRatio || 1) / 160) * 160));
+      const response = await fetch(url("snapshot", `?width=${width}&height=${Math.round(width * 9 / 16)}`), { credentials: "same-origin", cache: "no-store", signal });
+      if (response.status === 401) { location.href = "/"; return; }
+      if (!response.ok) {
+        let text = `HTTP ${response.status}`;
+        try { text = (await response.json()).error || text; } catch {}
+        const error = new Error(text);
+        error.status = response.status;
+        throw error;
+      }
+      const blob = await response.blob();
+      const next = URL.createObjectURL(blob);
+      await new Promise((resolve) => { const image = new Image(); image.onload = image.onerror = resolve; image.src = next; });
+      if (signal.aborted) { URL.revokeObjectURL(next); return; }
+      still.src = next;
+      if (stillURL) URL.revokeObjectURL(stillURL);
+      stillURL = next;
+      stillBadge.textContent = new Date().toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" });
+    }
+
+    async function snapshots(signal) {
+      while (!signal.aborted) {
+        try {
+          await snapshot(signal);
+          show("still");
+          await sleep(SNAPSHOT_EVERY, signal);
+        } catch (error) {
+          if (signal.aborted) return;
+          show("message", error.status === 409 ? "Turned off in the Home app" : error.status === 503 ? "Paused" : "No picture from the camera");
+          // A camera that fails is asked less often.
+          await sleep(SNAPSHOT_EVERY * 4, signal);
+        }
+      }
+    }
+
+    // ---- Live ----
+
+    async function live(signal) {
+      const response = await fetch(url("live"), { credentials: "same-origin", cache: "no-store", signal });
+      if (response.status === 401) { location.href = "/"; return false; }
+      if (!response.ok) {
+        // No feed from this camera: snapshots, until Refresh. Busy or failing: snapshots, live again later.
+        if (response.status === 404) state.noLive = true;
+        if (response.status === 409) { show("message", "Turned off in the Home app"); state.noLive = true; }
+        if (response.status === 503) { show("message", "Paused"); state.noLive = true; }
+        response.body?.cancel().catch(() => {});
+        return false;
+      }
+      const type = response.headers.get("X-Camera-Mime-Type") || "video/mp4";
+      if (!MediaSourceType.isTypeSupported(type)) {
+        state.noLive = true;
+        response.body.cancel().catch(() => {});
+        show("message", still.src ? "" : "This browser cannot play this camera's video");
+        return false;
+      }
+      sound.classList.toggle("hidden", !/mp4a|opus|ac-3|ec-3/i.test(type));
+      const source = new MediaSourceType();
+      const sourceURL = URL.createObjectURL(source);
+      video.src = sourceURL;
+      signal.addEventListener("abort", () => { video.removeAttribute("src"); video.load(); URL.revokeObjectURL(sourceURL); });
+      await new Promise((resolve) => source.addEventListener("sourceopen", resolve, { once: true }));
+      if (signal.aborted) return true;
+      const buffer = source.addSourceBuffer(type);
+      const queue = [];
+      let lastTrim = 0;
+      const pump = () => {
+        if (buffer.updating || signal.aborted || source.readyState !== "open") return;
+        const ranges = buffer.buffered;
+        if (ranges.length) {
+          const end = ranges.end(ranges.length - 1);
+          // The live edge, not the past: a tab in the background or a slow network falls behind.
+          if (end - video.currentTime > MAX_LAG) video.currentTime = Math.max(ranges.start(ranges.length - 1), end - 0.5);
+          const start = ranges.start(0);
+          if (video.currentTime - start > KEEP * 1.5 && Date.now() - lastTrim > 10000) {
+            lastTrim = Date.now();
+            buffer.remove(start, video.currentTime - KEEP);
+            return;
+          }
+        }
+        const chunk = queue.shift();
+        if (!chunk) return;
+        try {
+          buffer.appendBuffer(chunk);
+        } catch (error) {
+          // Full: drop what was played and try again.
+          if (error.name === "QuotaExceededError" && ranges.length) { queue.unshift(chunk); buffer.remove(ranges.start(0), Math.max(ranges.start(0) + 0.1, video.currentTime - 2)); }
+          else throw error;
+        }
+      };
+      buffer.addEventListener("updateend", pump);
+      video.addEventListener("playing", () => { state.live = true; show("live"); }, { once: true });
+      const reader = response.body.getReader();
+      signal.addEventListener("abort", () => reader.cancel().catch(() => {}));
+      let started = false;
+      // Stalled: no new frame for a while, start again.
+      let lastTime = -1, stalledSince = Date.now();
+      const watchdog = setInterval(() => {
+        if (video.currentTime !== lastTime) { lastTime = video.currentTime; stalledSince = Date.now(); return; }
+        if (Date.now() - stalledSince > 10000) reader.cancel().catch(() => {});
+      }, 2000);
+      signal.addEventListener("abort", () => clearInterval(watchdog));
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done || signal.aborted) break;
+          queue.push(value);
+          pump();
+          if (!started) { started = true; video.play().catch(() => {}); }
+        }
+      } finally {
+        clearInterval(watchdog);
+      }
+      return true;
+    }
+
+    // ---- Running ----
+
+    const sleep = (ms, signal) => new Promise((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+    });
+
+    async function run(signal) {
+      // A first picture at once while the live feed connects, then live; snapshots when there is none.
+      const first = snapshot(signal).then(() => { if (!state.live) show("still"); }).catch(() => {});
+      while (!signal.aborted) {
+        if (state.noLive) { await first; await snapshots(signal); return; }
+        let played = false;
+        try {
+          played = await live(signal);
+        } catch {
+          played = false;
+        }
+        if (signal.aborted) return;
+        const wasLive = state.live;
+        state.live = false;
+        video.removeAttribute("src");
+        video.load();
+        if (wasLive) { show(still.src ? "still" : "message", still.src ? "" : "Reconnecting…"); await sleep(1500, signal); continue; }
+        if (state.noLive) continue;
+        // Live failed: snapshots for a while, then live again.
+        const pause = new AbortController();
+        const done = () => pause.abort();
+        signal.addEventListener("abort", done, { once: true });
+        setTimeout(done, played ? 2000 : 30000);
+        await first;
+        await snapshots(pause.signal);
+      }
+    }
+
+    function start() {
+      if (state.running) return;
+      state.running = true;
+      state.abort = new AbortController();
+      show(still.src ? "still" : "message", still.src ? "" : "Connecting…");
+      run(state.abort.signal);
+    }
+    function stop() {
+      if (!state.running) return;
+      state.running = false;
+      state.live = false;
+      state.abort.abort();
+      state.abort = null;
+      liveBadge.classList.add("hidden");
+      element.classList.remove("is-live");
+    }
+    function restart() { stop(); update(); }
+    function update() {
+      if (state.visible && document.visibilityState === "visible" && element.isConnected) start(); else stop();
+    }
+
+    const controller = {
+      element, camera,
+      setVisible(visible) { state.visible = visible; update(); },
+      update,
+      tick() { if (state.lastRing) ringBadge.textContent = `Rang ${ago(state.lastRing)}`; },
+      motion(on) { motionBadge.classList.toggle("hidden", !on); element.classList.toggle("motion", !!on); },
+      recording(on) { recordingBadge.classList.toggle("hidden", !on); },
+      ring(date = new Date()) {
+        state.lastRing = date;
+        ringBadge.classList.remove("hidden");
+        controller.tick();
+        // A ring that just happened stands out for a moment.
+        if (Date.now() - date < 60000) { ringBadge.classList.remove("fresh"); void ringBadge.offsetWidth; ringBadge.classList.add("fresh"); }
+      },
+      destroy() { stop(); observer?.unobserve(element); views.delete(controller); if (stillURL) URL.revokeObjectURL(stillURL); },
+    };
+    element.cameraView = controller;
+    views.add(controller);
+    controller.motion(camera.motion);
+    controller.recording(camera.recording);
+    if (state.lastRing) controller.ring(state.lastRing);
+    if (observer) observer.observe(element); else controller.setVisible(true);
+    return controller;
+  }
+
+  /// An accessory event from the page's event stream: motion and rings for the views of that accessory.
+  function event({ id, service, characteristic, value }) {
+    for (const view of views) {
+      if (view.camera.id !== id) continue;
+      if (characteristic === "Motion Detected") view.motion(value === true || value === 1);
+      else if (characteristic === "Active" && service === "CameraRecordingManagement") view.recording(value === 1);
+      else if (characteristic === "Programmable Switch Event" && view.camera.doorbell && value !== null) view.ring(new Date());
+    }
+  }
+
+  window.HomeswiftCamera = { view, event, supported: !!MediaSourceType };
+})();
+
+"""#),
         "chat.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The Assistant's chat, on every page of the web UI (plugin pages load it through plugin.js): a sparkle button
 // in the header opens a panel where the Assistant answers and acts through the bridge's tools. Each change it
@@ -1992,6 +2371,7 @@ enum WebAssets {
     open: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
     edit: '<path d="M12 20h8M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
     inputs: '<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/>',
+    camera: '<rect x="2.5" y="6" width="13.5" height="12" rx="2.5"/><path d="m16 10.5 5.5-3.5v10L16 13.5"/>',
     identify: '<circle cx="12" cy="12" r="2.5"/><path d="M7.5 7.5a6.4 6.4 0 0 0 0 9M16.5 7.5a6.4 6.4 0 0 1 0 9"/>',
   };
 
@@ -2360,6 +2740,7 @@ enum WebAssets {
 </div>
 <script src="/common.js"></script>
 <script src="/remote.js"></script>
+<script src="/camera.js"></script>
 <script src="/chat.js"></script>
 <script src="/app.js"></script>
 </body>
@@ -3048,7 +3429,7 @@ label > input, label > select { margin-top: 5px; }
 .section-head h2 { margin: 0; }
 .section-head .muted { font-size: 0.8125rem; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 14px; }
-.grid > .card { margin: 0; }
+.grid > .card { margin: 0; min-width: 0; }
 .card.empty { text-align: center; padding: 28px 20px; grid-column: 1 / -1; }
 .card.empty p { margin: 0; }
 .card.notice { color: var(--warn); font-weight: 500; }
@@ -3183,7 +3564,8 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .control select, .control input[type=text] { width: auto; max-width: 62%; }
 .control .range { flex: 1; justify-content: flex-end; min-width: 0; }
 .control input[type=range] { flex: 1 1 auto; width: auto; min-width: 60px; max-width: 190px; }
-.control .value { white-space: nowrap; }
+/* A value wraps anywhere rather than widen its card: no text a device sends can push the page sideways. */
+.control .value { min-width: 0; overflow-wrap: anywhere; }
 .control .range .value { flex: none; min-width: 3.6em; text-align: right; }
 .keys { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .keys button { padding: 5px 11px; font-size: 0.8125rem; }
@@ -3666,6 +4048,77 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
 }
 @media (prefers-reduced-motion: reduce) { .tabbar a { transition: none; } }
 @media (prefers-reduced-transparency: reduce) { .tabbar { background: var(--material-solid); -webkit-backdrop-filter: none; backdrop-filter: none; } }
+
+/* Camera cards: the picture on top, in 16:9, inset in the card like the Home app's camera tiles; the name and
+   state over it on a shade, and round glass buttons that a pointer reveals on hover (always there for touch).
+   camera.js swaps the snapshot for the live video once it plays. */
+.camera-card { gap: 12px; }
+.camera-view {
+  position: relative; flex: none; margin: -8px -10px 0; aspect-ratio: 16 / 9; overflow: hidden; isolation: isolate;
+  border-radius: calc(var(--radius) - 8px); background: #10131a; color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+.camera-view > video, .camera-view > .camera-still {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block;
+  transition: opacity var(--normal) var(--ease-out);
+}
+.camera-view > video { opacity: 0; }
+.camera-view.is-live > video { opacity: 1; }
+.camera-view > .camera-still:not([src]) { opacity: 0; }
+.camera-view:fullscreen { margin: 0; border-radius: 0; aspect-ratio: auto; }
+.camera-view:fullscreen > video, .camera-view:fullscreen > .camera-still { object-fit: contain; }
+.camera-top, .camera-controls { position: absolute; left: 0; right: 0; display: flex; align-items: center; gap: 8px; padding: 10px 12px; z-index: 1; }
+.camera-top {
+  top: 0; flex-wrap: wrap; padding-bottom: 26px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0));
+}
+.camera-name {
+  flex: 1 1 auto; min-width: 0; font-size: 0.9375rem; font-weight: 600; letter-spacing: -0.01em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+.camera-badges { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.camera-badge {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.02em; font-variant-numeric: tabular-nums;
+  background: rgba(20, 22, 28, 0.45); -webkit-backdrop-filter: blur(12px) saturate(160%); backdrop-filter: blur(12px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+.camera-badge.live::before, .camera-badge.recording::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #ff453a; }
+.camera-badge.live { text-transform: uppercase; }
+.camera-badge.recording::before { background: transparent; box-shadow: inset 0 0 0 1.5px #ff453a; }
+.camera-badge.motion { background: rgba(255, 204, 0, 0.9); color: #2b2100; border-color: transparent; }
+.camera-badge.ring { background: rgba(255, 122, 26, 0.92); color: #fff; border-color: transparent; }
+.camera-badge.ring.fresh { animation: camera-ring 1.2s var(--ease-out) 2; }
+@keyframes camera-ring { 0%, 100% { transform: scale(1); } 30% { transform: scale(1.12); } }
+.camera-view.motion { box-shadow: inset 0 0 0 2px rgba(255, 204, 0, 0.9); }
+.camera-controls {
+  bottom: 0; justify-content: flex-end; padding-top: 24px;
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0));
+  transition: opacity var(--normal) var(--ease-out);
+}
+.camera-button {
+  display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border-radius: 50%; color: #fff;
+  background: rgba(30, 32, 40, 0.42); -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: none;
+}
+.camera-button:hover { transform: none; background: rgba(30, 32, 40, 0.62); }
+.camera-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.camera-message {
+  position: absolute; inset: 0; display: grid; place-items: center; padding: 48px 16px; text-align: center; z-index: 1;
+  font-size: 0.8125rem; font-weight: 500; color: rgba(255, 255, 255, 0.82); background: rgba(10, 12, 18, 0.35);
+}
+.camera-view:not(.has-still) > .camera-message { background: radial-gradient(80% 80% at 50% 40%, #232836, #10131a); }
+.camera-meta { font-size: 0.8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: -2px; }
+@media (hover: hover) and (pointer: fine) {
+  .camera-controls { opacity: 0; }
+  .camera-view:hover > .camera-controls, .camera-view:focus-within > .camera-controls { opacity: 1; }
+}
+@media (pointer: coarse) { .camera-button { width: 40px; height: 40px; } }
+@media (max-width: 640px) { .camera-view { margin: -6px -8px 0; } }
+@media (prefers-reduced-motion: reduce) { .camera-badge.ring.fresh { animation: none; } .camera-view > video, .camera-controls { transition: none; } }
+@media (prefers-reduced-transparency: reduce) {
+  .camera-badge, .camera-button { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(20, 22, 28, 0.85); }
+}
 
 """#),
     ]

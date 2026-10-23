@@ -294,6 +294,28 @@
     }
   }
 
+  // The camera of the scope, live while it is on screen (the UI's camera.js and /api/cameras), when it is one of
+  // the accessories this bridge runs.
+  let preview = null;
+  let cameraIDs = null;
+  async function showPreview(device) {
+    const panel = $("#infoPreview");
+    const id = device && device.modelKey === "camera" ? `UniFi Protect:${device.mac}` : null;
+    if (preview && preview.camera.id === id) return;
+    preview?.destroy();
+    preview = null;
+    panel.replaceChildren();
+    panel.classList.add("hidden");
+    if (!id || !window.HomeswiftCamera) return;
+    try {
+      cameraIDs ||= new Set((await HomeswiftCommon.api("/api/accessories")).filter((a) => a.camera).map((a) => a.id));
+    } catch { return; }
+    if (!cameraIDs.has(id) || currentScope().device !== device) return;
+    preview = HomeswiftCamera.view({ id, name: device.name || device.marketName || "Camera", doorbell: device.featureFlags?.isDoorbell === true });
+    panel.append(preview.element);
+    panel.classList.remove("hidden");
+  }
+
   function currentScope() {
     const value = $("#scopeSelect").value || "global";
     if (value === "global") return { device: null, id: null, type: "global" };
@@ -349,7 +371,9 @@
         status.className = "ok";
       }
       showDeviceProblem(scope.device, P.deviceProblem(scope.device));
+      showPreview(scope.device);
     } else {
+      showPreview(null);
       $("#deviceInfoPanel").classList.add("hidden");
       showDeviceProblem(null, null);
     }
