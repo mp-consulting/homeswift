@@ -22,6 +22,38 @@ struct PersistedState: Codable {
     var aids: [String: Int] = [:]
     var iids: [String: Int] = [:]
 
+    /// The JSON `JSONDecoder` reads back, written directly: the server saves it after every accessory it gives new
+    /// ids, and `JSONEncoder` cost as much as the rest of adding one (the iid map grows with every accessory).
+    func encoded() -> Data {
+        var json = JSONWriter(capacity: 512 + iids.count * 64 + aids.count * 48)
+        json.object { json in
+            json.field("deviceID", deviceID)
+            json.field("signingKey", signingKey.base64EncodedString())
+            json.field("setupCode", setupCode)
+            json.field("setupID", setupID)
+            json.field("configurationNumber", configurationNumber)
+            json.field("databaseHash", databaseHash)
+            json.field("port", port)
+            json.key("pairings")
+            json.array { json in
+                for pairing in pairings {
+                    json.object { json in
+                        json.field("identifier", pairing.identifier)
+                        json.field("publicKey", pairing.publicKey.base64EncodedString())
+                        json.field("isAdmin", pairing.isAdmin)
+                    }
+                }
+            }
+            for (name, map) in [("aids", aids), ("iids", iids)] {
+                json.key(name)
+                json.object { json in
+                    for (key, value) in map { json.field(key, value) }
+                }
+            }
+        }
+        return Data(json.bytes)
+    }
+
     static func new(setupCode: SetupCode?) -> PersistedState {
         let mac = (0..<6).map { _ in String(format: "%02X", UInt8.random(in: 0...255)) }.joined(separator: ":")
         return PersistedState(
