@@ -33,7 +33,7 @@
       `Authentication method: ${authMode.current}.`,
       block?.updateIntervalInMinutes ? `Update interval: ${block.updateIntervalInMinutes} minutes.` : "",
       authMode.current === "mobile_app" ? `WebSocket: ${block?.enableWebSocket !== false ? "on" : "off"}.` : "",
-      `HTTP transport: ${block?.httpTransport === "curl" ? "curl" : "node"}.`,
+      `HTTP transport: ${block?.httpTransport === "curl" ? "curl subprocess" : "Homeswift's built-in HTTP client (NIO, BoringSSL)"}.`,
     ].filter(Boolean).join(" ");
   }
   /// Puts an Explain button in `slot` for `message`, or empties it.

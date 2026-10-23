@@ -298,7 +298,7 @@ final class ValvePlugDevice: GoveeDevice {
 }
 
 /// A plug shown as an audio receiver, a set-top box or a streaming stick: a television with power only
-/// (`device/tv.ts`). Published on its own, as HomeKit wants televisions.
+/// (`device/tv.ts`). On the bridge, as the Homebridge plugin put it.
 final class TelevisionPlugDevice: GoveeDevice {
     private var service: Service!
 

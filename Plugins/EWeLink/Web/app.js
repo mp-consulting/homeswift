@@ -208,6 +208,26 @@
   $("#back").addEventListener("click", () => { showStep("devices"); loadDevices(); });
   $("#restart").addEventListener("click", (event) => act(event.currentTarget, restart).catch((e) => alert(e.message)));
 
+  // MARK: Config changes made elsewhere (the Expert editor, another tab, the Assistant), as the Homebridge page's
+  // configChanged: the web UI sends no such event, so the block is read again whenever the page comes back into
+  // view, and the settings are filled in again only when it changed. Unsaved choices stay otherwise.
+
+  /// JSON with the keys sorted, so the same block written in another order compares equal.
+  const canonical = (value) => JSON.stringify(value, (_, v) =>
+    v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v);
+
+  async function followConfigChanges() {
+    if (document.hidden) return;
+    const before = canonical(config);
+    let fresh;
+    try { fresh = (await homeswift.readBlock()) || {}; } catch { return; }
+    if (canonical(fresh) === before) return;
+    config = fresh;
+    prefillSettings();
+  }
+  document.addEventListener("visibilitychange", followConfigChanges);
+  window.addEventListener("focus", followConfigChanges);
+
   // MARK: Start: the block, then the plugin's session if it has one.
 
   (async () => {
