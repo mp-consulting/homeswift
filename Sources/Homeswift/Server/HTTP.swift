@@ -27,31 +27,88 @@ struct HTTPRequest {
 
     /// Takes one complete request off the front of `buffer`, or returns nil if more bytes are needed.
     static func parse(_ buffer: inout Data) throws -> HTTPRequest? {
-        let separator = Data("\r\n\r\n".utf8)
-        guard let headerEnd = buffer.range(of: separator) else {
+        // The head's end, its lines and their spaces are found byte by byte: Foundation's search, line splitting and
+        // character-set trimming took a fifth of a request's time on the server.
+        let headEnd: Int? = buffer.withUnsafeBytes { raw in
+            let bytes = raw.bindMemory(to: UInt8.self)
+            guard bytes.count >= 4 else { return nil }
+            for index in 0...(bytes.count - 4) where bytes[index] == 13 && bytes[index + 1] == 10 && bytes[index + 2] == 13 && bytes[index + 3] == 10 {
+                return index
+            }
+            return nil
+        }
+        guard let headEnd else {
             if buffer.count > 16 * 1024 { throw ParseError.malformed }
             return nil
         }
-        guard let head = String(data: buffer[buffer.startIndex..<headerEnd.lowerBound], encoding: .utf8) else {
-            throw ParseError.malformed
+        let headStart = buffer.startIndex
+        let headBytes = buffer[headStart..<(headStart + headEnd)]
+        // Decoding replaces invalid UTF-8, so the head is valid exactly when its bytes come back unchanged.
+        var head = String(decoding: headBytes, as: UTF8.self)
+        let valid = head.utf8.count == headBytes.count && head.withUTF8 { decoded in
+            headBytes.withUnsafeBytes { raw in decoded.isEmpty || memcmp(decoded.baseAddress!, raw.baseAddress!, decoded.count) == 0 }
         }
-        let lines = head.components(separatedBy: "\r\n")
+        guard valid else { throw ParseError.malformed }
+        let lines = Self.lines(of: head)
         let requestLine = lines[0].split(separator: " ")
         guard requestLine.count >= 2 else { throw ParseError.malformed }
         var headers: [String: String] = [:]
         for line in lines.dropFirst() {
-            guard let colon = line.firstIndex(of: ":") else { continue }
-            let name = line[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
-            headers[name] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+            guard let colon = Self.colon(in: line) else { continue }
+            let name = Self.trimmed(line[..<colon]).lowercased()
+            headers[name] = Self.trimmed(line[line.index(after: colon)...])
         }
         let length = Int(headers["content-length"] ?? "0") ?? 0
         guard length >= 0, length < 1024 * 1024 else { throw ParseError.malformed }
-        let bodyStart = headerEnd.upperBound
+        let bodyStart = headStart + headEnd + 4
         guard buffer.distance(from: bodyStart, to: buffer.endIndex) >= length else { return nil }
         let bodyEnd = buffer.index(bodyStart, offsetBy: length)
         let body = Data(buffer[bodyStart..<bodyEnd])
         buffer = Data(buffer[bodyEnd...])
         return HTTPRequest(method: String(requestLine[0]), target: String(requestLine[1]), headers: headers, body: body)
+    }
+
+    /// The first character that is a colon, as `firstIndex(of: ":")` finds it: its byte, then a check that a character
+    /// starts there and is that colon alone (not one a combining mark joins), without walking every character.
+    static func colon(in line: Substring) -> String.Index? {
+        var from = line.utf8.startIndex
+        while let index = line.utf8[from...].firstIndex(of: UInt8(ascii: ":")) {
+            if line[index] == ":", line.index(before: line.index(after: index)) == index { return index }
+            from = line.utf8.index(after: index)
+        }
+        return nil
+    }
+
+    /// The text between CRLFs, empty lines included: what `components(separatedBy: "\r\n")` gives.
+    static func lines(of head: String) -> [Substring] {
+        var lines: [Substring] = []
+        let utf8 = head.utf8
+        var lineStart = utf8.startIndex
+        var index = utf8.startIndex
+        while index != utf8.endIndex {
+            let next = utf8.index(after: index)
+            if utf8[index] == 13, next != utf8.endIndex, utf8[next] == 10 {
+                lines.append(head[lineStart..<index])
+                index = utf8.index(after: next)
+                lineStart = index
+            } else {
+                index = next
+            }
+        }
+        lines.append(head[lineStart...])
+        return lines
+    }
+
+    /// Without the spaces and tabs around it: what `trimmingCharacters(in: .whitespaces)` removes, the set itself
+    /// asked only beyond ASCII (where it holds the space and the tab; beyond, Unicode's space separators and U+200B).
+    static func trimmed(_ text: Substring) -> String {
+        func isSpace(_ scalar: Unicode.Scalar) -> Bool {
+            scalar.isASCII ? scalar == " " || scalar == "\t" : CharacterSet.whitespaces.contains(scalar)
+        }
+        var scalars = text.unicodeScalars[...]
+        while let first = scalars.first, isSpace(first) { scalars.removeFirst() }
+        while let last = scalars.last, isSpace(last) { scalars.removeLast() }
+        return String(Substring(scalars))
     }
 }
 
