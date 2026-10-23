@@ -223,6 +223,14 @@ public final class PluginHost: @unchecked Sendable {
         return try await plugin.handleWebRequest(request)
     }
 
+    /// The live feed of a camera, from the plugin instance whose accessory it is (`HomeswiftPlugin.liveFeed`). nil
+    /// when no running instance has the accessory or its plugin has no feed for it.
+    public func liveFeed(accessoryID: String) async throws -> CameraLiveFeed? {
+        guard let instance = instances.first(where: { $0.context.accessories.contains { $0.id == accessoryID } }),
+              let plugin = instance.plugin.withLockedValue({ $0 }) else { return nil }
+        return try await plugin.liveFeed(accessoryID: accessoryID)
+    }
+
     /// Starts everything and keeps running until the task is cancelled.
     public func run() async throws {
         try await start()

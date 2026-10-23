@@ -123,6 +123,13 @@ public actor MyDevicesPlugin: HomeswiftPlugin {
   RTP setup (SRTP keys, SSRCs), the HomeKit Data Stream server for recordings and the doorbell event;
   `HomeswiftFFmpeg` has what runs FFmpeg for the streams and recordings (options per host and hardware
   accelerator, the process, RTP port reservation, the return audio demuxer, fMP4 parsing).
+- **Live video in the web UI.** The Accessories page gives each camera a card with snapshots from its
+  `CameraStreamingDelegate`. For live video, implement `liveFeed(accessoryID:)` and return a `CameraLiveFeed`: the
+  fMP4 initialization segment, an `AsyncThrowingStream` of fragments (`moof` and `mdat`) and what releases the
+  source; the MIME type for Media Source Extensions comes from the segment's avcC or hvcC (`CameraLiveFeed.mimeType`),
+  or give it. The UI asks while a card is on screen and cancels when it leaves; finish the stream when the source
+  restarts (new timestamps need a new initialization segment, which the page asks for). Prefer a low-bandwidth
+  stream and share it with HomeKit's consumers: `Plugins/UniFiProtect/Sources/ProtectLiveFeed.swift` does both.
 - **Adaptive Lighting.** `AdaptiveLightingController(lightbulb, mode: .automatic or .manual, customTemperatureAdjustment:)`
   on a Lightbulb with Brightness and Color Temperature, created before the accessory goes on the bridge, then
   `context.configureController(controller, accessoryID:)` so an active schedule survives restarts. Automatic mode
