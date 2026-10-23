@@ -129,7 +129,9 @@ import Testing
 
     @Test func requestsTheEndpointAndDeliversSegments() async throws {
         let controller = FakeController(), sockets = FakeWebSocketConnector()
-        let api = await makeAPI(controller, sockets)
+        // Real time: scaled, the heartbeat closes a session silent for 100 ms, which a slow runner can be between the
+        // packets below (stopsAnInactiveStream covers the heartbeat).
+        let api = await makeAPI(controller, sockets, scale: 1)
         let livestream = ProtectLivestream(api: api, log: ProtectLog(logger: testLogger))
         let recorder = Recorder()
         livestream.observe { recorder.record($0) }
