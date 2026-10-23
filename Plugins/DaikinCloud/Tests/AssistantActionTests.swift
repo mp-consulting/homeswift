@@ -60,3 +60,15 @@ struct AssistantActionTests {
         #expect(try await call("status", on: environment).json["authenticated"] == false)
     }
 }
+
+struct AssistantBackgroundTests {
+    @Test func backgroundIsAboutHomeswift() throws {
+        let background = try #require(DaikinCloudPlugin.assistantBackground)
+        #expect(background.count > 500)
+        #expect(background.contains("Homeswift"))
+        #expect(!background.contains("Homebridge"))
+        // The token files the port writes, and no Node fingerprint it does not have.
+        #expect(background.contains(AuthMode.mobileApp.tokenFileName) && background.contains(AuthMode.developerPortal.tokenFileName))
+        #expect(!background.contains("Node"))
+    }
+}

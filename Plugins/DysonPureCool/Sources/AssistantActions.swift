@@ -32,4 +32,32 @@ extension DysonPureCoolPlugin {
             ],
             confirm: true),
     ]
+
+    /// The Homebridge plugin's `DYSON_AI_CONTEXT`, for Homeswift: what the Assistant should know to explain this
+    /// plugin's errors.
+    public static let assistantBackground: String? = [
+        "The plugin bridges Dyson purifiers and fans (Pure Cool, Hot+Cool HP, Humidify+Cool PH, Big+Quiet) to HomeKit in Homeswift.",
+        "The Dyson account is only used on the plugin's page (Plugins, Open), to download each device's local MQTT credentials from",
+        "the Dyson cloud (appapi.cp.dyson.com): it checks the account status, emails a 6-digit verification code, then reads the",
+        "device manifest; the devices and their credentials are saved in the instance's block of config.json (devices[]). The country",
+        "must match the account's Dyson market, or the code is issued for the wrong region. Page errors: \"Account not active or not",
+        "found\" (wrong email or country), \"Unable to authenticate\" (Dyson rejected the login; the password is checked together with",
+        "the code), \"Invalid verification code\", \"No pending authentication\" (the code request expired after 10 minutes, start",
+        "again), \"Session expired\" (the cloud token was rejected while listing devices), \"Request timed out\" or \"Network error\"",
+        "(the Homeswift host cannot reach the Dyson cloud), \"Invalid response from Dyson API\". After setup everything is local: the",
+        "plugin finds each device over mDNS (_dyson_mqtt._tcp, for discoveryTimeout seconds; an mDNS answer without a local IPv4",
+        "record falls back to the private address that sent it) or uses its saved \"ipAddress\", and connects to the device's MQTT",
+        "broker on TCP port 1883 with the serial number as user name and the local credential as password, trying several CONNECT",
+        "variants (client id, clean session, MQTT 3.1.1, 5 and 3.1) when the device refuses one. \"Device <serial> not found on",
+        "network\" means mDNS did not see it and no IP worked: the device must be on the same subnet (VLANs, client isolation or mDNS",
+        "filtering block discovery), so set a DHCP reservation and its IP. \"Connection timeout after <n>ms\" or \"Timeout waiting for",
+        "device state\" means the device did not answer on port 1883 (offline, weak Wi-Fi, firewall, or a changed IP); after five",
+        "failed reconnections the device is retried every five minutes. \"Connection refused: Not authorized\" or \"Connection",
+        "refused: Bad username or password\" means the saved local credential is stale, so use Re-sync from Dyson Cloud on the page.",
+        "Older Link models (HP02, TP02, DP01) and newer models (HP04+, TP04+) use different MQTT fields; Link models are also asked",
+        "for their sensor data on every poll. Continuous monitoring (\"rhtm\") keeps the sensors running while the fan is off and is",
+        "needed for sensor updates then; \"pollingInterval\" sets how often state is requested (seconds); temperatureOffset and",
+        "humidityOffset calibrate readings. Never ask the user for their password, verification codes, local credentials, tokens or",
+        "API keys.",
+    ].joined(separator: " ")
 }

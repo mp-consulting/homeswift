@@ -38,7 +38,7 @@ struct MQTTPacketTests {
             .puback(1), .pubrec(2), .pubrel(3), .pubcomp(4),
             .subscribe(packetID: 5, [MQTTSubscription(topic: "a/#", qos: .atLeastOnce), MQTTSubscription(topic: "b/+", qos: .atMostOnce)]),
             .suback(packetID: 5, returnCodes: [1, 0x80]),
-            .unsubscribe(packetID: 6, ["a/#"]), .unsuback(6), .pingreq, .pingresp, .disconnect,
+            .unsubscribe(packetID: 6, ["a/#"]), .unsuback(6), .pingreq, .pingresp, .disconnect(),
         ]
         var parser = MQTTPacketParser()
         // One byte at a time, as a slow stream delivers them.
@@ -46,6 +46,52 @@ struct MQTTPacketTests {
         var decoded: [MQTTPacket] = []
         while let packet = try parser.next() { decoded.append(packet) }
         #expect(decoded == packets)
+    }
+
+    @Test func mqtt5ConnectHasPropertiesAfterTheKeepAlive() {
+        let connect = MQTTConnect(version: .v5, clientID: "abc", username: "u", password: "p", keepAlive: 60, cleanSession: true, will: nil)
+        // Level 5, then a zero property length between the keep-alive and the client id.
+        #expect(MQTTPacket.connect(connect).encode() == [
+            0x10, 22, 0, 4, 77, 81, 84, 84, 5, 0xC2, 0, 60, 0, 0, 3, 97, 98, 99, 0, 1, 117, 0, 1, 112,
+        ])
+        // A SUBSCRIBE carries a zero property length before the filters, and a PUBACK refusal its reason code.
+        #expect(MQTTPacket.subscribe(packetID: 1, [MQTTSubscription(topic: "t", qos: .atLeastOnce)]).encode(version: .v5) == [0x82, 7, 0, 1, 0, 0, 1, 116, 1])
+        #expect(MQTTPacket.puback(1, reasonCode: 0x87).encode(version: .v5) == [0x40, 4, 0, 1, 0x87, 0])
+        #expect(MQTTPacket.puback(1).encode(version: .v5) == [0x40, 2, 0, 1])
+    }
+
+    @Test func everyMQTT5PacketRoundTrips() throws {
+        let properties: MQTTProperties = [
+            (MQTTProperties.reasonString, .string("why")), (MQTTProperties.serverKeepAlive, .uint16(20)),
+            (MQTTProperties.maximumPacketSize, .uint32(1 << 20)), (0x0B, .varint(300)), (0x09, .binary([1, 2])),
+            (MQTTProperties.userProperty, .pair("k", "v")), (0x01, .byte(1)),
+        ]
+        let packets: [MQTTPacket] = [
+            .connect(MQTTConnect(version: .v5, clientID: "id", username: "u", password: "secret", keepAlive: 30, cleanSession: false,
+                                 will: MQTTMessage(topic: "status", string: "offline", qos: .atLeastOnce, retain: true), properties: properties)),
+            .connack(sessionPresent: true, returnCode: 0, properties: properties),
+            .connack(sessionPresent: false, returnCode: 0x86),
+            .publish(MQTTMessage(topic: "a/b", payload: Data(repeating: 1, count: 300), qos: .atLeastOnce), packetID: 9, duplicate: false, properties: properties),
+            .publish(MQTTMessage(topic: "a", string: "x"), packetID: nil, duplicate: false),
+            .puback(1), .puback(2, reasonCode: 0x97), .pubrec(2), .pubrel(3), .pubcomp(4),
+            .subscribe(packetID: 5, [MQTTSubscription(topic: "a/#", qos: .atLeastOnce)]),
+            .suback(packetID: 5, returnCodes: [1, 0x87], properties: properties),
+            .unsubscribe(packetID: 6, ["a/#"]), .unsuback(6, reasonCodes: [0]), .pingreq, .pingresp,
+            .disconnect(), .disconnect(reasonCode: 0x8E, properties: [(MQTTProperties.reasonString, .string("taken over"))]),
+        ]
+        var parser = MQTTPacketParser(version: .v5)
+        for byte in packets.flatMap({ $0.encode(version: .v5) }) { parser.append([byte]) }
+        var decoded: [MQTTPacket] = []
+        while let packet = try parser.next() { decoded.append(packet) }
+        #expect(decoded == packets)
+    }
+
+    @Test func aVersion5ClientReadsA311Connack() throws {
+        // A 3.1.1-only broker answers a version 5 CONNECT with its own CONNACK: two bytes, no properties.
+        var parser = MQTTPacketParser(version: .v5)
+        parser.append([0x20, 2, 0, 1])
+        #expect(try parser.next() == .connack(sessionPresent: false, returnCode: 1))
+        #expect(MQTTError.connectionRefused(code: 0x86).description == "the broker refused the connection: bad user name or password (code 0x86)")
     }
 
     @Test func refusesOversizedPackets() {
@@ -367,6 +413,89 @@ struct MQTTClientTests {
         server.broker.dropAll()
         try await eventually { server.broker.subscribes.count == 2 }
         #expect(server.webSocket.requests.map(\.uri) == ["/mqtt?X-Amz-Signature=1", "/mqtt?X-Amz-Signature=2"])
+        await client.disconnect()
+    }
+
+    // MARK: - MQTT 5
+
+    private func v5Client(_ server: TestSocketServer, username: String? = nil, password: String? = nil, keepAlive: Duration = .seconds(60),
+                          cleanSession: Bool = true, reconnect: MQTTConfiguration.Reconnect? = nil) -> MQTTClient {
+        MQTTClient(MQTTConfiguration(
+            transport: .tcp(host: "127.0.0.1", port: server.port), clientID: "c5", username: username, password: password, keepAlive: keepAlive,
+            cleanSession: cleanSession, protocolVersion: .v5, reconnect: reconnect, maximumPacketSize: 65536))
+    }
+
+    @Test func mqtt5SubscribesAndPublishesBothWays() async throws {
+        let server = try await TestSocketServer(mode: .mqtt)
+        defer { Task { await server.stop() } }
+        server.broker.state.withLockedValue { state in
+            state.credentials = ("serial", "pw")
+            state.connackProperties = [(MQTTProperties.topicAliasMaximum, .uint16(10)), (MQTTProperties.assignedClientIdentifier, .string("x"))]
+            state.publishProperties = [(0x03, .string("application/json")), (MQTTProperties.userProperty, .pair("k", "v"))]
+        }
+        let client = v5Client(server, username: "serial", password: "pw", cleanSession: false)
+        let messages = Recorder(client.messages)
+        try await client.connect()
+        let connect = try #require(server.broker.connects.first)
+        #expect(connect.version == .v5)
+        #expect(!connect.cleanSession)
+        #expect(connect.properties == [(MQTTProperties.sessionExpiryInterval, .uint32(.max)), (MQTTProperties.maximumPacketSize, .uint32(65536))])
+
+        try await client.subscribe("475/SERIAL/status/#", qos: .atLeastOnce)
+        #expect(server.broker.subscribes == [[MQTTSubscription(topic: "475/SERIAL/status/#", qos: .atLeastOnce)]])
+        server.broker.publish(MQTTMessage(topic: "475/SERIAL/status/current", string: "{}", qos: .atLeastOnce))
+        try await eventually { messages.all.count == 1 && server.broker.pubacks.count == 1 }
+        #expect(messages.all.first == MQTTMessage(topic: "475/SERIAL/status/current", string: "{}", qos: .atLeastOnce))
+
+        try await client.publish("475/SERIAL/command", string: "go", qos: .atLeastOnce)
+        try await client.publish("475/SERIAL/command", string: "zero")
+        try await eventually { server.broker.published.count == 2 }
+        // Refusals carry reason codes from 0x80.
+        await #expect(throws: MQTTError.subscriptionRefused(topic: "forbidden/x")) { try await client.subscribe("forbidden/x") }
+        await #expect(throws: MQTTError.publishRefused(topic: "forbidden/y", reasonCode: 0x87)) {
+            try await client.publish("forbidden/y", string: "no", qos: .atLeastOnce)
+        }
+        try await client.unsubscribe("475/SERIAL/status/#")
+        await client.disconnect()
+        try await eventually { server.broker.sessionCount == 0 }
+    }
+
+    @Test func mqtt5RefusalsAndA311OnlyBroker() async throws {
+        let server = try await TestSocketServer(mode: .mqtt)
+        defer { Task { await server.stop() } }
+        server.broker.state.withLockedValue { $0.credentials = ("serial", "right") }
+        await #expect(throws: MQTTError.connectionRefused(code: 0x86)) {
+            try await self.v5Client(server, username: "serial", password: "wrong").connect()
+        }
+        server.broker.state.withLockedValue { $0.only311 = true }
+        await #expect(throws: MQTTError.connectionRefused(code: 1)) {
+            try await self.v5Client(server, username: "serial", password: "right").connect()
+        }
+    }
+
+    @Test func mqtt5FollowsTheServerKeepAlive() async throws {
+        let server = try await TestSocketServer(mode: .mqtt)
+        defer { Task { await server.stop() } }
+        server.broker.state.withLockedValue { $0.connackProperties = [(MQTTProperties.serverKeepAlive, .uint16(1))] }
+        let client = v5Client(server, keepAlive: .seconds(600))
+        try await client.connect()
+        // A ping within seconds although the client asked for ten minutes.
+        try await eventually(.seconds(5)) { server.broker.pingreqs >= 1 }
+        await client.disconnect()
+    }
+
+    @Test func mqtt5BrokerDisconnectIsReportedAndReconnects() async throws {
+        let server = try await TestSocketServer(mode: .mqtt)
+        defer { Task { await server.stop() } }
+        let client = v5Client(server, reconnect: MQTTConfiguration.Reconnect(delay: .milliseconds(50)))
+        let states = Recorder(client.states)
+        try await client.connect()
+        server.broker.disconnectAll(reasonCode: 0x8B, reason: "maintenance")
+        let lost = MQTTError.disconnectedByBroker(reasonCode: 0x8B, reason: "maintenance").description
+        try await eventually { states.all.contains(.connectionLost(lost)) }
+        #expect(lost == "the broker closed the connection: maintenance")
+        try await eventually { server.broker.connects.count == 2 }
+        try await eventually { states.all.last == .connected(sessionPresent: false) }
         await client.disconnect()
     }
 }

@@ -41,6 +41,15 @@ struct MQTTClientTests {
         #expect(await client.topics.isEmpty)
     }
 
+    @Test func reachesAnMQTT5OnlyBroker() async throws {
+        dyson.set(onlyVersion: .v5)
+        let client = client()
+        try await client.connect()
+        #expect(await client.activeVariant?.label == "mqtt5-short-id")
+        #expect(dyson.connects.map(\.protocolVersion) == [.v3_1_1, .v3_1_1, .v3_1_1, .v5])
+        #expect(dyson.connects.last?.clientID == "ABC-AB-12345678")
+    }
+
     @Test func climbsTheVariantLadderOnIdentifierRejected() async throws {
         dyson.set(refuseLongClientIDs: 2)
         let client = client()
@@ -57,11 +66,17 @@ struct MQTTClientTests {
         #expect(dyson.connects.count == 1)
         dyson.set(refuseAll: MQTTError.connectionRefused(code: 5))
         await #expect(throws: DysonMQTTError.refused(code: 5)) { try await client.connect() }
-        // The MQTT 5 variant is refused before it reaches the device.
-        #expect(dyson.connects.count == 1 + DysonMQTTClient.variants.count - 1)
-        #expect(dyson.connects.map(\.protocolVersion).last == .v3_1)
+        // Every variant, the MQTT 5 one included, reaches the device.
+        #expect(dyson.connects.count == 1 + DysonMQTTClient.variants.count)
+        #expect(dyson.connects.map(\.protocolVersion).suffix(2) == [.v5, .v3_1])
         #expect(DysonMQTTClient.isRecoverable(DysonMQTTError.refused(code: 4)))
         #expect(!DysonMQTTClient.isRecoverable(DysonMQTTError.timeout(.seconds(10))))
+        // As the plugin's patterns: "Server unavailable" does not climb, in either numbering.
+        #expect(!DysonMQTTClient.isRecoverable(DysonMQTTError.refused(code: 3)))
+        #expect(!DysonMQTTClient.isRecoverable(DysonMQTTError.refused(code: 0x88)))
+        #expect(DysonMQTTClient.isRecoverable(DysonMQTTError.refused(code: 0x86)))
+        #expect(DysonMQTTError.refused(code: 0x86).description == "Connection refused: Bad User Name or Password")
+        #expect(DysonMQTTError.refused(code: 0x85).description == "Connection refused: Client Identifier not valid")
         #expect(DysonMQTTError.refused(code: 2).description == "Connection refused: Identifier rejected")
     }
 
@@ -367,16 +382,16 @@ struct MQTTConnectTests {
         DysonMQTTClient(settings: .init(host: "127.0.0.1", serial: "S", credentials: "p", productType: "438", timeout: .seconds(2), autoReconnect: false), mqtt: mqtt)
     }
 
-    @Test func mqtt5IsRefusedLikeABrokerWould() async throws {
+    @Test func theLadderTriesMQTT5() async throws {
         let attempts = NIOLockedValueBox<[MQTTProtocolVersion]>([])
-        // Every variant refused at CONNACK: the ladder reaches mqtt5 and refuses it without connecting.
+        // Every variant refused at CONNACK: the ladder goes through all of them, MQTT 5 included.
         let client = client { configuration in
             attempts.withLockedValue { $0.append(configuration.protocolVersion) }
             let connection = FakeMQTTRefusal()
             return connection
         }
         await #expect(throws: DysonMQTTError.refused(code: 2)) { try await client.connect() }
-        #expect(attempts.withLockedValue { $0 } == [.v3_1_1, .v3_1_1, .v3_1_1, .v3_1])
+        #expect(attempts.withLockedValue { $0 } == [.v3_1_1, .v3_1_1, .v3_1_1, .v5, .v3_1])
         #expect(DysonMQTTClient.isRecoverable(DysonMQTTError.refused(code: 1)))
         #expect(DysonMQTTError.refused(code: 1).description == "Connection refused: Unacceptable protocol version")
     }
