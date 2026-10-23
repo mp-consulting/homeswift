@@ -135,6 +135,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Faster web UI and MCP server.** `JSONValue` writes and parses its JSON itself instead of through
+  `JSONEncoder`/`JSONDecoder` (the same bytes, 7–30× faster), redaction skips the expressions a line cannot
+  match, the log buffer is a ring and the archive's lines skip the Codable coders, and static files answer 304
+  to a reload. `get_recent_logs` went from 89 to 3 ms, `/api/logs` from 17 to 4.5 ms, `/api/accessories` from
+  10.7 to 2.9 ms. Adding accessories no longer costs N² (a bridge with 300 took over a minute to start): the
+  accessory cache is saved once per burst, and an accessory that replaces one of the same shape is not followed
+  by a rehash of the whole database. `Benchmarks/bridge-bench.py` times every endpoint of a whole bridge.
+
 - The Accessories page shows a section per plugin rather than per server (a card's foot still names its
   server), and the Logs page's menu groups the accessories by plugin.
 - A paused plugin's pill has a colour of its own, and its card's ⋯ button keeps its size beside the paused note.
