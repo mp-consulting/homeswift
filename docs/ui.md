@@ -34,11 +34,13 @@ with a new code).
   the Home app, since the user signed in. Each card's **⋯** menu identifies the accessory, shows its log,
   asks the Assistant about it, and opens its plugin's settings.
 - **Plugins**: every platform block of config.json, with whether it runs and where. **Open** shows a
-  plugin's own page when it has one (see below). **Settings** opens a
-  form built from the plugin's schema (the same `config.schema.json` the Homebridge version ships), or a
-  JSON editor for plugins without one and for the runtime's own blocks. **Add a platform** lists the
-  plugins compiled in. A settings page shows the form first and the block as JSON under **JSON** (coloured
-  as you type, like the Config page); Save takes the view on screen. A certificate or key field takes a
+  plugin's own page (see below): a running plugin's settings are that page, from the Plugins list, an
+  accessory's menu or `#settings/<platform>/<name>`. Its **Expert** part, last on the page and **Expert** on
+  the Plugins list, opens the whole block as a form built from the plugin's schema (the same
+  `config.schema.json` the Homebridge version ships) or as JSON (`#settings/<platform>/<name>/form` or
+  `/json`); a plugin that does not run, or has no page, opens there directly, and the runtime's own blocks
+  under **Settings**. **Add a platform** lists the plugins compiled in. The JSON view is coloured as you
+  type, like the Config page; Save takes the view on screen. A certificate or key field takes a
   dropped PEM file, which the bridge checks and keeps owner-only under `files/` next to config.json. The
   runtime's own blocks, `HomeswiftUI` and `HomeswiftAiKit` (the Assistant and the MCP server), have forms too.
   **Add** on a plugin with its own page (pairing a TV, finding lights) writes an empty

@@ -34,6 +34,8 @@ All notable changes to this project are documented here. The format follows
   (the Assistant, the MCP server) has a form. The Logs page copies the lines shown. Selects look like the
   platform's pop-up buttons.
 - The voice language of the Assistant's chat can be chosen.
+- A plugin's own page is its settings page: the Plugins list, accessory menus and `#settings/<platform>/<name>`
+  open it, and the block as a form or as JSON is its **Expert** part.
 - **Add** on a plugin with its own page writes an empty block and opens the page; the Philips TV page opens
   its pairing wizard from an **Add a TV** button, and on its own while there is no TV.
 

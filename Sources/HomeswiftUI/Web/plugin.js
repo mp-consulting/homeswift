@@ -146,9 +146,18 @@
   }
   const main = $("main");
   if (main) {
-    main.prepend(el("nav", { class: "breadcrumb", "aria-label": "Breadcrumb" }, trail,
-      el("a", { href: `/#settings/${encodeURIComponent(platform)}/${encodeURIComponent(name)}`, text: "Settings", title: "This plugin's block of config.json" })));
+    main.prepend(el("nav", { class: "breadcrumb", "aria-label": "Breadcrumb" }, trail));
     breadcrumb(null);
+    // Expert, last on the page once the page's own script has laid it out: the whole block as config.json
+    // keeps it, as a form or as JSON, for what the page itself does not set.
+    const expert = (mode) => `/#settings/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/${mode}`;
+    const section = el("section", { class: "expert", "aria-labelledby": "expert-title" },
+      el("div", { class: "section-head" }, el("h2", { id: "expert-title", text: "Expert" })),
+      el("div", { class: "card page-note" },
+        el("p", { class: "muted", text: "Every setting of this plugin's block, as config.json keeps it, including what this page does not show." }),
+        el("div", { class: "expert-links" }, el("a", { class: "button", href: expert("form"), text: "Form" }), el("a", { class: "button", href: expert("json"), text: "JSON" }))));
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => main.append(section));
+    else main.append(section);
   }
 
   // ---- This instance's block of config.json -------------------------------------------------------------
