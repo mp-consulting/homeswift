@@ -4,9 +4,7 @@ Philips Android TVs with Ambilight in HomeKit: power (with Wake-on-LAN), the inp
 to 4, the apps the TV reports or the ones you list), the remote, volume and mute, Ambilight as a colour light,
 and optional switches and sensors so scenes and automations can use the TV's state.
 
-A port of [`homebridge-philips-ambilight-tv`](https://github.com/mp-consulting/homebridge-philips-ambilight-tv), the fork of
-Konrad Knitter's `homebridge-philips-tv-ambilight` (Apache License 2.0; notice and changes in
-[THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md)).
+A port of [`homebridge-philips-ambilight-tv`](https://github.com/mp-consulting/homebridge-philips-ambilight-tv).
 The platform block is the same, so a Homebridge configuration works unchanged. Each TV is published as an
 accessory of its own, as Homebridge does: HomeKit allows one television per bridge, so a TV appears in the
 Home app as a second accessory to add, with the same setup code as the bridge.

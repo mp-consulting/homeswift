@@ -305,7 +305,7 @@ All notable changes to this project are documented here. The format follows
   throwaway bridge over MCP; `AGENTS.md` for other coding agents.
 - **THIRD-PARTY-NOTICES.md**: the copyright and permission notices of the projects Homeswift ports (HJD's UniFi
   plugins and homebridge-plugin-utils under ISC; the Elgato, Govee, eWeLink and Dyson plugins and noble under MIT;
-  the LG ThinQ, Daikin Cloud and Philips TV plugins and HAP-NodeJS under Apache-2.0, in `LICENSES/Apache-2.0.txt`),
+  the LG ThinQ and Daikin Cloud plugins and HAP-NodeJS under Apache-2.0, in `LICENSES/Apache-2.0.txt`),
   with the parts of the repository each one became; every ported plugin's README names its original author.
 
 ### Changed
