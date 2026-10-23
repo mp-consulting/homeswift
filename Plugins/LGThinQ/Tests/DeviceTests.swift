@@ -66,7 +66,8 @@ struct AirConditionerTests {
 
         try await heater.characteristic(.coolingThresholdTemperature).write(.double(24))
         #expect(environment.lg.commands.last?["dataKey"] == "airState.tempState.target" && environment.lg.commands.last?["dataValue"] == 24)
-        #expect(environment.lg.requests.last?.url.absoluteString == "\(FakeLG.thinq2)/service/devices/\(acID)/control-sync")
+        // The command's request, wherever it falls among the plugin's own (a route lookup may come after it).
+        #expect(environment.lg.requests.contains { $0.url.absoluteString == "\(FakeLG.thinq2)/service/devices/\(acID)/control-sync" })
 
         try await heater.characteristic(.rotationSpeed).write(.double(100))
         #expect(environment.lg.commands.last?["dataKey"] == "airState.windStrength" && environment.lg.commands.last?["dataValue"] == 6)

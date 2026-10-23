@@ -339,14 +339,15 @@ func scanReply(_ device: String, sku: String = "H6008", extra: [String: JSONValu
     @Test func writesTheFramesAndResumesTheScanForWhatRemains() async throws {
         let central = FakeCentral()
         let client = BLEClient(central: central, logger: testLogger, timing: timing, debug: quietDebug)
-        try await client.scan(for: { _ in }, duration: .milliseconds(800))
+        // Long enough that some of it remains after the write on a slow runner, for the scan to resume.
+        try await client.scan(for: { _ in }, duration: .seconds(2))
         try await client.updateDevice(target, params: .ptReal(["MwEBAAAAAAAAAAAAAAAAAAAAADM=", "MwEAAAAAAAAAAAAAAAAAAAAAADI="]), log: testDeviceLog)
         #expect(await central.written.map(Array.init) == [Govee.codeBytes([0x33, 1, 1]), Govee.codeBytes([0x33, 1, 0])])
         #expect(await central.disconnects == 1)
         #expect(await eventually { await central.scans == 2 })
         #expect(await client.isScanning)
         // …and still ends at the original deadline.
-        #expect(await eventually(.seconds(2)) { await !client.isScanning })
+        #expect(await eventually(.seconds(4)) { await !client.isScanning })
     }
 
     @Test func timesOutAStalledDiscoveryAndDisconnects() async {
