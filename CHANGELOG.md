@@ -270,6 +270,9 @@ All notable changes to this project are documented here. The format follows
 
 - A write the device refuses or never answers reads as a sentence ("Desk Lamp did not answer…", "eWeLink is
   paused: resume it…") in the web UI and to MCP clients, not as `HAPStatusError(…)`.
+- Govee: a bridge restart no longer turns Adaptive Lighting off. The light's first colour report after launch was
+  compared with an empty cache (0 K) and taken for a colour set elsewhere; it now only fills the cache.
+- The Adaptive swatch's ring is no longer cut on its left in a medium light widget.
 
   plugins of a Homebridge-shaped `config.json` on one bridge, restores each platform's accessories from a
   cache before its plugin starts (aids and iids kept), and runs a block with `_bridge` on its own child
