@@ -21,6 +21,8 @@ final class GoveeEnvironment: @unchecked Sendable {
     let mqtt = FakeAWSBroker()
     let central = FakeCentral()
     var bleAvailable = true
+    /// The Homebridge storage path a first start imports a login from; none by default, never the user's.
+    var homebridgeStorage: URL?
     private let plugins = NIOLockedValueBox<[GoveePlugin]>([])
 
     var plugin: GoveePlugin? { plugins.withLockedValue { $0.last } }
@@ -75,6 +77,7 @@ final class GoveeEnvironment: @unchecked Sendable {
             let mqtt = self.mqtt
             dependencies.mqtt = { _ in mqtt }
             dependencies.history = false
+            dependencies.homebridgeStorage = self.homebridgeStorage
             dependencies.retryDelay = .milliseconds(1)
             let plugin = GoveePlugin(configuration: try JSONDecoder().decode(GoveePlugin.Configuration.self, from: json), context: context, dependencies: dependencies)
             self.plugins.withLockedValue { $0.append(plugin) }
@@ -480,4 +483,109 @@ extension PluginHost {
         if app.path.hasSuffix(".app") { #expect(app.infoDictionary?["CFBundleIdentifier"] != nil) }
     }
     #endif
+}
+
+@Suite(.serialized) struct UpstreamParityTests {
+    /// The Homebridge plugin's TV-type plugs are bridged accessories: no pairing of their own.
+    @Test func plugsShownAsTelevisionsStayOnTheBridge() async throws {
+        let plugID = "AA:BB:CC:DD:EE:FF:00:99"
+        let environment = GoveeEnvironment(devices: [["device": .string(plugID), "sku": "H5080", "deviceName": "Speaker"]])
+        let host = try await environment.start(["username": "user@example.com", "password": "pw", "switchDevices": [["deviceId": plugID, "showAs": "audio"]]])
+        defer { Task { await host.stop() } }
+        let accessory = try #require(host.accessory(plugID))
+        #expect(accessory.category == .audioReceiver)
+        #expect(accessory.service(.television) != nil)
+        #expect(environment.plugin?.context.isExternal(id: "Govee:\(plugID)") == false)
+    }
+
+    /// Settings or data that are JSON but no object fail that device's refresh (`devNotRef`), not the others'.
+    @Test func aSensorWhoseDataIsNoObjectFailsAlone() async throws {
+        let environment = GoveeEnvironment()
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        let thermometer = try #require(await plugin.devices[thermoID])
+        await #expect(throws: GoveeAPIError.self) { try await plugin.refresh(thermometer, sku: "H5179", settings: .null, data: ["tem": 2000]) }
+
+        var devices = GoveeEnvironment.devices
+        devices[1] = [
+            "device": "f944abcd12345678", "sku": "H5179", "deviceName": "Thermometer",
+            "deviceExt": ["deviceSettings": .string(jsonText(["battery": 94])), "lastDeviceData": "null"],
+        ]
+        devices[3] = [
+            "device": .string(poolID), "sku": "H5310", "deviceName": "Pool",
+            "deviceExt": ["deviceSettings": .string(jsonText(["battery": 100])), "lastDeviceData": .string(jsonText(["tem": 3000, "online": true]))],
+        ]
+        environment.govee.answer("app2.govee.com/device/rest/devices/v1/list", ["devices": .array(devices)])
+        // The sync the start began may be running: this one is skipped until it ends.
+        let pool = try #require(host.accessory(poolID)?.service(.temperatureSensor))
+        #expect(await eventually {
+            await plugin.httpSync()
+            return pool[.currentTemperature]?.value.doubleValue == 30
+        })
+    }
+
+    static let loginPath = "app2.govee.com/account/rest/account/v2/login"
+    static let listPath = "app2.govee.com/device/rest/devices/v1/list"
+
+    /// A Homebridge storage path with the plugin's kept login: node-persist's file for `Govee_All_Devices_temp`
+    /// (named by its SHA-256) and the AWS IoT certificate.
+    static func homebridgeStorage(username: String) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("homebridge-\(UUID().uuidString)")
+        let cache = directory.appendingPathComponent("govee_cache")
+        let persist = directory.appendingPathComponent("persist")
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: persist, withIntermediateDirectories: true)
+        let value = "account-topic:::hb-token:::\(username):::acc:::aws.example:::secret:::"
+        try jsonData(["key": "Govee_All_Devices_temp", "value": .string(value), "ttl": .null])
+            .write(to: cache.appendingPathComponent("556bab7226f6db1548fdc52ac10e9e63dcd62bfc0cf82fffdf94077104c49613"))
+        try Data(Govee.bytes(base64: legacyPKCS12)).write(to: persist.appendingPathComponent("govee.pfx"))
+        return directory
+    }
+
+    @Test func aHomebridgeLoginIsImportedOnce() async throws {
+        let homebridge = try Self.homebridgeStorage(username: "user@example.com")
+        defer { try? FileManager.default.removeItem(at: homebridge) }
+        let environment = GoveeEnvironment()
+        var settings: [String: Any] = ["username": "user@example.com", "password": "pw"]
+        settings["homebridgeStoragePath"] = homebridge.path
+        let host = try await environment.start(settings)
+        #expect(environment.govee.requests(to: Self.loginPath).isEmpty)
+        let list = try #require(environment.govee.requests(to: Self.listPath).first)
+        #expect(list.headers.contains { $0.0 == "Authorization" && $0.1 == "Bearer hb-token" })
+        #expect(await environment.plugin?.awsClient != nil)
+        await host.stop()
+
+        // The kept login cleared (as Clear Cache does): the next start logs in rather than import again.
+        let files = FileManager.default.subpaths(atPath: environment.directory.path) ?? []
+        let marker = try #require(files.first { $0.hasSuffix("homebridge-import") })
+        let pluginDirectory = environment.directory.appendingPathComponent(marker).deletingLastPathComponent()
+        for name in ["credentials.json", "govee.pfx"] { try FileManager.default.removeItem(at: pluginDirectory.appendingPathComponent(name)) }
+        let again = try await environment.start(settings)
+        defer { Task { await again.stop() } }
+        #expect(environment.govee.requests(to: Self.loginPath).count == 1)
+    }
+
+    @Test func anotherAccountsLoginIsNotImported() async throws {
+        let homebridge = try Self.homebridgeStorage(username: "someone-else@example.com")
+        defer { try? FileManager.default.removeItem(at: homebridge) }
+        let environment = GoveeEnvironment()
+        environment.homebridgeStorage = homebridge
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        #expect(environment.govee.requests(to: Self.loginPath).count == 1)
+    }
+
+    @Test func theAssistantKnowsThePort() throws {
+        let background = try #require(GoveePlugin.assistantBackground)
+        #expect(background.count > 1500)
+        #expect(background.contains("Homeswift") && background.contains("plugins/Govee-"))
+        // Nothing of Homebridge's that the port does not have.
+        for absent in ["restart Homebridge", "persist/govee.pfx", "@stoprocent", "Homebridge UI", "npm"] { #expect(!background.contains(absent)) }
+        // The log lines it explains are the port's own.
+        for line in [Lang.accTokenRejected, Lang.notAWSConn, Lang.httpRetry, Lang.devMaySupp.components(separatedBy: ",")[0]] {
+            #expect(background.contains(line))
+        }
+        #expect(background.contains(String(Lang.noConnMethod.prefix(30))))
+    }
 }

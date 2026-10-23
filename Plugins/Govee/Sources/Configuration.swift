@@ -31,6 +31,11 @@ extension GoveePlugin {
         public var bleDisable: Bool { Self.truthy(raw["bleDisable"]) }
         public var lanDisable: Bool { Self.truthy(raw["lanDisable"]) }
         public var colourSafeMode: Bool { Self.truthy(raw["colourSafeMode"]) }
+        /// Homeswift only: the Homebridge storage path whose `govee_cache` login a first start imports (`~` expanded).
+        public var homebridgeStoragePath: URL? {
+            guard let path = raw["homebridgeStoragePath"]?.stringValue?.trimmingCharacters(in: .whitespaces), !path.isEmpty else { return nil }
+            return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        }
 
         /// Seconds; 30 at least.
         var httpRefreshTime: Int { number("httpRefreshTime", minimum: GoveeConstants.Minimums.httpRefreshTime, default: GoveeConstants.Defaults.httpRefreshTime) }

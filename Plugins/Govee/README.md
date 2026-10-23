@@ -24,8 +24,10 @@ block is the same, so a Homebridge configuration works unchanged.
 
 A command goes over LAN, then AWS, then Bluetooth, whichever works first. Without credentials the plugin runs
 with LAN and Bluetooth only. Bluetooth works on macOS (the `homeswift` binary embeds the Info.plist key
-CoreBluetooth needs; a binary without it logs that Bluetooth needs `NSBluetoothAlwaysUsageDescription`), not
-yet on Linux.
+CoreBluetooth needs; a binary without it logs that Bluetooth needs `NSBluetoothAlwaysUsageDescription`) and on
+Linux, where it uses the adapter `hci0` (or the one `NOBLE_HCI_DEVICE_ID` names, as for noble) through a raw HCI
+socket, which needs root or `CAP_NET_RAW`: `sudo setcap cap_net_raw,cap_net_admin+eip "$(command -v homeswift)"`.
+Without Bluetooth hardware the log says "Bluetooth not available on this system" and the plugin runs without it.
 
 ### New-device verification
 
@@ -88,6 +90,7 @@ through the model.
 | `lanRefreshTime` | `30` | Seconds between LAN status polls |
 | `lanScanInterval` | `60` | Seconds between LAN scans (30 at least) |
 | `colourSafeMode` | `false` | A slower but more reliable way of setting colours (no colour temperature, no Adaptive Lighting) |
+| `homebridgeStoragePath` | `~/.homebridge` | Homeswift only: the Homebridge storage path whose Govee login a first start imports |
 
 Each device type has its list: `lightDevices`, `switchDevices`, `thermoDevices`, `leakDevices`, `fanDevices`,
 `heaterDevices`, `humidifierDevices`, `dehumidifierDevices`, `purifierDevices`, `diffuserDevices`,
@@ -101,6 +104,8 @@ Each device type has its list: `lightDevices`, `switchDevices`, `thermoDevices`,
   `segmented` to `segmentedFour` (`sceneCode`, `bleCode`, `showAs`).
 - **Plugs**: `showAs` (`default`, `outlet`, `switch`, `purifier`, `heater`, `cooler`, `tap`, `valve`, `audio`,
   `box`, `stick`) and `temperatureSource`, the thermo-hygrometer a plug shown as a heater or cooler follows.
+  `audio`, `box` and `stick` are televisions on the bridge, as in Homebridge; the Home app shows one television
+  per bridge, so several go on a child bridge (`_bridge`) each.
 - **Thermo-hygrometers**: `lowBattThreshold`, `showExtraSwitch` (a read-only thermostat instead of a
   temperature sensor). **Leak sensors**: `lowBattThreshold`.
 - **Fans**: `hideLight`. **Heaters**: `tempReporting`. **Kettles**: `hideModeGreenTea`, `hideModeOolongTea`,
@@ -110,17 +115,19 @@ Each device type has its list: `lightDevices`, `switchDevices`, `thermoDevices`,
 
 - **Files**: the login is kept in `credentials.json` and the certificate in `govee.pfx`, both owner-only,
   under `~/.homeswift/plugins/Govee-<name>/`, with the discovered devices, the devices' state and the Eve
-  histories. A Homebridge `govee_cache` is not read: the first start logs in again.
-- **Bluetooth** runs on macOS through CoreBluetooth, which hides MAC addresses: a device is found by the name it
-  advertises (Govee's `bleName`) or by the end of its MAC in that name. macOS allows Bluetooth only to a binary
+  histories. A first start without a kept login imports the Homebridge plugin's, once, so Govee does not ask for
+  a verification code again: node-persist's file for `Govee_All_Devices_temp` in `govee_cache` and
+  `persist/govee.pfx` of `homebridgeStoragePath`, else `~/.homebridge`, when it is the same account.
+- **Bluetooth** on Linux finds devices by MAC address as the Homebridge plugin does, but does not reset the
+  adapter as noble did (that drops BlueZ's other connections): it scans on a raw HCI socket and connects through
+  the kernel's L2CAP socket on the ATT channel, so BlueZ may keep running. On macOS it runs through CoreBluetooth,
+  which hides MAC addresses: a device is found by the name it advertises (Govee's `bleName`) or by the end of its
+  MAC in that name, and so are the thermo-hygrometers' readings. macOS allows Bluetooth only to a binary
   whose Info.plist describes the use (`NSBluetoothAlwaysUsageDescription`); without it the plugin logs that
   Bluetooth is unavailable and runs without it. macOS asks the *responsible* process: homeswift started on its
   own (launchd, `brew services`) is responsible for itself, but started from a shell it is the app that opened
   that shell (an IDE, an agent's app). When that app declares no Bluetooth use, macOS would abort the whole
-  bridge at the first Bluetooth call, so the plugin turns Bluetooth off and logs which app is responsible. There is no Bluetooth on Linux yet (noble was optional upstream
-  too).
-- A plug shown as an **audio receiver, set-top box or streaming stick** is published as an accessory of its
-  own, as HomeKit wants televisions: add it in the Home app with the bridge's setup code.
+  bridge at the first Bluetooth call, so the plugin turns Bluetooth off and logs which app is responsible.
 - `label` names every device in HomeKit, not only LAN-only ones, as the page's help always said.
 - `temperatureSource` works: the Homebridge plugin never read it, so its plug heaters and coolers kept 20°C.
 - `customAddress` is used as the device's Bluetooth address.
