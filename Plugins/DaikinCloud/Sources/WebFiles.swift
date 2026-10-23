@@ -872,7 +872,7 @@ input:invalid, input.invalid { border-color: var(--error) !important; }
 <link rel="stylesheet" href="daikin.css">
 </head>
 <body>
-<header><a class="brand" href="/#status"><img src="/icon.svg" class="logo" alt="">Homeswift</a></header>
+<header><a class="brand" href="/"><img src="/icon.svg" class="logo" alt="">Homeswift</a></header>
 <main>
   <div class="page-head">
     <span class="tile large daikin" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 8h11a3 3 0 1 0-3-3"/><path d="M3 12h16a3 3 0 1 1-3 3"/><path d="M3 16h7"/></svg></span>

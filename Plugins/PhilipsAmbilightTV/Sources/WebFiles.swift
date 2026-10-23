@@ -67,7 +67,7 @@ extension PhilipsAmbilightTVPlugin {
         HomeswiftCommon.menuButton(`Actions for ${tv.name}`, () => [
           { label: "Inputs", icon: "inputs", onSelect: () => openSources(tv) },
           { label: "Edit", icon: "edit", onSelect: () => openEditor(tv) },
-          { label: "Show its log", icon: "logs", href: `/#logs/${encodeURIComponent(`${platform}:${tv.mac}`)}` },
+          { label: "Show its log", icon: "logs", href: `/logs/${encodeURIComponent(`${platform}:${tv.mac}`)}` },
           window.HomeswiftChat?.available() ? { label: "Ask the Assistant", icon: HomeswiftCommon.sparkle(), onSelect: () => HomeswiftChat.ask(`About my TV ${tv.name}: `) } : null,
           { label: "Remove", icon: "trash", danger: true, onSelect: () => removeTV(tv).catch((e) => alert(e.message)) },
         ])));
@@ -909,7 +909,7 @@ extension PhilipsAmbilightTVPlugin {
 </style>
 </head>
 <body>
-<header><a class="brand" href="/#status"><img src="/icon.svg" class="logo" alt="">Homeswift</a></header>
+<header><a class="brand" href="/"><img src="/icon.svg" class="logo" alt="">Homeswift</a></header>
 <main>
   <div class="page-head">
     <span class="tile large tone-blue" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/></svg></span>

@@ -58,7 +58,7 @@
         HomeswiftCommon.menuButton(`Actions for ${tv.name}`, () => [
           { label: "Inputs", icon: "inputs", onSelect: () => openSources(tv) },
           { label: "Edit", icon: "edit", onSelect: () => openEditor(tv) },
-          { label: "Show its log", icon: "logs", href: `/#logs/${encodeURIComponent(`${platform}:${tv.mac}`)}` },
+          { label: "Show its log", icon: "logs", href: `/logs/${encodeURIComponent(`${platform}:${tv.mac}`)}` },
           window.HomeswiftChat?.available() ? { label: "Ask the Assistant", icon: HomeswiftCommon.sparkle(), onSelect: () => HomeswiftChat.ask(`About my TV ${tv.name}: `) } : null,
           { label: "Remove", icon: "trash", danger: true, onSelect: () => removeTV(tv).catch((e) => alert(e.message)) },
         ])));

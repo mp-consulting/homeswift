@@ -303,18 +303,36 @@
 
   // ---- The sections, and the tab bar a phone shows them in -----------------------------------------------
 
-  const sections = [["#status", "Status", "bridge"], ["#accessories", "Accessories", "bulb"], ["#plugins", "Plugins", "plugin"], ["#config", "Config", "code"], ["#logs", "Logs", "logs"]];
+  const sections = [["/status", "Status", "bridge"], ["/accessories", "Accessories", "bulb"], ["/plugins", "Plugins", "plugin"], ["/config", "Config", "code"], ["/logs", "Logs", "logs"]];
 
   /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
-  /// a label each, the current one in the accent. `prefix` is "/" on a plugin's page; `parent` is what hides it
-  /// with the app (the sign-in screen has none). Hidden on wider windows, where the header holds them.
-  function tabBar({ prefix = "", active, parent = document.body } = {}) {
+  /// a label each, the current one in the accent. `parent` is what hides it with the app (the sign-in screen has
+  /// none). Hidden on wider windows, where the header holds them.
+  function tabBar({ active, parent = document.body } = {}) {
     const existing = document.querySelector("nav.tabbar");
     if (existing) return existing;
-    const bar = el("nav", { class: "tabbar", "aria-label": "Sections" }, sections.map(([hash, text, glyph]) =>
-      el("a", { href: `${prefix}${hash}`, class: hash === active ? "active" : "", "aria-current": hash === active ? "page" : null }, icon(glyph), el("span", { text }))));
+    const bar = el("nav", { class: "tabbar", "aria-label": "Sections" }, sections.map(([path, text, glyph]) =>
+      el("a", { href: path, class: path === active ? "active" : "", "aria-current": path === active ? "page" : null }, icon(glyph), el("span", { text }))));
     parent.append(bar);
     return bar;
+  }
+
+  /// A name as a path segment, as the server makes them (Slug.swift): lower case, accents dropped, anything but
+  /// letters and digits as one dash.
+  const slug = (text) => String(text).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+
+  /// Gives each item of `list` a `slug` from its name, unique in the list (a second "Lamp" is lamp-2); answers
+  /// the list.
+  function withSlugs(list, fallback = "item") {
+    const taken = new Set();
+    for (const item of list) {
+      const base = slug(item.name) || fallback;
+      let candidate = base;
+      for (let n = 2; taken.has(candidate); n++) candidate = `${base}-${n}`;
+      taken.add(candidate);
+      item.slug = candidate;
+    }
+    return list;
   }
 
   /// Pauses or resumes a plugin instance: `_paused` in its block of config.json, applied at once. Paused, the
@@ -327,5 +345,5 @@
     return api(path, { method: "PUT", body: block });
   }
 
-  window.HomeswiftCommon = { $, el, icon, tile, fact, markdown, sparkle, api, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, sections, tabBar, setPaused };
+  window.HomeswiftCommon = { $, el, icon, tile, fact, markdown, sparkle, api, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, sections, tabBar, setPaused, slug, withSlugs };
 })();

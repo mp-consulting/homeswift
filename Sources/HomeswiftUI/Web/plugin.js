@@ -1,10 +1,13 @@
-// For a plugin's own pages, served at /plugins/<platform>/ after common.js: homeswift.request() talks to the plugin
-// instance named in the page's URL (?name=), with the session cookie; homeswift.el(), .$(), .tile() and .fact() are
+// For a plugin's own pages, served at /plugins/<slug> after common.js: homeswift.request() talks to the plugin
+// instance the server names in the page (<meta name="homeswift-plugin">), with the session cookie; homeswift.el(), .$(), .tile() and .fact() are
 // the UI's own (common.js). A signed-out visitor is sent to the login page.
 (() => {
   "use strict";
-  const platform = decodeURIComponent(location.pathname.split("/")[2] || "");
-  const name = new URLSearchParams(location.search).get("name") || platform;
+  const instance = document.querySelector('meta[name="homeswift-plugin"]')?.dataset ?? {};
+  const platform = instance.platform || "";
+  const name = instance.name || platform;
+  /// The page's address, /plugins/<slug>: its Expert part is below it.
+  const address = `/plugins/${location.pathname.split("/")[2] || ""}`;
   const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
 
   const { $, el, icon, tile, fact, markdown, sparkle, api } = HomeswiftCommon;
@@ -85,18 +88,18 @@
   const sections = HomeswiftCommon.sections;
   const header = $("header");
   if (header) {
-    const user = el("a", { id: "user", href: "/#account", title: "Your account: change the password" });
+    const user = el("a", { id: "user", href: "/account", title: "Your account: change the password" });
     const logout = el("button", { id: "logout", class: "link hidden", text: "Sign out", onclick: async () => {
       try { await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }); } catch {}
       location.href = "/";
     } });
     header.replaceChildren(
-      el("a", { class: "brand", href: "/#status" }, el("img", { src: "/icon.svg", class: "logo", alt: "" }), "Homeswift"),
-      el("nav", { "aria-label": "Sections" }, sections.map(([hash, text]) => el("a", { href: `/${hash}`, text, class: hash === "#plugins" ? "active" : "" }))),
+      el("a", { class: "brand", href: "/" }, el("img", { src: "/icon.svg", class: "logo", alt: "" }), "Homeswift"),
+      el("nav", { "aria-label": "Sections" }, sections.map(([path, text]) => el("a", { href: path, text, class: path === "/plugins" ? "active" : "" }))),
       el("span", { class: "spacer" }), user, logout);
     // On a phone the sections sit in a tab bar at the bottom, as on the UI's own pages; the page also extends
     // under the notch and the home indicator, which the layout pads around.
-    HomeswiftCommon.tabBar({ prefix: "/", active: "#plugins" });
+    HomeswiftCommon.tabBar({ active: "/plugins" });
     const viewport = document.querySelector('meta[name="viewport"]');
     if (viewport && !viewport.content.includes("viewport-fit")) viewport.content += ", viewport-fit=cover";
     // The Assistant's chat, as on the UI's own pages.
@@ -136,7 +139,7 @@
   function breadcrumb(text, close) {
     opened = text ? { text, close } : null;
     const crumb = (content, current) => el("li", current ? { "aria-current": "page" } : {}, content);
-    const levels = [crumb(el("a", { href: "/#plugins", text: "Plugins" }))];
+    const levels = [crumb(el("a", { href: "/plugins", text: "Plugins" }))];
     const pageLevel = name !== pageTitle ? `${pageTitle} · ${name}` : pageTitle;
     levels.push(opened
       ? crumb(el("a", { href: "#", text: pageLevel, onclick: (event) => { event.preventDefault(); opened?.close?.(); } }))
@@ -167,7 +170,7 @@
     }).catch(() => {});
     // Expert, last on the page once the page's own script has laid it out: the whole block as config.json
     // keeps it, as a form or as JSON, for what the page itself does not set.
-    const expert = (mode) => `/#settings/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/${mode}`;
+    const expert = (mode) => `${address}/expert${mode === "json" ? "/json" : ""}`;
     const section = el("section", { class: "expert", "aria-labelledby": "expert-title" },
       el("div", { class: "section-head" }, el("h2", { id: "expert-title", text: "Expert" })),
       el("div", { class: "card page-note" },
@@ -284,7 +287,7 @@
   }
 
   window.homeswift = {
-    platform, name, request, home: "/#plugins", $, el, icon, tile, fact, assistant, explain, breadcrumb, api, act,
+    platform, name, request, home: "/plugins", $, el, icon, tile, fact, assistant, explain, breadcrumb, api, act,
     readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, poll, renderKeyed,
     canonicalMAC, isMAC, sameMAC,
   };

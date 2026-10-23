@@ -220,8 +220,8 @@
 
   function page() {
     const path = location.pathname.split("/").filter(Boolean);
-    if (path[0] === "plugins") return `plugin page of ${decodeURIComponent(path[1] || "")}`;
-    return (location.hash.slice(1).split("/")[0] || "status");
+    if (path[0] === "plugins" && path.length === 2 && document.querySelector('meta[name="homeswift-plugin"]')) return `plugin page of ${decodeURIComponent(path[1])}`;
+    return path[0] || "status";
   }
 
   async function submit(text = panel.input.value.trim(), byVoice = false) {
@@ -570,5 +570,5 @@
 
   window.HomeswiftChat = { mount, ask, open: () => toggle(true), available: () => Boolean(info?.enabled) };
   // The UI's own page mounts it once signed in; a plugin page is signed in already.
-  if (location.pathname.startsWith("/plugins/")) mount();
+  if (document.querySelector('meta[name="homeswift-plugin"]')) mount();
 })();

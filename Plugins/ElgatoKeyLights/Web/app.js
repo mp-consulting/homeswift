@@ -63,7 +63,7 @@
         HomeswiftCommon.menuButton(`Actions for ${light.name}`, () => [
           !disabled && light.reachable ? { label: "Identify", icon: "identify", onSelect: () => request(`identify?mac=${encodeURIComponent(light.mac)}`, { method: "POST" }).catch((e) => alert(e.message)) } : null,
           { label: "Settings", icon: "gear", onSelect: () => openSettings(light) },
-          disabled ? null : { label: "Show its log", icon: "logs", href: `/#logs/${encodeURIComponent(`ElgatoKeyLights:${canonicalMAC(light.mac)}`)}` },
+          disabled ? null : { label: "Show its log", icon: "logs", href: `/logs/${encodeURIComponent(`ElgatoKeyLights:${canonicalMAC(light.mac)}`)}` },
           window.HomeswiftChat?.available() ? { label: "Ask the Assistant", icon: HomeswiftCommon.sparkle(), onSelect: () => HomeswiftChat.ask(`About my light ${light.name}: `) } : null,
         ])));
   }

@@ -101,8 +101,9 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
   `HomeswiftCatalog` surface; mutations need JSON bodies and a same-origin `Origin`. `HomeswiftUI` and
   `HomeswiftAiKit` are system platforms: the CLI starts them, `PluginHost` skips them. The first account
   needs the set-up code the banner prints (`UIServer.setupCode`), never logged; requests are answered only
-  for the server's own `Host` names (`allowedHosts`). Plugin pages are served at `/plugins/<platform>/`
-  and talk to their instance through `/api/plugins/<platform>/<name>/…` (`HomeswiftPlugin.webFiles`,
+  for the server's own `Host` names (`allowedHosts`). The UI's views are paths (`/plugins/<slug>/expert`,
+  `/logs/<slug>?since=24h`; `Slug` and common.js's `slug` agree); a plugin instance's page is served at
+  `/plugins/<slug>` with a `<base>` and a `<meta name="homeswift-plugin">`, and talks to its instance through `/api/plugins/<platform>/<name>/…` (`HomeswiftPlugin.webFiles`,
   `handleWebRequest`). A restart goes through `HomeswiftCatalog.scheduleRestart`, whose hook the CLI sets to
   stop everything and `execv` itself (`Restart.swift`); libraries and tests have none. Files the bridge
   keeps are written with `OwnerOnlyFile.write`.

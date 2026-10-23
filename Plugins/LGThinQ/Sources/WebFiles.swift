@@ -794,7 +794,7 @@ window.LG_COUNTRIES = [
 </style>
 </head>
 <body>
-<header><a class="brand" href="/#status"><img src="/icon.svg" class="logo" alt="">Homeswift</a></header>
+<header><a class="brand" href="/"><img src="/icon.svg" class="logo" alt="">Homeswift</a></header>
 <main>
   <div class="page-head">
     <span class="tile large accessory" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg></span>
