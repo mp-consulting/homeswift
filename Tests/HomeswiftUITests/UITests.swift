@@ -364,6 +364,18 @@ final class Browser: @unchecked Sendable {
 
 @Suite(.timeLimit(.minutes(1)))
 struct LogFilterTests {
+    /// The logs answer, written directly, is the bytes of the array of `logJSON` it replaced.
+    @Test func writesLogsAsTheirJSON() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000.75)
+        let lines = [
+            LogBuffer.Line(date: start, level: .info, label: "Bench Home", text: "plain"),
+            LogBuffer.Line(date: start.addingTimeInterval(61), level: .warning, label: "Dyson \"Pure\"", text: "a\nb\té / \u{1} 😀", details: #"{"k":[1,2]}"#),
+            LogBuffer.Line(date: start.addingTimeInterval(3600), level: .error, label: "", text: ""),
+        ]
+        #expect(UIServer.logsJSON(lines) == JSONValue.array(lines.map(UIServer.logJSON)).encoded())
+        #expect(UIServer.logsJSON([]) == JSONValue.array([]).encoded())
+    }
+
     /// One accessory's lines, picked on the server, for the latest lines and for a time range.
     @Test func picksAnAccessorysLines() async throws {
         let environment = try UITestEnvironment(auth: .none)
