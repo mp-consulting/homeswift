@@ -5,6 +5,8 @@ set -eu
 
 OUT=$1
 mkdir -p "$OUT/lib"
+# Where each bundled library came from, for its package's licence.
+sources=$(mktemp)
 
 # Avahi's dns_sd compatibility layer, its client and D-Bus: DSM runs Avahi but does not ship the compatibility
 # library, and its own libraries are not a stable interface.
@@ -19,6 +21,7 @@ copy_needed() {
         if echo "$name" | grep -Eq "^($BUNDLED)"; then
             if [ ! -e "$OUT/lib/$name" ]; then
                 cp -L "$path" "$OUT/lib/$name"
+                echo "$path" >> "$sources"
                 copy_needed "$path"
             fi
         elif ! echo "$name" | grep -Eq "^($SYSTEM)"; then
@@ -36,6 +39,30 @@ objdump -p "$OUT/bin/homeswift" | grep -Eq '^ *RPATH .*\$ORIGIN/\.\./lib' || {
 }
 copy_needed "$OUT/bin/homeswift"
 chmod 644 "$OUT"/lib/*
+
+# The bundled libraries are Amazon Linux 2's packages, unmodified: their licence files (Avahi is LGPL-2.1+, D-Bus
+# AFL-2.1 or GPL-2.0+), the versions, and where their sources are go with them, in share/doc/homeswift/libraries.
+docs="$OUT/share/doc/homeswift/libraries"
+mkdir -p "$docs"
+{
+    echo "The libraries in lib/ are these Amazon Linux 2 packages, unmodified. Their sources are Amazon Linux 2's"
+    echo "source RPMs of the same versions (yumdownloader --source <name>), and each can be replaced by another build"
+    echo "of the same library."
+    echo
+} > "$docs/PACKAGES.txt"
+for package in $(xargs rpm -qf --qf '%{NAME}\n' < "$sources" | sort -u); do
+    rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}: %{LICENSE}\n' "$package" >> "$docs/PACKAGES.txt"
+    mkdir -p "$docs/$package"
+    for file in $(rpm -qL "$package"); do
+        [ -f "$file" ] && cp "$file" "$docs/$package/"
+    done
+    # Amazon Linux's Avahi packages carry no licence file: its text is in ../LICENSES (collect-licenses.sh).
+    if [ -z "$(ls "$docs/$package")" ]; then
+        rmdir "$docs/$package"
+        echo "  no licence file in the package; the text of its licence is in ../LICENSES" >> "$docs/PACKAGES.txt"
+    fi
+done
+rm -f "$sources"
 strip --strip-unneeded "$OUT"/lib/*
 echo "bundle-libraries: $(cd "$OUT/lib" && echo *)"
 echo "bundle-libraries: glibc $(objdump -T "$OUT/bin/homeswift" "$OUT"/lib/* | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -n 1) at most"

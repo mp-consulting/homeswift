@@ -25,6 +25,12 @@ COPY Tests Tests
 RUN swift build -c release --static-swift-stdlib --product homeswift \
     && install -D "$(swift build -c release --show-bin-path)/homeswift" /out/homeswift \
     && strip --strip-debug /out/homeswift
+# The licences the binary goes out with: Homeswift's, the ported projects' notices, the packages compiled in.
+# After the build, so editing them does not build the bridge again.
+COPY LICENSE THIRD-PARTY-NOTICES.md ./
+COPY LICENSES LICENSES
+COPY Scripts/collect-licenses.sh /usr/local/bin/
+RUN sh /usr/local/bin/collect-licenses.sh .build/checkouts /out/doc
 
 FROM ubuntu:24.04
 # avahi-daemon and dbus: Bonjour, which Homeswift reaches through Avahi's dns_sd compatibility library.
@@ -38,6 +44,7 @@ RUN apt-get update \
 COPY --from=ffmpeg /ffmpeg /usr/local/bin/ffmpeg
 COPY --from=ffmpeg /licenses /usr/share/doc/ffmpeg-for-homeswift
 COPY --from=build /out/homeswift /usr/local/bin/homeswift
+COPY --from=build /out/doc /usr/share/doc/homeswift
 COPY Scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 # Avahi's compatibility layer otherwise prints a warning on every start.

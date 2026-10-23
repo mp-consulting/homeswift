@@ -25,7 +25,7 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `Scripts/embed-assets.swift` | Embeds a plugin's `config.schema.json` or the `Web/` directory into Swift source; tests fail when the generated files are stale |
 | `Scripts/new-plugin.swift` | Creates `Plugins/<Name>/` (a skeleton on a fake API that builds and passes its tests; `--service` picks the HAP services and characteristics from `Definitions.swift`, `--list` shows them), its targets in `Package.swift` and its registration in `Plugins.swift` |
 | `CONTRIBUTING.md`, `.github/` | How to propose a plugin and what it needs (the checklist), the plugin proposal issue form, the pull request template, `CODEOWNERS` |
-| `THIRD-PARTY-NOTICES.md` | The copyright and permission notices of the projects code was ported from, and which paths come from each; a new port adds its own |
+| `THIRD-PARTY-NOTICES.md` | The copyright and permission notices of the projects code was ported from, and which paths come from each; a new port adds its own. `Scripts/collect-licenses.sh` puts it, `LICENSES/` and the compiled-in packages' licence files in the container image and the Synology package |
 | `.claude/skills/homeswift-plugin` | The skill for writing or porting a plugin (`references/porting.md`: Node.js to Swift; `scripts/check-on-bridge.sh`: a throwaway bridge queried over MCP). `.agents/skills` links it for Codex; `AGENTS.md` links this file |
 | `Plugins/<Name>` | One plugin: `Sources` (target `Homeswift<Name>`), `Tests`, `README.md`, `config.schema.json`, optionally `Web/` (its own UI page; `Sources/WebFiles.swift` is generated). `ElgatoKeyLights` is the reference, `PhilipsAmbilightTV` the one with external accessories, a shared transport and pairing |
 | `Sources/CHAPMath` | C Montgomery multiplication for SRP |
@@ -122,7 +122,8 @@ A release is a tag: SwiftPM resolves versions from `vX.Y.Z` tags. Bump `PluginHo
 `homeswift --version` and as the bridge's firmware revision), move the `[Unreleased]` section of CHANGELOG.md
 under the new version, commit, then `gh release create vX.Y.Z --notes-file <section>` and push the tag. There
 are no binaries to sign yet. The Homebrew formula (`mp-consulting/homebrew-tap`, `Formula/homeswift.rb`) builds
-`homeswift-demo` from the release tarball; it needs `homeswift` added at the next release. The tap's workflow
-moves it to the latest release within 6 hours. Pushing the tag runs `.github/workflows/docker.yml`, which pushes
+`homeswift-demo` from the release tarball; it needs `homeswift` added at the next release.
+From the first release that has `THIRD-PARTY-NOTICES.md`, it needs `doc.install "THIRD-PARTY-NOTICES.md", "LICENSES"`
+(the v0.3.0 tarball has neither). The tap's workflow moves it to the latest release within 6 hours. Pushing the tag runs `.github/workflows/docker.yml`, which pushes
 `ghcr.io/mp-consulting/homeswift:X.Y.Z`, `X.Y` and `latest` for amd64 and arm64 (each on a native runner); a
 new GHCR package is private until its visibility is set to public in the package's settings.

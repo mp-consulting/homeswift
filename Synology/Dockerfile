@@ -7,7 +7,10 @@
 ARG SWIFT_VERSION=6.2
 
 FROM swift:${SWIFT_VERSION}-amazonlinux2 AS build
-RUN yum install -y -q avahi-compat-libdns_sd-devel && yum clean all
+# With their documentation (the image installs without), for D-Bus's licence file, which bundle-libraries.sh copies.
+RUN yum install -y -q --setopt=tsflags= avahi-compat-libdns_sd-devel \
+    && yum reinstall -y -q --setopt=tsflags= dbus-libs \
+    && yum clean all
 WORKDIR /src
 # The manifest first, so the dependencies are fetched again only when Package.resolved changes.
 COPY Package.swift Package.resolved ./
@@ -27,6 +30,13 @@ RUN --mount=type=cache,target=/src/.build \
     && strip --strip-debug /out/bin/homeswift
 COPY Synology/bundle-libraries.sh /usr/local/bin/
 RUN sh /usr/local/bin/bundle-libraries.sh /out
+# The licences the package goes out with, in share/doc/homeswift: Homeswift's, the ported projects' notices, the
+# packages compiled in (from the checkouts `swift package resolve` left in the image), and bundle-libraries'
+# libraries/ for what lib/ holds.
+COPY LICENSE THIRD-PARTY-NOTICES.md ./
+COPY LICENSES LICENSES
+COPY Scripts/collect-licenses.sh /usr/local/bin/
+RUN sh /usr/local/bin/collect-licenses.sh .build/checkouts /out/share/doc/homeswift
 
 FROM scratch
 COPY --from=build /out /

@@ -307,6 +307,9 @@ All notable changes to this project are documented here. The format follows
   plugins and homebridge-plugin-utils under ISC; the Elgato, Govee, eWeLink and Dyson plugins and noble under MIT;
   the LG ThinQ and Daikin Cloud plugins and HAP-NodeJS under Apache-2.0, in `LICENSES/Apache-2.0.txt`),
   with the parts of the repository each one became; every ported plugin's README names its original author.
+  The container image (`/usr/share/doc/homeswift`) and the Synology package (`share/doc/homeswift`) carry it, with
+  the licence and notice files of the Swift packages compiled in and, in the package, of the bundled Avahi and D-Bus
+  libraries.
 
 ### Changed
 
