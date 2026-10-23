@@ -137,6 +137,7 @@ actor DolphinDevice {
             logger.info("Started cleaning for \(name)\(resolved.map { " (mode: \($0))" } ?? "")")
             // Optimistically, until the robot reports.
             state.isCleaning = true
+            state.muState = RobotStates.initializing
             if let resolved { state.cleaningMode = resolved }
             stateHandler?(state)
             scheduleRefresh()
@@ -149,6 +150,7 @@ actor DolphinDevice {
         if success {
             logger.info("Stopped cleaning for \(name)")
             state.isCleaning = false
+            state.muState = RobotStates.off
             stateHandler?(state)
             scheduleRefresh()
         }

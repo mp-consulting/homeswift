@@ -26,12 +26,13 @@ enum Discovery {
 }
 
 extension ElgatoKeyLightsPlugin.DiscoveredLight {
-    /// Prefers the resolved IPv4 address, then IPv6, then the host name (which needs `.local` resolution).
+    /// The light's host name (`elgato-key-light-1234.local`) with the addresses Bonjour looked up; the plugin
+    /// picks one with `useIP`. Without a host name, the first address (IPv4 first).
     init?(_ service: BonjourService) {
         guard let id = service.txt["id"]?.trimmingCharacters(in: .whitespaces), !id.isEmpty else { return nil }
         var hostName = service.hostName
         if hostName.hasSuffix(".") { hostName.removeLast() }
-        let host = service.addresses.first { !$0.contains(":") } ?? service.addresses.first ?? hostName
-        self.init(name: service.name, mac: id, host: host, port: service.port)
+        let host = hostName.isEmpty ? service.addresses.first ?? "" : hostName
+        self.init(name: service.name, mac: id, host: host, port: service.port, addresses: service.addresses, model: service.txt["md"])
     }
 }

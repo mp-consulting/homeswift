@@ -25,7 +25,8 @@ plugin's setup wizard:
 Afterwards the page lists the configured robots with their live state (cleaning or idle, filter, time left,
 faults) and opens a robot's settings when you click its card; **Reconfigure** signs in again, for instance
 after "Refresh token expired" in the log. With the Assistant on, **Explain** sits next to errors; it never
-receives the email address, codes, tokens or serial numbers.
+receives the email address, codes, tokens or serial numbers. Without it, the sign-in step shows a tip on adding a
+`HomeswiftAiKit` block.
 
 ## Configuration
 

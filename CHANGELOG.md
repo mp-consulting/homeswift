@@ -198,6 +198,22 @@ All notable changes to this project are documented here. The format follows
   (`POST /api/assistant/explain`; `homeswift.explain` in `plugin.js`).
 - `PluginContext.remove(id:)` is async: removing an external accessory stops its server.
 - Every accessory a server publishes carries the Protocol Information service; bridges no longer add it themselves.
+- Elgato Key Lights: the page lists configured lights that never answered as offline, with why (**Explain**),
+  their settings and **Remove**, as the Homebridge plugin's page does.
+- Elgato Key Lights: `powerOnTemperature: 0` keeps the light's own power-on colour temperature instead of 7000 K.
+- Elgato Key Lights: the page's default brightness starts at 3 %, the light's minimum.
+- Elgato Key Lights: `useIP` works as in Homebridge: off, the plugin connects to the light's `.local` host name,
+  resolved through the ARP table and then the addresses Bonjour announced; on, to the announced address.
+- Elgato Key Lights: **On the network** on the page lists the lights Bonjour announces (the Homebridge
+  plugin's **Discover**) and adds one to config.json.
+- Elgato Key Lights, Dolphin Pool Cleaner: without an Assistant, the page shows a tip on adding a
+  `HomeswiftAiKit` block.
+- Elgato Key Lights, Dolphin Pool Cleaner, UniFi Access: an `assistantBackground` after the Homebridge plugins'
+  Assistant context, adapted to Homeswift.
+- Dolphin Pool Cleaner: the robot's state keeps the legacy `mu_state` and `is_smart` (`muState`, `isSmartMode`).
+- UniFi Access: `debugAll` logs the plugin's debug lines at the info level.
+- UniFi Access: the Support screen has the Homebridge plugin's other links (about, installation, Discord, a
+  support request) and Homeswift's issue tracker.
 
 ## [0.3.0] - 2026-10-21
 

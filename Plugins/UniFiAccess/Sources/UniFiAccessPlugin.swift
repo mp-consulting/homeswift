@@ -35,7 +35,8 @@ public actor UniFiAccessPlugin: HomeswiftPlugin {
     let context: PluginContext
     let dependencies: Dependencies
     let options: FeatureOptions
-    private var logger: Logger { dependencies.logger ?? context.logger }
+    /// The context's, with `debugAll` promoting debug lines to info.
+    private let logger: Logger
     private(set) var controllers: [AccessController] = []
     private let pins: TLSPinStore
     private let owners: AccessoryOwners
@@ -49,7 +50,9 @@ public actor UniFiAccessPlugin: HomeswiftPlugin {
         self.context = context
         self.dependencies = dependencies
         options = AccessOptions.make(configuration.options)
-        pins = TLSPinStore(url: context.storageDirectory.appendingPathComponent(AccessSettings.tlsPinFile), logger: dependencies.logger ?? context.logger)
+        let logger = dependencies.logger ?? context.logger
+        self.logger = configuration.debugAll ? DebugAllLogHandler.promoting(logger) : logger
+        pins = TLSPinStore(url: context.storageDirectory.appendingPathComponent(AccessSettings.tlsPinFile), logger: self.logger)
         owners = context.persistedDictionary(AccessSettings.ownersFile)
     }
 
@@ -179,5 +182,33 @@ final class ErrorCollector: Sendable {
             // The page's connection attempts are debug output in the bridge's log.
             base.log(level: .debug, message, metadata: metadata, source: source, file: file, function: function, line: line)
         }
+    }
+}
+
+/// `debugAll`: the plugin's debug lines at the info level, so they show without `homeswift -D`, as the Homebridge
+/// plugin's `debug()` does. Trace lines and the other levels pass through as they are.
+struct DebugAllLogHandler: LogHandler {
+    let base: Logger
+    var metadata: Logger.Metadata = [:]
+    var logLevel: Logger.Level = .debug
+
+    static func promoting(_ base: Logger) -> Logger {
+        var logger = Logger(label: base.label) { _ in DebugAllLogHandler(base: base) }
+        logger.logLevel = min(base.logLevel, .debug)
+        return logger
+    }
+
+    subscript(metadataKey key: String) -> Logger.Metadata.Value? {
+        get { metadata[key] }
+        set { metadata[key] = newValue }
+    }
+
+    func log(event: LogEvent) {
+        log(level: event.level, message: event.message, metadata: event.metadata, source: event.source, file: event.file, function: event.function, line: event.line)
+    }
+
+    func log(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?, source: String, file: String, function: String, line: UInt) {
+        let merged = self.metadata.isEmpty ? metadata : self.metadata.merging(metadata ?? [:]) { $1 }
+        base.log(level: level == .debug ? .info : level, message, metadata: merged, source: source, file: file, function: function, line: line)
     }
 }

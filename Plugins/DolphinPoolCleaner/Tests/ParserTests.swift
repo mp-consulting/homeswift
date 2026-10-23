@@ -61,8 +61,13 @@ import Testing
     }
 
     @Test func legacyBLEFormat() {
-        let state = ShadowParser.parse(["state": ["reported": ["mu_state": 3, "cleaning_mode": 2, "temperature": 255, "filter_state": 1, "faults": "04"]]])
+        let state = ShadowParser.parse(["state": ["reported": ["mu_state": 3, "cleaning_mode": 2, "temperature": 255, "filter_state": 1, "faults": "04", "is_smart": true]]])
         #expect(state.isCleaning)
+        #expect(state.muState == RobotStates.cleaning)
+        #expect(state.isSmartMode == true)
+        #expect(ShadowParser.parse(["state": ["reported": ["mu_state": 6]]]).muState == RobotStates.endOfCycle)
+        #expect(ShadowParser.parse(["state": ["reported": [:]]]).muState == RobotStates.off)
+        #expect(ShadowParser.parse(["state": ["reported": [:]]]).isSmartMode == nil)
         #expect(state.cleaningMode == "floor")
         #expect(state.temperature == 25.5)
         #expect(state.filterStatus == .needsCleaning)

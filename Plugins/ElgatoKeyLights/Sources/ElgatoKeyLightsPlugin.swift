@@ -40,8 +40,8 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
         public var switchOnDurationMs: Int?
         public var switchOffDurationMs: Int?
         public var colorChangeDurationMs: Int?
-        /// Accepted for compatibility: Homeswift connects to the address Bonjour resolved, and falls back
-        /// to the host name only when there is none.
+        /// `true` connects to the address Bonjour announced; otherwise to the light's host name, turned into an
+        /// address through the ARP table, then the announced addresses (`HostResolution`).
         public var useIP: Bool?
         public var devices: [Device]?
     }
@@ -50,20 +50,27 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
     struct DiscoveredLight: Sendable, Equatable {
         var name: String
         var mac: String
+        /// An address, or a host name `HostResolution` turns into one before connecting.
         var host: String
         var port: Int
+        /// The addresses Bonjour looked up for the light, IPv4 first.
+        var addresses: [String] = []
+        /// The model the Bonjour record names (`md`).
+        var model: String?
 
         /// The light's entry in config.json, when it gives an address.
         init?(configured device: Configuration.Device, mac: String) {
             guard let host = device.ip ?? device.host, !host.isEmpty else { return nil }
-            self.init(name: device.name ?? mac, mac: mac, host: host, port: device.port ?? KeyLightClient.defaultPort)
+            self.init(name: device.name ?? mac, mac: mac, host: host, port: device.port ?? KeyLightClient.defaultPort, addresses: device.ip.map { [$0] } ?? [])
         }
 
-        init(name: String, mac: String, host: String, port: Int) {
+        init(name: String, mac: String, host: String, port: Int, addresses: [String] = [], model: String? = nil) {
             self.name = name
             self.mac = mac
             self.host = host
             self.port = port
+            self.addresses = addresses
+            self.model = model
         }
     }
 
@@ -71,6 +78,8 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
     struct Dependencies: Sendable {
         var transport: any KeyLightTransport = URLSessionTransport()
         var discover: @Sendable (Logger) -> AsyncStream<DiscoveredLight> = Discovery.browse
+        /// The IPv4 address the ARP table has for a MAC.
+        var arp: @Sendable (String) async -> String? = HostResolution.arpAddress(forMAC:)
     }
 
     public static let platform = "ElgatoKeyLights"
@@ -90,6 +99,11 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
     private var status: [String: Status] = [:]
     /// Lights with an `ip` or `host` in config.json: announcements never move them.
     private var pinned: Set<String> = []
+    /// Every light Bonjour announced, by MAC, for the page's list of lights on the network.
+    private var announced: [String: DiscoveredLight] = [:]
+    /// Where each light was last tried and why it failed, for the page's offline lights.
+    private var attempts: [String: DiscoveredLight] = [:]
+    private var failures: [String: String] = [:]
     private var discoveryTask: Task<Void, Never>?
     private var initializations: [Task<Void, Never>] = []
 
@@ -149,7 +163,23 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
                     "temperature": light.state.temperature.map { .number(Double($0)) } ?? .null,
                 ])
             }
-            return PluginWebResponse(["lights": .array(lights)])
+            // Lights tried but not running (connecting, or they did not answer), and what Bonjour announces.
+            var pending: [JSONValue] = []
+            for (mac, light) in attempts.sorted(by: { $0.key < $1.key }) where devices[mac] == nil {
+                pending.append([
+                    "mac": .string(mac), "name": .string(light.name), "host": .string(light.host), "port": .number(Double(light.port)),
+                    "status": .string((status[mac] ?? .initializing).rawValue), "pinned": .bool(pinned.contains(mac)),
+                    "error": failures[mac].map { .string($0) } ?? .null,
+                ])
+            }
+            let discovered: [JSONValue] = announced.sorted(by: { $0.key < $1.key }).map { mac, light in
+                [
+                    "mac": .string(mac), "name": .string(light.name), "model": light.model.map { .string($0) } ?? .null,
+                    "host": .string(light.host), "address": light.addresses.first.map { .string($0) } ?? .null, "port": .number(Double(light.port)),
+                    "running": .bool(devices[mac] != nil),
+                ]
+            }
+            return PluginWebResponse(["lights": .array(lights), "pending": .array(pending), "discovered": .array(discovered)])
         case ("GET", "probe"):
             guard let host = request.query["host"]?.trimmingCharacters(in: .whitespaces), KeyLightClient.isValidHost(host) else { return .error(400, "a host name or IP address is required") }
             let port = request.query["port"].flatMap(Int.init) ?? KeyLightClient.defaultPort
@@ -220,13 +250,23 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
 
     private func handleDiscovered(_ light: DiscoveredLight) {
         let mac = Self.canonicalMAC(light.mac)
-        let light = DiscoveredLight(name: light.name, mac: mac, host: light.host, port: light.port)
+        var light = light
+        light.mac = mac
+        announced[mac] = light
+        // `useIP` connects to the announced address (IPv4 first), as the Homebridge plugin does.
+        if configuration.useIP == true, let address = light.addresses.first(where: HostResolution.isIPv4) ?? light.addresses.first {
+            light.host = address
+        }
         switch status[mac] {
         case .ready:
             logger.debug("Light announced again", metadata: ["light": "\(light.name)", "host": "\(light.host)"])
             if pinned.contains(mac) { return }
             if let device = devices[mac] {
-                Task { await device.follow(host: light.host, port: light.port) }
+                let arp = dependencies.arp
+                Task {
+                    let host = await HostResolution.resolve(host: light.host, mac: mac, addresses: light.addresses, arp: arp)
+                    await device.follow(host: host, port: light.port)
+                }
             }
         case .initializing:
             break
@@ -255,10 +295,25 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
             return
         }
         status[light.mac] = .initializing
+        attempts[light.mac] = light
+        failures[light.mac] = nil
         initializations.append(Task { await self.connect(light) })
     }
 
     private func connect(_ light: DiscoveredLight) async {
+        var light = light
+        let resolved = await HostResolution.resolve(host: light.host, mac: light.mac, addresses: light.addresses, arp: dependencies.arp)
+        if resolved != light.host {
+            logger.info("Resolved \(light.host) to \(resolved) for \(light.name)")
+            light.host = resolved
+            attempts[light.mac] = light
+        }
+        guard KeyLightClient.isValidHost(light.host) else {
+            logger.warning("Ignoring light with an invalid address", metadata: ["light": "\(light.name)", "host": "\(light.host)"])
+            failures[light.mac] = "invalid address \(light.host)"
+            status[light.mac] = .failed
+            return
+        }
         let interval = Duration.milliseconds(max(Self.minimumPollingRate, configuration.pollingRate ?? Self.defaultPollingRate))
         let client = KeyLightClient(host: light.host, port: light.port, transport: dependencies.transport)
         let device = KeyLightDevice(mac: light.mac, name: light.name, client: client, pollingInterval: interval, logger: logger)
@@ -266,6 +321,7 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
             try await device.connect()
         } catch {
             logger.error("Could not reach \(light.name) at \(light.host):\(light.port), skipping: \(error)")
+            failures[light.mac] = "\(error)"
             status[light.mac] = .failed
             return
         }
@@ -281,6 +337,7 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
             try context.add(accessory)
         } catch {
             logger.error("Could not add \(name) to the bridge: \(error)")
+            failures[light.mac] = "\(error)"
             status[light.mac] = .failed
             return
         }
@@ -317,7 +374,8 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
     func settings(for device: KeyLightDevice, configuration deviceConfiguration: Configuration.Device?) async -> KeyLightSettings {
         let current = await device.settings
         let defaults = KeyLightDevice.defaultSettings
-        let kelvin = deviceConfiguration?.powerOnTemperature ?? configuration.powerOnTemperature
+        // Kelvin, the light's own value when unset or 0 (a light's 0 does not fall back to the platform's).
+        let kelvin = (deviceConfiguration?.powerOnTemperature ?? configuration.powerOnTemperature).flatMap { $0 > 0 ? $0 : nil }
         let behavior = deviceConfiguration?.powerOnBehavior.flatMap { $0 == 0 ? nil : $0 }
         return KeyLightSettings(
             powerOnBehavior: behavior ?? configuration.powerOnBehavior ?? current?.powerOnBehavior ?? defaults.powerOnBehavior,
