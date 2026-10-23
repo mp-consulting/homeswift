@@ -1,9 +1,10 @@
 # The Assistant
 
 Homeswift has an AI assistant, a port of [`homebridge-ai-kit`](https://github.com/mp-consulting/homebridge-ai-kit)'s
-core: it explains device errors, diagnoses logs, answers questions and writes configuration blocks, on the
-provider you choose, including Apple's on-device model. Plugins get it through `context.assistant`; the
-command line through `homeswift ask`, `explain` and `diagnose`. Nothing is sent anywhere unless config.json
+core: it explains device errors, diagnoses logs, answers questions, writes configuration blocks, writes a
+daily digest and suggests rooms and names, on the provider you choose, including Apple's on-device model.
+Plugins get it through `context.assistant`; the command line through `homeswift ask`, `explain`, `diagnose`,
+`digest`, `organize`, `test-ai` and `usage`. Nothing is sent anywhere unless config.json
 has a `HomeswiftAiKit` block (or, for the command line only, the Mac has Apple Intelligence).
 
 ## Configuration
@@ -28,6 +29,7 @@ One platform block, with the keys of `@mp-consulting/homebridge-ai-kit` so a Hom
 | `promptCaching` | `true` | Claude: cache breakpoints on the system prompt and tools; off for proxies that reject them |
 | `fallbacks` | `true` on Opus 5.5, Opus 5, Sonnet 5.5 and Fable | Claude: let the API re-run a declined request on a fallback model |
 | `enabled` | `true` | `false` keeps the block but turns the Assistant off |
+| `budget` | none | Limits per local day and month: `dailyTokens`, `monthlyTokens` (input plus output), `dailyUsd`, `monthlyUsd`; see below |
 
 | `provider` | Default model | Needs | Context |
 |---|---|---|---|
@@ -44,6 +46,61 @@ sets how much. The Assistant never sends `thinking` settings, prefills or forced
 `apple` is the zero-configuration option on a Mac: no key, nothing leaves the machine, and `homeswift ask`
 uses it when there is no block at all. Its context is small, so long logs are trimmed harder.
 
+## Usage and budgets
+
+`UsageTracker` counts requests, tokens and cost per model, per local day (`yyyy-MM-dd`) and per local month
+(`yyyy-MM`), and per user within a day when the request names one. With a `UsageStore` the counts survive
+restarts: `FileUsageStore` keeps them in `ai-usage.json` in the storage directory (`UsageTracker.fileName`),
+written owner-only after every request, in homebridge-ai-kit's `UsageSnapshot` shape (`version`, `models`,
+`days`, `months`) plus `users`; 62 days and 24 months are kept. Costs come from the token counts with the
+current prices, so only Claude models are priced; the others count as free against a USD budget.
+
+```json
+{ "platform": "HomeswiftAiKit", "provider": "anthropic", "apiKey": "sk-ant-…", "budget": { "dailyTokens": 200000, "monthlyUsd": 20 } }
+```
+
+Once a limit is reached, every request (`ask`, `explain`, `diagnose`, `generateConfiguration`, a chat step, a
+digest, an organiser batch) throws `BudgetExceededError` before reaching the provider, with upstream's
+message: `The daily AI budget is used up: $2.04 of $2.00 today. It resets at midnight.` The error has
+`period` (`day`, `month`), `unit` (`tokens`, `usd`), `used` and `limit`.
+
+For the web UI and the MCP server:
+
+- `AssistantService(configuration:usageStore:logger:)` sets up the block's provider with its budget and a store:
+  `FileUsageStore(url: storage.appendingPathComponent(UsageTracker.fileName), write: OwnerOnlyFile.write)`
+  (the library cannot import `OwnerOnlyFile`, so the caller passes it). One tracker per process: the command
+  line and a running bridge each rewrite the file with their own counts, so the bridge's last save wins.
+- `assistant.forUser(name)` counts the requests of the signed-in user; `withContext` keeps the user.
+- `await assistant.usage.report()` is a `UsageReport`: `day`, `month`, `today`, `thisMonth`, `total`, `budget`,
+  `exceeded`, `byModel`, `todayByModel`, `monthByModel`, `todayByUser`, `monthByUser`; `report.json` is the same
+  as JSON (summaries with `requests`, `inputTokens`, `outputTokens`, `costUsd`, null when unknown).
+- `await assistant.usage.setBudget(_:)` applies a changed block without a restart; `checkBudget()` and
+  `exceededBudget()` check one.
+- `SlidingWindowRateLimiter` allows `limit` requests per key in any `window` seconds, upstream's limiter:
+  `SlidingWindowRateLimiter.assistant()` is Glass UI's 20 a minute per user. `consume(user)` returns `allowed`,
+  `remaining` and `retryAfter` (seconds, for a 429's `Retry-After`; `SlidingWindowRateLimiter.refusal` is the
+  message); a refused request is not counted. Idle keys are evicted.
+
+## More features
+
+- **Connection test**: `AssistantService.testConnection(block:)` sends upstream's one-word request with a block,
+  saved or not, whatever its `enabled`, and returns a `ConnectionTestResult`: `ok`, `provider`, `model`,
+  `latencyMs`, `reply`, or a redacted `message`; `json` has upstream's shape. It never throws and gives up after
+  30 seconds. `testConnection(provider:)` does the same with a provider already made; pass `usage:` to count it.
+- **Daily digest**: `assistant.dailyDigest(DailyDigestInput(...))` writes a digest of a day under 200 words,
+  what needs attention first. The input is plain values: `date` (today by default), `status` (JSON),
+  `logs` (lines; `DailyDigestInput.problemLines` keeps the warnings and errors, as Glass UI does), `accessories`
+  (JSON, with states) and `events` (JSON: what happened to accessories). Each part is redacted, its addresses
+  masked (`<IP>`, `<MAC>`) as for `explain`, wrapped in `<untrusted-data>` and trimmed. Glass UI caches a digest for 6 hours; a caller that wants that keeps it.
+- **Organiser**: `assistant.suggestOrganization(accessories:rooms:onProgress:)` takes accessories as JSON
+  objects with a `uniqueId` (or `id`), name, category, services, and returns an `OrganizationSuggestion`:
+  `rooms` (name, accessory ids), `renames` (id, name, reason) and `orphans` (id, reason), plus `json` in
+  upstream's shape. The ids reach the model as aliases (`a1`, `a2`…), so long ids and MAC addresses in them
+  stay home, and ids the model invents are dropped. Each reply is schema-checked JSON with one repair; large
+  homes go in batches sized to `maxOutputTokens`, three at a time, with `onProgress(done, total)`.
+- homebridge-ai-kit's `assessPluginUpdate` (the risk of a plugin update, from its changelog) is not ported:
+  Homeswift's plugins are compiled into the binary and have no updates of their own.
+
 ## Command line
 
 ```bash
@@ -52,8 +109,18 @@ homeswift explain "Could not reach Elgato Key Light at 192.168.1.50:9123: timed 
 homeswift diagnose ~/.homeswift/homeswift.log      # or: journalctl -u homeswift | homeswift diagnose
 ```
 
+```bash
+homeswift digest                 # the last day: the log's warnings and errors, the accessories; --hours 48
+homeswift organize               # rooms and names for the accessories the bridge last cached; --json
+homeswift test-ai                # checks the block's provider, key and model: "OK: anthropic claude-opus-5-5 answered in 640 ms: OK"
+homeswift usage                  # today and this month, by model, with the budgets; --json
+```
+
 The answer streams to standard output; a last line on standard error gives the model, the tokens and,
-for Claude, the cost. `-U` picks the config directory as for the bridge.
+for Claude, the cost. `-U` picks the config directory as for the bridge. The commands count in
+`ai-usage.json` and stop at the block's budget. `digest` reads the log on disk (`logs/`) and `organize` the
+accessory cache (`accessories/`), so they work while the bridge runs, or after it ran once; they do not
+start plugins.
 
 ## In a plugin
 
@@ -100,5 +167,5 @@ elicitation. `docs/ui.md` describes the chat.
 
 `HomeswiftAI` is a library of its own (Foundation and swift-log only): `Provider` adapters with `chat` and
 `stream`, tool definitions and calls, `AssistantService.converse` for a turn with tools, `SecretVault`,
-`JSONGeneration.generate` for schema-checked JSON with one repair, `Redaction`, `Tokens`, `Pricing` and
-`UsageTracker`. `AssistantService` wires them into the features.
+`JSONGeneration.generate` for schema-checked JSON with one repair, `Redaction`, `Tokens`, `Pricing`,
+`UsageTracker` with `UsageStore` and `UsageBudget`, and `SlidingWindowRateLimiter`. `AssistantService` wires them into the features.
