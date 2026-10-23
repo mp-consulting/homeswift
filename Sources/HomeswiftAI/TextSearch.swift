@@ -23,6 +23,14 @@ public enum TextSearch {
         return withBytes(text) { find(bytes, in: $0, caseless: false) }
     }
 
+    /// Whether any of these ASCII needles occurs in the text, ignoring ASCII case, byte by byte whatever the text: a
+    /// UTF-8 text's other bytes never equal an ASCII one, so text with an accent or an emoji (a log line) is searched
+    /// in place too, not through Foundation. Only ASCII letters fold.
+    public static func containsAny(_ text: String, asciiCaseless needles: [String]) -> Bool {
+        let lowered = needles.map { $0.utf8.map(lower) }
+        return withBytes(text) { bytes in lowered.contains { find($0, in: bytes, caseless: true) } }
+    }
+
     /// Whether any of these lower-case ASCII needles occurs in ASCII text, ignoring case.
     static func containsAny(_ text: String, caseless needles: [[UInt8]]) -> Bool {
         withBytes(text) { bytes in needles.contains { find($0, in: bytes, caseless: true) } }

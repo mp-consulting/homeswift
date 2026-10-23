@@ -74,7 +74,8 @@ with a new code).
   and applies the block at once.
 - **Config**: the whole file in an editor. Saving validates it, keeps a backup under `backups/`, sorts
   the keys, and applies it.
-- **Logs**: the live log, filtered by level, text, time and what the lines are about. That last is one menu:
+- **Logs**: the live log, filtered by level (All; Info, info and above; Warnings or Errors alone), text, time
+  and what the lines are about. That last is one menu:
   every line; the bridges' own lines (their servers' connections, pairings and controllers), every bridge's or
   one's; or an accessory's (those of its own server and those that name it, its id or its address), the
   accessories grouped by plugin. The time: the latest lines, the last hour, 6 or 24 hours, today,
@@ -82,6 +83,14 @@ with a new code).
   next to config.json: segments of 8 MB at most, a new one each day, the oldest removed past 64 MB or 7
   days, written in batches once a second so logging never waits for the disk. **Copy** puts the lines shown
   on the clipboard as text.
+
+  A line that carries JSON of 160 bytes or more (a device's state, a cloud's message) shows a marker such as
+  `{…} 1.4 KB` instead, in the terminal too; its **JSON** button shows the payload under it, formatted. The
+  payload is kept with the line with its secrets masked (values of keys such as `password`, `token` or
+  `apiKey`, and bearer tokens, JWTs and setup codes anywhere), and the text filter and the accessory menu
+  look inside it. The latest lines keep their payloads in memory; **Save payloads** also writes them to the
+  log on disk, so they can be read, by you or the Assistant (`search_logs` with `hours`), after the lines
+  moved on or the bridge restarted. It is off until turned on, and the choice is kept in `logs/settings.json`.
 
 ## The Assistant's chat
 

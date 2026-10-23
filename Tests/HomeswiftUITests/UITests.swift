@@ -376,6 +376,21 @@ struct LogFilterTests {
         #expect(try await browser.get("/api/logs").json?.arrayValue?.count ?? 0 >= 2)
     }
 
+    /// A line's payload goes to the page beside its text, and an accessory named only in the payload finds the line.
+    /// Without a log on disk there is nothing to save payloads to.
+    @Test func servesPayloads() async throws {
+        let environment = try UITestEnvironment(auth: .none)
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        environment.logs.append(LogBuffer.Line(level: .debug, label: "Cloud", text: "state {…} 180 B", details: #"{"id":"Lamps:lamp","on":true}"#))
+        let browser = Browser(base: base)
+        let lines = try await browser.get("/api/logs?accessory=Lamps:lamp").json?.arrayValue ?? []
+        #expect(lines.map { $0["details"]?.stringValue } == [#"{"id":"Lamps:lamp","on":true}"#])
+        #expect(try await browser.get("/api/logs/settings").json == ["saveDetails": false, "available": false])
+        #expect(try await browser.put("/api/logs/settings", ["saveDetails": true]).status == 404)
+        #expect(try await browser.put("/api/logs/settings", ["saveDetails": "yes"]).status == 400)
+    }
+
     /// A bridge's own lines (its server's), or every bridge's; with an accessory, both must hold.
     @Test func picksABridgesLines() async throws {
         let environment = try UITestEnvironment(auth: .none)

@@ -130,6 +130,11 @@ All notable changes to this project are documented here. The format follows
   the Home app's reads and writes, and of how long plugins take to reach their devices (average and longest),
   with the Logs page's time range and bridge or accessory menu, a crosshair and tooltip, and a table view. A
   record per minute is kept for 8 days under `metrics/` (`Metrics`, `GET /api/metrics`).
+- **Log payloads**: JSON of 160 bytes or more in a log line becomes a marker (`{…} 1.4 KB`) in the terminal and
+  the web UI, and the line's details: its **JSON** button on the Logs page shows them formatted, secrets
+  masked (`LogDetails`). **Save payloads** on the Logs page writes them to the log on disk as well (off by
+  default, kept in `logs/settings.json`). The Assistant's `get_recent_logs` and `search_logs` take
+  `details: true`; `search_logs` looks inside payloads and, with `hours`, back through the log on disk.
 - **`HAPServer.observeTimings`** and **`PluginHost.observeTimings`**: how long each controller request to
   `/characteristics` and each accessory read or write handler took, with the accessories it was about.
 
@@ -145,6 +150,13 @@ All notable changes to this project are documented here. The format follows
 
 - The Accessories page shows a section per plugin rather than per server (a card's foot still names its
   server), and the Logs page's menu groups the accessories by plugin.
+- The Logs page's Warnings and Errors buttons show those levels alone; Warnings no longer shows errors.
+- A time range of the log loads several times faster: JSON strings full of escapes decode their plain runs at once
+  (`JSONValue`), and the log on disk skips rows outside the range, or that cannot be about the chosen accessory or
+  bridge, before parsing them (`LogArchive.lines(mayMatch:)`, `TextSearch.containsAny(_:asciiCaseless:)`). Six hours
+  of one accessory went from 25 s to about 1 s on a debug build.
+- The web UI shows a spinner, not "Loading…", while a page or a log range loads; the Status page's table groups its
+  columns under homeswift, Home app requests and plugin device calls.
 - A paused plugin's pill has a colour of its own, and its card's ⋯ button keeps its size beside the paused note.
 
 - The accessory JSON (web UI, MCP) marks what only HomeKit uses as `"internal": true`: a camera's RTP stream,

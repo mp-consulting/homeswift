@@ -474,8 +474,19 @@ public struct HomeswiftCatalog: Sendable {
     // MARK: Logs
 
     /// The last lines, secrets masked and the data boundary defused.
-    public func recentLogs(lines: Int, level: Logger.Level) -> String {
-        logs.recent(min(max(lines, 1), 1000), level: level).map { Self.safe($0.formatted) }.joined(separator: "\n")
+    public func recentLogs(lines: Int, level: Logger.Level, details: Bool = false) -> String {
+        logs.recent(min(max(lines, 1), 1000), level: level).map { Self.logText($0, details: details) }.joined(separator: "\n")
+    }
+
+    /// The most of a line's payload a tool shows.
+    static let detailsLimit = 4000
+
+    /// A line as a tool shows it, through `safe`: with `details`, its JSON payload on the next line, cut at
+    /// `detailsLimit` characters.
+    static func logText(_ line: LogBuffer.Line, details: Bool) -> String {
+        guard details, var payload = line.details else { return safe(line.formatted) }
+        if payload.count > detailsLimit { payload = "\(payload.prefix(detailsLimit))… (\(payload.count - detailsLimit) more characters)" }
+        return safe("\(line.formatted)\n    \(payload)")
     }
 
     /// Log text as data: secrets masked, confirmation codes hidden (a client must not read its own code back),
@@ -565,31 +576,48 @@ public struct HomeswiftCatalog: Sendable {
             ) { _ in .json(["backups": .array(catalog.backups().map(JSONValue.string))]) },
             MCPTool(
                 name: "get_recent_logs", title: "Recent log lines",
-                description: "The last lines of the log (default 200, at most 1000), optionally only from a level up (debug, info, warning, error). Secrets are masked.",
-                inputSchema: ["type": "object", "properties": ["lines": ["type": "integer", "minimum": 1, "maximum": 1000], "level": ["type": "string", "enum": ["trace", "debug", "info", "notice", "warning", "error"]]]],
+                description: "The last lines of the log (default 200, at most 1000), optionally only from a level up (debug, info, warning, error). "
+                    + "A line whose JSON payload was taken out shows `{…} 1.4 KB`; details: true adds each payload on the next line. Secrets are masked.",
+                inputSchema: ["type": "object", "properties": [
+                    "lines": ["type": "integer", "minimum": 1, "maximum": 1000], "level": ["type": "string", "enum": ["trace", "debug", "info", "notice", "warning", "error"]],
+                    "details": ["type": "boolean"],
+                ]],
                 scope: .read, idempotent: true
             ) { call in
                 let level = call.optionalString("level").flatMap(Logger.Level.init(rawValue:)) ?? .trace
-                return .text("<untrusted-data source=\"log\">\n\(catalog.recentLogs(lines: call.int("lines", default: 200), level: level))\n</untrusted-data>")
+                let text = catalog.recentLogs(lines: call.int("lines", default: 200), level: level, details: call.bool("details"))
+                return .text("<untrusted-data source=\"log\">\n\(text)\n</untrusted-data>")
             },
             MCPTool(
                 name: "search_logs", title: "Search the log",
-                description: "Log lines containing the text (case-insensitive), newest last, at most maxMatches (default 100). An admin token may pass regex: true for a regular expression. Secrets are masked.",
-                inputSchema: ["type": "object", "required": ["pattern"], "properties": ["pattern": ["type": "string", "maxLength": 200], "regex": ["type": "boolean"], "maxMatches": ["type": "integer", "minimum": 1, "maximum": 1000]]],
+                description: "Log lines containing the text (case-insensitive), in their JSON payloads too, newest last, at most maxMatches (default 100). "
+                    + "Without hours, the latest lines in memory; hours (at most 168) searches that far back in the log on disk, where payloads are kept "
+                    + "only while Save payloads is on in the web UI's Logs page. details: true adds each match's payload on the next line. "
+                    + "An admin token may pass regex: true for a regular expression. Secrets are masked.",
+                inputSchema: ["type": "object", "required": ["pattern"], "properties": [
+                    "pattern": ["type": "string", "maxLength": 200], "regex": ["type": "boolean"], "maxMatches": ["type": "integer", "minimum": 1, "maximum": 1000],
+                    "hours": ["type": "number", "minimum": 0, "maximum": 168], "details": ["type": "boolean"],
+                ]],
                 scope: .read, idempotent: true
             ) { call in
                 let pattern = try call.string("pattern")
                 let limit = call.int("maxMatches", default: 100)
-                let lines = catalog.logs.all.map { Self.safe($0.formatted) }
-                let matches: [String]
+                let hours = min(max(call.arguments["hours"]?.doubleValue ?? 0, 0), 168)
+                let lines = hours > 0 ? catalog.logs.lines(from: Date().addingTimeInterval(-hours * 3600), to: Date(), limit: 50_000) : catalog.logs.all
+                let matched: [LogBuffer.Line]
                 if call.bool("regex") {
                     guard call.session.principal.scope == .admin else { return .error("regex needs an admin token; search for plain text instead") }
                     guard let expression = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return .error("Invalid regular expression") }
-                    matches = lines.filter { expression.firstMatch(in: $0, range: NSRange($0.startIndex..., in: $0)) != nil }
+                    matched = lines.filter { line in
+                        let text = Self.safe(line.formatted + (line.details.map { " " + $0 } ?? ""))
+                        return expression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+                    }
                 } else {
-                    matches = lines.filter { TextSearch.contains($0, caseless: pattern) }
+                    // The search runs on the masked text, so a secret's value never matches.
+                    matched = lines.filter { TextSearch.contains(Self.safe($0.searchable), caseless: pattern) }
                 }
-                return .text("<untrusted-data source=\"log\">\n\(matches.suffix(limit).joined(separator: "\n"))\n</untrusted-data>\n\(matches.count) match(es)")
+                let shown = matched.suffix(limit).map { Self.logText($0, details: call.bool("details")) }
+                return .text("<untrusted-data source=\"log\">\n\(shown.joined(separator: "\n"))\n</untrusted-data>\n\(matched.count) match(es)")
             },
             MCPTool(
                 name: "restart_bridge", title: "Restart the bridge",

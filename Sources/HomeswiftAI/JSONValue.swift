@@ -456,8 +456,18 @@ struct JSONValueParser {
             index += 1
             return String(decoding: bytes[start..<(index - 1)], as: UTF8.self)
         }
-        var scalars = Array(bytes[start..<index])
+        var scalars: [UInt8] = []
+        scalars.reserveCapacity(index - start + 64)
+        scalars.append(contentsOf: bytes[start..<index])
         while true {
+            // The plain bytes up to the next quote or escape, copied at once: text with JSON in it (a log line) has
+            // an escape every few bytes, and a byte at a time cost seconds in a debug build.
+            let run = index
+            while index < bytes.count, bytes[index] != UInt8(ascii: "\""), bytes[index] != UInt8(ascii: "\\") {
+                guard bytes[index] >= 0x20 else { throw error("control character in a string") }
+                index += 1
+            }
+            if index > run { scalars.append(contentsOf: bytes[run..<index]) }
             guard index < bytes.count else { throw error("unterminated string") }
             let byte = bytes[index]
             index += 1
@@ -491,10 +501,8 @@ struct JSONValueParser {
                 default:
                     throw error("bad escape")
                 }
-            case 0..<0x20:
-                throw error("control character in a string")
             default:
-                scalars.append(byte)
+                throw error("unreachable: a run stops only at a quote or an escape")
             }
         }
     }

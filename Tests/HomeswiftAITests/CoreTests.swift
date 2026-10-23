@@ -48,6 +48,23 @@ import Testing
         #expect(JSONValue.number(.infinity).text() == "null")
     }
 
+    /// Text with an escape every few bytes (JSON inside a log line) decodes as Foundation decodes it, the plain runs
+    /// between escapes copied whole; a control character after an escape is still refused.
+    @Test func decodesTextFullOfEscapes() throws {
+        let text = #"Received {"state":{"on":true,"name":"Café \"Lamp\""},"path":"a\\b"} done ⚡️"#
+        let encoded = JSONValue.string(text).encoded()
+        #expect(try JSONValue(data: encoded) == .string(text))
+        #expect(try JSONSerialization.jsonObject(with: encoded, options: .fragmentsAllowed) as? String == text)
+        #expect(throws: (any Error).self) { try JSONValue(string: "\"a\\nb\u{01}c\"") }
+    }
+
+    @Test func searchesASCIINeedlesInAnyText() {
+        #expect(TextSearch.containsAny("⚡️ Dolphin M400 — prêt", asciiCaseless: ["dolphin m400"]))
+        #expect(TextSearch.containsAny("état DOLPHIN", asciiCaseless: ["nope", "Dolphin"]))
+        #expect(!TextSearch.containsAny("Dolphin M600 é", asciiCaseless: ["dolphin m400"]))
+        #expect(!TextSearch.containsAny("anything", asciiCaseless: []))
+    }
+
     @Test func roundTripsNumbersAndStructure() throws {
         let value = try JSONValue(string: #"{"a": 1, "b": 1.5, "c": [true, null, "x"], "d": {"e": -3}}"#)
         #expect(value["a"]?.intValue == 1)

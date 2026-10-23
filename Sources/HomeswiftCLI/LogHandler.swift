@@ -48,8 +48,10 @@ struct HomeswiftLogHandler: LogHandler {
         if !merged.isEmpty {
             line += " " + merged.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
         }
-        text += line
+        // A JSON payload leaves the line for a marker; it stays with the buffered line, to expand in the web UI.
+        let split = LogDetails.split(line)
+        text += split?.text ?? line
         (standardError ? FileHandle.standardError : FileHandle.standardOutput).write(Data((text + "\n").utf8))
-        buffer?.append(LogBuffer.Line(level: level, label: label, text: line))
+        buffer?.append(LogBuffer.Line(level: level, label: label, text: split?.text ?? line, details: split?.details))
     }
 }

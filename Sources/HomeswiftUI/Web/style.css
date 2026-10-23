@@ -142,9 +142,19 @@ button.busy::after {
   border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* Something loading: a ring that turns, faded in after 150 ms so a quick load does not flash it; a page's in the middle
+   of the view. */
+.spinner {
+  display: inline-block; width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent);
+  vertical-align: middle; animation: spin 0.8s linear infinite, fade var(--normal) var(--ease-out) 150ms both;
+}
+.view-loading { display: grid; place-items: center; min-height: 40vh; }
+.view-loading .spinner, .log-loading .spinner { width: 30px; height: 30px; border-width: 3px; }
+.log-loading { display: grid; place-items: center; height: 100%; min-height: 160px; }
 @media (prefers-reduced-motion: reduce) {
   .panel { animation: none; }
   button.busy::after { animation: none; border-right-color: currentColor; opacity: 0.5; }
+  .spinner { animation: fade var(--normal) var(--ease-out) 150ms both; border-color: var(--accent); opacity: 0.5; }
 }
 @media (max-width: 640px) { .panel-columns { grid-template-columns: 1fr; } }
 
@@ -556,12 +566,25 @@ textarea.short { min-height: 220px; }
 .chart-tooltip .chart-time { color: var(--muted); margin-bottom: 4px; white-space: nowrap; }
 .chart-tooltip .chart-row { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .chart-tooltip b { font-variant-numeric: tabular-nums; }
+/* The charts as a table: a card of its own, the header pinned while the rows scroll, the groups (homeswift, Home app
+   requests, plugin device calls) under a header each with a rule between them, numbers right-aligned in tabular
+   figures, an empty cell quiet. */
 .chart-table { margin-top: 12px; }
-.chart-table .table-scroll { overflow-x: auto; max-height: 360px; overflow-y: auto; margin-top: 8px; }
-.chart-table table { border-collapse: collapse; font-size: 0.8125rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.chart-table th, .chart-table td { padding: 4px 12px 4px 0; text-align: right; border-bottom: 1px solid var(--line); }
-.chart-table th:first-child, .chart-table td:first-child { text-align: left; }
-.chart-table th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--material-solid); }
+.chart-table .table-scroll {
+  overflow: auto; max-height: 420px; margin-top: 10px; border-radius: 14px; border: 1px solid var(--edge);
+  background: var(--material-solid); box-shadow: var(--shadow-control);
+}
+.chart-table table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.8125rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chart-table thead { position: sticky; top: 0; z-index: 1; background: var(--material-solid); }
+.chart-table th, .chart-table td { padding: 7px 14px; text-align: right; border-bottom: 1px solid var(--line); }
+.chart-table thead th { color: var(--muted); font-weight: 500; font-size: 0.75rem; }
+.chart-table thead .groups th { color: var(--text); font-weight: 600; font-size: 0.8125rem; text-align: center; padding-bottom: 4px; border-bottom-color: transparent; }
+.chart-table thead .groups th.time { text-align: left; vertical-align: bottom; padding-bottom: 7px; border-bottom-color: var(--line); }
+.chart-table .group-start { border-left: 1px solid var(--line); }
+.chart-table tbody th.time { text-align: left; font-weight: 500; color: var(--text); }
+.chart-table td.empty { color: var(--muted); opacity: 0.55; }
+.chart-table tbody tr:last-child > * { border-bottom: 0; }
+.chart-table tbody tr:hover > * { background: var(--material-thin); }
 .servers { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 14px; }
 .server { margin: 0; display: grid; gap: 14px; align-content: start; }
 .servers .server, .card.server { animation: materialize var(--normal) var(--ease-out); }
@@ -615,6 +638,14 @@ textarea.short { min-height: 220px; }
 .log-line time { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .log-line .label { color: var(--muted); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log-line .text { overflow-wrap: anywhere; white-space: pre-wrap; }
+/* A payload taken out of a line: a small JSON button after its marker, the JSON formatted under the line. */
+.log-details-toggle {
+  padding: 0 7px; margin: 0; border-radius: 6px; font: 600 0.6875rem/1.5 var(--mono); letter-spacing: 0.02em; vertical-align: baseline;
+  color: var(--muted); background: var(--material-thin); border: 1px solid var(--line); box-shadow: none;
+}
+.log-details-toggle:hover { color: var(--text); transform: none; }
+.log-details-toggle[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); }
+.log-line .log-details { grid-column: 1 / -1; margin: 4px 0 6px; max-height: 420px; overflow: auto; font-size: 0.75rem; }
 .log-line.warning { background: rgba(201, 115, 26, 0.08); }
 .log-line.warning .text { color: var(--warn); }
 .log-line.error, .log-line.critical { background: rgba(208, 56, 59, 0.08); }
