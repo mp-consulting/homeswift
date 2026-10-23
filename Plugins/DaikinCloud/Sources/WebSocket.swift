@@ -100,7 +100,7 @@ actor DaikinWebSocket {
             // A fresh token for every connection: the last one may have expired while it was down.
             let token = try await oauth.accessToken()
             let headers = [("Authorization", "Bearer \(token)"), ("User-Agent", DaikinHTTP.userAgent)]
-            socket = try await open(Self.url, WebSocket.Options(headers: headers, tls: .system, timeout: timing.connectTimeout))
+            socket = try await open(Self.url, WebSocket.Options(headers: headers, tls: TLSOptions(cipherSuites: DaikinHTTP.cipherSuites), timeout: timing.connectTimeout))
         } catch {
             guard current == generation, shouldReconnect else { return }
             onEvent(.error(message(of: error)))

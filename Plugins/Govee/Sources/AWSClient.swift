@@ -101,10 +101,12 @@ actor AWSClient {
         case .connecting:
             debug("[AWS] \(Lang.awsEventReconnect).")
         case .connectionLost(let reason):
-            debug("[AWS] \(Lang.awsEventOffline) [\(reason)].")
+            // The AWS IoT SDK's `error` then `offline` events, both warnings with `debug`.
+            debug.warn("[AWS] \(Lang.awsEventError) [\(reason)].")
+            debug.warn("[AWS] \(Lang.awsEventOffline).")
             connected = false
         case .disconnected:
-            debug("[AWS] \(Lang.awsEventClose).")
+            debug.warn("[AWS] \(Lang.awsEventClose).")
             connected = false
         }
     }

@@ -249,6 +249,24 @@ struct DiscoveryTests {
         #expect(Discovery.serial(fromServiceName: "Living Room") == nil)
     }
 
+    @Test func fallsBackToTheSenderWithoutALocalIPv4Record() {
+        // As mdnsDiscovery's referer fallback: a private IPv4 sender beats IPv6 records, a public one never counts.
+        #expect(Discovery.address(of: ["fe80::1"], referer: "192.168.1.30") == "192.168.1.30")
+        #expect(Discovery.address(of: ["192.168.1.20"], referer: "192.168.1.30") == "192.168.1.20")
+        #expect(Discovery.address(of: ["fe80::1"], referer: "8.8.8.8") == "fe80::1")
+        #expect(Discovery.address(of: [], referer: "fe80::2") == nil)
+        let responses = [
+            MDNSQuery.Response(sender: "192.168.1.30", names: ["_dyson_mqtt._tcp.local", "455_ABC-AB-12345678._dyson_mqtt._tcp.local", "ABC-AB-12345678.local"]),
+            MDNSQuery.Response(sender: "192.168.1.31", names: ["XYZ-AB-87654321._dyson_mqtt._tcp.local"]),
+            // A host name alone is not an instance of the service.
+            MDNSQuery.Response(sender: "192.168.1.32", names: ["QQQ-AB-11111111.local"]),
+        ]
+        let referers = Discovery.senders(of: responses)
+        #expect(referers == ["ABC-AB-12345678": "192.168.1.30", "XYZ-AB-87654321": "192.168.1.31"])
+        let merged = Discovery.merge(addresses: ["ABC-AB-12345678": [], "DEF-AB-00000000": ["192.168.1.40"]], referers: referers)
+        #expect(merged == ["ABC-AB-12345678": "192.168.1.30", "XYZ-AB-87654321": "192.168.1.31", "DEF-AB-00000000": "192.168.1.40"])
+    }
+
     @Test func onlyLocalAddresses() {
         #expect(Discovery.isLocalNetworkAddress("192.168.1.10"))
         #expect(Discovery.isLocalNetworkAddress("10.0.0.2"))

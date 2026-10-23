@@ -34,8 +34,11 @@ public actor GoveePlugin: HomeswiftPlugin {
         /// For scene icons: refuses bodies over 512 KB.
         var icons: any HTTPSending = HTTPClient(maximumBodySize: GoveePlugin.iconMaximumBytes)
         var lanSocket: @Sendable (Logger) async throws -> any LANSocket = { try await UDPLANSocket.bind(logger: $0) }
-        /// The Bluetooth adapter, or nil where there is none.
-        var bleCentral: @Sendable (Logger) -> (any BLECentral)? = GoveePlugin.systemCentral
+        /// The Bluetooth adapter, or nil where there is none; throws why one could not be opened.
+        var bleCentral: @Sendable (Logger) throws -> (any BLECentral)? = GoveePlugin.systemCentral
+        /// The Homebridge storage path whose `govee_cache` a first start imports, when the block names none
+        /// (`homebridgeStoragePath`): `~/.homebridge`.
+        var homebridgeStorage: URL? = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".homebridge")
         /// The AWS IoT connection.
         var mqtt: @Sendable (MQTTConfiguration) async throws -> any MQTTConnection = { MQTTClient($0) }
         /// Whether devices keep their Eve history (fakegato's files, in the storage directory).
@@ -53,7 +56,6 @@ public actor GoveePlugin: HomeswiftPlugin {
         var transports: TransportFlags
         var awsTopic: String?
         var ble: BLETarget?
-        var external: Bool
         var lastUpdate: Date?
     }
 
@@ -220,7 +222,7 @@ public actor GoveePlugin: HomeswiftPlugin {
         self.account = account
         credentialStore = store
         do {
-            credentials = store.load()
+            credentials = store.load() ?? importHomebridgeLogin(store)
             let usedCache = credentials != nil
             if let credentials {
                 await account.setToken(credentials.token)
@@ -272,6 +274,13 @@ public actor GoveePlugin: HomeswiftPlugin {
         return MQTTConfiguration(transport: .tls(host: endpoint, port: 8883, options: options), clientID: clientID, reconnect: .init(firstConnection: true))
     }
 
+    /// A first start's login from Homebridge's `govee_cache`, so Govee does not challenge it again: from the
+    /// block's `homebridgeStoragePath`, else `~/.homebridge`.
+    private func importHomebridgeLogin(_ store: CredentialStore) -> AccountCredentials? {
+        guard let path = configuration.homebridgeStoragePath ?? dependencies.homebridgeStorage else { return nil }
+        return store.importHomebridge(from: path)
+    }
+
     /// Logs in and keeps the result.
     private func login() async throws {
         guard let account, let credentialStore else { return }
@@ -299,7 +308,18 @@ public actor GoveePlugin: HomeswiftPlugin {
             logger.warning("[BLE] \(Lang.disableClient) \(Lang.disabledInConfig).")
             return
         }
-        guard let central = dependencies.bleCentral(logger) else {
+        let central: (any BLECentral)?
+        do {
+            central = try dependencies.bleCentral(logger)
+        } catch {
+            if "\(error)".contains("Address family not supported") {
+                logger.warning("[BLE] disabled - Bluetooth not available on this system (no hardware or driver support).")
+            } else {
+                logger.warning("[BLE] \(Lang.disableClient) \(error).")
+            }
+            return
+        }
+        guard let central else {
             logger.warning("[BLE] \(Lang.disableClient) \(Lang.bleNoPackage).")
             return
         }
@@ -307,8 +327,9 @@ public actor GoveePlugin: HomeswiftPlugin {
         logger.info("[BLE] \(Lang.available).")
     }
 
-    /// CoreBluetooth on a Mac whose binary may use Bluetooth; nothing on Linux yet.
-    @Sendable static func systemCentral(_ logger: Logger) -> (any BLECentral)? {
+    /// CoreBluetooth on a Mac whose binary may use Bluetooth; on Linux a raw HCI socket on the adapter
+    /// `NOBLE_HCI_DEVICE_ID` names (hci0 by default), as noble chose it for the Homebridge plugin.
+    @Sendable static func systemCentral(_ logger: Logger) throws -> (any BLECentral)? {
         #if canImport(CoreBluetooth)
         guard CoreBluetoothCentral.isPermitted(infoDictionary: Bundle.main.infoDictionary) else {
             logger.info("[BLE] Bluetooth needs NSBluetoothAlwaysUsageDescription in the homeswift binary's Info.plist")
@@ -320,6 +341,9 @@ public actor GoveePlugin: HomeswiftPlugin {
             return nil
         }
         return CoreBluetoothCentral(logger: logger)
+        #elseif os(Linux)
+        let device = ProcessInfo.processInfo.environment["NOBLE_HCI_DEVICE_ID"].flatMap(Govee.parseInt) ?? 0
+        return try LinuxBluetoothCentral(deviceID: device, logger: logger)
         #else
         return nil
         #endif
@@ -434,15 +458,12 @@ public actor GoveePlugin: HomeswiftPlugin {
         let accessory = Accessory(
             id: accessoryID, name: name, manufacturer: Lang.brand, model: model, serialNumber: id, firmwareRevision: info.firmware ?? "1.0.0",
             category: category, services: services + (history.map { [$0.service] } ?? []))
-        let external = category == .audioReceiver || category == .tvSetTopBox || category == .tvStreamingStick
-        // Building the handler awaited: after a stop() meanwhile, nothing goes on the bridge (or its own server).
+        // Building the handler awaited: after a stop() meanwhile, nothing goes on the bridge.
         guard !stopped else { return await handler.destroy() }
         do {
-            if external {
-                try await context.publishExternal(accessory)
-            } else {
-                try context.add(accessory)
-            }
+            // Plugs shown as an audio receiver, set-top box or streaming stick too, as the Homebridge plugin did:
+            // a bridged television works, and HomeKit shows one per bridge (a child bridge holds more).
+            try context.add(accessory)
         } catch {
             logger.warning("[\(name)] \(Lang.devNotInit) \(error).")
             await handler.destroy()
@@ -450,7 +471,7 @@ public actor GoveePlugin: HomeswiftPlugin {
         }
         if let previous = devices[id] { await previous.handler.destroy() }
         devices[id] = ManagedDevice(
-            id: id, model: model, name: name, accessoryID: accessoryID, handler: handler, transports: transports, awsTopic: awsTopic, ble: ble, external: external)
+            id: id, model: model, name: name, accessoryID: accessoryID, handler: handler, transports: transports, awsTopic: awsTopic, ble: ble)
         if cached == nil { logger.info("[\(name)] \(Lang.devAdd).") }
         logger.info("[\(name)] \(Lang.devInit) [\(id)] [\(model)].")
     }
@@ -581,28 +602,39 @@ public actor GoveePlugin: HomeswiftPlugin {
                     let dataText = raw["deviceExt"]?["lastDeviceData"]?.stringValue,
                     let settings = try? JSONValue(string: settingsText), let data = try? JSONValue(string: dataText)
                 else { continue }
-                var update: [String: JSONValue] = [:]
-                if GoveeConstants.Models.sensorLeak.contains(sku) {
-                    await device.handler.logDebug("[HTTP] raw sensor data: \(data.text())")
-                    let leak = await checkLeakAlerts(device, sku: sku, lastTime: data["lastTime"]?.doubleValue ?? 0)
-                    if let battery = settings["battery"] { update["battery"] = battery }
-                    update["leakDetected"] = .bool(leak)
-                    if data["online"] != nil { update["online"] = .bool(Configuration.truthy(data["gwonline"]) && Configuration.truthy(data["online"])) }
-                } else {
-                    // Readings in hundredths; 65535 is Govee's "no reading" (the H5310 has no humidity sensor).
-                    await device.handler.logDebug("[HTTP] raw sensor data: \(data.text())")
-                    if let battery = settings["battery"] { update["battery"] = battery }
-                    for (key, field) in [("tem", "temperature"), ("hum", "humidity"), ("pm25", "pm25")] {
-                        if let value = data[key], value.doubleValue != 65535 { update[field] = value }
-                    }
-                    if let online = data["online"] { update["online"] = online }
+                do {
+                    try await refresh(device, sku: sku, settings: settings, data: data)
+                } catch {
+                    logger.warning("[\(raw["deviceName"]?.stringValue ?? device.name)] \(Lang.devNotRef) \(error).")
                 }
-                await receiveDeviceUpdate(id: id, raw: .object(update), source: .http)
             }
         } catch {
             logger.warning("[HTTP] \(Lang.syncFail) \(error).")
             if let error = error as? GoveeAPIError, error.isAuthFailure { await reauthenticate() }
         }
+    }
+
+    /// A sensor's readings from the device list. Settings or data that are JSON but no object (`null`) fail, as
+    /// they made the Homebridge plugin's refresh throw.
+    func refresh(_ device: ManagedDevice, sku: String, settings: JSONValue, data: JSONValue) async throws {
+        guard settings.objectValue != nil, data.objectValue != nil else { throw GoveeAPIError.message("the device data is not an object") }
+        var update: [String: JSONValue] = [:]
+        if GoveeConstants.Models.sensorLeak.contains(sku) {
+            await device.handler.logDebug("[HTTP] raw sensor data: \(data.text())")
+            let leak = await checkLeakAlerts(device, sku: sku, lastTime: data["lastTime"]?.doubleValue ?? 0)
+            if let battery = settings["battery"] { update["battery"] = battery }
+            update["leakDetected"] = .bool(leak)
+            if data["online"] != nil { update["online"] = .bool(Configuration.truthy(data["gwonline"]) && Configuration.truthy(data["online"])) }
+        } else {
+            // Readings in hundredths; 65535 is Govee's "no reading" (the H5310 has no humidity sensor).
+            await device.handler.logDebug("[HTTP] raw sensor data: \(data.text())")
+            if let battery = settings["battery"] { update["battery"] = battery }
+            for (key, field) in [("tem", "temperature"), ("hum", "humidity"), ("pm25", "pm25")] {
+                if let value = data[key], value.doubleValue != 65535 { update[field] = value }
+            }
+            if let online = data["online"] { update["online"] = online }
+        }
+        await receiveDeviceUpdate(id: device.id, raw: .object(update), source: .http)
     }
 
     /// A leak while an unread leakage alert exists. The alert list is fetched when the sensor reports a new event
@@ -648,7 +680,9 @@ public actor GoveePlugin: HomeswiftPlugin {
         }
     }
 
-    /// A sensor's advertisement: by its address where the system gives it, else by its name.
+    /// A sensor's advertisement, matched by MAC address (`bleAddress`) as the Homebridge plugin matches it, where
+    /// the system gives the address (Linux's HCI socket). CoreBluetooth hides MAC addresses, so on macOS a reading
+    /// is matched by the name the sensor advertises (`bleName`, or one ending in the last two bytes of the MAC).
     func receiveBLEReading(_ reading: BLESensorReading) async {
         let key = (reading.address ?? reading.identifier).lowercased()
         let now = ContinuousClock.now
@@ -666,7 +700,9 @@ public actor GoveePlugin: HomeswiftPlugin {
     }
 
     static func matches(_ target: BLETarget, _ reading: BLESensorReading) -> Bool {
-        if let address = reading.address, !address.isEmpty { return address.lowercased() == target.address.lowercased() }
+        if let address = reading.address, !address.isEmpty {
+            return BluetoothAddress.normalized(address).map { $0 == BluetoothAddress.normalized(target.address) } ?? false
+        }
         guard !reading.model.isEmpty else { return false }
         if let name = target.name, !name.isEmpty, reading.model.caseInsensitiveCompare(name) == .orderedSame { return true }
         let suffix = target.address.replacingOccurrences(of: ":", with: "").suffix(4).uppercased()

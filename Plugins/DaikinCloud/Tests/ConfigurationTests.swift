@@ -1,4 +1,5 @@
 import Foundation
+import HomeswiftNetwork
 import HomeswiftPlugin
 import Testing
 
@@ -147,6 +148,15 @@ import Testing
         #expect(DaikinHTTP.transport(for: .curl, environment: [:]) == .curl)
         #expect(DaikinHTTP.transport(for: nil, environment: [:]) == .node)
         #expect(DaikinHTTP.transport(for: .node, environment: ["DAIKIN_HTTP_TRANSPORT": "curl"]) == .curl)
+    }
+
+    @Test func tlsCiphersAreOpenSSLsDefaultUnlessTheEnvironmentSaysOtherwise() throws {
+        #expect(DaikinHTTP.cipherSuites(environment: [:]) == "DEFAULT")
+        #expect(DaikinHTTP.cipherSuites(environment: ["DAIKIN_TLS_CIPHERS": ""]) == "DEFAULT")
+        #expect(DaikinHTTP.cipherSuites(environment: ["DAIKIN_TLS_CIPHERS": "ECDHE-RSA-AES128-GCM-SHA256"]) == "ECDHE-RSA-AES128-GCM-SHA256")
+        // The built-in client offers them.
+        let client = try #require(DaikinHTTP.makeTransport(.node) as? HTTPClient)
+        #expect(client.cipherSuites == DaikinHTTP.cipherSuites)
     }
 
     @Test func redactedBlockHidesSecrets() {
