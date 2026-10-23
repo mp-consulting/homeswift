@@ -8738,31 +8738,49 @@ self.addEventListener("notificationclick", (event) => {
       const current = ctx.take(primary, "Current Position"), target = ctx.take(primary, "Target Position");
       const state = ctx.take(primary, "Position State"), obstruction = ctx.take(primary, "Obstruction Detected");
       const hold = ctx.take(primary, "Hold Position");
-      const min = target.minValue ?? 0, max = target.maxValue ?? 100;
+      const min = target.minValue ?? 0, max = target.maxValue ?? 100, step = target.minStep || 1;
       const position = () => numberOf(current, numberOf(target));
+      // Where this page sent the shutter: shown until it gets there, stops on the way, is sent elsewhere or two
+      // minutes pass, as the Home app does, rather than each position it reports on its way.
+      let goal = null;
+      const go = async (value) => {
+        goal = { value, since: Date.now(), moved: false };
+        await ctx.write(primary, target, value);
+        // Refused: the write put the target back.
+        if (goal?.value === value && numberOf(target) !== value) { goal = null; ctx.paint(); }
+      };
+      const shown = () => {
+        if (goal) {
+          const moving = numberOf(state, 2) !== 2;
+          if (moving) goal.moved = true;
+          if (Math.abs(position() - goal.value) <= step || (goal.moved && !moving) || numberOf(target, goal.value) !== goal.value
+            || Date.now() - goal.since > 120_000) goal = null;
+        }
+        return goal ? goal.value : position();
+      };
       const built = {
-        tap: () => ctx.write(primary, target, position() > min ? min : max),
-        tapLabel: () => position() > min ? "close" : "open",
-        on: () => position() > min, hero: () => `${position()}%`, shade: () => 100 - (position() - min) / (max - min) * 100,
+        tap: () => go(shown() > min ? min : max),
+        tapLabel: () => shown() > min ? "close" : "open",
+        on: () => shown() > min, hero: () => `${shown()}%`, shade: () => 100 - (shown() - min) / (max - min) * 100,
         // The small tile slides: dragged down it closes, up it opens, written when let go.
-        slide: { min, max, step: target.minStep || 1, value: position, commit: (v) => ctx.write(primary, target, v) },
+        slide: { min, max, step, value: shown, commit: go },
         status() {
           if (isOn(obstruction)) return ["Obstructed", "warn"];
           const moving = numberOf(state, 2);
-          if (moving === 1) return ["Opening…", "cool"];
-          if (moving === 0) return ["Closing…", "cool"];
-          const p = position();
+          const p = shown();
+          if (moving === 1 || (moving === 2 && goal && goal.value > position())) return ["Opening…", "cool"];
+          if (moving === 0 || (moving === 2 && goal && goal.value < position())) return ["Closing…", "cool"];
           return [p <= min ? "Closed" : p >= max ? "Open" : `Open · ${p} %`];
         },
       };
       if (size === "small") return built;
       // Stop: Hold Position where it has one, else the position it is at as the target.
-      const buttons = [["up", "Open", () => ctx.write(primary, target, max)],
-        ["stop", "Stop", () => canWrite(hold) ? ctx.write(primary, hold, true) : ctx.write(primary, target, position())],
-        ["down", "Close", () => ctx.write(primary, target, min)]].map(([glyph, label, act]) => el("button", { type: "button", class: "round", "aria-label": label, title: label, onclick: act }, icon(glyph)));
+      const buttons = [["up", "Open", () => go(max)],
+        ["stop", "Stop", () => { goal = null; return canWrite(hold) ? ctx.write(primary, hold, true) : go(position()); }],
+        ["down", "Close", () => go(min)]].map(([glyph, label, act]) => el("button", { type: "button", class: "round", "aria-label": label, title: label, onclick: act }, icon(glyph)));
       const slider = (vertical) => {
-        const control = level({ label: "Position", min, max, step: target.minStep || 1, format: (v) => `${v} %`, vertical,
-          fill: `linear-gradient(${vertical ? "0deg" : "90deg"}, #4aa3ff, #a8dbff)` }, (v) => ctx.write(primary, target, v));
+        const control = level({ label: "Position", min, max, step, format: (v) => `${v} %`, vertical,
+          fill: `linear-gradient(${vertical ? "0deg" : "90deg"}, #4aa3ff, #a8dbff)` }, go);
         ctx.watch(() => control.set(numberOf(target, position())));
         return control.node;
       };

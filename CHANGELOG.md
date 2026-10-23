@@ -466,6 +466,9 @@ All notable changes to this project are documented here. The format follows
 - On a phone: the chat's field and voice picker are 16px, so Safari no longer zooms into the page, and the
   chat sheet sits on the on-screen keyboard instead of behind it; widget swatches and steps keep their shapes,
   the widgets' menus have a larger target, and All controls rises from the bottom edge.
+- A shutter sent to a position from its widget (slid, tapped, its slider or buttons) shows that position until it
+  gets there, "Opening…" or "Closing…" meanwhile, instead of jumping back and following each position the device
+  reports on its way; stopped on the way, it shows where it stopped.
 
 ## [0.3.0] - 2026-10-21
 
