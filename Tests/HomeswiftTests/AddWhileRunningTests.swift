@@ -58,7 +58,9 @@ import Testing
         for id in ["a", "b", "c"] { try server.add(lamp(id)) }
         #expect(configurationNumber(server) == "4")
         #expect(server.state.withLockedValue { $0.hashBehind })
-        try await Task.sleep(for: .milliseconds(600))
+        // The settle is due 250 ms after the burst; a loaded CI runner may run it late.
+        let deadline = ContinuousClock.now + .seconds(10)
+        while server.state.withLockedValue({ $0.hashBehind }), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
         #expect(!server.state.withLockedValue { $0.hashBehind })
         #expect(configurationNumber(server) == "4")
         // A change after the settle is counted from the settled hash: one bump.

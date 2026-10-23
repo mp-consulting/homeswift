@@ -305,6 +305,11 @@ All notable changes to this project are documented here. The format follows
   protocol version, user name or password, not authorized), not on "server unavailable".
 - Daikin Cloud's page tells the Assistant the default transport is Homeswift's built-in HTTP client, not "node".
 - The Dyson Pure Cool README says how `discoveryTimeout` is read (seconds up to 60, milliseconds above).
+- **A container image**, `ghcr.io/mp-consulting/homeswift`, for `linux/amd64` and `linux/arm64`, pushed for each
+  release tag: the bridge linked with the Swift runtime, Avahi (its own daemon, or the host's through a
+  mounted D-Bus socket), FFmpeg, a `config.json` with the web UI on the first run, the bridge running as
+  `PUID:PGID`. `docker-compose.yml` and [docs/synology.md](docs/synology.md) set it up on a Synology NAS
+  with Container Manager.
 - **A Synology package** (`homeswift-<arch>-<version>.spk`, x86_64 and aarch64, DSM 7.0 or later), Homeswift's
   homebridge-syno-spk: no Docker, a `homeswift` shared folder for the data, the bridge as a systemd unit of
   the package's own user, Homeswift in DSM's main menu, firewall entries for its ports. The install wizard
@@ -321,9 +326,6 @@ All notable changes to this project are documented here. The format follows
 - **`homeswift users`** lists the web UI's accounts, adds one and sets a forgotten password, reading
   passwords from standard input; **`homeswift logs [-n <lines>] [-f]`** prints the log on disk in the
   console's format and follows it.
-
-### Changed
-
 - **Faster web UI and MCP server.** `JSONValue` writes and parses its JSON itself instead of through
   `JSONEncoder`/`JSONDecoder` (the same bytes, 7–30× faster), redaction skips the expressions a line cannot
   match, the log buffer is a ring and the archive's lines skip the Codable coders, and static files answer 304
@@ -452,9 +454,6 @@ All notable changes to this project are documented here. The format follows
   their files and the usual fixes, after the Homebridge plugins' `*_AI_CONTEXT`.
 - Govee plugs shown as an audio receiver, set-top box or streaming stick are on the bridge, as in Homebridge,
   rather than accessories with a pairing of their own.
-
-### Fixed
-
 - A write the device refuses or never answers reads as a sentence ("Desk Lamp did not answer…", "eWeLink is
   paused: resume it…") in the web UI and to MCP clients, not as `HAPStatusError(…)`.
 - Govee: a bridge restart no longer turns Adaptive Lighting off. The light's first colour report after launch was
@@ -469,6 +468,7 @@ All notable changes to this project are documented here. The format follows
 - A shutter sent to a position from its widget (slid, tapped, its slider or buttons) shows that position until it
   gets there, "Opening…" or "Closing…" meanwhile, instead of jumping back and following each position the device
   reports on its way; stopped on the way, it shows where it stopped.
+- A medium switch widget no longer reads "null" under its name: its empty body went to `append()` as `null`.
 
 ## [0.3.0] - 2026-10-21
 

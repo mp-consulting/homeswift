@@ -166,6 +166,17 @@ over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (t
 | [UniFi Access](Plugins/UniFiAccess) | `UniFi Access` | UniFi Access hubs and readers: door locks, doorbells, sensors, followed through the controller's events |
 | [UniFi Protect](Plugins/UniFiProtect) | `UniFi Protect` | UniFi Protect cameras and doorbells (live video, HomeKit Secure Video), sensors, lights, chimes |
 
+### In a container, on a NAS
+
+`ghcr.io/mp-consulting/homeswift` is the bridge in a container, for `linux/amd64` and `linux/arm64`, with
+Avahi and FFmpeg inside and the web UI on from the first run. It needs host networking, for mDNS.
+[docs/synology.md](docs/synology.md) walks through a Synology NAS with Container Manager and
+[docker-compose.yml](docker-compose.yml); on any Linux server with Docker:
+
+```bash
+docker compose up -d
+```
+
 ### On a Synology NAS
 
 The **Synology package** runs the bridge without Docker, on DSM 7.0 or later and on models without Container
@@ -200,17 +211,6 @@ code from the bridge's output:
 { "platform": "HomeswiftUI" }
 ```
 
-## Demo
-
-`homeswift-demo` is a bridge with a lamp, a switch and a temperature sensor that drifts. Install it with
-Homebrew (macOS 15 or later; it builds from source with Swift 6.1 or later):
-
-```bash
-brew install mp-consulting/tap/homeswift
-```
-
-```bash
-homeswift-demo
 - **Accessories** as widgets of their kind, chosen from what HomeKit knows about each one: an air conditioner's
   gauge, setpoints and modes, a purifier's air readings and filter, a light's brightness, colours, white and
   Adaptive Lighting, a shutter you slide, a valve that counts down, a gate held to open, cameras live. Each in
@@ -229,6 +229,17 @@ homeswift-demo
 See [docs/ui.md](docs/ui.md) for the UI and [docs/widgets.md](docs/widgets.md) for the widgets, with how a plugin
 gets the best of them.
 
+## Demo
+
+`homeswift-demo` is a bridge with a lamp, a switch and a temperature sensor that drifts. Install it with
+Homebrew (macOS 15 or later; it builds from source with Swift 6.1 or later):
+
+```bash
+brew install mp-consulting/tap/homeswift
+```
+
+```bash
+homeswift-demo
 ```
 
 Or run it in the background, at login, with `brew services start homeswift`; the setup code is then in
@@ -268,17 +279,6 @@ definitions:
 node Scripts/generate-definitions.js path/to/hap-nodejs > Sources/Homeswift/Model/Definitions.swift 2>/dev/null
 ```
 
-## Development
-
-```bash
-swift build
-swift test
-```
-
-On macOS, if `swift test` fails to code sign the test bundle (files under `~/Documents` can carry Finder
-metadata), build outside the repository with `--scratch-path ~/Library/Caches/homeswift-build`.
-
-## License
 ## Documentation
 
 | | |
@@ -290,6 +290,17 @@ metadata), build outside the repository with `--scratch-path ~/Library/Caches/ho
 | [docs/ai.md](docs/ai.md) | The Assistant: providers, the command line, what reaches a provider |
 | [docs/synology.md](docs/synology.md) | The Synology package and the container image |
 
+## Development
+
+```bash
+swift build
+swift test
+```
+
+On macOS, if `swift test` fails to code sign the test bundle (files under `~/Documents` can carry Finder
+metadata), build outside the repository with `--scratch-path ~/Library/Caches/homeswift-build`.
+
+## License
 
 MIT, see [LICENSE](LICENSE). The service and characteristic definitions come from HAP-NodeJS (Apache-2.0).
 

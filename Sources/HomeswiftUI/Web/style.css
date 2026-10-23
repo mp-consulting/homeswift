@@ -422,6 +422,19 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .md pre { margin: 8px 0; padding: 10px 12px; border-radius: 12px; background: var(--material-thin); border: 1px solid var(--line); overflow: auto; }
 .md pre code { padding: 0; border: 0; background: none; }
 .md a { color: var(--accent); }
+.md .md-table { margin: 8px 0; overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+.md table { width: 100%; border-collapse: collapse; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+.md th, .md td { padding: 6px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+.md th { font-weight: 600; background: var(--material-thin); white-space: nowrap; }
+.md tbody tr:last-child td { border-bottom: 0; }
+.md th + th, .md td + td { border-left: 1px solid var(--line); }
+.md .align-center { text-align: center; }
+.md .align-right { text-align: right; }
+.md blockquote { margin: 8px 0; padding: 2px 0 2px 12px; border-left: 3px solid var(--line); color: var(--muted); }
+.md hr { margin: 12px 0; border: 0; border-top: 1px solid var(--line); }
+.md del { color: var(--muted); }
+.md li.task { list-style: none; margin-left: -1.3em; }
+.md li.task input { margin: 0 6px 0 0; vertical-align: -2px; accent-color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   .ai-card.thinking, .ai-card.thinking::before, .ai-thinking, .ai-body { animation: none; }
   .ai-thinking { color: var(--muted); background: none; }

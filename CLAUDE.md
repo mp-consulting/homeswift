@@ -39,6 +39,7 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `Tests/HomeswiftNetworkTests` | The HTTP client against a NIO server, plain and with a self-signed certificate (trust, pin, mismatch), the RFC 2617 Digest vector, Wake-on-LAN packets over UDP, WebSocket and MQTT against a NIO server (`TestSocketServer`), AWS Signature V4 vectors, URL encodings byte for byte, the fakes |
 | `Tests/HomeswiftNetworkTestSupport` | A library target for plugin tests: `FakeMQTTConnection` and `FakeWebSocket`, in memory, no broker |
 | `Tests/HomeswiftFFmpegTests` | FFmpeg options and codecs per host, the process wrapper against a shell, RTP, fMP4 parsing on fixtures |
+| `Dockerfile`, `docker-compose.yml` | The container image (bridge, Avahi, FFmpeg; `Scripts/docker-entrypoint.sh` starts Avahi, seeds config.json, drops to `PUID:PGID`), published to GHCR by `.github/workflows/docker.yml`; `docs/synology.md` |
 | `Synology` | The Synology package: `build.sh` makes an `.spk` per architecture with Docker (`Dockerfile`: the binary on Amazon Linux 2, glibc 2.26 as on DSM 7.0; `bundle-libraries.sh` puts Avahi's dns_sd beside it), `conf/` (privilege, resources, the systemd unit), `scripts/`, the install wizard, `package/` (the `homeswift` command, `start.sh`); `.github/workflows/synology.yml` attaches them to releases |
 | `Benchmarks` | A separate package: `hap-bench`, a HomeKit controller that measures a server (pairing, requests, events, load, memory), `hap-bench-server` (a Homeswift bridge with N lightbulbs) and the same bridge on HAP-NodeJS under `hap-nodejs/`; `run.sh` compares them, `README.md` has the numbers |
 
@@ -117,4 +118,6 @@ A release is a tag: SwiftPM resolves versions from `vX.Y.Z` tags. Bump `PluginHo
 under the new version, commit, then `gh release create vX.Y.Z --notes-file <section>` and push the tag. There
 are no binaries to sign yet. The Homebrew formula (`mp-consulting/homebrew-tap`, `Formula/homeswift.rb`) builds
 `homeswift-demo` from the release tarball; it needs `homeswift` added at the next release. The tap's workflow
-moves it to the latest release within 6 hours.
+moves it to the latest release within 6 hours. Pushing the tag runs `.github/workflows/docker.yml`, which pushes
+`ghcr.io/mp-consulting/homeswift:X.Y.Z`, `X.Y` and `latest` for amd64 and arm64 (each on a native runner); a
+new GHCR package is private until its visibility is set to public in the package's settings.
