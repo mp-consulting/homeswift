@@ -1,0 +1,97 @@
+import Foundation
+import Testing
+
+@testable import Homeswift
+
+/// A plugin replaces its cached accessories one by one once the server runs: what changes the database bumps the
+/// configuration number, what leaves it as it was does not, and new ids are saved at once.
+@Suite struct AddWhileRunningTests {
+    func lamp(_ id: String, brightness: Bool = true) -> Accessory {
+        Accessory(id: id, name: id, category: .lightbulb, services: [Service(.lightbulb, name: id, optional: brightness ? [.brightness] : [], isPrimary: true)])
+    }
+
+    func configurationNumber(_ server: HAPServer) -> String {
+        server.txtRecord().first { $0.0 == "c#" }?.1 ?? "?"
+    }
+
+    @Test func replacingWithTheSameShapeKeepsTheNumber() async throws {
+        let storage = MemoryStorage()
+        let server = try HAPServer(
+            bridge: Accessory(id: "bridge", name: "Test Bridge", category: .bridge, services: []), accessories: [], storage: storage,
+            options: .init(port: 0, advertise: false, logger: testLogger))
+        for id in ["a", "b", "c"] { try server.add(lamp(id)) }
+        try await server.start()
+        #expect(configurationNumber(server) == "1")
+
+        // The same lamps again, as new objects: nothing HomeKit sees changed.
+        for id in ["a", "b", "c"] { try server.add(lamp(id)) }
+        #expect(configurationNumber(server) == "1")
+
+        // One loses its brightness: a change, one bump; its iids stay.
+        let iid = server.accessories.first { $0.id == "b" }?.service(.lightbulb)?.iid
+        let changed = lamp("b", brightness: false)
+        try server.add(changed)
+        #expect(configurationNumber(server) == "2")
+        #expect(changed.service(.lightbulb)?.iid == iid)
+
+        // A new lamp: a new aid, saved before the next launch, and a bump.
+        try server.add(lamp("d"))
+        #expect(configurationNumber(server) == "3")
+        let aid = try #require(server.accessories.first { $0.id == "d" }?.aid)
+        await server.stop()
+
+        let restarted = try HAPServer(
+            bridge: Accessory(id: "bridge", name: "Test Bridge", category: .bridge, services: []), accessories: [lamp("a"), changed, lamp("c"), lamp("d")],
+            storage: storage, options: .init(port: 0, advertise: false, logger: testLogger))
+        #expect(restarted.accessories.first { $0.id == "d" }?.aid == aid)
+        try await restarted.start()
+        #expect(configurationNumber(restarted) == "3")
+        await restarted.stop()
+    }
+
+    /// A burst of new accessories bumps the number for each and settles the hash once, shortly after.
+    @Test func newAccessoriesSettleTheHashAfterTheBurst() async throws {
+        let server = try HAPServer(
+            bridge: Accessory(id: "bridge", name: "Test Bridge", category: .bridge, services: []), accessories: [], storage: MemoryStorage(),
+            options: .init(port: 0, advertise: false, logger: testLogger))
+        try await server.start()
+        for id in ["a", "b", "c"] { try server.add(lamp(id)) }
+        #expect(configurationNumber(server) == "4")
+        #expect(server.state.withLockedValue { $0.hashBehind })
+        try await Task.sleep(for: .milliseconds(600))
+        #expect(!server.state.withLockedValue { $0.hashBehind })
+        #expect(configurationNumber(server) == "4")
+        // A change after the settle is counted from the settled hash: one bump.
+        try server.remove(try #require(server.accessories.first { $0.id == "b" }))
+        #expect(configurationNumber(server) == "5")
+        // While behind, a removal still bumps.
+        try server.add(lamp("d"))
+        try server.remove(try #require(server.accessories.first { $0.id == "a" }))
+        #expect(configurationNumber(server) == "7")
+        await server.stop()
+    }
+
+    /// The state the server writes itself reads back with JSONDecoder as what JSONEncoder wrote.
+    @Test func persistedStateReadsBackAsJSONEncoderWroteIt() throws {
+        var state = PersistedState.new(setupCode: nil)
+        state.configurationNumber = 42
+        state.databaseHash = "ab12"
+        state.port = 51826
+        state.pairings = [Pairing(identifier: "A1/\"quoted\"", publicKey: Data((0..<32).map { UInt8($0) }), isAdmin: true),
+                          Pairing(identifier: "B2", publicKey: Data(), isAdmin: false)]
+        for index in 0..<200 {
+            state.aids["Plugin:\(index) é/ü"] = index + 2
+            state.iids["\(index + 2)/0000003E-0000-1000-8000-0026BB765291/sub\(index)/00000014-0000-1000-8000-0026BB765291"] = index
+        }
+        for port in [Int?.none, 51826] {
+            state.port = port
+            let sorted = JSONEncoder()
+            sorted.outputFormatting = [.sortedKeys]
+            let mine = try JSONDecoder().decode(PersistedState.self, from: state.encoded())
+            let theirs = try JSONDecoder().decode(PersistedState.self, from: JSONEncoder().encode(state))
+            #expect(try sorted.encode(mine) == sorted.encode(theirs))
+            #expect(mine.signingKey == state.signingKey && mine.port == port)
+        }
+    }
+}
+

@@ -44,15 +44,21 @@ with a new code). More users are added on the **Users** page (see below).
   digest** streams it, the bridge keeps it for the day (`ai-digest.json`, owner-only), and the card's **⋯**
   writes it again; any user reads today's digest, an administrator writes it. **Customise this page**, at the bottom, shows or hides each part (overview, digest,
   activity, bridges, system) and orders them; the layout is each user's own, on every browser.
-- **Accessories**: every accessory with its services, a section per plugin. Switches for on/off, sliders for brightness, colour
-  temperature and the like, menus for lock, door and alarm targets, text for everything else. Values
-  update live when a device changes elsewhere. Locks, garage doors and alarms can be operated here, as in
-  the Home app, since the user signed in; a change to one of them, or to a characteristic a plugin marked as a
-  security control (a switch that unlocks a door), asks first. Values that carry keys (a camera's Setup
-  Endpoints) are not shown. Each card's **⋯** menu identifies the accessory, shows its log,
-  asks the Assistant about it, and opens its plugin's settings; for an accessory whose plugin records an Eve
-  history (temperature, humidity, power…), **History** charts it over a day, a week or four weeks. What only HomeKit uses (a camera's stream and
-  recording setup) stays off the cards.
+- **Accessories**: a wall of widgets (`widgets.js`), each accessory drawn by the widget of its kind, in a fixed
+  box of the size chosen for it: small (1×1, a tile a tap acts on), medium (2×1) or large (2×2). A widget's
+  **⋯** menu (a right click on a tile) sets its size or its kind's, opens **All controls** (every control in a
+  sheet, the rest under More), identifies the accessory, shows its log, asks the Assistant about it, opens its
+  plugin's settings (administrators), resumes a paused plugin, puts the accessory in a room, names it for these
+  pages, adds it to the Quick Controls or hides it, and, for an accessory whose plugin records an Eve history
+  (temperature, humidity, power…), charts it over a day, a week or four weeks (**History**). **Edit** shows sizes and arrows on every widget and lets them be
+  dragged into place; **One wall** (the default), **By room** (once there are rooms) or **By plugin**. The bridge keeps the layout in
+  `ui-layout.json` next to config.json (`/api/layout`), the same for every user. Opening, unlocking and disarming
+  are held; a shutter's tile slides; a light with Adaptive Lighting has a sun swatch that turns it off or resumes
+  the Home app's schedule. A paused plugin's accessories are drawn striped, their controls out of reach. A change
+  shows at once and goes to the device; a refusal puts the value back and says why. Values that carry keys (a
+  camera's Setup Endpoints) are not shown, nor what only HomeKit uses. Temperatures show in the unit chosen on
+  the Appearance page. [widgets.md](widgets.md) has it all, with
+  screenshots and what a plugin does to get good widgets.
 - **Cameras** get a card of their own: the picture in 16:9 with the name, motion, the doorbell's last ring and
   recording over it, buttons to unmute, refresh and go full screen, and the camera's controls under it. While
   the card is on screen and the page visible, it plays the live feed muted (`GET /api/cameras/<id>/live`, fMP4
@@ -62,9 +68,9 @@ with a new code). More users are added on the **Users** page (see below).
   Plugin pages can show the same view: load `/camera.js` and call `HomeswiftCamera.view({ id, name })`.
 - **Rooms** (Glass UI's accessory layout): a card's **⋯** menu puts the accessory in a room (a new name adds
   the room), gives it a name for these pages (the Home app keeps its own), adds it to the Quick Controls, or
-  hides it. The page then groups by room (or by plugin, from the menu at the top: `/accessories?group=plugin`);
+  hides it. The wall then groups by room (**By room**, kept with the wall's layout);
   hidden accessories stay out unless **Show hidden** (`?hidden=1`). The layout is the bridge's, shared by every
-  user, in `accessory-layout.json` next to config.json (owner-only); the Home app never sees it, but the MCP
+  user, in `accessory-layout.json` next to config.json (owner-only; `/api/rooms`); the Home app never sees it, but the MCP
   tools do: `list_accessories` and `set_accessories` filter by these rooms. With the Assistant on, **Suggest
   rooms** asks it for rooms and clearer names for every accessory (`AssistantService.suggestOrganization`; the ids
   reach the model as aliases) and shows them to review: untick what you do not want, then **Apply** saves the
@@ -97,6 +103,10 @@ with a new code). More users are added on the **Users** page (see below).
   time a browser asks and keeps it in that file; the page registers `/sw.js`, a service worker that only shows
   the notifications and opens the page one is about (the content security policy allows it: same origin).
   Browsers allow it over HTTPS or on localhost only; iOS needs the page added to the home screen.
+- **Plugin pages** can draw an accessory as this page does: load `/remote.js`, `/camera.js` and `/widgets.js` after
+  `/common.js`, take the accessory from `/api/accessories`, add `HomeswiftWidgets.card(accessory, { size })` (`small`,
+  `medium` or `large`; the kind's own size when left out) to a `.wall`, open every control with
+  `HomeswiftWidgets.open(accessory)`, and call `HomeswiftWidgets.listen()` once for live values.
 - **Addresses** are paths: `/status`, `/accessories`, `/quick`, `/scenes` (and `/scenes/<id>`, `/scenes/new`),
   `/notifications`, `/plugins`, `/plugins/<slug>` and its `/expert`,
   `/plugins/add/<platform>`, `/config`, `/account`, `/appearance`, `/users`, `/settings` and its `/child-bridges`, `/backups`, `/assistant` and
@@ -158,7 +168,8 @@ with a new code). More users are added on the **Users** page (see below).
     Assistant's chat, and every change made in this UI (client `web UI`, the user, the route, a small body
     with its secrets masked), newest first, filtered by time, outcome, tool and client. `auditLog: false` in
     the MCP block turns it off.
-- **Logs**: the live log, filtered by level, text, time and what the lines are about. That last is one menu:
+- **Logs**: the live log, filtered by level (All; Info, info and above; Warnings or Errors alone), text, time
+  and what the lines are about. That last is one menu:
   every line; the bridges' own lines (their servers' connections, pairings and controllers), every bridge's or
   one's; or an accessory's (those of its own server and those that name it, its id or its address), the
   accessories grouped by plugin. The time: the latest lines, the last hour, 6 or 24 hours, today,
@@ -223,6 +234,14 @@ limit; past that the bridge answers 429 with a `Retry-After`. Its usage (`ai-usa
 is counted per user.
 
 User management is not an MCP tool: a model never creates accounts or tokens.
+
+  A line that carries JSON of 160 bytes or more (a device's state, a cloud's message) shows a marker such as
+  `{…} 1.4 KB` instead, in the terminal too; its **JSON** button shows the payload under it, formatted. The
+  payload is kept with the line with its secrets masked (values of keys such as `password`, `token` or
+  `apiKey`, and bearer tokens, JWTs and setup codes anywhere), and the text filter and the accessory menu
+  look inside it. The latest lines keep their payloads in memory; **Save payloads** also writes them to the
+  log on disk, so they can be read, by you or the Assistant (`search_logs` with `hours`), after the lines
+  moved on or the bridge restarted. It is off until turned on, and the choice is kept in `logs/settings.json`.
 
 ## The Assistant's chat
 

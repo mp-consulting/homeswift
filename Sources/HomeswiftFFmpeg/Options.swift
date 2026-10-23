@@ -163,6 +163,22 @@ public final class FfmpegOptions: Sendable {
         hwAccel.audioEncoder(options.codec ?? .aacELD)
     }
 
+    // Not in homebridge-unifi-protect: Opus for live streams, when FFmpeg has no AAC-ELD encoder. ffmpeg-for-homeswift
+    // (FFmpeg/) leaves out libfdk_aac, whose licence FFmpeg cannot combine with the GPL, and has libopus instead.
+
+    /// Whether FFmpeg has libopus.
+    public var hasOpusEncoder: Bool { codecSupport.hasEncoder("opus", "libopus") }
+
+    /// libopus for a live stream: low delay, a frame per packet of `packetTime` milliseconds (Opus has no 30 ms
+    /// frames: 20 then).
+    public func opusEncoder(packetTime: Int) -> [String] {
+        let frame = [60, 40, 20].first { $0 <= packetTime } ?? 20
+        // -codec:a libopus             The Opus encoder.
+        // -application lowdelay        The lowest-latency mode, for a conversation.
+        // -frame_duration              Milliseconds of audio per frame.
+        return ["-codec:a", "libopus", "-application", "lowdelay", "-frame_duration", String(frame)]
+    }
+
     /// The video decoder arguments for `av1`, `h264` (the default), `h265` or `hevc`; empty for anything else, or without
     /// hardware decoding.
     public func videoDecoder(_ codec: String = "h264") -> [String] {

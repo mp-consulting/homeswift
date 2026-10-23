@@ -14,7 +14,7 @@ struct HomeTests {
         defer { Task { await environment.stop() } }
         let browser = Browser(base: base)
 
-        let saved = try await browser.put("/api/layout", ["accessories": ["Lamps:lamp": ["room": "Desk", "favourite": true, "name": "Reading light"], "Lamps:lock": ["hidden": true]]])
+        let saved = try await browser.put("/api/rooms", ["accessories": ["Lamps:lamp": ["room": "Desk", "favourite": true, "name": "Reading light"], "Lamps:lock": ["hidden": true]]])
         #expect(saved.status == 200)
         #expect(saved.json?["rooms"]?[0]?["name"] == "Desk")
         let accessories = try #require(try await browser.get("/api/accessories").json?.arrayValue)
@@ -25,8 +25,8 @@ struct HomeTests {
         #expect(accessories.first { $0["id"] == "Lamps:lock" }?["hidden"] == true)
 
         // A bad change says why; an unknown accessory is refused.
-        #expect(try await browser.put("/api/layout", ["accessories": ["Lamps:nothing": ["room": "Desk"]]]).status == 400)
-        #expect(try await browser.put("/api/layout", ["accessories": ["Lamps:lamp": ["room": .string(String(repeating: "x", count: 65))]]]).status == 400)
+        #expect(try await browser.put("/api/rooms", ["accessories": ["Lamps:nothing": ["room": "Desk"]]]).status == 400)
+        #expect(try await browser.put("/api/rooms", ["accessories": ["Lamps:lamp": ["room": .string(String(repeating: "x", count: 65))]]]).status == 400)
         // Without the Assistant there is nothing to suggest.
         #expect(try await browser.post("/api/layout/suggest", [:]).status == 404)
     }

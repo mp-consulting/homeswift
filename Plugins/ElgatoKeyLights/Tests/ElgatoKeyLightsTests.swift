@@ -233,6 +233,9 @@ struct ElgatoKeyLightsTests {
         #expect(lightbulb[.colorTemperature]?.value == .int(200))
         #expect(lightbulb[.colorTemperature]?.type.minValue == 143)
         #expect(lightbulb[.colorTemperature]?.type.maxValue == 344)
+        // Adaptive Lighting, kept by the plugin: its transition characteristics are on the lightbulb.
+        #expect(lightbulb.adaptiveLighting != nil)
+        #expect(lightbulb[.characteristicValueTransitionControl] != nil)
         #expect(lightbulb[.configuredName]?.value == .string("Desk"))
 
         // Per-light settings win over the platform's, which win over the light's own; the rest stays.

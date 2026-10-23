@@ -10,12 +10,15 @@ public final class LogBuffer: Sendable {
         public var level: Logger.Level
         public var label: String
         public var text: String
+        /// JSON taken out of the text (`LogDetails`), compact, its secrets masked.
+        public var details: String?
 
-        public init(date: Date = Date(), level: Logger.Level, label: String, text: String) {
+        public init(date: Date = Date(), level: Logger.Level, label: String, text: String, details: String? = nil) {
             self.date = date
             self.level = level
             self.label = label
             self.text = text
+            self.details = details
         }
     }
 
@@ -90,8 +93,9 @@ public final class LogBuffer: Sendable {
 
     /// The lines from `from` to `to`, oldest first, at most the latest `limit`: from the archive when there is
     /// one, from memory otherwise.
-    public func lines(from: Date, to: Date, limit: Int, matching: ((Line) -> Bool)? = nil) -> [Line] {
-        if let archive { return archive.lines(from: from, to: to, limit: limit, matching: matching) }
+    /// `mayMatch` lets the archive skip rows before parsing them (`LogArchive.lines`).
+    public func lines(from: Date, to: Date, limit: Int, matching: ((Line) -> Bool)? = nil, mayMatch: ((String) -> Bool)? = nil) -> [Line] {
+        if let archive { return archive.lines(from: from, to: to, limit: limit, matching: matching, mayMatch: mayMatch) }
         return Array(all.filter { $0.date >= from && $0.date <= to && matching?($0) != false }.suffix(limit))
     }
 
@@ -108,6 +112,16 @@ extension LogBuffer.Line {
     /// `[2026-10-21 10:00:00Z] [Elgato Key Lights] [WARNING] message`.
     public var formatted: String {
         "[\(Timestamp.iso8601(date, separator: UInt8(ascii: " ")))] [\(label)] " + level.tag.map { $0 + " " }.orEmpty + text
+    }
+
+    /// `formatted`, then the details on the next line, indented: for whoever reads a payload too (the Assistant).
+    public var formattedWithDetails: String {
+        details.map { "\(formatted)\n    \($0)" } ?? formatted
+    }
+
+    /// The label, the text and the details, for a search that looks inside payloads too.
+    public var searchable: String {
+        details.map { "\(label) \(text) \($0)" } ?? "\(label) \(text)"
     }
 }
 

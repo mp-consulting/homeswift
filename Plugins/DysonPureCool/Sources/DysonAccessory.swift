@@ -46,9 +46,9 @@ final class DysonAccessory: @unchecked Sendable {
         self.options = options
         self.logger = logger
         self.name = name
-        let features = await device.features
-        let serial = await device.serial
-        let productType = await device.productType
+        let features = device.features
+        let serial = device.serial
+        let productType = device.productType
         self.features = features
         speedDebouncer = SpeedDebouncer(delay: Self.speedDebounce)
 

@@ -69,7 +69,23 @@ public enum JSONValue: Sendable, Hashable, Codable, CustomStringConvertible {
 
     /// Parses JSON text.
     public init(data: Data) throws {
-        self = try JSONValueParser.parse([UInt8](data))
+        self = try data.withUnsafeBytes { try JSONValueParser.parse($0) }
+    }
+
+    /// Parses JSON text in place: a row of a larger buffer, without copying it out.
+    public init(bytes: UnsafeRawBufferPointer) throws {
+        self = try JSONValueParser.parse(bytes)
+    }
+
+    /// The members of a JSON object, in order, parsed in place without building a dictionary (duplicate keys are
+    /// all there): cheaper for many small objects whose keys are read once.
+    public static func members(of bytes: UnsafeRawBufferPointer) throws -> [(key: String, value: JSONValue)] {
+        try JSONValueParser.members(bytes).map { (key: $0.0, value: $0.1) }
+    }
+
+    /// Appends `string` as JSON, escaped as `encoded()` escapes it: for answers written a piece at a time.
+    public static func appendQuoted(_ string: String, to bytes: inout [UInt8]) {
+        quote(string, to: &bytes)
     }
 
     public init(string: String) throws {
@@ -279,14 +295,17 @@ struct JSONValueParser {
     private var depth = 0
 
     static func parse(_ bytes: [UInt8]) throws -> JSONValue {
-        try bytes.withUnsafeBufferPointer { buffer in
-            var parser = JSONValueParser(bytes: buffer)
-            if bytes.starts(with: [0xEF, 0xBB, 0xBF]) { parser.index = 3 }
-            let value = try parser.value()
-            parser.skipWhitespace()
-            guard parser.index == buffer.count else { throw parser.error("unexpected text after the value") }
-            return value
-        }
+        try bytes.withUnsafeBytes { try parse($0) }
+    }
+
+    static func parse(_ raw: UnsafeRawBufferPointer) throws -> JSONValue {
+        let buffer = raw.bindMemory(to: UInt8.self)
+        var parser = JSONValueParser(bytes: buffer)
+        if buffer.starts(with: [0xEF, 0xBB, 0xBF]) { parser.index = 3 }
+        let value = try parser.value()
+        parser.skipWhitespace()
+        guard parser.index == buffer.count else { throw parser.error("unexpected text after the value") }
+        return value
     }
 
     private init(bytes: UnsafeBufferPointer<UInt8>) {
@@ -329,17 +348,36 @@ struct JSONValueParser {
         guard depth <= 128 else { throw error("too deeply nested") }
     }
 
+    /// The members of the object `raw` holds, in order, without a dictionary: for many small objects read a key at a
+    /// time (the log archive's rows).
+    static func members(_ raw: UnsafeRawBufferPointer) throws -> [(String, JSONValue)] {
+        var parser = JSONValueParser(bytes: raw.bindMemory(to: UInt8.self))
+        parser.skipWhitespace()
+        guard parser.index < parser.bytes.count, parser.bytes[parser.index] == UInt8(ascii: "{") else { throw parser.error("expected an object") }
+        let members = try parser.members()
+        parser.skipWhitespace()
+        guard parser.index == parser.bytes.count else { throw parser.error("unexpected text after the value") }
+        return members
+    }
+
     private mutating func object() throws -> JSONValue {
-        try nest()
-        index += 1
         // The members first, then a dictionary of the right size: growing one member at a time cost more than
         // the rest of parsing.
+        let members = try members()
+        var object = [String: JSONValue](minimumCapacity: members.count)
+        for (key, value) in members { object[key] = value }
+        return .object(object)
+    }
+
+    private mutating func members() throws -> [(String, JSONValue)] {
+        try nest()
+        index += 1
         var members: [(String, JSONValue)] = []
         skipWhitespace()
         if index < bytes.count, bytes[index] == UInt8(ascii: "}") {
             index += 1
             depth -= 1
-            return .object([:])
+            return members
         }
         while true {
             skipWhitespace()
@@ -356,9 +394,7 @@ struct JSONValueParser {
             } else if bytes[index] == UInt8(ascii: "}") {
                 index += 1
                 depth -= 1
-                var object = [String: JSONValue](minimumCapacity: members.count)
-                for (key, value) in members { object[key] = value }
-                return .object(object)
+                return members
             } else {
                 throw error("expected , or }")
             }
@@ -456,8 +492,18 @@ struct JSONValueParser {
             index += 1
             return String(decoding: bytes[start..<(index - 1)], as: UTF8.self)
         }
-        var scalars = Array(bytes[start..<index])
+        var scalars: [UInt8] = []
+        scalars.reserveCapacity(index - start + 64)
+        scalars.append(contentsOf: bytes[start..<index])
         while true {
+            // The plain bytes up to the next quote or escape, copied at once: text with JSON in it (a log line) has
+            // an escape every few bytes, and a byte at a time cost seconds in a debug build.
+            let run = index
+            while index < bytes.count, bytes[index] != UInt8(ascii: "\""), bytes[index] != UInt8(ascii: "\\") {
+                guard bytes[index] >= 0x20 else { throw error("control character in a string") }
+                index += 1
+            }
+            if index > run { scalars.append(contentsOf: bytes[run..<index]) }
             guard index < bytes.count else { throw error("unterminated string") }
             let byte = bytes[index]
             index += 1
@@ -491,10 +537,8 @@ struct JSONValueParser {
                 default:
                     throw error("bad escape")
                 }
-            case 0..<0x20:
-                throw error("control character in a string")
             default:
-                scalars.append(byte)
+                throw error("unreachable: a run stops only at a quote or an escape")
             }
         }
     }

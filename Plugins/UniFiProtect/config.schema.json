@@ -2,7 +2,7 @@
   "pluginAlias": "UniFi Protect",
   "pluginType": "platform",
   "headerDisplay": "Full HomeKit support UniFi Protect devices. See the [homebridge-unifi-protect](https://github.com/mp-consulting/homebridge-unifi-protect) developer page for detailed documentation.",
-  "footerDisplay": "A working **FFmpeg** installation is required for this plugin to work. For audio support, make sure your version of ffmpeg is compiled with support for the **fdk-aac** codec.",
+  "footerDisplay": "A working **FFmpeg** installation is required for this plugin to work. For audio support, make sure your version of ffmpeg is compiled with support for the **fdk-aac** codec, or with **libopus** (as the Homeswift container image's ffmpeg-for-homeswift is).",
   "singular": true,
   "customUi": true,
 

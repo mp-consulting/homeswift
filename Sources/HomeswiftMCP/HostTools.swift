@@ -214,6 +214,8 @@ extension HomeswiftCatalog {
         /// Lines shown before and after each match.
         public var context = 0
         public var limit = 100
+        /// Each match's JSON payload on the next line, when the log kept one.
+        public var details = false
 
         public init(pattern: String? = nil) { self.pattern = pattern }
     }
@@ -264,7 +266,10 @@ extension HomeswiftCatalog {
         let source = query.since != nil || query.until != nil
             ? logs.lines(from: query.since ?? .distantPast, to: query.until ?? Date(), limit: 200_000)
             : logs.all
-        let texts = source.map { Self.safe($0.formatted) }
+        // Shown: the line (with its payload when asked); searched: its label, text and payload, secrets masked so a
+        // secret's value never matches.
+        let texts = source.map { Self.logText($0, details: query.details) }
+        let haystacks = source.map { Self.safe($0.searchable) }
         let plugin = query.plugin?.lowercased()
         var candidates = source.indices.filter { index in
             let line = source[index]
@@ -278,7 +283,7 @@ extension HomeswiftCatalog {
                 let deadline = ContinuousClock.now + budget
                 var kept: [Int] = []
                 for index in candidates {
-                    let text = texts[index]
+                    let text = haystacks[index]
                     var matched = false
                     var late = false
                     // reportProgress calls back during a long match, so a runaway pattern stops at the deadline.
@@ -296,9 +301,15 @@ extension HomeswiftCatalog {
                 }
                 candidates = kept
             } else if query.caseSensitive {
-                candidates = candidates.filter { texts[$0].contains(pattern) }
+                candidates = candidates.filter { haystacks[$0].contains(pattern) }
             } else {
-                candidates = candidates.filter { TextSearch.contains(texts[$0], caseless: pattern) }
+                // An ASCII pattern is prepared once for the thousands of lines.
+                let needle = TextSearch.isASCII(pattern) ? TextSearch.Needle(pattern, caseless: true) : nil
+                candidates = candidates.filter { index in
+                    let text = haystacks[index]
+                    if let needle, TextSearch.isASCII(text) { return TextSearch.contains(text, needle) }
+                    return TextSearch.contains(text, caseless: pattern)
+                }
             }
         }
         let taken = Array(candidates.suffix(max(1, query.limit)))

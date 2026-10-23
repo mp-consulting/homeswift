@@ -190,7 +190,8 @@ final class ProtectStreamingDelegate: CameraStreamingDelegate {
         talkback = ProtectTalkback(camera: camera, ffmpeg: ffmpeg, options: ffmpegOptions)
         stopper.withLockedValue { $0.value = self }
         do {
-            let controller = try CameraController(Self.controllerOptions(camera: camera, resolutions: resolutions, streaming: self, recording: hksv),
+            let controller = try CameraController(Self.controllerOptions(camera: camera, resolutions: resolutions, streaming: self, recording: hksv,
+                                                                         liveAudio: Self.liveAudioCodec(ffmpegOptions)),
                                                   logger: camera.platform.log.logger)
             // The saved Active and recording settings, as Homebridge's `configureController` restores them.
             camera.accessory.configureControllerState(controller)
@@ -208,14 +209,15 @@ final class ProtectStreamingDelegate: CameraStreamingDelegate {
     /// The controller's options (the Homebridge plugin's `CameraControllerOptions`): ten streams, H.264 Main at
     /// levels 3.1 to 4.0, AAC-ELD at 16 and 24 kHz for live streams (16 kHz alone from the livestream API, except
     /// doorbells), and HKSV with AAC-LC at the camera's rate (48 kHz for doorbells) and the plugin's motion sensor.
+    /// `liveAudio` is Opus instead of AAC-ELD with an FFmpeg that has no AAC-ELD encoder (`liveAudioCodec`).
     static func controllerOptions(camera: ProtectCamera, resolutions: [VideoResolution], streaming: any CameraStreamingDelegate,
-                                  recording: ProtectRecordingDelegate?) -> CameraControllerOptions {
+                                  recording: ProtectRecordingDelegate?, liveAudio: AudioStreamingCodecType = .aacELD) -> CameraControllerOptions {
         let isDoorbell = camera.ufp.feature("isDoorbell")
         let codec = H264CodecParameters(profiles: [.main], levels: [.level3_1, .level3_2, .level4_0])
         let streamingOptions = CameraStreamingOptions(
             supportedCryptoSuites: [.aesCM128HMACSHA1_80],
             video: VideoStreamingOptions(codec: codec, resolutions: resolutions),
-            audio: AudioStreamingOptions(codecs: [AudioStreamingCodec(type: .aacELD, audioChannels: 1, bitrate: .variable,
+            audio: AudioStreamingOptions(codecs: [AudioStreamingCodec(type: liveAudio, audioChannels: 1, bitrate: .variable,
                                                                       samplerate: isDoorbell || !camera.hints.tsbStreaming ? [.khz16, .khz24] : [.khz16])],
                                          twoWayAudio: camera.hints.twoWayAudio))
         var recordingSetup: CameraRecordingSetup?
@@ -231,6 +233,12 @@ final class ProtectStreamingDelegate: CameraStreamingDelegate {
             sensors = camera.accessory.firstService(.motionSensor).map { CameraSensorOptions(motion: .service($0)) }
         }
         return CameraControllerOptions(cameraStreamCount: 10, delegate: streaming, streamingOptions: streamingOptions, recording: recordingSetup, sensors: sensors)
+    }
+
+    /// Not in the Homebridge plugin, which needs libfdk_aac for audio: AAC-ELD when FFmpeg has an encoder for it
+    /// (libfdk_aac, aac_at), else Opus when it has libopus, as ffmpeg-for-homeswift does.
+    nonisolated static func liveAudioCodec(_ options: any ProtectFfmpegOptions) -> AudioStreamingCodecType {
+        options.audioEncoder().isEmpty && options.hasOpusEncoder ? .opus : .aacELD
     }
 
     private var log: ProtectLog { camera.log }
@@ -292,14 +300,14 @@ final class ProtectStreamingDelegate: CameraStreamingDelegate {
             return port
         }
         let isAudioEnabled = camera.ufp.feature("hasMic") && camera.hasFeature("Audio")
-        let hasAudioSupport = isAudioEnabled && !ffmpegOptions.audioEncoder().isEmpty
+        let hasAudioSupport = isAudioEnabled && (!ffmpegOptions.audioEncoder().isEmpty || ffmpegOptions.hasOpusEncoder)
         let twoWay = hasAudioSupport && camera.hints.twoWayAudio
         let audioIncomingRtcpPort = await reservePort()
         let audioIncomingPort = twoWay ? await reservePort() : -1
         let audioIncomingRtpPort = twoWay ? await reservePort(2) : -1
         let audioSSRC = Self.synchronisationSource()
         if !hasAudioSupport {
-            log.info("Audio support disabled.\(isAudioEnabled ? " A version of FFmpeg that is compiled with fdk_aac support is required to support audio." : "")")
+            log.info("Audio support disabled.\(isAudioEnabled ? " A version of FFmpeg that is compiled with fdk_aac or libopus support is required to support audio." : "")")
         }
         var rtpDemuxer: (any ProtectRtpDemuxer)?
         var talkBack: String?
@@ -615,9 +623,14 @@ final class ProtectStreamingDelegate: CameraStreamingDelegate {
 
     private func buildAudioArguments(_ request: StartStreamRequest, session: SessionInfo, useTsb: Bool) -> [String] {
         // The RTSP stream's Opus track sounds better; the livestream API has AAC only.
-        var arguments = ["-map", useTsb ? "0:a:0?" : "0:a:1?"] + ffmpegOptions.audioEncoder()
-            + ["-flags", "+global_header", "-profile:a", "38", "-ar", String(request.audio.sampleRate) + "k", "-b:a", String(request.audio.maxBitRate) + "k",
-               "-ac", String(request.audio.channel)]
+        var arguments = ["-map", useTsb ? "0:a:0?" : "0:a:1?"]
+        if request.audio.codec == .opus {
+            // Opus (liveAudioCodec): no AAC profile.
+            arguments += ffmpegOptions.opusEncoder(packetTime: request.audio.packetTime) + ["-flags", "+global_header"]
+        } else {
+            arguments += ffmpegOptions.audioEncoder() + ["-flags", "+global_header", "-profile:a", "38"]
+        }
+        arguments += ["-ar", String(request.audio.sampleRate) + "k", "-b:a", String(request.audio.maxBitRate) + "k", "-ac", String(request.audio.channel)]
         let filters = camera.audioFilters
         if !filters.isEmpty { arguments += ["-filter:a", filters.joined(separator: ", ")] }
         arguments += ["-payload_type", String(request.audio.pt), "-ssrc", String(session.audioSSRC), "-f", "rtp", "-flush_packets", "1", "-packetsize", "384",

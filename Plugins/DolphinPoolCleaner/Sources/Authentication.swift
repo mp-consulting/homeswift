@@ -210,7 +210,7 @@ actor AuthenticationManager {
         return formatter
     }()
     /// "2026-01-01 12:00:00" in UTC, as some backends write it.
-    nonisolated(unsafe) private static let spacedDate: DateFormatter = {
+    private static let spacedDate: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "UTC")

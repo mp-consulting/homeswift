@@ -6,9 +6,9 @@ import NIOHTTP1
 // The API of the Accessories page's rooms, the Quick Controls, the Scenes page and the Notifications page:
 // each route calls the catalog method the MCP tools use too.
 //
-//   GET    /api/layout                        rooms with their accessories
-//   PUT    /api/layout                        rooms, hidden, display names, Quick Controls (HomeswiftCatalog.updateLayout)
-//   POST   /api/layout/suggest                the Assistant's rooms and names, to review
+//   GET    /api/rooms                        rooms with their accessories
+//   PUT    /api/rooms                        rooms, hidden, display names, Quick Controls (HomeswiftCatalog.updateLayout)
+//   POST   /api/rooms/suggest                the Assistant's rooms and names, to review
 //   GET    /api/scenes                        scenes, location, next sunrise and sunset
 //   POST   /api/scenes                        a new scene
 //   PUT    /api/scenes/location               where sunrise and sunset are computed for
@@ -25,7 +25,7 @@ import NIOHTTP1
 //   DELETE /api/notifications/push/subscriptions/<id>
 extension UIServer {
     func homeAPI(_ route: [String], _ method: HTTPMethod, body: JSONValue, username: String) async throws -> Reply? {
-        guard let first = route.first, ["layout", "scenes", "notifications"].contains(first) else { return nil }
+        guard let first = route.first, ["rooms", "scenes", "notifications"].contains(first) else { return nil }
         do {
             return try await homeRoute(route, method, body: body, username: username)
         } catch let error as CatalogError {
@@ -35,13 +35,13 @@ extension UIServer {
 
     private func homeRoute(_ route: [String], _ method: HTTPMethod, body: JSONValue, username: String) async throws -> Reply? {
         switch (method, route) {
-        case (.GET, ["layout"]):
+        case (.GET, ["rooms"]):
             return .json(catalog.layoutJSON())
-        case (.PUT, ["layout"]):
+        case (.PUT, ["rooms"]):
             let result = try catalog.updateLayout(body)
             logger.info("Web UI changed the accessory layout", metadata: ["user": "\(username)"])
             return .json(result)
-        case (.POST, ["layout", "suggest"]):
+        case (.POST, ["rooms", "suggest"]):
             guard catalog.host.assistant != nil else { return .error(404, "the Assistant is off: add a HomeswiftAiKit block") }
             do {
                 return .json(try await catalog.suggestRooms())

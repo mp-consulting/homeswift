@@ -1,0 +1,42 @@
+#!/bin/sh
+# Checks the install wizard's answers before anything is installed, so a weak password or a port in use is
+# refused with the reason and the wizard can be run again, instead of leaving a bridge that cannot start or
+# has no account. Then points DSM's menu link and firewall entries at the chosen ports, the link over HTTP or
+# HTTPS as chosen.
+
+[ "$SYNOPKG_PKG_STATUS" = INSTALL ] || exit 0
+PACKAGE_FILES=$SYNOPKG_PKGINST_TEMP_DIR
+. "$PACKAGE_FILES/app/ports.sh"
+
+refuse() {
+    echo "$1" > "$SYNOPKG_TEMP_LOGFILE"
+    exit 1
+}
+
+if [ -n "$wizard_username" ]; then
+    if ! reason=$(printf '%s\n' "$wizard_password" | "$PACKAGE_FILES/bin/homeswift" users check "$wizard_username" 2>&1); then
+        refuse "${reason#homeswift: }"
+    fi
+fi
+
+ui_port=${wizard_ui_port:-8581}
+hap_port=${wizard_hap_port:-51826}
+for port in "$ui_port" "$hap_port"; do
+    case $port in
+        *[!0-9]* | '') refuse "Ports are numbers from 1024 to 65535; $port is not one." ;;
+    esac
+    [ "$port" -ge 1024 ] && [ "$port" -le 65535 ] || refuse "Ports are numbers from 1024 to 65535; $port is not one."
+done
+[ "$ui_port" != "$hap_port" ] || refuse "The web UI and the HomeKit bridge need two different ports."
+for port in "$ui_port" "$hap_port"; do
+    if port_in_use "$port"; then
+        owner=$(port_owner "$port")
+        refuse "Port $port is already in use${owner:+ by $owner}. Go back to the Ports step and choose another one."
+    fi
+done
+
+scheme=http
+[ "$wizard_https" = true ] && scheme=https
+write_ui_config "$PACKAGE_FILES/ui" "$scheme" "$ui_port" 2> /dev/null
+write_firewall "$PACKAGE_FILES/app/homeswift.sc" "$hap_port" "$ui_port" 2> /dev/null
+exit 0

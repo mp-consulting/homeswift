@@ -1,0 +1,125 @@
+name: FFmpeg
+
+# Builds ffmpeg-for-homeswift (FFmpeg/Dockerfile) for linux/amd64 and linux/arm64 and pushes it to
+# ghcr.io/mp-consulting/ffmpeg-for-homeswift as <FFMPEG_VERSION>-<REVISION> and latest. The bridge's image copies
+# the binary from the tag its Dockerfile names. A tag is never pushed twice: a changed build bumps REVISION.
+on:
+  push:
+    branches: [main]
+    paths: [FFmpeg/**, .github/workflows/ffmpeg.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ffmpeg
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/ffmpeg-for-homeswift
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      # Signed in, so a private package's tags count too.
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: The tag, unpublished
+        id: tag
+        run: |
+          version=$(sed -n 's/^ARG FFMPEG_VERSION=//p' FFmpeg/Dockerfile)
+          revision=$(sed -n 's/^ARG REVISION=//p' FFmpeg/Dockerfile)
+          tag="$version-$revision"
+          if docker buildx imagetools inspect "$IMAGE:$tag" > /dev/null 2>&1; then
+            echo "::error::$IMAGE:$tag exists: bump REVISION in FFmpeg/Dockerfile"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Name the platform
+        run: echo "PLATFORM_PAIR=${{ matrix.platform }}" | tr / - >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: "{{defaultContext}}:FFmpeg"
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=ffmpeg-${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=ffmpeg-${{ env.PLATFORM_PAIR }}
+
+      - name: Keep the digest
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "$RUNNER_TEMP/digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ffmpeg-digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: [version, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: ffmpeg-digests-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push the manifest list
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create -t "$IMAGE:${{ needs.version.outputs.tag }}" -t "$IMAGE:latest" \
+            $(printf "$IMAGE@sha256:%s " *)
+          docker buildx imagetools inspect "$IMAGE:${{ needs.version.outputs.tag }}"

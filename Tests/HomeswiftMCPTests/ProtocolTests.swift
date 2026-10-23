@@ -359,6 +359,32 @@ struct ProtocolTests {
         #expect(try await client.tool("restore_config", ["backup": "nope.json"], answer: ["action": "accept", "content": ["confirm": true]])["isError"] == true)
     }
 
+    /// A line's JSON payload: searched, shown on request, its secrets masked.
+    @Test func searchesLogPayloads() async throws {
+        let environment = try MCPTestEnvironment()
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let client = DirectClient(server: environment.server)
+        try await client.initialize()
+        environment.logs.append(.init(level: .debug, label: "Govee", text: "message event {…} 210 B", details: #"{"device":"EF:08:D2","onOff":1,"password":"__REDACTED__"}"#))
+        environment.logs.append(.init(level: .info, label: "Govee", text: "Discovered 5 lights"))
+
+        let found = try await client.tool("search_logs", ["pattern": "EF:08:D2"])["content"]?[0]?["text"]?.stringValue ?? ""
+        #expect(found.contains("1 match(es)"))
+        #expect(found.contains("message event {…} 210 B"))
+        #expect(!found.contains(#""onOff""#))
+        let detailed = try await client.tool("search_logs", ["pattern": "EF:08:D2", "details": true])["content"]?[0]?["text"]?.stringValue ?? ""
+        #expect(detailed.contains(#""onOff":1"#))
+        // The search runs on masked text: a secret's value never matches.
+        environment.logs.append(.init(level: .info, label: "Govee", text: "login token=abc123secret"))
+        #expect(try await client.tool("search_logs", ["pattern": "abc123secret"])["content"]?[0]?["text"]?.stringValue?.contains("0 match(es)") == true)
+        let recent = try await client.tool("get_recent_logs", ["details": true])["content"]?[0]?["text"]?.stringValue ?? ""
+        #expect(recent.contains("\n    {"))
+        // The log on disk: none in tests, so an hours search finds what memory has.
+        let back = try await client.tool("search_logs", ["pattern": "Discovered", "hours": 24])["content"]?[0]?["text"]?.stringValue ?? ""
+        #expect(back.contains("1 match(es)"))
+    }
+
     @Test func servesLogsResourcesPromptsAndCompletions() async throws {
         let environment = try MCPTestEnvironment()
         try await environment.start()

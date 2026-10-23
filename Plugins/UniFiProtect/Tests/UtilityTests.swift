@@ -1,5 +1,6 @@
 import Foundation
 import HomeswiftNetwork
+import HomeswiftNetworkTestSupport
 import HomeswiftPlugin
 import Testing
 #if canImport(Glibc)
@@ -368,6 +369,20 @@ import Glibc
         #expect(ProtectMQTTClient.redact("mqtt://1.2.3.4") == "mqtt://1.2.3.4")
         #expect(throws: ProtectMQTTURLError.unsupportedProtocol("http:")) { try MQTTBrokerURL.validate("http://broker") }
         #expect(throws: ProtectMQTTURLError.missingProtocol) { try MQTTBrokerURL.validate("broker") }
+    }
+
+    /// A publish made before the broker connects (a device's readings at start) waits for it, as mqtt.js queues it
+    /// while offline, instead of being refused by the disconnected connection and lost.
+    @Test func mqttQueuesUntilTheBrokerConnects() async {
+        let broker = FakeMQTTConnection()
+        broker.failConnects(with: [MQTTError.connectionLost])
+        let client = ProtectMQTTClient(brokerURL: "mqtt://broker", topicPrefix: "unifi/protect", log: ProtectLog(logger: testLogger), reconnectInterval: 60) { _ in broker }
+        client.publish("AABBCC", "motion", "true")
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(broker.published.isEmpty)
+        broker.setState(.connected(sessionPresent: false))
+        #expect(await eventually { broker.published(on: "unifi/protect/AABBCC/motion") == ["true"] })
+        await client.end()
     }
 
     @Test func doorbellDurations() {
