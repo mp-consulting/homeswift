@@ -408,6 +408,10 @@ input[type=search] { -webkit-appearance: none; appearance: none; }
 .card-remote { padding: 8px 0 2px; display: flex; justify-content: center; }
 .card-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 0.8125rem; }
 .card-foot .link { padding: 0; font-size: inherit; }
+/* A card with a foot, or the catalog's Add: a column whose last row sits at the bottom, so the dividers and
+   menus of cards side by side line up whatever each card holds. */
+.server:has(> .card-foot), .accessory-card, .server.catalog { display: flex; flex-direction: column; }
+.card > .card-foot, .server.catalog > .actions { margin-top: auto; }
 .bridge-section + .bridge-section { margin-top: 8px; }
 
 /* Plugins: a card per block; the settings form opens across the grid. */
