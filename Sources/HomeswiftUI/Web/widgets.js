@@ -246,7 +246,8 @@
     if (fill) node.style.setProperty("--fill", fill);
     const bar = gradient ? el("span", { class: "level-mark" }) : el("span", { class: "level-fill" });
     const text = el("span", { class: "level-text" });
-    node.append(bar, showLabel ? el("span", { class: "level-label", text: label }) : null, text);
+    // append() writes a null as the text "null": "" when there is no label.
+    node.append(bar, showLabel ? el("span", { class: "level-label", text: label }) : "", text);
     let value = min, dragging = false, keyTimer = null;
     function show(next) {
       value = clamp(Math.round((next - min) / step) * step + min, min, max);
@@ -1677,7 +1678,7 @@
     } else {
       const body = (built.body || []).filter(Boolean);
       node.append(el("div", { class: "w-head" }, glyph, who, powerToggle(ctx, built)),
-        body.length ? el("div", { class: "w-body" }, body) : null, el("span", { class: "w-corner" }, menu));
+        body.length ? el("div", { class: "w-body" }, body) : "", el("span", { class: "w-corner" }, menu));
       node.classList.toggle("head-only", !body.length);
       ctx.watch(() => node.classList.toggle("powered-off", !!built.power && !built.power.big && !isOn(built.power.characteristic)));
     }

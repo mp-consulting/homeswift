@@ -282,6 +282,7 @@ All notable changes to this project are documented here. The format follows
 - A shutter sent to a position from its widget (slid, tapped, its slider or buttons) shows that position until it
   gets there, "Opening…" or "Closing…" meanwhile, instead of jumping back and following each position the device
   reports on its way; stopped on the way, it shows where it stopped.
+- A medium switch widget no longer reads "null" under its name: its empty body went to `append()` as `null`.
 
 ## [0.3.0] - 2026-10-21
 
