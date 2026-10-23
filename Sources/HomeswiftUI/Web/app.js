@@ -428,254 +428,19 @@
   }
 
   // ---- Accessories ---------------------------------------------------------
+  // A wall of widgets (widgets.js): each accessory at the size chosen for it, else the size chosen for its kind,
+  // else the kind's own; in the order chosen, on one wall or a wall per plugin. The bridge keeps the layout
+  // (/api/layout), the same for every user: a widget's menu sets its size, Edit sets sizes and order.
 
-  const enumLabels = {
-    "Lock Target State": ["Unsecured", "Secured"], "Lock Current State": ["Unsecured", "Secured", "Jammed", "Unknown"],
-    "Target Door State": ["Open", "Closed"], "Current Door State": ["Open", "Closed", "Opening", "Closing", "Stopped"],
-    "Security System Target State": ["Home", "Away", "Night", "Off"], "Security System Current State": ["Home", "Away", "Night", "Off", "Alarm"],
-    "Active": ["Inactive", "Active"], "Target Heating Cooling State": ["Off", "Heat", "Cool", "Auto"], "Current Heating Cooling State": ["Off", "Heating", "Cooling"],
-    "Target Fan State": ["Manual", "Auto"], "Current Fan State": ["Inactive", "Idle", "Blowing"], "Rotation Direction": ["Clockwise", "Counter-clockwise"],
-    "Swing Mode": ["Disabled", "Enabled"], "Programmable Switch Event": ["Single press", "Double press", "Long press"],
-    "Contact Sensor State": ["Contact", "No contact"], "Temperature Display Units": ["Celsius", "Fahrenheit"],
-    "Air Quality": ["Unknown", "Excellent", "Good", "Fair", "Inferior", "Poor"], "Charging State": ["Not charging", "Charging", "Not chargeable"],
-    "Status Low Battery": ["Normal", "Low"], "Leak Detected": ["Dry", "Leak"], "Smoke Detected": ["Clear", "Smoke"], "Carbon Monoxide Detected": ["Normal", "Abnormal"],
-    "Target Air Purifier State": ["Manual", "Auto"], "Current Air Purifier State": ["Inactive", "Idle", "Purifying"],
-    "Motion Detected": ["No motion", "Motion"], "Occupancy Detected": ["Not occupied", "Occupied"], "Mute": ["Off", "On"],
-  };
-  // What HomeKit needs to describe an accessory rather than a state a person reads or changes: kept off the page.
-  const plumbing = new Set([
-    "Name", "Configured Name", "Identifier", "Is Configured", "Current Visibility State", "Target Visibility State", "Input Source Type",
-    "Input Device Type", "Sleep Discovery Mode", "Display Order", "Closed Captions", "Picture Mode", "Power Mode Selection",
-    "Volume Control Type", "Current Media State", "Target Media State", "Version",
-  ]);
-  const remoteKeys = [["←", 6, "Left"], ["↑", 4, "Up"], ["↓", 5, "Down"], ["→", 7, "Right"], ["Select", 8], ["Back", 9], ["Play/Pause", 11], ["Info", 15]];
-
-  function serviceKey(service) { return service.subtype || service.type; }
-  /// The text for an enumerated value, or the value itself.
-  function labelFor(type, value) {
-    const labels = enumLabels[type];
-    // Motion Detected and the like are booleans whose labels are listed for 0 and 1.
-    const index = typeof value === "boolean" ? Number(value) : value;
-    return labels && labels[index] !== undefined ? labels[index] : String(value);
-  }
-  /// "Color Temperature" reads "Color temperature".
-  const sentence = (type) => type.charAt(0) + type.slice(1).toLowerCase();
-
-  function writer(accessory, service, characteristic) {
-    return async (value, onError = () => {}) => {
-      // A security control (a lock, a door, an alarm, or what a plugin marked, such as a switch that unlocks a door)
-      // asks first, as the Assistant's set_security_accessory does.
-      if (characteristic.security) {
-        const label = characteristic.format === "bool" ? (value ? "On" : "Off") : labelFor(characteristic.type, value);
-        if (!confirm(`Set ${sentence(characteristic.type).toLowerCase()} of ${accessory.name} to ${label}?`)) { onError(new Error("cancelled")); return; }
-      }
-      try {
-        await api(`/api/accessories/${encodeURIComponent(accessory.id)}`, { method: "PUT", body: { service: serviceKey(service), characteristic: characteristic.type, value } });
-      } catch (e) { onError(e); }
-    };
-  }
-
-  // On and off as 1 and 0.
-  const numericSwitches = new Set(["HomeKit Camera Active"]);
-
-  function controlFor(accessory, service, characteristic) {
-    const writable = characteristic.permissions.includes("pw");
-    const readable = characteristic.permissions.includes("pr");
-    const attrs = { "data-id": accessory.id, "data-service": serviceKey(service), "data-char": characteristic.type };
-    const write = writer(accessory, service, characteristic);
-    const labels = enumLabels[characteristic.type];
-    if (writable && (characteristic.format === "bool" || numericSwitches.has(characteristic.type))) return powerSwitch(accessory, service, characteristic);
-    if (writable && characteristic.type === "Active Identifier") {
-      // The TV's input picker: the input services' identifiers under their names.
-      const inputs = accessory.services.filter((s) => s.type === "InputSource").map((s) => {
-        const value = (type) => s.characteristics.find((c) => c.type === type)?.value;
-        return { identifier: value("Identifier"), name: value("Configured Name") || s.name, hidden: value("Current Visibility State") === 1 };
-      }).filter((input) => input.identifier !== undefined && !input.hidden);
-      const select = el("select", attrs, ...inputs.map((input) => el("option", { value: input.identifier, text: input.name, selected: input.identifier === characteristic.value })));
-      select.addEventListener("change", () => write(Number(select.value)));
-      return select;
-    }
-    if (writable && !readable && characteristic.type === "Remote Key") {
-      return el("div", { class: "keys" }, remoteKeys.map(([text, value, label]) => el("button", { text, "aria-label": label || text, onclick: () => write(value) })));
-    }
-    if (writable && !readable && characteristic.type === "Volume Selector") {
-      return el("div", { class: "group" }, el("button", { text: "−", "aria-label": "Volume down", onclick: () => write(1) }), el("button", { text: "+", "aria-label": "Volume up", onclick: () => write(0) }));
-    }
-    if (writable && (characteristic.validValues || labels)) {
-      const values = characteristic.validValues || labels.map((_, index) => index);
-      const select = el("select", attrs, ...values.map((value) => el("option", { value, text: labelFor(characteristic.type, value), selected: value === characteristic.value })));
-      // A write that fails or is cancelled puts the menu back on the value it had.
-      let shown = select.value;
-      select.addEventListener("focus", () => { shown = select.value; });
-      select.addEventListener("change", () => { const previous = shown; shown = select.value; write(Number(select.value), () => { select.value = previous; shown = previous; }); });
-      return select;
-    }
-    if (writable && ["int", "uint8", "uint16", "uint32", "uint64", "float"].includes(characteristic.format) && characteristic.minValue !== undefined && characteristic.maxValue !== undefined) {
-      const input = el("input", { type: "range", min: characteristic.minValue, max: characteristic.maxValue, step: characteristic.minStep || 1, value: characteristic.value ?? 0, "aria-label": sentence(characteristic.type) });
-      const value = el("span", { class: "value", text: formatValue(characteristic) });
-      let timer;
-      input.addEventListener("input", () => { value.textContent = `${input.value}${unit(characteristic)}`; clearTimeout(timer); timer = setTimeout(() => write(Number(input.value)), 250); });
-      return el("span", { class: "range", "data-unit": unit(characteristic), ...attrs }, input, value);
-    }
-    if (writable && characteristic.format === "string") {
-      const input = el("input", { type: "text", value: characteristic.value ?? "", ...attrs });
-      input.addEventListener("change", () => write(input.value));
-      return input;
-    }
-    if (!readable) return null;
-    const text = labels ? labelFor(characteristic.type, characteristic.value) : formatValue(characteristic);
-    return el("span", { class: "value", text, ...attrs });
-  }
-
-  /// On/Off or Active as a switch; Active writes 1 and 0.
-  function powerSwitch(accessory, service, characteristic) {
-    const numeric = characteristic.format !== "bool";
-    const input = el("input", { type: "checkbox", checked: characteristic.value === true || characteristic.value === 1, "aria-label": `${accessory.name}: ${sentence(characteristic.type)}` });
-    const label = el("label", { class: "switch", "data-id": accessory.id, "data-service": serviceKey(service), "data-char": characteristic.type }, input, el("span"));
-    const write = writer(accessory, service, characteristic);
-    input.addEventListener("change", () => write(numeric ? (input.checked ? 1 : 0) : input.checked, () => { input.checked = !input.checked; }));
-    return label;
-  }
-
-  function unit(characteristic) {
-    return { celsius: " °C", percentage: " %", lux: " lx", seconds: " s", arcdegrees: "°" }[characteristic.unit] || "";
-  }
-  function formatValue(characteristic) {
-    if (characteristic.format === "bool") return characteristic.value ? "On" : "Off";
-    if (characteristic.value === null || characteristic.value === undefined) return "";
-    return `${characteristic.value}${unit(characteristic)}`;
-  }
-
-  /// Rows for the characteristics of a service a person reads or changes; `skip` are shown elsewhere (the
-  /// power switch in the header, the remote).
-  function controlRows(accessory, service, ...skip) {
-    // `internal`: what only HomeKit uses (TLV8 stream configurations, snapshot settings), never a row.
-    return service.characteristics.filter((c) => !skip.includes(c) && !plumbing.has(c.type) && !c.internal).map((characteristic) => {
-      const control = controlFor(accessory, service, characteristic);
-      if (!control) return null;
-      const label = rowLabels[characteristic.type] || sentence(characteristic.type);
-      return el("div", { class: "control" }, el("span", { text: label }), control);
-    }).filter(Boolean);
-  }
-
-  const rowLabels = {
-    "Active Identifier": "Input", "Remote Key": "Remote", "Volume Selector": "Volume",
-    "HomeKit Camera Active": "On in the Home app", "Camera Operating Mode Indicator": "Status light",
+  const sizeNames = { small: "Small", medium: "Medium", large: "Large" };
+  // A kind of widget as the menu names it: "Medium for every light".
+  const kindNames = {
+    climate: "air conditioner and thermostat", "air-purifier": "air purifier", fan: "fan", light: "light", cover: "shutter", toggle: "switch",
+    "switch-group": "group of switches", television: "television", "garage-door": "gate", lock: "lock", "security-system": "alarm", valve: "valve",
+    sensor: "sensor", camera: "camera", inspector: "other accessory",
   };
 
-  // An accessory's category as its tile: the icon and the colour.
-  const categoryIcons = {
-    lightbulb: ["bulb", "yellow"], television: ["accessory", "blue"], tvSetTopBox: ["accessory", "blue"], tvStreamingStick: ["accessory", "blue"],
-    appleTV: ["accessory", "blue"], switch: ["switch", "green"], programmableSwitch: ["switch", "green"], outlet: ["outlet", "green"],
-    sensor: ["sensor", "teal"], fan: ["fan", "teal"], airPurifier: ["fan", "teal"], speaker: ["speaker", "blue"], homePod: ["speaker", "blue"],
-    audioReceiver: ["speaker", "blue"], doorLock: ["lock", "violet"], thermostat: ["thermo", "yellow"], heater: ["thermo", "yellow"], airConditioner: ["thermo", "teal"],
-    garageDoorOpener: ["door", "violet"], door: ["door", "violet"], window: ["door", "violet"], windowCovering: ["door", "violet"],
-    ipCamera: ["camera", "grey"], videoDoorbell: ["camera", "grey"],
-  };
-
-  // A television's remote: HomeKit's Remote Key values, and its speaker's volume and mute.
-  const homeKitKeys = { up: 4, down: 5, left: 6, right: 7, select: 8, back: 9, playPause: 11, info: 15 };
-  function televisionRemote(accessory, primary, remoteKey) {
-    const speaker = accessory.services.find((s) => s.type === "TelevisionSpeaker");
-    const volume = speaker?.characteristics.find((c) => c.type === "Volume Selector" && c.permissions.includes("pw"));
-    const mute = speaker?.characteristics.find((c) => c.type === "Mute" && c.permissions.includes("pw"));
-    const actions = [...Object.keys(homeKitKeys), ...(volume ? ["volumeUp", "volumeDown"] : []), ...(mute ? ["mute"] : [])];
-    const failing = (e) => { throw e; };
-    // Mute toggles from the live state the speaker's switch shows (it follows the TV's events).
-    let muted = mute?.value === true;
-    const muteState = () => document.querySelector(`[data-id="${CSS.escape(accessory.id)}"][data-char="Mute"] input`)?.checked ?? muted;
-    return HomeswiftRemote.build({
-      actions, label: `Remote for ${accessory.name}`,
-      send: (action) => {
-        if (action in homeKitKeys) return writer(accessory, primary, remoteKey)(homeKitKeys[action], failing);
-        if (action === "volumeUp" || action === "volumeDown") return writer(accessory, speaker, volume)(action === "volumeUp" ? 0 : 1, failing);
-        muted = !muteState();
-        return writer(accessory, speaker, mute)(muted, failing);
-      },
-    });
-  }
-
-  // Inputs are chosen with the Input picker; the protocol version is HomeKit's business.
-  const quietServices = new Set(["InputSource", "ProtocolInformation"]);
-
-  function accessoryCard(accessory) {
-    if (accessory.camera && window.HomeswiftCamera) return cameraCard(accessory);
-    const services = accessory.services.filter((s) => !s.internal);
-    const primary = services.find((s) => s.primary) || services[0];
-    const power = primary && primary.characteristics.find((c) => (c.type === "On" || c.type === "Active") && c.permissions.includes("pw"));
-    const remoteKey = primary && primary.characteristics.find((c) => c.type === "Remote Key" && c.permissions.includes("pw"));
-    const [iconName, tone] = categoryIcons[accessory.category] || ["generic", "grey"];
-    // "Living Room TV HDMI 1" reads "HDMI 1" inside the Living Room TV's card.
-    const shortName = (service) => {
-      const name = service.name || service.type.replace(/([a-z])([A-Z])/g, "$1 $2");
-      return name.startsWith(`${accessory.name} `) ? name.slice(accessory.name.length + 1) : name;
-    };
-    const others = services.filter((s) => s !== primary && !quietServices.has(s.type))
-      .map((service) => ({ service, rows: controlRows(accessory, service) })).filter((other) => other.rows.length);
-    // A service with one control (a switch, a sensor) is one row under its own name; the others get a heading.
-    const otherNodes = others.map(({ service, rows }) => rows.length === 1
-      ? el("div", { class: "control" }, el("span", { text: shortName(service) }), rows[0].lastChild)
-      : el("div", { class: "controls" }, el("div", { class: "service-name", text: shortName(service) }), rows));
-    const names = others.map(({ service }) => shortName(service));
-    const subtitle = describeModel(accessory);
-    const card = el("div", { class: "card accessory-card", "data-search": `${accessory.name} ${accessory.platformName || ""} ${accessory.model || ""}`.toLowerCase() },
-      el("div", { class: "server-head" },
-        tile(iconName, tone),
-        el("div", { class: "who" }, el("strong", { text: accessory.name }), el("div", { class: "muted", text: subtitle })),
-        power ? powerSwitch(accessory, primary, power) : null),
-      primary ? el("div", { class: "controls" }, controlRows(accessory, primary, power, remoteKey)) : null,
-      remoteKey ? el("div", { class: "card-remote" }, televisionRemote(accessory, primary, remoteKey)) : null,
-      others.length ? el("details", { class: "more" },
-        el("summary", { text: names.length > 3 ? `${names.slice(0, 2).join(", ")} and ${names.length - 2} more` : names.join(", ") }),
-        el("div", { class: "controls" }, otherNodes)) : null,
-      el("div", { class: "card-foot" },
-        el("span", { class: "muted", text: accessory.bridge }),
-        menuButton(`Actions for ${accessory.name}`, () => accessoryActions(accessory))));
-    return card;
-  }
-
-  // Under a camera's video: its light (a package camera's flashlight), switches and HomeKit camera setting;
-  // sensors and the rest under "More".
-  const cameraFirst = new Set(["Lightbulb", "Switch", "Outlet", "CameraOperatingMode"]);
-  const cameraServiceNames = { CameraOperatingMode: "Camera", Microphone: "Microphone", Speaker: "Speaker" };
-
-  /// A camera's card: its live video or snapshots on top (camera.js), with its name and state over it, then
-  /// its controls. A doorbell's ring shows on the video rather than as a row.
-  function cameraCard(accessory) {
-    const find = (type, characteristic) => accessory.services.find((s) => s.type === type)?.characteristics.find((c) => c.type === characteristic);
-    const view = HomeswiftCamera.view({
-      id: accessory.id, name: accessory.name, doorbell: !!accessory.doorbell, lastRing: accessory.lastRing,
-      motion: find("MotionSensor", "Motion Detected")?.value === true, recording: find("CameraRecordingManagement", "Active")?.value === 1,
-    });
-    const rings = accessory.services.flatMap((s) => s.characteristics.filter((c) => c.type === "Programmable Switch Event"));
-    // A camera's sensors carry its own name: they read as what they are.
-    const shortName = (service) => {
-      const own = !service.name || service.name === accessory.name;
-      const name = own ? cameraServiceNames[service.type] || service.type.replace(/([a-z])([A-Z])/g, "$1 $2") : service.name;
-      return name.startsWith(`${accessory.name} `) ? name.slice(accessory.name.length + 1) : name;
-    };
-    const groups = accessory.services.filter((s) => !s.internal && !quietServices.has(s.type))
-      .map((service) => ({ service, rows: controlRows(accessory, service, ...rings) })).filter((group) => group.rows.length);
-    const node = ({ service, rows }) => rows.length === 1
-      ? el("div", { class: "control" }, el("span", { text: shortName(service) }), rows[0].lastChild)
-      : el("div", { class: "controls" }, el("div", { class: "service-name", text: shortName(service) }), rows);
-    const first = groups.filter((group) => cameraFirst.has(group.service.type));
-    const more = groups.filter((group) => !cameraFirst.has(group.service.type));
-    const names = more.map(({ service }) => shortName(service));
-    const subtitle = describeModel(accessory);
-    return el("div", { class: "card accessory-card camera-card", "data-search": `${accessory.name} ${accessory.platformName || ""} ${accessory.model || ""}`.toLowerCase() },
-      view.element,
-      subtitle ? el("div", { class: "camera-meta muted", text: subtitle }) : null,
-      first.length ? el("div", { class: "controls" }, first.map(node)) : null,
-      more.length ? el("details", { class: "more" },
-        el("summary", { text: names.length > 3 ? `${names.slice(0, 2).join(", ")} and ${names.length - 2} more` : names.join(", ") }),
-        el("div", { class: "controls" }, more.map(node))) : null,
-      el("div", { class: "card-foot" },
-        el("span", { class: "muted", text: accessory.bridge }),
-        menuButton(`Actions for ${accessory.name}`, () => accessoryActions(accessory))));
-  }
-
-  /// What the menu of an accessory's card offers.
+  /// What the menu of an accessory's widget offers, after its sizes.
   function accessoryActions(accessory) {
     return [
       { label: "Identify", icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) },
@@ -686,20 +451,131 @@
   }
 
   views.accessories = async (main) => {
-    const accessories = withSlugs(await api("/api/accessories"), "accessory");
+    const [list, saved] = await Promise.all([api("/api/accessories"), api("/api/layout").catch(() => null)]);
+    const accessories = withSlugs(list, "accessory");
     const servers = new Set(accessories.map((accessory) => accessory.bridge)).size;
-    // A section per plugin; a card's foot names its server.
-    const search = el("input", { type: "search", class: "search", placeholder: "Search accessories", "aria-label": "Search accessories" });
-    const sections = groupByPlugin(accessories).map(([name, list]) => el("section", { class: "accessory-section" },
-      el("div", { class: "section-head" }, el("h2", { text: name }), el("span", { class: "muted", text: `${list.length} ${list.length === 1 ? "accessory" : "accessories"}` })),
-      el("div", { class: "grid" }, list.map(accessoryCard))));
+    const layout = { order: [], sizes: {}, defaults: {}, grouping: "none", ...saved };
+    const kinds = new Map(accessories.map((accessory) => [accessory.id, HomeswiftWidgets.kindOf(accessory)]));
+    const kindOf = (accessory) => kinds.get(accessory.id).kind;
+    const sizeOf = (accessory) => layout.sizes[accessory.id] || layout.defaults[kindOf(accessory)] || kinds.get(accessory.id).size;
+    // The order kept first; accessories it does not list yet after them, by plugin and name.
+    const rank = new Map(layout.order.map((id, index) => [id, index]));
+    const ordered = groupByPlugin(accessories).flatMap(([, group]) => group)
+      .map((accessory, index) => [accessory, rank.get(accessory.id) ?? layout.order.length + index]).sort((a, b) => a[1] - b[1]).map(([accessory]) => accessory);
+    const plugin = (accessory) => accessory.platformName ?? "";
+    let editing = false;
+
+    // Each change is kept by the bridge a moment later; a refusal says so in the page's head.
+    const note = el("p", { class: "error hidden", role: "status" });
+    let saveTimer = null;
+    const save = () => {
+      layout.order = ordered.map((accessory) => accessory.id);
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(async () => {
+        try {
+          await api("/api/layout", { method: "PUT", body: layout });
+          note.classList.add("hidden");
+        } catch (e) {
+          if (e.status === 401) return;
+          note.textContent = `The layout was not kept: ${e.message}`;
+          note.classList.remove("hidden");
+        }
+      }, 300);
+    };
+
+    const nodes = new Map();
+    const actions = (accessory) => {
+      const size = sizeOf(accessory), kind = kindOf(accessory);
+      return [
+        ...HomeswiftWidgets.sizes.map((one) => ({ label: sizeNames[one], checked: one === size, onSelect: () => resize(accessory, one) })),
+        { label: `${sizeNames[size]} for every ${kindNames[kind] ?? "accessory like it"}`, icon: "edit", onSelect: () => resizeKind(kind, size) },
+        { separator: true },
+        ...accessoryActions(accessory),
+      ];
+    };
+    function widget(accessory) {
+      const node = HomeswiftWidgets.card(accessory, { size: sizeOf(accessory), actions });
+      if (editing) editable(node, accessory);
+      nodes.set(accessory.id, node);
+      return node;
+    }
+    function resize(accessory, size) {
+      layout.sizes[accessory.id] = size;
+      nodes.get(accessory.id)?.replaceWith(widget(accessory));
+      save();
+    }
+    /// The size of a kind: every accessory of that kind takes it, those sized one by one included.
+    function resizeKind(kind, size) {
+      layout.defaults[kind] = size;
+      for (const accessory of accessories) {
+        if (kindOf(accessory) !== kind) continue;
+        delete layout.sizes[accessory.id];
+        nodes.get(accessory.id)?.replaceWith(widget(accessory));
+      }
+      save();
+    }
+    /// Puts `accessory` before or after `target`; by plugin, only beside one of its own plugin.
+    function place(accessory, target, after) {
+      if (accessory === target || (layout.grouping === "plugin" && plugin(accessory) !== plugin(target))) return;
+      ordered.splice(ordered.indexOf(accessory), 1);
+      ordered.splice(ordered.indexOf(target) + (after ? 1 : 0), 0, accessory);
+      save();
+      render();
+    }
+    function step(accessory, delta) {
+      const wall = ordered.filter((one) => layout.grouping !== "plugin" || plugin(one) === plugin(accessory));
+      const target = wall[wall.indexOf(accessory) + delta];
+      if (!target) return;
+      place(accessory, target, delta > 0);
+      nodes.get(accessory.id)?.querySelector(`.edit-bar [data-step="${delta}"]`)?.focus();
+    }
+    /// In Edit: the sizes and the arrows over the widget, and the widget dragged into place.
+    function editable(node, accessory) {
+      const size = sizeOf(accessory);
+      node.draggable = true;
+      node.append(el("div", { class: "edit-bar", role: "group", "aria-label": `Size and place of ${accessory.name}` },
+        el("button", { type: "button", "aria-label": "Move earlier", title: "Move earlier", text: "‹", "data-step": "-1", onclick: () => step(accessory, -1) }),
+        HomeswiftWidgets.sizes.map((one) => el("button", { type: "button", text: one[0].toUpperCase(), title: sizeNames[one], "aria-label": sizeNames[one], "aria-pressed": String(one === size), onclick: () => resize(accessory, one) })),
+        el("button", { type: "button", "aria-label": "Move later", title: "Move later", text: "›", "data-step": "1", onclick: () => step(accessory, 1) })));
+      node.addEventListener("dragstart", (event) => { event.dataTransfer.setData("text/plain", accessory.id); event.dataTransfer.effectAllowed = "move"; node.classList.add("dragging"); });
+      node.addEventListener("dragend", () => node.classList.remove("dragging"));
+      node.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        const box = node.getBoundingClientRect(), before = event.clientX < box.left + box.width / 2;
+        node.classList.toggle("drop-before", before);
+        node.classList.toggle("drop-after", !before);
+      });
+      node.addEventListener("dragleave", () => node.classList.remove("drop-before", "drop-after"));
+      node.addEventListener("drop", (event) => {
+        event.preventDefault();
+        const after = node.classList.contains("drop-after");
+        node.classList.remove("drop-before", "drop-after");
+        const dragged = accessories.find((one) => one.id === event.dataTransfer.getData("text/plain"));
+        if (dragged) place(dragged, accessory, after);
+      });
+    }
+
+    const content = el("div", { class: "accessory-walls" });
     const none = el("p", { class: "muted hidden", text: "No accessory matches." });
-    search.addEventListener("input", () => {
+    function render() {
+      nodes.clear();
+      // By plugin: a section each, in the order of their names (those of no plugin last); else one wall.
+      const groups = layout.grouping === "plugin"
+        ? groupByPlugin(accessories).map(([name, group]) => [name, ordered.filter((accessory) => group.includes(accessory))])
+        : [["", ordered]];
+      content.replaceChildren(...groups.map(([name, group]) => el("section", { class: "accessory-section" },
+        name ? el("div", { class: "section-head" }, el("h2", { text: name }), el("span", { class: "muted", text: `${group.length} ${group.length === 1 ? "accessory" : "accessories"}` })) : null,
+        el("div", { class: `wall${editing ? " editing" : ""}` }, group.map(widget)))));
+      filter();
+    }
+
+    const search = el("input", { type: "search", class: "search", placeholder: "Search accessories", "aria-label": "Search accessories" });
+    function filter() {
       const text = search.value.trim().toLowerCase();
       let shown = 0;
-      for (const section of sections) {
+      for (const section of content.children) {
         let inSection = 0;
-        for (const card of section.querySelectorAll(".accessory-card")) {
+        for (const card of section.querySelectorAll("[data-search]")) {
           const match = !text || card.dataset.search.includes(text);
           card.classList.toggle("hidden", !match);
           if (match) inSection++;
@@ -708,10 +584,29 @@
         shown += inSection;
       }
       none.classList.toggle("hidden", shown > 0);
-    });
+    }
+    search.addEventListener("input", filter);
+    const grouping = el("div", { class: "group", role: "group", "aria-label": "Group the accessories" }, [["none", "One wall"], ["plugin", "By plugin"]].map(([value, text]) =>
+      el("button", { type: "button", text, class: layout.grouping === value ? "on" : "", "aria-pressed": String(layout.grouping === value), onclick: (event) => {
+        layout.grouping = value;
+        for (const button of grouping.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
+        save();
+        render();
+      } })));
+    const edit = el("button", { type: "button", text: "Edit", "aria-pressed": "false", title: "Sizes and order of the widgets", onclick: () => {
+      editing = !editing;
+      edit.textContent = editing ? "Done" : "Edit";
+      edit.classList.toggle("primary", editing);
+      edit.setAttribute("aria-pressed", String(editing));
+      render();
+    } });
+
+    render();
     show(main,
-      pageHead("Accessories", accessories.length ? `${accessories.length} on ${servers} ${servers === 1 ? "server" : "servers"}, as the Home app sees them. Changes here reach your devices.` : "", accessories.length ? search : null),
-      accessories.length ? [...sections, none] : el("div", { class: "card empty" }, el("p", { class: "muted", text: "No accessories yet. Plugins add them once they reach their devices." })));
+      pageHead("Accessories", accessories.length ? `${accessories.length} on ${servers} ${servers === 1 ? "server" : "servers"}, as the Home app sees them. Changes here reach your devices.` : "",
+        ...(accessories.length ? [search, grouping, edit] : [])),
+      note,
+      accessories.length ? [content, none] : el("div", { class: "card empty" }, el("p", { class: "muted", text: "No accessories yet. Plugins add them once they reach their devices." })));
   };
 
   /// Accessories by plugin: [name, accessories] pairs by the plugin's name, each list by name; those of no
@@ -721,23 +616,9 @@
     return [...groups].sort(([a], [b]) => !a - !b || a.localeCompare(b)).map(([name, list]) => [name || "Other accessories", list]);
   }
 
-  function describeModel(accessory) {
-    const manufacturer = accessory.manufacturer || "";
-    const model = accessory.model || "";
-    return model.toLowerCase().startsWith(manufacturer.toLowerCase()) ? model : `${manufacturer} ${model}`.trim();
-  }
-
   function applyAccessoryEvent(event) {
     window.HomeswiftCamera?.event(event);
-    const selector = `[data-id="${CSS.escape(event.id)}"][data-char="${CSS.escape(event.characteristic)}"]`;
-    for (const node of document.querySelectorAll(selector)) {
-      if (event.subtype && node.dataset.service !== event.subtype) continue;
-      if (node.classList.contains("switch")) $("input", node).checked = event.value === true || event.value === 1;
-      else if (node.classList.contains("range")) { $("input", node).value = event.value; $(".value", node).textContent = `${event.value}${node.dataset.unit || ""}`; }
-      else if (node.tagName === "SELECT") node.value = String(event.value);
-      else if (node.tagName === "INPUT") node.value = event.value;
-      else node.textContent = typeof event.value === "boolean" && !enumLabels[event.characteristic] ? (event.value ? "On" : "Off") : labelFor(event.characteristic, event.value);
-    }
+    HomeswiftWidgets.event(event);
   }
 
   // ---- Plugins and settings forms -----------------------------------------

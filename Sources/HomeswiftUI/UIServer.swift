@@ -53,6 +53,8 @@ public final class UIServer: Sendable {
     private let tls = NIOLockedValueBox<UICertificate?>(nil)
     /// Where the bridge keeps its own files: the generated certificate goes there.
     let directory: URL
+    /// The Accessories page's wall: order and sizes (`ui-layout.json`).
+    let layout: AccessoryLayout
     var logger: Logger { options.logger }
 
     static let cookieName = "homeswift_session"
@@ -71,6 +73,7 @@ public final class UIServer: Sendable {
         live = options.webRoot.map(LiveWebFiles.init(root:))
         chat = AssistantChat(catalog: catalog, logger: options.logger)
         directory = usersURL.deletingLastPathComponent()
+        layout = AccessoryLayout(url: directory.appendingPathComponent("ui-layout.json"))
     }
 
     /// The SHA-256 fingerprint of the HTTPS certificate, for the banner: what a browser's warning shows.
@@ -454,6 +457,8 @@ public final class UIServer: Sendable {
                 let series = request.query["accessory"].flatMap { catalog.find(id: $0) }.map { "accessory:\($0.accessory.id)" }
                     ?? request.query["bridge"].flatMap { $0 == "all" ? nil : "bridge:\($0)" } ?? Metrics.allSeries
                 return .json(Self.metricsJSON(metrics.history(from: from, to: to, series: series), latest: metrics.latest))
+            case ["layout"]:
+                return .json(layout.load())
             case ["logs", "settings"]:
                 // Whether lines go to disk with their payloads; `available` false without a log on disk (tests, a library).
                 let archive = catalog.logs.archive
@@ -486,6 +491,10 @@ public final class UIServer: Sendable {
                 }
             }
         case .PUT:
+            if route == ["layout"] {
+                // The Accessories page's order and sizes, the same for every user of the bridge.
+                do { return .json(try layout.save(body)) } catch let error as AccessoryLayout.Invalid { return .error(400, error.description) }
+            }
             if route == ["logs", "settings"] {
                 guard let save = body["saveDetails"]?.boolValue else { return .error(400, "saveDetails (true or false) is required") }
                 guard let archive = catalog.logs.archive else { return .error(404, "this homeswift keeps no log on disk") }

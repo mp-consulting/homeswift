@@ -162,21 +162,27 @@
 
   let openMenu = null;
 
-  /// Opens a menu under `trigger`. Each item: { label, icon (a name or a node), href or onSelect, danger }.
+  /// Opens a menu under `trigger`. Each item: { label, icon (a name or a node), href or onSelect, danger }, or
+  /// { separator: true }; `checked` (true or false) makes it one of a set of choices, the chosen one ticked.
   /// Opened from the keyboard, its first item takes the focus; from a click, the menu does, so no item looks
   /// chosen before the pointer or an arrow key gets to it.
   function menu(trigger, items, { keyboard = false } = {}) {
     if (openMenu?.trigger === trigger) { openMenu.close(); return; }
     openMenu?.close(true);
-    const entries = items.filter(Boolean).map((item) => {
+    const nodes = items.filter(Boolean).map((item) => {
+      if (item.separator) return el("hr", { class: "menu-separator", role: "separator" });
       const glyph = typeof item.icon === "string" ? icon(item.icon) : item.icon ?? null;
+      const choice = typeof item.checked === "boolean";
+      const role = choice ? "menuitemradio" : "menuitem";
+      const tick = choice ? el("span", { class: "menu-check", "aria-hidden": "true", text: item.checked ? "✓" : "" }) : null;
       const node = item.href
-        ? el("a", { role: "menuitem", href: item.href, class: item.danger ? "danger" : "", tabIndex: -1 }, glyph, el("span", { text: item.label }))
-        : el("button", { type: "button", role: "menuitem", class: item.danger ? "danger" : "", tabIndex: -1 }, glyph, el("span", { text: item.label }));
+        ? el("a", { role, href: item.href, class: item.danger ? "danger" : "", tabIndex: -1 }, glyph, el("span", { text: item.label }), tick)
+        : el("button", { type: "button", role, class: item.danger ? "danger" : "", tabIndex: -1, "aria-checked": choice ? String(item.checked) : null }, glyph, el("span", { text: item.label }), tick);
       node.addEventListener("click", () => { close(); item.onSelect?.(); });
       return node;
     });
-    const list = el("div", { class: "menu", role: "menu", tabIndex: -1, "aria-label": trigger.getAttribute("aria-label") || "Actions" }, entries);
+    const entries = nodes.filter((node) => node.tagName !== "HR");
+    const list = el("div", { class: "menu", role: "menu", tabIndex: -1, "aria-label": trigger.getAttribute("aria-label") || "Actions" }, nodes);
     document.body.append(list);
     // Under the button, its right edges aligned, inside the window; above it when there is no room below.
     const box = trigger.getBoundingClientRect();
