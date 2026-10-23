@@ -186,6 +186,13 @@ final class Subprocess: @unchecked Sendable {
         let stdin = Pipe()
         let stdout = Pipe()
         let stderr = Pipe()
+        // Close-on-exec on every end: a process another thread spawns meanwhile (tests run many at once) would otherwise
+        // inherit them, and a pipe whose write end it holds reaches end of file only when that process ends, so this one's
+        // exit waited for the fallback below. macOS spawns with POSIX_SPAWN_CLOEXEC_DEFAULT; Linux's Process does not. The
+        // child still gets its own ends: dup2 onto 0, 1 and 2 clears the flag.
+        for pipe in [stdin, stdout, stderr] {
+            for handle in [pipe.fileHandleForReading, pipe.fileHandleForWriting] { _ = fcntl(handle.fileDescriptor, F_SETFD, FD_CLOEXEC) }
+        }
         process.standardInput = stdin
         process.standardOutput = stdout
         process.standardError = stderr
@@ -328,15 +335,22 @@ final class Subprocess: @unchecked Sendable {
         }
     }
 
+    /// Reads until the pipe is empty or ends. On Linux the source is edge-triggered: output and the end of file arriving
+    /// together are one event, and a single read left the end unseen until the fallback in `terminated` (2 s per exit).
     private func readable(isStdout: Bool) {
-        guard state.withLockedValue({ isStdout ? !$0.stdoutEOF : !$0.stderrEOF }) else { return }
+        while readOnce(isStdout: isStdout) {}
+    }
+
+    /// One read; returns whether data came, so the pipe may hold more.
+    private func readOnce(isStdout: Bool) -> Bool {
+        guard state.withLockedValue({ isStdout ? !$0.stdoutEOF : !$0.stderrEOF }) else { return false }
         let fd = isStdout ? stdoutFD : stderrFD
         let buffer = isStdout ? stdoutBuffer : stderrBuffer
         var count: Int
         repeat {
             count = buffer.bytes.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
         } while count < 0 && errno == EINTR
-        if count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) { return }
+        if count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) { return false }
         guard count > 0 else {
             let deliver = state.withLockedValue { state -> Bool in
                 if isStdout { state.stdoutEOF = true } else { state.stderrEOF = true }
@@ -344,7 +358,7 @@ final class Subprocess: @unchecked Sendable {
             }
             readSources.withLockedValue { $0[isStdout] }?.cancel()
             if deliver { deliverExit() }
-            return
+            return false
         }
         let data = Data(buffer.bytes[0..<count])
         if isStdout {
@@ -365,6 +379,7 @@ final class Subprocess: @unchecked Sendable {
             let handlers = state.withLockedValue { $0.stderrHandlers }
             for handler in handlers { handler(data) }
         }
+        return true
     }
 
     /// Stops handing standard output to the handlers (Node's `stdout.destroy()`); the pipe is still drained.

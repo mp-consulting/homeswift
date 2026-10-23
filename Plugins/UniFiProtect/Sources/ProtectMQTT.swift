@@ -35,6 +35,11 @@ final class ProtectMQTTClient: Sendable {
     }
     private let operations: AsyncStream<Operation>.Continuation
     private let worker: Task<Void, Never>?
+    /// Operations wait for the broker, as mqtt.js queues them while offline: a device's readings published at start, before the
+    /// first connection, or after a drop, would otherwise be lost (the connection refuses them while disconnected).
+    private let gate: BrokerGate
+    /// Operations kept while the broker is away; the oldest go past this many.
+    static let queueLimit = 1000
 
     /// `connect` makes the connection (`MQTTClient` in a build, a fake in tests).
     init(brokerURL: String, topicPrefix: String, log: ProtectLog, reconnectInterval: Int = ProtectMQTTClient.defaultReconnectInterval, verifyTLS: Bool = true,
@@ -60,11 +65,14 @@ final class ProtectMQTTClient: Sendable {
             log.error("MQTT Broker: Error: \(error).")
         }
         self.connection = connection
-        let (stream, continuation) = AsyncStream.makeStream(of: Operation.self)
+        let (stream, continuation) = AsyncStream.makeStream(of: Operation.self, bufferingPolicy: .bufferingNewest(Self.queueLimit))
         operations = continuation
+        let gate = BrokerGate()
+        self.gate = gate
         worker = connection.map { connection in
             Task {
                 for await operation in stream {
+                    await gate.wait()
                     switch operation {
                     case .publish(let topic, let payload): try? await connection.publish(MQTTMessage(topic: topic, payload: payload))
                     case .subscribe(let topic): try? await connection.subscribe(topic, qos: .atMostOnce)
@@ -98,6 +106,7 @@ final class ProtectMQTTClient: Sendable {
         switch state {
         case .connected:
             connectionState.withLockedValue { $0 = (true, true) }
+            gate.open()
             log.info("MQTT Broker: Connected to \(Self.redact(brokerURL)) (topic: \(topicPrefix)).")
         case .disconnected:
             closed()
@@ -112,6 +121,7 @@ final class ProtectMQTTClient: Sendable {
     /// The connection closed; returns whether the broker was ever connected.
     @discardableResult
     private func closed() -> Bool {
+        gate.close()
         let (wasConnected, hasConnected) = connectionState.withLockedValue { state in
             defer { state.isConnected = false }
             return state
@@ -205,8 +215,42 @@ final class ProtectMQTTClient: Sendable {
         subscriptions.withLockedValue { $0 = [:] }
         tasks.cancelAll()
         operations.finish()
+        // What is still queued goes now or not at all: nothing waits for a broker any more.
+        gate.end()
         await worker?.value
         await connection?.disconnect()
         connectionState.withLockedValue { $0.isConnected = false }
+    }
+}
+
+/// Holds operations back until the broker is connected. `end()` lets everything through for good.
+final class BrokerGate: Sendable {
+    private let state = NIOLockedValueBox((open: false, ended: false, waiters: [CheckedContinuation<Void, Never>]()))
+
+    /// Returns once the broker is connected, or the client has ended.
+    func wait() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let through = state.withLockedValue { state -> Bool in
+                if state.open || state.ended { return true }
+                state.waiters.append(continuation)
+                return false
+            }
+            if through { continuation.resume() }
+        }
+    }
+
+    func open() { release { $0.open = true } }
+
+    func close() { state.withLockedValue { $0.open = false } }
+
+    func end() { release { $0.ended = true } }
+
+    private func release(_ change: (inout (open: Bool, ended: Bool, waiters: [CheckedContinuation<Void, Never>])) -> Void) {
+        let waiters = state.withLockedValue { state -> [CheckedContinuation<Void, Never>] in
+            change(&state)
+            defer { state.waiters = [] }
+            return state.waiters
+        }
+        for waiter in waiters { waiter.resume() }
     }
 }

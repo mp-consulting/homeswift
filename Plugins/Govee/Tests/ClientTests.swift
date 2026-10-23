@@ -364,18 +364,26 @@ func scanReply(_ device: String, sku: String = "H6008", extra: [String: JSONValu
         #expect(await central.stops == 1)
     }
 
+    /// The test reads the scan's deadline rather than waiting for it, so it holds on a runner slow enough to spend
+    /// seconds on the write: the window is far longer than that, and the resume delay (2 s) far longer than a slow
+    /// runner's scheduling jitter, which tells a resumed window (the original deadline) from a new one (2 s later).
     @Test func writesTheFramesAndResumesTheScanForWhatRemains() async throws {
         let central = FakeCentral()
-        let client = BLEClient(central: central, logger: testLogger, timing: timing, debug: quietDebug)
-        // Long enough that some of it remains after the write on a slow runner, for the scan to resume.
-        try await client.scan(for: { _ in }, duration: .seconds(2))
+        var slowResume = timing
+        slowResume.resumeScan = .seconds(2)
+        let client = BLEClient(central: central, logger: testLogger, timing: slowResume, debug: quietDebug)
+        try await client.scan(for: { _ in }, duration: .seconds(60))
+        let deadline = try #require(await client.scanDeadline)
         try await client.updateDevice(target, params: .ptReal(["MwEBAAAAAAAAAAAAAAAAAAAAADM=", "MwEAAAAAAAAAAAAAAAAAAAAAADI="]), log: testDeviceLog)
         #expect(await central.written.map(Array.init) == [Govee.codeBytes([0x33, 1, 1]), Govee.codeBytes([0x33, 1, 0])])
         #expect(await central.disconnects == 1)
-        #expect(await eventually { await central.scans == 2 })
+        #expect(await eventually(.seconds(15)) { await central.scans == 2 })
         #expect(await client.isScanning)
-        // …and still ends at the original deadline.
-        #expect(await eventually(.seconds(4)) { await !client.isScanning })
+        // …and still ends at the original deadline: what remained of the window, not a new one.
+        let resumed = try #require(await client.scanDeadline)
+        #expect(abs((resumed - deadline) / .seconds(1)) < 1.5)
+        await client.stopDiscovery()
+        #expect(await !client.isScanning)
     }
 
     @Test func timesOutAStalledDiscoveryAndDisconnects() async {

@@ -102,7 +102,7 @@ actor BLEClient {
     private(set) var isConnecting = false
     private var isShuttingDown = false
     private var discoverCallback: (@Sendable (BLESensorReading) -> Void)?
-    private var scanDeadline: ContinuousClock.Instant?
+    private(set) var scanDeadline: ContinuousClock.Instant?
     private var scanTimer: Task<Void, Never>?
     private var resumeTimer: Task<Void, Never>?
     private var scanGeneration = 0
