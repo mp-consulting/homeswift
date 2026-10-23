@@ -21,9 +21,12 @@ Plugins/<Name>/
 ```
 
 This is the layout of a standalone package, so a plugin can move to its own repository later with a
-`git mv` and a Package.swift. Add the two targets to `Package.swift` (copy the Elgato entries), add the
-library to the `HomeswiftCLI` executable's dependencies, and register the type in
-`Sources/HomeswiftCLI/Plugins.swift`. `swift run homeswift plugins` then lists it.
+`git mv` and a Package.swift. `swift Scripts/new-plugin.swift <Name> <platform> "<Display Name>"` creates it: a
+plugin that polls a fake API and puts a switch per device in HomeKit, with its tests, README and schema. It also
+adds the two targets to `Package.swift` and the library to the `HomeswiftCLI` executable's dependencies, and
+registers the type in `Sources/HomeswiftCLI/Plugins.swift`. `swift run homeswift plugins` then lists it.
+[CONTRIBUTING.md](../CONTRIBUTING.md) has what a plugin needs before its pull request, and the
+`homeswift-plugin` skill (`.claude/skills`) walks a coding agent through a port.
 
 ### The protocol
 

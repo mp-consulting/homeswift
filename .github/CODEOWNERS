@@ -1,0 +1,7 @@
+# Who GitHub asks to review a change. The last matching line wins.
+#
+# A plugin's maintainer gets a line for its directory, `/Plugins/<Name>/ @mp-consulting @their-login`, once they
+# have write access to the repository (GitHub ignores owners without it). The core, Package.swift and
+# Sources/HomeswiftCLI/Plugins.swift stay with the project.
+
+* @mp-consulting
