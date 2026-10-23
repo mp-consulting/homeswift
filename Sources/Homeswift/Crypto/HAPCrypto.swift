@@ -2,13 +2,18 @@ import Crypto
 import Foundation
 
 enum HAPCrypto {
-    static func hkdf(_ inputKeyMaterial: Data, salt: String, info: String) -> SymmetricKey {
+    /// HKDF-SHA-512 to a 32-byte key, as every HAP key derivation.
+    static func hkdf(_ inputKeyMaterial: Data, salt: Data, info: String) -> SymmetricKey {
         HKDF<SHA512>.deriveKey(
             inputKeyMaterial: SymmetricKey(data: inputKeyMaterial),
-            salt: Data(salt.utf8),
+            salt: salt,
             info: Data(info.utf8),
             outputByteCount: 32
         )
+    }
+
+    static func hkdf(_ inputKeyMaterial: Data, salt: String, info: String) -> SymmetricKey {
+        hkdf(inputKeyMaterial, salt: Data(salt.utf8), info: info)
     }
 
     /// A pairing nonce such as `PS-Msg05`: four zero bytes followed by the eight-byte label.

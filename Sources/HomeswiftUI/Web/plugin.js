@@ -1,13 +1,13 @@
 // For a plugin's own pages, served at /plugins/<platform>/ after common.js: homeswift.request() talks to the plugin
-// instance named in the page's URL (?name=), with the session cookie; homeswift.el(), .$() and .tile() are the UI's
-// own (common.js). A signed-out visitor is sent to the login page.
+// instance named in the page's URL (?name=), with the session cookie; homeswift.el(), .$(), .tile() and .fact() are
+// the UI's own (common.js). A signed-out visitor is sent to the login page.
 (() => {
   "use strict";
   const platform = decodeURIComponent(location.pathname.split("/")[2] || "");
   const name = new URLSearchParams(location.search).get("name") || platform;
   const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
 
-  const { $, el, icon, tile, markdown, sparkle, api } = HomeswiftCommon;
+  const { $, el, icon, tile, fact, markdown, sparkle, api } = HomeswiftCommon;
 
   /// This plugin instance's own routes (its handleWebRequest).
   const request = (path, options) => api(prefix + String(path).replace(/^\//, ""), options);
@@ -235,18 +235,25 @@
     while (list.children.length > nodes.length) list.lastElementChild.remove();
   }
 
-  /// Runs `work` with the button disabled and, when it takes a moment, a spinner on it; errors go to `report`.
+  /// Runs `work` with the button disabled and, when it takes a moment, a spinner on it; answers what `work`
+  /// answers. Errors go to `report`; with `report` null they are thrown to the caller once the button is back.
   async function act(button, work, report = alert) {
     button.disabled = true;
     const spin = setTimeout(() => button.classList.add("busy"), 150);
-    try { await work(); } catch (e) { report(e.message); }
-    clearTimeout(spin);
-    button.classList.remove("busy");
-    button.disabled = false;
+    try {
+      return await work();
+    } catch (e) {
+      if (report === null) throw e;
+      report(e.message);
+    } finally {
+      clearTimeout(spin);
+      button.classList.remove("busy");
+      button.disabled = false;
+    }
   }
 
   window.homeswift = {
-    platform, name, request, home: "/#plugins", $, el, icon, tile, assistant, explain, breadcrumb, api, act,
+    platform, name, request, home: "/#plugins", $, el, icon, tile, fact, assistant, explain, breadcrumb, api, act,
     readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, poll, renderKeyed,
     canonicalMAC, isMAC, sameMAC,
   };

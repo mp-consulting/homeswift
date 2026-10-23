@@ -99,9 +99,36 @@ public actor MyDevicesPlugin: HomeswiftPlugin {
   stops its server. `Plugins/PhilipsAmbilightTV` does this for each TV.
 - **Linked services.** A Television lists its input sources and speaker in `Service(linked:)`, which
   becomes `linked` in the accessory database; the Home app shows them with it.
-- **Shared transports.** `HomeswiftNetwork` has what devices on the LAN need: `HTTPClient` (on NIO and
-  NIOSSL, so a self-signed certificate can be trusted or pinned on Linux too, where URLSession cannot),
-  `DigestAuthentication` and `WakeOnLAN`. A plugin depends on it rather than adding a package.
+- **Shared transports.** `HomeswiftNetwork` has what devices and clouds need, on NIO and NIOSSL so it works the
+  same on Linux: `HTTPClient` (a self-signed certificate trusted or pinned, where URLSession cannot;
+  `HTTPClient.TrustOnFirstUse` pins the first certificate seen), `DigestAuthentication`, `WakeOnLAN`, `UDPSocket`
+  and `localIPv4Networks()` for LAN discovery, `WebSocket`, `MQTTClient` (TCP, TLS with a client certificate,
+  WebSocket; `Reconnect(firstConnection: true)` retries the first connection too), `TLSOptions` (bundled roots such
+  as `.amazonRootCA1`, client identities, ALPN), `AWSSignatureV4`, `URLEncoding` (the JavaScript encodings, byte for
+  byte, for signed requests) and `Backoff` (retry delays with jitter). A plugin depends on it rather than adding a
+  package; its tests take `FakeMQTTConnection` and `FakeWebSocket` from the `HomeswiftNetworkTestSupport` target.
+- **Helpers.** `Service(optional:)` with a type the service has already (`.targetTemperature.with(minValue: 30)`)
+  changes its props; `accessory.takeValues(from: cached)` keeps the last values of a rebuilt accessory;
+  `characteristic.revert(to:after:)` puts a value back after a write the device refused;
+  `context.removeAccessories(keeping:)` drops accessories of devices that are gone. In `HomeswiftPlugin`, `TaskBag`
+  holds the tasks `stop()` cancels, `LatestCallGuard` lets the last of quick slider writes through,
+  `PersistedDictionary` and `context.jsonFile(_:as:)` keep values in owner-only JSON files, and `EveHistory` is
+  fakegato-history for the Eve app.
+- **Cameras.** `CameraController` (and `DoorbellController`) mirror HAP-NodeJS's: implement
+  `CameraStreamingDelegate` (`handleSnapshotRequest`, `prepareStream`, `handleStreamRequest`, async instead of
+  callbacks) and, for HomeKit Secure Video, `CameraRecordingDelegate` (`handleRecordingStreamRequest` returns an
+  `AsyncThrowingStream<RecordingPacket, any Error>` of fMP4 fragments). `accessory.configureController(camera)` adds
+  the services and serves snapshots (`POST /resource`); `context.configureController(camera, accessoryID:)` keeps
+  the recording settings across launches; publish the accessory with `context.publishExternal`. The library runs the
+  RTP setup (SRTP keys, SSRCs), the HomeKit Data Stream server for recordings and the doorbell event;
+  `HomeswiftFFmpeg` has what runs FFmpeg for the streams and recordings (options per host and hardware
+  accelerator, the process, RTP port reservation, the return audio demuxer, fMP4 parsing).
+- **Adaptive Lighting.** `AdaptiveLightingController(lightbulb, mode: .automatic or .manual, customTemperatureAdjustment:)`
+  on a Lightbulb with Brightness and Color Temperature, created before the accessory goes on the bridge, then
+  `context.configureController(controller, accessoryID:)` so an active schedule survives restarts. Automatic mode
+  writes Color Temperature through its `onWrite` handler every minute and turns itself off on colour writes from
+  HomeKit; call `disableAdaptiveLighting()` when the device changes colour on its own. Manual mode hands the
+  schedule to `onUpdate` for lights that run transitions themselves.
 
 ### The runtime
 
@@ -115,6 +142,7 @@ public actor MyDevicesPlugin: HomeswiftPlugin {
 | External accessory state | `~/.homeswift/external/<platform>-<name>-<accessory id>.json` |
 | Accessory cache per platform instance | `~/.homeswift/accessories/<platform>-<name>.json` |
 | Plugin files | `~/.homeswift/plugins/<platform>-<name>/` |
+| Controller states (Adaptive Lighting, cameras) per platform instance | `~/.homeswift/controllers/<platform>-<name>.json` |
 
 **config.json** has Homebridge's shape:
 
@@ -215,7 +243,7 @@ Keep the platform name and the option names, and copy `config.schema.json` and t
 | `setCharacteristic(C, v)` / `updateCharacteristic(C, v)` | `service.characteristic(.c).value = v` |
 | `getCharacteristic(C).onSet(fn)` | `.onWrite(changesOnly:) { value in ... }` |
 | `getCharacteristic(C).onGet(fn)` | `.onRead { ... }` (or set `value` and skip it) |
-| `setProps({ minValue, maxValue })` | `Characteristic(.c.with(minValue:maxValue:))` in `extra` |
+| `setProps({ minValue, maxValue })` | `.c.with(minValue:maxValue:)` in `optional`, or `Characteristic(.c.with(...))` in `extra` |
 | `throw new HapStatusError(SERVICE_COMMUNICATION_FAILURE)` | `throw HAPStatusError(.serviceCommunicationFailure)` |
 | `accessory.on('identify')` | `Accessory(onIdentify:)` |
 | `api.user.storagePath()` | `context.storageDirectory` |
@@ -223,12 +251,15 @@ Keep the platform name and the option names, and copy `config.schema.json` and t
 | `tvService.addLinkedService(input)` | `Service(.television, linked: [input, ...])` |
 | `bonjour-service` / `mdns` | `BonjourBrowser.browse(type:)` in `Homeswift` |
 | `axios` / `undici` | `URLSession` (import `FoundationNetworking` on Linux), or `HomeswiftNetwork.HTTPClient` for a device with a self-signed certificate or Digest authentication |
+| `mqtt` | `HomeswiftNetwork.MQTTClient` (`MQTTConfiguration(url:clientID:)` takes the same URLs) |
+| `ws` | `HomeswiftNetwork.WebSocket.connect(to:options:)` |
+| `aws-iot-device-sdk` | `MQTTClient` over `.tls(…, options: TLSOptions(trust: .amazonRootCA1, clientIdentity: …))`, or a WebSocket URL from `AWSSignatureV4.presignIoTURL` |
+| `fakegato-history` | `EveHistory(kind, accessoryName:storageURL:)` in `HomeswiftPlugin`, its `service` on the accessory |
+| `dgram` | `HomeswiftNetwork.UDPSocket` |
 | `homebridge-ui/server.js`, `config.schema.json` | Keep the schema file; the settings page comes with the Homeswift UI |
 
-`HomeswiftNetwork` is the first shared transport (HTTP with self-signed certificates, Digest, Wake-on-LAN). Still
-to add, in the order the ported plugins need them: MQTT (Dyson, then
-AWS IoT for Govee, LG ThinQ and Dolphin), WebSocket events (eWeLink, Daikin, UniFi Access). UniFi Protect
-waits for camera streaming in the HAP library.
+The ten plugins under `Plugins/` are ported this way; between them they use every transport above, cameras
+(UniFi Protect) and external accessories (Philips TV).
 
 ## Where plugins live
 
@@ -239,7 +270,7 @@ has no runtime loading, a plugin in another repository would need users to build
 binary. Once the API is stable, a plugin can still move out: its directory is already a package layout,
 and a Package.swift that depends on `homeswift` plus a `Plugins.swift` listing it builds a custom binary.
 
-Settings pages: a plugin ships `config.schema.json`, and the Homeswift UI (not written yet) will render it
-as Homebridge Config UI X does. Custom pages (`homebridge-ui/public`) will go in `Plugins/<Name>/ui/`,
-served by that UI, with their server-side routes implemented by the plugin in Swift. The AI assistant
-routes Homebridge plugins register one by one will be provided by the runtime for every plugin.
+Settings pages: a plugin ships `config.schema.json`, and the Homeswift UI renders it as Homebridge Config UI X
+does. A custom page (`homebridge-ui/public`) goes in `Plugins/<Name>/Web/`, served by the UI, with its server-side
+routes in the plugin's `handleWebRequest` (see [ui.md](ui.md)); the Assistant's "Explain" is the runtime's, for
+every plugin.

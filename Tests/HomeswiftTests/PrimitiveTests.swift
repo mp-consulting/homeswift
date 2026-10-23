@@ -80,6 +80,53 @@ struct SetupTests {
         #expect(CharacteristicType.brightness.coerce(.int(101)) == nil)
         #expect(CharacteristicType.lockTargetState.coerce(.int(2)) == nil)
     }
+
+    /// HAP-NodeJS's setProps on a required characteristic: the extra takes its place, in its place.
+    @Test func extraReplacesARequiredCharacteristic() {
+        let thermostat = Service(.thermostat, extra: [Characteristic(.targetTemperature.with(minValue: 30, maxValue: 60))])
+        let targets = thermostat.characteristics.filter { $0.type.uuid == CharacteristicType.targetTemperature.uuid }
+        #expect(targets.count == 1)
+        #expect(targets.first?.type.minValue == 30 && targets.first?.type.maxValue == 60)
+        #expect(thermostat.characteristics.map(\.type.uuid) == Service(.thermostat).characteristics.map(\.type.uuid))
+    }
+
+    @Test func optionalReplacesARequiredCharacteristic() {
+        let thermostat = Service(.thermostat, optional: [.targetTemperature.with(minValue: 30), .currentRelativeHumidity])
+        let targets = thermostat.characteristics.filter { $0.type.uuid == CharacteristicType.targetTemperature.uuid }
+        #expect(targets.count == 1)
+        #expect(targets.first?.type.minValue == 30)
+        #expect(thermostat[.currentRelativeHumidity] != nil)
+        #expect(
+            thermostat.characteristics.map(\.type.uuid)
+                == Service(.thermostat).characteristics.map(\.type.uuid) + [CharacteristicType.currentRelativeHumidity.uuid])
+        // The same type again changes nothing, the Name keeps its value.
+        let named = Service(.lightbulb, name: "Desk", optional: [.name])
+        #expect(named[.name]?.value == .string("Desk"))
+    }
+
+    @Test func takesValuesFromACachedAccessory() {
+        func make(_ name: String, minimum: Double) -> Accessory {
+            Accessory(
+                id: "a", name: name, firmwareRevision: name == "New" ? "2.0" : "1.0",
+                services: [
+                    Service(.lightbulb, name: name, subtype: "one", optional: [.brightness.with(minValue: minimum), .configuredName]),
+                    Service(.lightbulb, subtype: "two"),
+                ])
+        }
+        let cached = make("Old", minimum: 0)
+        cached.services[1][.on]?.value = .bool(true)
+        cached.services[2][.on]?.value = .bool(true)
+        cached.services[1][.brightness]?.value = .int(5)
+        let rebuilt = make("New", minimum: 10)
+        rebuilt.services[1][.configuredName]?.value = .string("Kept")
+        rebuilt.takeValues(from: cached)
+        #expect(rebuilt.services[1][.on]?.value == .bool(true))
+        #expect(rebuilt.services[2][.on]?.value == .bool(true))
+        #expect(rebuilt.services[1][.brightness]?.value == .int(10))  // 5 no longer fits
+        #expect(rebuilt.services[1][.name]?.value == .string("New"))
+        #expect(rebuilt.services[1][.configuredName]?.value == .string("Kept"))  // the cached one was empty
+        #expect(rebuilt.information[.firmwareRevision]?.value == .string("2.0"))
+    }
 }
 
 struct SecureSessionTests {

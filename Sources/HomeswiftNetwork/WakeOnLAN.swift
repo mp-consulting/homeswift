@@ -1,11 +1,6 @@
 import Foundation
 import NIOCore
 import NIOPosix
-#if canImport(Glibc)
-import Glibc
-#elseif canImport(Darwin)
-import Darwin
-#endif
 
 /// Wake-on-LAN: the magic packet, sent in bursts over UDP broadcast.
 public enum WakeOnLAN {
@@ -35,20 +30,19 @@ public enum WakeOnLAN {
     ) async throws {
         guard let packet = magicPacket(mac: mac) else { throw WakeOnLANError.invalidMAC(mac) }
         let targets = try addresses.map { try SocketAddress(ipAddress: $0, port: port) }
-        let channel = try await DatagramBootstrap(group: group)
-            .channelOption(.socketOption(.so_broadcast), value: 1)
-            .bind(host: "0.0.0.0", port: 0)
-            .get()
-        defer { channel.close(promise: nil) }
-        for burst in 0..<max(1, bursts) {
-            if burst > 0 { try await Task.sleep(for: interval) }
-            for _ in 0..<max(1, packetsPerBurst) {
-                for target in targets {
-                    let envelope = AddressedEnvelope(remoteAddress: target, data: ByteBuffer(bytes: packet))
-                    try await channel.writeAndFlush(envelope).get()
+        let socket = try await UDPSocket.bind(port: 0, broadcast: true, group: group)
+        do {
+            for burst in 0..<max(1, bursts) {
+                if burst > 0 { try await Task.sleep(for: interval) }
+                for _ in 0..<max(1, packetsPerBurst) {
+                    for target in targets { try await socket.send(packet, to: target) }
                 }
             }
+        } catch {
+            await socket.close()
+            throw error
         }
+        await socket.close()
     }
 
     /// Wakes a device on the network of `ip`: the limited broadcast, and the directed broadcast of its subnet
@@ -64,26 +58,14 @@ public enum WakeOnLAN {
     /// limited broadcast still forward it on the segment.
     public static func broadcastAddress(for ip: String) -> String? {
         guard let target = ipv4(ip) else { return nil }
-        return NetworkInterfaces.ipv4()
-            .first { $0.netmask != 0 && $0.netmask != 0xFFFF_FFFF && $0.address & $0.netmask == target & $0.netmask }
-            .map { dotted($0.address | ~$0.netmask) }
+        let network = localIPv4Networks().first { $0.netmask != 0 && $0.netmask != 0xFFFF_FFFF && $0.contains(target) }
+        return network.map { IPv4Network.dotted($0.broadcast) }
     }
 
     /// A dotted IPv4 address as a number; nil for anything else (a host name, IPv6).
-    public static func ipv4(_ string: String) -> UInt32? {
-        let parts = string.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count == 4 else { return nil }
-        var value: UInt32 = 0
-        for part in parts {
-            guard let octet = UInt8(part) else { return nil }
-            value = value << 8 | UInt32(octet)
-        }
-        return value
-    }
+    public static func ipv4(_ string: String) -> UInt32? { IPv4Network.parse(string) }
 
-    public static func dotted(_ value: UInt32) -> String {
-        "\(value >> 24 & 0xFF).\(value >> 16 & 0xFF).\(value >> 8 & 0xFF).\(value & 0xFF)"
-    }
+    public static func dotted(_ value: UInt32) -> String { IPv4Network.dotted(value) }
 }
 
 public enum WakeOnLANError: Error, CustomStringConvertible, Equatable {

@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LG ThinQ</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+<style>
+  /* The Homebridge plugin's settings page on the UI's materials: sign in to the LG account (step 1), pick the
+     devices and their options (step 2, with a Settings tab for the account and sync), done (step 3). */
+
+  .step { animation: materialize var(--normal) var(--ease-out); }
+  .step-head { display: flex; align-items: center; gap: 12px; margin: 22px 0 12px; }
+  .step-head h2 { margin: 0; }
+  .step-number {
+    width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex: none; font-weight: 600; font-variant-numeric: tabular-nums;
+    background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text);
+  }
+  .step-number.done { background: linear-gradient(180deg, #4cd07d, #1f9d55); }
+  .notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .notice p { margin: 2px 0 0; }
+  .form { display: grid; gap: 2px; max-width: 520px; }
+  .form .actions { margin-top: 14px; }
+  #third-party { margin-top: 14px; }
+  #third-party .help { margin: 4px 0 0; }
+  .wiki { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 0.8125rem; }
+  .wiki a { color: var(--accent); text-decoration: none; font-weight: 500; }
+  .problem { margin-top: 14px; }
+  .problem .error { margin: 0; }
+
+  .tabs { margin-bottom: 14px; }
+  .list-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .list-head h3 { margin: 0; }
+  .list-head .count { margin-left: 6px; }
+  .devices { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .device {
+    display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 14px; border-radius: 14px; cursor: pointer;
+    background: var(--material-thin); border: 1px solid var(--line); transition: background-color var(--fast) var(--ease-out), border-color var(--fast) var(--ease-out);
+  }
+  .device.selected { background: var(--control); border-color: var(--edge); box-shadow: inset 0 1px 0 var(--edge-light), var(--shadow-control); }
+  .device input[type="checkbox"] { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--accent); }
+  .device .who { flex: 1; min-width: 0; }
+  .device strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .device .meta { font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .device .gear { flex: none; width: 34px; height: 34px; padding: 0; display: grid; place-items: center; font-size: 1.05rem; }
+  .device .explain { flex: none; }
+  .list-foot { margin: 10px 0 0; font-size: 0.8125rem; }
+  .empty { text-align: center; padding: 22px; border-radius: 14px; border: 1px dashed var(--line); }
+
+  .panel { margin-top: 14px; animation: materialize var(--normal) var(--ease-out); }
+  .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .panel-head h3 { margin: 0; }
+  .columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 18px; }
+  .group-title { margin: 16px 0 0; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .buttons-editor { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .button-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+  .button-row input { flex: 1; max-width: 220px; }
+  .button-row select { width: auto; }
+  .panel .save-bar, .settings .save-bar { margin-top: 16px; }
+  .settings .card { margin-bottom: 14px; }
+  .settings h3 { margin: 0 0 6px; }
+  .number { max-width: 140px; }
+  .done-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+
+  .busy::after {
+    content: ""; display: inline-block; width: 0.9em; height: 0.9em; margin-left: 8px; vertical-align: -0.12em;
+    border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .step, .panel { animation: none; }
+    .busy::after { animation: none; border-right-color: currentColor; opacity: 0.5; }
+  }
+  @media (max-width: 640px) {
+    .columns { grid-template-columns: 1fr; }
+    .device .meta .id { display: none; }
+  }
+</style>
+</head>
+<body>
+<header><a class="brand" href="/#status"><img src="/icon.svg" class="logo" alt="">Homeswift</a></header>
+<main>
+  <div class="page-head">
+    <span class="tile large accessory" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg></span>
+    <div>
+      <h1>LG ThinQ</h1>
+      <p class="muted">Connect your LG account to manage its appliances in HomeKit.</p>
+    </div>
+  </div>
+
+  <section id="step-login" class="step">
+    <div class="step-head"><span class="step-number">1</span><h2>Connect your LG account</h2></div>
+    <div id="session-notice" class="card notice hidden">
+      <div><strong>Active session</strong><p class="muted">Using the refresh token saved in this plugin's settings.</p></div>
+      <button id="new-login">Sign in with another account</button>
+    </div>
+    <form id="login-form" class="card form" autocomplete="on" novalidate>
+      <label class="field"><span class="field-title">Country / language</span><select id="country-language"></select><span class="help">The region of your LG account.</span></label>
+      <label class="field"><span class="field-title">Email</span><input type="email" id="username" placeholder="your@email.com" autocomplete="username" autocapitalize="none" spellcheck="false"><span class="help">Your LG ThinQ account's email.</span></label>
+      <label class="field"><span class="field-title">Password</span><input type="password" id="password" autocomplete="current-password" enterkeyhint="go"></label>
+      <label class="toggle"><span class="switch"><input type="checkbox" id="remember"><span></span></span><span><span class="field-title">Remember the email and password</span><span class="help">Optional: the sign-in keeps only a refresh token otherwise.</span></span></label>
+      <div class="actions"><button type="submit" id="login" class="primary">Connect account</button></div>
+      <p class="wiki muted">Signing in to LG with Google, Apple, Facebook or Amazon? <a href="https://github.com/mp-consulting/homebridge-lg-thinq/wiki/Plugin-Authorization-Setting" target="_blank" rel="noopener">See the authorization guide</a>, or use LG's own sign-in page below.</p>
+    </form>
+    <div id="third-party" class="card form">
+      <strong>Sign in with Google, Apple, Facebook or Amazon</strong>
+      <p class="help">Open LG's sign-in page, sign in, then paste the address of the page it ends on (it starts with the LG account site and contains <span class="mono">iabClose</span>).</p>
+      <div class="actions"><button id="open-lg" type="button">Open LG's sign-in page</button></div>
+      <label class="field"><span class="field-title">Address after signing in</span><input type="url" id="redirect-url" placeholder="https://…/login/iabClose?…" spellcheck="false" autocapitalize="none"></label>
+      <div class="actions"><button id="redirect-login" type="button" class="primary">Use this sign-in</button></div>
+    </div>
+    <div id="login-problem" class="problem hidden"></div>
+  </section>
+
+  <section id="step-devices" class="step hidden">
+    <div class="step-head"><span class="step-number">2</span><h2>Your devices</h2></div>
+    <div class="group tabs" role="tablist">
+      <button id="tab-devices" role="tab" class="on" aria-selected="true">Devices</button>
+      <button id="tab-settings" role="tab" aria-selected="false">Settings</button>
+    </div>
+
+    <div id="pane-devices">
+      <div class="card">
+        <div class="list-head">
+          <h3>Devices in your account <span id="device-count" class="pill count">0</span></h3>
+          <div class="actions"><button id="select-all">Select all</button><button id="refresh">Refresh</button></div>
+        </div>
+        <div id="devices-problem" class="problem hidden"></div>
+        <ul id="device-list" class="devices"></ul>
+        <p class="list-foot muted">Checked devices are added to HomeKit (none checked: all of them). ⚙ sets a device's options.</p>
+      </div>
+      <div id="device-panel" class="card panel hidden"></div>
+      <div class="save-bar"><span id="devices-status" class="muted"></span><button id="save" class="primary">Save configuration</button></div>
+    </div>
+
+    <div id="pane-settings" class="settings hidden">
+      <div class="card">
+        <h3>Authentication</h3>
+        <label class="field"><span class="field-title">Auth mode</span>
+          <select id="auth-mode"><option value="account">LG account (email and password)</option><option value="token">Refresh token</option></select></label>
+        <label id="token-field" class="field"><span class="field-title">Refresh token</span><input type="text" id="refresh-token" placeholder="Paste your refresh token" autocapitalize="none" spellcheck="false" class="mono"></label>
+        <div class="actions"><button id="switch-account" class="link">Sign in with another account</button></div>
+      </div>
+      <div class="card">
+        <h3>Region</h3>
+        <div class="columns">
+          <label class="field"><span class="field-title">Country</span><input type="text" id="country" placeholder="US" maxlength="2" autocapitalize="characters"></label>
+          <label class="field"><span class="field-title">Language</span><input type="text" id="language" placeholder="en-US" autocapitalize="none"></label>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Sync</h3>
+        <label class="toggle"><span class="switch"><input type="checkbox" id="thinq1"><span></span></span><span><span class="field-title">ThinQ1 support</span><span class="help">Adds the account's older ThinQ v1 devices, which are polled.</span></span></label>
+        <label class="field"><span class="field-title">Refresh interval (seconds)</span><input type="number" id="refresh-interval" min="1" inputmode="numeric" class="number"><span class="help">How often ThinQ1 devices are polled. Default: 60.</span></label>
+      </div>
+      <div class="save-bar"><span class="muted">ThinQ2 devices are pushed by LG and need no polling.</span><button id="save-settings" class="primary">Save configuration</button></div>
+    </div>
+  </section>
+
+  <section id="step-complete" class="step hidden">
+    <div class="step-head"><span class="step-number done">✓</span><h2>Configuration saved</h2></div>
+    <div class="card">
+      <p id="complete-text">The plugin restarted with the new settings.</p>
+      <div class="done-actions"><button id="restart" class="hidden">Restart Homeswift</button><button id="back">Back to the devices</button></div>
+    </div>
+  </section>
+</main>
+<script src="/common.js"></script>
+<script src="/plugin.js"></script>
+<script src="countries.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,161 @@
+// THIS FILE IS GENERATED from ../config.schema.json by Scripts/embed-assets.swift - DO NOT EDIT.
+// swiftlint:disable all
+
+extension DolphinPoolCleanerPlugin {
+    /// The plugin's config.schema.json, as written, for settings forms and the config copilot.
+    public static let configurationSchemaJSON: String? = #"""
+{
+  "pluginAlias": "DolphinPoolCleaner",
+  "pluginType": "platform",
+  "singular": true,
+  "customUi": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Platform Name",
+        "type": "string",
+        "default": "Dolphin Pool Cleaner",
+        "description": "Name to display in Homebridge logs"
+      },
+      "email": {
+        "title": "Email",
+        "type": "string",
+        "description": "Your MyDolphin Plus account email"
+      },
+      "password": {
+        "title": "Password",
+        "type": "string",
+        "description": "Optional. Not needed when you sign in with the setup wizard, which stores a refresh token instead of your password"
+      },
+      "iotRegion": {
+        "title": "IoT Region",
+        "type": "string",
+        "default": "eu-west-1",
+        "oneOf": [
+          { "title": "Europe (Ireland)", "enum": ["eu-west-1"] }
+        ],
+        "description": "AWS IoT region for your robot"
+      },
+      "pollingInterval": {
+        "title": "Polling Interval (seconds)",
+        "type": "integer",
+        "default": 60,
+        "minimum": 30,
+        "maximum": 600,
+        "description": "How often to poll for robot status (minimum 30 seconds)"
+      },
+      "devices": {
+        "title": "Devices",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "serialNumber": {
+              "title": "Serial Number",
+              "type": "string",
+              "required": true,
+              "description": "Robot serial number (found on power supply)"
+            },
+            "name": {
+              "title": "Display Name",
+              "type": "string",
+              "description": "Name to display in HomeKit"
+            },
+            "deviceType": {
+              "title": "Device Type",
+              "type": "integer",
+              "default": 62,
+              "description": "Saved by the setup wizard for display; the plugin reads the device type from your account"
+            },
+            "cleaningMode": {
+              "title": "Default Cleaning Mode",
+              "type": "string",
+              "default": "all",
+              "oneOf": [
+                { "title": "All Surfaces", "enum": ["all"] },
+                { "title": "Fast Mode", "enum": ["short"] },
+                { "title": "Floor Only", "enum": ["floor"] },
+                { "title": "Walls Only", "enum": ["wall"] },
+                { "title": "Waterline", "enum": ["water"] },
+                { "title": "Ultra Clean", "enum": ["ultra"] },
+                { "title": "Cove", "enum": ["cove"] },
+                { "title": "Spot Clean", "enum": ["spot"] }
+              ],
+              "description": "Default cleaning mode when starting"
+            },
+            "enableTemperature": {
+              "title": "Enable Temperature Sensor",
+              "type": "boolean",
+              "default": true,
+              "description": "Show water temperature sensor in HomeKit"
+            },
+            "enableFilterStatus": {
+              "title": "Enable Filter Status",
+              "type": "boolean",
+              "default": true,
+              "description": "Show filter maintenance indicator in HomeKit"
+            }
+          }
+        }
+      }
+    }
+  },
+  "layout": [
+    "name",
+    {
+      "type": "fieldset",
+      "title": "Account Settings",
+      "expandable": false,
+      "items": [
+        "email",
+        "password"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Connection Settings",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "pollingInterval"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Devices",
+      "expandable": true,
+      "expanded": true,
+      "items": [
+        {
+          "key": "devices",
+          "type": "array",
+          "orderable": false,
+          "buttonText": "Add Device",
+          "items": [
+            "devices[].serialNumber",
+            "devices[].name",
+            "devices[].cleaningMode",
+            {
+              "type": "div",
+              "displayFlex": true,
+              "flex-direction": "row",
+              "items": [
+                {
+                  "key": "devices[].enableTemperature",
+                  "flex": "1 1 50%"
+                },
+                {
+                  "key": "devices[].enableFilterStatus",
+                  "flex": "1 1 50%"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+"""#
+}

@@ -50,24 +50,21 @@ struct TLV8: Equatable {
     }
 
     init(decoding data: Data) throws {
-        var index = data.startIndex
+        var items: [Item] = []
         var lastFragmentWasFull = false
-        while index < data.endIndex {
-            guard data.distance(from: index, to: data.endIndex) >= 2 else { throw TLVError.unknown }
-            let type = data[index]
-            let length = Int(data[data.index(after: index)])
-            let start = data.index(index, offsetBy: 2)
-            guard data.distance(from: start, to: data.endIndex) >= length else { throw TLVError.unknown }
-            let end = data.index(start, offsetBy: length)
-            let value = Data(data[start..<end])
-            if lastFragmentWasFull, let last = items.last, last.type == type {
-                items[items.count - 1].value.append(value)
-            } else {
-                items.append(Item(type: type, value: value))
+        do {
+            try HAPTLV.forEachItem(data) { type, value in
+                if lastFragmentWasFull, let last = items.last, last.type == type {
+                    items[items.count - 1].value.append(value)
+                } else {
+                    items.append(Item(type: type, value: Data(value)))
+                }
+                lastFragmentWasFull = value.count == 255
             }
-            lastFragmentWasFull = length == 255
-            index = end
+        } catch {
+            throw TLVError.unknown
         }
+        self.items = items
     }
 
     subscript(type: TLVType) -> Data? {
@@ -101,21 +98,7 @@ struct TLV8: Equatable {
 
     func encoded() -> Data {
         var out = Data()
-        for item in items {
-            if item.value.isEmpty {
-                out.append(item.type)
-                out.append(0)
-                continue
-            }
-            var offset = item.value.startIndex
-            while offset < item.value.endIndex {
-                let end = item.value.index(offset, offsetBy: 255, limitedBy: item.value.endIndex) ?? item.value.endIndex
-                out.append(item.type)
-                out.append(UInt8(item.value.distance(from: offset, to: end)))
-                out.append(item.value[offset..<end])
-                offset = end
-            }
-        }
+        for item in items { HAPTLV.appendFragments(item.type, item.value, to: &out) }
         return out
     }
 }

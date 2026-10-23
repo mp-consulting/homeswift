@@ -12,18 +12,22 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `Sources/Homeswift/Crypto` | TLV8, `ModularField` (Montgomery arithmetic), SRP-6a, HKDF/ChaCha20 helpers, `Secrets` (random tokens, constant-time compares) |
 | `Sources/Homeswift/Pairing` | Setup code and URI, pair setup, pair verify, pairings |
 | `Sources/Homeswift/Server` | `HAPServer`, `HAPConnection` (one task per connection), HTTP, sessions, endpoints, storage, Bonjour advertiser and `BonjourBrowser` |
-| `Sources/HomeswiftPlugin` | `HomeswiftPlugin` protocol, `PluginContext`, `PluginRegistry`, `HomeswiftConfiguration` (Homebridge-shaped config.json), `AccessoryCache`, `PluginHost` (bridges, child bridges, plugin lifecycle), `LogBuffer` and `LogArchive` (the log on disk, rotated) |
+| `Sources/Homeswift/Camera` | `CameraController`/`DoorbellController` (HAP-NodeJS's API), `RTPStreamManagement` (setup endpoints, SRTP, selected stream), `RecordingManagement` (HomeKit Secure Video, `dataSend` streams), `CameraTypes` (options, requests, delegates) |
+| `Sources/Homeswift/DataStream` | HomeKit Data Stream: `HDSCodec` (HAP-NodeJS's DataStreamParser), `HDSFrame` (keys, ChaCha20 frames), `DataStreamServer`/`DataStreamConnection` (TCP on NIO), `DataStreamManagement` (the service) |
+| `Sources/Homeswift/Controllers` | `AdaptiveLightingController`, `ColorUtils`, `SerializableController` (state saved by `PluginContext.configureController`) |
+| `Sources/HomeswiftFFmpeg` | FFmpeg for camera plugins (port of homebridge-unifi-protect's `lib/ffmpeg`): codecs and hardware acceleration, encoder arguments, the process, RTP ports and demuxer, fMP4 recordings and livestreams |
+| `Sources/HomeswiftPlugin` | `HomeswiftPlugin` protocol, `PluginContext` (`removeAccessories(keeping:)`, `jsonFile`), `PluginRegistry`, `HomeswiftConfiguration` (Homebridge-shaped config.json), `AccessoryCache`, `PluginHost` (bridges, child bridges, plugin lifecycle), `LogBuffer` and `LogArchive` (the log on disk, rotated), `ControllerStorage`, `EveHistory` (fakegato-history), `PersistedDictionary`, `TaskBag` and `LatestCallGuard` (`Tasks.swift`) |
 | `Sources/HomeswiftCLI` | The `homeswift` binary: arguments, log format, `Plugins.swift` lists the plugins compiled in, `AssistantCommands.swift` the `ask`/`explain`/`diagnose` commands |
 | `Sources/HomeswiftAI` | The Assistant: `Provider` adapters (`Providers/`), `AIConfiguration` (the `HomeswiftAiKit` block), `Redaction`, `Prompts`, `JSONGeneration`, `Pricing`/`UsageTracker`, `AssistantService` |
 | `Sources/HomeswiftMCP` | The MCP server: `JSONRPC`, `MCPServer`/`MCPSession` (methods, elicitation), `Scopes` (`MCPConfiguration`, tokens), `AuditLog`, `HomeswiftCatalog` (the tools, resources and prompts over a `PluginHost`; also the web UI's control surface), `HTTPServer` (Streamable HTTP on NIO), `StdioProxy` (`homeswift mcp`), `ChatToolbox` (the tools for the web UI's chat, an in-process session), `HostName` and `FailureThrottle` (shared with the web UI) |
 | `Sources/HomeswiftUI` | The web UI: `UIConfiguration` (the `HomeswiftUI` block), `Auth` (users, PBKDF2, sessions, login throttle), `UIServer` (NIO HTTP, the JSON API, the event stream), `AssistantChat` (the chat's conversations), `Certificate` (HTTPS, self-signed), `Web/` (the pages; `WebAssets.swift` is generated from it) |
-| `Sources/HomeswiftNetwork` | For plugins reaching devices on the LAN: `HTTPClient` (NIO and NIOSSL; trusts or pins a self-signed certificate, the same on Linux), `DigestAuthentication`, `WakeOnLAN` |
+| `Sources/HomeswiftNetwork` | For plugins reaching devices and clouds: `NetworkInterfaces`, `HTTPClient` (NIO and NIOSSL; trusts or pins a self-signed certificate, the same on Linux; `TrustOnFirstUse`), `DigestAuthentication`, `WakeOnLAN`, `UDPSocket` and `localIPv4Networks`, `WebSocket`, `MQTTClient` (`MQTTPacket`, `MQTTTransport`), `TLSOptions` (roots such as Amazon Root CA 1, client certificates, ALPN), `AWSSignatureV4`, `URLEncoding`, `Backoff` |
 | `Scripts/embed-assets.swift` | Embeds a plugin's `config.schema.json` or the `Web/` directory into Swift source; tests fail when the generated files are stale |
 | `Plugins/<Name>` | One plugin: `Sources` (target `Homeswift<Name>`), `Tests`, `README.md`, `config.schema.json`, optionally `Web/` (its own UI page; `Sources/WebFiles.swift` is generated). `ElgatoKeyLights` is the reference, `PhilipsAmbilightTV` the one with external accessories, a shared transport and pairing |
 | `Sources/CHAPMath` | C Montgomery multiplication for SRP |
 | `Sources/CDNSSD` | Avahi's dns_sd on Linux (macOS imports `dnssd`) |
 | `Tests/HomeswiftTests` | Primitives (SRP vectors from fast-srp-hap) and a real controller (`TestController`) against the server |
-| `Tests/HomeswiftPluginTests` | Config decoding, `PluginHost` with a recording plugin: cache, child bridges, id conflicts |
+| `Tests/HomeswiftPluginTests` | Config decoding, `PluginHost` with a recording plugin: cache, child bridges, id conflicts; controller storage, Eve history against fakegato's output |
 | `docs/plugins.md` | How to write a plugin, the runtime's files, porting from Homebridge, where plugins live |
 | `docs/ai.md` | The Assistant: configuration, providers, command line, use from a plugin, what reaches a provider |
 | `docs/mcp.md` | The MCP server: configuration, scopes, confirmations, resources, prompts, security |
@@ -31,7 +35,9 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `Tests/HomeswiftUITests` | Users and sessions, embedded assets are current, the server end to end with a cookie-keeping client |
 | `Tests/HomeswiftMCPTests` | The protocol on a direct session (scopes, elicitation, config tools, resources), the HTTP transport and the stdio proxy against a real server on port 0 |
 | `Tests/HomeswiftAITests` | Providers against a fake transport (request shapes, parsing, streaming, retries), redaction, schema checks, the Assistant on a fake provider |
-| `Tests/HomeswiftNetworkTests` | The HTTP client against a NIO server, plain and with a self-signed certificate (trust, pin, mismatch), the RFC 2617 Digest vector, Wake-on-LAN packets over UDP |
+| `Tests/HomeswiftNetworkTests` | The HTTP client against a NIO server, plain and with a self-signed certificate (trust, pin, mismatch), the RFC 2617 Digest vector, Wake-on-LAN packets over UDP, WebSocket and MQTT against a NIO server (`TestSocketServer`), AWS Signature V4 vectors, URL encodings byte for byte, the fakes |
+| `Tests/HomeswiftNetworkTestSupport` | A library target for plugin tests: `FakeMQTTConnection` and `FakeWebSocket`, in memory, no broker |
+| `Tests/HomeswiftFFmpegTests` | FFmpeg options and codecs per host, the process wrapper against a shell, RTP, fMP4 parsing on fixtures |
 | `Benchmarks` | A separate package: `hap-bench`, a HomeKit controller that measures a server (pairing, requests, events, load, memory), `hap-bench-server` (a Homeswift bridge with N lightbulbs) and the same bridge on HAP-NodeJS under `hap-nodejs/`; `run.sh` compares them, `README.md` has the numbers |
 
 ## Commands
@@ -69,7 +75,8 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
 - Run one demo or bridge per identity at a time: two processes advertising the same device ID make the Home
   app drop pairings.
 - Tests use `MemoryStorage` and `advertise: false`; they never touch `~/.homeswift`. Plugin tests inject fake
-  transports through a `PluginRegistry` closure (see `Plugins/ElgatoKeyLights/Tests`).
+  transports through a `PluginRegistry` closure (see `Plugins/ElgatoKeyLights/Tests`); MQTT and WebSocket fakes are in
+  `HomeswiftNetworkTestSupport`.
 - Keep Linux building: Darwin-only APIs go behind `#if canImport(...)`; `URLSession` needs
   `#if canImport(FoundationNetworking)`. CI runs the tests on Linux. dns_sd code must work with Avahi's
   compatibility layer (no `DNSServiceSetDispatchQueue`, shared connections or `DNSServiceGetAddrInfo`).

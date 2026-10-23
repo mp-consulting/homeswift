@@ -9,6 +9,8 @@ import Foundation
 struct SecureSession {
     static let maxFrame = 1024
 
+    /// The pair-verify shared secret, from which HomeKit Data Stream derives its own keys.
+    let sharedSecret: Data
     private let readKey: SymmetricKey
     private let writeKey: SymmetricKey
     private var readCounter: UInt64 = 0
@@ -16,6 +18,7 @@ struct SecureSession {
 
     /// Keys for the accessory side, derived from the pair-verify shared secret.
     init(sharedSecret: Data, isAccessory: Bool = true) {
+        self.sharedSecret = sharedSecret
         let accessoryToController = HAPCrypto.hkdf(sharedSecret, salt: "Control-Salt", info: "Control-Read-Encryption-Key")
         let controllerToAccessory = HAPCrypto.hkdf(sharedSecret, salt: "Control-Salt", info: "Control-Write-Encryption-Key")
         readKey = isAccessory ? controllerToAccessory : accessoryToController

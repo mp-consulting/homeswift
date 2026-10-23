@@ -122,7 +122,7 @@ public final class HTTPClient: HTTPSending, Sendable {
 
     /// The SHA-256 fingerprint of a DER certificate.
     public static func fingerprint(der: [UInt8]) -> String {
-        SHA256.hash(data: der).map { String(format: "%02x", $0) }.joined()
+        hexString(SHA256.hash(data: der))
     }
 
     public func send(_ request: HTTPRequest) async throws -> HTTPResponse {
@@ -223,20 +223,10 @@ public final class HTTPClient: HTTPSending, Sendable {
             }
         do {
             return try await bootstrap.connect(host: host, port: port).get()
-        } catch let error as NIOConnectionError {
-            let (code, reason) = Self.reason(for: error.connectionErrors.first?.error ?? error)
-            throw HTTPClientError.cannotConnect(host: host, port: port, code: code, reason: reason)
         } catch {
-            let (code, reason) = Self.reason(for: error)
+            let (code, reason) = connectionFailure(error)
             throw HTTPClientError.cannotConnect(host: host, port: port, code: code, reason: reason)
         }
-    }
-
-    /// The errno of a failed connection when the system gave one, and a short reason: its message, else
-    /// the error.
-    private static func reason(for error: any Error) -> (code: Int32?, reason: String) {
-        if let io = error as? IOError { return (io.errnoCode, String(cString: strerror(io.errnoCode)).lowercased()) }
-        return (nil, "\(error)")
     }
 
     private func context() throws -> NIOSSLContext {
@@ -252,6 +242,14 @@ public final class HTTPClient: HTTPSending, Sendable {
             return context
         }
     }
+}
+
+/// The errno of a failed connection when the system gave one, and a short reason: its message, else the error.
+/// Shared by the HTTP, WebSocket and MQTT clients.
+func connectionFailure(_ error: any Error) -> (code: Int32?, reason: String) {
+    let underlying = (error as? NIOConnectionError)?.connectionErrors.first?.error ?? error
+    if let io = underlying as? IOError { return (io.errnoCode, String(cString: strerror(io.errnoCode)).lowercased()) }
+    return (nil, "\(underlying)")
 }
 
 /// Collects the parts of one response into an `HTTPResponse`.

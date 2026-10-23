@@ -53,8 +53,47 @@ All notable changes to this project are documented here. The format follows
   authentication, Wake-on-LAN with the directed broadcast of the device's network, the MAC address of a LAN
   host from the system's ARP table.
 
+- **Eight more Homebridge plugins**, each with the Homebridge plugin's platform name, config.json keys,
+  `config.schema.json` and settings page (`Plugins/<Name>/Web`):
+  - **Daikin Cloud**: the Onecta Developer Portal OAuth flow (a temporary HTTPS callback server) and the
+    mobile-app login, rate limits, the WebSocket push; air conditioners and Altherma with the hot water tank.
+  - **Dolphin Pool Cleaner**: the Maytronics sign-in (Cognito, with the e-mail/SMS/app code wizard), the
+    robot's AWS IoT shadow over a SigV4-signed WebSocket.
+  - **Dyson Pure Cool**: the Dyson account sign-in with its e-mailed code, mDNS discovery, the local MQTT
+    protocol for 24 models (purifiers, heaters, humidifiers). Sensor readings are asked for on every poll:
+    Link models send none otherwise, a bug the Homebridge plugin has.
+  - **eWeLink**: the cloud API and WebSocket, LAN control (mDNS, AES-128-CBC, the UDP listener), every
+    accessory type and simulation, 121 device UIIDs.
+  - **Govee**: the account and AWS IoT (the account's PKCS#12 certificate), LAN control over UDP, Bluetooth
+    on macOS, scenes, DIY effects and music mode, Adaptive Lighting, Eve history.
+  - **LG ThinQ**: the ThinQ v1 and v2 APIs with both sign-ins, AWS IoT with a certificate from a CSR made in
+    Swift, every appliance type (air conditioners to ovens), the monitor protocols.
+  - **UniFi Access**: hubs, readers, intercoms and the UA Gate's gate cycle, door sensors, doorbells, access
+    methods, feature options, MQTT, controller discovery.
+  - **UniFi Protect**: cameras with live streaming, snapshots and HomeKit Secure Video through the
+    livestream API and a timeshift buffer, doorbells, package cameras, chimes, lights, sensors, viewers,
+    liveviews as security systems, feature options, MQTT.
+- **Cameras** in the HAP library, after HAP-NodeJS's `CameraController`: RTP stream management with SRTP,
+  snapshots over `/resource`, microphone and speaker, the doorbell, HomeKit Secure Video (recording
+  management, the HomeKit Data Stream server, fragmented MP4 over `dataSend`). **`HomeswiftFFmpeg`** ports the
+  FFmpeg library of homebridge-unifi-protect (encoder arguments per hardware accelerator, RTP ports and
+  demuxing, live streams and recordings).
+- **`AdaptiveLightingController`** after HAP-NodeJS's, automatic and manual, its schedule kept across launches
+  through `PluginContext.configureController`.
+- **`HomeswiftNetwork`** gains a WebSocket client, an MQTT 3.1.1 client (TCP, TLS with client certificates
+  and ALPN, WebSocket), AWS Signature V4, `URLEncoding`, `Backoff`, `UDPSocket`, `TrustOnFirstUse` and
+  shared TLS options; **`HomeswiftPlugin`** gains `EveHistory` (fakegato-history's byte layouts),
+  `PersistedDictionary`, `TaskBag`, `LatestCallGuard`, `context.jsonFile` and
+  `context.removeAccessories(keeping:)`; `HomeswiftNetworkTestSupport` has fake MQTT and WebSocket
+  connections for plugin tests.
+
 ### Changed
 
+- `Service(optional:)` and `Service(extra:)` with a characteristic the service already has replace it in
+  place, so they set a required characteristic's props as HAP-NodeJS's `setProps` does (they used to be
+  ignored).
+- `OwnerOnlyFile.write` creates its temporary file 0600 from the start: no moment at umask permissions.
+- `Redaction.scrubAddresses` also masks e-mail addresses before text reaches a provider.
 - Signing in is quick in debug builds too: PBKDF2 runs on CommonCrypto on Apple platforms, and the button
   shows its progress.
 - MCP sessions refuse a `__SECRET_…__` handle that is not under a secret's key or not their own, so a model

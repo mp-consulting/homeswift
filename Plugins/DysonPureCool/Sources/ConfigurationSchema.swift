@@ -1,0 +1,441 @@
+// THIS FILE IS GENERATED from ../config.schema.json by Scripts/embed-assets.swift - DO NOT EDIT.
+// swiftlint:disable all
+
+extension DysonPureCoolPlugin {
+    /// The plugin's config.schema.json, as written, for settings forms and the config copilot.
+    public static let configurationSchemaJSON: String? = #"""
+{
+  "pluginAlias": "DysonPureCool",
+  "pluginType": "platform",
+  "singular": true,
+  "customUi": true,
+  "headerDisplay": "Homebridge plugin for Dyson Pure Cool, Hot+Cool, Humidify+Cool, and Big+Quiet devices. The most feature-rich Dyson plugin for HomeKit.",
+  "footerDisplay": "For help, see the [README](https://github.com/homebridge/homebridge-dyson-pure-cool#readme)",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "default": "Dyson Pure Cool",
+        "description": "Plugin name as it appears in Homebridge logs"
+      },
+      "countryCode": {
+        "title": "Country Code",
+        "type": "string",
+        "default": "US",
+        "description": "Your Dyson account country code",
+        "oneOf": [
+          { "title": "United States", "enum": ["US"] },
+          { "title": "United Kingdom", "enum": ["GB"] },
+          { "title": "Germany", "enum": ["DE"] },
+          { "title": "France", "enum": ["FR"] },
+          { "title": "Italy", "enum": ["IT"] },
+          { "title": "Spain", "enum": ["ES"] },
+          { "title": "Netherlands", "enum": ["NL"] },
+          { "title": "Belgium", "enum": ["BE"] },
+          { "title": "Austria", "enum": ["AT"] },
+          { "title": "Switzerland", "enum": ["CH"] },
+          { "title": "Australia", "enum": ["AU"] },
+          { "title": "New Zealand", "enum": ["NZ"] },
+          { "title": "Canada", "enum": ["CA"] },
+          { "title": "Ireland", "enum": ["IE"] },
+          { "title": "Sweden", "enum": ["SE"] },
+          { "title": "Norway", "enum": ["NO"] },
+          { "title": "Denmark", "enum": ["DK"] },
+          { "title": "Finland", "enum": ["FI"] },
+          { "title": "Japan", "enum": ["JP"] },
+          { "title": "Singapore", "enum": ["SG"] },
+          { "title": "Hong Kong", "enum": ["HK"] },
+          { "title": "China", "enum": ["CN"] }
+        ]
+      },
+      "devices": {
+        "title": "Devices",
+        "type": "array",
+        "description": "List of Dyson devices to control",
+        "items": {
+          "type": "object",
+          "properties": {
+            "serial": {
+              "title": "Serial Number",
+              "type": "string",
+              "description": "Device serial number (e.g., ABC-US-12345678)",
+              "pattern": "^[A-Z0-9]{3}-[A-Z]{2}-[A-Z0-9]+$"
+            },
+            "name": {
+              "title": "Device Name",
+              "type": "string",
+              "description": "Display name for this device"
+            },
+            "productType": {
+              "title": "Product Type",
+              "type": "string",
+              "description": "Select your Dyson device model",
+              "oneOf": [
+                { "title": "TP02 - Pure Cool Link Tower", "enum": ["475"] },
+                { "title": "TP04 - Pure Cool Tower", "enum": ["438"] },
+                { "title": "TP07 - Purifier Cool", "enum": ["438E"] },
+                { "title": "TP09 - Pure Cool Formaldehyde", "enum": ["438K"] },
+                { "title": "TP11 - Purifier Cool", "enum": ["438M"] },
+                { "title": "DP01 - Pure Cool Link Desk", "enum": ["469"] },
+                { "title": "DP04 - Pure Cool Desk", "enum": ["520"] },
+                { "title": "HP02 - Pure Hot+Cool Link", "enum": ["455"] },
+                { "title": "HP04 - Pure Hot+Cool", "enum": ["527"] },
+                { "title": "HP06 - Pure Hot+Cool", "enum": ["358K"] },
+                { "title": "HP07 - Pure Hot+Cool", "enum": ["527E"] },
+                { "title": "HP09 - Pure Hot+Cool Formaldehyde", "enum": ["527K"] },
+                { "title": "HP1/HP11 - Purifier Hot+Cool", "enum": ["527M"] },
+                { "title": "PH01 - Purifier Humidify+Cool", "enum": ["358"] },
+                { "title": "PH02 - Purifier Humidify+Cool", "enum": ["520E"] },
+                { "title": "PH03 - Purifier Humidify+Cool", "enum": ["358H"] },
+                { "title": "PH03 - Purifier Humidify+Cool", "enum": ["358J"] },
+                { "title": "PH03/PH04 - Purifier Humidify+Cool Formaldehyde", "enum": ["358E"] },
+                { "title": "PH04 - Purifier Humidify+Cool Formaldehyde", "enum": ["520F"] },
+                { "title": "BP02 - Purifier Big+Quiet", "enum": ["664"] },
+                { "title": "BP03 - Purifier Big+Quiet Formaldehyde", "enum": ["664B"] },
+                { "title": "BP04 - Purifier Big+Quiet Formaldehyde", "enum": ["664E"] },
+                { "title": "BP06 - Purifier Big+Quiet", "enum": ["664F"] },
+                { "title": "CF1 - Dyson Cool", "enum": ["739"] }
+              ]
+            },
+            "localCredentials": {
+              "title": "Local Credentials",
+              "type": "string",
+              "description": "MQTT password for local device connection (obtained from Dyson cloud)",
+              "x-schema-form": { "type": "password" }
+            },
+            "credentials": {
+              "title": "Credentials (Legacy)",
+              "type": "string",
+              "description": "Legacy credentials field. Use 'localCredentials' for new configurations.",
+              "x-schema-form": { "type": "password" }
+            },
+            "ipAddress": {
+              "title": "IP Address (Optional)",
+              "type": "string",
+              "format": "ipv4",
+              "description": "Static IP address (leave empty for auto-discovery)"
+            },
+            "firmwareVersion": {
+              "title": "Firmware Version",
+              "type": "string",
+              "description": "Device firmware version reported by the Dyson cloud (set by the setup wizard)"
+            },
+            "temperatureOffset": {
+              "title": "Temperature Offset",
+              "type": "number",
+              "default": 0,
+              "minimum": -10,
+              "maximum": 10,
+              "description": "Adjust temperature reading by this amount in Celsius"
+            },
+            "humidityOffset": {
+              "title": "Humidity Offset",
+              "type": "integer",
+              "default": 0,
+              "minimum": -20,
+              "maximum": 20,
+              "description": "Adjust humidity reading by this percentage"
+            },
+            "useFahrenheit": {
+              "title": "Use Fahrenheit",
+              "type": "boolean",
+              "default": false,
+              "description": "Display temperature in Fahrenheit in logs"
+            },
+            "isTemperatureIgnored": {
+              "title": "Disable Temperature Sensor",
+              "type": "boolean",
+              "default": false,
+              "description": "Hide temperature sensor for this device"
+            },
+            "isHumidityIgnored": {
+              "title": "Disable Humidity Sensor",
+              "type": "boolean",
+              "default": false,
+              "description": "Hide humidity sensor for this device"
+            },
+            "isAirQualityIgnored": {
+              "title": "Disable Air Quality Sensor",
+              "type": "boolean",
+              "default": false,
+              "description": "Hide air quality sensor for this device"
+            },
+            "isHeatingDisabled": {
+              "title": "Disable Heating Controls",
+              "type": "boolean",
+              "default": false,
+              "description": "Hide thermostat/heater controls for HP models"
+            },
+            "heatingServiceType": {
+              "title": "Heating Service Type",
+              "type": "string",
+              "default": "thermostat",
+              "description": "Which HomeKit service to use for heating control",
+              "oneOf": [
+                { "title": "Thermostat (Recommended)", "enum": ["thermostat"] },
+                { "title": "Heater Cooler", "enum": ["heater-cooler"] },
+                { "title": "Both", "enum": ["both"] }
+              ]
+            },
+            "isHeatingSafetyIgnored": {
+              "title": "Ignore Heating Safety",
+              "type": "boolean",
+              "default": false,
+              "description": "Allow heating even when safety restrictions apply (use with caution)"
+            },
+            "fullRangeHumidity": {
+              "title": "Full Range Humidity",
+              "type": "boolean",
+              "default": false,
+              "description": "Enable 0-100% humidity range for humidifier (default: 30-70%)"
+            },
+            "enableAutoModeWhenActivating": {
+              "title": "Enable Auto Mode on Activation",
+              "type": "boolean",
+              "default": false,
+              "description": "Automatically enable auto mode when turning device on"
+            },
+            "enableOscillationWhenActivating": {
+              "title": "Enable Oscillation on Activation",
+              "type": "boolean",
+              "default": false,
+              "description": "Automatically enable oscillation when turning device on"
+            },
+            "enableNightModeWhenActivating": {
+              "title": "Enable Night Mode on Activation",
+              "type": "boolean",
+              "default": false,
+              "description": "Automatically enable night mode when turning device on"
+            },
+            "isContinuousMonitoringEnabled": {
+              "title": "Enable Continuous Monitoring Switch",
+              "type": "boolean",
+              "default": false,
+              "description": "Show continuous monitoring switch to keep sensors active when device is off"
+            },
+            "isNightModeEnabled": {
+              "title": "Enable Night Mode Switch",
+              "type": "boolean",
+              "default": true,
+              "description": "Show night mode switch in HomeKit"
+            },
+            "isJetFocusEnabled": {
+              "title": "Enable Jet Focus Switch",
+              "type": "boolean",
+              "default": true,
+              "description": "Show jet focus (diffuse/focused airflow) switch in HomeKit"
+            }
+          },
+          "required": ["serial", "productType"]
+        }
+      },
+      "isSingleAccessoryModeEnabled": {
+        "title": "Single Accessory Mode",
+        "type": "boolean",
+        "default": false,
+        "description": "Combine all services into a single accessory per device"
+      },
+      "isSingleSensorAccessoryModeEnabled": {
+        "title": "Single Sensor Accessory Mode",
+        "type": "boolean",
+        "default": false,
+        "description": "Combine all sensors into a single accessory per device"
+      },
+      "enableTemperature": {
+        "title": "Enable Temperature Sensor",
+        "type": "boolean",
+        "default": true,
+        "description": "Show temperature readings in HomeKit"
+      },
+      "enableHumidity": {
+        "title": "Enable Humidity Sensor",
+        "type": "boolean",
+        "default": true,
+        "description": "Show humidity readings in HomeKit"
+      },
+      "enableAirQuality": {
+        "title": "Enable Air Quality Sensor",
+        "type": "boolean",
+        "default": true,
+        "description": "Show air quality sensor (PM2.5, PM10, VOC, NO2) in HomeKit"
+      },
+      "enableNightMode": {
+        "title": "Enable Night Mode Switch",
+        "type": "boolean",
+        "default": true,
+        "description": "Add a switch to control night mode"
+      },
+      "enableAutoMode": {
+        "title": "Enable Auto Mode Switch",
+        "type": "boolean",
+        "default": true,
+        "description": "Add a switch to control auto mode"
+      },
+      "enableContinuousMonitoring": {
+        "title": "Enable Continuous Monitoring Switch",
+        "type": "boolean",
+        "default": false,
+        "description": "Show continuous monitoring toggle switch in HomeKit"
+      },
+      "enableJetFocus": {
+        "title": "Enable Jet Focus Switch",
+        "type": "boolean",
+        "default": true,
+        "description": "Show jet focus (front airflow) toggle switch in HomeKit"
+      },
+      "enableHeater": {
+        "title": "Enable Heater (HP Models)",
+        "type": "boolean",
+        "default": true,
+        "description": "Show heater/thermostat control for Hot+Cool models"
+      },
+      "enableHumidifier": {
+        "title": "Enable Humidifier (PH Models)",
+        "type": "boolean",
+        "default": true,
+        "description": "Show humidifier control for Humidify+Cool models"
+      },
+      "enableFilterStatus": {
+        "title": "Enable Filter Status",
+        "type": "boolean",
+        "default": false,
+        "description": "Show filter life remaining indicator"
+      },
+      "pollingInterval": {
+        "title": "Polling Interval",
+        "type": "integer",
+        "default": 60,
+        "minimum": 10,
+        "maximum": 300,
+        "description": "How often to check device status (in seconds)"
+      }
+    },
+    "required": ["name"]
+  },
+  "layout": [
+    "name",
+    {
+      "type": "fieldset",
+      "title": "Devices",
+      "description": "Use the custom UI wizard above to configure devices automatically, or add them manually below.",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        {
+          "key": "devices",
+          "type": "array",
+          "items": [
+            "devices[].serial",
+            "devices[].name",
+            "devices[].productType",
+            { "key": "devices[].localCredentials", "type": "password" },
+            "devices[].ipAddress",
+            {
+              "type": "fieldset",
+              "title": "Sensor Calibration",
+              "expandable": true,
+              "items": [
+                "devices[].temperatureOffset",
+                "devices[].humidityOffset",
+                "devices[].useFahrenheit"
+              ]
+            },
+            {
+              "type": "fieldset",
+              "title": "Disable Sensors",
+              "expandable": true,
+              "items": [
+                "devices[].isTemperatureIgnored",
+                "devices[].isHumidityIgnored",
+                "devices[].isAirQualityIgnored"
+              ]
+            },
+            {
+              "type": "fieldset",
+              "title": "Heating Options (HP Models)",
+              "expandable": true,
+              "expanded": true,
+              "items": [
+                "devices[].heatingServiceType",
+                "devices[].isHeatingDisabled",
+                "devices[].isHeatingSafetyIgnored"
+              ]
+            },
+            {
+              "type": "fieldset",
+              "title": "Switch Toggles",
+              "expandable": true,
+              "expanded": true,
+              "items": [
+                "devices[].isNightModeEnabled",
+                "devices[].isJetFocusEnabled",
+                "devices[].isContinuousMonitoringEnabled"
+              ]
+            },
+            {
+              "type": "fieldset",
+              "title": "Activation Behaviors",
+              "expandable": true,
+              "items": [
+                "devices[].enableAutoModeWhenActivating",
+                "devices[].enableOscillationWhenActivating",
+                "devices[].enableNightModeWhenActivating",
+                "devices[].fullRangeHumidity"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Display Mode",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "isSingleAccessoryModeEnabled",
+        "isSingleSensorAccessoryModeEnabled"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Sensor Options",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "enableTemperature",
+        "enableHumidity",
+        "enableAirQuality"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Additional Controls",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "enableNightMode",
+        "enableAutoMode",
+        "enableContinuousMonitoring",
+        "enableJetFocus",
+        "enableHeater",
+        "enableHumidifier",
+        "enableFilterStatus"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Advanced Settings",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "countryCode",
+        "pollingInterval"
+      ]
+    }
+  ]
+}
+"""#
+}

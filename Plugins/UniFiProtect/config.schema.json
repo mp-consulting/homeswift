@@ -1,0 +1,405 @@
+{
+  "pluginAlias": "UniFi Protect",
+  "pluginType": "platform",
+  "headerDisplay": "Full HomeKit support UniFi Protect devices. See the [homebridge-unifi-protect](https://github.com/mp-consulting/homebridge-unifi-protect) developer page for detailed documentation.",
+  "footerDisplay": "A working **FFmpeg** installation is required for this plugin to work. For audio support, make sure your version of ffmpeg is compiled with support for the **fdk-aac** codec.",
+  "singular": true,
+  "customUi": true,
+
+  "schema": {
+    "type": "object",
+    "properties": {
+
+      "controllers": {
+        "type": "array",
+        "title": "UniFi Protect Controllers",
+
+        "items": {
+          "type": "object",
+          "title": "UniFi Protect Controller",
+          "properties": {
+
+            "address": {
+              "type": "string",
+              "title": "Controller Address",
+              "required": true,
+              "format": "hostname",
+              "placeholder": "e.g. 1.2.3.4",
+              "description": "Hostname or IP address of your UniFi Protect controller."
+            },
+
+            "doorbellMessages": {
+              "type": "array",
+              "title": "Doorbell Messages",
+
+              "items": {
+                "type": "object",
+                "title": "Message Entry Object",
+
+                "properties": {
+
+                  "duration": {
+                    "type": "integer",
+                    "title": "Message Duration (seconds)",
+                    "required": false,
+                    "minimum": 0,
+                    "placeholder": "e.g. 60",
+                    "description": "Length of time to display the message on your doorbell. Use 0 to display the message indefinitely. Default: 60."
+                  },
+
+                  "message": {
+                    "type": "string",
+                    "title": "Message Name",
+                    "required": false,
+                    "maxLength": 30,
+                    "placeholder": "e.g. I'll be there soon.",
+                    "description": "Message to display on your doorbell. Default: None."
+                  }
+                }
+              }
+            },
+
+            "mqttTopic": {
+              "type": "string",
+              "title": "MQTT Base Topic",
+              "required": false,
+              "placeholder": "e.g. unifi/protect",
+              "description": "The base MQTT topic to publish to. Default: unifi/protect."
+            },
+
+            "mqttVerifyTls": {
+              "type": "boolean",
+              "title": "Verify MQTT Broker TLS Certificate",
+              "required": false,
+              "default": true,
+              "description": "Validate the MQTT broker's TLS certificate when connecting over mqtts:// or ssl://. Only disable this if your broker uses a self-signed certificate. Default: enabled."
+            },
+
+            "mqttUrl": {
+              "type": "string",
+              "title": "MQTT Broker URL",
+              "required": false,
+              "format": "uri",
+              "placeholder": "e.g. mqtt://1.2.3.4",
+              "description": "URL for the MQTT broker you'd like to publish event messages to. Default: None."
+            },
+
+            "name": {
+              "type": "string",
+              "title": "Controller Name",
+              "required": false,
+              "placeholder": "e.g. UNVR",
+              "description": "Name for this UniFi Protect controller to be used for logging purposes. Default: Defined by the controller."
+            },
+
+            "overrideAddress": {
+
+              "type": "string",
+              "title": "Override Controller Address",
+              "required": false,
+              "description": "Override the address used when livestreaming. This is useful in VPN and remote scenarios where you want to override the address of the UniFi Protect controller. Warning: due to the way stacked Protect controller installations work, this option is unavailable for those configurations."
+            },
+
+            "cameraOverrides": {
+
+              "type": "array",
+              "title": "Third-Party Camera URL Overrides",
+              "required": false,
+              "description": "Per-camera RTSP and snapshot URL overrides for ONVIF and other third-party cameras adopted into UniFi Protect. The Protect controller often does not relay these cameras' streams reliably; supply the camera's own URLs here to bypass the controller. Only applied to cameras the controller has flagged as third-party. See docs/onvif-camera-support.md for details.",
+              "items": {
+
+                "type": "object",
+                "properties": {
+
+                  "mac": {
+
+                    "type": "string",
+                    "title": "Camera MAC Address",
+                    "required": true,
+                    "placeholder": "e.g. F6:24:49:03:A5:B3",
+                    "description": "MAC address of the third-party camera as reported by the Protect controller. Comparison is case- and separator-insensitive."
+                  },
+
+                  "rtspUrl": {
+
+                    "type": "string",
+                    "title": "Direct RTSP / RTSPS URL",
+                    "required": false,
+                    "placeholder": "e.g. rtsp://user:pass@192.168.1.50:8554/stream",
+                    "description": "Full RTSP or RTSPS URL pointing directly at the camera's own RTSP server, bypassing the Protect controller. Credentials may be embedded."
+                  },
+
+                  "snapshotUrl": {
+
+                    "type": "string",
+                    "title": "Direct Snapshot URL",
+                    "required": false,
+                    "placeholder": "e.g. http://192.168.1.50:8080/snapshot",
+                    "description": "Full HTTP or HTTPS URL pointing at the camera's snapshot endpoint. Credentials may be embedded. Self-signed certificates are accepted."
+                  },
+
+                  "onvifPort": {
+
+                    "type": "integer",
+                    "title": "ONVIF Port",
+                    "required": false,
+                    "minimum": 1,
+                    "maximum": 65535,
+                    "description": "ONVIF service port remembered for the discovery panel. Leave empty to let the panel try common defaults."
+                  },
+
+                  "onvifUsername": {
+
+                    "type": "string",
+                    "title": "ONVIF Username",
+                    "required": false,
+                    "description": "Username remembered for the ONVIF discovery panel. Stored in plaintext alongside the controller credentials."
+                  },
+
+                  "onvifPassword": {
+
+                    "type": "string",
+                    "title": "ONVIF Password",
+                    "required": false,
+                    "description": "Password remembered for the ONVIF discovery panel. Stored in plaintext alongside the controller credentials."
+                  },
+
+                  "onvifServicePath": {
+
+                    "type": "string",
+                    "title": "ONVIF Service Path",
+                    "required": false,
+                    "placeholder": "/onvif/device_service",
+                    "description": "Optional ONVIF device service path remembered for the discovery panel. Defaults to /onvif/device_service when blank."
+                  }
+                }
+              }
+            },
+
+            "password": {
+              "type": "string",
+              "title": "Controller Password",
+              "required": true,
+              "placeholder": "e.g. unifi-protect-password",
+              "description": "UniFi Protect password for this controller. Creating a homebridge-specific local user is strongly encouraged for security and sanity."
+            },
+
+            "playlistAddress": {
+              "type": "string",
+              "title": "M3U Playlist Bind Address",
+              "required": false,
+              "placeholder": "e.g. 127.0.0.1",
+              "description": "Local IP address the M3U playlist service (Nvr.Service.Playlist feature option) listens on. Default: all interfaces."
+            },
+
+            "playlistToken": {
+              "type": "string",
+              "title": "M3U Playlist Access Token",
+              "required": false,
+              "placeholder": "e.g. a-long-random-string",
+              "description": "When set, clients must request the M3U playlist with ?token=<value> in the URL. Without a token, anyone who can reach the playlist port can retrieve your camera stream URLs."
+            },
+
+            "username": {
+              "type": "string",
+              "title": "Controller Username",
+              "required": true,
+              "placeholder": "e.g. some-unifi-protect-user",
+              "description": "UniFi Protect username for this controller. Creating a homebridge-specific local user is strongly encouraged for security and sanity."
+            },
+
+            "verifyTls": {
+              "type": "boolean",
+              "title": "Verify TLS Certificate",
+              "required": false,
+              "description": "Validate the controller's TLS certificate against trusted certificate authorities when connecting. Leave this disabled unless your controller uses a certificate signed by a trusted certificate authority - UniFi controllers use self-signed certificates by default. When disabled, the controller's certificate is pinned the first time HBUP connects, and connections presenting a different certificate are refused. Default: disabled."
+            }
+          }
+        }
+      },
+
+      "debug": {
+
+        "type": "boolean",
+        "title": "Debug Logging",
+        "required": false,
+        "description": "Enable debug logging for this plugin. This creates a large volume of log output and should only be used when troubleshooting. Default: false."
+      },
+
+      "name": {
+
+        "type": "string",
+        "title": "Plugin Name",
+        "required": true,
+        "default": "UniFi Protect",
+        "description": "Name to use for Homebridge logging purposes. Default: UniFi Protect."
+      },
+
+      "options": {
+
+        "type": "array",
+        "title": "Feature Options",
+
+        "items": {
+          "type": "string",
+          "title": "Feature Option",
+          "required": false,
+          "description": "Enter only one option per entry. Use the feature options webUI tab above unless you know what you're doing.",
+          "placeholder": "e.g. Disable.Device"
+        }
+      },
+
+      "ringDelay": {
+
+        "type": "integer",
+        "title": "Doorbell Ring Delay (seconds)",
+        "required": false,
+        "minimum": 0,
+        "maximum": 60,
+        "placeholder": "e.g. 5",
+        "description": "Delay between doorbell rings. Setting this to a non-zero value will prevent multiple rings of a doorbell over the specified duration.  Default: 0."
+      },
+
+      "verboseFfmpeg": {
+
+        "type": "boolean",
+        "title": "Verbose FFmpeg Logging",
+        "required": false,
+        "description": "Enable additional logging for FFmpeg. This will create additional logging when video streams are running. Default: false."
+      },
+
+      "videoProcessor": {
+
+        "type": "string",
+        "title": "FFmpeg Location",
+        "required": false,
+        "placeholder": "e.g. /usr/local/bin/ffmpeg",
+        "description": "Path to the FFmpeg executable. Most users should not use this setting - FFmpeg is already bundled in the plugin for many platforms. Default: bundled build or the first ffmpeg found in PATH."
+      }
+    }
+  },
+
+  "layout": [
+    "name",
+    {
+      "type": "section",
+      "title": "UniFi Protect Controllers",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        {
+          "key": "controllers",
+          "type": "array",
+          "name": " ",
+          "description": "Provide the IP address and login details of your UniFi Protect controllers.",
+          "orderable": false,
+          "buttonText": "Add UniFi Protect Controller",
+          "items": [
+            "controllers[].address",
+            "controllers[].username",
+            "controllers[].password",
+
+            {
+              "key": "controllers[]",
+              "type": "section",
+              "title": "Doorbell Message Presets",
+              "expandable": true,
+              "expanded": false,
+              "items": [
+
+                {
+                  "key": "controllers[].doorbellMessages",
+                  "type": "array",
+                  "name": " ",
+                  "description": "Create additional message presets to display on your UniFi Protect Doorbell.",
+                  "orderable": false,
+                  "buttonText": "Add Doorbell Message",
+                  "items": [
+                    "controllers[].doorbellMessages[].message",
+                    "controllers[].doorbellMessages[].duration"
+                  ]
+                }
+              ]
+            },
+
+            {
+              "key": "controllers[]",
+              "type": "section",
+              "title": "Optional Settings",
+              "expandable": true,
+              "expanded": false,
+              "items": [
+                {
+                  "description": "These settings are optional. The defaults work well for almost everyone.",
+                  "items": [
+                    "controllers[].name",
+                    "controllers[].overrideAddress",
+                    "controllers[].verifyTls",
+                    "controllers[].playlistAddress",
+                    "controllers[].playlistToken"
+                  ]
+                }
+              ]
+            },
+            {
+              "key": "controllers[]",
+              "type": "section",
+              "title": "MQTT Settings",
+              "expandable": true,
+              "expanded": false,
+              "items": [
+                {
+                  "description": "MQTT support will only be enabled if an MQTT broker URL is specified below.",
+                  "items": [
+                    "controllers[].mqttUrl",
+                    "controllers[].mqttTopic",
+                    "controllers[].mqttVerifyTls"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "type": "section",
+      "title": "Plugin Feature Options (Optional)",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        {
+          "key": "options",
+          "type": "array",
+          "name": " ",
+          "description": "Use the feature options webUI tab above instead of manually configuring feature options here.",
+          "orderable": true,
+          "buttonText": "Add Feature Option",
+          "items": [
+            "options[]"
+          ]
+        }
+      ]
+    },
+
+    {
+      "type": "section",
+      "title": "Additional Settings (Optional)",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        {
+          "description": "These settings should be rarely used or needed by most people. Use these with caution.",
+          "items": [
+            "name",
+            "videoProcessor",
+            "verboseFfmpeg",
+            "ringDelay",
+            "debug"
+          ]
+        }
+      ]
+    }
+  ]
+}

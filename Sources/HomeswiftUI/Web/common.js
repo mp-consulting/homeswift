@@ -292,5 +292,9 @@
     return wrapper;
   }
 
-  window.HomeswiftCommon = { $, el, icon, tile, markdown, sparkle, api, menuButton, copyText, jsonHighlight, jsonView, jsonEditor };
+  /// A labelled value in a `.facts` grid: the label small, the value bold with its full text as a tooltip.
+  const fact = (label, value, attrs = {}) =>
+    el("div", { class: "fact" }, el("span", { text: label }), el("b", { text: String(value), title: String(value), ...attrs }));
+
+  window.HomeswiftCommon = { $, el, icon, tile, fact, markdown, sparkle, api, menuButton, copyText, jsonHighlight, jsonView, jsonEditor };
 })();
