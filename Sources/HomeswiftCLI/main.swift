@@ -164,8 +164,15 @@ do {
 let metrics = Metrics(directory: storagePath.appendingPathComponent("metrics"))
 let mcpServer = NIOLockedValueBox<MCPHTTPServer?>(nil)
 let uiServer = NIOLockedValueBox<UIServer?>(nil)
+/// The catalog once made: its automations and notifications stop with the rest.
+let homeCatalog = NIOLockedValueBox<HomeswiftCatalog?>(nil)
+/// Set by a restart homeswift makes itself, and inherited by the process it execs: no stopped and started notifications.
+let restartMarker = "HOMESWIFT_RESTARTED"
+let restarted = ProcessInfo.processInfo.environment[restartMarker] == "1"
+unsetenv(restartMarker)
 /// Stops the servers, then the plugins and bridges: the signal handler exits afterwards, a restart execs.
 let shutdown: @Sendable () async -> Void = { [host, mcpServer, uiServer] in
+    await homeCatalog.withLockedValue { $0 }?.stopHome(restarting: getenv(restartMarker) != nil)
     await uiServer.withLockedValue { $0 }?.stop()
     await mcpServer.withLockedValue { $0 }?.stop()
     await host.stop()
@@ -187,7 +194,7 @@ let main = Task {
     let uiConfiguration = NIOLockedValueBox(configuration)
     let catalog = HomeswiftCatalog(
         host: host, logs: logBuffer, metrics: metrics, configURL: configURL, allowSecrets: (ProcessInfo.processInfo.environment["HOMESWIFT_ALLOW_SECRETS"] ?? ProcessInfo.processInfo.environment["HOMEBRIDGE_ALLOW_SECRETS"]) == "true",
-        restart: { Task.detached { await shutdown(); Restart.exec() } },
+        restart: { Task.detached { setenv(restartMarker, "1", 1); await shutdown(); Restart.exec() } },
         reloadServices: { [mcpServer, uiServer] next, platforms in
             guard let catalog = catalogBox.withLockedValue({ $0 }) else { return }
             let settings = MCPCommands.mcpBlock(next)?["mcp"]
@@ -219,6 +226,9 @@ let main = Task {
         },
         logger: logger)
     catalogBox.withLockedValue { $0 = catalog }
+    homeCatalog.withLockedValue { $0 = catalog }
+    // Scenes' automations and the notifications (bridge started, plugin errors, accessories offline, the digest).
+    catalog.startHome(restarted: restarted)
     if let started = await MCPCommands.startServer(catalog: catalog, configuration: configuration, logger: logger) {
         mcpServer.withLockedValue { $0 = started }
     }

@@ -404,6 +404,8 @@ public final class UIServer: Sendable {
         if route.first == "preferences", let reply = preferencesRoute(Array(route.dropFirst()), request, body: body, username: username) { return reply }
         if route.first == "assistant", route.count >= 2, route[1] != "chat", route[1] != "chats",
            let reply = try await assistantRoute(Array(route.dropFirst()), request, body: body, username: username) { return reply }
+        // Rooms, scenes and notifications (HomeRoutes.swift).
+        if let reply = try await homeAPI(route, request.method, body: body, username: username) { return reply }
         switch request.method {
         case .GET:
             switch route {

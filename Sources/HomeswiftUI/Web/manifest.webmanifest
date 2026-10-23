@@ -16,6 +16,7 @@
     { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ],
   "shortcuts": [
+    { "name": "Quick controls", "url": "/quick" },
     { "name": "Accessories", "url": "/accessories" },
     { "name": "Logs", "url": "/logs" }
   ]
