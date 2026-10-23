@@ -138,9 +138,11 @@ final class Browser: @unchecked Sendable {
         var json: JSONValue? { try? JSONValue(string: body) }
     }
 
-    func send(_ method: String, _ path: String, body: String? = nil) async throws -> Response {
+    func send(_ method: String, _ path: String, body: String? = nil, headers extra: [String: String] = [:]) async throws -> Response {
         var request = URLRequest(url: URL(string: path, relativeTo: base)!.absoluteURL, timeoutInterval: 30)
         request.httpMethod = method
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        for (name, value) in extra { request.setValue(value, forHTTPHeaderField: name) }
         if let body {
             request.httpBody = Data(body.utf8)
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
@@ -593,3 +595,22 @@ struct UIServerTests {
         #expect(try await browser.post("/api/auth/login", ["username": "x", "password": "y"]).status == 400)
     }
 }
+
+    @Test func revalidatesScriptsAndStylesButNotPages() async throws {
+        let environment = try UITestEnvironment(auth: .none)
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let browser = Browser(base: base)
+        let script = try await browser.get("/app.js")
+        #expect(script.status == 200)
+        #expect(script.headers["cache-control"] == "no-cache")
+        let tag = try #require(script.headers["etag"])
+        let again = try await browser.send("GET", "/app.js", headers: ["If-None-Match": tag])
+        #expect(again.status == 304)
+        #expect(again.body.isEmpty)
+        #expect(try await browser.send("GET", "/app.js", headers: ["If-None-Match": "\"other\""]).status == 200)
+        #expect(try await browser.get("/style.css").headers["etag"] != tag)
+        let page = try await browser.get("/")
+        #expect(page.headers["cache-control"] == "no-store")
+        #expect(page.headers["etag"] == nil)
+    }

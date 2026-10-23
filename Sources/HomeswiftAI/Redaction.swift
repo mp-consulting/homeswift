@@ -167,11 +167,68 @@ public enum Redaction {
         return restored
     }
 
+    /// What ASCII text must contain for `secretPair` to match: a keyword of its key and a separator.
+    private static let pairKeywords = ["pass", "pin", "setup", "secret", "token", "api", "private", "credential"].map { Array($0.utf8) }
+
+    /// What ASCII text must contain for each of `secretShapes` to match, in the same order.
+    private static let shapeHints: [@Sendable (String) -> Bool] = [
+        { TextSearch.contains($0, ascii: "Bearer") || TextSearch.contains($0, ascii: "Basic") },
+        { TextSearch.contains($0, ascii: "sk-") },
+        { TextSearch.contains($0, ascii: "hbg_") },
+        { TextSearch.contains($0, ascii: "AIza") },
+        { TextSearch.contains($0, ascii: "eyJ") },
+        { TextSearch.contains($0, ascii: "X-HM://") },
+        { hasDigitGroups($0, [3, 2, 3]) },
+        { hasDigitGroups($0, [4, 4]) },
+    ]
+
+    /// Whether ASCII text has groups of exactly these many digits joined by dashes, between word boundaries:
+    /// `\b\d{3}-\d{2}-\d{3}\b` for `[3, 2, 3]`. Every log line starts with a date, which a looser test lets through.
+    private static func hasDigitGroups(_ text: String, _ groups: [Int]) -> Bool {
+        TextSearch.withBytes(text) { bytes in
+            func digit(_ index: Int) -> Bool { index < bytes.count && bytes[index] &- UInt8(ascii: "0") < 10 }
+            func word(_ index: Int) -> Bool {
+                guard index >= 0, index < bytes.count else { return false }
+                let byte = bytes[index]
+                return byte &- UInt8(ascii: "0") < 10 || (byte | 0x20) &- UInt8(ascii: "a") < 26 || byte == UInt8(ascii: "_")
+            }
+            var start = 0
+            while start < bytes.count {
+                if digit(start), !word(start - 1) {
+                    var position = start
+                    var matched = true
+                    for (index, count) in groups.enumerated() {
+                        if index > 0 {
+                            guard position < bytes.count, bytes[position] == UInt8(ascii: "-") else { matched = false; break }
+                            position += 1
+                        }
+                        guard (position..<(position + count)).allSatisfy(digit) else { matched = false; break }
+                        position += count
+                    }
+                    if matched, !word(position) { return true }
+                }
+                start += 1
+            }
+            return false
+        }
+    }
+
     /// Best-effort redaction of free text such as log lines or error messages: values of secret-named
     /// keys and well-known credential shapes become the placeholder.
+    ///
+    /// The expressions cost hundreds of microseconds a line, so ASCII text skips those it cannot match (it lacks
+    /// what each one needs); other text goes through all of them, since case folding reaches past ASCII.
     public static func redactText(_ text: String) -> String {
+        redactText(text, prefilter: true)
+    }
+
+    /// `prefilter: false` runs every expression: what the tests compare the shortcut with.
+    static func redactText(_ text: String, prefilter: Bool) -> String {
         var out = text
-        let pairs = secretPair.matches(in: out, range: NSRange(out.startIndex..., in: out))
+        let ascii = prefilter && TextSearch.isASCII(text)
+        let mayHoldPair = !ascii || (TextSearch.contains(text, ascii: ":") || TextSearch.contains(text, ascii: "="))
+            && TextSearch.containsAny(text, caseless: pairKeywords)
+        let pairs = mayHoldPair ? secretPair.matches(in: out, range: NSRange(out.startIndex..., in: out)) : []
         for match in pairs.reversed() {
             guard let whole = Range(match.range, in: out), let keyRange = Range(match.range(at: 2), in: out) else { continue }
             let key = String(out[keyRange])
@@ -182,7 +239,9 @@ public enum Redaction {
             let valueQuote = Range(match.range(at: 4), in: out).map { String(out[$0]) } ?? ""
             out.replaceSubrange(whole, with: "\(quote)\(key)\(quote)\(separator)\(valueQuote)\(placeholder)\(valueQuote)")
         }
-        for shape in secretShapes {
+        for (shape, hint) in zip(secretShapes, shapeHints) {
+            // Replacements keep ASCII text ASCII; the hint looks at the text as the expression would see it.
+            if ascii, !hint(out) { continue }
             let found = shape.matches(in: out, range: NSRange(out.startIndex..., in: out))
             for match in found.reversed() {
                 guard let range = Range(match.range, in: out) else { continue }

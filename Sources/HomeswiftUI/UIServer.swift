@@ -38,6 +38,8 @@ public final class UIServer: Sendable {
     let allowedHosts: Set<String>
     /// The pairing QR codes, by bridge index: the setup URI does not change while the process runs.
     private let qrCodes = NIOLockedValueBox<[Int: String]>([:])
+    /// The compiled-in scripts, styles and images as served, by platform and name, with their ETags.
+    private let assets = NIOLockedValueBox<[String: (file: WebFile, body: Data, tag: String)]>([:])
     let options: Options
     let throttle = FailureThrottle()
     let events = EventHub()
@@ -216,6 +218,15 @@ public final class UIServer: Sendable {
             logger.warning("Live web file unreadable; serving the compiled-in copy", metadata: ["file": "\(url.path)", "error": "\(error)"])
         }) ?? files[name]
         guard let file else { return .text("Not found", status: 404, contentType: "text/plain") }
+        if !file.contentType.hasPrefix("text/html") {
+            // Scripts, styles and images are revalidated rather than downloaded again on every visit: an ETag of
+            // their bytes, a 304 while it still matches. Pages keep no-store, like the API.
+            let (body, tag) = asset(file, name: name, platform: platform, live: live != nil)
+            if request.headers["if-none-match"] == tag {
+                return .data(status: 304, contentType: file.contentType, body: Data(), headers: ["ETag": tag, "Cache-Control": "no-cache"])
+            }
+            return .data(status: 200, contentType: file.contentType, body: body, headers: ["ETag": tag, "Cache-Control": "no-cache"])
+        }
         var body = file.body
         if let instance, let platform {
             // Its files are beside it (`app.js` is /plugins/<slug>/app.js), and plugin.js reads which instance it is.
@@ -223,6 +234,19 @@ public final class UIServer: Sendable {
             body = body.range(of: "<head>").map { body.replacingCharacters(in: $0, with: "<head>" + head) } ?? head + body
         }
         return .data(status: 200, contentType: file.contentType, body: Data(body.utf8))
+    }
+
+    /// A file's bytes and ETag; those of the compiled-in files, which never change, are kept.
+    private func asset(_ file: WebFile, name: String, platform: String?, live: Bool) -> (Data, String) {
+        let key = "\(platform ?? "")/\(name)"
+        if !live, let kept = assets.withLockedValue({ $0[key] }), kept.file == file { return (kept.body, kept.tag) }
+        let body = Data(file.body.utf8)
+        // FNV-1a: stable across launches, so a restart does not make browsers fetch everything again.
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in body { hash = (hash ^ UInt64(byte)) &* 0x100_0000_01b3 }
+        let tag = "\"\(String(hash, radix: 16))\""
+        if !live { assets.withLockedValue { $0[key] = (file, body, tag) } }
+        return (body, tag)
     }
 
     /// The block whose slug this is: its platform, its name, and whether its plugin has a page to show for it (a
@@ -636,9 +660,14 @@ public final class UIServer: Sendable {
         let address = id.firstIndex(of: ":").map { String(id[id.index(after: $0)...]) }.flatMap(MACAddress.canonical)
         let serial = accessory.information[.serialNumber]?.value.stringValue
         let terms = [accessory.name, id, address, serial].compactMap { $0?.lowercased() }.filter { $0.count >= 3 }
+        // A lower-cased term that is not ASCII never occurs in an ASCII line.
+        let asciiTerms = terms.filter(TextSearch.isASCII)
         return { line in
-            let haystack = "\(line.label) \(line.text)".lowercased()
-            return terms.contains { haystack.contains($0) }
+            let haystack = "\(line.label) \(line.text)"
+            // ASCII lines, nearly all of them, are searched in place, ignoring case; others are lowered first.
+            if TextSearch.isASCII(haystack) { return asciiTerms.contains { TextSearch.contains(haystack, caseless: $0) } }
+            let lowered = haystack.lowercased()
+            return terms.contains { lowered.contains($0) }
         }
     }
 
@@ -658,7 +687,7 @@ public final class UIServer: Sendable {
     }
 
     static func logJSON(_ line: LogBuffer.Line) -> JSONValue {
-        ["time": .string(line.date.formatted(.iso8601)), "level": .string(line.level.rawValue), "label": .string(line.label), "text": .string(line.text)]
+        ["time": .string(Timestamp.iso8601(line.date)), "level": .string(line.level.rawValue), "label": .string(line.label), "text": .string(line.text)]
     }
 
     /// Who changed config.json; the host's own line says what applied.
@@ -782,7 +811,8 @@ final class UIRequestHandler: ChannelInboundHandler {
             head.status = .init(statusCode: status)
             head.headers.add(name: "Content-Type", value: contentType)
             head.headers.add(name: "Content-Length", value: "\(body.count)")
-            for (name, value) in headers { head.headers.add(name: name, value: value) }
+            // A reply's own headers win over the defaults: an asset's Cache-Control.
+            for (name, value) in headers { head.headers.replaceOrAdd(name: name, value: value) }
             channel.write(HTTPServerResponsePart.head(head), promise: nil)
             if !body.isEmpty { channel.write(HTTPServerResponsePart.body(.byteBuffer(ByteBuffer(bytes: body))), promise: nil) }
             channel.writeAndFlush(HTTPServerResponsePart.end(nil), promise: nil)

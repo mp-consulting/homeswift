@@ -1,4 +1,5 @@
 import Foundation
+import HomeswiftAI
 import Logging
 
 /// The log on disk, so the web UI can show a past hour or yesterday after the memory buffer moved on or the
@@ -17,7 +18,6 @@ public final class LogArchive: @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "homeswift.log-archive")
     // Confined to `queue`.
-    private let encoder = JSONEncoder()
     private var pending = Data()
     private var flushScheduled = false
     private var segment: (handle: FileHandle, ends: Date, size: Int)?
@@ -32,17 +32,23 @@ public final class LogArchive: @unchecked Sendable {
         self.maxTotalSize = maxTotalSize
     }
 
-    private struct Entry: Codable {
-        var t: Double
-        var l: String
-        var n: String
-        var m: String
+    /// A line as a JSON object: `t` (seconds since 1970), `l` (level), `n` (label), `m` (text). Written and read
+    /// as `JSONValue` rather than through `JSONEncoder`, which cost more than the rest of logging a line.
+    static func entry(_ line: LogBuffer.Line) -> Data {
+        var data = JSONValue.object(["t": .number(line.date.timeIntervalSince1970), "l": .string(line.level.rawValue), "n": .string(line.label), "m": .string(line.text)]).encoded()
+        data.append(0x0A)
+        return data
+    }
+
+    static func line(_ row: Data) -> LogBuffer.Line? {
+        guard let entry = try? JSONValue(data: row), let time = entry["t"]?.doubleValue, let level = entry["l"]?.stringValue,
+              let label = entry["n"]?.stringValue, let text = entry["m"]?.stringValue else { return nil }
+        return LogBuffer.Line(date: Date(timeIntervalSince1970: time), level: Logger.Level(rawValue: level) ?? .info, label: label, text: text)
     }
 
     public func append(_ line: LogBuffer.Line) {
         queue.async { [self] in
-            guard var data = try? encoder.encode(Entry(t: line.date.timeIntervalSince1970, l: line.level.rawValue, n: line.label, m: line.text)) else { return }
-            data.append(0x0A)
+            let data = Self.entry(line)
             // A line of a new day starts a new segment: what is pending belongs to the old one.
             if let open = segment, line.date >= open.ends {
                 write()
@@ -128,7 +134,6 @@ public final class LogArchive: @unchecked Sendable {
     public func lines(from: Date, to: Date, limit: Int, matching: ((LogBuffer.Line) -> Bool)? = nil) -> [LogBuffer.Line] {
         flush()
         let all = segments()
-        let decoder = JSONDecoder()
         var chunks: [[LogBuffer.Line]] = []   // newest segment first, each newest line first
         var count = 0
         // A segment covers from its start to the next one's.
@@ -138,11 +143,9 @@ public final class LogArchive: @unchecked Sendable {
             guard let data = try? Data(contentsOf: segment.url) else { continue }
             var found: [LogBuffer.Line] = []
             for row in data.split(separator: 0x0A).reversed() {
-                guard let entry = try? decoder.decode(Entry.self, from: row) else { continue }
-                let date = Date(timeIntervalSince1970: entry.t)
-                if date > to { continue }
-                if date < from { chunks.append(found); break scan }
-                let line = LogBuffer.Line(date: date, level: Logger.Level(rawValue: entry.l) ?? .info, label: entry.n, text: entry.m)
+                guard let line = Self.line(row) else { continue }
+                if line.date > to { continue }
+                if line.date < from { chunks.append(found); break scan }
                 if let matching, !matching(line) { continue }
                 found.append(line)
                 count += 1

@@ -77,16 +77,41 @@ public struct HomeswiftCatalog: Sendable {
     }
 
     public func located() -> [Located] {
-        let platforms = host.platforms
+        let owners = Owners(host.platforms)
         return host.bridges.flatMap { bridge in
             bridge.server.accessories.filter { $0.id != "bridge" }.map { accessory in
-                Located(accessory: accessory, bridge: bridge, platform: platforms.first { ($0.bridge === bridge || bridge.isExternal) && $0.accessoryIDs.contains(accessory.id) })
+                Located(accessory: accessory, bridge: bridge, platform: owners.instance(of: accessory.id, on: bridge))
             }
         }
     }
 
     public func find(id: String) -> Located? {
-        located().first { $0.accessory.id == id }
+        guard id != "bridge" else { return nil }
+        for bridge in host.bridges {
+            guard let accessory = bridge.server.accessories.first(where: { $0.id == id }) else { continue }
+            return Located(accessory: accessory, bridge: bridge, platform: Owners(host.platforms).instance(of: id, on: bridge))
+        }
+        return nil
+    }
+
+    /// The instance an accessory belongs to: the first that lists it, on the accessory's bridge (any bridge for
+    /// an external accessory's own). Indexed once per call instead of scanning every instance's list per accessory.
+    private struct Owners {
+        let platforms: [PluginHost.PlatformInstance]
+        let byID: [String: [Int]]
+
+        init(_ platforms: [PluginHost.PlatformInstance]) {
+            self.platforms = platforms
+            var byID: [String: [Int]] = [:]
+            for (index, platform) in platforms.enumerated() {
+                for id in platform.accessoryIDs { byID[id, default: []].append(index) }
+            }
+            self.byID = byID
+        }
+
+        func instance(of id: String, on bridge: PluginHost.Bridge) -> PluginHost.PlatformInstance? {
+            (byID[id] ?? []).lazy.map { platforms[$0] }.first { $0.bridge === bridge || bridge.isExternal }
+        }
     }
 
     /// The accessory a tool call names by `id`.
@@ -454,7 +479,12 @@ public struct HomeswiftCatalog: Sendable {
     /// and `<untrusted-data>` tags inside it defused so a line cannot end the wrapper.
     public static func safe(_ line: String) -> String {
         let redacted = Redaction.redactText(line)
-        let hidden = confirmationCodes.stringByReplacingMatches(in: redacted, range: NSRange(redacted.startIndex..., in: redacted), withTemplate: "$1••••••")
+        // Most lines hold neither: in ASCII text a byte search finds that out without the expression.
+        let ascii = TextSearch.isASCII(redacted)
+        let hidden = !ascii || TextSearch.contains(redacted, caseless: "confirmation code ")
+            ? confirmationCodes.stringByReplacingMatches(in: redacted, range: NSRange(redacted.startIndex..., in: redacted), withTemplate: "$1••••••")
+            : redacted
+        guard !ascii || TextSearch.contains(hidden, caseless: "untrusted-data") else { return hidden }
         return hidden.replacingOccurrences(of: "untrusted-data", with: "untrusted\u{2011}data", options: [.caseInsensitive])
     }
 
@@ -554,7 +584,7 @@ public struct HomeswiftCatalog: Sendable {
                     guard let expression = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return .error("Invalid regular expression") }
                     matches = lines.filter { expression.firstMatch(in: $0, range: NSRange($0.startIndex..., in: $0)) != nil }
                 } else {
-                    matches = lines.filter { $0.range(of: pattern, options: [.caseInsensitive]) != nil }
+                    matches = lines.filter { TextSearch.contains($0, caseless: pattern) }
                 }
                 return .text("<untrusted-data source=\"log\">\n\(matches.suffix(limit).joined(separator: "\n"))\n</untrusted-data>\n\(matches.count) match(es)")
             },

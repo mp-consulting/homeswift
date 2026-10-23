@@ -21,18 +21,41 @@ public final class LogBuffer: Sendable {
 
     public let capacity: Int
     public let archive: LogArchive?
-    private let state = NIOLockedValueBox<(lines: [Line], observers: [UUID: @Sendable (Line) -> Void])>(([], [:]))
+    private let state: NIOLockedValueBox<State>
+
+    /// The lines in a ring: appending never moves the others.
+    private struct State {
+        var ring: [Line] = []
+        /// Where the oldest line is once the ring is full.
+        var start = 0
+        var observers: [UUID: @Sendable (Line) -> Void] = [:]
+
+        mutating func append(_ line: Line, capacity: Int) {
+            if ring.count < capacity {
+                ring.append(line)
+            } else if capacity > 0 {
+                ring[start] = line
+                start = (start + 1) % capacity
+            }
+        }
+
+        /// Oldest first.
+        var ordered: [Line] { start == 0 ? ring : Array(ring[start...] + ring[..<start]) }
+
+        /// The line `offset` places back from the newest.
+        func fromNewest(_ offset: Int) -> Line { ring[(start + ring.count - 1 - offset) % ring.count] }
+    }
 
     public init(capacity: Int = 5000, archive: LogArchive? = nil) {
         self.capacity = capacity
         self.archive = archive
+        state = NIOLockedValueBox(State())
     }
 
     public func append(_ line: Line) {
         let observers = state.withLockedValue { state in
-            state.lines.append(line)
-            if state.lines.count > capacity { state.lines.removeFirst(state.lines.count - capacity) }
-            return Array(state.observers.values)
+            state.append(line, capacity: capacity)
+            return state.observers.isEmpty ? [] : Array(state.observers.values)
         }
         archive?.append(line)
         for observer in observers { observer(line) }
@@ -40,10 +63,20 @@ public final class LogBuffer: Sendable {
 
     /// The last `count` lines, oldest first, at or above `level`, that `matching` keeps.
     public func recent(_ count: Int, level: Logger.Level = .trace, matching: ((Line) -> Bool)? = nil) -> [Line] {
-        state.withLockedValue { Array($0.lines.filter { $0.level >= level && matching?($0) != false }.suffix(max(0, count))) }
+        // From the newest back, until there are enough: the filter runs on as few lines as it can.
+        state.withLockedValue { state in
+            var found: [Line] = []
+            var offset = 0
+            while found.count < count, offset < state.ring.count {
+                let line = state.fromNewest(offset)
+                if line.level >= level, matching?(line) != false { found.append(line) }
+                offset += 1
+            }
+            return found.reversed()
+        }
     }
 
-    public var all: [Line] { state.withLockedValue { $0.lines } }
+    public var all: [Line] { state.withLockedValue { $0.ordered } }
 
     /// The lines from `from` to `to`, oldest first, at most the latest `limit`: from the archive when there is
     /// one, from memory otherwise.
@@ -64,7 +97,7 @@ public final class LogBuffer: Sendable {
 extension LogBuffer.Line {
     /// `[2026-10-21 10:00:00Z] [Elgato Key Lights] [WARNING] message`.
     public var formatted: String {
-        "[\(date.formatted(.iso8601.dateTimeSeparator(.space)))] [\(label)] " + level.tag.map { $0 + " " }.orEmpty + text
+        "[\(Timestamp.iso8601(date, separator: UInt8(ascii: " ")))] [\(label)] " + level.tag.map { $0 + " " }.orEmpty + text
     }
 }
 

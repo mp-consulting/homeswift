@@ -4,6 +4,50 @@ import Testing
 @testable import HomeswiftAI
 
 @Suite struct JSONValueTests {
+    /// Random documents with the strings, numbers and nesting that trip a writer up.
+    static func randomValue(depth: Int, using generator: inout some RandomNumberGenerator) -> JSONValue {
+        let strings = ["", "plain", "a/b", "quote \" and \\ back", "line\nbreak\ttab\r", "\u{1}\u{8}\u{c}\u{1f}\u{7f}", "é ü ß", "😀 \u{2028}", "Entrée", "_x", "A", "a10", "a2"]
+        let numbers: [Double] = [0, -0.0, 1, -1, 0.1, 1.5, -2.25, 1e-7, 1e21, 123456789.123, .pi, 5e-324, 1.7976931348623157e308, 9_007_199_254_740_991, 9_007_199_254_740_992, -42]
+        switch Int.random(in: 0..<(depth > 3 ? 4 : 6), using: &generator) {
+        case 0: return .null
+        case 1: return .bool(Bool.random(using: &generator))
+        case 2: return .number(numbers.randomElement(using: &generator)!)
+        case 3: return .string(strings.randomElement(using: &generator)!)
+        case 4: return .array((0..<Int.random(in: 0..<4, using: &generator)).map { _ in randomValue(depth: depth + 1, using: &generator) })
+        default:
+            var object: [String: JSONValue] = [:]
+            for _ in 0..<Int.random(in: 0..<5, using: &generator) { object[strings.randomElement(using: &generator)!] = randomValue(depth: depth + 1, using: &generator) }
+            return .object(object)
+        }
+    }
+
+    @Test func writesWhatJSONEncoderWrites() throws {
+        var generator = SystemRandomNumberGenerator()
+        for pretty in [false, true] {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = pretty ? [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes] : [.sortedKeys, .withoutEscapingSlashes]
+            for _ in 0..<500 {
+                let value = Self.randomValue(depth: 0, using: &generator)
+                let expected = String(decoding: try encoder.encode(value), as: UTF8.self)
+                #expect(value.text(pretty: pretty) == expected)
+                // And reads back what JSONDecoder reads.
+                #expect(try JSONValue(string: expected) == JSONDecoder().decode(JSONValue.self, from: Data(expected.utf8)))
+            }
+        }
+    }
+
+    @Test func parsesEscapesAndRejectsWhatJSONDecoderRejects() throws {
+        #expect(try JSONValue(string: #" "a\u00e9\ud83d\ude00\/\b" "#) == "aé😀/\u{8}")
+        #expect(try JSONValue(data: Data([0xEF, 0xBB, 0xBF] + Array(#"{"k":[1,-0.5e2]}"#.utf8))) == ["k": [1, -50]])
+        #expect(try JSONValue(string: #"{"k":1,"k":2}"#) == ["k": 2])
+        for bad in ["", "[1,]", "{\"a\" 1}", "01", "1.", "-", "\"\\ud800\"", "\"a\nb\"", "nul", "[1] 2", "1e999", "{\"a\":1,}", "'a'"] {
+            #expect(throws: (any Error).self, "\(bad)") { try JSONValue(string: bad) }
+        }
+        let deep = String(repeating: "[", count: 200) + String(repeating: "]", count: 200)
+        #expect(throws: (any Error).self) { try JSONValue(string: deep) }
+        #expect(JSONValue.number(.infinity).text() == "null")
+    }
+
     @Test func roundTripsNumbersAndStructure() throws {
         let value = try JSONValue(string: #"{"a": 1, "b": 1.5, "c": [true, null, "x"], "d": {"e": -3}}"#)
         #expect(value["a"]?.intValue == 1)
@@ -82,6 +126,25 @@ import Testing
         #expect(!masked.contains("031-45-154"))
         #expect(!masked.contains("hunter3"))
         #expect(masked.contains("2026-10-21"))
+    }
+
+    /// The ASCII shortcut skips only expressions that cannot match: it masks what every expression masks.
+    @Test func freeTextShortcutMasksWhatTheExpressionsMask() {
+        let pieces = [
+            "password=hunter2", "PassWord : 'x1'", "apiKey: \"sk-ant-abcdefghijklmnop\"", "Authorization: Bearer abcdefghijklmnopqrstuvwxyz",
+            "Basic dXNlcjpwYXNz", "token=abc", "maxOutputTokens=2048", "AIzaSyA1234567890abcdefghijklmnopqrstuv", "hbg_abcdefgh123",
+            "eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2Q", "X-HM://0024VNBFDNEMH", "031-45-154", "8518-2617", "2026-10-21",
+            "Sensor reading sensor=3 value=18.2", "Connection opened remote=192.168.2.151:53318", "PIN=1234", "setup code 1234-5678",
+            "private_key=abc", "credentials: {user}", "ping 3 ms", "spinning", "Entrée PIN=4321", "paßword=xyz", "KEY=v", "sk-short",
+            "[Govee] [AWS] sending update {\"msg\":{\"cmd\":\"status\"}}", "", "=", ":",
+            "[2026-10-23 09:22:52Z] [Homeswift] Connection opened", "123-45-678", "a123-45-678", "123-45-6789", "1234-5678x", "_1234-5678",
+            "(1234-5678)", "12345-6789", "-031-45-154-", "0314-5154.", "١٢٣-٤٥-٦٧٨",
+        ]
+        var generator = SystemRandomNumberGenerator()
+        for _ in 0..<2000 {
+            let text = (0..<Int.random(in: 1...4, using: &generator)).map { _ in pieces.randomElement(using: &generator)! }.joined(separator: [" ", "\n", ", ", ""].randomElement(using: &generator)!)
+            #expect(Redaction.redactText(text) == Redaction.redactText(text, prefilter: false), "\(text)")
+        }
     }
 
     @Test func redactsConversationHistory() {
