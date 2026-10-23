@@ -162,4 +162,19 @@ import Testing
         let legacy = Data(#"{"t":1800000000.25,"l":"warning","n":"Dyson \"Pure\"","m":"a\nb é"}"#.utf8)
         #expect(LogArchive.line(legacy) == line)
     }
+
+    /// Rows read through their members, in place, give what reading them as a dictionary gave.
+    @Test func readsRowsInPlace() throws {
+        let lines = [
+            LogBuffer.Line(date: Date(timeIntervalSince1970: 1_800_000_000.25), level: .debug, label: "L", text: "a\"b\\c é", details: #"{"x":1}"#),
+            LogBuffer.Line(date: Date(timeIntervalSince1970: 1_800_000_001), level: .info, label: "Bench Home", text: ""),
+        ]
+        for line in lines {
+            let row = LogArchive.entry(line, withDetails: true).dropLast()
+            #expect(LogArchive.line(row) == line)
+            #expect(row.withUnsafeBytes { LogArchive.time(of: $0) } == line.date.timeIntervalSince1970)
+        }
+        #expect(LogArchive.line(Data("not json".utf8)) == nil)
+        #expect(LogArchive.line(Data(#"{"t":1,"l":"info","n":"L"}"#.utf8)) == nil)
+    }
 }
