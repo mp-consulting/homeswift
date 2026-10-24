@@ -136,6 +136,17 @@ extension ElgatoKeyLightsPlugin {
     return [...lights, ...offline, ...disabled];
   }
 
+  // A card drawn again because its light changed (every brightness step) stays still: only a light new to the
+  // page arrives with the material's animation.
+  const shown = new Set();
+  function card(light) {
+    const node = lightCard(light);
+    const key = canonicalMAC(light.mac);
+    if (shown.has(key)) node.classList.add("redrawn");
+    shown.add(key);
+    return node;
+  }
+
   async function refresh() {
     try {
       ({ lights, pending = [], discovered = [] } = await request("lights"));
@@ -148,7 +159,7 @@ extension ElgatoKeyLightsPlugin {
         }
         return;
       }
-      renderKeyed(list, all, (light) => canonicalMAC(light.mac), lightCard);
+      renderKeyed(list, all, (light) => canonicalMAC(light.mac), card);
     } catch (e) {
       list.replaceChildren(el("p", { class: "error", text: e.message }));
     }
@@ -198,7 +209,8 @@ extension ElgatoKeyLightsPlugin {
     behaviour.addEventListener("change", () => set("powerOnBehavior", Number(behaviour.value), 0));
 
     const slider = (key, min, max, step, fallback, format) => {
-      const input = el("input", { type: "range", min, max, step, value: draft[key] ?? fallback, "aria-label": key });
+      // Inside its field's label, which names it.
+      const input = el("input", { type: "range", min, max, step, value: draft[key] ?? fallback });
       const value = el("span", { class: "value", text: format(draft[key] ?? fallback) });
       input.addEventListener("input", () => { value.textContent = format(Number(input.value)); set(key, Number(input.value)); });
       return el("span", { class: "range" }, input, value);
@@ -383,6 +395,7 @@ extension ElgatoKeyLightsPlugin {
   /* A card per light on the UI's materials: its state as facts, where it is, and Identify. */
   .light { display: grid; gap: 14px; align-content: start; animation: materialize var(--normal) var(--ease-out); }
   .light .actions { margin-top: 0; }
+  .light.redrawn { animation: none; }
   .glow { width: 10px; height: 10px; border-radius: 50%; flex: none; box-shadow: 0 0 0 3px var(--material-thin); }
   .fact b.colour { display: flex; align-items: center; gap: 8px; }
   .light.is-disabled, .light.is-offline { opacity: 0.7; }

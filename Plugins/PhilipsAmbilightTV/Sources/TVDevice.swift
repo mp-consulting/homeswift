@@ -210,6 +210,7 @@ actor TVDevice {
         pollTask = nil
         styleRetry?.cancel()
         pendingColorWrite?.cancel()
+        pendingColorWrite = nil
         longPollRetry?.cancel()
         await stopLongPoll()
         started = false
@@ -536,7 +537,9 @@ actor TVDevice {
                 scheduleStyleRetry(mode.style, algorithm: mode.algorithm)
             } else {
                 styleRetry?.cancel()
+                // Let go too: a later colour must not wait on this cancelled write, which never sends it.
                 pendingColorWrite?.cancel()
+                pendingColorWrite = nil
                 try await client.setAmbilightOff()
                 ambilight.on = false
                 ambilight.style = "OFF"
@@ -635,6 +638,8 @@ actor TVDevice {
         }
         ambilight.style = "FOLLOW_COLOR"
         lastAmbilightAction = .now
+        // The colour picked is the style now: a pending re-apply of the configured mode would undo it.
+        styleRetry?.cancel()
     }
 
     /// Ambilight on at power-on, with the configured mode (`ambilightOnStart`).

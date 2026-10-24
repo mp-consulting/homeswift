@@ -67,6 +67,16 @@
   /// `FOLLOW_VIDEO` as "Follow video"; nil as "On".
   const styleName = (style) => style ? style.replaceAll("_", " ").toLowerCase().replace(/^./, (c) => c.toUpperCase()) : "On";
 
+  // A card drawn again because its TV changed (an input, the sound) stays still: only a TV new to the page
+  // arrives with the material's animation.
+  const shown = new Set();
+  function card(tv) {
+    const node = tvCard(tv);
+    if (shown.has(tv.mac)) node.classList.add("redrawn");
+    shown.add(tv.mac);
+    return node;
+  }
+
   async function refresh() {
     try {
       ({ tvs } = await request("tvs"));
@@ -80,7 +90,7 @@
       }
       // Only the card of a TV that changed is drawn again: keep the keyboard on the remote it was on.
       const focused = document.activeElement?.closest?.(".tv")?.dataset.key;
-      renderKeyed(list, tvs, (tv) => tv.mac, tvCard);
+      renderKeyed(list, tvs, (tv) => tv.mac, card);
       if (focused && !list.contains(document.activeElement)) list.querySelector(`.tv[data-key="${CSS.escape(focused)}"] .pad`)?.focus();
     } catch (e) {
       list.replaceChildren(el("p", { class: "error", text: e.message }));

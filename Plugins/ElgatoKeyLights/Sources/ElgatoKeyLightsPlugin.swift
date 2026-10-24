@@ -107,7 +107,8 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
     private var attempts: [String: DiscoveredLight] = [:]
     private var failures: [String: String] = [:]
     private var discoveryTask: Task<Void, Never>?
-    private var initializations: [Task<Void, Never>] = []
+    /// The connection in progress or last made to each light, by MAC: one per light, however often it is retried.
+    private var initializations: [String: Task<Void, Never>] = [:]
 
     public init(configuration: Configuration, context: PluginContext) {
         self.init(configuration: configuration, context: context, dependencies: Dependencies())
@@ -136,7 +137,7 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
     public func stop() async {
         discoveryTask?.cancel()
         discoveryTask = nil
-        for task in initializations { task.cancel() }
+        for task in initializations.values { task.cancel() }
         initializations.removeAll()
         for device in devices.values {
             await device.stopPolling()
@@ -219,7 +220,7 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
 
     /// Waits until every light found so far has been added or given up on. For tests.
     func settle() async {
-        let pending = initializations
+        let pending = initializations.values
         for task in pending { await task.value }
     }
 
@@ -301,7 +302,8 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
         status[light.mac] = .initializing
         attempts[light.mac] = light
         failures[light.mac] = nil
-        initializations.append(Task { await self.connect(light) })
+        initializations[light.mac]?.cancel()
+        initializations[light.mac] = Task { await self.connect(light) }
     }
 
     private func connect(_ light: DiscoveredLight) async {
@@ -344,6 +346,7 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
             try context.add(accessory)
         } catch {
             logger.error("Could not add \(name) to the bridge: \(error)")
+            self.adaptiveLighting[light.mac] = nil
             failures[light.mac] = "\(error)"
             status[light.mac] = .failed
             return

@@ -94,8 +94,10 @@
   let current = null;
 
   function show(step, ...children) {
+    // The same step drawn again (the robots' state changed) stays still: only a new step arrives animated.
+    const again = step === current;
     current = step;
-    wizard.replaceChildren(el("div", { class: `step step-${step}` }, ...children));
+    wizard.replaceChildren(el("div", { class: `step step-${step}${again ? " again" : ""}` }, ...children));
     const focus = wizard.querySelector("[autofocus]");
     if (focus) focus.focus();
     breadcrumb(step === "configured" ? null : { login: "Sign in", otp: "Verification", robot: state.editingIndex !== null ? "Edit robot" : "Robot found", success: "Done" }[step], () => showConfigured());
@@ -111,15 +113,21 @@
   // Step 0: the configured robots.
 
   async function showConfigured() {
-    let block;
     try {
-      block = await readBlock();
+      state.saved = await readBlock();
     } catch (e) {
       show("configured", el("p", { class: "error", text: e.message }));
       return;
     }
-    state.saved = block;
+    drawConfigured();
+  }
+
+  /// The robots of the block as last read, with what the plugin reports about them; the card that had the
+  /// keyboard keeps it.
+  function drawConfigured() {
+    const block = state.saved;
     const devices = block.devices || [];
+    const focused = [...wizard.querySelectorAll(".robot")].indexOf(document.activeElement);
     if (!devices.length) {
       showLogin();
       return;
@@ -134,6 +142,7 @@
       el("div", { class: "actions" },
         el("button", { text: "Add Another Robot", onclick: () => showLogin({ cancellable: true }) }),
         el("button", { class: "primary", text: "Reconfigure", onclick: () => showLogin({ cancellable: true }) })));
+    if (focused >= 0) wizard.querySelectorAll(".robot")[focused]?.focus({ preventScroll: true });
   }
 
   function describeAccount(line) {
@@ -392,7 +401,9 @@
     } catch {
       // The plugin is restarting with a new block; the next refresh catches up.
     }
-    if (current === null || (changed && current === "configured")) showConfigured();
+    // A change while the list shows redraws it from the block already read: no request, no animation.
+    if (current === null || (current === "configured" && !state.saved)) showConfigured();
+    else if (changed && current === "configured") drawConfigured();
   }
 
   poll(refreshLive, 5000);

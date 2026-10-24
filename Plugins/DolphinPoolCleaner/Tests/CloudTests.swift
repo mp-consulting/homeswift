@@ -160,6 +160,11 @@ struct CloudTests {
 
         #expect(HTTPRedirects.redirected(post, by: response(307, nil)) == nil)
         #expect(HTTPRedirects.redirected(post, by: response(307, "ftp://mydolphin.example/")) == nil)
+        // Never from HTTPS down to plain HTTP: the body (a password, a refresh token) would cross in the clear.
+        #expect(HTTPRedirects.redirected(post, by: response(307, "http://mydolphin.example/a/")) == nil)
+        var plain = post
+        plain.url = URL(string: "http://images.example/robot.png")!
+        #expect(HTTPRedirects.redirected(plain, by: response(302, "http://images.example/robot2.png")) != nil)
     }
 
     @Test func aRedirectLoopEnds() async {

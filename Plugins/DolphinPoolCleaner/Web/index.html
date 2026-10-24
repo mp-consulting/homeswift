@@ -12,6 +12,7 @@
   .page-head { align-items: center; }
   .tile.pool { background: linear-gradient(160deg, #5ba0e9, #2e5a8b); }
   .step { animation: materialize var(--normal) var(--ease-out); }
+  .step.again { animation: none; }
   .step-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
   .step-head h2 { margin: 0; }
   .step > p.muted:first-of-type { margin-top: 4px; }
@@ -33,7 +34,9 @@
     background: linear-gradient(180deg, #e8f4fc 0%, #c9e4f6 100%); }
   .picture img, .picture svg { width: 100%; max-width: 200px; max-height: 150px; object-fit: contain; filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2)); }
   .picture .pill { position: absolute; top: 10px; left: 10px; background: var(--material-thick); }
-  @media (prefers-color-scheme: dark) { .picture { background: linear-gradient(180deg, #1e3a4c 0%, #0d2233 100%); } }
+  /* Dark with the system unless the web UI's appearance says light, or dark when it says so (common.js sets data-theme). */
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .picture { background: linear-gradient(180deg, #1e3a4c 0%, #0d2233 100%); } }
+  :root[data-theme="dark"] .picture { background: linear-gradient(180deg, #1e3a4c 0%, #0d2233 100%); }
 
   .found { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
   .found .robot-panel { padding: 0; overflow: hidden; margin: 0; }
@@ -55,11 +58,6 @@
   .hint { margin-top: 16px; font-size: 0.8125rem; }
   .account-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 
-  .busy::after {
-    content: ""; display: inline-block; width: 0.9em; height: 0.9em; margin-left: 8px; vertical-align: -0.12em;
-    border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
   @media (max-width: 640px) {
     .robot, .found { grid-template-columns: 1fr; }
     .picture { min-height: 120px; }
@@ -70,7 +68,6 @@
     .step { animation: none; }
     .robot { transition: none; }
     .robot:hover, .robot:active { transform: none; }
-    .busy::after { animation: none; border-right-color: currentColor; opacity: 0.5; }
   }
 </style>
 </head>

@@ -13,6 +13,7 @@
 
   .tvs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); gap: 14px; }
   .tv { margin: 0; display: grid; gap: 16px; animation: materialize var(--normal) var(--ease-out); }
+  .tv.redrawn { animation: none; }
   .tv-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
   .tv-head .who { flex: 1; min-width: 0; }
   .tv-head strong { display: block; font-size: 1.0625rem; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -113,7 +114,7 @@
   details pre { font-family: var(--mono); font-size: 0.78rem; margin: 6px 0 0; padding: 12px 14px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); overflow: auto; }
 
   @media (prefers-reduced-motion: reduce) {
-    .tv, .step { animation: none; }
+    .tv, .step, .pairing { animation: none; }
     .source { transition: none; }
   }
   @media (max-width: 640px) {

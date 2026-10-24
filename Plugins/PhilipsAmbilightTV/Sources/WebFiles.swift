@@ -76,6 +76,16 @@ extension PhilipsAmbilightTVPlugin {
   /// `FOLLOW_VIDEO` as "Follow video"; nil as "On".
   const styleName = (style) => style ? style.replaceAll("_", " ").toLowerCase().replace(/^./, (c) => c.toUpperCase()) : "On";
 
+  // A card drawn again because its TV changed (an input, the sound) stays still: only a TV new to the page
+  // arrives with the material's animation.
+  const shown = new Set();
+  function card(tv) {
+    const node = tvCard(tv);
+    if (shown.has(tv.mac)) node.classList.add("redrawn");
+    shown.add(tv.mac);
+    return node;
+  }
+
   async function refresh() {
     try {
       ({ tvs } = await request("tvs"));
@@ -89,7 +99,7 @@ extension PhilipsAmbilightTVPlugin {
       }
       // Only the card of a TV that changed is drawn again: keep the keyboard on the remote it was on.
       const focused = document.activeElement?.closest?.(".tv")?.dataset.key;
-      renderKeyed(list, tvs, (tv) => tv.mac, tvCard);
+      renderKeyed(list, tvs, (tv) => tv.mac, card);
       if (focused && !list.contains(document.activeElement)) list.querySelector(`.tv[data-key="${CSS.escape(focused)}"] .pad`)?.focus();
     } catch (e) {
       list.replaceChildren(el("p", { class: "error", text: e.message }));
@@ -847,6 +857,7 @@ extension PhilipsAmbilightTVPlugin {
 
   .tvs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); gap: 14px; }
   .tv { margin: 0; display: grid; gap: 16px; animation: materialize var(--normal) var(--ease-out); }
+  .tv.redrawn { animation: none; }
   .tv-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
   .tv-head .who { flex: 1; min-width: 0; }
   .tv-head strong { display: block; font-size: 1.0625rem; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -947,7 +958,7 @@ extension PhilipsAmbilightTVPlugin {
   details pre { font-family: var(--mono); font-size: 0.78rem; margin: 6px 0 0; padding: 12px 14px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); overflow: auto; }
 
   @media (prefers-reduced-motion: reduce) {
-    .tv, .step { animation: none; }
+    .tv, .step, .pairing { animation: none; }
     .source { transition: none; }
   }
   @media (max-width: 640px) {

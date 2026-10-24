@@ -170,8 +170,10 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
             // "Get MAC": a configured TV is asked first, then this machine's ARP table, as the Homebridge plugin reads it.
             guard let ip = request.query["ip"]?.trimmingCharacters(in: .whitespaces), WakeOnLAN.ipv4(ip) != nil else { return .error(400, "an IPv4 address is required") }
             let mac: String?
-            if let settings = devices.values.first(where: { $0.settings.ip == ip })?.settings {
-                mac = await lookUpMAC(ip: ip, credentials: .init(username: settings.username, password: settings.password, certFingerprint: settings.certFingerprint))
+            if let device = devices.values.first(where: { $0.settings.ip == ip }) {
+                // Through the TV's own client: its queue (the TV copes badly with requests on top of each other)
+                // and the certificate it pinned.
+                mac = await lookUpMAC(ip: ip, client: device.client)
             } else {
                 mac = await dependencies.lookUpARP(ip).flatMap(MACAddress.canonical)
             }
@@ -222,6 +224,9 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
         case ("POST", "pair"):
             guard let ip = request.body["ip"]?.stringValue?.trimmingCharacters(in: .whitespaces), WakeOnLAN.ipv4(ip) != nil else { return .error(400, "an IPv4 address is required") }
             let deviceName = request.body["name"]?.stringValue?.nonEmpty ?? "Homeswift"
+            // Pairings nobody finished go, so the sessions (and their auth keys) do not pile up.
+            let now = Date()
+            pairings = pairings.filter { now.timeIntervalSince($0.value.startedAt) < Self.pairingSessionLifetime }
             do {
                 let session = try await JointSpacePairing.request(ip: ip, deviceName: deviceName, transport: dependencies.transports.makeTransport(tls: .any))
                 pairings[ip] = session
@@ -236,7 +241,8 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
                 return .error(502, "Cannot reach the TV at \(ip): is it on, and on this network? (\(error))")
             }
         case ("POST", "pair/grant"):
-            guard let ip = request.body["ip"]?.stringValue, let session = pairings[ip] else { return .error(400, "no pairing in progress for that address; start again") }
+            // Trimmed as `pair` trims it, which keyed the session.
+            guard let ip = request.body["ip"]?.stringValue?.trimmingCharacters(in: .whitespaces), let session = pairings[ip] else { return .error(400, "no pairing in progress for that address; start again") }
             guard Date().timeIntervalSince(session.startedAt) < Self.pairingSessionLifetime else {
                 pairings[ip] = nil
                 return .error(400, "the pairing expired; start again")
@@ -248,7 +254,10 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
                 pairings[ip] = nil
                 logger.info("Paired", metadata: ["ip": "\(ip)"])
                 // The MAC address, for the block, from the TV itself when it tells.
-                let mac = await lookUpMAC(ip: ip, credentials: credentials)
+                let client = JointSpaceClient(
+                    ip: ip, username: credentials.username, password: credentials.password, certificateFingerprint: credentials.certFingerprint,
+                    transports: dependencies.transports, logger: logger)
+                let mac = await lookUpMAC(ip: ip, client: client)
                 var block: [String: JSONValue] = ["ip": .string(ip), "username": .string(credentials.username), "password": .string(credentials.password)]
                 if let fingerprint = credentials.certFingerprint { block["certFingerprint"] = .string(fingerprint) }
                 if let mac { block["mac"] = .string(mac) }
@@ -280,8 +289,7 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
 
     /// The TV's own `network/devices` first, preferring the interface that answers on `ip`; then this machine's
     /// ARP table, which has the TV since pairing just talked to it (what the Homebridge plugin reads).
-    private func lookUpMAC(ip: String, credentials: JointSpacePairing.Credentials) async -> String? {
-        let client = JointSpaceClient(ip: ip, username: credentials.username, password: credentials.password, certificateFingerprint: credentials.certFingerprint, transports: dependencies.transports, logger: logger)
+    private func lookUpMAC(ip: String, client: JointSpaceClient) async -> String? {
         do {
             let devices = try await client.networkDevices().filter { $0.mac.flatMap(MACAddress.canonical) != nil }
             let wireless = devices.first { $0.type?.lowercased().contains("wifi") == true || $0.type?.lowercased().contains("wireless") == true }
