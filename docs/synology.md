@@ -88,11 +88,12 @@ in config.json's bridge block:
 
 ### FFmpeg
 
-UniFi Protect's cameras need FFmpeg. Install SynoCommunity's **ffmpeg7** package (or ffmpeg6), or Entware's
-ffmpeg: the bridge finds them in `/var/packages/ffmpeg7/target/bin`, `/var/packages/ffmpeg6/target/bin`,
-`/var/packages/ffmpeg/target/bin` or `/opt/bin`. DSM's own `/bin/ffmpeg` (4.1, without libx264) cannot encode
-HomeKit Secure Video recordings: SynoCommunity's packages come before it, Entware's after, so with Entware set the
-plugin's `videoProcessor` to `/opt/bin/ffmpeg`. The log warns at start when the FFmpeg in use has no libx264.
+The package includes FFmpeg for UniFi Protect's cameras: `bin/ffmpeg`, the static
+[ffmpeg-for-homeswift](../FFmpeg/README.md) the container image has (FFmpeg 8.1 with libx264, Opus and OpenSSL), and its
+licences in `share/doc/ffmpeg-for-homeswift`. The bridge uses it before DSM's own `/bin/ffmpeg` (4.1, without libx264,
+which cannot encode HomeKit Secure Video recordings). To use another FFmpeg, such as SynoCommunity's ffmpeg7, set the
+UniFi Protect block's `videoProcessor` to its path (`/var/packages/ffmpeg7/target/bin/ffmpeg`). The log warns at start
+when the FFmpeg in use has no libx264.
 
 ### Moving to the package
 

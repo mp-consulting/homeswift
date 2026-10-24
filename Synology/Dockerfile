@@ -5,6 +5,11 @@
 # libstdc++, zlib, libsystemd) is part of DSM.
 
 ARG SWIFT_VERSION=6.2
+# ffmpeg-for-homeswift (FFmpeg/), as in the container image: DSM's own FFmpeg (4.1) has no libx264, which every
+# HomeKit Secure Video recording needs. Static, so it runs on DSM as it is.
+ARG FFMPEG_IMAGE=ghcr.io/mp-consulting/ffmpeg-for-homeswift:8.1.3-1
+
+FROM ${FFMPEG_IMAGE} AS ffmpeg
 
 FROM swift:${SWIFT_VERSION}-amazonlinux2 AS build
 # With their documentation (the image installs without), for D-Bus's licence file, which bundle-libraries.sh copies.
@@ -40,3 +45,6 @@ RUN sh /usr/local/bin/collect-licenses.sh .build/checkouts /out/share/doc/homesw
 
 FROM scratch
 COPY --from=build /out /
+# FFmpeg is GPLv3: its licences, and where its sources are, go with it.
+COPY --from=ffmpeg /ffmpeg /bin/ffmpeg
+COPY --from=ffmpeg /licenses /share/doc/ffmpeg-for-homeswift

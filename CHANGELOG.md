@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The Synology package includes FFmpeg (ffmpeg-for-homeswift, as the container image): DSM's own FFmpeg 4.1 has no
+  libx264, so every HomeKit Secure Video recording of a UniFi Protect camera failed. `videoProcessor` still picks
+  another one.
+
 ## [0.4.0] - 2026-10-24
 
 ### Added

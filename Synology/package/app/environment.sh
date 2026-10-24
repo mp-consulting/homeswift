@@ -10,11 +10,10 @@ HOMESWIFT_BINARY="$PACKAGE/target/bin/homeswift"
 HOMESWIFT_INSTALL=synology
 export HOMESWIFT_DATA HOMESWIFT_BINARY HOMESWIFT_INSTALL
 
-# FFmpeg for cameras: SynoCommunity's packages go before DSM's own /bin/ffmpeg (4.1, without libx264, which
-# fails every recording), ffmpeg7 first; Entware's /opt/bin after the system's, as it holds more than FFmpeg.
-for directory in /var/packages/ffmpeg/target/bin /var/packages/ffmpeg6/target/bin /var/packages/ffmpeg7/target/bin; do
-    [ -d "$directory" ] && PATH="$directory:$PATH"
-done
+# FFmpeg for cameras: the package's own (ffmpeg-for-homeswift, with libx264) goes before everything else, DSM's
+# /bin/ffmpeg (4.1, without libx264, which fails every recording) included. The UniFi Protect block's
+# `videoProcessor` picks another one; Entware's /opt/bin stays after the system's, as it holds more than FFmpeg.
+PATH="$PACKAGE/target/bin:$PATH"
 [ -d /opt/bin ] && PATH="$PATH:/opt/bin"
 export PATH
 
