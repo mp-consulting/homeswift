@@ -453,6 +453,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .md li.task { list-style: none; margin-left: -1.3em; }
 .md li.task input { margin: 0 6px 0 0; vertical-align: -2px; accent-color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
+  .ai-card { animation-name: fade; }
   .ai-card.thinking, .ai-card.thinking::before, .ai-thinking, .ai-body { animation: none; }
   .ai-thinking { color: var(--muted); background: none; }
 }
@@ -1063,7 +1064,7 @@ textarea.short { min-height: 220px; }
 /* Log: a row per line, its time and source in columns, warnings and errors tinted. */
 /* Inside the Logs card the list is the card's own content: no second material, corners, edge or shadow. */
 .log-card .log { border: 0; border-radius: 0; box-shadow: none; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
-.log { font-size: 0.8125rem; line-height: 1.45; padding: 6px 0; height: calc(100vh - 290px); min-height: 320px; overflow: auto; overscroll-behavior: contain; }
+.log { font-size: 0.8125rem; line-height: 1.45; padding: 6px 0; height: calc(100vh - 290px); height: calc(100dvh - 290px); min-height: 320px; overflow: auto; overscroll-behavior: contain; }
 .log-line { display: grid; grid-template-columns: auto minmax(0, 11em) minmax(0, 1fr); gap: 12px; padding: 3px 16px; align-items: baseline; }
 .log-line:hover { background: var(--material-thin); }
 .log-line time { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }

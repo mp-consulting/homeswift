@@ -35,6 +35,8 @@
     $("#app").classList.add("hidden");
     $("#auth").classList.remove("hidden");
     closeEvents();
+    // The chat lives outside #app: closed and emptied, so the next person at this browser does not see it.
+    window.HomeswiftChat?.signedOut();
     const setup = auth && auth.setupNeeded;
     $("#auth-text").textContent = setup
       ? "Create the administrator account for this bridge. The set-up code is in the bridge's output, next to the web UI address."
@@ -228,10 +230,12 @@
       if (current) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
     }
     const view = name === "plugins" && args.length ? views.settings : name === "settings" ? HomeswiftAdmin.view : views[name] || views.status;
-    const main = $("#view");
+    // A new element per view: a slower view still loading draws into the old one, out of the page, rather than
+    // over the view asked for after it.
+    const main = el("main", { id: "view" }, el("div", { class: "view-loading" }, spinner()));
+    $("#view").replaceWith(main);
     leaveGuard = null;
     shownPath = location.pathname + location.search;
-    main.replaceChildren(el("div", { class: "view-loading" }, spinner()));
     view(main, args).catch((e) => { if (e.status !== 401) main.replaceChildren(el("p", { class: "error", text: e.message })); });
   }
   /// Something loading: a turning ring, read as "Loading"; it shows after a moment, so a quick load does not flash it.
@@ -433,6 +437,24 @@
   // The Assistant's summary of the last day: the log's warnings and errors, the accessories, what needs attention
   // first. Written on demand and kept for the day by the bridge (ai-digest.json); Write again replaces it.
 
+  /// An answer streaming into `node`: the text so far drawn as Markdown once per frame, however many pieces
+  /// arrive (as the chat does), rather than parsed again for each piece. Answers the `onChunk` to give the request.
+  /// Once something else is drawn in `node` (the final answer, an error), a frame still pending leaves it be.
+  function streamInto(node) {
+    let text = "", scheduled = false, drawn = node.firstChild;
+    return (piece) => {
+      text += piece;
+      if (scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(() => {
+        scheduled = false;
+        if (node.firstChild !== drawn) return;
+        drawn = HomeswiftCommon.markdown(text);
+        node.replaceChildren(drawn);
+      });
+    };
+  }
+
   function digestWidget() {
     const body = el("div", { class: "digest-body", "aria-live": "polite" });
     const note = el("span", { class: "muted" });
@@ -458,13 +480,12 @@
       controller?.abort();
       controller = new AbortController();
       const own = controller;
-      let text = "";
       const live = el("div", {}, el("p", { class: "ai-thinking", text: "Reading the day…" }));
       body.replaceChildren(live, el("button", { class: "link", text: "Stop", onclick: () => own.abort() }));
       card.classList.add("writing");
       note.textContent = "";
       try {
-        shown(await HomeswiftCommon.assistantRequest("/api/assistant/digest", {}, { signal: own.signal, onChunk: (piece) => { text += piece; live.replaceChildren(HomeswiftCommon.markdown(text)); } }));
+        shown(await HomeswiftCommon.assistantRequest("/api/assistant/digest", {}, { signal: own.signal, onChunk: streamInto(live) }));
       } catch (e) {
         if (own.signal.aborted) offer(); else body.replaceChildren(el("p", { class: "error", text: e.message }), el("button", { class: "link", text: "Try again", onclick: () => write() }));
       } finally {
@@ -832,12 +853,14 @@
         node.style.transform = `translate(${moved.clientX - start.x}px, ${moved.clientY - start.y}px) scale(1.04)`;
         hover();
       };
+      // Also when the capture is lost (the wall drawn again under the finger): the page stops scrolling.
       const end = () => {
         node.removeEventListener("pointermove", move);
         node.removeEventListener("pointerup", end);
         node.removeEventListener("pointercancel", end);
+        node.removeEventListener("lostpointercapture", end);
         clearInterval(scroller);
-        if (!slot) return;
+        if (!slot || !slot.isConnected) return;
         // Lands in the slot from where it was let go.
         const from = node.getBoundingClientRect();
         slot.replaceWith(node);
@@ -859,6 +882,7 @@
       node.addEventListener("pointermove", move);
       node.addEventListener("pointerup", end);
       node.addEventListener("pointercancel", end);
+      node.addEventListener("lostpointercapture", end);
     }
 
     const content = el("div", { class: "accessory-walls" });
@@ -1978,7 +2002,7 @@
     const list = el("div", { class: "grid" });
     const formSlot = el("div", {});
     const closeForm = (changed) => { formSlot.replaceChildren(); if (changed) route(); };
-    const openForm = (user) => { formSlot.replaceChildren(userForm(user, closeForm)); formSlot.scrollIntoView({ block: "nearest", behavior: "smooth" }); $("input", formSlot)?.focus(); };
+    const openForm = (user) => { formSlot.replaceChildren(userForm(user, closeForm)); formSlot.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); $("input", formSlot)?.focus(); };
 
     for (const user of users) {
       const lastAdmin = user.admin && admins < 2;
@@ -2182,10 +2206,9 @@
       if (event.key === "Tab" && !event.shiftKey) { event.preventDefault(); textarea.setRangeText("  ", textarea.selectionStart, textarea.selectionEnd, "end"); update(); }
     });
     save.addEventListener("click", doSave);
-    revert.addEventListener("click", () => { textarea.value = saved; message.textContent = ""; update(); });
+    revert.addEventListener("click", () => { textarea.value = saved; message.textContent = ""; editor.repaint(); update(); });
     const editor = jsonEditor(textarea);
     format.addEventListener("click", () => { try { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); update(); } catch {} });
-    revert.addEventListener("click", () => editor.repaint());
     update();
     show(main,
       pageHead("Configuration", "The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once."),
@@ -2341,8 +2364,7 @@
         keepAddress();
       } })));
     const render = () => {
-      const needle = filter.value.toLowerCase();
-      const shown = logState.lines.filter((line) => visible(line, needle));
+      const shown = shownLines();
       output.replaceChildren(...(shown.length ? shown.map(lineNode) : [el("p", { class: "muted empty-log", text: "No line matches." })]));
       count.textContent = `${shown.length} of ${logState.lines.length} lines${logState.capped ? " (the latest of the range)" : ""}`;
       if (follow.checked) output.scrollTop = output.scrollHeight;
@@ -2475,7 +2497,6 @@
       if (!picked.length) { alert("No line is shown: widen the range or the filters first."); return; }
       controller?.abort();
       const own = controller = new AbortController();
-      let text = "";
       let closed = false;
       const live = el("div", { class: "ai-live" }, el("p", { class: "ai-thinking", text: `Reading ${picked.length.toLocaleString()} ${picked.length === 1 ? "line" : "lines"}…` }));
       const stop = el("button", { class: "link", text: "Stop", onclick: () => own.abort() });
@@ -2487,7 +2508,7 @@
       button.disabled = true;
       try {
         const reply = await HomeswiftCommon.assistantRequest("/api/assistant/diagnose", { lines: picked, focus: focus() || undefined }, {
-          signal: own.signal, onChunk: (piece) => { text += piece; live.replaceChildren(HomeswiftCommon.markdown(text)); } });
+          signal: own.signal, onChunk: streamInto(live) });
         card.className = "ai-card log-doctor answered";
         live.replaceChildren(HomeswiftCommon.markdown(reply.text));
         stop.replaceWith(el("p", { class: "muted ai-note", text: `${reply.model} read ${reply.lines.toLocaleString()} ${reply.lines === 1 ? "line" : "lines"}. Secrets and addresses were masked first; check its advice before acting on it.` }));

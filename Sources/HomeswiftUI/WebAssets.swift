@@ -286,7 +286,7 @@ enum WebAssets {
       instance,
       restoreCard(backups),
       sectionHead("Kept backups", backups.backups.length ? `${backups.backups.length}, newest first` : ""),
-      backups.backups.length ? el("div", { class: "card rows" }, backups.backups.map((backup) => backupRow(backup, backups.instance)))
+      backups.backups.length ? el("div", { class: "card rows" }, backups.backups.map(backupRow))
         : el("div", { class: "card empty" }, el("p", { class: "muted", text: "None yet: the daily backup and Back up now keep them here." })),
       sectionHead("config.json backups", `The file before each of its last ${configBackups.kept} saves`),
       configBackups.backups.length ? el("div", { class: "card rows" }, configBackups.backups.map(configBackupRow))
@@ -418,7 +418,9 @@ enum WebAssets {
     const since = select(spans, params.has("since") ? params.get("since") : "7d", "Time range");
     const count = el("span", { class: "muted count" });
     const body = el("div", {});
+    let loads = 0;   // the answer drawn is the last request's, however they arrive
     async function load() {
+      const own = ++loads;
       const query = new URLSearchParams();
       if (tool.value.trim()) query.set("tool", tool.value.trim());
       if (client.value.trim()) query.set("client", client.value.trim());
@@ -428,7 +430,8 @@ enum WebAssets {
       if (!since.value) query.delete("since");
       count.textContent = "Loading…";
       let found;
-      try { found = await api(`/api/audit?${query}`); } catch (e) { count.textContent = e.message; return; }
+      try { found = await api(`/api/audit?${query}`); } catch (e) { if (own === loads) count.textContent = e.message; return; }
+      if (own !== loads) return;
       if (!found.enabled) {
         count.textContent = "";
         body.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: "The audit log is off: the HomeswiftAiKit block's mcp.http says auditLog: false." })));
@@ -494,10 +497,13 @@ enum WebAssets {
     dialog.showModal();
 
     async function load() {
+      // Ranges chosen quickly one after the other: only the last one's answer is drawn.
+      const asked = hours;
       charts.classList.add("loading");
       let found;
       try { found = await api(`/api/accessories/${encodeURIComponent(accessory.id)}/history?hours=${hours}&points=240`); }
-      catch (e) { note.className = "error"; note.textContent = e.message; return; }
+      catch (e) { if (asked === hours) { charts.classList.remove("loading"); note.className = "error"; note.textContent = e.message; } return; }
+      if (asked !== hours) return;
       charts.classList.remove("loading");
       note.className = "muted";
       note.textContent = found.note ?? "Ten-minute averages, kept four weeks; each point here averages those in its span.";
@@ -564,6 +570,8 @@ enum WebAssets {
     $("#app").classList.add("hidden");
     $("#auth").classList.remove("hidden");
     closeEvents();
+    // The chat lives outside #app: closed and emptied, so the next person at this browser does not see it.
+    window.HomeswiftChat?.signedOut();
     const setup = auth && auth.setupNeeded;
     $("#auth-text").textContent = setup
       ? "Create the administrator account for this bridge. The set-up code is in the bridge's output, next to the web UI address."
@@ -757,10 +765,12 @@ enum WebAssets {
       if (current) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
     }
     const view = name === "plugins" && args.length ? views.settings : name === "settings" ? HomeswiftAdmin.view : views[name] || views.status;
-    const main = $("#view");
+    // A new element per view: a slower view still loading draws into the old one, out of the page, rather than
+    // over the view asked for after it.
+    const main = el("main", { id: "view" }, el("div", { class: "view-loading" }, spinner()));
+    $("#view").replaceWith(main);
     leaveGuard = null;
     shownPath = location.pathname + location.search;
-    main.replaceChildren(el("div", { class: "view-loading" }, spinner()));
     view(main, args).catch((e) => { if (e.status !== 401) main.replaceChildren(el("p", { class: "error", text: e.message })); });
   }
   /// Something loading: a turning ring, read as "Loading"; it shows after a moment, so a quick load does not flash it.
@@ -962,6 +972,24 @@ enum WebAssets {
   // The Assistant's summary of the last day: the log's warnings and errors, the accessories, what needs attention
   // first. Written on demand and kept for the day by the bridge (ai-digest.json); Write again replaces it.
 
+  /// An answer streaming into `node`: the text so far drawn as Markdown once per frame, however many pieces
+  /// arrive (as the chat does), rather than parsed again for each piece. Answers the `onChunk` to give the request.
+  /// Once something else is drawn in `node` (the final answer, an error), a frame still pending leaves it be.
+  function streamInto(node) {
+    let text = "", scheduled = false, drawn = node.firstChild;
+    return (piece) => {
+      text += piece;
+      if (scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(() => {
+        scheduled = false;
+        if (node.firstChild !== drawn) return;
+        drawn = HomeswiftCommon.markdown(text);
+        node.replaceChildren(drawn);
+      });
+    };
+  }
+
   function digestWidget() {
     const body = el("div", { class: "digest-body", "aria-live": "polite" });
     const note = el("span", { class: "muted" });
@@ -987,13 +1015,12 @@ enum WebAssets {
       controller?.abort();
       controller = new AbortController();
       const own = controller;
-      let text = "";
       const live = el("div", {}, el("p", { class: "ai-thinking", text: "Reading the day…" }));
       body.replaceChildren(live, el("button", { class: "link", text: "Stop", onclick: () => own.abort() }));
       card.classList.add("writing");
       note.textContent = "";
       try {
-        shown(await HomeswiftCommon.assistantRequest("/api/assistant/digest", {}, { signal: own.signal, onChunk: (piece) => { text += piece; live.replaceChildren(HomeswiftCommon.markdown(text)); } }));
+        shown(await HomeswiftCommon.assistantRequest("/api/assistant/digest", {}, { signal: own.signal, onChunk: streamInto(live) }));
       } catch (e) {
         if (own.signal.aborted) offer(); else body.replaceChildren(el("p", { class: "error", text: e.message }), el("button", { class: "link", text: "Try again", onclick: () => write() }));
       } finally {
@@ -1361,12 +1388,14 @@ enum WebAssets {
         node.style.transform = `translate(${moved.clientX - start.x}px, ${moved.clientY - start.y}px) scale(1.04)`;
         hover();
       };
+      // Also when the capture is lost (the wall drawn again under the finger): the page stops scrolling.
       const end = () => {
         node.removeEventListener("pointermove", move);
         node.removeEventListener("pointerup", end);
         node.removeEventListener("pointercancel", end);
+        node.removeEventListener("lostpointercapture", end);
         clearInterval(scroller);
-        if (!slot) return;
+        if (!slot || !slot.isConnected) return;
         // Lands in the slot from where it was let go.
         const from = node.getBoundingClientRect();
         slot.replaceWith(node);
@@ -1388,6 +1417,7 @@ enum WebAssets {
       node.addEventListener("pointermove", move);
       node.addEventListener("pointerup", end);
       node.addEventListener("pointercancel", end);
+      node.addEventListener("lostpointercapture", end);
     }
 
     const content = el("div", { class: "accessory-walls" });
@@ -2507,7 +2537,7 @@ enum WebAssets {
     const list = el("div", { class: "grid" });
     const formSlot = el("div", {});
     const closeForm = (changed) => { formSlot.replaceChildren(); if (changed) route(); };
-    const openForm = (user) => { formSlot.replaceChildren(userForm(user, closeForm)); formSlot.scrollIntoView({ block: "nearest", behavior: "smooth" }); $("input", formSlot)?.focus(); };
+    const openForm = (user) => { formSlot.replaceChildren(userForm(user, closeForm)); formSlot.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); $("input", formSlot)?.focus(); };
 
     for (const user of users) {
       const lastAdmin = user.admin && admins < 2;
@@ -2711,10 +2741,9 @@ enum WebAssets {
       if (event.key === "Tab" && !event.shiftKey) { event.preventDefault(); textarea.setRangeText("  ", textarea.selectionStart, textarea.selectionEnd, "end"); update(); }
     });
     save.addEventListener("click", doSave);
-    revert.addEventListener("click", () => { textarea.value = saved; message.textContent = ""; update(); });
+    revert.addEventListener("click", () => { textarea.value = saved; message.textContent = ""; editor.repaint(); update(); });
     const editor = jsonEditor(textarea);
     format.addEventListener("click", () => { try { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); update(); } catch {} });
-    revert.addEventListener("click", () => editor.repaint());
     update();
     show(main,
       pageHead("Configuration", "The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once."),
@@ -2870,8 +2899,7 @@ enum WebAssets {
         keepAddress();
       } })));
     const render = () => {
-      const needle = filter.value.toLowerCase();
-      const shown = logState.lines.filter((line) => visible(line, needle));
+      const shown = shownLines();
       output.replaceChildren(...(shown.length ? shown.map(lineNode) : [el("p", { class: "muted empty-log", text: "No line matches." })]));
       count.textContent = `${shown.length} of ${logState.lines.length} lines${logState.capped ? " (the latest of the range)" : ""}`;
       if (follow.checked) output.scrollTop = output.scrollHeight;
@@ -3004,7 +3032,6 @@ enum WebAssets {
       if (!picked.length) { alert("No line is shown: widen the range or the filters first."); return; }
       controller?.abort();
       const own = controller = new AbortController();
-      let text = "";
       let closed = false;
       const live = el("div", { class: "ai-live" }, el("p", { class: "ai-thinking", text: `Reading ${picked.length.toLocaleString()} ${picked.length === 1 ? "line" : "lines"}…` }));
       const stop = el("button", { class: "link", text: "Stop", onclick: () => own.abort() });
@@ -3016,7 +3043,7 @@ enum WebAssets {
       button.disabled = true;
       try {
         const reply = await HomeswiftCommon.assistantRequest("/api/assistant/diagnose", { lines: picked, focus: focus() || undefined }, {
-          signal: own.signal, onChunk: (piece) => { text += piece; live.replaceChildren(HomeswiftCommon.markdown(text)); } });
+          signal: own.signal, onChunk: streamInto(live) });
         card.className = "ai-card log-doctor answered";
         live.replaceChildren(HomeswiftCommon.markdown(reply.text));
         stop.replaceWith(el("p", { class: "muted ai-note", text: `${reply.model} read ${reply.lines.toLocaleString()} ${reply.lines === 1 ? "line" : "lines"}. Secrets and addresses were masked first; check its advice before acting on it.` }));
@@ -3280,49 +3307,59 @@ enum WebAssets {
       const source = new MediaSourceType();
       const sourceURL = URL.createObjectURL(source);
       video.src = sourceURL;
-      signal.addEventListener("abort", () => { video.removeAttribute("src"); video.load(); URL.revokeObjectURL(sourceURL); });
-      await new Promise((resolve) => source.addEventListener("sourceopen", resolve, { once: true }));
-      if (signal.aborted) return true;
-      const buffer = source.addSourceBuffer(type);
-      const queue = [];
-      let lastTrim = 0;
-      const pump = () => {
-        if (buffer.updating || signal.aborted || source.readyState !== "open") return;
-        const ranges = buffer.buffered;
-        if (ranges.length) {
-          const end = ranges.end(ranges.length - 1);
-          // The live edge, not the past: a tab in the background or a slow network falls behind.
-          if (end - video.currentTime > MAX_LAG) video.currentTime = Math.max(ranges.start(ranges.length - 1), end - 0.5);
-          const start = ranges.start(0);
-          if (video.currentTime - start > KEEP * 1.5 && Date.now() - lastTrim > 10000) {
-            lastTrim = Date.now();
-            buffer.remove(start, video.currentTime - KEEP);
-            return;
-          }
-        }
-        const chunk = queue.shift();
-        if (!chunk) return;
-        try {
-          buffer.appendBuffer(chunk);
-        } catch (error) {
-          // Full: drop what was played and try again.
-          if (error.name === "QuotaExceededError" && ranges.length) { queue.unshift(chunk); buffer.remove(ranges.start(0), Math.max(ranges.start(0) + 0.1, video.currentTime - 2)); }
-          else throw error;
-        }
-      };
-      buffer.addEventListener("updateend", pump);
-      video.addEventListener("playing", () => { state.live = true; show("live"); }, { once: true });
+      // This attempt's own clean-up, once, when the view stops or the attempt ends: a camera that reconnects for
+      // hours does not pile up listeners on the run's signal, nor keep each attempt's MediaSource.
       const reader = response.body.getReader();
-      signal.addEventListener("abort", () => reader.cancel().catch(() => {}));
-      let started = false;
-      // Stalled: no new frame for a while, start again.
-      let lastTime = -1, stalledSince = Date.now();
-      const watchdog = setInterval(() => {
-        if (video.currentTime !== lastTime) { lastTime = video.currentTime; stalledSince = Date.now(); return; }
-        if (Date.now() - stalledSince > 10000) reader.cancel().catch(() => {});
-      }, 2000);
-      signal.addEventListener("abort", () => clearInterval(watchdog));
+      let watchdog = null, detached = false;
+      const detach = () => {
+        if (detached) return;
+        detached = true;
+        clearInterval(watchdog);
+        reader.cancel().catch(() => {});
+        video.removeAttribute("src");
+        video.load();
+        URL.revokeObjectURL(sourceURL);
+      };
+      signal.addEventListener("abort", detach, { once: true });
       try {
+        await new Promise((resolve) => source.addEventListener("sourceopen", resolve, { once: true }));
+        if (signal.aborted) return true;
+        const buffer = source.addSourceBuffer(type);
+        const queue = [];
+        let lastTrim = 0;
+        const pump = () => {
+          if (buffer.updating || signal.aborted || source.readyState !== "open") return;
+          const ranges = buffer.buffered;
+          if (ranges.length) {
+            const end = ranges.end(ranges.length - 1);
+            // The live edge, not the past: a tab in the background or a slow network falls behind.
+            if (end - video.currentTime > MAX_LAG) video.currentTime = Math.max(ranges.start(ranges.length - 1), end - 0.5);
+            const start = ranges.start(0);
+            if (video.currentTime - start > KEEP * 1.5 && Date.now() - lastTrim > 10000) {
+              lastTrim = Date.now();
+              buffer.remove(start, video.currentTime - KEEP);
+              return;
+            }
+          }
+          const chunk = queue.shift();
+          if (!chunk) return;
+          try {
+            buffer.appendBuffer(chunk);
+          } catch (error) {
+            // Full: drop what was played and try again.
+            if (error.name === "QuotaExceededError" && ranges.length) { queue.unshift(chunk); buffer.remove(ranges.start(0), Math.max(ranges.start(0) + 0.1, video.currentTime - 2)); }
+            else throw error;
+          }
+        };
+        buffer.addEventListener("updateend", pump);
+        video.addEventListener("playing", () => { state.live = true; show("live"); }, { once: true });
+        let started = false;
+        // Stalled: no new frame for a while, start again.
+        let lastTime = -1, stalledSince = Date.now();
+        watchdog = setInterval(() => {
+          if (video.currentTime !== lastTime) { lastTime = video.currentTime; stalledSince = Date.now(); return; }
+          if (Date.now() - stalledSince > 10000) reader.cancel().catch(() => {});
+        }, 2000);
         for (;;) {
           const { value, done } = await reader.read();
           if (done || signal.aborted) break;
@@ -3330,10 +3367,11 @@ enum WebAssets {
           pump();
           if (!started) { started = true; video.play().catch(() => {}); }
         }
+        return true;
       } finally {
-        clearInterval(watchdog);
+        signal.removeEventListener("abort", detach);
+        detach();
       }
-      return true;
     }
 
     // ---- Running ----
@@ -3719,6 +3757,7 @@ enum WebAssets {
   let usage = null;
   let spoken = false;   // the running turn started from the mic: read its answer out
   let trigger = null;
+  let session = 0;      // a sign-out moves it on: a stream read before it stops drawing
 
   function build() {
     const log = el("div", { class: "chat-log", "aria-live": "polite", "aria-relevant": "additions" });
@@ -3928,6 +3967,7 @@ enum WebAssets {
 
   /// Reads a run's event stream: a snapshot, then items, text and the end.
   async function follow(response) {
+    const own = session;
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -3937,6 +3977,8 @@ enum WebAssets {
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
+        // Signed out meanwhile: what is left of the run is not drawn.
+        if (own !== session) { reader.cancel().catch(() => {}); return; }
         buffer += decoder.decode(value, { stream: true });
         let end;
         while ((end = buffer.indexOf("\n\n")) >= 0) {
@@ -3948,8 +3990,9 @@ enum WebAssets {
         }
       }
     } catch (e) {
-      showError(`The connection dropped: ${e.message}`);
+      if (own === session) showError(`The connection dropped: ${e.message}`);
     }
+    if (own !== session) return;
     running = false;
     renderControls();
   }
@@ -4284,6 +4327,8 @@ enum WebAssets {
     header.insertBefore(trigger, header.querySelector("#user"));
     // Cmd+K (Ctrl+K elsewhere) opens the chat from anywhere, and closes it, as Glass UI's palette.
     document.addEventListener("keydown", (event) => {
+      // Not from the sign-in screen: the button is in the hidden app then.
+      if (!trigger?.isConnected || trigger.closest(".hidden")) return;
       if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "k" && !event.isComposing) {
         event.preventDefault();
         toggle();
@@ -4300,10 +4345,36 @@ enum WebAssets {
     setTimeout(() => { panel.input.focus(); panel.input.setSelectionRange(text.length, text.length); }, 60);
   }
 
+  /// Signed out (app.js): the panel closes at once and forgets the conversation it shows, so whoever signs in next
+  /// on this browser starts from their own.
+  function signedOut() {
+    session++;
+    if (!panel) return;
+    if (listening) stopListening(true);
+    window.speechSynthesis?.cancel();
+    cancelAnimationFrame(openness.frame);
+    openness.value = 0;
+    openness.velocity = 0;
+    openness.target = 0;
+    panel.sheet.hidden = true;
+    panel.scrim.hidden = true;
+    trigger?.setAttribute("aria-expanded", "false");
+    closeHistory(false);
+    items = [];
+    nodes = [];
+    running = false;
+    usage = null;
+    spoken = false;
+    loaded = false;
+    panel.input.value = "";
+    panel.log.replaceChildren();
+    renderControls();
+  }
+
   /// The language chosen for voice, else the browser's.
   const voiceLanguage = () => panel?.languagePicker.value || navigator.language || "en-US";
 
-  window.HomeswiftChat = { mount, ask, open: () => toggle(true), available: () => Boolean(info?.enabled) };
+  window.HomeswiftChat = { mount, ask, signedOut, open: () => toggle(true), available: () => Boolean(info?.enabled) };
   // The UI's own page mounts it once signed in; a plugin page is signed in already.
   if (document.querySelector('meta[name="homeswift-plugin"]')) mount();
 })();
@@ -4415,7 +4486,7 @@ enum WebAssets {
 
   /// Markdown from the Assistant as elements, never as HTML: headings, paragraphs, nested and task lists, tables,
   /// quotes, rules, code blocks, and the inline marks of `inline`. Anything else stays text.
-  function markdown(source) {
+  function markdown(source, depth = 0) {
     const root = el("div", { class: "md" });
     const lines = String(source).replace(/\r/g, "").split("\n");
     let paragraph = [];
@@ -4439,11 +4510,12 @@ enum WebAssets {
         root.append(el("hr", {}));
         continue;
       }
-      if (/^\s*>/.test(line)) {
+      // Quotes nest a few deep: a line of thousands of ">" (a log quoted back) stays text rather than overflowing the stack.
+      if (/^\s*>/.test(line) && depth < 8) {
         flush(); closeLists();
         const quoted = [line];
         while (i + 1 < lines.length && /^\s*>/.test(lines[i + 1])) quoted.push(lines[++i]);
-        root.append(el("blockquote", {}, ...markdown(quoted.map((text) => text.replace(/^\s*>\s?/, "")).join("\n")).childNodes));
+        root.append(el("blockquote", {}, ...markdown(quoted.map((text) => text.replace(/^\s*>\s?/, "")).join("\n"), depth + 1).childNodes));
         continue;
       }
       if (line.includes("|") && tableDelimiter.test(lines[i + 1] ?? "")) {
@@ -5073,7 +5145,7 @@ enum WebAssets {
       run.addEventListener("click", async () => { await runScene(scene, run); });
       return el("div", { class: "card server scene-card" },
         el("div", { class: "server-head" }, tile("play", scene.security ? "violet" : "orange"),
-          el("div", { class: "who" }, el("a", { class: "card-title", href: `/scenes/${scene.id}` }, el("strong", { text: scene.name })),
+          el("div", { class: "who" }, el("a", { class: "card-title", href: `/scenes/${encodeURIComponent(scene.id)}` }, el("strong", { text: scene.name })),
             el("div", { class: "muted", text: scene.triggers.length ? scene.triggers.map((t) => describeTrigger(t, names)).join(" · ") : "Run by hand" })),
           run),
         el("div", { class: "controls" }, actions), more,
@@ -5081,10 +5153,10 @@ enum WebAssets {
         el("div", { class: "card-foot" }, el("span", { class: "muted", text: scene.lastSkipped && (!scene.lastRun || scene.lastSkipped.at > scene.lastRun.at) ? `Skipped ${dateTimeFormat.format(new Date(scene.lastSkipped.at))}: ${scene.lastSkipped.reason}` : last }),
           menuButton(`Actions for ${scene.name}`, () => [
             { label: "Run", icon: "play", onSelect: () => runScene(scene) },
-            { label: "Edit", icon: "edit", href: `/scenes/${scene.id}` },
+            { label: "Edit", icon: "edit", href: `/scenes/${encodeURIComponent(scene.id)}` },
             { label: "Delete", icon: "trash", danger: true, onSelect: async () => {
               if (!confirm(`Delete the scene ${scene.name}?`)) return;
-              try { await app.api(`/api/scenes/${scene.id}`, { method: "DELETE" }); app.route(); } catch (e) { alert(e.message); }
+              try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.route(); } catch (e) { alert(e.message); }
             } },
           ])));
     };
@@ -5336,11 +5408,11 @@ enum WebAssets {
       const body = { name: name.value.trim(), actions: [...actions].map((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()) };
       save.disabled = true;
       try {
-        const saved = await app.api(isNew ? "/api/scenes" : `/api/scenes/${scene.id}`, { method: isNew ? "POST" : "PUT", body });
+        const saved = await app.api(isNew ? "/api/scenes" : `/api/scenes/${encodeURIComponent(scene.id)}`, { method: isNew ? "POST" : "PUT", body });
         const security = saved.actions.some((a) => a.security);
         if (security && body.triggers.some((t) => t.enabled !== false)) {
           say(line, "Saved. Its lock, door or alarm actions run only when you run it here: automations leave them out.", "ok");
-          if (isNew) setTimeout(() => app.navigate(`/scenes/${saved.id}`, { replace: true }), 1500);
+          if (isNew) setTimeout(() => app.navigate(`/scenes/${encodeURIComponent(saved.id)}`, { replace: true }), 1500);
         } else {
           app.navigate("/scenes");
         }
@@ -5358,7 +5430,7 @@ enum WebAssets {
         isNew ? null : el("span", { class: "spacer" }),
         isNew ? null : el("button", { type: "button", class: "danger", text: "Delete", onclick: async () => {
           if (!confirm(`Delete the scene ${scene.name}?`)) return;
-          try { await app.api(`/api/scenes/${scene.id}`, { method: "DELETE" }); app.navigate("/scenes"); } catch (e) { say(line, e.message, "error"); }
+          try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.navigate("/scenes"); } catch (e) { say(line, e.message, "error"); }
         } })),
       line);
     app.show(main, app.breadcrumb(["Scenes", "/scenes"], [isNew ? "New scene" : scene.name]), form);
@@ -5455,7 +5527,7 @@ enum WebAssets {
     const others = el("div", {}, settings.subscriptions.map((sub) => el("div", { class: "control" },
       el("span", { text: `${sub.label}${sub.username ? ` · ${sub.username}` : ""}` }),
       el("button", { class: "link", text: "Remove", onclick: async () => {
-        try { await app.api(`/api/notifications/push/subscriptions/${sub.id}`, { method: "DELETE" }); app.route(); } catch (e) { say(line, e.message, "error"); }
+        try { await app.api(`/api/notifications/push/subscriptions/${encodeURIComponent(sub.id)}`, { method: "DELETE" }); app.route(); } catch (e) { say(line, e.message, "error"); }
       } }))));
     if (!pushSupported()) {
       box.append(el("p", { class: "muted note", text: window.isSecureContext ? "This browser cannot receive push notifications." : "Open this page over HTTPS (the HomeswiftUI block's https) or on localhost to turn them on here." }), others);
@@ -6496,6 +6568,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .md li.task { list-style: none; margin-left: -1.3em; }
 .md li.task input { margin: 0 6px 0 0; vertical-align: -2px; accent-color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
+  .ai-card { animation-name: fade; }
   .ai-card.thinking, .ai-card.thinking::before, .ai-thinking, .ai-body { animation: none; }
   .ai-thinking { color: var(--muted); background: none; }
 }
@@ -7106,7 +7179,7 @@ textarea.short { min-height: 220px; }
 /* Log: a row per line, its time and source in columns, warnings and errors tinted. */
 /* Inside the Logs card the list is the card's own content: no second material, corners, edge or shadow. */
 .log-card .log { border: 0; border-radius: 0; box-shadow: none; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
-.log { font-size: 0.8125rem; line-height: 1.45; padding: 6px 0; height: calc(100vh - 290px); min-height: 320px; overflow: auto; overscroll-behavior: contain; }
+.log { font-size: 0.8125rem; line-height: 1.45; padding: 6px 0; height: calc(100vh - 290px); height: calc(100dvh - 290px); min-height: 320px; overflow: auto; overscroll-behavior: contain; }
 .log-line { display: grid; grid-template-columns: auto minmax(0, 11em) minmax(0, 1fr); gap: 12px; padding: 3px 16px; align-items: baseline; }
 .log-line:hover { background: var(--material-thin); }
 .log-line time { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -7706,7 +7779,8 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const path = (event.notification.data && event.notification.data.path) || "/";
-  const target = new URL(path.startsWith("/") ? path : "/", self.location.origin).href;
+  // A path on this origin only: "//host" and "/\host" would leave it.
+  const target = new URL(/^\/(?![/\\])/.test(path) ? path : "/", self.location.origin).href;
   event.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
     for (const client of windows) {
       if (new URL(client.url).origin === self.location.origin && "focus" in client) {
@@ -7894,12 +7968,19 @@ self.addEventListener("notificationclick", (event) => {
     return ctx;
   }
 
+  /// Lets go of the cards no longer on the page (the view changed, the wall was drawn again); a new one may not be
+  /// attached yet. Run as cards are made too, so a quiet home, with no events, does not keep every wall drawn.
+  let swept = 0;
+  function sweep(now = Date.now()) {
+    swept = now;
+    for (const ctx of cards) if (!ctx.node?.isConnected && now - ctx.born > 2000) cards.delete(ctx);
+  }
+
   /// An accessory event from the page's event stream: the new value, painted on the cards of that accessory.
   function event({ id, service, subtype, characteristic, value }) {
-    const now = Date.now();
+    if (Date.now() - swept > 1000) sweep();
     for (const ctx of cards) {
-      // A card no longer on the page (the view changed) is let go; a new one may not be attached yet.
-      if (!ctx.node?.isConnected) { if (now - ctx.born > 2000) cards.delete(ctx); continue; }
+      if (!ctx.node?.isConnected) continue;
       if (ctx.accessory.id !== id) continue;
       const key = subtype || service;
       const owner = ctx.accessory.services.find((s) => (!key || serviceKey(s) === key) && s.characteristics.some((c) => c.type === characteristic));
@@ -8978,7 +9059,7 @@ self.addEventListener("notificationclick", (event) => {
       const openIt = () => ctx.write(primary, target, 0, { held: true }), closeIt = () => ctx.write(primary, target, 1, { held: true });
       const built = {
         on: () => doorState() !== 1 || unlocked().length > 0,
-        hero: () => icon(unlocked().length ? "lock" : "lock"),
+        hero: () => icon("lock"),
         hold: canWrite(target) ? { armed: () => asked() === 1, confirm: openIt, tap: () => { if (asked() === 0) closeIt(); }, verb: () => asked() === 1 ? "hold to open" : "close" } : null,
         status() {
           const now = doorState();
@@ -9247,6 +9328,7 @@ self.addEventListener("notificationclick", (event) => {
       node = frame(ctx, ...built(ctx, widget, primary, size), primary, size);
     }
     ctx.node = node;
+    if (Date.now() - swept > 5000) sweep();
     cards.add(ctx);
     return node;
   }

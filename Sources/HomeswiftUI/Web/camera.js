@@ -170,49 +170,59 @@
       const source = new MediaSourceType();
       const sourceURL = URL.createObjectURL(source);
       video.src = sourceURL;
-      signal.addEventListener("abort", () => { video.removeAttribute("src"); video.load(); URL.revokeObjectURL(sourceURL); });
-      await new Promise((resolve) => source.addEventListener("sourceopen", resolve, { once: true }));
-      if (signal.aborted) return true;
-      const buffer = source.addSourceBuffer(type);
-      const queue = [];
-      let lastTrim = 0;
-      const pump = () => {
-        if (buffer.updating || signal.aborted || source.readyState !== "open") return;
-        const ranges = buffer.buffered;
-        if (ranges.length) {
-          const end = ranges.end(ranges.length - 1);
-          // The live edge, not the past: a tab in the background or a slow network falls behind.
-          if (end - video.currentTime > MAX_LAG) video.currentTime = Math.max(ranges.start(ranges.length - 1), end - 0.5);
-          const start = ranges.start(0);
-          if (video.currentTime - start > KEEP * 1.5 && Date.now() - lastTrim > 10000) {
-            lastTrim = Date.now();
-            buffer.remove(start, video.currentTime - KEEP);
-            return;
-          }
-        }
-        const chunk = queue.shift();
-        if (!chunk) return;
-        try {
-          buffer.appendBuffer(chunk);
-        } catch (error) {
-          // Full: drop what was played and try again.
-          if (error.name === "QuotaExceededError" && ranges.length) { queue.unshift(chunk); buffer.remove(ranges.start(0), Math.max(ranges.start(0) + 0.1, video.currentTime - 2)); }
-          else throw error;
-        }
-      };
-      buffer.addEventListener("updateend", pump);
-      video.addEventListener("playing", () => { state.live = true; show("live"); }, { once: true });
+      // This attempt's own clean-up, once, when the view stops or the attempt ends: a camera that reconnects for
+      // hours does not pile up listeners on the run's signal, nor keep each attempt's MediaSource.
       const reader = response.body.getReader();
-      signal.addEventListener("abort", () => reader.cancel().catch(() => {}));
-      let started = false;
-      // Stalled: no new frame for a while, start again.
-      let lastTime = -1, stalledSince = Date.now();
-      const watchdog = setInterval(() => {
-        if (video.currentTime !== lastTime) { lastTime = video.currentTime; stalledSince = Date.now(); return; }
-        if (Date.now() - stalledSince > 10000) reader.cancel().catch(() => {});
-      }, 2000);
-      signal.addEventListener("abort", () => clearInterval(watchdog));
+      let watchdog = null, detached = false;
+      const detach = () => {
+        if (detached) return;
+        detached = true;
+        clearInterval(watchdog);
+        reader.cancel().catch(() => {});
+        video.removeAttribute("src");
+        video.load();
+        URL.revokeObjectURL(sourceURL);
+      };
+      signal.addEventListener("abort", detach, { once: true });
       try {
+        await new Promise((resolve) => source.addEventListener("sourceopen", resolve, { once: true }));
+        if (signal.aborted) return true;
+        const buffer = source.addSourceBuffer(type);
+        const queue = [];
+        let lastTrim = 0;
+        const pump = () => {
+          if (buffer.updating || signal.aborted || source.readyState !== "open") return;
+          const ranges = buffer.buffered;
+          if (ranges.length) {
+            const end = ranges.end(ranges.length - 1);
+            // The live edge, not the past: a tab in the background or a slow network falls behind.
+            if (end - video.currentTime > MAX_LAG) video.currentTime = Math.max(ranges.start(ranges.length - 1), end - 0.5);
+            const start = ranges.start(0);
+            if (video.currentTime - start > KEEP * 1.5 && Date.now() - lastTrim > 10000) {
+              lastTrim = Date.now();
+              buffer.remove(start, video.currentTime - KEEP);
+              return;
+            }
+          }
+          const chunk = queue.shift();
+          if (!chunk) return;
+          try {
+            buffer.appendBuffer(chunk);
+          } catch (error) {
+            // Full: drop what was played and try again.
+            if (error.name === "QuotaExceededError" && ranges.length) { queue.unshift(chunk); buffer.remove(ranges.start(0), Math.max(ranges.start(0) + 0.1, video.currentTime - 2)); }
+            else throw error;
+          }
+        };
+        buffer.addEventListener("updateend", pump);
+        video.addEventListener("playing", () => { state.live = true; show("live"); }, { once: true });
+        let started = false;
+        // Stalled: no new frame for a while, start again.
+        let lastTime = -1, stalledSince = Date.now();
+        watchdog = setInterval(() => {
+          if (video.currentTime !== lastTime) { lastTime = video.currentTime; stalledSince = Date.now(); return; }
+          if (Date.now() - stalledSince > 10000) reader.cancel().catch(() => {});
+        }, 2000);
         for (;;) {
           const { value, done } = await reader.read();
           if (done || signal.aborted) break;
@@ -220,10 +230,11 @@
           pump();
           if (!started) { started = true; video.play().catch(() => {}); }
         }
+        return true;
       } finally {
-        clearInterval(watchdog);
+        signal.removeEventListener("abort", detach);
+        detach();
       }
-      return true;
     }
 
     // ---- Running ----

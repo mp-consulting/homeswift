@@ -11,7 +11,8 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const path = (event.notification.data && event.notification.data.path) || "/";
-  const target = new URL(path.startsWith("/") ? path : "/", self.location.origin).href;
+  // A path on this origin only: "//host" and "/\host" would leave it.
+  const target = new URL(/^\/(?![/\\])/.test(path) ? path : "/", self.location.origin).href;
   event.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
     for (const client of windows) {
       if (new URL(client.url).origin === self.location.origin && "focus" in client) {

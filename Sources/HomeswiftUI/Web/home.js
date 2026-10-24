@@ -205,7 +205,7 @@
       run.addEventListener("click", async () => { await runScene(scene, run); });
       return el("div", { class: "card server scene-card" },
         el("div", { class: "server-head" }, tile("play", scene.security ? "violet" : "orange"),
-          el("div", { class: "who" }, el("a", { class: "card-title", href: `/scenes/${scene.id}` }, el("strong", { text: scene.name })),
+          el("div", { class: "who" }, el("a", { class: "card-title", href: `/scenes/${encodeURIComponent(scene.id)}` }, el("strong", { text: scene.name })),
             el("div", { class: "muted", text: scene.triggers.length ? scene.triggers.map((t) => describeTrigger(t, names)).join(" · ") : "Run by hand" })),
           run),
         el("div", { class: "controls" }, actions), more,
@@ -213,10 +213,10 @@
         el("div", { class: "card-foot" }, el("span", { class: "muted", text: scene.lastSkipped && (!scene.lastRun || scene.lastSkipped.at > scene.lastRun.at) ? `Skipped ${dateTimeFormat.format(new Date(scene.lastSkipped.at))}: ${scene.lastSkipped.reason}` : last }),
           menuButton(`Actions for ${scene.name}`, () => [
             { label: "Run", icon: "play", onSelect: () => runScene(scene) },
-            { label: "Edit", icon: "edit", href: `/scenes/${scene.id}` },
+            { label: "Edit", icon: "edit", href: `/scenes/${encodeURIComponent(scene.id)}` },
             { label: "Delete", icon: "trash", danger: true, onSelect: async () => {
               if (!confirm(`Delete the scene ${scene.name}?`)) return;
-              try { await app.api(`/api/scenes/${scene.id}`, { method: "DELETE" }); app.route(); } catch (e) { alert(e.message); }
+              try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.route(); } catch (e) { alert(e.message); }
             } },
           ])));
     };
@@ -468,11 +468,11 @@
       const body = { name: name.value.trim(), actions: [...actions].map((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()) };
       save.disabled = true;
       try {
-        const saved = await app.api(isNew ? "/api/scenes" : `/api/scenes/${scene.id}`, { method: isNew ? "POST" : "PUT", body });
+        const saved = await app.api(isNew ? "/api/scenes" : `/api/scenes/${encodeURIComponent(scene.id)}`, { method: isNew ? "POST" : "PUT", body });
         const security = saved.actions.some((a) => a.security);
         if (security && body.triggers.some((t) => t.enabled !== false)) {
           say(line, "Saved. Its lock, door or alarm actions run only when you run it here: automations leave them out.", "ok");
-          if (isNew) setTimeout(() => app.navigate(`/scenes/${saved.id}`, { replace: true }), 1500);
+          if (isNew) setTimeout(() => app.navigate(`/scenes/${encodeURIComponent(saved.id)}`, { replace: true }), 1500);
         } else {
           app.navigate("/scenes");
         }
@@ -490,7 +490,7 @@
         isNew ? null : el("span", { class: "spacer" }),
         isNew ? null : el("button", { type: "button", class: "danger", text: "Delete", onclick: async () => {
           if (!confirm(`Delete the scene ${scene.name}?`)) return;
-          try { await app.api(`/api/scenes/${scene.id}`, { method: "DELETE" }); app.navigate("/scenes"); } catch (e) { say(line, e.message, "error"); }
+          try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.navigate("/scenes"); } catch (e) { say(line, e.message, "error"); }
         } })),
       line);
     app.show(main, app.breadcrumb(["Scenes", "/scenes"], [isNew ? "New scene" : scene.name]), form);
@@ -587,7 +587,7 @@
     const others = el("div", {}, settings.subscriptions.map((sub) => el("div", { class: "control" },
       el("span", { text: `${sub.label}${sub.username ? ` · ${sub.username}` : ""}` }),
       el("button", { class: "link", text: "Remove", onclick: async () => {
-        try { await app.api(`/api/notifications/push/subscriptions/${sub.id}`, { method: "DELETE" }); app.route(); } catch (e) { say(line, e.message, "error"); }
+        try { await app.api(`/api/notifications/push/subscriptions/${encodeURIComponent(sub.id)}`, { method: "DELETE" }); app.route(); } catch (e) { say(line, e.message, "error"); }
       } }))));
     if (!pushSupported()) {
       box.append(el("p", { class: "muted note", text: window.isSecureContext ? "This browser cannot receive push notifications." : "Open this page over HTTPS (the HomeswiftUI block's https) or on localhost to turn them on here." }), others);
