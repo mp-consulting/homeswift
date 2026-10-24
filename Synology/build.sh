@@ -3,7 +3,7 @@
 #
 #   Synology/build.sh                  x86_64 and aarch64, the binaries built in Docker (Synology/Dockerfile)
 #   Synology/build.sh aarch64          one architecture
-#   BINARIES=dir Synology/build.sh     binaries built already, in dir/<arch>/bin and dir/<arch>/lib
+#   BINARIES=dir Synology/build.sh     binaries built already, in dir/<arch>/bin (homeswift, ffmpeg) and dir/<arch>/lib
 #
 # An .spk is a tar of INFO, package.tgz (what lands in /var/packages/homeswift/target), the scripts, the
 # DSM configuration, the wizard and the icons. No Synology toolchain is needed: the binary comes from
@@ -56,7 +56,7 @@ for arch in ${*:-x86_64 aarch64}; do
     fi
     cp -R Synology/package/. "$work/package/"
     find "$work" -name .DS_Store -delete
-    chmod 755 "$work/package/bin/homeswift" "$work/package/app/homeswift" "$work/package/app/"*.sh
+    chmod 755 "$work/package/bin/"* "$work/package/app/homeswift" "$work/package/app/"*.sh
 
     # shellcheck disable=SC2086
     tar $TAR_OPTIONS -czf "$work/spk/package.tgz" -C "$work/package" .

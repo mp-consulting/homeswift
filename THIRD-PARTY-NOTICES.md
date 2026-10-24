@@ -103,7 +103,7 @@ licence files, which `Scripts/collect-licenses.sh` and `Synology/bundle-librarie
 | This file, `LICENSE` and `LICENSES/` | | `/usr/share/doc/homeswift` in the image, `share/doc/homeswift` in the package |
 | The Swift packages compiled in: swift-nio, swift-nio-ssl and swift-crypto (with BoringSSL), swift-log, swift-asn1, swift-atomics, swift-collections, swift-system | Apache-2.0, and BoringSSL's terms named in their NOTICE files | `packages/` next to it, each package's `LICENSE` and `NOTICE` |
 | Avahi's dns_sd compatibility library, avahi-client, avahi-common and D-Bus (Synology package only, in `lib/`) | LGPL-2.1+, AFL-2.1 or GPL-2.0+ | `libraries/`: D-Bus's licence file, the package versions and where their sources are; the LGPL-2.1 text in `LICENSES/LGPL-2.1.txt` |
-| FFmpeg (container image only) | GPL-3.0 | `/usr/share/doc/ffmpeg-for-homeswift` |
+| FFmpeg (ffmpeg-for-homeswift, with x264, Opus and OpenSSL) | GPL-3.0 | `/usr/share/doc/ffmpeg-for-homeswift` in the image, `share/doc/ffmpeg-for-homeswift` in the package |
 
 The Swift runtime and Foundation are linked in under the Apache-2.0 Runtime Library Exception, which asks for no
 notice in a binary.
