@@ -281,14 +281,14 @@ struct CommandDispatcherTests {
     @Test @EWeLinkActor func theQueueDropsTheOldestBeyondItsSize() async throws {
         let queue = CommandQueue(minInterval: 0, concurrency: 1, maxSize: 2, clock: testClock)
         let gate = NIOLockedValueBox(false)
+        // Each command is in the queue before the next is sent: tasks started together may run in any order.
         let running = Task { try await queue.enqueue("a") { while !gate.withLockedValue({ $0 }) { try await Task.sleep(for: .milliseconds(5)) }; return true } }
-        try await Task.sleep(for: .milliseconds(20))
+        #expect(await eventually { await queue.activeCount == 1 })
         let second = Task { try await queue.enqueue("b") { true } }
-        try await Task.sleep(for: .milliseconds(10))
+        #expect(await eventually { await queue.queuedCount == 1 })
         let third = Task { try await queue.enqueue("c") { true } }
-        try await Task.sleep(for: .milliseconds(10))
+        #expect(await eventually { await queue.queuedCount == 2 })
         let fourth = Task { try await queue.enqueue("d") { true } }
-        try await Task.sleep(for: .milliseconds(10))
         await #expect(throws: CommandQueue.OverflowError.self) { try await second.value }
         gate.withLockedValue { $0 = true }
         let results = (try await running.value, try await third.value, try await fourth.value)
@@ -297,7 +297,7 @@ struct CommandDispatcherTests {
         let blocked = CommandQueue(minInterval: 10_000, concurrency: 1, clock: testClock)
         _ = try await blocked.enqueue("x") { true }
         let waiting = Task { try await blocked.enqueue("y") { true } }
-        try await Task.sleep(for: .milliseconds(10))
+        #expect(await eventually { await blocked.queuedCount == 1 })
         blocked.clear()
         await #expect(throws: EWeLinkError("Queue cleared")) { try await waiting.value }
     }
