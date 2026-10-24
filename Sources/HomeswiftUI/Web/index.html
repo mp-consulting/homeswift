@@ -40,11 +40,9 @@
       <a href="/config">Config</a>
       <a href="/logs">Logs</a>
       <a href="/settings">Settings</a>
-      <a href="/users">Users</a>
     </nav>
     <span class="spacer"></span>
-    <a id="user" href="/account" title="Your account: change the password"></a>
-    <button id="logout" class="link">Sign out</button>
+    <button id="user" type="button" class="user-button" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu"><span class="user-avatar" aria-hidden="true"></span><span class="user-name"></span></button>
   </header>
   <div id="banner" class="banner hidden">Some changes need a restart of homeswift. <button id="restart" class="link">Restart now</button></div>
   <main id="view"></main>

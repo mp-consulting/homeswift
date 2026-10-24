@@ -208,7 +208,7 @@ settings, config.json, the log, pairing codes, restarts, users and tokens are re
 page shows. The role is read at every request, so a change applies at once. The first account is an
 administrator, and so is the account of a `ui-users.json` from before roles.
 
-**Users** (`/users`, in the header for administrators, and from **Account**) shows a card per user: their name,
+**Users** (`/users`, in the account menu for administrators, and from **Account**) shows a card per user: their name,
 username, role, whether two-factor authentication is on, and a **⋯** menu to edit them (the name shown, the
 role, a new password, which signs them out everywhere) or remove them (signed out at once). **Add user** asks
 for a username, a name and a password (the same rules as everyone's). The last administrator can be neither
@@ -389,7 +389,7 @@ estimated entropy, the guide's "moyen à fort" level for a 90-character set (tab
 1024 bytes. The estimate is the guide's length × log₂(character set); since the guide warns it only holds for
 random characters, repeated or sequential characters, common words and the username earn nothing. The server
 checks (`PasswordPolicy`); the pages show a gauge with the guide's bands (65, 85, 100 bits) while you type. A
-passphrase of several random words is the easy way over the bar. **Account**, behind your name in the header,
+passphrase of several random words is the easy way over the bar. **Account**, in the menu behind your initial at the header's right end (with Appearance, Users and Sign out),
 changes the password; the other browsers signed in as you are then signed out.
 
 ## Working on the pages
