@@ -52,6 +52,8 @@ extension LGThinQPlugin {
         "integrations); \"Internal Server Error\" or connection errors are LG outages. The MQTT client key, its certificate request and the models",
         "are kept in the plugin's directory under the Homeswift configuration directory (plugins/<platform>-<name>/persist, such as",
         "~/.homeswift/plugins/LGThinQ-LG-ThinQ/persist). An appliance shown offline is not connected to LG's cloud (Wi-Fi, power, or removed",
-        "from the ThinQ app). Never ask the user for their password, refresh token or API keys.",
+        "from the ThinQ app). An air conditioner's humidity sensor (ac_humidity_sensor) reads 0 % and is marked inactive (Status Active off)",
+        "while the AC is off, because LG reports humidity only while it runs: that is expected, not a fault. Never ask the user for their",
+        "password, refresh token or API keys.",
     ].joined(separator: " ")
 }
