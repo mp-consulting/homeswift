@@ -89,7 +89,9 @@
   root.classList.add('i18n-pending');
   const reveal = () => root.classList.remove('i18n-pending');
   setTimeout(reveal, 1500); // a catalog that fails to load leaves the page in English rather than blank
-  if (document.readyState === 'loading') document.write(`<script src="i18n-${language}.js"><\/script>`);
+  // The catalog takes this script's own query (?v=<commit>, added at deploy), so a cache never pairs them across deploys.
+  const version = document.currentScript ? new URL(document.currentScript.src).search : '';
+  if (document.readyState === 'loading') document.write(`<script src="i18n-${language}.js${version}"><\/script>`);
   // 'interactive' comes after parsing and before deferred scripts run, so they read translated text.
   const done = () => { translate(); reveal(); };
   if (document.readyState === 'loading') document.addEventListener('readystatechange', done, { once: true });
