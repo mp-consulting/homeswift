@@ -225,4 +225,25 @@ struct AdminToolTests {
         _ = try await environment.catalog.restoreConfigBackup(name)
         #expect(try environment.catalog.readConfig()["platforms"]?[0]?["token"] == "secret-token")
     }
+
+    @Test func turningTheMCPServerOnMakesItsToken() throws {
+        let environment = try MCPTestEnvironment(config: """
+            {
+              "bridge": { "name": "Test Bridge", "username": "0E:11:22:33:44:55", "pin": "031-45-154", "port": 0 },
+              "platforms": [
+                { "platform": "Devices", "name": "Devices" },
+                { "platform": "HomeswiftAiKit", "mcp": { "http": { "enabled": true, "port": 18583 } } }
+              ]
+            }
+            """)
+        let updated = try #require(try environment.catalog.addMissingMCPToken())
+        let token = try #require(try environment.catalog.readConfig()["platforms"]?[1]?["mcp"]?["http"]?["token"]?.stringValue)
+        #expect(!token.isEmpty)
+        #expect(try MCPConfiguration(block: try #require(try updated.block(for: AIConfiguration.platform))).token == token)
+        #expect(try environment.catalog.readConfig()["platforms"]?[1]?["mcp"]?["http"]?["port"] == 18583)
+        #expect(environment.catalog.configBackupsJSON()["backups"]?.arrayValue?.count == 1)
+        // Once it has one, and with the server off, nothing changes.
+        #expect(try environment.catalog.addMissingMCPToken() == nil)
+        #expect(try MCPTestEnvironment().catalog.addMissingMCPToken() == nil)
+    }
 }

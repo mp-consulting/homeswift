@@ -53,12 +53,20 @@ enum MCPCommands {
         await proxy.run(input: StdioProxy.lines(from: .standardInput)) { FileHandle.standardOutput.write($0) }
     }
 
-    /// The bridge's MCP server, when the HomeswiftAiKit block enables it.
-    static func startServer(catalog: HomeswiftCatalog, configuration: HomeswiftConfiguration, logger: Logger) async -> MCPHTTPServer? {
-        guard let block = mcpBlock(configuration) else { return nil }
+    /// The bridge's MCP server, when the HomeswiftAiKit block enables it, and the configuration it started with: the
+    /// first time the server is turned on without a client token, the catalog makes one and saves it in config.json.
+    static func startServer(catalog: HomeswiftCatalog, configuration: HomeswiftConfiguration, logger: Logger) async -> (server: MCPHTTPServer?, configuration: HomeswiftConfiguration) {
+        var configuration = configuration
+        guard var block = mcpBlock(configuration) else { return (nil, configuration) }
         do {
-            let mcp = try MCPConfiguration(block: block)
-            guard mcp.enabled else { return nil }
+            var mcp = try MCPConfiguration(block: block)
+            guard mcp.enabled else { return (nil, configuration) }
+            if !mcp.hasTokens, let updated = try catalog.addMissingMCPToken(), let updatedBlock = mcpBlock(updated) {
+                configuration = updated
+                block = updatedBlock
+                mcp = try MCPConfiguration(block: block)
+                logger.info("MCP server turned on without a client token: made one and saved it in config.json (mcp.http.token); homeswift mcp --snippets shows how to connect a client")
+            }
             let environment = ProcessInfo.processInfo.environment
             var options = MCPServer.Options(version: PluginHost.version, instructions: HomeswiftCatalog.instructions)
             options.elicitation = environment["HOMESWIFT_ELICITATION"] != "false"
@@ -72,10 +80,10 @@ enum MCPCommands {
             let transport = MCPHTTPServer(server: server, configuration: mcp, options: transportOptions)
             transport.onStop { observations.forEach { $0.cancel() } }
             try await transport.start()
-            return transport
+            return (transport, configuration)
         } catch {
             logger.error("MCP server not started: \(error)")
-            return nil
+            return (nil, configuration)
         }
     }
 }
