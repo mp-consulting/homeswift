@@ -190,7 +190,7 @@ struct PlatformTests {
             ["name": "Shade", "remote_type": "5", "buttonName": [["3": "Open"], ["4": "Stop"], ["5": "Close"]]],
         ]]])
         let host = try await environment.start(devices: [bridge], settings: [
-            "mode": "wan", "rfDevices": [["deviceId": "1000dddddd", "subdevices": [["index": 2, "showAs": "contact", "resetTime": 1]]]],
+            "mode": "wan", "rfDevices": [["deviceId": "1000dddddd", "subdevices": [["index": 2, "showAs": "contact", "resetTime": 3]]]],
             "bridgeSensors": [["fullDeviceId": "1000ddddddSW4", "curtainType": "blind"]],
         ])
         #expect(environment.accessory(host, "1000dddddd") == nil)
@@ -208,6 +208,7 @@ struct PlatformTests {
         environment.push("1000dddddd", ["cmd": "transmit", "rfChl": 0])
         #expect(await eventually { remote.service(.switch, subtype: "switch0")?[.on]?.value == true })
         environment.push("1000dddddd", ["cmd": "trigger", "rfTrig2": .string(ISO8601DateFormatter().string(from: testClock.now))])
+        // Open for three seconds: a loaded test machine still sees it before it closes again.
         #expect(await eventually { hall[.contactSensorState]?.value == 1 })
         #expect(await eventually { hall[.contactSensorState]?.value == 0 })
         await host.stop()
