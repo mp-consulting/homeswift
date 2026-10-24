@@ -24,6 +24,30 @@ import Testing
         #expect(store.isAdmin("rosaly"))
     }
 
+    /// `homeswift users add`, as the Synology installer runs it for the first account: that account is an
+    /// administrator; a later one is one only when asked.
+    @Test func makesTheFirstAccountAddedAnAdministrator() throws {
+        let store = UserStore(url: temporaryURL("ui-users"), iterations: 1000)
+        #expect(try store.create(username: "rosaly", password: "correct horse battery").admin)
+        #expect(try !store.create(username: "milo", password: "battery staple lamp").admin)
+        #expect(try store.create(username: "ada", password: "lamp battery horse", admin: true).admin)
+    }
+
+    /// An install made before that rule: users, no administrator. The first is promoted when the file loads.
+    @Test func promotesTheFirstUserOfAFileWithoutAnAdministrator() throws {
+        let url = temporaryURL("ui-users")
+        let store = UserStore(url: url, iterations: 1000)
+        try store.create(username: "rosaly", password: "correct horse battery")
+        try store.create(username: "milo", password: "battery staple lamp")
+        var users = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [[String: Any]])
+        for index in users.indices { users[index]["admin"] = false }
+        try JSONSerialization.data(withJSONObject: users).write(to: url)
+        let reloaded = UserStore(url: url, iterations: 1000)
+        #expect(reloaded.isAdmin("rosaly") && !reloaded.isAdmin("milo"))
+        // Saved: the next load finds it so.
+        #expect(UserStore(url: url, iterations: 1000).isAdmin("rosaly"))
+    }
+
     @Test func keepsAnAdministrator() throws {
         let store = UserStore(url: temporaryURL("ui-users"), iterations: 1000)
         try store.createFirst(username: "rosaly", password: "correct horse battery")

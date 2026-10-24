@@ -23,6 +23,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Web UI accounts: the first account is an administrator however it is added. `homeswift users add`, which the
+  Synology installer runs for the first account, made an ordinary user, so a new install had no administrator and
+  nobody could open Plugins, Config, Settings or Users. A bridge whose accounts have no administrator promotes the
+  first one when it starts, which mends the installs made so far. `homeswift users add <name> --admin` makes a
+  later account an administrator.
 - Synology package and container image: the bridge runs with `MALLOC_ARENA_MAX=2`. With cameras recording to
   HomeKit Secure Video, the livestreams spread over glibc's per-thread heaps (up to eight per core), which keep
   what is freed. On a DS1522+ with three recording cameras, the bridge went from about 185 MB to 170 MB and

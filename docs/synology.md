@@ -66,7 +66,7 @@ identity make the Home app drop the pairing. Copy the `platforms` instead.
 sudo homeswift logs -f                    # the log, as the web UI's Logs page shows it
 sudo homeswift restart                    # also start, stop and status
 sudo homeswift users password admin       # a forgotten web UI password: type a new one
-sudo homeswift users add alice            # another account; restart for the web UI to know it
+sudo homeswift users add alice            # another account (--admin: an administrator); restart for the web UI to know it
 sudo homeswift ask "Why is the TV not responding?"
 ```
 

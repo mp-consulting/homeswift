@@ -7,7 +7,9 @@ import HomeswiftUI
 enum UsersCommands {
     static let usage = """
         usage: homeswift users list
-               homeswift users add <username>        the password on standard input
+               homeswift users add <username> [--admin]
+                                                     the password on standard input; the first account is an
+                                                     administrator, a later one with --admin
                homeswift users password <username>   sets it without the current one, from standard input
                homeswift users check <username>      checks a password on standard input against the policy
         A running bridge reads the accounts when it starts: restart it after a change.
@@ -18,9 +20,9 @@ enum UsersCommands {
         switch (arguments.first, arguments.count) {
         case ("list", 1):
             store.usernames.forEach { say($0) }
-        case ("add", 2):
-            try store.create(username: arguments[1], password: readPassword())
-            say("Added \(arguments[1].trimmingCharacters(in: .whitespaces)); restart the bridge for the web UI to know it.")
+        case ("add", 2), ("add", 3) where arguments[2] == "--admin":
+            let user = try store.create(username: arguments[1], password: readPassword(), admin: arguments.count == 3)
+            say("Added \(user.username)\(user.admin ? ", an administrator" : ""); restart the bridge for the web UI to know it.")
         case ("password", 2):
             guard store.contains(arguments[1]) else { throw CommandError("no user \(arguments[1]); homeswift users list shows them") }
             try store.resetPassword(username: arguments[1], to: readPassword())
