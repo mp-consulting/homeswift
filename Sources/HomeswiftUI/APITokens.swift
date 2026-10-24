@@ -49,7 +49,7 @@ public final class APITokenStore: Sendable {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard (1...64).contains(name.count), !name.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) else { throw AuthError.invalidTokenName }
         if let days, !(1...Self.maximumDays).contains(days) { throw AuthError.invalidExpiry }
-        let value = Self.prefix + Self.base64URL(Secrets.randomBytes(32))
+        let value = Self.prefix + Secrets.randomToken()
         let token = Token(
             id: UUID().uuidString.lowercased(), name: name, scope: scope, hash: SessionStore.key(for: value), created: now,
             expires: days.map { now.addingTimeInterval(TimeInterval($0) * 86_400) }, lastUsed: nil, createdBy: createdBy)
@@ -71,14 +71,14 @@ public final class APITokenStore: Sendable {
         }
     }
 
-    /// The token a bearer value is, unless it is unknown, revoked or expired; notes its use.
-    public func validate(_ presented: String, now: Date = Date()) -> Token? {
+    /// The token a bearer value is, unless it is unknown, revoked or expired; notes its use unless `noteUse` is false.
+    public func validate(_ presented: String, now: Date = Date(), noteUse: Bool = true) -> Token? {
         guard presented.hasPrefix(Self.prefix), presented.utf8.count <= 128 else { return nil }
         let hash = SessionStore.key(for: presented)
         return state.withLockedValue { tokens -> Token? in
             guard let index = tokens.firstIndex(where: { $0.hash == hash }) else { return nil }
             if let expires = tokens[index].expires, expires <= now { return nil }
-            if tokens[index].lastUsed.map({ now.timeIntervalSince($0) >= Self.lastUsedInterval }) ?? true {
+            if noteUse, tokens[index].lastUsed.map({ now.timeIntervalSince($0) >= Self.lastUsedInterval }) ?? true {
                 tokens[index].lastUsed = now
                 try? save(tokens)
             }
@@ -88,9 +88,5 @@ public final class APITokenStore: Sendable {
 
     private func save(_ tokens: [Token]) throws {
         try OwnerOnlyFile.write(JSONEncoder().encode(tokens), to: url)
-    }
-
-    static func base64URL(_ data: Data) -> String {
-        data.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
     }
 }

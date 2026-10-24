@@ -49,6 +49,23 @@ final class CameraViewers: Sendable {
     func count(_ id: String) -> Int { counts.withLockedValue { $0[id] ?? 0 } }
 }
 
+/// The snapshot each camera is taking: a request while one is under way waits for it, whatever size it asked for,
+/// rather than starting another (an FFmpeg each, for many plugins), so tabs and scripts cannot pile them up.
+final class CameraSnapshots: Sendable {
+    private let running = NIOLockedValueBox<[String: Task<Data, any Error>]>([:])
+
+    func take(_ id: String, _ make: @escaping @Sendable () async throws -> Data) async throws -> Data {
+        let task = running.withLockedValue { running in
+            if let task = running[id] { return task }
+            let task = Task { try await make() }
+            running[id] = task
+            return task
+        }
+        defer { running.withLockedValue { if $0[id] == task { $0[id] = nil } } }
+        return try await task.value
+    }
+}
+
 extension UIServer {
     /// Headers that keep a proxy or the browser from replaying old frames.
     static let noCache = ["Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"]
@@ -65,7 +82,7 @@ extension UIServer {
             let width = min(max(request.query["width"].flatMap { Int($0) } ?? 1280, 64), 3840)
             let height = min(max(request.query["height"].flatMap { Int($0) } ?? width * 9 / 16, 36), 2160)
             do {
-                let image = try await camera.previewSnapshot(width: width, height: height)
+                let image = try await cameraSnapshots.take(id) { try await camera.previewSnapshot(width: width, height: height) }
                 return .data(status: 200, contentType: "image/jpeg", body: image, headers: Self.noCache)
             } catch {
                 logger.debug("Web UI snapshot failed", metadata: ["accessory": "\(name)", "error": "\(error)"])
