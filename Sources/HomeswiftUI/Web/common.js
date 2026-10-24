@@ -17,6 +17,15 @@
       else node[key] = value;
     }
     for (const child of children.flat()) if (child != null) node.append(child.nodeType ? child : document.createTextNode(String(child)));
+    // A search field as iOS's: no capitals or corrections, a Search key, and on a touch screen that key puts the
+    // keyboard away (the results are already there).
+    if (tag === "input" && node.type === "search") {
+      node.setAttribute("enterkeyhint", "search");
+      node.setAttribute("autocapitalize", "none");
+      node.setAttribute("autocorrect", "off");
+      node.spellcheck = false;
+      node.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.isComposing && matchMedia("(pointer: coarse)").matches) node.blur(); });
+    }
     return node;
   };
 
@@ -26,6 +35,7 @@
     child: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/>',
     accessory: '<rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/>',
     system: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
+    grid: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/>',
     bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/>',
     switch: '<rect x="6" y="3" width="12" height="18" rx="3"/><circle cx="12" cy="9" r="2"/>',
     outlet: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M10 9v2M14 9v2M10 15h4"/>',
@@ -266,15 +276,27 @@
       return node;
     });
     const entries = nodes.filter((node) => node.getAttribute("role")?.startsWith("menuitem"));
-    const list = el("div", { class: "menu", role: "menu", tabIndex: -1, "aria-label": trigger.getAttribute("aria-label") || "Actions" }, nodes);
+    // On a phone a card's menu is an action sheet over a dimmed page, at the bottom within the thumb's reach, as
+    // iOS's; the header's (the account) still drops down from its button.
+    const sheet = matchMedia("(max-width: 640px)").matches && !trigger.closest("header");
+    const list = el("div", { class: `menu${sheet ? " sheet-menu" : ""}`, role: "menu", tabIndex: -1, "aria-label": trigger.getAttribute("aria-label") || "Actions" }, nodes);
+    const scrim = sheet ? el("div", { class: "menu-scrim", "aria-hidden": "true" }) : null;
+    // A sheet's grabber: a swipe down from it puts the sheet away, as the scrim's tap does.
+    if (sheet) {
+      list.prepend(el("div", { class: "sheet-grabber", "aria-hidden": "true" }));
+      dragToDismiss(list, { vertical: () => true, dismiss: () => close(true), handle: ".sheet-grabber" });
+    }
+    if (scrim) document.body.append(scrim);
     document.body.append(list);
-    // Under the button, its right edges aligned, inside the window; above it when there is no room below.
-    const box = trigger.getBoundingClientRect();
-    const width = list.offsetWidth, height = list.offsetHeight;
-    const below = box.bottom + 6 + height < innerHeight;
-    list.style.left = `${Math.max(8, Math.min(innerWidth - width - 8, box.right - width))}px`;
-    list.style.top = `${below ? box.bottom + 6 : box.top - 6 - height}px`;
-    list.style.transformOrigin = `${box.right - parseFloat(list.style.left) - box.width / 2}px ${below ? "0" : "100%"}`;
+    if (!sheet) {
+      // Under the button, its right edges aligned, inside the window; above it when there is no room below.
+      const box = trigger.getBoundingClientRect();
+      const width = list.offsetWidth, height = list.offsetHeight;
+      const below = box.bottom + 6 + height < innerHeight;
+      list.style.left = `${Math.max(8, Math.min(innerWidth - width - 8, box.right - width))}px`;
+      list.style.top = `${Math.max(8, below ? box.bottom + 6 : box.top - 6 - height)}px`;
+      list.style.transformOrigin = `${box.right - parseFloat(list.style.left) - box.width / 2}px ${below ? "0" : "100%"}`;
+    }
     trigger.setAttribute("aria-expanded", "true");
     const focusAt = (index) => entries[(index + entries.length) % entries.length]?.focus();
     const onKey = (event) => {
@@ -295,7 +317,8 @@
       removeEventListener("resize", onResize);
       trigger.setAttribute("aria-expanded", "false");
       list.classList.add("closing");
-      setTimeout(() => list.remove(), 160);
+      scrim?.classList.add("closing");
+      setTimeout(() => { list.remove(); scrim?.remove(); }, 200);
       if (!quietly) trigger.focus({ preventScroll: true });
     }
     const onResize = () => close(true);
@@ -304,6 +327,55 @@
     addEventListener("resize", onResize);
     openMenu = { trigger, list, close };
     if (keyboard) focusAt(0); else list.focus({ preventScroll: true });
+  }
+
+  /// A touch drags a panel or a sheet out along its edge (right, or down on a phone), 1:1 from where it was grabbed,
+  /// with resistance the other way. Released, it goes where it was heading: Apple's projection of the flick from its
+  /// velocity; past 40% of its size it leaves, otherwise it settles back. A field or a button keeps the touch for
+  /// itself.
+  function dragToDismiss(dialog, { vertical, dismiss, handle }) {
+    const project = (velocity, rate = 0.998) => (velocity / 1000) * rate / (1 - rate);   // px/s to px
+    const rubber = (over, size) => (over * size * 0.55) / (size + 0.55 * Math.abs(over));
+    let drag = null;
+    dialog.addEventListener("pointerdown", (event) => {
+      if (event.pointerType === "mouse" || event.target.closest("input, select, textarea, button, a, label")) return;
+      // On a phone the sheet scrolls: a downward drag starts on its `handle` only (the grabber, the title).
+      if (vertical() && !event.target.closest(handle)) return;
+      drag = { id: event.pointerId, x: event.clientX, y: event.clientY, axis: vertical() ? "y" : "x", moving: false, samples: [] };
+    });
+    dialog.addEventListener("pointermove", (event) => {
+      if (!drag || event.pointerId !== drag.id) return;
+      const along = drag.axis === "y" ? event.clientY - drag.y : event.clientX - drag.x;
+      const across = drag.axis === "y" ? event.clientX - drag.x : event.clientY - drag.y;
+      if (!drag.moving) {
+        if (Math.abs(along) < 10 && Math.abs(across) < 10) return;   // hysteresis before choosing
+        if (Math.abs(across) > Math.abs(along)) { drag = null; return; }   // a scroll or a swipe the other way
+        drag.moving = true;
+        try { dialog.setPointerCapture(event.pointerId); } catch { /* a pointer that has already gone */ }
+        dialog.style.transition = "none";
+      }
+      const size = drag.axis === "y" ? dialog.offsetHeight : dialog.offsetWidth;
+      const offset = along >= 0 ? along : rubber(along, size);
+      dialog.style.transform = drag.axis === "y" ? `translateY(${offset}px)` : `translateX(${offset}px)`;
+      drag.samples.push([along, event.timeStamp]);
+      if (drag.samples.length > 5) drag.samples.shift();
+    });
+    const release = (event) => {
+      if (!drag || event.pointerId !== drag.id) return;
+      const { moving, samples, axis } = drag;
+      drag = null;
+      if (!moving) return;
+      const [first, last] = [samples[0], samples[samples.length - 1]];
+      const velocity = first && last && last[1] > first[1] ? ((last[0] - first[0]) / (last[1] - first[1])) * 1000 : 0;
+      const position = last ? Math.max(0, last[0]) : 0;
+      const size = axis === "y" ? dialog.offsetHeight : dialog.offsetWidth;
+      // The snappier of Apple's two rates: a panel thrown aside, not a page scrolled.
+      if (position + project(velocity, 0.99) > size * 0.4) { dismiss(); return; }
+      dialog.style.transition = "transform 300ms cubic-bezier(0.32, 0.72, 0, 1)";
+      dialog.style.transform = "";
+    };
+    dialog.addEventListener("pointerup", release);
+    dialog.addEventListener("pointercancel", release);
   }
 
   /// A round icon button that opens `menu` with what `items()` gives when pressed.
@@ -684,7 +756,7 @@
   const formatTemperature = (celsius) => { const { value, unit } = temperature(celsius); return `${value} ${unit}`; };
 
   window.HomeswiftCommon = {
-    $, el, icon, tile, fact, markdown, sparkle, api, menu, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
+    $, el, icon, tile, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature,
   };
 })();

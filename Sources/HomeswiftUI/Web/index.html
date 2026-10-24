@@ -21,12 +21,12 @@
     <img src="/icon.svg" class="logo large" alt="">
     <h1>Homeswift</h1>
     <p id="auth-text"></p>
-    <label>Username <input name="username" autocomplete="username" required></label>
+    <label>Username <input name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required></label>
     <label>Password <input name="password" type="password" autocomplete="current-password" required minlength="1"></label>
     <label id="auth-otp" class="hidden">Code from your authenticator app <input name="otp" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" placeholder="123 456" maxlength="9"></label>
     <label id="auth-setup-code" class="hidden">Set-up code <input name="setupCode" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX"></label>
     <p class="error" id="auth-error"></p>
-    <button type="submit" id="auth-submit">Sign in</button>
+    <button type="submit" id="auth-submit" class="primary">Sign in</button>
   </form>
 </div>
 <div id="app" class="hidden">

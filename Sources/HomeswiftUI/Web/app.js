@@ -123,6 +123,8 @@
       { label: form ? "Your account" : "Account", icon: "user", href: "/account" },
       { label: "Appearance", icon: "sliders", href: "/appearance" },
       form && isAdmin() ? { label: "Users and tokens", icon: "users", href: "/users" } : null,
+      // A phone's tab bar has no room for Settings: it is here, as the header holds it on a wider window.
+      isAdmin() && matchMedia("(max-width: 640px)").matches ? { label: "Settings", icon: "gear", href: "/settings" } : null,
       form ? { separator: true } : null,
       form ? { label: "Sign out", icon: "logout", onSelect: signOut } : null,
     ], { keyboard: event.detail === 0 });
@@ -345,11 +347,13 @@
           el("p", { class: `health ${healthKind}`, text: health }),
           el("p", { class: "muted", text: `Version ${status.version} · ${status.system.hostname}` }))),
       updateCard(status.update),
+      // Each figure with its glyph; on a phone the four share one row, "Home app controllers" shortened.
       el("div", { class: "stats" },
-        el("div", { class: "stat" }, el("b", { text: status.bridges.reduce((sum, bridge) => sum + bridge.accessories, 0) }), el("span", { text: "Accessories" })),
-        el("div", { class: "stat" }, el("b", { text: plugins.size }), el("span", { text: plugins.size === 1 ? "Plugin" : "Plugins" })),
-        el("div", { class: "stat" }, el("b", { text: main0 ? main0.controllers : 0 }), el("span", { text: "Home app controllers" })),
-        el("div", { class: "stat" }, el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: "Up" })))],
+        el("a", { class: "stat", href: "/accessories" }, HomeswiftCommon.icon("bulb"), el("b", { text: status.bridges.reduce((sum, bridge) => sum + bridge.accessories, 0) }), el("span", { text: "Accessories" })),
+        el(isAdmin() ? "a" : "div", { class: "stat", href: isAdmin() ? "/plugins" : null }, HomeswiftCommon.icon("plugin"), el("b", { text: plugins.size }), el("span", { text: plugins.size === 1 ? "Plugin" : "Plugins" })),
+        el("div", { class: "stat", title: "Home app controllers" }, HomeswiftCommon.icon("users"), el("b", { text: main0 ? main0.controllers : 0 }),
+          el("span", { class: "long", text: "Home app controllers" }), el("span", { class: "short", "aria-hidden": "true", text: "Controllers" })),
+        el("div", { class: "stat" }, HomeswiftCommon.icon("history"), el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: "Up" })))],
       quick: () => window.HomeswiftHome?.quickSection(accessories),
       digest: () => status.assistant ? digestWidget() : null,
       activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
@@ -372,7 +376,7 @@
     show(main,
       layout.order.filter((id) => !layout.hidden.includes(id)).map((id) => {
         const nodes = [widgets[id]?.()].flat().filter(Boolean);
-        return nodes.length ? el("section", { class: "widget", "data-widget": id }, nodes) : null;
+        return nodes.length ? el("section", { class: "dash-widget", "data-widget": id }, nodes) : null;
       }),
       el("div", { class: "actions page-foot" },
         el("button", { class: "link", onclick: () => customiseDashboard(main, { assistant: Boolean(status.assistant), scroll: true }) }, HomeswiftCommon.icon("sliders"), " Customise this page…")));
@@ -918,14 +922,15 @@
       none.classList.toggle("hidden", shown > 0);
     }
     search.addEventListener("input", filter);
-    const groupings = [["none", "One wall"], ...(rooms.length ? [["room", "By room"]] : []), ["plugin", "By plugin"]];
-    const grouping = el("div", { class: "group", role: "group", "aria-label": "Group the accessories" }, groupings.map(([value, text]) =>
-      el("button", { type: "button", text, class: layout.grouping === value ? "on" : "", "aria-pressed": String(layout.grouping === value), onclick: (event) => {
+    // Each with its glyph; a phone shows the glyphs alone.
+    const groupings = [["none", "One wall", "grid"], ...(rooms.length ? [["room", "By room", "room"]] : []), ["plugin", "By plugin", "plugin"]];
+    const grouping = el("div", { class: "group with-icons", role: "group", "aria-label": "Group the accessories" }, groupings.map(([value, text, glyph]) =>
+      el("button", { type: "button", title: text, "aria-label": text, class: layout.grouping === value ? "on" : "", "aria-pressed": String(layout.grouping === value), onclick: (event) => {
         layout.grouping = value;
         for (const button of grouping.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
         save();
         render();
-      } })));
+      } }, HomeswiftCommon.icon(glyph), el("span", { text }))));
     const edit = el("button", { type: "button", text: "Edit", "aria-pressed": "false", title: "Sizes and order of the widgets", onclick: () => {
       editing = !editing;
       edit.textContent = editing ? "Done" : "Edit";
@@ -940,14 +945,14 @@
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
     } }), el("span", { text: `Show hidden (${hiddenCount})` })) : null;
     const suggest = isAdmin() && window.HomeswiftChat?.available() && all.length
-      ? el("button", { class: "ai-button", onclick: () => HomeswiftHome.suggestRooms(content, all) }, sparkle(), "Suggest rooms") : null;
+      ? el("button", { class: "ai-button icon-on-phone", title: "Suggest rooms", "aria-label": "Suggest rooms", onclick: () => HomeswiftHome.suggestRooms(content, all) }, sparkle(), el("span", { text: "Suggest rooms" })) : null;
 
     render();
     show(main,
       pageHead("Accessories", accessories.length ? `${accessories.length} on ${servers} ${servers === 1 ? "server" : "servers"}, as the Home app sees them. Changes here reach your devices.` : "",
         ...(accessories.length ? [search, grouping, edit] : []), hiddenToggle, suggest),
       note,
-      accessories.length ? [content, none] : el("div", { class: "card empty" }, el("p", { class: "muted", text: all.length ? "Every accessory is hidden." : "No accessories yet. Plugins add them once they reach their devices." })));
+      accessories.length ? [content, none] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? "Every accessory is hidden." : "No accessories yet. Plugins add them once they reach their devices." })));
   };
 
   /// Accessories by plugin: [name, accessories] pairs by the plugin's name, each list by name; those of no
@@ -975,16 +980,21 @@
       const [state, kind] = blockState(block, plugin, instance);
       // The name opens what the menu's first item opens: the plugin's page, else the form.
       const opens = plugin && plugin.hasPages && instance && !instance.paused ? pluginPage(block) : block.system ? settingsLink(block) : expertLink(block);
+      // Under the name, what it is when the name does not say it already: the plugin, else its platform.
+      const kindName = [plugin?.name, block.platform].find((name) => name && name !== block.name);
       return el("div", { class: "card server" },
         el("div", { class: "server-head" },
           tile(block.system ? "gear" : "plugin", block.system ? "grey" : "orange"),
           el("div", { class: "who" }, el("a", { class: "card-title", href: opens }, el("strong", { text: block.name })),
-            el("div", { class: "muted", text: [plugin ? plugin.name : block.platform, block.childBridge ? "child bridge" : null].filter(Boolean).join(" · ") })),
+            el("div", { class: "muted", text: [kindName, block.childBridge ? "child bridge" : null].filter(Boolean).join(" · ") })),
           el("span", { class: `pill status ${kind}`, text: state })),
-        instance ? el("div", { class: "facts" }, fact("Bridge", instance.bridge), fact("Accessories", instance.accessories), fact("Platform", block.platform))
-          : el("p", { class: "muted note", text: block.system ? "A block of the runtime itself." : plugin ? "It did not start: the log says why." : "No plugin compiled into this homeswift provides this platform." }),
+        // Its accessories and the bridge they are on, a glyph each, on one line.
+        instance ? el("div", { class: "meta" },
+          el("span", { title: "Accessories" }, HomeswiftCommon.icon("bulb"), `${instance.accessories} ${instance.accessories === 1 ? "accessory" : "accessories"}`),
+          el("span", { title: `On the bridge ${instance.bridge}` }, HomeswiftCommon.icon(block.childBridge ? "child" : "bridge"), instance.bridge)) : null,
         el("div", { class: "card-foot" },
-          el("span", { class: "muted", text: instance?.paused ? "Paused: no calls to its devices; they show No Response in the Home app." : "" }),
+          el("span", { class: "muted", text: instance?.paused ? "No calls to its devices; they show No Response in the Home app."
+            : instance ? "" : block.system ? "A block of the runtime itself." : plugin ? "It did not start: the log says why." : "No plugin compiled into this homeswift provides this platform." }),
           menuButton(`Actions for ${block.name}`, () => blockActions(block, plugin, instance))));
     };
 
@@ -1033,7 +1043,7 @@
     show(main,
       pageHead("Plugins", "The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept."),
       plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: `No plugin provides ${plugins.unknownPlatforms.join(", ")}: those blocks are ignored.` })) : null,
-      plugins.blocks.length ? el("div", { class: "grid" }, plugins.blocks.map(blockCard)) : el("div", { class: "card empty" }, el("p", { class: "muted", text: "No plugin yet. Add one below." })),
+      plugins.blocks.length ? el("div", { class: "grid" }, plugins.blocks.map(blockCard)) : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("plugin")), el("p", { class: "muted", text: "No plugin yet. Add one below." })),
       el("div", { class: "section-head" }, el("h2", { text: "Add a plugin" }), el("span", { class: "muted", text: "compiled into this homeswift" })),
       catalog);
   };
@@ -1396,7 +1406,7 @@
         result.replaceChildren(el("p", { class: "error", text: e.message }));
       } finally { ask.disabled = false; }
     });
-    card.append(el("summary", {}, sparkle(), el("strong", { text: " Describe your setup" }), el("span", { class: "muted", text: " · the Assistant writes the settings" })),
+    card.append(el("summary", {}, sparkle(), el("strong", { text: " Describe your setup" }), el("span", { class: "muted describe-note", text: "the Assistant writes the settings" })),
       el("div", { class: "describe-body" }, request, el("div", { class: "actions" }, ask), result));
     return card;
   }
@@ -2026,60 +2036,11 @@
       if (onClose) onClose(result);
       else if (returnFocus?.isConnected) returnFocus.focus();
     });
-    dragToDismiss(dialog, vertical, dismiss);
+    HomeswiftCommon.dragToDismiss(dialog, { vertical, dismiss, handle: ".sheet-grabber, .account-form > h2" });
     document.body.append(dialog);
     dialog.showModal();
     $("input:not([type=hidden]):not([disabled]), select", dialog)?.focus();
     return dialog;
-  }
-
-  /// A touch drags the panel out along its edge (right, or down on a phone), 1:1 from where it was grabbed, with
-  /// resistance the other way. Released, it goes where it was heading: Apple's projection of the flick from its
-  /// velocity; past 40% of its size it leaves, otherwise it settles back. A field or a button keeps the touch for
-  /// itself.
-  function dragToDismiss(dialog, vertical, dismiss) {
-    const project = (velocity, rate = 0.998) => (velocity / 1000) * rate / (1 - rate);   // px/s to px
-    const rubber = (over, size) => (over * size * 0.55) / (size + 0.55 * Math.abs(over));
-    let drag = null;
-    dialog.addEventListener("pointerdown", (event) => {
-      if (event.pointerType === "mouse" || event.target.closest("input, select, textarea, button, a, label")) return;
-      // On a phone the sheet scrolls: a downward drag starts on the grabber or the title only.
-      if (vertical() && !event.target.closest(".sheet-grabber, .account-form > h2")) return;
-      drag = { id: event.pointerId, x: event.clientX, y: event.clientY, axis: vertical() ? "y" : "x", moving: false, samples: [] };
-    });
-    dialog.addEventListener("pointermove", (event) => {
-      if (!drag || event.pointerId !== drag.id) return;
-      const along = drag.axis === "y" ? event.clientY - drag.y : event.clientX - drag.x;
-      const across = drag.axis === "y" ? event.clientX - drag.x : event.clientY - drag.y;
-      if (!drag.moving) {
-        if (Math.abs(along) < 10 && Math.abs(across) < 10) return;   // hysteresis before choosing
-        if (Math.abs(across) > Math.abs(along)) { drag = null; return; }   // a scroll or a swipe the other way
-        drag.moving = true;
-        try { dialog.setPointerCapture(event.pointerId); } catch { /* a pointer that has already gone */ }
-        dialog.style.transition = "none";
-      }
-      const size = drag.axis === "y" ? dialog.offsetHeight : dialog.offsetWidth;
-      const offset = along >= 0 ? along : rubber(along, size);
-      dialog.style.transform = drag.axis === "y" ? `translateY(${offset}px)` : `translateX(${offset}px)`;
-      drag.samples.push([along, event.timeStamp]);
-      if (drag.samples.length > 5) drag.samples.shift();
-    });
-    const release = (event) => {
-      if (!drag || event.pointerId !== drag.id) return;
-      const { moving, samples, axis } = drag;
-      drag = null;
-      if (!moving) return;
-      const [first, last] = [samples[0], samples[samples.length - 1]];
-      const velocity = first && last && last[1] > first[1] ? ((last[0] - first[0]) / (last[1] - first[1])) * 1000 : 0;
-      const position = last ? Math.max(0, last[0]) : 0;
-      const size = axis === "y" ? dialog.offsetHeight : dialog.offsetWidth;
-      // The snappier of Apple's two rates: a panel thrown aside, not a page scrolled.
-      if (position + project(velocity, 0.99) > size * 0.4) { dismiss(); return; }
-      dialog.style.transition = "transform 300ms cubic-bezier(0.32, 0.72, 0, 1)";
-      dialog.style.transform = "";
-    };
-    dialog.addEventListener("pointerup", release);
-    dialog.addEventListener("pointercancel", release);
   }
 
   /// Draws the page again, then brings the card `key` (its `data-key`) to the eye and the keyboard: focused, and
@@ -2138,15 +2099,17 @@
     const when = (iso) => iso ? new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "Never";
     const whenFull = (iso) => iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "full", timeStyle: "short" }) : "Never";
     const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);
+    // A choice as a switch, as the rest of the UI's on and off.
     const checkbox = (label, checked, help) => {
       const input = el("input", { type: "checkbox", checked });
-      return [el("label", { class: "check" }, input, el("span", { text: label })), help ? el("p", { class: "help", text: help }) : null, input];
+      return [el("label", { class: "toggle" }, el("span", { class: "switch" }, input, el("span")), el("span", { class: "field-title", text: label })), help ? el("p", { class: "help", text: help }) : null, input];
     };
     const roleHelp = "An administrator changes settings, plugins and users; anyone else sees the bridge and controls accessories.";
 
     /// The form that adds a user, or changes one (`user`): name, role, and a password (a new one, for a user).
     function userForm(user, done) {
-      const username = el("input", { autocomplete: "off", required: true, maxLength: 64, spellcheck: false, value: user?.username ?? "" });
+      const username = el("input", { autocomplete: "off", autocapitalize: "none", required: true, maxLength: 64, spellcheck: false, value: user?.username ?? "" });
+      username.setAttribute("autocorrect", "off");
       const name = el("input", { autocomplete: "off", maxLength: 64, value: user && user.name !== user.username ? user.name : "", placeholder: user ? `${user.username} (the username)` : "The username" });
       const password = el("input", { type: "password", autocomplete: "new-password", required: !user });
       const gauge = strengthGauge(password, () => username.value);
@@ -2448,7 +2411,7 @@
     show(main,
       pageHead("Configuration", "The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once."),
       el("div", { class: "card editor-card" },
-        el("div", { class: "editor-bar" }, el("span", { class: "mono muted", text: "config.json" }), check, el("span", { class: "spacer" }), format, revert, force, save),
+        el("div", { class: "editor-bar" }, el("span", { class: "mono muted file-name", text: "config.json" }), check, el("span", { class: "spacer" }), format, revert, force, save),
         editor, message));
   };
 
@@ -2651,7 +2614,7 @@
     // read them, after the latest lines moved on. Off, only the lines in memory have them. Shown when the bridge
     // keeps a log on disk.
     const saveDetails = el("input", { type: "checkbox" });
-    const saveToggle = el("label", { class: "toggle compact hidden", title: "Keep each line's JSON payload in the log on disk, secrets masked, so you and the Assistant can read it later. Off: only the latest lines, in memory, have it." },
+    const saveToggle = el("label", { class: "toggle compact hidden save-payloads", title: "Keep each line's JSON payload in the log on disk, secrets masked, so you and the Assistant can read it later. Off: only the latest lines, in memory, have it." },
       el("span", { class: "switch" }, saveDetails, el("span")), el("span", { text: "Save payloads" }));
     api("/api/logs/settings").then((settings) => {
       if (!settings.available) return;
@@ -2700,7 +2663,11 @@
       const chosen = range.span();
       const query = new URLSearchParams();
       if (chosen) { query.set("from", chosen[0].toISOString()); if (chosen[1]) query.set("to", chosen[1].toISOString()); }
+      // A phone keeps the toolbar short: Save payloads is here rather than beside Follow.
+      const phone = matchMedia("(max-width: 640px)").matches && !saveToggle.classList.contains("hidden");
       return [
+        phone ? { label: "Save payloads", checked: saveDetails.checked, onSelect: () => { saveDetails.checked = !saveDetails.checked; saveDetails.dispatchEvent(new Event("change")); } } : null,
+        phone ? { separator: true } : null,
         { label: chosen ? "Download this range" : "Download the whole log", icon: "download", href: `/api/logs/download${query.size ? `?${query}` : ""}` },
         { label: "Empty the log…", icon: "trash", danger: true, onSelect: async () => {
           if (!confirm("Empty the log? Every line goes, in memory and the files kept on disk (up to a week). This cannot be undone.")) return;
@@ -2723,7 +2690,7 @@
   /// Log Doctor (Glass UI's): a Diagnose button and the card the diagnosis streams into. `lines()` gives the
   /// lines to read, `focus()` what they were picked by. Hidden while the Assistant is off.
   function logDoctor(lines, focus) {
-    const button = el("button", { class: "ai-button hidden", title: "The Assistant reads the lines shown and groups the issues, with causes and fixes" }, sparkle(), el("span", { text: "Diagnose" }));
+    const button = el("button", { class: "ai-button icon-on-phone hidden", "aria-label": "Diagnose", title: "The Assistant reads the lines shown and groups the issues, with causes and fixes" }, sparkle(), el("span", { text: "Diagnose" }));
     const card = el("div", { class: "ai-card log-doctor hidden", role: "region", "aria-label": "Log Doctor", "aria-live": "polite" });
     api("/api/assistant").then((state) => { if (state?.enabled) button.classList.remove("hidden"); }).catch(() => {});
     let controller = null;

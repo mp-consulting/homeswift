@@ -16,10 +16,12 @@
   const when = (iso) => (iso ? dateTime.format(new Date(iso)) : "–");
   const size = (bytes) => bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : bytes >= 1024 ? `${Math.round(bytes / 1024)} KB` : `${bytes} B`;
 
-  /// The pages of Settings as a row of links, the current one lit.
+  /// The pages of Settings as a row of links, a glyph each, the current one lit (a phone puts the glyph over the name,
+  /// the five across).
   function subnav(current) {
-    return el("nav", { class: "group subnav", "aria-label": "Settings pages" }, pages.map(([path, text]) =>
-      el("a", { href: `/settings${path ? `/${path}` : ""}`, text, class: path === current ? "on" : "", "aria-current": path === current ? "page" : null })));
+    return el("nav", { class: "group subnav", "aria-label": "Settings pages" }, pages.map(([path, text, glyph]) =>
+      el("a", { href: `/settings${path ? `/${path}` : ""}`, class: path === current ? "on" : "", "aria-current": path === current ? "page" : null },
+        glyph === "sparkle" ? HomeswiftCommon.sparkle() : HomeswiftCommon.icon(glyph), el("span", { text }))));
   }
 
   /// A modal question for what cannot be undone: `typed`, when given, must be typed before the button works.
@@ -174,7 +176,7 @@
     ]);
     return el("section", {},
       sectionHead("Cached accessories", `${list.length} in ${new Set(list.map((c) => c.cacheFile)).size} cache file(s)`, reset),
-      list.length ? el("div", { class: "card rows" }, list.map(row)) : el("div", { class: "card empty" }, el("p", { class: "muted", text: "No cached accessory." })));
+      list.length ? el("div", { class: "card rows" }, list.map(row)) : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("accessory")), el("p", { class: "muted", text: "No cached accessory." })));
   }
 
   async function removeCached(cached) {
@@ -238,7 +240,7 @@
       app().pageHead("Child bridges", "Plugins on HomeKit bridges of their own (a block with _bridge), inside this process: one can restart without the others."),
       subnav("child-bridges"),
       childBridges.length ? el("div", { class: "servers" }, childBridges.map(card))
-        : el("div", { class: "card empty" }, el("p", { class: "muted", text: "No child bridge. Give a plugin's block a \"_bridge\" object (its Expert JSON) to run it on a bridge of its own." })));
+        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("child")), el("p", { class: "muted", text: "No child bridge. Give a plugin's block a \"_bridge\" object (its Expert JSON) to run it on a bridge of its own." })));
   }
 
   async function control(bridge, action) {
@@ -278,7 +280,7 @@
       restoreCard(backups),
       sectionHead("Kept backups", backups.backups.length ? `${backups.backups.length}, newest first` : ""),
       backups.backups.length ? el("div", { class: "card rows" }, backups.backups.map(backupRow))
-        : el("div", { class: "card empty" }, el("p", { class: "muted", text: "None yet: the daily backup and Back up now keep them here." })),
+        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("archive")), el("p", { class: "muted", text: "None yet: the daily backup and Back up now keep them here." })),
       sectionHead("config.json backups", `The file before each of its last ${configBackups.kept} saves`),
       configBackups.backups.length ? el("div", { class: "card rows" }, configBackups.backups.map(configBackupRow))
         : el("div", { class: "card empty" }, el("p", { class: "muted", text: "None yet: each save of config.json keeps the file it replaces." })));
@@ -432,7 +434,7 @@
       body.replaceChildren(found.entries.length ? el("div", { class: "card" }, el("div", { class: "table-scroll" }, el("table", { class: "data-table" },
         el("thead", {}, el("tr", {}, ["Time", "Who", "What", "Outcome", "Details"].map((text) => el("th", { text })))),
         el("tbody", {}, found.entries.map(auditRow)))), el("p", { class: "muted note", text: found.path }))
-        : el("div", { class: "card empty" }, el("p", { class: "muted", text: "Nothing in this range matches." })));
+        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("shield")), el("p", { class: "muted", text: "Nothing in this range matches." })));
     }
     let typing = null;
     for (const input of [tool, client]) input.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(load, 250); });

@@ -6,7 +6,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Web UI on a phone: a card's ⋯ menu opens as a sheet from the bottom of the screen, never cut off at the top,
+  and it and an accessory's sheet go away with a swipe down from their grabber, as the Users panel does;
+  Settings is in the account menu (the tab bar has no room for it) and its pages are a row of glyphs that fits the
+  width; the Status page's four figures share one row; the Accessories page's grouping and the Assistant's
+  buttons show their glyphs; the Logs toolbar is two rows shorter and each line keeps its source above the text;
+  notes beside a button, removal and a card head's button stack instead of squeezing the text. Search fields have
+  a Search key that puts the keyboard away, without capitals or corrections, and a username no longer starts with
+  a capital the phone added. On every window: Done over an accessory's sheet sits on a glass pill (white words
+  were lost over a light page), Administrator in a user's form is a switch,
+  the Status figures carry a glyph (Accessories and Plugins open their page), plugin cards say their accessories
+  and bridge on one line, Settings' pages and the grouping have glyphs, empty pages a picture, and Sign in is the
+  primary button.
+
 ### Fixed
+
+- Web UI: the Status page's sections took the accessory widgets' padding and clipping, which left an empty band
+  under the figures and cut the digest card's shadow; a plugin form's list (an Elgato's devices) ran off a phone's
+  screen, its Remove out of reach; a page's title and line were squeezed to a word a line beside its tools on a
+  window between a phone's and a laptop's (a phone in landscape, an iPad); Safari drew the open Assistant
+  button's ring as a square.
 
 - Web UI and MCP server behind Cloudflare or nginx: live log lines, accessory values and the Assistant's streamed
   answers came late. The event streams now say `Cache-Control: no-store, no-transform`, which keeps Cloudflare from
