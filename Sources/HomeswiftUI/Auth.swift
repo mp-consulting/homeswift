@@ -10,8 +10,10 @@ import NIOConcurrencyHelpers
 /// The UI's users, in `ui-users.json` next to config.json (owner-only): a salted PBKDF2-HMAC-SHA256 hash per
 /// user, whether they are an administrator, and their two-factor secret. As Glass UI's: an administrator does
 /// everything; any other user sees the bridge and controls accessories, nothing more. There is always an
-/// administrator: the last one can be neither removed nor demoted. A file from before roles loads with its
-/// users as administrators (there was one account, the administrator).
+/// administrator: the last one can be neither removed nor demoted, an account added while there is none becomes
+/// one (`homeswift users add`, which the Synology installer runs for the first account), and a file that has users
+/// but no administrator gets its first user promoted when it loads (installs made before that rule). A file from
+/// before roles loads with its users as administrators (there was one account, the administrator).
 public final class UserStore: Sendable {
     public struct User: Codable, Sendable, Equatable {
         public var username: String
@@ -63,8 +65,11 @@ public final class UserStore: Sendable {
     public init(url: URL, iterations: Int = UserStore.defaultIterations) {
         self.url = url
         self.iterations = iterations
-        let users = (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode([User].self, from: $0) } ?? []
+        var users = (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode([User].self, from: $0) } ?? []
+        let promote = !users.isEmpty && !users.contains(where: \.admin)
+        if promote { users[0].admin = true }
         state = NIOLockedValueBox(users)
+        if promote { try? save(users) }
     }
 
     public var isEmpty: Bool { state.withLockedValue { $0.isEmpty } }
@@ -103,10 +108,12 @@ public final class UserStore: Sendable {
         let shown = try Self.displayName(name, username: username)
         try PasswordPolicy.check(password, username: username)
         let salt = Secrets.randomBytes(16)
-        let user = User(username: username, name: shown, admin: admin, salt: salt, hash: Self.pbkdf2(password: password, salt: salt, iterations: iterations), iterations: iterations, created: Date())
+        var user = User(username: username, name: shown, admin: admin, salt: salt, hash: Self.pbkdf2(password: password, salt: salt, iterations: iterations), iterations: iterations, created: Date())
         try state.withLockedValue { users in
             guard !onlyWhenEmpty || users.isEmpty else { throw AuthError.setupDone }
             guard !users.contains(where: { $0.username.lowercased() == username.lowercased() }) else { throw AuthError.userExists }
+            // There is always an administrator: the first account, however it is added, is one.
+            if !users.contains(where: \.admin) { user.admin = true }
             users.append(user)
             try save(users)
         }
