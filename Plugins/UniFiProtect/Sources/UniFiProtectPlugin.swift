@@ -80,6 +80,7 @@ public actor UniFiProtectPlugin: HomeswiftPlugin {
         launches.forEach { $0.cancel() }
         for controller in controllers { await controller.stop() }
         await platformState?.timers.cancelAll()
+        await platformState?.contexts.save()
         logger.debug("Stopped")
     }
 
@@ -116,7 +117,8 @@ public actor UniFiProtectPlugin: HomeswiftPlugin {
             let body = request.body
             do {
                 let result = try await ONVIF.discover(host: body.string("host"), port: body.int("port"), servicePath: body.string("servicePath"),
-                                                      username: body.string("username"), password: body.string("password") ?? "", transport: dependencies.transport)
+                                                      username: body.string("username"), password: body.string("password") ?? "", transport: dependencies.transport,
+                                                      resolve: dependencies.resolve)
                 return PluginWebResponse([
                     "ok": true, "profiles": .array(result.profiles.map(\.json)), "warnings": .array(result.warnings.map(JSONValue.string)),
                     "attempts": .array(result.attempts.map { ["port": .number(Double($0.port)), "error": .string($0.error)] }),
@@ -146,8 +148,13 @@ public actor UniFiProtectPlugin: HomeswiftPlugin {
     /// its adopted devices sorted by name; the error the API logged otherwise. Twenty seconds at most.
     private func devices(_ body: JSONValue) async -> PluginWebResponse {
         let address = body.string("address")?.trimmingCharacters(in: .whitespaces) ?? ""
+        // Without `verifyTls`, the login goes to the vetted address (and the port the page gave), so a second
+        // DNS answer cannot steer it to another host; with it, to the name the certificate must carry.
+        let connectAddress: String
         do {
-            _ = try await AddressValidation.resolveAllowed(address, resolve: dependencies.resolve)
+            let vetted = try await AddressValidation.resolveAllowed(address, resolve: dependencies.resolve)
+            let host = vetted.address.contains(":") ? "[\(vetted.address)]" : vetted.address
+            connectAddress = host + (URLComponents(string: "https://" + address)?.port.map { ":\($0)" } ?? "")
         } catch {
             return PluginWebResponse(["devices": [], "error": .string("\(error)")])
         }
@@ -156,18 +163,24 @@ public actor UniFiProtectPlugin: HomeswiftPlugin {
         errorLogger.logLevel = .error
         let verifyTls = body.bool("verifyTls")
         let username = body.string("username") ?? ""
-        // A configured controller's devices need no password from the page: the block's own is used.
+        // The certificate this controller is pinned to, as the running plugin trusts it.
+        let pinned = verifyTls ? nil : platformState?.tlsPins.get(address)
+        // A configured controller's devices need no password from the page: the block's own is used, but only
+        // over a connection that proves it is that controller (the system's roots, or its pin). A first contact
+        // trusts whatever certificate answers, so the stored password is not sent to it.
         let configured = configuration.controllers.first { $0.address.trimmingCharacters(in: .whitespaces).lowercased() == address.lowercased() }
         var password = body.string("password") ?? ""
-        if password.isEmpty, let configured, configured.username == username { password = configured.password }
-        // The certificate this controller is pinned to, as the running plugin trusts it: the password goes to
-        // nobody else.
-        let pinned = verifyTls ? nil : platformState?.tlsPins.get(address)
+        if password.isEmpty, let configured, configured.username == username {
+            guard verifyTls || pinned != nil else {
+                return PluginWebResponse(["devices": [], "error": "Enter the password: this controller's certificate is not pinned yet."])
+            }
+            password = configured.password
+        }
         let api = ProtectAPI(log: ProtectLog(logger: errorLogger), options: .init(
             verifyTls: verifyTls, pin: ProtectTLSPin.Options(pinnedFingerprint: pinned), transport: dependencies.transport, webSockets: dependencies.webSockets,
             timeScale: dependencies.timeScale, connectsEvents: false))
         let work = Task { () -> Bool in
-            guard await api.login(address: address, username: username, password: password) else { return false }
+            guard await api.login(address: verifyTls ? address : connectAddress, username: username, password: password) else { return false }
             return await api.getBootstrap()
         }
         let timeout = Task {

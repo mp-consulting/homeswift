@@ -78,21 +78,27 @@
       el("div", { class: "fact" }, el("span", { text: "Devices" }), el("b", { text: String(live.devices.length) })),
       el("div", { class: "fact" }, el("span", { text: "Events" }), el("b", { text: live.events ? "Live" : live.connected ? "Every 2 minutes" : "—" })),
       el("div", { class: "fact" }, el("span", { text: "Certificate" }), el("b", { text: controller.verifyTls ? "Verified" : live.tlsFingerprint ? "Pinned" : "Not yet seen" }))) : null;
+    const remove = async () => {
+      if (!confirm(`Remove ${controller.name || controller.address}?`)) return;
+      state.block.controllers.splice(index, 1);
+      try { await saveBlock(); } catch (e) { alert(`Unable to remove the controller: ${e.message}`); }
+      await renderControllers();
+      if (!controllers().length) showDiscovery(false);
+    };
+    // The card's actions in its menu, bottom right, as on the other pages' cards.
     const card = el("div", { class: "card controller" },
       el("div", { class: "controller-head" },
-        el("span", { class: "tile accessory", "aria-hidden": "true" }, "▤"),
+        el("span", { class: "tile accessory", "aria-hidden": "true" }, HomeswiftCommon.icon("system")),
         el("div", { class: "who" }, el("strong", { text: controller.name || controller.address }), el("div", { class: "muted", text: controller.address })),
-        badge,
-        el("button", { class: "primary", text: "Options", onclick: () => openFeatureOptions(index) }),
-        el("button", { text: "Edit", onclick: () => openEditController(index) }),
-        el("button", { class: "danger", text: "Remove", onclick: (event) => act(event.currentTarget, async () => {
-          if (!confirm(`Remove ${controller.name || controller.address}?`)) return;
-          state.block.controllers.splice(index, 1);
-          await saveBlock();
-          await renderControllers();
-          if (!controllers().length) showDiscovery(false);
-        }) })),
-      facts, slot);
+        badge),
+      facts, slot,
+      el("div", { class: "card-foot" },
+        el("span", { class: "muted", text: live ? (live.connected ? "Connected" : "Not connected yet: see the log.") : "Not running" }),
+        HomeswiftCommon.menuButton(`Actions for ${controller.name || controller.address}`, () => [
+          { label: "Feature options", icon: "sliders", onSelect: () => openFeatureOptions(index) },
+          { label: "Edit", icon: "edit", onSelect: () => openEditController(index) },
+          { label: "Remove", icon: "trash", danger: true, onSelect: remove },
+        ])));
     request("check-status", { method: "POST", body: { address: controller.address } }).then(({ online }) => {
       badge.className = `pill status ${online ? "on" : "away"}`;
       badge.textContent = online ? "Online" : "Offline";

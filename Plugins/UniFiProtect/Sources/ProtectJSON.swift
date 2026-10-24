@@ -9,20 +9,35 @@ extension JSONValue {
     /// `mergeJson` of the Homebridge plugin: objects merge key by key, deeply; anything else (arrays, null,
     /// scalars) replaces what was there.
     func merging(_ patch: JSONValue) -> JSONValue {
-        guard case .object(let changes) = patch else { return patch }
+        var result = self
+        result.merge(patch)
+        return result
+    }
+
+    /// `merging` in place: a device's JSON, held once, is changed without copying its other keys, as each
+    /// event would otherwise do.
+    mutating func merge(_ patch: JSONValue) {
+        guard case .object(let changes) = patch else {
+            self = patch
+            return
+        }
         var result = objectValue ?? [:]
+        // Held by `result` alone from here, so the writes below do not copy it.
+        self = .null
         for (key, value) in changes {
-            if let existing = result[key], case .object = existing, case .object = value {
-                result[key] = existing.merging(value)
+            if case .object = result[key], case .object = value {
+                result[key]?.merge(value)
             } else {
                 result[key] = value
             }
         }
-        return .object(result)
+        self = .object(result)
     }
 
     /// The value at a dotted path (`"featureFlags.hasMic"`), or nil when a step is missing.
     func at(_ path: String) -> JSONValue? {
+        // Most lookups are one key: no split, no string per step.
+        if !path.utf8.contains(UInt8(ascii: ".")) { return objectValue?[path] }
         var current: JSONValue? = self
         for key in path.split(separator: ".") {
             guard let object = current?.objectValue else { return nil }

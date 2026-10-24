@@ -485,8 +485,9 @@ final class DoorbellChimes {
     /// A chime changed on the controller: our copy of it, and the volume dimmer.
     func chimeEventHandler(_ packet: ProtectEventPacket) async {
         let payload = packet.payload
-        guard let bootstrap = await doorbell.api.bootstrap, payload.string("nvrMac") == doorbell.nvr.mac,
-              payload.strings("cameraIds").contains(doorbell.ufp.id), payload.has("ringSettings") else { return }
+        // Every doorbell hears every chime's updates: the payload is checked before the hop to the API.
+        guard payload.string("nvrMac") == doorbell.nvr.mac, payload.strings("cameraIds").contains(doorbell.ufp.id), payload.has("ringSettings"),
+              let bootstrap = await doorbell.api.bootstrap else { return }
         guard let chime = bootstrap.array("chimes").first(where: { $0.string("id") == packet.id }) else { return }
         // The packet's id names the chime; an update payload carries only what changed, usually without it.
         let merged = chime.shallowMerged(payload)

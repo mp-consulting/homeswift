@@ -45,6 +45,18 @@ import Testing
         #expect(!AccessSettings.isValidAddress(nil))
     }
 
+    /// A name the spelling check lets through is refused when it resolves to loopback or link-local, and the
+    /// probe never leaves for it.
+    @Test func statusChecksVetResolvedAddresses() async {
+        for blocked in ["127.0.0.1", "169.254.169.254", "0.0.0.0", "::1", "::", "fe80::1", "::ffff:127.0.0.1", "not an address"] {
+            #expect(UbiquitiDiscovery.isBlocked(blocked), "\(blocked)")
+        }
+        for allowed in ["192.168.1.1", "10.0.0.5", "fd12::1", "2001:db8::1", "::ffff:192.168.1.1"] { #expect(!UbiquitiDiscovery.isBlocked(allowed), "\(allowed)") }
+        #expect(await UbiquitiDiscovery.isOnline(address: "rebind.example") { _ in ["127.0.0.1"] } == false)
+        #expect(await UbiquitiDiscovery.isOnline(address: "metadata.example:8443") { _ in ["192.168.1.5", "169.254.169.254"] } == false)
+        #expect(await UbiquitiDiscovery.isOnline(address: "nowhere.example") { _ in [] } == false)
+    }
+
     @Test func names() {
         #expect(AccessSettings.sanitizeName("Front Door") == "Front Door")
         #expect(AccessSettings.sanitizeName("  Porte d'entrée 🚪 ") == "Porte d'entrée")

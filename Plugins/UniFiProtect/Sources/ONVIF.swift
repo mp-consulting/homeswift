@@ -93,12 +93,44 @@ enum ONVIF {
         xml.replacingOccurrences(of: "<(/?)[a-zA-Z0-9]+:", with: "<$1", options: .regularExpression)
     }
 
-    /// The text of the first `<tag>…</tag>`.
+    /// The text of the first `<tag>…</tag>`, its entities decoded (a stream URI's query has `&amp;`).
     static func extractTag(_ xml: String, _ tag: String) -> String? {
         guard let match = xml.range(of: "<\(tag)(?:\\s[^>]*)?>([^<]+)</\(tag)>", options: .regularExpression) else { return nil }
         let element = String(xml[match])
         guard let open = element.firstIndex(of: ">"), let close = element.range(of: "</\(tag)>", options: .backwards) else { return nil }
-        return String(element[element.index(after: open)..<close.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return unescapeXML(String(element[element.index(after: open)..<close.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// The text of XML character data: the five predefined entities and numeric references decoded.
+    static func unescapeXML(_ text: String) -> String {
+        guard text.contains("&") else { return text }
+        var result = ""
+        var rest = Substring(text)
+        while let ampersand = rest.firstIndex(of: "&") {
+            result += rest[..<ampersand]
+            rest = rest[ampersand...]
+            guard let semicolon = rest.prefix(12).firstIndex(of: ";") else { break }
+            let name = rest[rest.index(after: rest.startIndex)..<semicolon]
+            let decoded: String? = switch name {
+            case "amp": "&"
+            case "lt": "<"
+            case "gt": ">"
+            case "quot": "\""
+            case "apos": "'"
+            default:
+                if name.hasPrefix("#x") || name.hasPrefix("#X") { UInt32(name.dropFirst(2), radix: 16).flatMap(Unicode.Scalar.init).map { String($0) } }
+                else if name.hasPrefix("#") { UInt32(name.dropFirst()).flatMap(Unicode.Scalar.init).map { String($0) } }
+                else { nil }
+            }
+            guard let decoded else {
+                result += "&"
+                rest = rest.dropFirst()
+                continue
+            }
+            result += decoded
+            rest = rest[rest.index(after: semicolon)...]
+        }
+        return result + rest
     }
 
     /// The inner XML of each `<tag …>…</tag>`, with its attributes.
@@ -110,11 +142,17 @@ enum ONVIF {
         }
     }
 
-    static func post(_ url: String, action: String, body: String, transport: any ProtectHTTPTransport) async throws -> String {
-        guard let target = URL(string: url) else { throw Failure(description: "Invalid ONVIF URL: \(url)") }
+    /// A SOAP request. With `connectTo`, the connection goes to that vetted address and the URL's host is
+    /// sent as `Host`, so the name is not resolved a second time.
+    static func post(_ url: String, action: String, body: String, connectTo address: String? = nil, transport: any ProtectHTTPTransport) async throws -> String {
+        guard var components = URLComponents(string: url), components.url != nil else { throw Failure(description: "Invalid ONVIF URL: \(url)") }
+        let hostHeader = (components.host.map { AddressValidation.ipv6Bytes($0) != nil ? "[\($0)]" : $0 } ?? "") + (components.port.map { ":\($0)" } ?? "")
+        if let address { components.host = AddressValidation.ipv6Bytes(address) != nil ? "[\(address)]" : address }
+        guard let target = components.url else { throw Failure(description: "Invalid ONVIF URL: \(url)") }
         let payload = Data(body.utf8)
         var request = HTTPRequest(method: "POST", url: target, body: payload, timeout: soapTimeout)
         request.setHeader("Content-Type", "application/soap+xml; charset=utf-8; action=\"\(action)\"")
+        if address != nil { request.setHeader("Host", hostHeader) }
         let response: HTTPResponse
         do {
             response = try await transport.send(request, tls: .any)
@@ -182,9 +220,18 @@ enum ONVIF {
 
     // MARK: Discovery
 
-    static func discover(host: String?, port: Int?, servicePath: String?, username: String?, password: String, transport: any ProtectHTTPTransport = NetworkHTTPTransport()) async throws -> Result {
+    /// The camera's profiles. Its address goes through `AddressValidation` first: the page cannot make the
+    /// bridge POST to loopback or link-local addresses, and the vetted address is the one connected to.
+    static func discover(host: String?, port: Int?, servicePath: String?, username: String?, password: String, transport: any ProtectHTTPTransport = NetworkHTTPTransport(),
+                         resolve: @Sendable (String) async throws -> [String] = AddressValidation.systemResolve) async throws -> Result {
         guard let host = host?.trimmingCharacters(in: .whitespaces), !host.isEmpty, let username = username?.trimmingCharacters(in: .whitespaces), !username.isEmpty else {
             throw Failure(description: "host and username are required.")
+        }
+        let vetted: AddressValidation.Vetted
+        do {
+            vetted = try await AddressValidation.resolveAllowed(host, resolve: resolve)
+        } catch {
+            throw Failure(description: "\(error)")
         }
         var path = servicePath?.trimmingCharacters(in: .whitespaces).nonEmpty ?? defaultServicePath
         if !path.hasPrefix("/") { path = "/" + path }
@@ -192,7 +239,8 @@ enum ONVIF {
         var attempts: [(port: Int, error: String)] = []
         for candidate in ports {
             do {
-                let (profiles, warnings) = try await discover(host: host, port: candidate, servicePath: path, username: username, password: password, transport: transport)
+                let (profiles, warnings) = try await discover(host: host, address: vetted.address, port: candidate, servicePath: path, username: username, password: password,
+                                                              transport: transport)
                 return Result(profiles: profiles, warnings: warnings, attempts: attempts, port: candidate, servicePath: path)
             } catch {
                 let message = "\(error)"
@@ -206,19 +254,20 @@ enum ONVIF {
         throw Failure(description: "No reachable ONVIF service on \(host)\(path) (\(summary)).")
     }
 
-    private static func discover(host: String, port: Int, servicePath: String, username: String, password: String, transport: any ProtectHTTPTransport) async throws -> ([Profile], [String]) {
+    private static func discover(host: String, address: String, port: Int, servicePath: String, username: String, password: String,
+                                 transport: any ProtectHTTPTransport) async throws -> ([Profile], [String]) {
         let hostPart = AddressValidation.ipv6Bytes(host) != nil ? "[\(host)]" : host
         let deviceService = "http://\(hostPart):\(port)\(servicePath)"
         var warnings: [String] = []
         let capabilities = try await post(deviceService, action: "http://www.onvif.org/ver10/device/wsdl/GetCapabilities",
             body: envelope("<tds:GetCapabilities xmlns:tds=\"http://www.onvif.org/ver10/device/wsdl\"><tds:Category>Media</tds:Category></tds:GetCapabilities>",
-                           username: username, password: password), transport: transport)
+                           username: username, password: password), connectTo: address, transport: transport)
         guard let media = blocks(stripNamespaces(capabilities), "Media").first else { throw Failure(description: "Camera did not return a Media service capability.") }
         guard let xAddr = extractTag(media.inner, "XAddr") else { throw Failure(description: "Camera did not return a Media service XAddr.") }
         let mediaService = resolveMediaServiceURL(xAddr, host: host, port: port)
         if mediaService.rewritten { warnings.append("The camera advertised its media service on a different host. Using \(host) instead.") }
         let profilesXML = try await post(mediaService.url, action: "http://www.onvif.org/ver10/media/wsdl/GetProfiles",
-            body: envelope("<trt:GetProfiles xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\"/>", username: username, password: password), transport: transport)
+            body: envelope("<trt:GetProfiles xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\"/>", username: username, password: password), connectTo: address, transport: transport)
         var profiles: [Profile] = []
         for block in blocks(stripNamespaces(profilesXML), "Profiles") {
             guard let tokenRange = block.attributes.range(of: "\\btoken=\"([^\"]+)\"", options: .regularExpression) else { continue }
@@ -234,10 +283,10 @@ enum ONVIF {
             let rtsp = try? await post(mediaService.url, action: "http://www.onvif.org/ver10/media/wsdl/GetStreamUri", body: envelope(
                 "<trt:GetStreamUri xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\"><trt:StreamSetup><tt:Stream xmlns:tt=\"http://www.onvif.org/ver10/schema\">RTP-Unicast</tt:Stream>"
                     + "<tt:Transport xmlns:tt=\"http://www.onvif.org/ver10/schema\"><tt:Protocol>RTSP</tt:Protocol></tt:Transport></trt:StreamSetup>"
-                    + "<trt:ProfileToken>\(token)</trt:ProfileToken></trt:GetStreamUri>", username: username, password: password), transport: transport)
+                    + "<trt:ProfileToken>\(token)</trt:ProfileToken></trt:GetStreamUri>", username: username, password: password), connectTo: address, transport: transport)
             let snapshot = try? await post(mediaService.url, action: "http://www.onvif.org/ver10/media/wsdl/GetSnapshotUri", body: envelope(
                 "<trt:GetSnapshotUri xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\"><trt:ProfileToken>\(token)</trt:ProfileToken></trt:GetSnapshotUri>",
-                username: username, password: password), transport: transport)
+                username: username, password: password), connectTo: address, transport: transport)
             let rtspURL = injectCredentials(rtsp.flatMap { extractTag(stripNamespaces($0), "Uri") }, username: username, password: password, host: host)
             let snapshotURL = injectCredentials(snapshot.flatMap { extractTag(stripNamespaces($0), "Uri") }, username: username, password: password, host: host)
             profiles[index].rtspUrl = rtspURL.url

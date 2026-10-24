@@ -13,7 +13,12 @@ final class ProtectEvents {
     private unowned let nvr: ProtectNVR
     private var listeners: [String: [(token: Int, handler: Handler)]] = [:]
     private var nextToken = 0
-    private let publishTelemetry: Bool
+    /// Resolved at the first packet, once the controller's MAC (`Nvr.Publish.Telemetry.<MAC>`) is known.
+    private lazy var publishTelemetry: Bool = {
+        let enabled = self.nvr.featureOptions.test("Nvr.Publish.Telemetry", device: nil, controllers: self.nvr.controllerScopes)
+        if enabled { self.nvr.log.info("Protect controller telemetry enabled.") }
+        return enabled
+    }()
     /// What the controller told us of each device since the last bootstrap, for adoptions.
     private var deviceState: [String: JSONValue] = [:]
 
@@ -27,8 +32,6 @@ final class ProtectEvents {
 
     init(nvr: ProtectNVR) {
         self.nvr = nvr
-        publishTelemetry = nvr.featureOptions.test("Nvr.Publish.Telemetry", device: nil, controllers: [nvr.config.address])
-        if publishTelemetry { nvr.log.info("Protect controller telemetry enabled.") }
     }
 
     private var timers: ProtectTimers { nvr.timers }
@@ -88,11 +91,15 @@ final class ProtectEvents {
         }
         switch packet.modelKey {
         case "nvr":
-            nvr.ufp = nvr.ufp.merging(payload)
+            nvr.ufp.merge(payload)
         default:
             guard let device = nvr.getDevice(id: packet.id) else { break }
             let isBootstrap = packet.header.bool("hbupBootstrap")
-            device.ufp = ProtectDeviceConfig(isBootstrap ? payload : device.ufp.json.merging(payload))
+            if isBootstrap {
+                device.ufp = ProtectDeviceConfig(payload)
+            } else {
+                device.ufp.json.merge(payload)
+            }
             if payload.has("isConnected") {
                 for service in device.accessory.services {
                     service[.statusActive]?.value = .bool(device.isOnline)
@@ -106,7 +113,7 @@ final class ProtectEvents {
             }
         }
         if ProtectNVR.deviceCategories.contains(packet.modelKey) {
-            deviceState[packet.id] = (deviceState[packet.id] ?? .object([:])).shallowMerged(payload)
+            deviceState[packet.id, default: .object([:])].shallowMerge(payload)
         }
     }
 
@@ -271,8 +278,19 @@ final class ProtectEvents {
 extension JSONValue {
     /// `Object.assign`: the keys of `other` replace ours, one level only.
     func shallowMerged(_ other: JSONValue) -> JSONValue {
-        guard case .object(var result) = self else { return other }
+        var result = self
+        result.shallowMerge(other)
+        return result
+    }
+
+    /// `shallowMerged` in place.
+    mutating func shallowMerge(_ other: JSONValue) {
+        guard case .object(var result) = self else {
+            self = other
+            return
+        }
+        self = .null
         for (key, value) in other.objectValue ?? [:] { result[key] = value }
-        return .object(result)
+        self = .object(result)
     }
 }

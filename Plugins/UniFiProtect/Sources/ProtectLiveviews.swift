@@ -118,8 +118,11 @@ final class ProtectLiveviews: ProtectBase {
             return
         }
         for entry in entries {
-            guard let name = entry.string("name"), let match = switches.values.first(where: { $0.name.uppercased() == name.uppercased() }) else { continue }
-            match.accessory.firstService(.switch)?[.on]?.value = .bool(entry.at("state")?.boolValue == true)
+            guard let name = entry.string("name"), let (id, match) = switches.first(where: { $0.value.name.uppercased() == name.uppercased() }) else { continue }
+            // As a HomeKit write does (the Homebridge plugin's `setValue`): the cameras follow, not only the switch.
+            let state = entry.at("state")?.boolValue == true
+            match.accessory.firstService(.switch)?[.on]?.value = .bool(state)
+            setSwitchState(id: id, viewName: match.name, state)
             log.info("Liveview scene updated via MQTT: \(match.name).")
         }
     }

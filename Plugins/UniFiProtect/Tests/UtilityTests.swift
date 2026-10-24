@@ -333,6 +333,35 @@ import Glibc
         }
     }
 
+    @Test func onvifDecodesEntities() {
+        #expect(ONVIF.extractTag("<Uri>rtsp://cam/realmonitor?channel=1&amp;subtype=0</Uri>", "Uri") == "rtsp://cam/realmonitor?channel=1&subtype=0")
+        #expect(ONVIF.unescapeXML("a &lt;b&gt; &quot;c&quot; &apos;d&apos; &#38; &#x26; &unknown; & end") == "a <b> \"c\" 'd' & & &unknown; & end")
+    }
+
+    /// The page cannot make the bridge POST to loopback or link-local addresses, by address or by name, and a
+    /// name is connected to at the address it was vetted at.
+    @Test func onvifVetsTheHost() async throws {
+        final class Recorder: ProtectHTTPTransport, @unchecked Sendable {
+            var hosts: [String] = []
+            func send(_ request: HomeswiftNetwork.HTTPRequest, tls: HTTPClient.TLS) async throws -> HomeswiftNetwork.HTTPResponse {
+                hosts.append((request.url.host ?? "") + " " + (request.headers.first { $0.name.lowercased() == "host" }?.value ?? ""))
+                throw HTTPClientError.timeout
+            }
+        }
+        let recorder = Recorder()
+        for host in ["127.0.0.1", "169.254.169.254", "[::1]"] {
+            await #expect(throws: ONVIF.Failure.self) {
+                try await ONVIF.discover(host: host, port: 80, servicePath: nil, username: "admin", password: "pw", transport: recorder)
+            }
+        }
+        await #expect(throws: ONVIF.Failure.self) {
+            try await ONVIF.discover(host: "rebind.example", port: 80, servicePath: nil, username: "admin", password: "pw", transport: recorder) { _ in ["127.0.0.1"] }
+        }
+        #expect(recorder.hosts.isEmpty)
+        _ = try? await ONVIF.discover(host: "cam.example", port: 8000, servicePath: nil, username: "admin", password: "pw", transport: recorder) { _ in ["192.168.1.50"] }
+        #expect(recorder.hosts.first == "192.168.1.50 cam.example:8000")
+    }
+
     @Test func discoversONVIFProfiles() async throws {
         let result = try await ONVIF.discover(host: "192.168.1.50", port: nil, servicePath: nil, username: "admin", password: "pw", transport: FakeCamera())
         #expect(result.port == 8000 && result.servicePath == "/onvif/device_service")

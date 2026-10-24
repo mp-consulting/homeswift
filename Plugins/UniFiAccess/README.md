@@ -94,7 +94,8 @@ ring ends), `lock` (`true` locked), `dps`, `rel`, `ren`, `rex` (`true` open), fo
 `sidedoor/dps`, and with `Controller.Publish.Telemetry` the controller's events on
 `<mqttTopic>/<controller MAC>/telemetry` (event names and ids only). Publishing `true` to `<topic>/get`
 (`doorbell`, `dps`, `lock`, `sidedoor/lock`, `sidedoor/dps`) publishes the current state; `true` or `false` on
-`lock/set` and `sidedoor/lock/set` locks or unlocks.
+`lock/set` and `sidedoor/lock/set` locks or unlocks. Anyone who can publish to the broker can therefore open the
+doors: use a broker that requires a login (and `mqtts://` off the local network).
 
 ## The web page
 

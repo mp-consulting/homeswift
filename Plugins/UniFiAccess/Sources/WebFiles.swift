@@ -99,17 +99,20 @@ extension UniFiAccessPlugin {
     const liveText = live
       ? (live.connected ? `Connected · ${live.devices.length} device${live.devices.length === 1 ? "" : "s"} in HomeKit` : "Not connected yet: see the log.")
       : "";
+    // The card's actions in its menu, bottom right, as on the other pages' cards.
     const card = el("div", { class: "card controller" },
       el("div", { class: "controller-head" },
-        el("span", { class: "tile accessory", "aria-hidden": "true" }, icon()),
+        el("span", { class: "tile accessory", "aria-hidden": "true" }, HomeswiftCommon.icon("inputs")),
         el("div", { class: "who" }, el("strong", { text: ctrl.name || ctrl.address }), el("div", { class: "muted", text: ctrl.address })),
         status),
-      liveText ? el("div", { class: "muted controller-live", text: liveText }) : null,
-      el("div", { class: "controller-actions" },
-        el("button", { class: "primary", text: "Feature options", onclick: () => openOptions(index) }),
-        el("button", { text: "Edit", onclick: () => openSetup(index) }),
-        el("button", { class: "danger", text: "Remove", onclick: (event) => removeController(event.currentTarget, index) })),
-      slot);
+      slot,
+      el("div", { class: "card-foot" },
+        el("span", { class: "muted", text: liveText || "Not running" }),
+        HomeswiftCommon.menuButton(`Actions for ${ctrl.name || ctrl.address}`, () => [
+          { label: "Feature options", icon: "sliders", onSelect: () => openOptions(index) },
+          { label: "Edit", icon: "edit", onSelect: () => openSetup(index) },
+          { label: "Remove", icon: "trash", danger: true, onSelect: () => removeController(index) },
+        ])));
     request("status", { method: "POST", body: { address: ctrl.address } }).then((result) => {
       status.className = `pill status ${result.online ? "on" : "away"}`;
       status.textContent = result.online ? "Online" : "Offline";
@@ -127,21 +130,12 @@ extension UniFiAccessPlugin {
     return card;
   }
 
-  function icon() {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.innerHTML = '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M7 20h10M12 16v4"/>';
-    return svg;
-  }
-
-  async function removeController(button, index) {
+  async function removeController(index) {
     const ctrl = controllers()[index];
     if (!confirm(`Remove ${ctrl.name || ctrl.address}? Its devices leave HomeKit.`)) return;
-    await act(button, "Removing…", async () => {
-      try {
-        await writeBlock((current) => { (current.controllers || []).splice(index, 1); });
-      } catch (e) { alert(`Unable to remove the controller: ${e.message}`); }
-    });
+    try {
+      await writeBlock((current) => { (current.controllers || []).splice(index, 1); });
+    } catch (e) { alert(`Unable to remove the controller: ${e.message}`); }
     renderControllers();
   }
 
@@ -179,8 +173,8 @@ extension UniFiAccessPlugin {
         return;
       }
       container.replaceChildren(el("h2", { text: "Found devices" }), el("div", { class: "found" }, available.map((device) =>
-        el("div", { class: "card item", role: "button", tabIndex: 0, onclick: () => openSetup(null, device.ip), onkeydown: (e) => { if (e.key === "Enter") openSetup(null, device.ip); } },
-          el("span", { class: "tile accessory", "aria-hidden": "true" }, icon()),
+        el("button", { type: "button", class: "card item", onclick: () => openSetup(null, device.ip) },
+          el("span", { class: "tile accessory", "aria-hidden": "true" }, HomeswiftCommon.icon("inputs")),
           el("div", {}, el("strong", { text: device.name }),
             el("div", { class: "muted", text: [device.ip, device.model, device.mac].filter(Boolean).join(" · ") })),
           el("span", { class: "pill", text: "Select" })))));
@@ -628,11 +622,9 @@ extension UniFiAccessPlugin {
   .controller-head .who { flex: 1; min-width: 0; }
   .controller-head strong { display: block; font-size: 1.0625rem; letter-spacing: -0.01em; overflow-wrap: anywhere; }
   .controller-head .muted { font-size: 0.8125rem; overflow-wrap: anywhere; }
-  .controller-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-  .controller-live { font-size: 0.8125rem; }
   .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .found { display: grid; gap: 8px; margin: 14px 0 0; }
-  .found .item { display: flex; align-items: center; gap: 12px; margin: 0; padding: 10px 10px 10px 14px; cursor: pointer; }
+  .found .item { display: flex; align-items: center; gap: 12px; margin: 0; padding: 10px 10px 10px 14px; cursor: pointer; width: 100%; text-align: left; font: inherit; color: inherit; }
   .found .item div { flex: 1; min-width: 0; }
   .found .item .muted { font-size: 0.8125rem; }
   .note-box { margin: 14px 0 0; padding: 10px 14px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); font-size: 0.875rem; }
@@ -671,6 +663,8 @@ extension UniFiAccessPlugin {
   .option-tools input[type=search] { flex: 1; min-width: 180px; }
   .category { margin: 0 0 12px; padding: 0; overflow: hidden; }
   .category-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; cursor: pointer; user-select: none; }
+  .category-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  @media (hover: hover) and (pointer: fine) { .category-head:hover { background: var(--material-thin); } }
   .category-head .title { flex: 1; font-weight: 600; }
   .category-icon { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; color: #fff; font-size: 0.75rem; font-weight: 700; background: var(--category); }
   .progress { width: 60px; height: 5px; border-radius: 3px; background: var(--material-thin); border: 1px solid var(--line); overflow: hidden; }

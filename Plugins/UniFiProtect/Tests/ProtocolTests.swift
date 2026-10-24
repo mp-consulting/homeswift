@@ -79,8 +79,36 @@ import Testing
         // Typed step by step: one expression of Data sums inside #expect takes the compiler too long on CI.
         let moof: Data = moof1 + moof2
         let segment: Data = moof + mdat + video + audio
-        let expected: [ProtectLivestreamParser.Output] = [.segment(segment, moof: moof, mdat: mdat)]
+        let expected: [ProtectLivestreamParser.Output] = [.segment(segment)]
         #expect(outputs == expected)
+    }
+
+    @Test func assemblesPacketsSpreadOverManyMessages() throws {
+        var parser = ProtectLivestreamParser()
+        let mdat = Data((0..<10_000).map { UInt8(truncatingIfNeeded: $0) })
+        let message = Self.livePacket(249) + Self.livePacket(254, mdat) + Self.livePacket(255) + Self.livePacket(248, Data("avc1".utf8))
+        var outputs: [ProtectLivestreamParser.Output] = []
+        var start = 0
+        while start < message.count {
+            let end = min(start + 333, message.count)
+            outputs += try parser.feed(message.subdata(in: start..<end))
+            start = end
+        }
+        #expect(outputs == [.segment(mdat), .codec("avc1")])
+    }
+
+    /// A controller that never ends a segment is cut off rather than buffered without limit.
+    @Test func refusesASegmentThatNeverEnds() throws {
+        var parser = ProtectLivestreamParser()
+        _ = try parser.feed(Self.livePacket(249))
+        let packet = Self.livePacket(252, Data(count: 0xFFFFFF))
+        #expect(throws: ProtectLivestreamParser.SegmentTooLarge()) {
+            for _ in 0...(ProtectLivestreamParser.maximumSegmentSize / 0xFFFFFF) { _ = try parser.feed(packet) }
+        }
+        var empty = ProtectLivestreamParser()
+        #expect(throws: ProtectLivestreamParser.SegmentTooLarge()) {
+            for _ in 0...ProtectLivestreamParser.maximumSegmentParts { _ = try empty.feed(Self.livePacket(251)) }
+        }
     }
 
     @Test func reassemblesSplitPackets() throws {

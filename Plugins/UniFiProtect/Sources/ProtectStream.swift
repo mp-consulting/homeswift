@@ -160,7 +160,6 @@ final class ProtectStreamingDelegate: CameraStreamingDelegate {
     private var abTest = false
     /// The session whose start turned the package camera's flashlight on.
     private var flashlightSession: String?
-    var verboseFfmpeg = false
 
     init(camera: ProtectCamera, resolutions: [VideoResolution], ffmpeg: any ProtectFfmpegKit) {
         self.camera = camera
@@ -427,6 +426,8 @@ final class ProtectStreamingDelegate: CameraStreamingDelegate {
                     return
                 }
                 state.waiting.append(segment)
+                // A controller that holds the initialization segment back does not grow this without limit.
+                if state.waiting.count > ProtectSettings.segmentQueueMaxLength { state.waiting.removeFirst() }
                 guard !state.fetchingInit else { return }
                 state.fetchingInit = true
                 Task { @ProtectActor in
@@ -569,7 +570,7 @@ final class ProtectStreamingDelegate: CameraStreamingDelegate {
     func buildStreamArguments(_ request: StartStreamRequest, session: SessionInfo, plan: StreamPlan) -> [String] {
         var arguments = buildVideoArguments(request, session: session, plan: plan)
         if session.hasAudioSupport { arguments += buildAudioArguments(request, session: session, useTsb: plan.useTsb) }
-        if camera.platform.verboseFfmpeg || verboseFfmpeg || camera.hasFeature("Debug.Video.FFmpeg") { arguments += ["-loglevel", "level+verbose"] }
+        if camera.platform.verboseFfmpeg || camera.hasFeature("Debug.Video.FFmpeg") { arguments += ["-loglevel", "level+verbose"] }
         if camera.platform.configuration.debug { arguments += ["-loglevel", "level+debug"] }
         return arguments
     }

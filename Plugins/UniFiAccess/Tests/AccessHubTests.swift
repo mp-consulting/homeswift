@@ -497,6 +497,23 @@ struct AccessHubTests {
         #expect(accessory(host, gateID) != nil)
     }
 
+    /// A device back before its removal leaves the queue, however long it was gone.
+    @Test func devicesThatComeBackStay() async throws {
+        let host = try await environment.start(devices: [uah(), ugt()], options: ["Enable.Controller.DelayDeviceRemoval.2"])
+        defer { Task { await host.stop() } }
+        environment.controller.setDevices([ugt()])
+        _ = await environment.controllerActor()?.api.getBootstrap()
+        #expect(await eventually { self.environment.log.contains("Delaying device removal for at least 2 seconds.") })
+        try await Task.sleep(for: .milliseconds(100))
+        environment.controller.setDevices([uah(), ugt()])
+        _ = await environment.controllerActor()?.api.getBootstrap()
+        try await Task.sleep(for: .milliseconds(300))
+        _ = await environment.controllerActor()?.api.getBootstrap()
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(accessory(host, hubID) != nil)
+        #expect(!environment.log.contains("Removing UA Hub from HomeKit."))
+    }
+
     @Test func deletedDevicesLeave() async throws {
         let host = try await environment.start(devices: [uah()], options: ["Disable.Controller.DelayDeviceRemoval"])
         defer { Task { await host.stop() } }

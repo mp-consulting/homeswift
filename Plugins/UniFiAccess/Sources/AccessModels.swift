@@ -72,13 +72,17 @@ struct AccessDevice: Sendable, Equatable {
         }
     }
 
-    /// A config value by key.
-    func config(_ key: String) -> String? { configs?.first { $0.key == key }?.value }
+    /// A config value by key: read in place, without building every entry (a device update reads a dozen).
+    func config(_ key: String) -> String? {
+        guard let entries = json["configs"]?.arrayValue else { return nil }
+        for entry in entries where entry["key"]?.stringValue == key { return entry["value"].map(Self.text) ?? "" }
+        return nil
+    }
 
     /// Whether every one of these configs is `on`.
     func wiringActive(_ keys: [String]) -> Bool {
-        let configs = configs
-        return keys.allSatisfy { key in configs?.contains { $0.key == key && $0.value == "on" } ?? false }
+        guard let entries = json["configs"]?.arrayValue else { return false }
+        return keys.allSatisfy { key in entries.contains { $0["key"]?.stringValue == key && $0["value"].map(Self.text) == "on" } }
     }
 
     func has(capability: String) -> Bool { capabilities.contains(capability) }

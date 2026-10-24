@@ -47,7 +47,7 @@ extension UniFiAccessPlugin {
               "required": false,
               "format": "uri",
               "placeholder": "e.g. mqtt://1.2.3.4",
-              "description": "URL for the MQTT broker you'd like to publish event messages to. Default: None."
+              "description": "URL for the MQTT broker you'd like to publish event messages to. The broker can also lock and unlock doors (lock/set), so use one that requires a login. Default: None."
             },
 
             "mqttVerifyTls": {
