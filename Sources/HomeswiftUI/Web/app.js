@@ -100,8 +100,8 @@
 
   const signOut = async () => { try { await api("/api/auth/logout", { method: "POST" }); } catch {} await loadAuth(); };
 
-  /// The name the header shows: the user's display name, else their username; "This machine" without sign-in.
-  const shownName = () => (auth.mode === "form" ? (auth.name && auth.name !== auth.username ? auth.name : auth.username || "") : "This machine");
+  /// The name the header shows: the user's display name, else their username; none without sign-in.
+  const shownName = () => (auth.mode === "form" ? (auth.name && auth.name !== auth.username ? auth.name : auth.username || "") : "");
 
   /// The header's account button: the user's initial on the accent (a person without sign-in), the name beside it on
   /// a wide window.
@@ -116,7 +116,7 @@
     event.stopPropagation();
     const form = auth.mode === "form";
     HomeswiftCommon.menu($("#user"), [
-      { heading: shownName(), detail: form ? `${auth.username}${isAdmin() ? " · Administrator" : ""}` : "No sign-in on this web UI" },
+      form ? { heading: shownName(), detail: `${auth.username}${isAdmin() ? " · Administrator" : ""}` } : { heading: "No sign-in", detail: "Anyone who opens this web UI uses it" },
       { label: form ? "Your account" : "Account", icon: "user", href: "/account" },
       { label: "Appearance", icon: "sliders", href: "/appearance" },
       form && isAdmin() ? { label: "Users and tokens", icon: "users", href: "/users" } : null,

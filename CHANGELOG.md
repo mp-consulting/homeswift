@@ -9,7 +9,8 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - Web UI: an account menu at the header's right end, your initial on the accent: who is signed in and as what, Your
-  account, Appearance, Users and tokens (administrators) and Sign out; Users leaves the header's links. On a phone the
+  account, Appearance, Users and tokens (administrators) and Sign out; Users leaves the header's links, and the
+  Assistant's button is its sparkle alone. On a phone the
   tab bar has a column per section, so Logs no longer wraps to a second row.
 - Web UI: the scheduled restart is set as a time and the days it runs on (none: every day), or a cron expression
   under Custom (`x-schema-form.type: "schedule"`); the daily backup is "Turn on the daily backup", on while
