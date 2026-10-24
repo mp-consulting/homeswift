@@ -24,6 +24,8 @@ actor RecordingPlugin: HomeswiftPlugin {
         var externals: [String]?
         var refuse: Bool?
         var brightness: Int?
+        /// `start()` adds its lamps, then throws.
+        var failStart: Bool?
     }
 
     static let platform = "Recording"
@@ -48,6 +50,7 @@ actor RecordingPlugin: HomeswiftPlugin {
         for tv in configuration.externals ?? [] {
             try await publishTelevision(id: tv, inputs: ["HDMI 1"])
         }
+        if configuration.failStart == true { throw TestError.refused }
     }
 
     func stop() async { stopped = true }
@@ -369,6 +372,41 @@ struct PluginHostTests {
         #expect(bridge.needsRestart == ["the bridge block changed"])
         #expect(bridge.stopped == ["TVs"])
         #expect(!host.bridges.contains { $0.isExternal })
+        await host.stop()
+    }
+
+    /// Blocks with the same platform and name pair up with their instances in order: a change to the second
+    /// reloads the second, not the first.
+    @Test func reloadsTheDuplicateBlockThatChanged() async throws {
+        func configuration(_ second: String) throws -> HomeswiftConfiguration {
+            try HomeswiftConfiguration.decode(Data(#"""
+                { "bridge": { "port": 0 }, "platforms": [
+                  { "platform": "Recording", "name": "Lights", "lamps": ["a"] },
+                  { "platform": "Recording", "name": "Lights", "lamps": [\#(second)] }
+                ] }
+                """#.utf8))
+        }
+        let host = try PluginHost(configuration: try configuration(#""b""#), registry: environment.registry, storageDirectory: environment.directory, options: environment.options)
+        try await host.start()
+        #expect(host.platforms.map(\.accessoryIDs) == [["Recording:a"], ["Recording:b"]])
+        let report = await host.apply(try configuration(#""b", "c""#))
+        #expect(report == PluginHost.ReloadReport(reloaded: ["Lights"]))
+        #expect(host.platforms.map(\.accessoryIDs) == [["Recording:a"], ["Recording:b", "Recording:c"]])
+        #expect(environment.createdPlugins.count == 3)
+        #expect(await !environment.createdPlugins[0].stopped)
+        #expect(await environment.createdPlugins[1].stopped)
+        await host.stop()
+    }
+
+    /// A plugin whose `start()` throws is stopped, so what it began does not run on unseen.
+    @Test func stopsAPluginWhoseStartThrew() async throws {
+        let host = try environment.host(#"{ "bridge": { "port": 0 }, "platforms": [{ "platform": "Recording", "name": "Half", "lamps": ["a"], "failStart": true }] }"#)
+        try await host.start()
+        let plugin = try #require(environment.createdPlugins.first)
+        #expect(await plugin.started)
+        #expect(await plugin.stopped)
+        #expect(host.instances.first?.plugin.withLockedValue { $0 } == nil)
+        #expect(host.instances.first?.failure.withLockedValue { $0 } != nil)
         await host.stop()
     }
 

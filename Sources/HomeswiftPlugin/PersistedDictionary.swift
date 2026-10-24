@@ -51,9 +51,10 @@ public final class PersistedDictionary<Value: Codable & Equatable & Sendable>: S
         }
         guard let schedule else { return false }
         if schedule, let autosave {
-            Task { [weak self] in
+            // Holds the store until it has written: a store let go of within `autosave` still saves its change.
+            Task {
                 try? await Task.sleep(for: autosave)
-                self?.autosaveNow()
+                self.autosaveNow()
             }
         }
         return true
@@ -130,13 +131,29 @@ public struct JSONFile<Value: Codable>: Sendable {
 extension PluginContext {
     /// A JSON file in the storage directory, by name (`context.jsonFile("devices.json", as: [Device].self)`).
     public func jsonFile<Value: Codable>(_ name: String, as type: Value.Type = Value.self) -> JSONFile<Value> {
-        JSONFile(url: storageDirectory.appendingPathComponent(name))
+        JSONFile(url: storageFile(name))
     }
 
     /// A keyed store in the storage directory, by name: see `PersistedDictionary`.
     public func persistedDictionary<Value: Codable & Equatable & Sendable>(
         _ name: String, of type: Value.Type = Value.self, autosave: Duration? = .milliseconds(200)
     ) -> PersistedDictionary<Value> {
-        PersistedDictionary(url: storageDirectory.appendingPathComponent(name), autosave: autosave, logger: logger)
+        let store = PersistedDictionary<Value>(url: storageFile(name), autosave: autosave, logger: logger)
+        let logger = logger
+        storeFlushes.withLockedValue { flushes in
+            flushes.removeAll { !$0.isAlive() }
+            flushes.append((isAlive: { [weak store] in store != nil }, flush: { [weak store] in
+                do { try store?.flush() } catch { logger.warning("Could not save \(name)", metadata: ["error": "\(error)"]) }
+            }))
+        }
+        return store
+    }
+
+    /// A file directly in the storage directory: a name made from a device's or a cloud's id (`"\(serial).json"`)
+    /// never reaches outside it, its slashes and a `..` being replaced.
+    func storageFile(_ name: String) -> URL {
+        var safe = name.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "\\", with: "_")
+        if safe.isEmpty || safe == "." || safe == ".." { safe = "_" + safe }
+        return storageDirectory.appendingPathComponent(safe)
     }
 }

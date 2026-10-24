@@ -87,6 +87,15 @@ struct MetricsTests {
         #expect(Metrics(directory: directory, days: 1, now: { now.addingTimeInterval(86_400) }).history(from: late, to: now).points.isEmpty)
     }
 
+    /// A damaged row reads as what it can say, never as a trap at every start.
+    @Test func readsDamagedRowsWithoutTrapping() throws {
+        let minute = try #require(Metrics.minute(Data(#"{"t":1800000000,"m":1e300,"r":{"all":[1e300,1,1],"x":[-1e300,1,1]}}"#.utf8)))
+        #expect(minute.memory == .max)
+        #expect(minute.requests["all"]?.count == .max)
+        #expect(minute.requests["x"]?.count == .min)
+        #expect(Metrics.day(Date(timeIntervalSince1970: 1_800_057_540)) == "20270115")
+    }
+
     @Test func samplesTheProcess() {
         #expect((Metrics.memoryFootprint() ?? 0) > 1_000_000)
         #expect((Metrics.cpuSeconds() ?? 0) > 0)

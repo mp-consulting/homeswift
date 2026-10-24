@@ -7,6 +7,12 @@ DATA=/homeswift
 PUID=${PUID:-1000}
 PGID=${PGID:-1000}
 HOST_DBUS=/run/host-dbus/system_bus_socket
+# They go into /etc/passwd and to setpriv: numbers only.
+for id in "$PUID" "$PGID"; do
+    case $id in
+        '' | *[!0-9]*) echo "homeswift: PUID and PGID are numbers (uid and gid), not \"$id\"" >&2; exit 1 ;;
+    esac
+done
 
 if [ -S "$HOST_DBUS" ]; then
     # The host's D-Bus socket is mounted: its Avahi advertises the bridge, as it does the NAS's own services.
@@ -70,11 +76,14 @@ if [ ! -f "$DATA/config.json" ]; then
 }
 EOF
     chmod 600 "$DATA/config.json"
+    # The bridge's own, even when the folder already is and the chown below does not run.
+    chown "$PUID:$PGID" "$DATA/config.json"
     echo "homeswift: created $DATA/config.json with the web UI on port 8581"
 fi
 # A folder made in File Station belongs to its DSM user; the bridge needs it as its own.
 if [ "$(stat -c %u:%g "$DATA")" != "$PUID:$PGID" ]; then
-    chown -R "$PUID:$PGID" "$DATA"
+    # -h: a link in the folder is changed itself, never what it points to.
+    chown -R -h "$PUID:$PGID" "$DATA"
 fi
 
 # D-Bus turns away a uid without an account, and Avahi with it: a DSM uid such as 1026 has none in the image.
@@ -86,4 +95,6 @@ if ! getent passwd "$PUID" > /dev/null; then
 fi
 
 export HOME="$DATA"
+# Files the bridge makes without saying how (FFmpeg's, a plugin's) are its own only: tokens and keys live here.
+umask 077
 exec setpriv --reuid="$PUID" --regid="$PGID" --clear-groups /usr/local/bin/homeswift -U "$DATA" "$@"

@@ -27,6 +27,9 @@ public final class LogArchive: @unchecked Sendable {
     private var pending = Data()
     private var flushScheduled = false
     private var segment: (handle: FileHandle, ends: Date, size: Int)?
+    // A segment that could not be made (a full disk, a directory not ours) is tried again after this, not for
+    // every line: until then the lines are kept in memory only.
+    private var retryAt: Date?
     private let saving: NIOLockedValueBox<Bool>
 
     static let prefix = "homeswift-"
@@ -97,7 +100,12 @@ public final class LogArchive: @unchecked Sendable {
                 write()
                 close()
             }
-            if segment == nil { segment = start(at: line.date) }
+            if segment == nil, retryAt.map({ Date() >= $0 }) ?? true {
+                segment = start(at: line.date)
+                retryAt = segment == nil ? Date().addingTimeInterval(60) : nil
+            }
+            // Nowhere to write it: dropped, rather than piling up in memory.
+            guard segment != nil else { return }
             pending.append(data)
             if pending.count >= Self.flushBytes {
                 write()

@@ -68,6 +68,20 @@ struct PersistedDictionaryTests {
         #expect(PersistedDictionary<Int>(url: url).values == ["b": 2])
     }
 
+    /// A store let go of before its autosave still writes its change.
+    @Test func savesAChangeOfAStoreLetGo() async throws {
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        do {
+            let store = PersistedDictionary<Int>(url: url, autosave: .milliseconds(20))
+            store["a"] = 1
+        }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !FileManager.default.fileExists(atPath: url.path), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(PersistedDictionary<Int>(url: url).values == ["a": 1])
+    }
+
     @Test func jsonFileRoundTrips() throws {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let file = JSONFile<[String]>(url: url)
@@ -95,6 +109,29 @@ struct PluginContextHelperTests {
         #expect(Set(removed) == ["Recording:one", "Recording:three"])
         #expect(plugin.context.accessories.map(\.id) == ["Recording:two"])
         await host.stop()
+    }
+
+    /// A file name made from a device's id stays in the plugin's directory.
+    @Test func keepsFilesInTheStorageDirectory() throws {
+        let host = try environment.host(#"{ "bridge": { "port": 0 }, "platforms": [{ "platform": "Recording", "name": "Lamps" }] }"#)
+        let context = try #require(host.instances.first?.context)
+        let directory = context.storageDirectory.standardizedFileURL.path
+        for name in ["../../config.json", "..", "a/../../b.json", #"..\x"#, "devices.json"] {
+            let url = context.jsonFile(name, as: [String].self).url.standardizedFileURL
+            #expect(url.deletingLastPathComponent().path == directory, "\(name)")
+        }
+        #expect(context.jsonFile("devices.json", as: [String].self).url.lastPathComponent == "devices.json")
+    }
+
+    /// A change still waiting for its autosave is written when the plugin stops, before a restart can lose it.
+    @Test func savesPersistedDictionariesWhenThePluginStops() async throws {
+        let host = try environment.host(#"{ "bridge": { "port": 0 }, "platforms": [{ "platform": "Recording", "name": "Lamps" }] }"#)
+        try await host.start()
+        let plugin = try #require(environment.createdPlugins.first)
+        let store = plugin.context.persistedDictionary("state.json", of: Int.self, autosave: .seconds(60))
+        store["level"] = 3
+        await host.stop()
+        #expect(PersistedDictionary<Int>(url: store.url).values == ["level": 3])
     }
 
     @Test func revertsAValueLater() async throws {

@@ -150,6 +150,28 @@ struct HostControlTests {
         #expect(throws: HostControlError.unknownBridge("nope")) { try host.resetPairings(bridgeID: "nope") }
     }
 
+    /// A name two servers share finds neither: a pairing reset never lands on the wrong one. Device IDs always find.
+    @Test func findsBridgesByDeviceIDOrAUniqueName() async throws {
+        let host = try environment.host("""
+            {
+              "bridge": { "name": "Main", "port": 0 },
+              "platforms": [{ "platform": "Recording", "name": "TV", "externals": ["Twin"],
+                              "_bridge": { "username": "0E:AA:BB:CC:DD:E0", "name": "Twin", "port": 0 } }]
+            }
+            """)
+        try await host.start()
+        let child = try #require(host.bridges.first { $0.isChild })
+        let television = try #require(host.bridges.first { $0.isExternal })
+        #expect(television.name == "Twin")
+        #expect(host.bridge(id: "twin") == nil)
+        #expect(throws: HostControlError.unknownBridge("Twin")) { try host.resetPairings(bridgeID: "Twin") }
+        #expect(host.bridge(id: "0eaabbccdde0") === child)
+        #expect(host.bridge(id: television.server.deviceID) === television)
+        #expect(host.childBridge(id: "Twin") === child)
+        #expect(host.bridge(id: "main") === host.mainBridge)
+        await host.stop()
+    }
+
     @Test func findsAnAccessorysEveHistory() {
         let history = EveHistory(.weather, accessoryName: "Sensor", averaging: false)
         let sensor = Service(.temperatureSensor, name: "Sensor", isPrimary: true)

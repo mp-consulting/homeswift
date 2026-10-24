@@ -254,7 +254,7 @@ public final class Metrics: @unchecked Sendable {
     private func persist(_ minute: Minute) {
         guard let directory else { return }
         let line = Self.entry(minute) + [0x0A]
-        let name = "\(Self.prefix)\(Self.days().string(from: minute.start)).jsonl"
+        let name = "\(Self.prefix)\(Self.day(minute.start)).jsonl"
         let days = days
         queue.async {
             let manager = FileManager.default
@@ -291,11 +291,12 @@ public final class Metrics: @unchecked Sendable {
             (value?.objectValue ?? [:]).compactMapValues { item in
                 guard let parts = item.arrayValue, parts.count == 3, let count = parts[0].doubleValue, let total = parts[1].doubleValue,
                       let longest = parts[2].doubleValue else { return nil }
-                return Durations(count: Int(count), total: total, longest: longest)
+                // Saturating: a damaged row (a count of 1e300) must not trap at every start.
+                return Durations(count: Int(saturating: count) ?? 0, total: total, longest: longest)
             }
         }
         return Minute(
-            start: Date(timeIntervalSince1970: time), memory: entry["m"]?.doubleValue.map { UInt64(max(0, $0)) }, cpu: entry["c"]?.doubleValue,
+            start: Date(timeIntervalSince1970: time), memory: entry["m"]?.doubleValue.flatMap { UInt64(saturating: $0) }, cpu: entry["c"]?.doubleValue,
             requests: durations(entry["r"]), handlers: durations(entry["h"]))
     }
 
@@ -315,19 +316,16 @@ public final class Metrics: @unchecked Sendable {
     /// Removes the files of days older than `days`.
     private static func prune(_ directory: URL, keeping days: Int) {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-        let oldest = Self.days().string(from: Date().addingTimeInterval(-Double(days) * 86_400))
+        let oldest = day(Date().addingTimeInterval(-Double(days) * 86_400))
         for name in names where name.hasPrefix(prefix) && name.hasSuffix(".jsonl") && String(name.dropFirst(prefix.count).prefix(8)) < oldest {
             try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
         }
     }
 
-    /// `20261023`, in UTC: names sort by day whatever the time zone.
-    static func days() -> DateFormatter {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(identifier: "UTC")
-        formatter.dateFormat = "yyyyMMdd"
-        return formatter
+    /// `20261023`, in UTC: names sort by day whatever the time zone. From `Timestamp`, without a formatter to make
+    /// for every minute that closes.
+    static func day(_ date: Date) -> String {
+        String(Timestamp.iso8601(date).prefix(10).filter { $0 != "-" })
     }
 
     // MARK: The process
