@@ -56,7 +56,11 @@ extension DysonPureCoolPlugin {
         "refused: Bad username or password\" means the saved local credential is stale, so use Re-sync from Dyson Cloud on the page.",
         "Older Link models (HP02, TP02, DP01) and newer models (HP04+, TP04+) use different MQTT fields; Link models are also asked",
         "for their sensor data on every poll. Continuous monitoring (\"rhtm\") keeps the sensors running while the fan is off and is",
-        "needed for sensor updates then; \"pollingInterval\" sets how often state is requested (seconds); temperatureOffset and",
+        "needed for sensor updates then. Without it the device reports its sensors as OFF while the fan is idle: the temperature",
+        "and humidity sensors are marked inactive (Status Active off) and keep their last reading, and with no reading since the",
+        "bridge started they show -40 °C and 0 %. That is not a fault or an offline device: turning the fan on, or continuous",
+        "monitoring on (the device's switch, shown with isContinuousMonitoringEnabled), brings readings back. \"pollingInterval\"",
+        "sets how often state is requested (seconds); temperatureOffset and",
         "humidityOffset calibrate readings. Never ask the user for their password, verification codes, local credentials, tokens or",
         "API keys.",
     ].joined(separator: " ")
