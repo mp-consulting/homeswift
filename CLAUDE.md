@@ -132,8 +132,7 @@ A release is a tag: SwiftPM resolves versions from `vX.Y.Z` tags. Bump `PluginHo
 `homeswift --version` and as the bridge's firmware revision), move the `[Unreleased]` section of CHANGELOG.md
 under the new version, commit, then `gh release create vX.Y.Z --title X.Y.Z --notes-file <section>` (the title is the bare version) and push the tag. There
 are no binaries to sign yet. The Homebrew formula (`mp-consulting/homebrew-tap`, `Formula/homeswift.rb`) builds
-`homeswift-demo` from the release tarball; it needs `homeswift` added at the next release.
-From the first release that has `THIRD-PARTY-NOTICES.md`, it needs `doc.install "THIRD-PARTY-NOTICES.md", "LICENSES"`
-(the v0.3.0 tarball has neither). The tap's workflow moves it to the latest release within 6 hours. Pushing the tag runs `.github/workflows/docker.yml`, which pushes
+`homeswift` and `homeswift-demo` from the release tarball and installs `THIRD-PARTY-NOTICES.md` and `LICENSES`.
+The tap's workflow moves it to the latest release within 6 hours. Pushing the tag runs `.github/workflows/docker.yml`, which pushes
 `ghcr.io/mp-consulting/homeswift:X.Y.Z`, `X.Y` and `latest` for amd64 and arm64 (each on a native runner); a
 new GHCR package is private until its visibility is set to public in the package's settings.
