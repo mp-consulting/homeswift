@@ -6,6 +6,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- HAP: the mDNS responder answers only senders on the receiving interface's network and multicasts a record at most
+  once a second (no reflection off the bridge); request bodies before pair verify are capped at 16 KB; past 16
+  connections, those silent for an hour are closed; a data stream's hello frame is bounded.
+- Web UI: event streams end when their user signs out, is removed or loses administrator rights; one password or
+  code check per address at a time; body limits set from the request head (64 KiB before sign-in); idle connections
+  and readers that stop reading are closed; a removed user's chats and preferences go with them; the chat is closed
+  and forgotten at sign-out; notification links stay on the bridge; the self-signed certificate carries Name
+  Constraints to its own names and addresses.
+- MCP: the daily digest no longer carries one-time confirmation codes; browser notifications go only to the
+  browsers' push services (FCM, Mozilla, Apple, Windows), at most five devices per user; a dropped stream no longer
+  holds its session; the Elgato `probe` action needs the configure scope.
+- Logs and the Assistant mask `Authorization`, cookies, session ids, signatures and one-time codes; passwords leave
+  URL errors and FFmpeg command lines, an RTSP password holding a raw `@` included.
+- Plugins: UniFi Protect's ONVIF and device routes and UniFi Access's status check connect only to an address they
+  checked (no loopback, link-local or rebinding); eWeLink goes through the bounded HTTP client and an encrypted
+  device stays encrypted; Dolphin never follows an HTTPS to HTTP redirect; Daikin's revoke is no longer undone by a
+  refresh under way; LG ThinQ downloads models over http(s) only; plugin file names stay in their directory.
+- Container: `PUID`/`PGID` must be numbers, `chown` no longer follows symlinks, files are created owner-only.
+
 ### Changed
 
 - Web UI: the Accessories wall fills its row: as many columns of 160 points or more as fit, widened to end where the
@@ -21,6 +42,17 @@ All notable changes to this project are documented here. The format follows
   instead of not starting; `homeswift mcp --snippets` shows how to connect a client.
 
 ### Fixed
+
+- FFmpeg: a process that ignores SIGTERM is killed even when a restart came in between; probes time out after 60 s.
+- HTTP, WebSocket and MQTT timeouts no longer run twice (connect, then the answer); IPv6 `Host` headers carry their
+  brackets; Digest authentication answers MD5-sess, SHA-256 and `auth-int` challenges.
+- A plugin stuck in `start()` or `stop()` no longer blocks the web UI, the MCP server or a restart; its persisted
+  stores are saved when it stops; pairings reset by device id when two servers share a name.
+- Cron schedules read months and days on the Gregorian calendar whatever the system's calendar is.
+- Plugins: UniFi devices back within `DelayDeviceRemoval` keep their HomeKit rooms and automations; Philips Ambilight
+  colour writes are no longer dropped after an "off"; one LG model the CDN fails to serve no longer stops discovery;
+  Govee stops asking for a verification e-mail every 10 minutes; LG ThinQ1 polls every 60 s by default, as the
+  schema says.
 
 - A cron schedule no longer spins a core forever in the day before a clock change: finding the next time stepped
   out of the hour that repeats in autumn back into its first occurrence. A daily backup or a scheduled restart
