@@ -90,14 +90,14 @@ import Testing
     static let interface = MDNSResponder.Interface(index: 7, name: "eth0", addresses: [[192, 168, 1, 5]])
     static let peer = try! SocketAddress(ipAddress: "192.168.1.20", port: 5353)
 
-    func makeResponder() throws -> (MDNSResponder, Wire) {
+    func makeResponder(interface: MDNSResponder.Interface = interface) throws -> (MDNSResponder, Wire) {
         let responder = MDNSResponder()
         let wire = Wire()
         try responder.loop.submit {
             responder.send = { _, destination, bytes in
                 if let message = try? DNSMessage(bytes: bytes) { wire.sent.withLockedValue { $0.append((destination, message)) } }
             }
-            responder.addInterface(Self.interface)
+            responder.addInterface(interface)
         }.wait()
         return (responder, wire)
     }
@@ -191,6 +191,46 @@ import Testing
         try await Task.sleep(for: .milliseconds(1300))
         // No new probes: the name stays.
         #expect(wire.take().allSatisfy { $0.message.isResponse })
+        try await responder.unregister(id: id).get()
+    }
+
+    @Test func ignoresPacketsFromOtherNetworks() async throws {
+        var interface = Self.interface
+        interface.netmasks = [[255, 255, 255, 0]]
+        let (responder, wire) = try makeResponder(interface: interface)
+        let id = try await responder.register(name: "Homeswift", port: 51826, txt: txt("1"), interfaces: [], logger: testLogger).get()
+        try await wire.wait { $0.filter(\.message.isResponse).count >= 2 }
+        _ = wire.take()
+        let query = DNSMessage(id: 7, questions: [DNSQuestion(name: DNSName(dotted: "Homeswift.local"), type: DNSType.a)])
+
+        // A unicast query from beyond the network (a spoofed source, to use the bridge as a reflector): no answer.
+        try deliver(query, to: responder, from: try SocketAddress(ipAddress: "203.0.113.9", port: 40000))
+        // Nor a conflict from there.
+        let theirs = DNSRecord(name: DNSName(dotted: "Homeswift.local"), data: .a([10, 9, 9, 9]), ttl: 120, cacheFlush: true)
+        try deliver(DNSMessage(isResponse: true, answers: [theirs]), to: responder, from: try SocketAddress(ipAddress: "203.0.113.9", port: 5353))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(wire.take().isEmpty)
+
+        // The same query from this network is answered.
+        try deliver(query, to: responder, from: try SocketAddress(ipAddress: "192.168.1.20", port: 40000))
+        #expect(wire.take().first?.message.id == 7)
+        try await responder.unregister(id: id).get()
+    }
+
+    @Test func multicastsARecordAtMostOnceASecond() async throws {
+        let (responder, wire) = try makeResponder()
+        let id = try await responder.register(name: "Homeswift", port: 51826, txt: txt("1"), interfaces: [], logger: testLogger).get()
+        try await wire.wait { $0.filter(\.message.isResponse).count >= 2 }
+        _ = wire.take()
+        let query = DNSMessage(questions: [DNSQuestion(name: DNSName(dotted: "Homeswift.local"), type: DNSType.a)])
+        for _ in 0..<5 { try deliver(query, to: responder) }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(wire.take().count == 1)
+
+        // A second later, the record may go out again.
+        try await Task.sleep(for: .milliseconds(1000))
+        try deliver(query, to: responder)
+        #expect(wire.take().count == 1)
         try await responder.unregister(id: id).get()
     }
 

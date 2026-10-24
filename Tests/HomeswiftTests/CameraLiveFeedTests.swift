@@ -93,6 +93,12 @@ enum InitSegmentFixtures {
         }
         // A media fragment alone has no moov.
         #expect(CameraLiveFeed.codecs(initSegment: Data([0, 0, 0, 8]) + Data("moof".utf8)).isEmpty)
+        // An stsd shorter than its own header, and a 64-bit size near Int.max: no trap.
+        func box(_ type: String, _ body: Data) -> Data { Data(HAPTLV.uint32(UInt32(8 + body.count)).reversed()) + Data(type.utf8) + body }
+        let stsd = box("moov", box("trak", box("mdia", box("minf", box("stbl", box("stsd", Data([0, 0])))))))
+        #expect(CameraLiveFeed.codecs(initSegment: stsd).isEmpty)
+        let huge = box("free", Data()) + Data([0, 0, 0, 1]) + Data("moov".utf8) + Data([0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
+        #expect(CameraLiveFeed.codecs(initSegment: huge).isEmpty)
     }
 
     @Test func cancelsOnce() {

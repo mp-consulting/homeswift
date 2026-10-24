@@ -285,7 +285,7 @@ struct CameraServerTests {
         try #require(server.state.withLockedValue { Array($0.connections.values) }.first)
     }
 
-    private func setupDataStream(_ controller: TestController) async throws -> HDSTestClient {
+    private func setupDataStream(_ controller: TestController, hello: Bool = true) async throws -> HDSTestClient {
         var salt = Data(count: 32)
         for index in salt.indices { salt[index] = UInt8(index) }
         let setup = HAPTLV.encode((1, .byte(0)), (2, .byte(0)), (3, .data(salt)))
@@ -296,9 +296,21 @@ struct CameraServerTests {
         let keys = HDSFrame.keys(sharedSecret: try #require(controller.sharedSecret), controllerKeySalt: salt, accessoryKeySalt: try #require(answer[3]))
         let hds = HDSTestClient(controllerToAccessory: keys.controllerToAccessory, accessoryToController: keys.accessoryToController)
         try await hds.connect(port: port)
+        guard hello else { return hds }
         try await hds.send(header: ["protocol": "control", "request": "hello", "id": .int64(1)])
         #expect(try await hds.next().kind == .response(id: 1, status: 0))
         return hds
+    }
+
+    @Test func closesASocketWhoseFirstFrameIsTooLongForAHello() async throws {
+        recording.packets = []
+        let controller = try await pairedController()
+        let hds = try await setupDataStream(controller, hello: false)
+        try await hds.send(payload: Data(repeating: 0, count: DataStreamConnection.maxUnidentifiedFrame + 1))
+        await #expect(throws: (any Error).self) { _ = try await hds.next() }
+        await hds.close()
+        await controller.close()
+        await server.stop()
     }
 
     @Test func refusesAdminOnlyWritesFromOtherUsers() async throws {

@@ -69,12 +69,11 @@ public struct CameraLiveFeed: Sendable {
         for trak in MP4Boxes.children(bytes, moov.body) where trak.type == "trak" {
             guard let stsd = MP4Boxes.find(bytes, trak.body, path: ["mdia", "minf", "stbl", "stsd"]) else { continue }
             // A full box: version and flags, then the entry count.
-            let entries = (stsd.body.lowerBound + 8)..<stsd.body.upperBound
-            guard let entry = MP4Boxes.children(bytes, entries).first else { continue }
+            guard let entries = MP4Boxes.body(stsd, after: 8), let entry = MP4Boxes.children(bytes, entries).first else { continue }
             switch entry.type {
             case "avc1", "avc3", "hvc1", "hev1":
                 // A visual sample entry's fields take 78 bytes before its boxes.
-                let boxes = MP4Boxes.children(bytes, (entry.body.lowerBound + 78)..<entry.body.upperBound)
+                let boxes = MP4Boxes.body(entry, after: 78).map { MP4Boxes.children(bytes, $0) } ?? []
                 if let avcC = boxes.first(where: { $0.type == "avcC" }), avcC.body.count >= 4 {
                     let start = avcC.body.lowerBound
                     video.append(entry.type + "." + [bytes[start + 1], bytes[start + 2], bytes[start + 3]].map { hex($0, width: 2) }.joined())
@@ -85,7 +84,7 @@ public struct CameraLiveFeed: Sendable {
                 }
             case "mp4a":
                 // An audio sample entry's fields take 28 bytes before its boxes.
-                let boxes = MP4Boxes.children(bytes, (entry.body.lowerBound + 28)..<entry.body.upperBound)
+                let boxes = MP4Boxes.body(entry, after: 28).map { MP4Boxes.children(bytes, $0) } ?? []
                 let objectType = boxes.first(where: { $0.type == "esds" }).flatMap { aacObjectType(Array(bytes[$0.body])) }
                 audio.append(objectType.map { "mp4a.\(hex(UInt8($0.indication), width: 2)).\($0.audioObjectType)" } ?? "mp4a.40.2")
             case "Opus":
@@ -187,12 +186,19 @@ enum MP4Boxes {
             } else if size == 0 {
                 size = range.upperBound - offset
             }
-            guard size >= header, offset + size <= range.upperBound else { break }
+            // Compared without adding: a 64-bit size from the file would overflow `offset + size`.
+            guard size >= header, size <= range.upperBound - offset else { break }
             let type = String(decoding: bytes[(offset + 4)..<(offset + 8)], as: UTF8.self)
             boxes.append(Box(type: type, body: (offset + header)..<(offset + size)))
             offset += size
         }
         return boxes
+    }
+
+    /// What follows the first `count` bytes of a box's body (a full box's header, a sample entry's fields); nil
+    /// when the body is shorter.
+    static func body(_ box: Box, after count: Int) -> Range<Int>? {
+        box.body.count >= count ? (box.body.lowerBound + count)..<box.body.upperBound : nil
     }
 
     /// The box at the end of a path of nested types.

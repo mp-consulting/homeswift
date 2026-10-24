@@ -80,6 +80,7 @@ public final class HAPServer: @unchecked Sendable {
         var pairSetupOwner: ObjectIdentifier?
         var failedPairSetupAttempts = 0
         var serverChannel: (any Channel)?
+        var idleCheck: RepeatedTask?
         /// `persisted.databaseHash` is behind the database: accessories with new ids were added since, each with
         /// its bump of the number. A settle, shortly after or at `stop()`, catches the hash up.
         var hashBehind = false
@@ -297,10 +298,14 @@ public final class HAPServer: @unchecked Sendable {
         let preferred = options.port ?? state.withLockedValue { $0.persisted.port } ?? 0
         let channel = try await bind(bootstrap, port: preferred)
         let port = channel.localAddress?.port ?? preferred
+        let idleCheck = channel.eventLoop.scheduleRepeatedTask(initialDelay: .minutes(1), delay: .minutes(1)) { [weak self] _ in
+            self?.closeIdleConnections()
+        }
         state.withLockedValue {
             // The database is complete now: one hash, one bump when it changed since the last run.
             refreshConfigurationNumber(in: &$0)
             $0.serverChannel = channel
+            $0.idleCheck = idleCheck
             $0.persisted.port = port
         }
         try persist()
@@ -333,7 +338,11 @@ public final class HAPServer: @unchecked Sendable {
         advertiser.stop()
         await builtInAdvertiser.stop()
         usesBuiltInAdvertiser.withLockedValue { $0 = false }
-        let (channel, connections) = state.withLockedValue { ($0.serverChannel, Array($0.connections.values)) }
+        let (channel, connections, idleCheck) = state.withLockedValue { state in
+            defer { state.idleCheck = nil }
+            return (state.serverChannel, Array(state.connections.values), state.idleCheck)
+        }
+        idleCheck?.cancel()
         connections.forEach { $0.close() }
         try? await channel?.close()
         state.withLockedValue { $0.serverChannel = nil }
@@ -529,6 +538,22 @@ public final class HAPServer: @unchecked Sendable {
         }
     }
 
+    /// From this many connections on, those idle for `maxConnectionIdleTime` are closed (HAP-NodeJS's
+    /// EventedHTTPServer). HAP servers must not send TCP keepalives, which wake iOS devices, so a controller that left
+    /// the network without closing its connection would otherwise keep it, and its socket, for good.
+    static let idleConnectionLimit = 16
+    static let maxConnectionIdleTime = TimeAmount.hours(1)
+
+    /// Closes the connections idle for an hour or more, when there are `idleConnectionLimit` or more.
+    func closeIdleConnections(now: NIODeadline = .now()) {
+        let connections = state.withLockedValue { Array($0.connections.values) }
+        guard connections.count >= Self.idleConnectionLimit else { return }
+        for connection in connections where now - connection.lastActivity >= Self.maxConnectionIdleTime {
+            logger.debug("Closing an idle connection", metadata: ["controller": "\(connection.controllerID ?? "-")"])
+            connection.close()
+        }
+    }
+
     func closeConnections(controllers: Set<String>?) {
         let connections = state.withLockedValue { Array($0.connections.values) }
         for connection in connections {
@@ -548,8 +573,8 @@ extension HAPServer {
         let targets = connections.filter { $0.id != origin && $0.isSubscribed(to: key) }
         guard !targets.isEmpty else { return }
         let event = CharacteristicsJSON(characteristics: [CharacteristicJSON(aid: key.aid, iid: key.iid, value: value)])
-        let body = HTTPResponse.json(200, event)
-        for connection in targets { connection.sendEvent(body) }
+        let message = HTTPResponse.json(200, event).serialized(protocol: "EVENT/1.0")
+        for connection in targets { connection.sendEvent(message) }
     }
 }
 

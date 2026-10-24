@@ -268,3 +268,68 @@ struct AdaptiveLightingHardeningTests {
         _ = controller.transitionControlResponse()
     }
 }
+
+/// What a client that never pairs may cost the HAP server: bodies before pair verify, idle connections.
+@Suite(.timeLimit(.minutes(1)))
+struct ConnectionHardeningTests {
+    let server: HAPServer
+
+    init() throws {
+        let lamp = Accessory(id: "lamp-1", name: "Lamp", category: .lightbulb, services: [Service(.lightbulb)])
+        server = try HAPServer(
+            bridge: Accessory(id: "bridge", name: "Test Bridge", category: .bridge, services: []), accessories: [lamp], storage: MemoryStorage(),
+            options: .init(setupCode: SetupCode("031-45-154"), port: 0, advertise: false, logger: testLogger))
+    }
+
+    var connectionCount: Int { server.state.withLockedValue { $0.connections.count } }
+
+    func waitForConnections(_ count: Int) async throws {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while connectionCount != count, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(connectionCount == count)
+    }
+
+    @Test func dropsALargeBodyBeforePairVerify() async throws {
+        try await server.start()
+        let controller = TestController()
+        try await controller.connect(port: server.port!)
+        await #expect(throws: (any Error).self) {
+            _ = try await controller.request("POST", "/pair-setup", body: Data(count: HAPConnection.maxUnverifiedBody), contentType: "application/pairing+tlv8")
+        }
+        // Pairing itself fits.
+        let paired = TestController()
+        try await paired.connect(port: server.port!)
+        try await paired.pairSetup(code: "031-45-154")
+        await controller.close()
+        await paired.close()
+        await server.stop()
+    }
+
+    @Test func closesConnectionsIdleForAnHourOnceThereAreSixteen() async throws {
+        try await server.start()
+        var controllers: [TestController] = []
+        for _ in 0..<(HAPServer.idleConnectionLimit - 1) {
+            let controller = TestController()
+            try await controller.connect(port: server.port!)
+            controllers.append(controller)
+        }
+        try await waitForConnections(HAPServer.idleConnectionLimit - 1)
+        // Below the limit, idle connections stay.
+        server.closeIdleConnections(now: .now() + .hours(2))
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(connectionCount == HAPServer.idleConnectionLimit - 1)
+
+        let last = TestController()
+        try await last.connect(port: server.port!)
+        controllers.append(last)
+        try await waitForConnections(HAPServer.idleConnectionLimit)
+        // At the limit, connections active within the hour stay; those idle longer go.
+        server.closeIdleConnections()
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(connectionCount == HAPServer.idleConnectionLimit)
+        server.closeIdleConnections(now: .now() + .hours(2))
+        try await waitForConnections(0)
+        for controller in controllers { await controller.close() }
+        await server.stop()
+    }
+}

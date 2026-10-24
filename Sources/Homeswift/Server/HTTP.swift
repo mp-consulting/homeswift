@@ -25,8 +25,12 @@ struct HTTPRequest {
 
     enum ParseError: Error { case malformed }
 
-    /// Takes one complete request off the front of `buffer`, or returns nil if more bytes are needed.
-    static func parse(_ buffer: inout Data) throws -> HTTPRequest? {
+    /// The largest body read: a characteristic write, a camera's resource request.
+    static let maxBody = 1024 * 1024
+
+    /// Takes one complete request off the front of `buffer`, or returns nil if more bytes are needed. A body longer
+    /// than `maxBody` is refused before it is read.
+    static func parse(_ buffer: inout Data, maxBody: Int = maxBody) throws -> HTTPRequest? {
         // The head's end, its lines and their spaces are found byte by byte: Foundation's search, line splitting and
         // character-set trimming took a fifth of a request's time on the server.
         let headEnd: Int? = buffer.withUnsafeBytes { raw in
@@ -59,7 +63,7 @@ struct HTTPRequest {
             headers[name] = Self.trimmed(line[line.index(after: colon)...])
         }
         let length = Int(headers["content-length"] ?? "0") ?? 0
-        guard length >= 0, length < 1024 * 1024 else { throw ParseError.malformed }
+        guard length >= 0, length < maxBody else { throw ParseError.malformed }
         let bodyStart = headStart + headEnd + 4
         guard buffer.distance(from: bodyStart, to: buffer.endIndex) >= length else { return nil }
         let bodyEnd = buffer.index(bodyStart, offsetBy: length)

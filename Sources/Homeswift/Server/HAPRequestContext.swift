@@ -2,6 +2,31 @@ import Foundation
 import NIOCore
 import NIOPosix
 
+/// Handlers to run once a connection or socket closes, by registration token, so a stream or session that ends
+/// first removes its own. Kept under its owner's lock.
+struct CloseHandlers {
+    private var handlers: [Int: @Sendable () -> Void] = [:]
+    private var lastToken = 0
+
+    var count: Int { handlers.count }
+
+    mutating func add(_ handler: @escaping @Sendable () -> Void) -> Int {
+        lastToken += 1
+        handlers[lastToken] = handler
+        return lastToken
+    }
+
+    mutating func remove(_ token: Int) {
+        handlers[token] = nil
+    }
+
+    /// Every handler, in the order they were added; none is left.
+    mutating func takeAll() -> [@Sendable () -> Void] {
+        defer { handlers = [:] }
+        return handlers.sorted { $0.key < $1.key }.map(\.value)
+    }
+}
+
 /// The controller connection a request arrived on, available to read and write handlers while they run
 /// (`HAPRequestContext.current`). Camera streams need the addresses and end with the connection; HomeKit Data
 /// Stream derives its keys from the connection's shared secret.
