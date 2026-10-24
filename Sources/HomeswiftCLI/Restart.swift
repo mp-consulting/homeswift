@@ -17,6 +17,7 @@ enum Restart {
         execv(path, arguments)
         // Only on failure: a service manager with keep-alive brings the bridge back.
         FileHandle.standardError.write(Data("homeswift: restart failed (\(String(cString: strerror(errno)))); exiting for the service manager to start it again\n".utf8))
-        exit(0)
+        // A failure status: a unit with Restart=on-failure (or launchd's SuccessfulExit = false) starts it again too.
+        exit(1)
     }
 }

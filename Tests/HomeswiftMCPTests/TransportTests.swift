@@ -4,6 +4,11 @@ import Testing
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Darwin)
+import Darwin
+#endif
 
 @testable import HomeswiftMCP
 
@@ -179,6 +184,103 @@ struct TransportTests {
         await running.value
         #expect(environment.server.activeSessions.isEmpty)
     }
+
+    /// A client that drops its standing stream frees the session: it can expire or be evicted again, and the
+    /// client's next GET is not refused as a second stream. A body over the limit is answered 413.
+    @Test func freesTheSessionOfAClosedStreamAndRefusesLargeBodies() async throws {
+        let environment = try MCPTestEnvironment()
+        try await environment.start()
+        var configuration = MCPConfiguration()
+        configuration.token = "admin-token"
+        var options = MCPHTTPServer.Options(host: "127.0.0.1", port: 0)
+        options.logger = testLogger
+        // A keepalive's failed write is how a closed connection is found.
+        options.keepAliveInterval = .milliseconds(100)
+        let transport = MCPHTTPServer(server: environment.server, configuration: configuration, options: options)
+        try await transport.start()
+        defer { Task { await transport.stop(); await environment.stop() } }
+        let url = URL(string: "http://127.0.0.1:\(try #require(transport.port))/mcp")!
+
+        var client = HTTPClientForTests(url: url, token: "admin-token")
+        let initialized = try await client.send(body: request(1, "initialize", ["protocolVersion": "2025-06-18", "capabilities": [:], "clientInfo": ["name": "t", "version": "1"]]))
+        let sessionID = try #require(initialized.headers["mcp-session-id"])
+        client.sessionID = sessionID
+        let session = try #require(environment.server.session(id: sessionID))
+
+        // A socket of its own, closed when the test says: URLSession may hold a cancelled connection open.
+        let get = "GET /mcp HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer admin-token\r\nMcp-Session-Id: \(sessionID)\r\nAccept: text/event-stream\r\n\r\n"
+        let first = try #require(RawClient(port: transport.port!, request: get))
+        #expect(await eventually { session.hasStandingStream })
+        #expect(!session.isIdle)
+        first.close()
+        #expect(await eventually { !session.hasStandingStream })
+        #expect(session.isIdle)
+        // The same session streams again, and what was sent in between reaches the new stream.
+        session.send(.notification(method: "test/hello", params: nil))
+        let second = try #require(RawClient(port: transport.port!, request: get))
+        let received = await Task.detached { second.read(until: "test/hello") }.value
+        #expect(received.hasPrefix("HTTP/1.1 200"))
+        #expect(received.contains("test/hello"))
+        second.close()
+        #expect(await eventually { !session.hasStandingStream })
+
+        let large = String(repeating: " ", count: RequestHandler.maxBody + 1) + request(2, "ping")
+        #expect(try await client.send(body: large).status == 413)
+        #expect(try await client.send(body: request(3, "ping")).status == 200)
+    }
+}
+
+/// A plain TCP connection to 127.0.0.1: a request's bytes out, the answer read, then a close, as a client that
+/// goes away does.
+final class RawClient: @unchecked Sendable {
+    let descriptor: Int32
+
+    init?(port: Int, request: String) {
+        descriptor = socket(AF_INET, socketStream, 0)
+        guard descriptor >= 0 else { return nil }
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(UInt16(port)).bigEndian
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let connected = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+        }
+        var timeout = timeval(tv_sec: 5, tv_usec: 0)
+        setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        let bytes = Array(request.utf8)
+        guard connected == 0, bytes.withUnsafeBytes({ send(descriptor, $0.baseAddress, bytes.count, 0) }) == bytes.count else {
+            closeSocket(descriptor)
+            return nil
+        }
+    }
+
+    /// What arrives until `text` is in it, the connection closes or five seconds pass without a byte.
+    func read(until text: String) -> String {
+        var received: [UInt8] = []
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while !String(decoding: received, as: UTF8.self).contains(text) {
+            let count = buffer.withUnsafeMutableBytes { recv(descriptor, $0.baseAddress, $0.count, 0) }
+            guard count > 0 else { break }
+            received += buffer[..<count]
+        }
+        return String(decoding: received, as: UTF8.self)
+    }
+
+    func close() { closeSocket(descriptor) }
+}
+
+#if canImport(Glibc)
+private let socketStream = Int32(SOCK_STREAM.rawValue)
+#else
+private let socketStream = SOCK_STREAM
+#endif
+
+private func closeSocket(_ descriptor: Int32) {
+    #if canImport(Glibc)
+    _ = Glibc.close(descriptor)
+    #else
+    _ = Darwin.close(descriptor)
+    #endif
 }
 
 final class OutputLines: @unchecked Sendable {

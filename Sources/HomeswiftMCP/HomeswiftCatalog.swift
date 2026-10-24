@@ -757,7 +757,9 @@ public struct HomeswiftCatalog: Sendable {
                 if query.regex, call.session.principal.scope != .admin { return .error("regex needs an admin token; search for plain text instead") }
                 let found: JSONValue
                 do {
-                    found = try catalog.searchLogs(query)
+                    // Seconds of work over the archive's lines at worst: off the concurrency pool, which the bridge shares.
+                    let search = query
+                    found = try await Self.offPool { try catalog.searchLogs(search) }
                 } catch let timeout as LogSearchTimeout {
                     return .error("Not finished: \(timeout)")
                 }

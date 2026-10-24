@@ -65,8 +65,11 @@ struct AssistantToolTests {
         environment.logs.append(LogBuffer.Line(level: .info, label: "Devices", text: "Lamp turned on"))
         environment.logs.append(LogBuffer.Line(level: .warning, label: "Devices", text: "Lamp slow to answer"))
         environment.logs.append(LogBuffer.Line(level: .error, label: "Devices", text: "Lamp unreachable"))
+        // A one-time code is a warning line: the digest, which goes back to clients, never carries it.
+        environment.logs.append(LogBuffer.Line(level: .warning, label: "homeswift", text: "Confirmation needed for reset_pairings {}: tell the assistant the confirmation code 482913 to allow it"))
         let input = environment.catalog.digestInput()
-        #expect(input.logs.count == 2)
+        #expect(input.logs.count == 3)
+        #expect(input.logs.allSatisfy { !$0.contains("482913") })
         #expect(input.logs.allSatisfy { !$0.contains("turned on") })
         #expect(input.status?["bridges"]?.arrayValue?.isEmpty == false)
         #expect(input.accessories?.arrayValue?.isEmpty == false)

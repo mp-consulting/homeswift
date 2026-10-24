@@ -9,13 +9,13 @@ public enum Redaction {
     public static let placeholder = "__REDACTED__"
 
     /// Keys whose values are secrets: password, mqttPass, apiKey, clientSecret, bridge.pin.
-    private static let secretKey = try! NSRegularExpression(pattern: #"pass(word|wd|phrase)?$|secret|token|api[-_]?key|private[-_]?key|credential|^pin$"#, options: [.caseInsensitive])
+    private static let secretKey = try! NSRegularExpression(pattern: #"pass(word|wd|phrase)?$|secret|token|api[-_]?key|private[-_]?key|credential|^pin$|authorization|cookie|session[-_]?(id|key)$|^sid$|signature|^otp$"#, options: [.caseInsensitive])
     /// Keys that look secret but hold token counts: maxOutputTokens, contextTokens, a budget's dailyTokens.
     private static let notSecretKey = try! NSRegularExpression(pattern: #"(max|min|context|input|output|total|daily|monthly)\w*tokens$"#, options: [.caseInsensitive])
     /// `key: value`, `key=value` and `"key": "value"` pairs whose key names a secret (including HomeKit's
     /// pin and setup code).
     private static let secretPair = try! NSRegularExpression(
-        pattern: #"(["']?)([\w.-]*(?:password|passwd|passphrase|pass|pin|setup[-_ ]?code|secret|token|api[-_]?key|private[-_]?key|credential)[\w-]*)\1(\s*[:=]\s*)(["']?)([^\s"',;}&]+)\4"#,
+        pattern: #"(["']?)([\w.-]*(?:password|passwd|passphrase|pass|pin|setup[-_ ]?code|secret|token|api[-_]?key|private[-_]?key|credential|cookie|session[-_]?id|signature)[\w-]*)\1(\s*[:=]\s*)(["']?)([^\s"',;}&]+)\4"#,
         options: [.caseInsensitive])
     /// Well-known credential shapes that can appear anywhere in free text: API keys, JWTs, and HomeKit
     /// setup codes (`031-45-154`, `0314-5154`) and setup URIs, which the bridge prints at launch.
@@ -189,7 +189,7 @@ public enum Redaction {
     private static let shapeHints: [Hints] = [.bearer, .openAI, .homebridge, .google, .jwt, .setupURI, .setupCode, .shortSetupCode]
 
     /// The keywords of `secretPair`'s key (password, passwd, passphrase and pass all start `pass`), lower case.
-    private static let keywords = ["pass", "pin", "setup", "secret", "token", "api", "private", "credential"].map { Array($0.utf8) }
+    private static let keywords = ["pass", "pin", "setup", "secret", "token", "api", "private", "credential", "cookie", "session", "signature"].map { Array($0.utf8) }
 
     /// The shapes' fixed parts, case as written.
     private static let fixed = (
