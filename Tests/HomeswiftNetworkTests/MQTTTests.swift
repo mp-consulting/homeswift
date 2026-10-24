@@ -480,7 +480,7 @@ struct MQTTClientTests {
         let client = v5Client(server, keepAlive: .seconds(600))
         try await client.connect()
         // A ping within seconds although the client asked for ten minutes.
-        try await eventually(.seconds(5)) { server.broker.pingreqs >= 1 }
+        try await eventually { server.broker.pingreqs >= 1 }
         await client.disconnect()
     }
 

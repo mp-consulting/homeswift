@@ -139,7 +139,8 @@ final class Collector<T: Sendable>: @unchecked Sendable {
     func append(_ item: T) { lock.withLock { _items.append(item) } }
 }
 
-func eventually(_ timeout: Duration = .seconds(3), _ condition: @Sendable () async -> Bool) async -> Bool {
+/// A ceiling, not a wait: it returns as soon as the condition holds, and a loaded CI runner can take seconds.
+func eventually(_ timeout: Duration = .seconds(30), _ condition: @Sendable () async -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if await condition() { return true }

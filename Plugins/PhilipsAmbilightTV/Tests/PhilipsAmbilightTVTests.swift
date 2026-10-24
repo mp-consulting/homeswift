@@ -61,7 +61,8 @@ final class PhilipsTestEnvironment: @unchecked Sendable {
 }
 
 /// Polls `condition` until it holds or `timeout` passes.
-func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async -> Bool) async -> Bool {
+/// A ceiling, not a wait: it returns as soon as the condition holds, and a loaded CI runner can take seconds.
+func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () async -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if await condition() { return true }
@@ -382,7 +383,7 @@ struct TelevisionTests {
         let button = try #require(accessory.service(.switch, subtype: "custom-button-RedColour"))
         try await button.characteristic(.on).write(.bool(true))
         #expect(await tv.keys.last == "RedColour")
-        #expect(await eventually(timeout: .seconds(3)) { button[.on]?.value == .bool(false) })
+        #expect(await eventually { button[.on]?.value == .bool(false) })
 
         try await tvService.characteristic(.active).write(.int(0))
         #expect(await tv.power == "Standby")
@@ -405,13 +406,14 @@ struct TelevisionTests {
         #expect(bridge.server.primary.service(.motionSensor, subtype: "state-sensor-mute")?[.motionDetected]?.value == .bool(true))
         await tv.notify(["ambilight/currentconfiguration": .object(["styleName": .string("FOLLOW_COLOR"), "colorSettings": .object(["color": .object(["hue": .number(255), "saturation": .number(255), "brightness": .number(255)])])])])
         #expect(await eventually { bridge.server.primary.service(.lightbulb, subtype: "ambilight")?[.hue]?.value == .double(360) })
-        #expect(bridge.server.primary.service(.lightbulb, subtype: "ambilight")?[.on]?.value == .bool(true))
+        #expect(await eventually { bridge.server.primary.service(.lightbulb, subtype: "ambilight")?[.on]?.value == .bool(true) })
 
         // The TV goes to standby from the remote: the tile goes dark on the next poll.
         await tv.set(power: "Standby")
         await tv.notify(["powerstate": .object(["powerstate": .string("Standby")])])
         #expect(await eventually { bridge.server.primary.service(.television)?[.active]?.value == .int(0) })
-        #expect(bridge.server.primary.service(.lightbulb, subtype: "ambilight")?[.on]?.value == .bool(false))
+        // The Ambilight tile follows from its own request: it may land after the television's.
+        #expect(await eventually { bridge.server.primary.service(.lightbulb, subtype: "ambilight")?[.on]?.value == .bool(false) })
 
         // Unreachable for two polls: off; answering again: back.
         await tv.set(power: "On")

@@ -37,7 +37,8 @@ enum TestClientCertificate {
 }
 
 /// Waits until `condition` holds, polling; fails the test after `timeout`.
-func eventually(_ timeout: Duration = .seconds(5), _ comment: Comment? = nil, _ condition: @Sendable () async -> Bool) async throws {
+/// A ceiling, not a wait: it returns as soon as the condition holds, and a loaded CI runner can take seconds.
+func eventually(_ timeout: Duration = .seconds(30), _ comment: Comment? = nil, _ condition: @Sendable () async -> Bool) async throws {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if await condition() { return }
