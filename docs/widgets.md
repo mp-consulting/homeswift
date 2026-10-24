@@ -9,7 +9,7 @@ characteristics, formats and ranges), so a plugin gets them without writing a li
 ![The Accessories page: a wall of widgets](images/widgets/wall.png)
 
 The page is `Sources/HomeswiftUI/Web/widgets.js` (the widgets) and `app.js` (the wall). The screenshots on this
-page use demonstration names.
+page use demonstration names; [Screenshots](#screenshots) says how they are taken.
 
 ## On the page
 
@@ -286,6 +286,24 @@ HomeswiftWidgets.register({
 `ctx.char(service, type)` finds a characteristic, `ctx.take` finds it and marks it shown (the rest goes under
 More in the sheet), `ctx.write(service, characteristic, value)` writes it (at once on the page, back with the
 reason when the device refuses), `ctx.watch(paint)` repaints after every change of the accessory.
+
+## Screenshots
+
+`wall.png`, `phone.png` and `paused.png` come from `Scripts/docs-screenshots.mjs`, run against a throwaway bridge with real
+accessories: a copy of a configuration directory with a new identity (no `username` or `pin` in `bridge`, another port,
+no `homeswift.json`, no `external/`), every plugin block `_paused` so nothing reaches a device or a cloud, the web UI on
+`127.0.0.1` with `auth: none`, and its `accessories/` cache, which brings the accessories back with their last values.
+Blocks whose accessories are published on their own (televisions, cameras) are left out: they would advertise new
+identities. Then:
+
+```bash
+node Scripts/docs-screenshots.mjs http://127.0.0.1:18582 ~/names.json
+```
+
+`names.json`, kept out of the repository, maps each real name to a demonstration name (`"names"`) and overrides values
+that would look broken (`"values"`, by demonstration name and characteristic type, such as a sensor that was off). The
+script renders in light mode at 2x and rewrites the page's accessory data as it loads, never the page itself. The other
+images (sizes, menus, the sheet, a slide, Adaptive Lighting, Edit) are close-ups taken by hand in the same setup.
 
 ## The HTTP API
 
