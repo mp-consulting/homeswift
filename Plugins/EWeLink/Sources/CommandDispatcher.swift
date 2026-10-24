@@ -25,6 +25,8 @@ final class CommandQueue {
     private let log: (String) -> Void
     private let deviceName: (String) -> String
     private var queue: [Command] = []
+    /// Commands waiting for their turn.
+    var queuedCount: Int { queue.count }
     private(set) var activeCount = 0
     private var lastCommandTime = -Double.infinity
     private var throttle: Task<Void, Never>?
