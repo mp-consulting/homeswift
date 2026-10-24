@@ -255,6 +255,12 @@ struct SceneToolTests {
         // Sunday is 0 or 7.
         #expect(try #require(try? CronSchedule("0 9 * * 7")).matches(utc("2026-01-04T09:00:00Z"), calendar: utcCalendar))
         for bad in ["", "* * * *", "60 * * * *", "* 24 * * *", "*/0 * * * *", "a * * * *", "5-1 * * * *"] { #expect((try? CronSchedule(bad)) == nil, "\(bad)") }
+        // Months and days are the Gregorian calendar's, whatever the system's calendar is.
+        var hebrew = Calendar(identifier: .hebrew)
+        hebrew.timeZone = TimeZone(identifier: "UTC")!
+        let newYear = try #require(try? CronSchedule("0 9 1 1 *"))
+        #expect(newYear.matches(utc("2026-01-01T09:00:00Z"), calendar: hebrew))
+        #expect(newYear.next(after: utc("2025-12-31T12:00:00Z"), calendar: hebrew) == utc("2026-01-01T09:00:00Z"))
     }
 
     @Test func comparesAndFiresAsGlassUI() {
