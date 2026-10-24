@@ -12,7 +12,8 @@ extension ElgatoKeyLightsPlugin {
             description: "Asks the light at an address who it is: name, model, MAC address, serial number, firmware. "
                 + "For a light Bonjour does not reach: add it with put_list_entry (platform ElgatoKeyLights, list devices, match mac) "
                 + "as {\"mac\", \"name\", \"ip\", \"model\"}, plus \"port\" when it is not 9123.",
-            path: "probe", access: .read,
+            // Configure, as adding the light it finds is: it reaches any address and port the caller names.
+            path: "probe", access: .configure,
             inputSchema: [
                 "type": "object", "required": ["host"],
                 "properties": ["host": ["type": "string", "description": "IP address or host name"], "port": ["type": "integer", "minimum": 1, "maximum": 65535]],

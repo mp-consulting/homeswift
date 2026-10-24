@@ -169,10 +169,12 @@ enum HTTPRedirects {
         return response
     }
 
-    /// The request a redirect asks for, nil when its `Location` is missing or not an HTTP(S) URL.
+    /// The request a redirect asks for, nil when its `Location` is missing or not an HTTP(S) URL, or would take
+    /// an HTTPS request to plain HTTP: a 307 keeps the body, which carries the password or refresh token.
     static func redirected(_ request: HTTPRequest, by response: HTTPResponse) -> HTTPRequest? {
         guard let location = response.header("Location"), let target = URL(string: location, relativeTo: request.url)?.absoluteURL,
-            let scheme = target.scheme?.lowercased(), scheme == "https" || scheme == "http", target.host != nil
+            let scheme = target.scheme?.lowercased(), scheme == "https" || scheme == "http", target.host != nil,
+            scheme == "https" || request.url.scheme?.lowercased() != "https"
         else { return nil }
         var next = request
         next.url = target

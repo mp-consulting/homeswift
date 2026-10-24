@@ -551,6 +551,28 @@ struct TelevisionTests {
         #expect(await tv.ambilightWrites.filter { $0.style == "FOLLOW_COLOR" }.count == 2)
     }
 
+    @Test func aColourAfterAnOffThatCancelledOneIsSent() async throws {
+        let tv = environment.tv
+        await tv.set(power: "On")
+        let host = try await environment.start(settings: ["devices": [livingRoom]])
+        defer { Task { await host.stop() } }
+        let device = try #require(await environment.plugin?.device(mac: "AA:BB:CC:DD:EE:FF"))
+        #expect(await eventually { await device.isOn })
+        try await device.setAmbilight(on: true)
+        // A colour still coalescing when Ambilight goes off is dropped with it...
+        async let dropped: Void = device.setAmbilightHue(30)
+        try await Task.sleep(for: .milliseconds(10))
+        try await device.setAmbilight(on: false)
+        try await dropped
+        // ...but the next one reaches the TV.
+        try await device.setAmbilight(on: true)
+        try await device.setAmbilightHue(120)
+        #expect(await tv.ambilightWrites.last?.style == "FOLLOW_COLOR")
+        // The configured mode's re-apply after switching on does not undo the colour picked meanwhile.
+        try await Task.sleep(for: TVDevice.styleRetryDelays[0] + .milliseconds(500))
+        #expect(await tv.ambilightWrites.last?.style == "FOLLOW_COLOR")
+    }
+
     @Test func startsATVWhosePollingIntervalIsOutOfRange() async throws {
         var settings = livingRoom
         settings["pollingInterval"] = 10

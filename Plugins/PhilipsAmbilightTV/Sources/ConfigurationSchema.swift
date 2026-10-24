@@ -67,7 +67,10 @@ extension PhilipsAmbilightTVPlugin {
             "password": {
               "title": "Password",
               "type": "string",
-              "description": "The password (auth key) obtained during TV pairing."
+              "description": "The password (auth key) obtained during TV pairing.",
+              "x-schema-form": {
+                "type": "password"
+              }
             },
             "certFingerprint": {
               "title": "Certificate Fingerprint",

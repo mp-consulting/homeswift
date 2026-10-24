@@ -26,7 +26,10 @@ extension DolphinPoolCleanerPlugin {
       "password": {
         "title": "Password",
         "type": "string",
-        "description": "Optional. Not needed when you sign in with the setup wizard, which stores a refresh token instead of your password"
+        "description": "Optional. Not needed when you sign in with the setup wizard, which stores a refresh token instead of your password",
+        "x-schema-form": {
+          "type": "password"
+        }
       },
       "iotRegion": {
         "title": "IoT Region",

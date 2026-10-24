@@ -127,6 +127,17 @@
     return [...lights, ...offline, ...disabled];
   }
 
+  // A card drawn again because its light changed (every brightness step) stays still: only a light new to the
+  // page arrives with the material's animation.
+  const shown = new Set();
+  function card(light) {
+    const node = lightCard(light);
+    const key = canonicalMAC(light.mac);
+    if (shown.has(key)) node.classList.add("redrawn");
+    shown.add(key);
+    return node;
+  }
+
   async function refresh() {
     try {
       ({ lights, pending = [], discovered = [] } = await request("lights"));
@@ -139,7 +150,7 @@
         }
         return;
       }
-      renderKeyed(list, all, (light) => canonicalMAC(light.mac), lightCard);
+      renderKeyed(list, all, (light) => canonicalMAC(light.mac), card);
     } catch (e) {
       list.replaceChildren(el("p", { class: "error", text: e.message }));
     }
@@ -189,7 +200,8 @@
     behaviour.addEventListener("change", () => set("powerOnBehavior", Number(behaviour.value), 0));
 
     const slider = (key, min, max, step, fallback, format) => {
-      const input = el("input", { type: "range", min, max, step, value: draft[key] ?? fallback, "aria-label": key });
+      // Inside its field's label, which names it.
+      const input = el("input", { type: "range", min, max, step, value: draft[key] ?? fallback });
       const value = el("span", { class: "value", text: format(draft[key] ?? fallback) });
       input.addEventListener("input", () => { value.textContent = format(Number(input.value)); set(key, Number(input.value)); });
       return el("span", { class: "range" }, input, value);
