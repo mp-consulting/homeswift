@@ -102,15 +102,31 @@
   const sections = HomeswiftCommon.sections;
   const header = $("header");
   if (header) {
-    const user = el("a", { id: "user", href: "/account", title: "Your account: change the password" });
-    const logout = el("button", { id: "logout", class: "link hidden", text: "Sign out", onclick: async () => {
-      try { await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }); } catch {}
-      location.href = "/";
-    } });
+    // The account button and its menu, as on the UI's own pages.
+    let auth = { mode: "none" };
+    const avatar = el("span", { class: "user-avatar", "aria-hidden": "true" }, HomeswiftCommon.icon("user"));
+    const userName = el("span", { class: "user-name" });
+    const user = el("button", { id: "user", type: "button", class: "user-button", "aria-haspopup": "menu", "aria-expanded": "false", "aria-label": "Account menu" }, avatar, userName);
+    const shownName = () => (auth.mode === "form" ? (auth.name && auth.name !== auth.username ? auth.name : auth.username || "") : "");
+    user.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const form = auth.mode === "form";
+      HomeswiftCommon.menu(user, [
+        form ? { heading: shownName(), detail: `${auth.username}${auth.admin ? " · Administrator" : ""}` } : { heading: "No sign-in", detail: "Anyone who opens this web UI uses it" },
+        { label: form ? "Your account" : "Account", icon: "user", href: "/account" },
+        { label: "Appearance", icon: "sliders", href: "/appearance" },
+        form && auth.admin ? { label: "Users and tokens", icon: "users", href: "/users" } : null,
+        form ? { separator: true } : null,
+        form ? { label: "Sign out", icon: "logout", onSelect: async () => {
+          try { await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }); } catch {}
+          location.href = "/";
+        } } : null,
+      ], { keyboard: event.detail === 0 });
+    });
     header.replaceChildren(
-      el("a", { class: "brand", href: "/" }, el("img", { src: "/icon.svg", class: "logo", alt: "" }), "Homeswift"),
+      el("a", { class: "brand", href: "/", "aria-label": "Homeswift", title: "Homeswift" }, el("img", { src: "/icon.svg", class: "logo", alt: "" })),
       el("nav", { "aria-label": "Sections" }, sections.map(([path, text]) => el("a", { href: path, text, class: path === "/plugins" ? "active" : "" }))),
-      el("span", { class: "spacer" }), user, logout);
+      el("span", { class: "spacer" }), user);
     // On a phone the sections sit in a tab bar at the bottom, as on the UI's own pages; the page also extends
     // under the notch and the home indicator, which the layout pads around.
     HomeswiftCommon.tabBar({ active: "/plugins" });
@@ -121,8 +137,10 @@
     // The user's theme, wallpaper and temperature unit, as on the UI's own pages.
     HomeswiftCommon.loadPreferences();
     api("/api/auth/state").then((state) => {
-      user.textContent = state.username || "";
-      logout.classList.toggle("hidden", state.mode !== "form");
+      auth = state;
+      const name = shownName();
+      avatar.replaceChildren(auth.mode === "form" && name ? name.slice(0, 1).toUpperCase() : HomeswiftCommon.icon("user"));
+      userName.textContent = name;
       if (state.liveWebFiles) followWebFiles();
     }).catch(() => {});
   }
