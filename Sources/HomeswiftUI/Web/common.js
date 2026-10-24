@@ -103,7 +103,7 @@
 
   /// Markdown from the Assistant as elements, never as HTML: headings, paragraphs, nested and task lists, tables,
   /// quotes, rules, code blocks, and the inline marks of `inline`. Anything else stays text.
-  function markdown(source) {
+  function markdown(source, depth = 0) {
     const root = el("div", { class: "md" });
     const lines = String(source).replace(/\r/g, "").split("\n");
     let paragraph = [];
@@ -127,11 +127,12 @@
         root.append(el("hr", {}));
         continue;
       }
-      if (/^\s*>/.test(line)) {
+      // Quotes nest a few deep: a line of thousands of ">" (a log quoted back) stays text rather than overflowing the stack.
+      if (/^\s*>/.test(line) && depth < 8) {
         flush(); closeLists();
         const quoted = [line];
         while (i + 1 < lines.length && /^\s*>/.test(lines[i + 1])) quoted.push(lines[++i]);
-        root.append(el("blockquote", {}, ...markdown(quoted.map((text) => text.replace(/^\s*>\s?/, "")).join("\n")).childNodes));
+        root.append(el("blockquote", {}, ...markdown(quoted.map((text) => text.replace(/^\s*>\s?/, "")).join("\n"), depth + 1).childNodes));
         continue;
       }
       if (line.includes("|") && tableDelimiter.test(lines[i + 1] ?? "")) {

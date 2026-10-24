@@ -173,12 +173,19 @@
     return ctx;
   }
 
+  /// Lets go of the cards no longer on the page (the view changed, the wall was drawn again); a new one may not be
+  /// attached yet. Run as cards are made too, so a quiet home, with no events, does not keep every wall drawn.
+  let swept = 0;
+  function sweep(now = Date.now()) {
+    swept = now;
+    for (const ctx of cards) if (!ctx.node?.isConnected && now - ctx.born > 2000) cards.delete(ctx);
+  }
+
   /// An accessory event from the page's event stream: the new value, painted on the cards of that accessory.
   function event({ id, service, subtype, characteristic, value }) {
-    const now = Date.now();
+    if (Date.now() - swept > 1000) sweep();
     for (const ctx of cards) {
-      // A card no longer on the page (the view changed) is let go; a new one may not be attached yet.
-      if (!ctx.node?.isConnected) { if (now - ctx.born > 2000) cards.delete(ctx); continue; }
+      if (!ctx.node?.isConnected) continue;
       if (ctx.accessory.id !== id) continue;
       const key = subtype || service;
       const owner = ctx.accessory.services.find((s) => (!key || serviceKey(s) === key) && s.characteristics.some((c) => c.type === characteristic));
@@ -1257,7 +1264,7 @@
       const openIt = () => ctx.write(primary, target, 0, { held: true }), closeIt = () => ctx.write(primary, target, 1, { held: true });
       const built = {
         on: () => doorState() !== 1 || unlocked().length > 0,
-        hero: () => icon(unlocked().length ? "lock" : "lock"),
+        hero: () => icon("lock"),
         hold: canWrite(target) ? { armed: () => asked() === 1, confirm: openIt, tap: () => { if (asked() === 0) closeIt(); }, verb: () => asked() === 1 ? "hold to open" : "close" } : null,
         status() {
           const now = doorState();
@@ -1526,6 +1533,7 @@
       node = frame(ctx, ...built(ctx, widget, primary, size), primary, size);
     }
     ctx.node = node;
+    if (Date.now() - swept > 5000) sweep();
     cards.add(ctx);
     return node;
   }

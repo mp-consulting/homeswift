@@ -68,6 +68,7 @@
   let usage = null;
   let spoken = false;   // the running turn started from the mic: read its answer out
   let trigger = null;
+  let session = 0;      // a sign-out moves it on: a stream read before it stops drawing
 
   function build() {
     const log = el("div", { class: "chat-log", "aria-live": "polite", "aria-relevant": "additions" });
@@ -277,6 +278,7 @@
 
   /// Reads a run's event stream: a snapshot, then items, text and the end.
   async function follow(response) {
+    const own = session;
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -286,6 +288,8 @@
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
+        // Signed out meanwhile: what is left of the run is not drawn.
+        if (own !== session) { reader.cancel().catch(() => {}); return; }
         buffer += decoder.decode(value, { stream: true });
         let end;
         while ((end = buffer.indexOf("\n\n")) >= 0) {
@@ -297,8 +301,9 @@
         }
       }
     } catch (e) {
-      showError(`The connection dropped: ${e.message}`);
+      if (own === session) showError(`The connection dropped: ${e.message}`);
     }
+    if (own !== session) return;
     running = false;
     renderControls();
   }
@@ -633,6 +638,8 @@
     header.insertBefore(trigger, header.querySelector("#user"));
     // Cmd+K (Ctrl+K elsewhere) opens the chat from anywhere, and closes it, as Glass UI's palette.
     document.addEventListener("keydown", (event) => {
+      // Not from the sign-in screen: the button is in the hidden app then.
+      if (!trigger?.isConnected || trigger.closest(".hidden")) return;
       if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "k" && !event.isComposing) {
         event.preventDefault();
         toggle();
@@ -649,10 +656,36 @@
     setTimeout(() => { panel.input.focus(); panel.input.setSelectionRange(text.length, text.length); }, 60);
   }
 
+  /// Signed out (app.js): the panel closes at once and forgets the conversation it shows, so whoever signs in next
+  /// on this browser starts from their own.
+  function signedOut() {
+    session++;
+    if (!panel) return;
+    if (listening) stopListening(true);
+    window.speechSynthesis?.cancel();
+    cancelAnimationFrame(openness.frame);
+    openness.value = 0;
+    openness.velocity = 0;
+    openness.target = 0;
+    panel.sheet.hidden = true;
+    panel.scrim.hidden = true;
+    trigger?.setAttribute("aria-expanded", "false");
+    closeHistory(false);
+    items = [];
+    nodes = [];
+    running = false;
+    usage = null;
+    spoken = false;
+    loaded = false;
+    panel.input.value = "";
+    panel.log.replaceChildren();
+    renderControls();
+  }
+
   /// The language chosen for voice, else the browser's.
   const voiceLanguage = () => panel?.languagePicker.value || navigator.language || "en-US";
 
-  window.HomeswiftChat = { mount, ask, open: () => toggle(true), available: () => Boolean(info?.enabled) };
+  window.HomeswiftChat = { mount, ask, signedOut, open: () => toggle(true), available: () => Boolean(info?.enabled) };
   // The UI's own page mounts it once signed in; a plugin page is signed in already.
   if (document.querySelector('meta[name="homeswift-plugin"]')) mount();
 })();

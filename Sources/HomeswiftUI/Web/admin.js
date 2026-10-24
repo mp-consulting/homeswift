@@ -277,7 +277,7 @@
       instance,
       restoreCard(backups),
       sectionHead("Kept backups", backups.backups.length ? `${backups.backups.length}, newest first` : ""),
-      backups.backups.length ? el("div", { class: "card rows" }, backups.backups.map((backup) => backupRow(backup, backups.instance)))
+      backups.backups.length ? el("div", { class: "card rows" }, backups.backups.map(backupRow))
         : el("div", { class: "card empty" }, el("p", { class: "muted", text: "None yet: the daily backup and Back up now keep them here." })),
       sectionHead("config.json backups", `The file before each of its last ${configBackups.kept} saves`),
       configBackups.backups.length ? el("div", { class: "card rows" }, configBackups.backups.map(configBackupRow))
@@ -409,7 +409,9 @@
     const since = select(spans, params.has("since") ? params.get("since") : "7d", "Time range");
     const count = el("span", { class: "muted count" });
     const body = el("div", {});
+    let loads = 0;   // the answer drawn is the last request's, however they arrive
     async function load() {
+      const own = ++loads;
       const query = new URLSearchParams();
       if (tool.value.trim()) query.set("tool", tool.value.trim());
       if (client.value.trim()) query.set("client", client.value.trim());
@@ -419,7 +421,8 @@
       if (!since.value) query.delete("since");
       count.textContent = "Loading…";
       let found;
-      try { found = await api(`/api/audit?${query}`); } catch (e) { count.textContent = e.message; return; }
+      try { found = await api(`/api/audit?${query}`); } catch (e) { if (own === loads) count.textContent = e.message; return; }
+      if (own !== loads) return;
       if (!found.enabled) {
         count.textContent = "";
         body.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: "The audit log is off: the HomeswiftAiKit block's mcp.http says auditLog: false." })));
@@ -485,10 +488,13 @@
     dialog.showModal();
 
     async function load() {
+      // Ranges chosen quickly one after the other: only the last one's answer is drawn.
+      const asked = hours;
       charts.classList.add("loading");
       let found;
       try { found = await api(`/api/accessories/${encodeURIComponent(accessory.id)}/history?hours=${hours}&points=240`); }
-      catch (e) { note.className = "error"; note.textContent = e.message; return; }
+      catch (e) { if (asked === hours) { charts.classList.remove("loading"); note.className = "error"; note.textContent = e.message; } return; }
+      if (asked !== hours) return;
       charts.classList.remove("loading");
       note.className = "muted";
       note.textContent = found.note ?? "Ten-minute averages, kept four weeks; each point here averages those in its span.";
