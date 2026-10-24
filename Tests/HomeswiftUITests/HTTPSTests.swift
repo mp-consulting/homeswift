@@ -3,6 +3,9 @@ import HomeswiftAI
 import HomeswiftNetwork
 import NIOSSL
 import Testing
+#if canImport(Security)
+import Security
+#endif
 
 @testable import HomeswiftUI
 
@@ -39,6 +42,17 @@ struct HTTPSTests {
         let renamed = try UICertificate.load(configuration: configuration, directory: directory, names: ["other.local"], logger: testLogger)
         #expect(renamed.certificateDER != made.certificateDER)
 
+        #if canImport(Security)
+        // Apple's trust evaluation, as a phone that trusts it runs it: its own names pass the Name Constraints.
+        let secCertificate = try #require(SecCertificateCreateWithData(nil, made.certificateDER as CFData))
+        var trust: SecTrust?
+        #expect(SecTrustCreateWithCertificates(secCertificate, SecPolicyCreateSSL(true, "bridge.local" as CFString), &trust) == errSecSuccess)
+        let evaluated = try #require(trust)
+        #expect(SecTrustSetAnchorCertificates(evaluated, [secCertificate] as CFArray) == errSecSuccess)
+        var trustError: CFError?
+        #expect(SecTrustEvaluateWithError(evaluated, &trustError), "\(String(describing: trustError))")
+        #endif
+
         // OpenSSL reads it as browsers would, when it is installed.
         guard let openssl = ["/usr/bin/openssl", "/opt/homebrew/bin/openssl"].first(where: FileManager.default.isExecutableFile(atPath:)) else { return }
         let file = directory.appendingPathComponent("check.pem")
@@ -56,6 +70,19 @@ struct HTTPSTests {
         #expect(text.contains("CA:TRUE"))
         #expect(text.contains("TLS Web Server Authentication"))
         #expect(text.contains("ecdsa-with-SHA256"))
+        // Limited to its own names, and still valid under that limit.
+        #expect(text.contains("X509v3 Name Constraints: critical"))
+        #expect(text.contains("DNS:bridge.local") && text.contains("Permitted:"))
+        let verify = Process()
+        verify.executableURL = URL(fileURLWithPath: openssl)
+        verify.arguments = ["verify", "-CAfile", file.path, file.path]
+        let verifyOutput = Pipe()
+        verify.standardOutput = verifyOutput
+        verify.standardError = verifyOutput
+        try verify.run()
+        let verified = String(decoding: verifyOutput.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        verify.waitUntilExit()
+        #expect(verify.terminationStatus == 0, "\(verified)")
     }
 
     /// A name that goes away (a VPN's address) keeps the certificate a phone trusts; a configured file keeps its chain.

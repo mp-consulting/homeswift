@@ -94,6 +94,16 @@ struct UICertificate: Sendable {
 
     // MARK: A self-signed certificate (RFC 5280), DER by hand
 
+    /// Name Constraints (RFC 5280 4.2.1.10) to the names and addresses the certificate lists: a phone that trusts the CA
+    /// accepts nothing else signed with its key, so the bridge's key cannot stand in for another site. Critical, as the
+    /// RFC asks of a CA.
+    static func nameConstraints(names: [String], addresses: [UInt32]) -> [Data] {
+        let subtrees = names.map { DER.sequence([DER.tagged(0x82, Data($0.utf8))]) }
+            + addresses.map { DER.sequence([DER.tagged(0x87, withUnsafeBytes(of: $0.bigEndian) { Data($0) } + Data([255, 255, 255, 255]))]) }
+        guard !subtrees.isEmpty else { return [] }
+        return [DER.extensionValue([2, 5, 29, 30], critical: true, DER.sequence([DER.tagged(0xA0, subtrees.reduce(Data(), +))]))]
+    }
+
     static func selfSigned(key: P256.Signing.PrivateKey, names: [String], addresses: [UInt32], notBefore: Date, notAfter: Date) throws -> Data {
         let ecdsaWithSHA256 = DER.sequence([DER.oid([1, 2, 840, 10045, 4, 3, 2])])
         let name = DER.sequence([
@@ -112,7 +122,7 @@ struct UICertificate: Sendable {
             // serverAuth.
             DER.extensionValue([2, 5, 29, 37], critical: false, DER.sequence([DER.oid([1, 3, 6, 1, 5, 5, 7, 3, 1])])),
             DER.extensionValue([2, 5, 29, 17], critical: false, DER.sequence(alternativeNames)),
-        ])
+        ] + nameConstraints(names: names, addresses: addresses))
         let spki = key.publicKey.derRepresentation
         let tbs = DER.sequence([
             DER.tagged(0xA0, DER.integer([2])),
