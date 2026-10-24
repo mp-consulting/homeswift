@@ -878,8 +878,10 @@
   async function refreshLive() {
     try {
       const answer = await request("devices");
+      // Only what the rows show: lastUpdate changes with every report, and a redraw every five seconds would
+      // take the focus off a row's button and flicker the lists.
       const next = {};
-      for (const device of answer.devices || []) next[device.deviceId] = device;
+      for (const device of answer.devices || []) next[device.deviceId] = { lan: device.lan, aws: device.aws, ble: device.ble };
       const changed = JSON.stringify(next) !== JSON.stringify(live);
       live = next;
       if (changed) renderTypes();

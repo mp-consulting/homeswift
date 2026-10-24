@@ -20,12 +20,12 @@
   </div>
 
   <div class="group tabs main-tabs" role="tablist">
-    <button role="tab" data-tab="devices" class="on" aria-selected="true">Devices</button>
-    <button role="tab" data-tab="settings" aria-selected="false">Settings</button>
-    <button role="tab" data-tab="tools" aria-selected="false">Tools</button>
+    <button role="tab" data-tab="devices" class="on" aria-selected="true" aria-controls="tab-devices">Devices</button>
+    <button role="tab" data-tab="settings" aria-selected="false" aria-controls="tab-settings">Settings</button>
+    <button role="tab" data-tab="tools" aria-selected="false" aria-controls="tab-tools">Tools</button>
   </div>
 
-  <section id="tab-devices" class="tab-pane">
+  <section id="tab-devices" class="tab-pane" role="tabpanel">
     <div class="card discover">
       <div class="discover-head">
         <p class="muted">Discover all devices linked to your Govee account and add them to the lists below. Enter your credentials in the <strong>Settings</strong> tab first.</p>
@@ -37,7 +37,7 @@
     <div id="editor" class="card editor hidden"></div>
   </section>
 
-  <section id="tab-settings" class="tab-pane hidden">
+  <section id="tab-settings" class="tab-pane hidden" role="tabpanel">
     <div class="card">
       <h2>Account</h2>
       <div class="fields">
@@ -70,7 +70,7 @@
     </div>
   </section>
 
-  <section id="tab-tools" class="tab-pane hidden">
+  <section id="tab-tools" class="tab-pane hidden" role="tabpanel">
     <div class="card">
       <h2>Cache Management</h2>
       <p class="muted">Clear the plugin's cache if device discovery misbehaves or data looks stale: the saved login and IoT certificate, the discovered devices, the devices' saved state. Restart Homeswift afterwards.</p>

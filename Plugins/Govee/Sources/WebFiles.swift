@@ -68,7 +68,8 @@ details.type.empty > summary .entry-name { color: var(--muted); }
 .picker { display: grid; grid-template-columns: minmax(140px, 200px) minmax(0, 1fr); gap: 14px; }
 .picker-cats { display: grid; gap: 4px; align-content: start; max-height: 460px; overflow-y: auto; }
 .picker-cats button { display: flex; justify-content: space-between; gap: 8px; text-align: left; border: 0; background: none; box-shadow: none; padding: 7px 10px; border-radius: 12px; }
-.picker-cats button:hover { transform: none; background: var(--material-thin); }
+.picker-cats button:hover { transform: none; }
+@media (hover: hover) and (pointer: fine) { .picker-cats button:not(.on):hover { background: var(--material-thin); } }
 .picker-cats button.on { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); }
 .picker-cats .count { opacity: 0.7; font-variant-numeric: tabular-nums; }
 .picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; max-height: 460px; overflow-y: auto; align-content: start; padding: 2px; }
@@ -988,8 +989,10 @@ details.type.empty > summary .entry-name { color: var(--muted); }
   async function refreshLive() {
     try {
       const answer = await request("devices");
+      // Only what the rows show: lastUpdate changes with every report, and a redraw every five seconds would
+      // take the focus off a row's button and flicker the lists.
       const next = {};
-      for (const device of answer.devices || []) next[device.deviceId] = device;
+      for (const device of answer.devices || []) next[device.deviceId] = { lan: device.lan, aws: device.aws, ble: device.ble };
       const changed = JSON.stringify(next) !== JSON.stringify(live);
       live = next;
       if (changed) renderTypes();
@@ -1038,12 +1041,12 @@ details.type.empty > summary .entry-name { color: var(--muted); }
   </div>
 
   <div class="group tabs main-tabs" role="tablist">
-    <button role="tab" data-tab="devices" class="on" aria-selected="true">Devices</button>
-    <button role="tab" data-tab="settings" aria-selected="false">Settings</button>
-    <button role="tab" data-tab="tools" aria-selected="false">Tools</button>
+    <button role="tab" data-tab="devices" class="on" aria-selected="true" aria-controls="tab-devices">Devices</button>
+    <button role="tab" data-tab="settings" aria-selected="false" aria-controls="tab-settings">Settings</button>
+    <button role="tab" data-tab="tools" aria-selected="false" aria-controls="tab-tools">Tools</button>
   </div>
 
-  <section id="tab-devices" class="tab-pane">
+  <section id="tab-devices" class="tab-pane" role="tabpanel">
     <div class="card discover">
       <div class="discover-head">
         <p class="muted">Discover all devices linked to your Govee account and add them to the lists below. Enter your credentials in the <strong>Settings</strong> tab first.</p>
@@ -1055,7 +1058,7 @@ details.type.empty > summary .entry-name { color: var(--muted); }
     <div id="editor" class="card editor hidden"></div>
   </section>
 
-  <section id="tab-settings" class="tab-pane hidden">
+  <section id="tab-settings" class="tab-pane hidden" role="tabpanel">
     <div class="card">
       <h2>Account</h2>
       <div class="fields">
@@ -1088,7 +1091,7 @@ details.type.empty > summary .entry-name { color: var(--muted); }
     </div>
   </section>
 
-  <section id="tab-tools" class="tab-pane hidden">
+  <section id="tab-tools" class="tab-pane hidden" role="tabpanel">
     <div class="card">
       <h2>Cache Management</h2>
       <p class="muted">Clear the plugin's cache if device discovery misbehaves or data looks stale: the saved login and IoT certificate, the discovered devices, the devices' saved state. Restart Homeswift afterwards.</p>

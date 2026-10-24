@@ -59,7 +59,8 @@ details.type.empty > summary .entry-name { color: var(--muted); }
 .picker { display: grid; grid-template-columns: minmax(140px, 200px) minmax(0, 1fr); gap: 14px; }
 .picker-cats { display: grid; gap: 4px; align-content: start; max-height: 460px; overflow-y: auto; }
 .picker-cats button { display: flex; justify-content: space-between; gap: 8px; text-align: left; border: 0; background: none; box-shadow: none; padding: 7px 10px; border-radius: 12px; }
-.picker-cats button:hover { transform: none; background: var(--material-thin); }
+.picker-cats button:hover { transform: none; }
+@media (hover: hover) and (pointer: fine) { .picker-cats button:not(.on):hover { background: var(--material-thin); } }
 .picker-cats button.on { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); }
 .picker-cats .count { opacity: 0.7; font-variant-numeric: tabular-nums; }
 .picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; max-height: 460px; overflow-y: auto; align-content: start; padding: 2px; }

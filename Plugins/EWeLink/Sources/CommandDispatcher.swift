@@ -33,7 +33,8 @@ final class CommandQueue {
 
     init(minInterval: Double = 250, concurrency: Int = 3, maxSize: Int = 100, clock: EWeLinkClock, log: @escaping (String) -> Void = { _ in }, deviceName: @escaping (String) -> String = { $0 }) {
         self.minInterval = minInterval
-        self.concurrency = concurrency
+        // `commandQueueConcurrency: 0` in config.json would leave every command waiting forever.
+        self.concurrency = max(1, concurrency)
         self.maxSize = max(1, maxSize)
         self.clock = clock
         self.log = log

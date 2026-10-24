@@ -238,6 +238,21 @@ extension PluginHost {
         #expect(host.accessory(leakID)?.service(.leakSensor)?[.leakDetected]?.value == .int(0))
     }
 
+    @Test func aRuntimeLoginGoveeChallengesStopsAskingForCodes() async throws {
+        let environment = GoveeEnvironment()
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        #expect(await eventually { await !plugin.httpSyncInProgress })
+        // The token is refused, and the login that follows meets the new-device check.
+        environment.govee.answer("app2.govee.com/device/rest/devices/v1/list", status: 401, [:])
+        environment.govee.answer("app2.govee.com/account/rest/account/v2/login", ["status": 454])
+        environment.govee.answer("app2.govee.com/account/rest/account/v1/verification", [:])
+        await plugin.httpSync()
+        #expect(await plugin.reauthenticationNeedsCode)
+        #expect(environment.govee.requests(to: "app2.govee.com/account/rest/account/v1/verification").count == 1)
+    }
+
     @Test func leakAlertsAreFetchedForNewEventsOnly() async throws {
         let environment = GoveeEnvironment()
         let host = try await environment.start()

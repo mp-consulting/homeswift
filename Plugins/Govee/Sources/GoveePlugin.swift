@@ -86,6 +86,8 @@ public actor GoveePlugin: HomeswiftPlugin {
     private var awsSyncInProgress = false
     private var bleSyncInProgress = false
     private var lastReauthentication: Date?
+    /// Set when a runtime login met Govee's new-device check (see `reauthenticate()`).
+    private(set) var reauthenticationNeedsCode = false
     private var bleCommandSequence = 0
     private var bleLatestCommand: [String: Int] = [:]
     private var bleLastReading: [String: ContinuousClock.Instant] = [:]
@@ -259,7 +261,7 @@ public actor GoveePlugin: HomeswiftPlugin {
         let clientID = "AP/\(credentials.accountId)/\(api.clientId)"
         let connection = try await dependencies.mqtt(Self.mqttConfiguration(endpoint: credentials.endpoint, clientID: clientID, identity: identity))
         let client = AWSClient(accountTopic: credentials.topic, connection: connection, debug: debug) { [weak self] payload in
-            Task { await self?.receiveUpdateAWS(payload) }
+            await self?.receiveUpdateAWS(payload)
         }
         awsClient = client
         await client.start()
@@ -289,9 +291,11 @@ public actor GoveePlugin: HomeswiftPlugin {
         try credentialStore.save(result.credentials, iotCertificate: result.iot)
     }
 
-    /// Logs in again at runtime after the token was refused, every ten minutes at most.
+    /// Logs in again at runtime after the token was refused, every ten minutes at most. A login Govee answers
+    /// with its new-device check stops these until the next start: each attempt would email the user another
+    /// code, and the code goes in config.json, which a restart reads.
     private func reauthenticate() async {
-        guard account != nil, let credentialStore else { return }
+        guard account != nil, let credentialStore, !reauthenticationNeedsCode else { return }
         if let last = lastReauthentication, Date().timeIntervalSince(last) < Self.reauthenticationInterval { return }
         lastReauthentication = Date()
         logger.warning("[HTTP] \(Lang.accTokenRejected)")
@@ -300,6 +304,7 @@ public actor GoveePlugin: HomeswiftPlugin {
             try await login()
         } catch {
             logger.warning("[HTTP] \(Lang.syncFail) \(error).")
+            if let error = error as? GoveeAPIError, error.needsVerificationCode { reauthenticationNeedsCode = true }
         }
     }
 

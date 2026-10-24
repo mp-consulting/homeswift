@@ -166,7 +166,14 @@ actor CloudAPI {
 
     // MARK: Login
 
+    /// Region redirects one login follows: a server bouncing between regions would otherwise loop forever.
+    static let maximumRegionRedirects = 3
+
     func login() async throws {
+        try await login(redirects: 0)
+    }
+
+    private func login(redirects: Int) async throws {
         logger.debug("=== LOGIN START ===")
         let username = credentials.username ?? "", password = credentials.password ?? ""
         logger.debug("Username: \(username.isEmpty ? "EMPTY" : String(username.prefix(3)) + "***")")
@@ -193,17 +200,18 @@ actor CloudAPI {
             throw EWeLinkError("Login failed: \(error.description)")
         } catch {
             logger.debug("=== LOGIN END (ERROR) ===")
-            logger.error("Login HTTP error: no response - \(error.localizedDescription)")
-            throw EWeLinkError("Login failed: \(error.localizedDescription)")
+            logger.error("Login HTTP error: no response - \(error)")
+            throw EWeLinkError("Login failed: \(error)")
         }
         let code = json["error"]?.intValue
         logger.debug("Response error code: \(code.map(String.init) ?? "none")")
 
         if code == 10004, let given = json["data"]?["region"]?.stringValue {
+            guard redirects < Self.maximumRegionRedirects else { throw EWeLinkError("Login failed: too many region redirects [\(given)]", code: code) }
             logger.info("Region redirect required: \(httpHost) -> \(given)")
             try applyRegion(given)
             logger.debug("Retrying login with new host: \(httpHost)")
-            return try await login()
+            return try await login(redirects: redirects + 1)
         }
         if let code, [10001, 10014].contains(code), !triedBase64 {
             logger.warning("Password error (\(code)), attempting base64 decode...")
@@ -212,7 +220,7 @@ actor CloudAPI {
             currentPassword = decoded.replacingOccurrences(of: "\r\n", with: "").replacingOccurrences(of: "\n", with: "")
                 .replacingOccurrences(of: "\r", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
             logger.debug("Password length changed from \(password.count) to \(currentPassword.count) chars")
-            return try await login()
+            return try await login(redirects: redirects)
         }
         if let at = json["data"]?["at"]?.stringValue {
             accessToken = at
