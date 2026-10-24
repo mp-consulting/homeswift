@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- Web UI: a `Permissions-Policy` that leaves pages the microphone (the Assistant's dictation) and full screen (a
+  camera) and nothing else; `base-uri 'none'` and `form-action 'self'` in the content security policy;
+  `X-Robots-Tag: noindex, nofollow` and a `/robots.txt` that disallows everything, for a UI published through a
+  tunnel; and `Strict-Transport-Security` for a year when a trusted proxy (`trustProxy`) says the browser came over
+  HTTPS. Never for the UI's own HTTPS, whose self-signed certificate a browser under HSTS would not let anyone past.
+
+### Changed
+
+- Web UI: text held to WCAG AA contrast (4.5:1) in light and dark. Orange words on light glass (links, the
+  Administrator badge) take a deeper orange, and orange surfaces under white words (buttons, the current tab, the
+  avatar) a deeper fill; the amber of "Not paired", the green of "Saved" and JSON numbers are darker in light
+  mode, and dark mode gets the brighter green it lacked. The bright orange stays for borders, rings and switches.
+
 ## [0.6.0] - 2026-10-24
 
 ### Added

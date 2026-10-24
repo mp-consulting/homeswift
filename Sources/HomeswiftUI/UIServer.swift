@@ -223,6 +223,7 @@ public final class UIServer: Sendable {
             return .error(413, Self.acceptsArchive(request) ? "the upload is larger than \(InstanceBackups.maxArchiveSize / 1_048_576) MB" : "the request is too large")
         }
         let parts = request.path.split(separator: "/").map { String($0).removingPercentEncoding ?? String($0) }
+        if parts == ["robots.txt"] { return .text("User-agent: *\nDisallow: /\n", contentType: "text/plain; charset=utf-8") }
         if let reply = await oauthEndpoint(parts, request) { return reply }
         guard parts.first == "api" else { return page(for: parts, request) }
         let route = Array(parts.dropFirst())
@@ -1363,7 +1364,7 @@ final class UIRequestHandler: ChannelInboundHandler {
         let keepalive = server.options.keepalive
         Task {
             let reply = await server.reply(to: request)
-            await write(reply, to: channel, keepAlive: keepAlive, keepalive: keepalive)
+            await write(reply, to: channel, keepAlive: keepAlive, keepalive: keepalive, overProxiedHTTPS: request.secure)
             channel.pipeline.fireUserInboundEventTriggered(ResponseDone())
         }
     }
@@ -1372,13 +1373,22 @@ final class UIRequestHandler: ChannelInboundHandler {
         ("X-Content-Type-Options", "nosniff"),
         ("X-Frame-Options", "DENY"),
         ("Referrer-Policy", "no-referrer"),
-        ("Content-Security-Policy", "default-src 'self'; manifest-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'"),
+        ("Content-Security-Policy", "default-src 'self'; manifest-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"),
+        // The microphone (the Assistant's dictation) and full screen (a camera) for the UI itself; nothing else.
+        ("Permissions-Policy", "camera=(), geolocation=(), payment=(), usb=(), serial=(), hid=(), midi=(), bluetooth=(), magnetometer=(), gyroscope=(), accelerometer=(), display-capture=(), microphone=(self), fullscreen=(self)"),
+        // A UI published through a tunnel or a proxy stays out of search engines (robots.txt says so too).
+        ("X-Robots-Tag", "noindex, nofollow"),
         ("Cache-Control", "no-store"),
     ]
+    /// HTTPS remembered by the browser for a year, sent only when a trusted proxy (`trustProxy`) says the browser came
+    /// over HTTPS: that proxy holds a real certificate. Never for the UI's own HTTPS, whose certificate is usually its
+    /// self-signed one: under HSTS a browser offers no way past a certificate warning.
+    static let strictTransportSecurity = ("Strict-Transport-Security", "max-age=31536000")
 
-    private static func write(_ reply: UIServer.Reply, to channel: any Channel, keepAlive: Bool, keepalive interval: Duration) async {
+    private static func write(_ reply: UIServer.Reply, to channel: any Channel, keepAlive: Bool, keepalive interval: Duration, overProxiedHTTPS: Bool = false) async {
         var head = HTTPResponseHead(version: .http1_1, status: .ok)
         for (name, value) in securityHeaders { head.headers.add(name: name, value: value) }
+        if overProxiedHTTPS { head.headers.add(name: strictTransportSecurity.0, value: strictTransportSecurity.1) }
         switch reply {
         case .data(let status, let contentType, let body, let headers):
             head.status = .init(statusCode: status)

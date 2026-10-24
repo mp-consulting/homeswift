@@ -296,7 +296,11 @@ Logins survive a restart: sessions are kept in `ui-sessions.json` next to config
 - Every API call needs the session cookie (`HttpOnly`, `SameSite=Strict`) or an API token. Mutations must be
   JSON and, with the cookie, come from the page: a request whose `Origin` names another site, or whose
   `Sec-Fetch-Site` is not the page's own, is refused. Pages carry a content security policy (scripts, styles, media and the web app manifest
-  from the UI itself; `blob:` for the camera cards' Media Source), no-store, no framing.
+  from the UI itself; `blob:` for the camera cards' Media Source; no `<base>`, forms posting only to the UI),
+  no-store, no framing, `nosniff`, no referrer, and a permissions policy that leaves the UI the microphone (the
+  Assistant's dictation) and full screen (a camera) and nothing else: no camera, location, payment, USB or sensors.
+- The UI asks search engines to keep away: `X-Robots-Tag: noindex, nofollow` on every reply and a `/robots.txt`
+  that disallows everything, for a UI published through a tunnel or a proxy.
 - The Assistant's requests from pages are limited to 20 a minute per user (Glass UI's limit, then 429 with
   `Retry-After`), stop at the HomeswiftAiKit block's budget, and count in its usage for the signed-in user.
 - The first account needs the set-up code, so nobody else on the network can claim the bridge before its
@@ -309,7 +313,8 @@ Logins survive a restart: sessions are kept in `ui-sessions.json` next to config
   with `auth: none` too.
 - Behind a reverse proxy, `trustProxy` names it: only a request from one of those addresses may say who the
   client is (`X-Forwarded-For`, the right-most address that is not a trusted proxy: for the login throttle and
-  the log) and that the browser came over HTTPS (`X-Forwarded-Proto`, for a `Secure` cookie). Never every
+  the log) and that the browser came over HTTPS (`X-Forwarded-Proto`, for a `Secure` cookie, and
+  `Strict-Transport-Security` for a year: the proxy holds a real certificate). Never every
   address: a client could pick its own and step around the throttle. Add the proxy's host name to
   `allowedHosts`.
 - `/mcp`, `/oauth/*` and `/.well-known/oauth-*` answer only with the MCP server on. Their tokens reach `/mcp`
@@ -325,7 +330,9 @@ Logins survive a restart: sessions are kept in `ui-sessions.json` next to config
   when an address changes. The banner prints its SHA-256 fingerprint, which the browser's warning shows.
   To trust it once and for all, download `/homeswift-ui.crt` and add it to the keychain (macOS: Always
   Trust), or install it on an iPhone and turn it on under Settings › General › About › Certificate Trust
-  Settings. Without `https`, keep the UI on the home network or behind a reverse proxy with TLS. With
+  Settings. The UI's own HTTPS never sends `Strict-Transport-Security`: under it a browser offers no way past
+  a certificate warning, which a self-signed certificate always gets until it is trusted. Without `https`, keep
+  the UI on the home network or behind a reverse proxy with TLS. With
   `auth: none`, set `host` to `127.0.0.1`.
 - An administrator's Config page shows config.json as it is, secrets included, the way Config UI X does. The
   MCP server's redaction rules are for models, not for the person who owns the file. Other users never get it.
