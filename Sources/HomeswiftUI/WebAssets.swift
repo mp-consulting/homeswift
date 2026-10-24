@@ -629,8 +629,8 @@ enum WebAssets {
 
   const signOut = async () => { try { await api("/api/auth/logout", { method: "POST" }); } catch {} await loadAuth(); };
 
-  /// The name the header shows: the user's display name, else their username; "This machine" without sign-in.
-  const shownName = () => (auth.mode === "form" ? (auth.name && auth.name !== auth.username ? auth.name : auth.username || "") : "This machine");
+  /// The name the header shows: the user's display name, else their username; none without sign-in.
+  const shownName = () => (auth.mode === "form" ? (auth.name && auth.name !== auth.username ? auth.name : auth.username || "") : "");
 
   /// The header's account button: the user's initial on the accent (a person without sign-in), the name beside it on
   /// a wide window.
@@ -645,7 +645,7 @@ enum WebAssets {
     event.stopPropagation();
     const form = auth.mode === "form";
     HomeswiftCommon.menu($("#user"), [
-      { heading: shownName(), detail: form ? `${auth.username}${isAdmin() ? " · Administrator" : ""}` : "No sign-in on this web UI" },
+      form ? { heading: shownName(), detail: `${auth.username}${isAdmin() ? " · Administrator" : ""}` } : { heading: "No sign-in", detail: "Anyone who opens this web UI uses it" },
       { label: form ? "Your account" : "Account", icon: "user", href: "/account" },
       { label: "Appearance", icon: "sliders", href: "/appearance" },
       form && isAdmin() ? { label: "Users and tokens", icon: "users", href: "/users" } : null,
@@ -4278,9 +4278,9 @@ enum WebAssets {
     if (!header || header.querySelector(".chat-open")) return;
     const shortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl+K";
     trigger = el("button", {
-      type: "button", class: "chat-open", "aria-expanded": "false", "aria-haspopup": "dialog", title: `Ask the Assistant (${shortcut})`, "aria-keyshortcuts": "Meta+K Control+K",
-      onclick: () => toggle(),
-    }, sparkle(), el("span", { text: "Assistant" }));
+      type: "button", class: "chat-open", "aria-expanded": "false", "aria-haspopup": "dialog", "aria-label": "Assistant", title: `Ask the Assistant (${shortcut})`,
+      "aria-keyshortcuts": "Meta+K Control+K", onclick: () => toggle(),
+    }, sparkle());
     header.insertBefore(trigger, header.querySelector("#user"));
     // Cmd+K (Ctrl+K elsewhere) opens the chat from anywhere, and closes it, as Glass UI's palette.
     document.addEventListener("keydown", (event) => {
@@ -6156,6 +6156,9 @@ nav a.active { background: linear-gradient(180deg, var(--accent-2), var(--accent
 }
 .user-avatar svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .user-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Without sign-in there is no name: the avatar alone, round. */
+.user-name:empty { display: none; }
+.user-button:has(.user-name:empty) { padding: 3px; }
 .menu-heading { display: grid; gap: 2px; padding: 8px 12px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
 .menu-heading strong { font-size: 0.9375rem; }
 .menu-heading span { color: var(--muted); font-size: 0.8125rem; }
@@ -7179,11 +7182,9 @@ dd { margin: 0; }
    so the page stays usable; on a phone it is a sheet over a scrim, dragged by its head. Thick material like
    the header, controls solid on top; the Apple Intelligence glow turns around the panel only while the
    Assistant works or listens. chat.js moves it on a spring, from the button and back to it. */
-.chat-open { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px 6px 11px; border-radius: 999px; }
-.chat-open span {
-  font-weight: 600; background: linear-gradient(90deg, #ff9f0a, #ff375f 35%, #bf5af2 70%, #5e5ce6);
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-}
+/* The Assistant's sparkle, round, beside the account button. */
+.chat-open { flex: none; display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border-radius: 50%; }
+.chat-open .sparkle { width: 19px; height: 19px; }
 .chat-open[aria-expanded="true"] { box-shadow: 0 0 0 3px rgba(191, 90, 242, 0.22), var(--shadow-control); }
 .chat {
   position: fixed; z-index: 20; top: 84px; right: max(16px, calc((100vw - 1100px) / 2));
@@ -7327,8 +7328,6 @@ dd { margin: 0; }
   .chat-glow { inset: -3px -3px 0; border-radius: 29px 29px 0 0; }
   .chat-grabber { display: block; position: absolute; top: 6px; left: 50%; width: 36px; height: 5px; border-radius: 3px; background: var(--line); transform: translateX(-50%); }
   .chat-head { padding-top: 20px; touch-action: none; cursor: grab; }
-  .chat-open { padding: 7px; }
-  .chat-open span { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .chat-glow, .chat.listening .chat-mic, .chat-step-mark, .chat-thinking, .chat-log > * { animation: none !important; }

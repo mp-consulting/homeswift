@@ -252,7 +252,7 @@ User management is not an MCP tool: a model never creates accounts or tokens.
 
 ## The Assistant's chat
 
-With a `HomeswiftAiKit` block that names a provider, a sparkle **Assistant** button in the header opens a
+With a `HomeswiftAiKit` block that names a provider, a sparkle button in the header, beside the account menu, opens a
 chat, on every page, plugin pages included. Ask it what the bridge runs or why an accessory does not
 answer, or tell it what to do: "add the Elgato light at 192.168.1.50", "pair my Philips TV", "turn off
 every light". It looks at the setup and acts through the MCP server's tools, the plugins' own actions

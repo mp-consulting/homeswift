@@ -627,9 +627,9 @@
     if (!header || header.querySelector(".chat-open")) return;
     const shortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl+K";
     trigger = el("button", {
-      type: "button", class: "chat-open", "aria-expanded": "false", "aria-haspopup": "dialog", title: `Ask the Assistant (${shortcut})`, "aria-keyshortcuts": "Meta+K Control+K",
-      onclick: () => toggle(),
-    }, sparkle(), el("span", { text: "Assistant" }));
+      type: "button", class: "chat-open", "aria-expanded": "false", "aria-haspopup": "dialog", "aria-label": "Assistant", title: `Ask the Assistant (${shortcut})`,
+      "aria-keyshortcuts": "Meta+K Control+K", onclick: () => toggle(),
+    }, sparkle());
     header.insertBefore(trigger, header.querySelector("#user"));
     // Cmd+K (Ctrl+K elsewhere) opens the chat from anywhere, and closes it, as Glass UI's palette.
     document.addEventListener("keydown", (event) => {
