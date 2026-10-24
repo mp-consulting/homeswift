@@ -23,6 +23,7 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `Sources/HomeswiftUI` | The web UI: `UIConfiguration` (the `HomeswiftUI` block), `Auth` (users, PBKDF2, sessions, login throttle), `UIServer` (NIO HTTP, the JSON API, the event stream), `Cameras` (camera snapshots and live fMP4 streams), `AssistantChat` (the chat's conversations, kept in `ui-chats.json`), `AccessoryLayout` (the Accessories wall's order and sizes, `ui-layout.json`), `AssistantRoutes` (the pages' streamed, cancellable Assistant requests), `Preferences` (each user's appearance and Status layout), `Certificate` (HTTPS, self-signed), `Web/` (the pages, `widgets.js` the accessory widgets; `WebAssets.swift` is generated from it) |
 | `Sources/HomeswiftNetwork` | For plugins reaching devices and clouds: `NetworkInterfaces`, `HTTPClient` (NIO and NIOSSL; trusts or pins a self-signed certificate, the same on Linux; `TrustOnFirstUse`), `DigestAuthentication`, `WakeOnLAN`, `UDPSocket` and `localIPv4Networks`, `WebSocket`, `MQTTClient` (`MQTTPacket`, `MQTTTransport`; MQTT 3.1.1 and 5), `TLSOptions` (roots such as Amazon Root CA 1, client certificates, ALPN, cipher lists), `MDNSQuery` (a one-shot mDNS query whose answers carry the sender's address), `AWSSignatureV4`, `URLEncoding`, `Backoff` |
 | `Scripts/embed-assets.swift` | Embeds a plugin's `config.schema.json` or the `Web/` directory into Swift source; tests fail when the generated files are stale |
+| `Scripts/docs-screenshots.mjs` | Retakes the docs' web UI screenshots from a throwaway bridge with headless Chrome (docs/widgets.md, "Screenshots") |
 | `Scripts/new-plugin.swift` | Creates `Plugins/<Name>/` (a skeleton on a fake API that builds and passes its tests; `--service` picks the HAP services and characteristics from `Definitions.swift`, `--list` shows them), its targets in `Package.swift` and its registration in `Plugins.swift` |
 | `CONTRIBUTING.md`, `.github/` | How to propose a plugin and what it needs (the checklist), the plugin proposal issue form, the pull request template, `CODEOWNERS` |
 | `THIRD-PARTY-NOTICES.md` | The copyright and permission notices of the projects code was ported from, and which paths come from each; a new port adds its own. `Scripts/collect-licenses.sh` puts it, `LICENSES/` and the compiled-in packages' licence files in the container image and the Synology package |
@@ -105,6 +106,11 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
   and alarms are written only by `set_security_accessory`; tool text from logs or devices is wrapped in
   `<untrusted-data>`. The protocol is implemented directly (no SDK): `MCPServer.protocolVersion` is the
   version to bump. `homeswift mcp` logs to stderr because stdout carries the protocol.
+- Screenshots follow the UI: a change to how the web UI looks retakes, in the same change, the screenshots that show
+  it (`docs/images`, the README) and brings `site/` (homeswift.dev, which draws widgets in its own HTML) in step.
+  `Scripts/docs-screenshots.mjs` retakes the wall, phone and paused shots (docs/widgets.md, "Screenshots": a
+  throwaway bridge, plugins paused, light mode, 2x); names are demonstration names, never the user's real ones,
+  and the name map stays out of the repository.
 - The web UI: pages are plain HTML, CSS and JavaScript without dependencies or a build step; they are
   embedded, so edit `Web/` and rerun the embed script (the tests say when it is stale). The API is the
   `HomeswiftCatalog` surface; mutations need JSON bodies and a same-origin `Origin`. `HomeswiftUI` and
