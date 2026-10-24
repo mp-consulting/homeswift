@@ -337,7 +337,9 @@ struct PluginTests {
         #expect(await eventually { environment.log.contains(.info, "Retrying discovery in") })
         await host.stop()
         // No attempt once stopped. A loaded runner can take the second before the stop returns, and the retry then
-        // runs before it: what counts is that none comes after.
+        // runs before it: what counts is that none comes after the plugin's own stop, which the host waits for at
+        // most 10 s.
+        #expect(await eventually { environment.log.contains(.debug, "Stopped") })
         let attempts = environment.clouds.count
         try await Task.sleep(for: .milliseconds(1300))
         #expect(environment.clouds.count == attempts)

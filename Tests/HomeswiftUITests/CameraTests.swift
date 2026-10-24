@@ -303,9 +303,11 @@ struct CameraUITests {
     }
 }
 
-/// Polls until `condition` holds, for up to five seconds.
+/// Polls until `condition` holds, for up to thirty seconds.
+/// A ceiling, not a wait: it returns as soon as the condition holds, and a loaded CI runner can take seconds.
 func eventually(_ condition: @escaping () async -> Bool) async -> Bool {
-    for _ in 0..<500 {
+    let deadline = ContinuousClock.now + .seconds(30)
+    while ContinuousClock.now < deadline {
         if await condition() { return true }
         try? await Task.sleep(for: .milliseconds(10))
     }

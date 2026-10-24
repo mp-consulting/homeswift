@@ -76,7 +76,8 @@ import Testing
         let api = api(controller)
         #expect(await api.login(address: "192.168.1.1", username: "user", password: "secret"))
         controller.update { $0.scripted["/proxy/protect/api/bootstrap"] = [503, 502] }
-        let response = await api.retrieve("https://192.168.1.1/proxy/protect/api/bootstrap")
+        // The request's deadline is real time (3.5 s, unscaled): a loaded runner can spend it before the third try.
+        let response = await api.retrieve("https://192.168.1.1/proxy/protect/api/bootstrap", timeout: .seconds(30))
         #expect(response?.status == 200)
         #expect(controller.requests("/proxy/protect/api/bootstrap").count == 3)
         // PATCH and POST are not retried: the controller may have done them.

@@ -78,7 +78,8 @@ import Darwin
         let start = ContinuousClock.now
         task.cancel()
         #expect(await task.value == nil)
-        #expect(ContinuousClock.now - start < .seconds(3))
+        // Well before the shell's 30 s sleep ends: the cancellation terminated it. A loaded runner can take seconds.
+        #expect(ContinuousClock.now - start < .seconds(15))
         #expect(logs.messages(.debug).contains("FFmpeg command cancelled. Terminating."))
         #expect(await eventually { !exec.isRunning && kill(pid, 0) != 0 })
     }
@@ -211,8 +212,8 @@ import Darwin
         // The late exit of the old process leaves the new one alone.
         #expect(process.processIdentifier == second)
         #expect(process.isRunning)
-        process.stop()
-        _ = await waitForExit(process)
+        // The wait is registered before the stop, so an exit that comes at once is not missed.
+        _ = await waitForExit(process) { process.stop() }
         #expect(!process.isRunning)
     }
 

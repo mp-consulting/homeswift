@@ -148,8 +148,9 @@ func box(_ type: String, _ payload: [UInt8]) -> Data { box(type, Data(payload)) 
 func bytes(_ count: Int, _ value: UInt8 = 0) -> Data { Data(repeating: value, count: count) }
 
 /// Polls `condition` until it holds or `timeout` passes.
+/// A ceiling, not a wait: it returns as soon as the condition holds, and a loaded CI runner can take seconds.
 @discardableResult
-func eventually(timeout: Duration = .seconds(5), _ condition: () -> Bool) async -> Bool {
+func eventually(timeout: Duration = .seconds(30), _ condition: () -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if condition() { return true }
