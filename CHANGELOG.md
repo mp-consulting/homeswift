@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-24
+
+### Fixed
+
+- Web UI: the Accessories wall fills its row again. 0.5.0 draws each page in a new `<main>`, and the wall's sizing
+  watched only the first one, so after the first page the columns stayed at 160 points with a strip at the right.
+  A wall is now sized as soon as it is added, before it is first drawn.
+
 ## [0.5.0] - 2026-10-24
 
 ### Security
@@ -648,7 +656,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/mp-consulting/homeswift/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/mp-consulting/homeswift/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/mp-consulting/homeswift/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/mp-consulting/homeswift/compare/v0.2.0...v0.3.0
