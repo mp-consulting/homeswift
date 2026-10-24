@@ -493,6 +493,30 @@ public struct HomeswiftCatalog: Sendable {
         return backup
     }
 
+    /// When config.json turns the MCP server on and no client has a token (none in the block, none from the
+    /// environment), makes one and saves it as `mcp.http.token`, a backup first and owner-only like any change: turning
+    /// the server on is enough. Returns the configuration with it, or nil when nothing was missing. The token is not
+    /// logged; `homeswift mcp --snippets` gives it to clients.
+    public func addMissingMCPToken() throws -> HomeswiftConfiguration? {
+        let current = try readConfig()
+        guard var root = current.objectValue, var platforms = root["platforms"]?.arrayValue,
+              let index = platforms.firstIndex(where: { $0["platform"]?.stringValue == AIConfiguration.platform }),
+              var block = platforms[index].objectValue,
+              let mcp = try? MCPConfiguration(block: .object(block)), mcp.enabled, !mcp.hasTokens
+        else { return nil }
+        var settings = block["mcp"]?.objectValue ?? [:]
+        var http = settings["http"]?.objectValue ?? [:]
+        http["token"] = .string(MCPConfiguration.generateToken())
+        settings["http"] = .object(http)
+        block["mcp"] = .object(settings)
+        platforms[index] = .object(block)
+        root["platforms"] = .array(platforms)
+        let next = JSONValue.object(root)
+        let configuration = try HomeswiftConfiguration.decode(next.encoded())
+        _ = try writeConfig(next)
+        return configuration
+    }
+
     /// Replaces the file with `next`, restoring redacted secrets from the current one, and applies it to the
     /// running bridge (`PluginHost.apply`): plugin blocks and child bridges reload in place, the Assistant
     /// swaps, the web UI and MCP servers restart in the process. The bridge block (the HomeKit identity, port

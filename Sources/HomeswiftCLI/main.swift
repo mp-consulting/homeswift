@@ -216,9 +216,10 @@ let main = Task {
             guard let catalog = catalogBox.withLockedValue({ $0 }) else { return }
             let settings = MCPCommands.mcpBlock(next)?["mcp"]
             if platforms.contains(AIConfiguration.platform), mcpSettings.withLockedValue({ $0 }) != settings {
-                mcpSettings.withLockedValue { $0 = settings }
                 await mcpServer.withLockedValue { $0 }?.stop()
-                let started = await MCPCommands.startServer(catalog: catalog, configuration: next, logger: logger)
+                let (started, effective) = await MCPCommands.startServer(catalog: catalog, configuration: next, logger: logger)
+                // With the token it may have saved, so the next change to the block compares against what runs.
+                mcpSettings.withLockedValue { $0 = MCPCommands.mcpBlock(effective)?["mcp"] }
                 mcpServer.withLockedValue { $0 = started }
                 logger.info(started == nil ? "MCP server stopped" : "MCP server restarted with the new settings")
             }
@@ -246,8 +247,10 @@ let main = Task {
     homeCatalog.withLockedValue { $0 = catalog }
     // Scenes' automations and the notifications (bridge started, plugin errors, accessories offline, the digest).
     catalog.startHome(restarted: restarted)
-    if let started = await MCPCommands.startServer(catalog: catalog, configuration: configuration, logger: logger) {
-        mcpServer.withLockedValue { $0 = started }
+    let (startedMCP, mcpConfiguration) = await MCPCommands.startServer(catalog: catalog, configuration: configuration, logger: logger)
+    mcpSettings.withLockedValue { $0 = MCPCommands.mcpBlock(mcpConfiguration)?["mcp"] }
+    if let startedMCP {
+        mcpServer.withLockedValue { $0 = startedMCP }
     }
     if let started = await UICommands.startServer(catalog: catalog, configuration: configuration, logger: logger) {
         uiServer.withLockedValue { $0 = started }
