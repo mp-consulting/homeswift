@@ -28,6 +28,13 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
+      # Cloudflare, in front of Pages, keeps stylesheets and scripts for 4 hours and fetches HTML every time: a deploy
+      # would pair new pages with the previous deploy's site.css and site.js. Each page's own .css and .js addresses
+      # get the commit as a query, so every deploy asks for files no cache has seen (i18n.js passes its query on to
+      # the catalog it loads). The repository stays plain HTML.
+      - name: Version the pages' stylesheet and script addresses
+        run: find site -name '*.html' -exec sed -E -i "s#(href|src)=\"([^\":?]+\.(css|js))\"#\1=\"\2?v=${GITHUB_SHA::8}\"#g" {} +
+
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
