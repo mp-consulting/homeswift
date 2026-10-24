@@ -32,11 +32,15 @@ public struct HomeswiftCatalog: Sendable {
     public let startedAt = Date()
     /// Rooms and hidden accessories, scenes and their automations, notifications: files next to config.json.
     public let home: HomeState
+    /// The config.schema.json of blocks no plugin provides, by platform: the runtime's own (the web UI's, the
+    /// Assistant's), which a save checks as it checks a plugin's.
+    let blockSchemas: [String: String]
     let logger: Logger
 
     public init(
         host: PluginHost, logs: LogBuffer, metrics: Metrics? = nil, configURL: URL, allowSecrets: Bool = false, restart: (@Sendable () -> Void)? = nil,
-        reloadServices: (@Sendable (HomeswiftConfiguration, [String]) async -> Void)? = nil, logger: Logger = Logger(label: "homeswift.mcp")
+        reloadServices: (@Sendable (HomeswiftConfiguration, [String]) async -> Void)? = nil, blockSchemas: [String: String] = [:],
+        logger: Logger = Logger(label: "homeswift.mcp")
     ) {
         self.host = host
         self.logs = logs
@@ -45,6 +49,7 @@ public struct HomeswiftCatalog: Sendable {
         self.allowSecrets = allowSecrets
         self.restart = restart
         self.reloadServices = reloadServices
+        self.blockSchemas = blockSchemas
         self.logger = logger
         home = HomeState(directory: configURL.deletingLastPathComponent())
     }
@@ -532,15 +537,18 @@ public struct HomeswiftCatalog: Sendable {
     /// running bridge (`PluginHost.apply`): plugin blocks and child bridges reload in place, the Assistant
     /// swaps, the web UI and MCP servers restart in the process. The bridge block (the HomeKit identity, port
     /// and setup code) restarts the process on its own; only when it cannot does the restart flag go up.
-    public func applyConfig(_ next: JSONValue, dryRun: Bool) async throws -> JSONValue {
-        try await applyConfig(next, dryRun: dryRun, current: (try? readConfig()) ?? [:])
+    /// With `checkSchemas`, what the save changes in a plugin block must match the plugin's config.schema.json
+    /// (`checkBlocks`); a plugin's own page, a restored backup and "save anyway" skip it.
+    public func applyConfig(_ next: JSONValue, dryRun: Bool, checkSchemas: Bool = true) async throws -> JSONValue {
+        try await applyConfig(next, dryRun: dryRun, current: (try? readConfig()) ?? [:], checkSchemas: checkSchemas)
     }
 
     /// `applyConfig` with the file as it was just read, so a caller that read it does not read it again.
-    func applyConfig(_ next: JSONValue, dryRun: Bool, current: JSONValue) async throws -> JSONValue {
+    func applyConfig(_ next: JSONValue, dryRun: Bool, current: JSONValue, checkSchemas: Bool = true) async throws -> JSONValue {
         let restored = Redaction.containsRedacted(next) ? try Redaction.restoreSecrets(next, from: current) : next
         let configuration = try HomeswiftConfiguration.decode(restored.encoded())
         try configuration.validate()
+        if checkSchemas { try checkBlocks(restored, current: current) }
         let changed = Self.changedKeys(from: current, to: restored)
         if dryRun {
             return ["dryRun": true, "changes": .array(changed.map(JSONValue.string)), "config": Redaction.redactSecrets(restored)]
@@ -569,12 +577,60 @@ public struct HomeswiftCatalog: Sendable {
         ]
     }
 
+    /// Checks what a save changes in the platform blocks against each plugin's config.schema.json: a setting
+    /// added or changed, a required one removed, a new block whole. What it leaves as it was is not checked, so an
+    /// old mistake (or a value the plugin accepts that its schema does not list) never stops the save of something
+    /// else. Throws the problems, with paths from the file's root (`platforms[2].pollingRate`).
+    func checkBlocks(_ next: JSONValue, current: JSONValue) throws {
+        let before = current["platforms"]?.arrayValue ?? []
+        func key(_ block: JSONValue) -> [String?] { [block["platform"]?.stringValue, block["name"]?.stringValue] }
+        var problems: [ConfigSchemaError.Problem] = []
+        for (index, block) in (next["platforms"]?.arrayValue ?? []).enumerated() where !before.contains(block) {
+            guard let platform = block["platform"]?.stringValue, let fields = block.objectValue,
+                  let text = blockSchemas[platform] ?? host.registry.entry(for: platform)?.configurationSchemaJSON,
+                  let file = try? JSONValue(string: text) else { continue }
+            let schema = JSONGeneration.normalizePluginSchema(file["schema"] ?? file, forChecking: true)
+            // `platform` and the runtime's own keys (`_bridge`, `_paused`) are not the plugin's to describe.
+            let settings = { (fields: [String: JSONValue]) in JSONValue.object(fields.filter { $0.key != "platform" && !$0.key.hasPrefix("_") }) }
+            // The block as it was: in the same place (a renamed one too), else by platform and name (the file reordered).
+            let same = before.indices.contains(index) && before[index]["platform"] == block["platform"] ? before[index] : nil
+            let old = (same ?? before.first { key($0) == key(block) })?.objectValue.map(settings)
+            let now = settings(fields)
+            for found in JSONSchema.problems(now, against: schema) {
+                if let old, !Self.changed(found.path, from: old, to: now) { continue }
+                problems.append(ConfigSchemaError.Problem(platform: platform, path: [.key("platforms"), .index(index)] + found.path, message: found.message))
+            }
+        }
+        if !problems.isEmpty { throw ConfigSchemaError(problems: problems) }
+    }
+
+    /// Whether the save touched what is at `path`: its value changed, or it was added inside something new. A key
+    /// missing before and still missing (a required setting never set) is not a change.
+    static func changed(_ path: [JSONSchema.PathComponent], from old: JSONValue, to new: JSONValue) -> Bool {
+        let before = value(at: path, in: old), after = value(at: path, in: new)
+        if before != nil || path.isEmpty { return before != after }
+        return value(at: Array(path.dropLast()), in: old) == nil || after != nil
+    }
+
+    static func value(at path: [JSONSchema.PathComponent], in value: JSONValue) -> JSONValue? {
+        var here: JSONValue? = value
+        for component in path {
+            switch component {
+            case .key(let key): here = here?.objectValue?[key]
+            case .index(let index): here = here?.arrayValue.flatMap { $0.indices.contains(index) ? $0[index] : nil }
+            }
+        }
+        return here
+    }
+
     /// Reads config.json, lets `edit` change its platform blocks, and applies the result: validation, a
     /// backup, the restart flag. An unreadable file is an error, never an empty one to write over.
     /// Changes the block with this platform (and name, when there are several), or adds it when `create`;
     /// `edit` gets the block to change. What `editPlatforms` answers.
-    public func editBlock(platform: String, name: String?, create: Bool = true, dryRun: Bool, _ edit: (inout [String: JSONValue]) throws -> Void) async throws -> JSONValue {
-        try await editPlatforms(dryRun: dryRun) { platforms in
+    public func editBlock(
+        platform: String, name: String?, create: Bool = true, dryRun: Bool, checkSchemas: Bool = true, _ edit: (inout [String: JSONValue]) throws -> Void
+    ) async throws -> JSONValue {
+        try await editPlatforms(dryRun: dryRun, checkSchemas: checkSchemas) { platforms in
             let matching = platforms.indices.filter { platforms[$0]["platform"]?.stringValue == platform && (name == nil || (platforms[$0]["name"]?.stringValue ?? platform) == name) }
             guard matching.count <= 1 else { throw CatalogError("\(matching.count) blocks have platform \(platform); give the name") }
             guard create || !matching.isEmpty else { throw CatalogError("No block \(name ?? platform) of \(platform)") }
@@ -584,13 +640,13 @@ public struct HomeswiftCatalog: Sendable {
         }
     }
 
-    public func editPlatforms(dryRun: Bool, _ edit: (inout [JSONValue]) throws -> Void) async throws -> JSONValue {
+    public func editPlatforms(dryRun: Bool, checkSchemas: Bool = true, _ edit: (inout [JSONValue]) throws -> Void) async throws -> JSONValue {
         let current = try readConfig()
         var root = current.objectValue ?? [:]
         var platforms = root["platforms"]?.arrayValue ?? []
         try edit(&platforms)
         root["platforms"] = .array(platforms)
-        return try await applyConfig(.object(root), dryRun: dryRun, current: current)
+        return try await applyConfig(.object(root), dryRun: dryRun, current: current, checkSchemas: checkSchemas)
     }
 
     static func changedKeys(from a: JSONValue, to b: JSONValue, path: String = "") -> [String] {
@@ -644,6 +700,10 @@ public struct HomeswiftCatalog: Sendable {
     public var tools: [MCPTool] {
         let catalog = self
         let idSchema: JSONValue = ["type": "string", "description": "The accessory id, from list_accessories"]
+        let ignoreSchema: JSONValue = [
+            "type": "boolean",
+            "description": "true saves what does not match the plugin's config.schema.json: only for a value the plugin accepts that its schema does not list, and only when the user asked",
+        ]
         let writeProperties: JSONValue = [
             "id": idSchema,
             "service": ["type": "string", "description": "The service type, name or subtype, when the accessory has several with that characteristic"],
@@ -870,24 +930,24 @@ public struct HomeswiftCatalog: Sendable {
             MCPTool(
                 name: "update_config", title: "Replace config.json",
                 description: "Replaces the whole config.json after validating it; __REDACTED__ values are restored from the current file; a backup is made first. dryRun shows the changes without writing. Plugin blocks apply at once; the answer lists what still needs a restart.",
-                inputSchema: ["type": "object", "required": ["config"], "properties": ["config": ["type": "object"]]],
+                inputSchema: ["type": "object", "required": ["config"], "properties": ["config": ["type": "object"], "ignoreSchema": ignoreSchema]],
                 scope: .admin, destructive: true, supportsDryRun: true
             ) { call in
-                .json(try await catalog.applyConfig(call.arguments["config"] ?? [:], dryRun: call.isDryRun))
+                .json(try await catalog.applyConfig(call.arguments["config"] ?? [:], dryRun: call.isDryRun, checkSchemas: call.arguments["ignoreSchema"] != .bool(true)))
             },
             MCPTool(
                 name: "patch_config", title: "Change one platform block",
                 description: "Merges settings into the platform block with this platform (and name, when there are several), or adds the block. A null value removes a key. dryRun previews. The block applies at once: its plugin reloads.",
                 inputSchema: [
                     "type": "object", "required": ["platform", "settings"],
-                    "properties": ["platform": ["type": "string"], "name": ["type": "string"], "settings": ["type": "object"]],
+                    "properties": ["platform": ["type": "string"], "name": ["type": "string"], "settings": ["type": "object"], "ignoreSchema": ignoreSchema],
                 ],
                 scope: .admin, destructive: true, supportsDryRun: true
             ) { call in
                 let platform = try call.string("platform")
                 let name = call.optionalString("name")
                 let settings = call.arguments["settings"]?.objectValue ?? [:]
-                return .json(try await catalog.editBlock(platform: platform, name: name, dryRun: call.isDryRun) { block in
+                return .json(try await catalog.editBlock(platform: platform, name: name, dryRun: call.isDryRun, checkSchemas: call.arguments["ignoreSchema"] != .bool(true)) { block in
                     for (key, value) in settings where key != "platform" {
                         if value.isNull { block.removeValue(forKey: key) } else { block[key] = value }
                     }
@@ -914,7 +974,7 @@ public struct HomeswiftCatalog: Sendable {
                         "platform": ["type": "string"], "name": ["type": "string", "description": "The block's name, when the platform has several"],
                         "list": ["type": "string", "description": "The list's key; devices when left out"],
                         "match": ["type": "string", "description": "The key that identifies an entry; mac when left out"],
-                        "entry": ["type": "object"],
+                        "entry": ["type": "object"], "ignoreSchema": ignoreSchema,
                     ],
                 ],
                 scope: .admin, destructive: true, supportsDryRun: true
@@ -925,7 +985,7 @@ public struct HomeswiftCatalog: Sendable {
                 let match = call.optionalString("match") ?? "mac"
                 guard let entry = call.arguments["entry"]?.objectValue else { throw JSONRPCError.invalidParams("entry must be an object") }
                 guard let key = entry[match], !key.isNull else { throw JSONRPCError.invalidParams("the entry needs its \(match)") }
-                return .json(try await catalog.editBlock(platform: platform, name: name, dryRun: call.isDryRun) { block in
+                return .json(try await catalog.editBlock(platform: platform, name: name, dryRun: call.isDryRun, checkSchemas: call.arguments["ignoreSchema"] != .bool(true)) { block in
                     var entries = block[list]?.arrayValue ?? []
                     if let index = entries.firstIndex(where: { Self.sameKey($0[match], key) }) {
                         // The entry it replaces holds its secrets: a rename changes the fields restoreSecrets matches on.
@@ -1175,6 +1235,33 @@ final class ChangeNotifier: Sendable {
             }
             for uri in uris.sorted() { server.notifyResourceUpdated(uri) }
         }
+    }
+}
+
+/// Blocks that do not match their plugins' config.schema.json.
+public struct ConfigSchemaError: Error, CustomStringConvertible {
+    public struct Problem: Sendable {
+        public let platform: String
+        /// From the file's root: `platforms`, the block's index, then the setting.
+        public let path: [JSONSchema.PathComponent]
+        public let message: String
+
+        /// `pollingRate must be >= 250`: the place inside the block.
+        public var text: String {
+            let inside = Array(path.dropFirst(2))
+            return "\(inside.isEmpty ? "the block" : JSONSchema.Problem.location(inside)) \(message)"
+        }
+        public var json: JSONValue {
+            ["platform": .string(platform), "path": .array(path.map(\.json)), "message": .string(message), "text": .string(text)]
+        }
+    }
+
+    public let problems: [Problem]
+
+    public var description: String {
+        let shown = problems.prefix(5).map { "\($0.platform): \($0.text)" }
+        let more = problems.count > shown.count ? "; and \(problems.count - shown.count) more" : ""
+        return "The settings do not match the plugin's schema: \(shown.joined(separator: "; "))\(more)"
     }
 }
 

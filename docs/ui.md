@@ -143,9 +143,15 @@ with a new code). More users are added on the **Users** page (see below).
   runtime's own blocks, `HomeswiftUI` and `HomeswiftAiKit` (the Assistant and the MCP server), have forms too.
   **Add** on a plugin with its own page (pairing a TV, finding lights) writes an empty
   block and opens that page, as Homebridge's custom UIs do. Saving validates, backs up the previous file,
-  and applies the block at once.
-- **Config**: the whole file in an editor. Saving validates it, keeps a backup under `backups/`, sorts
-  the keys, and applies it.
+  and applies the block at once. The JSON view marks the line of a syntax error as you type, and Save waits
+  until it is fixed. A save also checks what it changes against the plugin's schema (a type, a bound, a choice
+  outside the list, a required setting): the problems show under the editor with their lines marked, **Line
+  12** puts the caret there, and **Save anyway** keeps a value the plugin accepts that its schema does not
+  list. Settings left as they were are not checked, so an old mistake never stops another change; a plugin's
+  own page and **Pause** write without the check.
+- **Config**: the whole file in an editor. Saving validates it, checks each plugin block's changes against
+  its schema as the Expert view does, keeps a backup under `backups/`, sorts the keys, and applies it. A
+  syntax error's line is marked as you type.
 - **Settings**, for administrators, after the Homebridge UI's settings, child bridges, config backups and
   restart pages:
   - **Bridge**: config.json's `bridge` block as a form (name, port, setup code, manufacturer, model, firmware;

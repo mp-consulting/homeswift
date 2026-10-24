@@ -366,24 +366,159 @@
   /// A value shown as indented, coloured JSON.
   const jsonView = (value, attrs = {}) => el("pre", { class: "json", ...attrs }, jsonHighlight(JSON.stringify(value, null, 2) ?? ""));
 
+  /// Where things are in JSON text: the offset of each key (or array item) by its path as `JSON.stringify(path)`,
+  /// or the first syntax error, `{ message, offset }`. A small parser of its own, since the browsers' JSON.parse
+  /// errors neither read the same nor, in Safari, say where.
+  function jsonLocate(text) {
+    const places = new Map([["[]", 0]]);
+    const numberPattern = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
+    let at = 0;
+    const fail = (message, offset = at) => { throw { message, offset: Math.min(offset, text.length) }; };
+    const space = () => { while (at < text.length && " \t\n\r".includes(text[at])) at++; };
+    const string = () => {
+      at++;
+      for (;;) {
+        if (at >= text.length) fail("This string is not closed");
+        const character = text[at];
+        if (character === '"') { at++; return; }
+        if (character === "\\") {
+          const next = text[at + 1];
+          if (next === "u" && /^[0-9a-fA-F]{4}$/.test(text.slice(at + 2, at + 6))) at += 6;
+          else if (next !== undefined && "\"\\/bfnrt".includes(next)) at += 2;
+          else fail("Not a valid escape in a string");
+          continue;
+        }
+        if (character === "\n") fail("This string is not closed before the end of the line");
+        if (character < " ") fail("A control character in a string must be escaped");
+        at++;
+      }
+    };
+    // A missing comma is reported where it belongs: after the value before it, on that value's line.
+    const after = (end, closing) => {
+      space();
+      if (text[at] === ",") { at++; return false; }
+      if (text[at] === closing) { at++; return true; }
+      fail(at >= text.length ? `The text ends before this ${closing === "}" ? "object" : "list"} is closed` : `A comma or a ${closing === "}" ? "closing brace" : "closing bracket"} is missing after this value`, end);
+    };
+    const value = (path) => {
+      space();
+      const character = text[at];
+      if (character === "{") {
+        at++;
+        space();
+        if (text[at] === "}") { at++; return; }
+        for (;;) {
+          space();
+          if (text[at] !== '"') fail(text[at] === "}" ? "A comma before the closing brace" : at >= text.length ? "The text ends before this object is closed" : "Expected a key in double quotes");
+          const start = at;
+          string();
+          const key = JSON.parse(text.slice(start, at));
+          places.set(JSON.stringify([...path, key]), start);
+          space();
+          if (text[at] !== ":") fail("A colon is missing after this key");
+          at++;
+          value([...path, key]);
+          if (after(at, "}")) return;
+        }
+      }
+      if (character === "[") {
+        at++;
+        space();
+        if (text[at] === "]") { at++; return; }
+        for (let index = 0; ; index++) {
+          space();
+          if (text[at] === "]") fail("A comma before the closing bracket");
+          places.set(JSON.stringify([...path, index]), at);
+          value([...path, index]);
+          if (after(at, "]")) return;
+        }
+      }
+      if (character === '"') return string();
+      for (const word of ["true", "false", "null"]) if (text.startsWith(word, at)) { at += word.length; return; }
+      numberPattern.lastIndex = at;
+      const number = numberPattern.exec(text);
+      if (number && number[0] !== "-") { at += number[0].length; return; }
+      fail(at >= text.length ? "The text ends where a value should be" : character === "'" ? "Strings take double quotes" : "Not a valid value");
+    };
+    try {
+      value([]);
+      space();
+      if (at < text.length) fail("Something follows the end of the JSON");
+      return { places };
+    } catch (error) {
+      if (error instanceof Error) throw error;
+      return { places, error };
+    }
+  }
+
+  /// The line (from 1) of an offset in `text`.
+  const lineAt = (text, offset) => { let line = 1; for (let i = 0; i < offset && i < text.length; i++) if (text.charCodeAt(i) === 10) line++; return line; };
+
+  /// Parses `text`: `{ value }`, or `{ message, offset, line }` for where it goes wrong.
+  function jsonCheck(text) {
+    try {
+      return { value: JSON.parse(text) };
+    } catch (parseError) {
+      const { error } = jsonLocate(text);
+      return error ? { ...error, line: lineAt(text, error.offset) } : { message: parseError.message };
+    }
+  }
+
   /// Colours a JSON textarea as it is typed: a coloured copy of its text sits under it, the textarea's own
-  /// text transparent, so editing, selection and undo stay the browser's. Returns the wrapper to show.
+  /// text transparent, so editing, selection and undo stay the browser's. Returns the wrapper to show, with
+  /// `check()` (parses the text and marks the line of a syntax error), `markPaths(paths)` (marks where each
+  /// path is, or its nearest parent; returns `{ offset, line }` for each) and `reveal(offset)`.
   function jsonEditor(textarea) {
     const layer = el("pre", { class: "code-layer", "aria-hidden": "true" });
     const wrapper = el("div", { class: "code-editor" }, layer, textarea);
     textarea.classList.add("code-input");
     let scheduled = false;
+    // The line of a syntax error (check), else the places of a save's problems (markPaths), which an edit clears.
+    let syntax = null, placed = [];
     const paint = () => {
       scheduled = false;
       // A final newline needs a character after it to take its line.
       layer.replaceChildren(jsonHighlight(textarea.value), "\n");
+      // A marked line: a band under its text, as many line heights down as the line is from the top.
+      const top = getComputedStyle(layer).paddingTop;
+      const marks = syntax === null ? placed : [syntax];
+      for (const line of new Set(marks.map((offset) => lineAt(textarea.value, offset)))) {
+        layer.append(el("span", { class: "code-mark", style: `top: calc(${top} + ${line - 1} * var(--code-line))` }));
+      }
       layer.scrollTop = textarea.scrollTop;
       layer.scrollLeft = textarea.scrollLeft;
     };
     const schedule = () => { if (!scheduled) { scheduled = true; requestAnimationFrame(paint); } };
-    textarea.addEventListener("input", schedule);
+    textarea.addEventListener("input", () => { placed = []; schedule(); });
     textarea.addEventListener("scroll", () => { layer.scrollTop = textarea.scrollTop; layer.scrollLeft = textarea.scrollLeft; });
-    wrapper.repaint = paint;
+    // After the text is set in code: the problems' places no longer hold.
+    wrapper.repaint = () => { placed = []; paint(); };
+    wrapper.check = () => {
+      const result = jsonCheck(textarea.value);
+      const next = result.offset ?? null;
+      if (next !== syntax) { syntax = next; schedule(); }
+      return result;
+    };
+    wrapper.markPaths = (paths) => {
+      const { places } = jsonLocate(textarea.value);
+      const found = paths.map((path) => {
+        let place = path;
+        while (place.length && !places.has(JSON.stringify(place))) place = place.slice(0, -1);
+        const offset = places.get(JSON.stringify(place)) ?? 0;
+        return { offset, line: lineAt(textarea.value, offset) };
+      });
+      placed = found.map((place) => place.offset);
+      schedule();
+      return found;
+    };
+    // The caret on the line, the line a third of the way down.
+    wrapper.reveal = (offset) => {
+      textarea.focus({ preventScroll: true });
+      textarea.setSelectionRange(offset, offset);
+      const lineHeight = parseFloat(getComputedStyle(textarea).lineHeight) || 20;
+      textarea.scrollTop = Math.max(0, (lineAt(textarea.value, offset) - 1) * lineHeight - textarea.clientHeight / 3);
+      wrapper.scrollIntoView({ block: "nearest" });
+    };
     paint();
     return wrapper;
   }
@@ -549,7 +684,7 @@
   const formatTemperature = (celsius) => { const { value, unit } = temperature(celsius); return `${value} ${unit}`; };
 
   window.HomeswiftCommon = {
-    $, el, icon, tile, fact, markdown, sparkle, api, menu, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
+    $, el, icon, tile, fact, markdown, sparkle, api, menu, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature,
   };
 })();

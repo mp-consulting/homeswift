@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Config validation against the plugins' schemas. Saving from the Config page, a plugin's Expert view or the MCP
+  config tools (`update_config`, `patch_config`, `put_list_entry`) checks what the save changes in a plugin block
+  against its `config.schema.json`, and the runtime's own blocks against theirs: types, bounds, the choices of a
+  select, required settings (Homebridge's `required: true` too, unless the setting has a default or a condition).
+  Settings left as they were are not checked, so an old mistake never stops another change. The web UI answers
+  each problem with its path; **Save anyway** (`ignoreSchema` for the tools) keeps a value the plugin accepts that
+  its schema does not list. A plugin's own page, pausing and restoring a backup write without the check.
+- Web UI JSON editors: the line of a syntax error is marked as you type, with a message that says what is wrong
+  and the same in every browser; a schema problem marks its line after a save, and **Line 12** puts the caret
+  there. The plugin's JSON view checks as you type, as the Config page did, and Save waits for valid JSON.
+
+### Changed
+
+- Web UI: logs and JSON are on a dark surface in light mode too: the log list, JSON payloads, the Config and
+  Expert JSON editors and config diffs, with the dark theme's text and colours.
+- The Assistant's schema checks name a missing setting at its own place (`risk is required`, was `(root) must have
+  required property 'risk'`), an extra one too (`extra is not allowed here`), and a select's allowed values.
+
 ## [0.6.1] - 2026-10-24
 
 ### Security

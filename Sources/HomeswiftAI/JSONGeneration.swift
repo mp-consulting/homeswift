@@ -73,11 +73,13 @@ public enum JSONGeneration {
     private static let droppedSchemaKeys: Set<String> = ["$schema", "condition", "placeholder", "x-collapsible", "functionBody", "layout", "form", "display"]
 
     /// Turns a Homebridge `config.schema.json` `schema` (which allows `required: true` on a property, and
-    /// UI-only keys) into standard JSON Schema.
-    public static func normalizePluginSchema(_ schema: JSONValue) -> JSONValue {
+    /// UI-only keys) into standard JSON Schema. For checking a saved block (`forChecking`), a property with a
+    /// default or a condition is not required: the plugin falls back on its default, and the form asks for a
+    /// conditional one only when it shows it.
+    public static func normalizePluginSchema(_ schema: JSONValue, forChecking: Bool = false) -> JSONValue {
         switch schema {
         case .array(let items):
-            return .array(items.map(normalizePluginSchema))
+            return .array(items.map { normalizePluginSchema($0, forChecking: forChecking) })
         case .object(let object):
             var out: [String: JSONValue] = [:]
             var required: [String] = object["required"]?.arrayValue?.compactMap(\.stringValue) ?? []
@@ -85,12 +87,13 @@ public enum JSONGeneration {
                 if droppedSchemaKeys.contains(key) { continue }
                 if key == "required" { continue }
                 if key == "properties", let properties = value.objectValue {
-                    out["properties"] = .object(properties.mapValues(normalizePluginSchema))
-                    for (name, property) in properties where property["required"] == .bool(true) {
+                    out["properties"] = .object(properties.mapValues { normalizePluginSchema($0, forChecking: forChecking) })
+                    for (name, property) in properties where property["required"] == .bool(true)
+                        && !(forChecking && (property["default"] != nil || property["condition"] != nil)) {
                         if !required.contains(name) { required.append(name) }
                     }
                 } else {
-                    out[key] = normalizePluginSchema(value)
+                    out[key] = normalizePluginSchema(value, forChecking: forChecking)
                 }
             }
             if !required.isEmpty { out["required"] = .array(required.sorted().map(JSONValue.string)) }
@@ -103,72 +106,126 @@ public enum JSONGeneration {
 
 /// The subset of JSON Schema the Assistant's own schemas and plugin config schemas use: `type`,
 /// `required`, `properties`, `additionalProperties`, `items`, `enum`, `const`, `anyOf`, `oneOf`, numeric
-/// and string bounds.
+/// and string bounds. Homebridge's `password` type is a string; a type it does not know matches anything.
 public enum JSONSchema {
-    public static func validate(_ value: JSONValue, against schema: JSONValue, path: String = "") -> [String] {
+    /// A step from a value into one of its parts: an object's key or an array's index.
+    public enum PathComponent: Hashable, Sendable {
+        case key(String)
+        case index(Int)
+
+        public var json: JSONValue {
+            switch self {
+            case .key(let key): .string(key)
+            case .index(let index): .number(Double(index))
+            }
+        }
+    }
+
+    /// What is wrong, and where: `path` from the value checked, `message` without the place.
+    public struct Problem: Equatable, Sendable, CustomStringConvertible {
+        public var path: [PathComponent]
+        public var message: String
+
+        public init(path: [PathComponent], message: String) {
+            self.path = path
+            self.message = message
+        }
+
+        /// `lights[0].port`, or `(root)`.
+        public var location: String { Self.location(path) }
+        public var description: String { "\(location) \(message)" }
+
+        public static func location(_ path: [PathComponent]) -> String {
+            guard !path.isEmpty else { return "(root)" }
+            var text = ""
+            for component in path {
+                switch component {
+                case .key(let key): text += text.isEmpty ? key : ".\(key)"
+                case .index(let index): text += "[\(index)]"
+                }
+            }
+            return text
+        }
+    }
+
+    public static func validate(_ value: JSONValue, against schema: JSONValue) -> [String] {
+        problems(value, against: schema).map(\.description)
+    }
+
+    public static func problems(_ value: JSONValue, against schema: JSONValue, path: [PathComponent] = []) -> [Problem] {
         guard let object = schema.objectValue else { return [] }
-        var errors: [String] = []
-        let location = path.isEmpty ? "(root)" : path
+        var problems: [Problem] = []
+        func problem(_ message: String, at place: [PathComponent]? = nil) { problems.append(Problem(path: place ?? path, message: message)) }
 
         if let type = object["type"] {
             let types = type.arrayValue?.compactMap(\.stringValue) ?? type.stringValue.map { [$0] } ?? []
             if !types.isEmpty, !types.contains(where: { matches(value, type: $0) }) {
-                errors.append("\(location) must be \(types.joined(separator: " or "))")
-                return errors
+                problem("must be \(types.map { $0 == "password" ? "string" : $0 }.joined(separator: " or "))")
+                return problems
             }
         }
         if let allowed = object["enum"]?.arrayValue, !allowed.contains(value) {
-            errors.append("\(location) must be one of \(allowed.map { $0.text() }.joined(separator: ", "))")
+            problem("must be one of \(allowed.map { $0.text() }.joined(separator: ", "))")
         }
         if let constant = object["const"], constant != value {
-            errors.append("\(location) must be \(constant.text())")
+            problem("must be \(constant.text())")
         }
         for keyword in ["anyOf", "oneOf"] {
-            if let options = object[keyword]?.arrayValue, !options.contains(where: { validate(value, against: $0, path: path).isEmpty }) {
-                errors.append("\(location) matches none of the allowed shapes")
-            }
+            guard let options = object[keyword]?.arrayValue, !options.contains(where: { Self.problems(value, against: $0, path: path).isEmpty }) else { continue }
+            // Homebridge's choices are a oneOf of titled enums: name the values, as a select would show them.
+            let choices = options.compactMap { $0["enum"]?.arrayValue?.count == 1 ? $0["enum"]?.arrayValue?.first : $0["const"] }
+            problem(choices.count == options.count ? "must be one of \(choices.map { $0.text() }.joined(separator: ", "))" : "matches none of the allowed shapes")
         }
         if let fields = value.objectValue {
+            // At the missing key's own path, so a check of what changed can tell a key just removed from one never there.
             for name in object["required"]?.arrayValue?.compactMap(\.stringValue) ?? [] where fields[name] == nil {
-                errors.append("\(location) must have required property '\(name)'")
+                problem("is required", at: path + [.key(name)])
             }
             let properties = object["properties"]?.objectValue ?? [:]
-            for (name, property) in properties {
+            for (name, property) in properties.sorted(by: { $0.key < $1.key }) {
                 if let field = fields[name] {
-                    errors += validate(field, against: property, path: path.isEmpty ? name : "\(path).\(name)")
+                    problems += Self.problems(field, against: property, path: path + [.key(name)])
                 }
             }
             if object["additionalProperties"] == .bool(false) {
                 for name in fields.keys.sorted() where properties[name] == nil {
-                    errors.append("\(location) must not have additional property '\(name)'")
+                    problem("is not allowed here", at: path + [.key(name)])
                 }
             }
         }
         if let items = value.arrayValue {
             if let itemSchema = object["items"] {
                 for (index, item) in items.enumerated() {
-                    errors += validate(item, against: itemSchema, path: "\(path)[\(index)]")
+                    problems += Self.problems(item, against: itemSchema, path: path + [.index(index)])
                 }
             }
-            if let minimum = object["minItems"]?.intValue, items.count < minimum { errors.append("\(location) must have at least \(minimum) items") }
-            if let maximum = object["maxItems"]?.intValue, items.count > maximum { errors.append("\(location) must have at most \(maximum) items") }
+            if let minimum = object["minItems"]?.intValue, items.count < minimum { problem("must have at least \(minimum) items") }
+            if let maximum = object["maxItems"]?.intValue, items.count > maximum { problem("must have at most \(maximum) items") }
         }
         if let number = value.doubleValue {
-            if let minimum = object["minimum"]?.doubleValue, number < minimum { errors.append("\(location) must be >= \(minimum)") }
-            if let maximum = object["maximum"]?.doubleValue, number > maximum { errors.append("\(location) must be <= \(maximum)") }
+            if let minimum = object["minimum"]?.doubleValue, number < minimum { problem("must be >= \(number: minimum)") }
+            if let maximum = object["maximum"]?.doubleValue, number > maximum { problem("must be <= \(number: maximum)") }
         }
         if let string = value.stringValue {
-            if let minimum = object["minLength"]?.intValue, string.count < minimum { errors.append("\(location) must be at least \(minimum) characters") }
-            if let maximum = object["maxLength"]?.intValue, string.count > maximum { errors.append("\(location) must be at most \(maximum) characters") }
+            if let minimum = object["minLength"]?.intValue, string.count < minimum { problem("must be at least \(minimum) characters") }
+            if let maximum = object["maxLength"]?.intValue, string.count > maximum { problem("must be at most \(maximum) characters") }
         }
-        return errors
+        return problems
     }
 
     private static func matches(_ value: JSONValue, type: String) -> Bool {
         switch (type, value) {
-        case ("object", .object), ("array", .array), ("string", .string), ("boolean", .bool), ("null", .null), ("number", .number): true
+        case ("object", .object), ("array", .array), ("string", .string), ("password", .string), ("boolean", .bool), ("null", .null), ("number", .number): true
         case ("integer", .number(let number)): number.rounded() == number
-        default: false
+        case ("object", _), ("array", _), ("string", _), ("password", _), ("boolean", _), ("null", _), ("number", _), ("integer", _): false
+        default: true
         }
+    }
+}
+
+private extension String.StringInterpolation {
+    /// A bound as the schema wrote it: 250, not 250.0.
+    mutating func appendInterpolation(number: Double) {
+        appendLiteral(number.rounded() == number && abs(number) < 1e15 ? String(Int(number)) : String(number))
     }
 }

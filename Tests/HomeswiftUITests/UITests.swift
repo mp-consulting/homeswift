@@ -698,6 +698,15 @@ struct UIServerTests {
         #expect(patched.json?["restartNeeded"] == [] && patched.json?["restarting"] == false)
         #expect(try await browser.get("/api/status").json?["restartNeeded"] == false)
         #expect(try await browser.put("/api/config/platforms/2", ["platform": "ElgatoKeyLights", "name": "Lights"]).status == 200)
+        // What a save changes in a plugin's block must match its config.schema.json, each problem with its path; the
+        // page can save anyway.
+        let tooFast: JSONValue = ["platform": "ElgatoKeyLights", "name": "Lights", "pollingRate": 100]
+        let refused = try await browser.put("/api/config/platforms/2", tooFast)
+        #expect(refused.status == 422)
+        #expect(refused.json?["problems"]?[0]?["path"] == ["platforms", 2, "pollingRate"])
+        #expect(refused.json?["problems"]?[0]?["text"] == "pollingRate must be >= 250")
+        #expect(refused.json?["error"]?.stringValue?.contains("ElgatoKeyLights: pollingRate must be >= 250") == true)
+        #expect(try await browser.put("/api/config/platforms/2?force=true", tooFast).status == 200)
         #expect(try await browser.put("/api/config/platforms/9", ["platform": "X"]).status == 404)
         #expect(try await browser.put("/api/config/platforms/0", ["name": "no platform"]).status == 400)
         #expect(try await browser.send("DELETE", "/api/config/platforms/2").status == 200)

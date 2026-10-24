@@ -310,8 +310,8 @@ import Testing
         #expect(errors.contains("items[1] must be string"))
         #expect(errors.contains("items must have at most 2 items"))
         #expect(errors.contains("count must be integer"))
-        #expect(errors.contains("(root) must not have additional property 'extra'"))
-        #expect(JSONSchema.validate(["items": []], against: schema) == ["(root) must have required property 'risk'"])
+        #expect(errors.contains("extra is not allowed here"))
+        #expect(JSONSchema.validate(["items": []], against: schema) == ["risk is required"])
     }
 
     @Test func normalizesPluginSchemas() {

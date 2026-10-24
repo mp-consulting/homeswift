@@ -6,7 +6,8 @@
 
   const show = (main, ...nodes) => main.replaceChildren(...nodes.flat().filter(Boolean));
 
-  class ApiError extends Error { constructor(status, message) { super(message); this.status = status; } }
+  /// `problems`: what a save changed that its plugin's schema refuses, each with its path (`ConfigSchemaError`).
+  class ApiError extends Error { constructor(status, message, problems) { super(message); this.status = status; this.problems = problems; } }
 
   async function api(path, { method = "GET", body, raw = false } = {}) {
     const options = { method, credentials: "same-origin", headers: {} };
@@ -15,9 +16,9 @@
     if (response.status === 401 && !path.startsWith("/api/auth/")) { showAuth(); throw new ApiError(401, "signed out"); }
     const text = await response.text();
     if (!response.ok) {
-      let message = text;
-      try { message = JSON.parse(text).error || text; } catch {}
-      throw new ApiError(response.status, message || `HTTP ${response.status}`);
+      let message = text, problems;
+      try { ({ error: message = text, problems } = JSON.parse(text)); } catch {}
+      throw new ApiError(response.status, message || `HTTP ${response.status}`, problems);
     }
     return raw ? text : (text ? JSON.parse(text) : null);
   }
@@ -1145,8 +1146,19 @@
     const dirty = () => snapshot() !== saved;
     const message = el("span", { class: "muted" });
     const save = el("button", { class: "primary", text: isNew ? "Add" : "Save" });
+    const force = el("button", { class: "hidden", text: isNew ? "Add anyway" : "Save anyway", title: "Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list" });
     const revert = el("button", { text: isNew ? "Cancel" : "Revert" });
+    // The JSON on screen is checked as it is typed: a syntax error marks its line, and Save waits for it.
+    const jsonShown = () => textarea.isConnected && !textarea.closest(".hidden");
     const update = () => {
+      const result = jsonShown() ? editor.check() : null;
+      if (result && !("value" in result)) {
+        message.className = "error";
+        message.replaceChildren(...lineLink(result, editor), result.message);
+        save.disabled = true;
+        revert.disabled = false;
+        return;
+      }
       const changed = dirty();
       save.disabled = !isNew && !changed;
       revert.disabled = !isNew && !changed;
@@ -1155,18 +1167,19 @@
         message.textContent = isNew ? "A new block: Add writes it to config.json." : changed ? "Unsaved changes" : "Saved";
       }
     };
-    body.addEventListener("input", () => { message.className = ""; update(); });
+    body.addEventListener("input", () => { message.className = ""; force.classList.add("hidden"); update(); });
     body.addEventListener("change", () => { message.className = ""; update(); });
     body.addEventListener("click", () => setTimeout(update, 0));   // the array editors add and remove rows by click
 
-    save.addEventListener("click", async () => {
+    const doSave = async (anyway) => {
       save.disabled = true;
+      force.classList.add("hidden");
       message.className = "muted";
       message.textContent = "Saving…";
       try {
         const value = getValue();
         value.platform = platform;
-        const result = await api(`/api/config/platforms/${block.index}`, { method: "PUT", body: value });
+        const result = await api(`/api/config/platforms/${block.index}${anyway ? "?force=true" : ""}`, { method: "PUT", body: value });
         saved = snapshot();
         message.className = "ok";
         message.textContent = savedText(result);
@@ -1183,8 +1196,19 @@
         const name = value.name || platform;
         if (isNew || name !== block.name) { leaveGuard = null; navigate((hasPage ? expertLink : settingsLink)({ slug: slug(name) }), { replace: true }); return; }
         update();
-      } catch (e) { message.className = "error"; message.textContent = e.message; save.disabled = false; }
-    });
+      } catch (e) {
+        message.className = "error";
+        save.disabled = false;
+        if (!e.problems) { message.textContent = e.message; return; }
+        // Inside the block: the paths start at the file's platforms. The JSON on screen marks their lines.
+        const paths = e.problems.map((problem) => problem.path.slice(2));
+        const places = jsonShown() ? editor.markPaths(paths) : [];
+        message.replaceChildren(el("span", { text: "The plugin's schema refuses this:" }), problemList(e.problems.map((problem, i) => ({ ...places[i], text: problem.text })), jsonShown() ? editor : null));
+        force.classList.remove("hidden");
+      }
+    };
+    save.addEventListener("click", () => doSave(false));
+    force.addEventListener("click", () => doSave(true));
     revert.addEventListener("click", () => { if (isNew) { navigate("/plugins"); return; } leaveGuard = null; route(); });
 
     const [state, kind] = isNew ? ["New", "standby"] : blockState(block, plugin, instance);
@@ -1213,7 +1237,7 @@
         useValue: useSuggestion, save, dirty }) : null,
       useSuggestion && !block.system ? describeSetup({ platform, pluginName: plugin ? plugin.name : platform, current: () => { try { return getValue(); } catch { return current; } }, use: useSuggestion }) : null,
       body,
-      el("div", { class: "settings-bar" }, message, revert, save),
+      el("div", { class: "settings-bar" }, message, revert, force, save),
       remove);
     update();
   };
@@ -2357,50 +2381,74 @@
 
   // ---- Config --------------------------------------------------------------
 
+  /// "Line 12", a link that puts the caret there: for a syntax error or a problem the editor placed.
+  const lineLink = (place, editor) => place.line && editor
+    ? [el("button", { type: "button", class: "line-link", text: `Line ${place.line}`, onclick: () => editor.reveal(place.offset) })] : [];
+
+  /// A save's schema problems, `{ text, line?, offset? }`, each with its line when the editor shows it.
+  const problemList = (items, editor) => el("ul", { class: "schema-problems" }, items.map((item) => el("li", {}, ...lineLink(item, editor), item.text)));
+
   views.config = async (main) => {
     let saved = await api("/api/config", { raw: true });
     const textarea = el("textarea", { value: saved, spellcheck: false, "aria-label": "config.json" });
     const check = el("span", { class: "muted" });
     const message = el("p", { class: "status-line muted" });
     const save = el("button", { class: "primary", text: "Save", disabled: true });
+    const force = el("button", { class: "hidden", text: "Save anyway", title: "Save what the plugins' schemas refuse: for a value a plugin accepts that its schema does not list" });
     const revert = el("button", { text: "Revert", disabled: true });
     const format = el("button", { class: "link", text: "Format" });
-    // Validity and the unsaved state follow every keystroke, so Save is only offered when it can work.
+    // Validity and the unsaved state follow every keystroke, so Save is only offered when it can work; a syntax
+    // error marks its line.
     const update = () => {
       const dirty = textarea.value !== saved;
-      let valid = true;
-      try { JSON.parse(textarea.value); check.className = "ok"; check.textContent = dirty ? "Valid JSON · unsaved" : "Saved"; }
-      catch (e) { valid = false; check.className = "error"; check.textContent = e.message; }
+      const result = editor.check();
+      const valid = "value" in result;
+      if (valid) { check.className = "ok"; check.textContent = dirty ? "Valid JSON · unsaved" : "Saved"; }
+      else { check.className = "error"; check.replaceChildren(...lineLink(result, editor), result.message); }
       save.disabled = !dirty || !valid;
       revert.disabled = !dirty;
     };
-    const doSave = async () => {
+    const doSave = async (anyway = false) => {
       if (save.disabled) return;
       save.disabled = true;
+      force.classList.add("hidden");
       try {
-        const result = await api("/api/config", { method: "PUT", body: JSON.parse(textarea.value) });
+        const result = await api(`/api/config${anyway ? "?force=true" : ""}`, { method: "PUT", body: JSON.parse(textarea.value) });
         message.className = "status-line ok";
         message.textContent = `Changed: ${result.changes.join(", ") || "nothing"}. ${savedText(result)}`;
         saved = await api("/api/config", { raw: true });
         textarea.value = saved;
         editor.repaint();
-      } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
+      } catch (e) {
+        message.className = "status-line error";
+        if (e.problems) {
+          // Each problem on its line; the plugin may accept what its schema does not list, so saving anyway stays possible.
+          const places = editor.markPaths(e.problems.map((problem) => problem.path));
+          message.replaceChildren(el("span", { text: "The plugins' schemas refuse this:" }), problemList(e.problems.map((problem, i) => ({ ...places[i], text: `${problem.platform}: ${problem.text}` })), editor));
+          force.classList.remove("hidden");
+          update();
+          save.disabled = true;
+          return;
+        }
+        message.textContent = e.message;
+      }
       update();
     };
-    textarea.addEventListener("input", update);
+    textarea.addEventListener("input", () => { force.classList.add("hidden"); message.textContent = ""; update(); });
     textarea.addEventListener("keydown", (event) => {
       if ((event.metaKey || event.ctrlKey) && event.key === "s") { event.preventDefault(); doSave(); }
       if (event.key === "Tab" && !event.shiftKey) { event.preventDefault(); textarea.setRangeText("  ", textarea.selectionStart, textarea.selectionEnd, "end"); update(); }
     });
-    save.addEventListener("click", doSave);
-    revert.addEventListener("click", () => { textarea.value = saved; message.textContent = ""; editor.repaint(); update(); });
+    save.addEventListener("click", () => doSave());
+    force.addEventListener("click", () => { save.disabled = false; doSave(true); });
+    revert.addEventListener("click", () => { textarea.value = saved; message.textContent = ""; force.classList.add("hidden"); editor.repaint(); update(); });
     const editor = jsonEditor(textarea);
     format.addEventListener("click", () => { try { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); update(); } catch {} });
     update();
     show(main,
       pageHead("Configuration", "The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once."),
       el("div", { class: "card editor-card" },
-        el("div", { class: "editor-bar" }, el("span", { class: "mono muted", text: "config.json" }), check, el("span", { class: "spacer" }), format, revert, save),
+        el("div", { class: "editor-bar" }, el("span", { class: "mono muted", text: "config.json" }), check, el("span", { class: "spacer" }), format, revert, force, save),
         editor, message));
   };
 

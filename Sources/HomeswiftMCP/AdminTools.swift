@@ -49,7 +49,8 @@ extension HomeswiftCatalog {
     /// Puts a backup back as config.json (the current file is backed up first) and applies it like a save.
     public func restoreConfigBackup(_ name: String, dryRun: Bool = false) async throws -> JSONValue {
         let config = try JSONValue(data: Data(configBackupText(named: name).utf8))
-        return try await applyConfig(config, dryRun: dryRun)
+        // The file as it was: its settings were saved once, whatever the plugins' schemas say now.
+        return try await applyConfig(config, dryRun: dryRun, checkSchemas: false)
     }
 
     // MARK: Instance backups

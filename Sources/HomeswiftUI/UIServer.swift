@@ -245,6 +245,9 @@ public final class UIServer: Sendable {
                 reply = .events(stream, allowed: { [self] in self.caller(request, bearer: true, refresh: false)?.scope == caller.scope }, headers: headers)
             }
             return reply
+        } catch let error as ConfigSchemaError {
+            // Each problem with its path, for the editors to mark the line.
+            return .json(["error": .string(Redaction.redactText(error.description)), "problems": .array(error.problems.map(\.json))], status: 422)
         } catch let error as JSONRPCError {
             return .error(400, error.message)
         } catch {
@@ -706,7 +709,7 @@ public final class UIServer: Sendable {
             }
             if route == ["config"] {
                 guard body.objectValue != nil else { return .error(400, "the config must be a JSON object") }
-                let result = try await catalog.applyConfig(body, dryRun: false)
+                let result = try await catalog.applyConfig(body, dryRun: false, checkSchemas: request.query["force"] != "true")
                 noteConfigChange(by: username)
                 return .json(result)
             }
@@ -718,7 +721,7 @@ public final class UIServer: Sendable {
                 return .json(result)
             }
             if route.count == 3, route[0] == "config", route[1] == "platforms" {
-                return try await replacePlatformBlock(at: route[2], with: body, username: username)
+                return try await replacePlatformBlock(at: route[2], with: body, checkSchemas: request.query["force"] != "true", username: username)
             }
             if route.count == 3, route[0] == "accessories", route[2] == "adaptive-lighting" {
                 // { "on": true } resumes the schedule the Home app last sent; false turns it off.
@@ -738,7 +741,8 @@ public final class UIServer: Sendable {
                 guard let replacement = body.objectValue, body["platform"]?.stringValue == route[2] else { return .error(400, "the block must keep its platform") }
                 let result: JSONValue
                 do {
-                    result = try await catalog.editBlock(platform: route[2], name: route[3], create: false, dryRun: false) { $0 = replacement }
+                    // A plugin's own page, or pausing: the plugin's code knows its block, and its schema describes the form.
+                    result = try await catalog.editBlock(platform: route[2], name: route[3], create: false, dryRun: false, checkSchemas: false) { $0 = replacement }
                 } catch let error as CatalogError {
                     return .error(404, error.description)
                 }
@@ -776,7 +780,7 @@ public final class UIServer: Sendable {
                 guard (try catalog.readConfig()["platforms"]?.arrayValue ?? []).allSatisfy({ $0["platform"]?.stringValue != route[2] || ($0["name"]?.stringValue ?? route[2]) != route[3] }) else {
                     return .error(409, "there is already a block \(route[3]) of \(route[2])")
                 }
-                let result = try await catalog.editBlock(platform: route[2], name: route[3], dryRun: false) { _ in }
+                let result = try await catalog.editBlock(platform: route[2], name: route[3], dryRun: false, checkSchemas: false) { _ in }
                 noteConfigChange(by: username)
                 return .json(result, status: 201)
             }
@@ -1057,10 +1061,10 @@ public final class UIServer: Sendable {
     /// Replaces (or appends, at the next index) a platform block; nil removes it.
     private struct NoSuchBlock: Error { let index: Int }
 
-    private func replacePlatformBlock(at indexText: String, with block: JSONValue?, username: String) async throws -> Reply {
+    private func replacePlatformBlock(at indexText: String, with block: JSONValue?, checkSchemas: Bool = true, username: String) async throws -> Reply {
         guard let index = Int(indexText) else { return .error(400, "bad index") }
         do {
-            let result = try await catalog.editPlatforms(dryRun: false) { platforms in
+            let result = try await catalog.editPlatforms(dryRun: false, checkSchemas: checkSchemas) { platforms in
                 if let block {
                     guard let object = block.objectValue, object["platform"]?.stringValue?.isEmpty == false else { throw JSONRPCError.invalidParams("a platform block needs a platform") }
                     if platforms.indices.contains(index) {

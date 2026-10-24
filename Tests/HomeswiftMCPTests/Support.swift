@@ -124,8 +124,9 @@ final class MCPTestEnvironment: @unchecked Sendable {
     var configURL: URL { directory.appendingPathComponent("config.json") }
     var auditURL: URL { directory.appendingPathComponent("audit.jsonl") }
 
-    /// `config` replaces the default config.json.
-    init(elicitation: Bool = true, allowSecrets: Bool = false, config custom: String? = nil) throws {
+    /// `config` replaces the default config.json; `schema` is the devices plugin's config.schema.json, `blockSchemas`
+    /// the catalog's for blocks no plugin provides.
+    init(elicitation: Bool = true, allowSecrets: Bool = false, config custom: String? = nil, schema: String? = nil, blockSchemas: [String: String] = [:]) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let configURL = directory.appendingPathComponent("config.json")
         let auditURL = directory.appendingPathComponent("audit.jsonl")
@@ -142,13 +143,13 @@ final class MCPTestEnvironment: @unchecked Sendable {
         try Data(config.utf8).write(to: configURL)
         var registry = PluginRegistry()
         let writes = self.writes
-        registry.register(platform: DevicesPlugin.platform, name: DevicesPlugin.name, assistantActions: DevicesPlugin.assistantActions) { json, context in
+        registry.register(platform: DevicesPlugin.platform, name: DevicesPlugin.name, configurationSchemaJSON: schema, assistantActions: DevicesPlugin.assistantActions) { json, context in
             DevicesPlugin(configuration: try JSONDecoder().decode(DevicesPlugin.Configuration.self, from: json), context: context, writes: writes)
         }
         host = try PluginHost(
             configuration: try HomeswiftConfiguration.decode(Data(config.utf8)), registry: registry, storageDirectory: directory,
             options: .init(advertise: false, logger: testLogger) { _ in MemoryStorage() })
-        catalog = HomeswiftCatalog(host: host, logs: logs, configURL: configURL, allowSecrets: allowSecrets, logger: testLogger)
+        catalog = HomeswiftCatalog(host: host, logs: logs, configURL: configURL, allowSecrets: allowSecrets, blockSchemas: blockSchemas, logger: testLogger)
         var options = MCPServer.Options(version: "test", instructions: HomeswiftCatalog.instructions)
         options.elicitation = elicitation
         options.logger = testLogger
