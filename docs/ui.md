@@ -134,7 +134,9 @@ with a new code). More users are added on the **Users** page (see below).
   (`functionBody` or an expression, as Homebridge's form reads them): a field shows only when its condition
   holds for the block or, in a list, for its entry (`arrayIndices`). The page runs no code from the schema: it
   reads the part of JavaScript conditions use (`model.a.b`, `[arrayIndices]`, literals, `.includes()`, `!`,
-  comparisons, `&&`, `||`), and shows a field whose condition it cannot read. With the Assistant on, **Describe
+  comparisons, `&&`, `||`), and shows a field whose condition it cannot read. A boolean with
+  `"x-schema-form": { "invert": true }` shows its switch on while the value is false, for a key that turns
+  something off under a title that turns it on (the web UI's daily backup). With the Assistant on, **Describe
   your setup** above the form writes the block from a sentence and the plugin's schema; the change shows as a
   diff, and **Use it** puts it in the form to review and save (passwords and tokens never reach the provider). A certificate or key field takes a
   dropped PEM file, which the bridge checks and keeps owner-only under `files/` next to config.json. The
@@ -323,6 +325,8 @@ Logins survive a restart: sessions are kept in `ui-sessions.json` next to config
 
 The UI is an installable web app: `manifest.webmanifest` (standalone, starting on Status), PNG icons (192, 512
 and a maskable 512) and an `apple-touch-icon.png`, all served without a session like the other static files.
+Over HTTPS the page carries the touch icon inline: iOS fetches a home screen icon without the exception accepted for a
+self-signed certificate, and would show a letter instead.
 In Safari, Share › Add to Home Screen; in Chrome, Install app. It opens full screen with the tab bar at the
 bottom; `/quick` makes a good first page to keep there (a manifest shortcut opens it). The service worker (`/sw.js`)
 only shows notifications, nothing is kept offline: the bridge must be reachable to use it.

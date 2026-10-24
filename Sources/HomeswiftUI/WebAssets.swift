@@ -2052,9 +2052,16 @@ enum WebAssets {
         return { element: wrap(select), get: () => (select.value === "" ? undefined : JSON.parse(select.value)) };
       }
       if (type === "boolean") {
-        const input = el("input", { type: "checkbox", checked: current !== undefined ? current === true : property.default === true });
+        // `x-schema-form.invert`: the switch shows the opposite of the value, for a key that turns something off
+        // (scheduledBackupDisable) under a title that turns it on.
+        const invert = property["x-schema-form"]?.invert === true;
+        const value = current !== undefined ? current === true : property.default === true;
+        const input = el("input", { type: "checkbox", checked: invert ? !value : value });
         const present = current !== undefined;
-        return { element: el("label", { class: "toggle" }, el("span", { class: "switch" }, input, el("span")), el("span", {}, el("span", { class: "field-title", text: title }), help)), get: () => (input.checked || present ? input.checked : undefined) };
+        return { element: el("label", { class: "toggle" }, el("span", { class: "switch" }, input, el("span")), el("span", {}, el("span", { class: "field-title", text: title }), help)), get: () => {
+          const next = invert ? !input.checked : input.checked;
+          return next || present ? next : undefined;
+        } };
       }
       if (type === "integer" || type === "number") {
         const input = el("input", { type: "number", value: current ?? "", placeholder: property.placeholder ?? property.default ?? "", min: property.minimum, max: property.maximum, step: property.step ?? (type === "integer" ? 1 : "any"), required });
