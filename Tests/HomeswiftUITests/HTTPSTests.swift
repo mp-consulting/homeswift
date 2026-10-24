@@ -108,6 +108,9 @@ struct HTTPSTests {
         #expect(page.status == 200)
         let fingerprint = try #require(environment.server.certificateFingerprint)
         #expect(page.certificateFingerprint.map(HTTPClient.normalizeFingerprint) == HTTPClient.normalizeFingerprint(fingerprint))
+        // The home screen icon is in the page: iOS fetches a linked one without the user's certificate exception.
+        let icon = try #require(WebAssets.files["apple-touch-icon.png"]).data.base64EncodedString()
+        #expect(String(decoding: page.body, as: UTF8.self).contains(#"<link rel="apple-touch-icon" href="data:image/png;base64,\#(icon)">"#))
 
         let certificate = try await client.send(HTTPRequest(url: base.appendingPathComponent("homeswift-ui.crt")))
         #expect(certificate.status == 200)

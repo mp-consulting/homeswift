@@ -264,6 +264,14 @@ public final class UIServer: Sendable {
             return .data(status: 200, contentType: file.contentType, body: body, headers: ["ETag": tag, "Cache-Control": "no-cache"])
         }
         var body = file.body
+        if platform == nil, name == "index.html", tls.withLockedValue({ $0 }) != nil {
+            // iOS fetches a home screen icon on its own, without the exception the user accepted for a self-signed
+            // certificate, and falls back to a letter: over HTTPS the page carries the icon itself.
+            let link = #"<link rel="apple-touch-icon" href="/apple-touch-icon.png">"#
+            if body.contains(link), let icon = live?.file("apple-touch-icon.png", platform: nil, unreadable: { _, _ in }) ?? files["apple-touch-icon.png"] {
+                body = body.replacingOccurrences(of: link, with: #"<link rel="apple-touch-icon" href="data:image/png;base64,\#(icon.data.base64EncodedString())">"#)
+            }
+        }
         if let instance, let platform {
             // Its files are beside it (`app.js` is /plugins/<slug>/app.js), and plugin.js reads which instance it is.
             let head = #"<base href="/plugins/\#(Self.attribute(instance.slug))/"><meta name="homeswift-plugin" data-platform="\#(Self.attribute(platform))" data-name="\#(Self.attribute(instance.name))">"#
