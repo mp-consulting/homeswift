@@ -21,6 +21,9 @@ actor DaikinSession {
     struct Timing: Sendable {
         var webSocketSafetyPoll: Duration = .seconds(3600)
         var rateLimitWriteInterval: Duration = .seconds(5)
+        /// A WebSocket reconnection catches up with a poll, but not sooner than this after the last one: a
+        /// socket that drops every minute would otherwise spend most of the daily quota.
+        var reconnectCatchUp: Duration = .seconds(600)
         /// Overrides the configured intervals; for tests, where a minute is long.
         var pollInterval: Duration?
         var forceUpdateDelay: Duration?
@@ -287,12 +290,12 @@ actor DaikinSession {
         schedulePoll()
     }
 
-    /// (Re)schedules the next periodic poll; there is never more than one.
-    func schedulePoll() {
+    /// (Re)schedules the next periodic poll, after `delay` or the current interval; there is never more than one.
+    func schedulePoll(after delay: Duration? = nil) {
         stopPolling()
         // A forced update pending restarts polling when it fires.
         guard !shuttingDown, forceTask == nil else { return }
-        let delay = currentPollInterval
+        let delay = delay ?? currentPollInterval
         logger.debug("[API Syncing] Next update of devices data in \(Int((delay / .seconds(60)).rounded())) minutes")
         pollTask = Task { [weak self] in
             guard (try? await Task.sleep(for: delay)) != nil, !Task.isCancelled else { return }
@@ -364,8 +367,11 @@ actor DaikinSession {
             let isReconnect = webSocketHasConnected
             webSocketHasConnected = true
             guard pollingStarted, !shuttingDown else { return }
-            // A reconnection catches up on what changed meanwhile; the first one stretches polling.
-            if isReconnect { await pollNow() } else { schedulePoll() }
+            // A reconnection catches up on what changed meanwhile, at most one poll per `reconnectCatchUp`; the
+            // first connection stretches polling.
+            guard isReconnect else { return schedulePoll() }
+            let sinceFetch = lastFetched.map { Duration.milliseconds(Int64(Date().timeIntervalSince($0) * 1000)) } ?? timing.reconnectCatchUp
+            if sinceFetch >= timing.reconnectCatchUp { await pollNow() } else { schedulePoll(after: timing.reconnectCatchUp - sinceFetch) }
         case .disconnected(_, _, let reconnecting):
             webSocketConnected = false
             if reconnecting {
@@ -431,6 +437,15 @@ actor DaikinSession {
     }
 
     // MARK: Tokens
+
+    /// The settings page saved new tokens while the session runs (after a refresh token expired, say): the
+    /// session uses them now, and polls at once when its polls were failing.
+    func reloadTokens() async {
+        await tokens.reload()
+        guard isRunning, !shuttingDown, consecutiveFailures > 0 else { return }
+        logger.info("[Auth] New tokens from the settings page; updating the devices")
+        await pollNow()
+    }
 
     private func invalidGrant() {
         logger.warning("[API Syncing] TokenSet is invalid, removing TokenSet file")

@@ -265,8 +265,12 @@ final class Auth {
         let timestamp = RFC2822.string()
         let token = try await client.post(lgeapiURL + "oauth/1.0/oauth2/token", form: form, headers: oauthHeaders(
             signing: "/oauth/1.0/oauth2/token?\(form)", timestamp: timestamp)).data
+        // An answer without a token (an error body on HTTP 200) must not replace the session with an empty one.
+        guard let accessToken = token["access_token"]?.stringValue, !accessToken.isEmpty else {
+            throw ThinQError.token("LG returned no access token for the refresh token.")
+        }
         var session = session
-        session.newToken(JS.string(token["access_token"]), expiresAt: Session.expiry(fromNow: token["expires_in"]))
+        session.newToken(accessToken, expiresAt: Session.expiry(fromNow: token["expires_in"]))
         return session
     }
 

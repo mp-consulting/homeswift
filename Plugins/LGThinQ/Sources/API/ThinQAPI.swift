@@ -119,6 +119,8 @@ final class ThinQAPI {
             logger.debug("Skipping request during rate-limit cooldown: \(uri)")
             return [:]
         }
+        // A request that left with a token another request has replaced since retries without a refresh.
+        let usedToken = session.accessToken
         do {
             let gateway = try await gateway()
             let headers = !gateway.thinq1URI.isEmpty && uri.hasPrefix(gateway.thinq1URL) ? monitorHeaders : defaultHeaders
@@ -134,7 +136,7 @@ final class ThinQAPI {
             switch error {
             case .tokenExpired where !retry:
                 do {
-                    try await refreshNewToken()
+                    if session.accessToken == usedToken { try await refreshNewToken() }
                 } catch {
                     logger.error("refresh new token error: \(error)")
                     return [:]
@@ -287,8 +289,12 @@ final class ThinQAPI {
         return await postRequest(gateway.thinq1URL + endpoint, ["lgedmRoot": data])["lgedmRoot"] ?? [:]
     }
 
-    /// GET through the shared pipeline without the API's headers (the model JSON on LG's CDN).
+    /// GET through the shared pipeline without the API's headers (the model JSON on LG's CDN). The URL comes
+    /// from LG's device list: only HTTP(S), never a `file:` URL URLSession would read from the disk.
     func download(_ url: String) async throws -> JSONValue {
-        try await client.get(url).data
+        guard let scheme = URL(string: url)?.scheme?.lowercased(), scheme == "https" || scheme == "http" else {
+            throw ThinQError.invalid("Invalid model URL")
+        }
+        return try await client.get(url).data
     }
 }

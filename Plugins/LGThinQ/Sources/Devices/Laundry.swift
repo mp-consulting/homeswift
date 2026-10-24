@@ -89,9 +89,12 @@ class WasherDryer: BaseDevice {
     var stateRoot: [String: JSONValue]? { device.snapshot[stateRootKey]?.objectValue }
     var status: WasherDryerStatus { WasherDryerStatus(data: statusData(stateRootKey), deviceModel: device.deviceModel) }
 
-    /// Not controllable: back to the real state.
+    /// Not controllable: back to the real state, once the write has stored the value HomeKit sent.
     func setActive(_ value: HAPValue) async throws {
-        updateAccessoryCharacteristic(device)
+        after(.milliseconds(100)) { [weak self] in
+            guard let self else { return }
+            updateAccessoryCharacteristic(device)
+        }
     }
 
     override func updateAccessoryCharacteristic(_ device: ThinQDevice) {

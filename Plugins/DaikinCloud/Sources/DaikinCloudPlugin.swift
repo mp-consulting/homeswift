@@ -146,7 +146,8 @@ public actor DaikinCloudPlugin: HomeswiftPlugin {
     /// After a login on the page, an instance that could not start does now, without a restart.
     func resumeIfIdle(_ mode: AuthMode) async {
         guard !stopped, mode == settings.authMode else { return }
-        if let session, await session.isRunning { return }
+        // A running session takes the new tokens: the ones it holds may be the expired login the page replaced.
+        if let session, await session.isRunning { return await session.reloadTokens() }
         guard settings.authMode == .mobileApp ? settings.mobileCredentials != nil : settings.hasDeveloperCredentials else { return }
         logger.info("[Auth] Authenticated from the settings page; connecting")
         let previous = session

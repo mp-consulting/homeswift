@@ -41,6 +41,7 @@ struct TransportTests {
         #expect(config.contains(#"data-binary = "@/tmp/body""#))
         #expect(config.contains(#"header = "User-Agent: okhttp/4.12.0""#))
         #expect(config.contains("max-time = 30"))
+        #expect(config.contains("max-filesize = 10485760"))
     }
 
     /// A stand-in for curl: checks how it is called, then answers or fails.

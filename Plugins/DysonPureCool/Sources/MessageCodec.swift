@@ -167,12 +167,14 @@ enum MessageCodec {
         }
     }
 
-    /// Filter life as a percentage: Link models give the HEPA filter's hours left (`filf`), newer ones percentages.
+    /// Filter life as a percentage: Link models give the HEPA filter's hours left (`filf`), newer ones percentages
+    /// (`fltf`, or `hflr` on the TP04/HP04/PH0x/BP0x generation, beside the carbon filter's `cflr`).
     private static func parseFilters(_ raw: [String: JSONValue], into state: inout DeviceState) {
         if let filf = value(raw["filf"]), let hours = integer(filf) {
             state.hepaFilterLife = clampPercent(Double(hours) / filterMaxHours * 100)
         }
         if let fltf = value(raw["fltf"]), let percent = integer(fltf) { state.hepaFilterLife = clampPercent(Double(percent)) }
+        if let hflr = value(raw["hflr"]), let percent = integer(hflr) { state.hepaFilterLife = clampPercent(Double(percent)) }
         if let cflr = value(raw["cflr"]), let percent = integer(cflr) { state.carbonFilterLife = clampPercent(Double(percent)) }
     }
 

@@ -124,6 +124,9 @@ struct MessageCodecTests {
 
     @Test func filterFields() {
         #expect(parsed(["fltf": "0042"]).hepaFilterLife == 42)
+        // The TP04 generation reports the HEPA filter as hflr.
+        #expect(parsed(["hflr": "0005", "cflr": "0080"]).hepaFilterLife == 5)
+        #expect(parsed(["hflr": "INV"]).hepaFilterLife == nil)
         #expect(parsed(["filf": "9999"]).hepaFilterLife == 100)
         #expect(parsed(["cflr": "-005"]).carbonFilterLife == 0)
         #expect(parsed(["filf": "INVALID"]).hepaFilterLife == nil)

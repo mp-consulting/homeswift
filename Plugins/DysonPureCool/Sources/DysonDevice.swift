@@ -290,8 +290,8 @@ actor DysonDevice {
 
     /// Switches on if needed and sets the speed, in one command; the speed wins over the activation defaults.
     func powerOnAndSetSpeed(_ speed: Int) async throws {
-        let power = state.isOn ? [] : powerOnParts()
-        try await send(power + [powerOnFields(auto: speed < 0, speed: speed)])
+        // powerOnParts also covers an OFF the device has not confirmed yet, and clears its guard.
+        try await send(powerOnParts() + [powerOnFields(auto: speed < 0, speed: speed)])
     }
 
     func setAutoMode(_ on: Bool) async throws {
@@ -307,8 +307,7 @@ actor DysonDevice {
 
     /// Heating on, and the fan on when it is off, in one command.
     func startHeating() async throws {
-        let power = state.isOn ? [] : powerOnParts()
-        try await send([["hmod": MessageCodec.heat]] + power)
+        try await send([["hmod": MessageCodec.heat]] + powerOnParts())
     }
 
     /// Celsius, clamped to 1-37.

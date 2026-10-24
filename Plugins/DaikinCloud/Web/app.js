@@ -312,6 +312,7 @@
       [...$("#wizard-steps").children].forEach((item, i) => {
         item.classList.toggle("current", i + 1 === step && step < 3);
         item.classList.toggle("done", i + 1 < step || step === 3);
+        if (i + 1 === step && step < 3) item.setAttribute("aria-current", "step"); else item.removeAttribute("aria-current");
       });
     },
 

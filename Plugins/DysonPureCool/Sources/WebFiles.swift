@@ -204,6 +204,7 @@ extension DysonPureCoolPlugin {
     [...progress.children].forEach((item, i) => {
       item.classList.toggle("current", i + 1 === numeric);
       item.classList.toggle("done", i + 1 < numeric);
+      if (i + 1 === numeric) item.setAttribute("aria-current", "step"); else item.removeAttribute("aria-current");
     });
     state.step = step;
   }
@@ -655,6 +656,7 @@ extension DysonPureCoolPlugin {
   .devices { display: grid; gap: 10px; }
   .device { margin: 0; display: grid; gap: 12px; animation: materialize var(--normal) var(--ease-out); }
   .device.selectable { cursor: pointer; }
+  @media (hover: hover) and (pointer: fine) { .device.selectable:not(.selected):hover { box-shadow: 0 0 0 1px var(--edge), var(--shadow-control, none); } }
   .device.selected { box-shadow: 0 0 0 2px var(--accent), var(--shadow-control, none); }
   .device-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
   .device-head .who { flex: 1; min-width: 0; }
