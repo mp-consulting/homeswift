@@ -78,6 +78,10 @@ code, pre { font-family: var(--mono); }
 .nav-links { display: flex; gap: 2px; margin-right: auto; }
 .nav-links a { text-decoration: none; font-size: 0.9375rem; padding: 7px 12px; border-radius: 999px; color: var(--muted); transition: color 160ms var(--ease-out), background-color 160ms var(--ease-out); }
 .nav-links a:hover { color: var(--ink); background: var(--track); }
+/* The section links never wrap: they leave the bar below 1000 px, where French or Portuguese labels (a third longer than
+   English), six of them on the bridge page, or the home page's language picker would no longer fit beside the logo. */
+.nav-links a { white-space: nowrap; }
+@media (max-width: 1000px) { .nav-links { display: none; } .brand { margin-right: auto; } }
 .btn { display: inline-flex; align-items: center; gap: 8px; font: 600 0.9375rem/1 var(--font); letter-spacing: -0.005em; text-decoration: none; padding: 11px 18px; border-radius: 999px; border: 0; cursor: pointer; white-space: nowrap;
   transition: transform 100ms ease-out, background-color 160ms var(--ease-out); -webkit-tap-highlight-color: transparent; }
 .btn:active { transform: scale(0.97); }
@@ -250,8 +254,6 @@ footer .small { max-width: 34rem; }
   .card.wide { grid-column: span 2; }
 }
 @media (max-width: 720px) {
-  .nav-links { display: none; }
-  .brand { margin-right: auto; }
   .grid { grid-template-columns: minmax(0, 1fr); }
   .card.wide { grid-column: auto; grid-template-columns: minmax(0, 1fr); }
   .card.span2 { grid-column: auto; }

@@ -1,23 +1,18 @@
-/* The chat-first prototype, on top of site.css: a chat beside a small wall it drives, then the ways to ask,
-   the safety rules, what it knows, the models, the bridge underneath and the install. */
+/* The home page, on top of site.css: a chat beside a small wall it drives, then agents, the safety rules, the ways
+   to ask, what it knows, the models, the bridge underneath and the install. */
 
-/* Languages (i18n.js): hidden until the catalog has been applied; French, Spanish and Portuguese run about a
-   third longer than English, so long words may break in headings and narrow cards rather than overflow. */
-.i18n-pending body { visibility: hidden; }
+/* Languages: fr/, es/ and pt/ are copies of the page in French, Spanish and Portuguese, which run about a third longer
+   than English, so long words may break in headings and narrow cards rather than overflow. */
 h1, h2, h3, .ask q, .way h3, .who strong, .plugin strong, .plugin span, .brain span, .figures small { overflow-wrap: break-word; hyphens: auto; -webkit-hyphens: auto; }
 .lang { font: 500 0.8125rem/1 var(--font); color: var(--muted); background: var(--track); border: 0; border-radius: 999px; padding: 8px 26px 8px 12px; cursor: pointer;
   appearance: none; -webkit-appearance: none; background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
   background-position: calc(100% - 13px) 52%, calc(100% - 9px) 52%; background-size: 4px 4px; background-repeat: no-repeat; }
 .lang:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .nav .lang { margin-right: 6px; }
-/* The section links never wrap. With the language picker in the bar, and French or Portuguese labels a third
-   longer, they leave it below 1000 px rather than site.css's 720. */
-.nav-links a { white-space: nowrap; }
-@media (max-width: 1000px) { .nav-links { display: none; } .brand { margin-right: auto; } }
 @media (max-width: 480px) { .nav .gh span { display: none; } .nav .gh { padding: 9px; } .nav .lang { margin-right: 2px; padding-left: 10px; padding-right: 22px; background-position: calc(100% - 11px) 52%, calc(100% - 7px) 52%; } }
 
 /* Hero: the copy, then a stage with the house above the chat. */
-.talk-hero .wrap { grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr); }
+.home-hero .wrap { grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr); }
 .chat-stage { container-type: inline-size; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 
 .house { --gap: 8px; --u: calc((100cqw - 7 * var(--gap)) / 8); display: grid; grid-template-columns: repeat(8, var(--u)); grid-auto-rows: calc(var(--u) * 1.15); gap: var(--gap); }
@@ -196,28 +191,12 @@ h1, h2, h3, .ask q, .way h3, .who strong, .plugin strong, .plugin span, .brain s
 .figures small { font-size: 0.8125rem; color: var(--muted); line-height: 1.35; }
 .figures-foot { margin-top: 16px; }
 .plugins.compact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 380px) { .plugins.compact { grid-template-columns: minmax(0, 1fr); } }
 
 .term-stack { display: grid; gap: 12px; }
 
-/* The prototype's angle switch, out of the way at the bottom. */
-.proto { position: fixed; z-index: 30; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 999px;
-  background: var(--glass); -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%); border: 1px solid var(--glass-edge); box-shadow: var(--shadow); max-width: calc(100vw - 32px); }
-.proto span { font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); padding: 0 8px 0 10px; }
-.proto button { font: 500 0.8125rem/1 var(--font); border: 0; padding: 8px 12px; border-radius: 999px; background: none; color: var(--muted); cursor: pointer; white-space: nowrap; transition: background-color 200ms var(--ease-out), color 200ms var(--ease-out); }
-.proto button[aria-pressed="true"] { background: var(--bg-raised); color: var(--ink); box-shadow: var(--shadow-small); }
-/* With the script, a pill slides to the chosen angle, and the bar steps aside while it would cover the composer. */
-.proto { transition: transform 400ms var(--spring), opacity 200ms var(--ease-out); }
-.proto.away { transform: translate(-50%, calc(100% + 24px)); opacity: 0; pointer-events: none; }
-.proto .pill { position: absolute; z-index: 0; top: 4px; bottom: 4px; left: 0; width: var(--pill-w, 0); transform: translateX(var(--pill-x, 0)); border-radius: 999px; background: var(--bg-raised); box-shadow: var(--shadow-small); }
-.proto .pill.ready { transition: transform 400ms var(--spring), width 400ms var(--spring); }
-.proto button { position: relative; z-index: 1; touch-action: manipulation; }
-.motion .proto button[aria-pressed="true"] { background: none; box-shadow: none; }
-.proto button:active { transform: scale(0.96); }
-footer { padding-bottom: 96px; }
-@media (max-width: 400px) { .proto span { display: none; } .proto button { padding: 8px 10px; } }
-
 @media (max-width: 900px) {
-  .talk-hero .wrap, .bridge, .agents { grid-template-columns: minmax(0, 1fr); }
+  .home-hero .wrap, .bridge, .agents { grid-template-columns: minmax(0, 1fr); }
   .ways, .trust, .asks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .brains { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
@@ -241,7 +220,7 @@ footer { padding-bottom: 96px; }
 @keyframes tick { from { opacity: 0; transform: translateY(5px); } }
 
 /* The hero arrives in order: the words, then the wall tile by tile, then the chat. `.motion` is set before the
-   first paint (talk-boot.js), so nothing flashes; fill is backwards only, so the tiles' own transforms still apply. */
+   first paint (home-boot.js), so nothing flashes; fill is backwards only, so the tiles' own transforms still apply. */
 .motion .hero-copy > * { animation: rise 540ms var(--spring) backwards; animation-delay: calc(var(--i, 0) * 70ms); }
 .motion .house .w { animation: tile-in 540ms var(--spring) backwards; animation-delay: calc(240ms + var(--i, 0) * 45ms); }
 .motion .chat, .motion .chat-stage .wire { animation: rise 540ms var(--spring) backwards; animation-delay: 520ms; }
@@ -259,11 +238,10 @@ footer { padding-bottom: 96px; }
 @media (prefers-reduced-motion: reduce) {
   .motion .hero-copy > *, .motion .house .w, .motion .chat, .motion .chat-stage .wire, .status.tick, .note, .fence { animation: none; }
   .motion [data-reveal]:not(.in) { transform: none; }
-  .proto.away { transform: translateX(-50%); }
   .msg, .tool, .confirm { animation: none; }
   .typing i, .tool .st { animation: none; }
   .log { scroll-behavior: auto; }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .chat, .proto, .ask { background: var(--glass-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .chat, .ask { background: var(--glass-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }

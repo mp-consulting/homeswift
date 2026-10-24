@@ -8,7 +8,7 @@
   // numbers through number() and percent(). Without i18n.js the page stays in English.
   const i18n = window.HomeswiftI18n ?? {
     language: 'en', locale: 'en-US', t: (s, v) => v ? s.replace(/\{(\w+)\}/g, (w, k) => (k in v ? v[k] : w)) : s,
-    number: (n) => n.toLocaleString('en-US'), percent: (n) => `${n}%`, names: { en: 'English' }, languages: ['en'], choose() {},
+    number: (n) => n.toLocaleString('en-US'), percent: (n) => `${n}%`,
   };
   const { t, number, percent } = i18n;
   const tn = i18n.tn ?? ((one, other, n, v) => t(n === 1 ? one : other, { n, ...v }));
@@ -211,10 +211,8 @@
     hostile: { label: 'Try a hostile device name', text: 'What’s on in the kitchen?', script: 'kitchen', before: plantName },
     audit: 'What did you change today?',
   };
-  const chipOrder = {
-    default: ['movie', 'unlock', 'why', 'warm', 'today', 'bed', 'hostile', 'audit', 'coffee', 'on'],
-    agents: ['hostile', 'unlock', 'movie', 'audit', 'why', 'today', 'warm', 'bed', 'coffee', 'on'],
-  };
+  // The safety demos first: the page is about handing the house to an agent.
+  const chipOrder = ['hostile', 'unlock', 'movie', 'audit', 'why', 'today', 'warm', 'bed', 'coffee', 'on'];
   // On a phone the wall sits above the chat: a tapped suggestion scrolls both into view, when they fit, so the
   // visitor sees the tiles change. Not on a typed message, where the keyboard owns the screen.
   function keepStageInView() {
@@ -232,7 +230,7 @@
     }));
     chips.scrollLeft = 0;
   }
-  showChips(chipOrder.default);
+  showChips(chipOrder);
   $('composer').addEventListener('submit', (e) => { e.preventDefault(); stopIntro(); const text = input.value; input.value = ''; send(text); });
   input.addEventListener('focus', stopIntro);
 
@@ -250,96 +248,9 @@
     send(line, scripts.off);
   })();
 
-  // Prototype: the headline angles. Agents also brings its section and the safety rules up under the hero.
-  const angles = {
-    talk: ['A HomeKit bridge you can talk to', 'Talk to your house.',
-      '“Turn off everything downstairs.” “Why did the porch light drop off last night?” Homeswift puts every device in the Home app, then does what you tell it, in plain words, and asks first before anything that matters.'],
-    orders: ['Homebridge, rewritten in Swift, that takes orders', 'Your house takes orders now.',
-      'Say “lights off downstairs” or “movie night” and it’s done. Say “unlock the front door” and it checks with you first. Every device in the Home app, run in plain words.'],
-    say: ['Every device in the Home app, and a new way in', 'Just tell it.',
-      'No more hunting for the right tile. Tell Homeswift what you want, from its web UI, from Claude or from a terminal, and it does it, asking first before anything that matters.'],
-    agents: ['The MCP server for your home', 'Let your AI run the house.',
-      'Connect Claude, or any agent that speaks MCP, and it can see and run every device in your Home app. It still asks before it unlocks, writes down everything it does, and never takes orders from a device’s name.',
-      ['Claude and other MCP clients', 'Or your own model, on your network', 'Open source'],
-      ['Your AI agent', 'Over Homeswift’s MCP server · demo, nothing real is changed']],
-  };
-  const defaults = {
-    meta: ['Claude, OpenAI, Gemini or a local model', 'Works with the Home app and Siri', 'Open source'].map((s) => t(s)),
-    chat: ['Assistant', 'Homeswift · demo, nothing real is changed'].map((s) => t(s)),
-  };
-  const main = document.querySelector('main'), hero = main.firstElementChild, sections = [...main.children];
-  // A headline swap: the old words blur out upward, the new ones rise in on the spring, a line at a time. A second
-  // switch mid-swap cancels the first from where it is, and only the latest words land.
-  const spring = getComputedStyle(document.documentElement).getPropertyValue('--spring').trim() || 'ease-out';
-  let swapToken = 0;
-  function swap(changes, animate) {
-    const token = ++swapToken;
-    changes.forEach(([el, text, apply], i) => {
-      if (text === el.textContent) return;
-      if (!animate || reduce || !el.animate) { apply(); return; }
-      el.getAnimations().forEach((a) => a.cancel());
-      const out = el.animate([{ opacity: 1, filter: 'blur(0)', transform: 'none' }, { opacity: 0, filter: 'blur(4px)', transform: 'translateY(-6px)' }],
-        { duration: 140, delay: i * 35, easing: 'ease-in', fill: 'forwards' });
-      out.finished.then(() => {
-        if (token !== swapToken) return;
-        apply(); out.cancel();
-        el.animate([{ opacity: 0, filter: 'blur(4px)', transform: 'translateY(8px)' }, { opacity: 1, filter: 'blur(0)', transform: 'none' }], { duration: 540, easing: spring });
-      }, () => {});
-    });
-  }
-  const setText = (el, text) => [el, text, () => { el.textContent = text; }];
-
-  // The angle bar's pill slides under the chosen button; it is placed without motion the first time.
-  const proto = document.querySelector('.proto'), pill = proto.querySelector('.pill');
-  function placePill() {
-    const button = proto.querySelector('[aria-pressed="true"]');
-    pill.style.setProperty('--pill-x', `${button.offsetLeft}px`);
-    pill.style.setProperty('--pill-w', `${button.offsetWidth}px`);
-  }
-
-  function setAngle(key, animate = false) {
-    const angle = angles[key] ? key : 'talk';
-    document.querySelectorAll('.proto button').forEach((o) => o.setAttribute('aria-pressed', o.dataset.angle === angle));
-    placePill();
-    const [eyebrow, title, lede, meta = defaults.meta, chat = defaults.chat] = angles[angle].map((v) => (Array.isArray(v) ? v.map((s) => t(s)) : t(v)));
-    swap([
-      setText($('h-eyebrow'), eyebrow), setText($('h-title'), title), setText($('h-lede'), lede),
-      [$('h-meta'), meta.join(''), () => $('h-meta').replaceChildren(...meta.map((text) => Object.assign(document.createElement('span'), { textContent: text })))],
-      setText($('chat-name'), chat[0]), setText($('chat-sub'), chat[1]),
-    ], animate);
-    document.title = `${title.replace(/\.$/, '')} · Homeswift`;
-    const agents = angle === 'agents';
-    $('agents').hidden = !agents;
-    if (agents) hero.after($('agents'), $('trust')); else main.append(...sections);
-    if (!busy) showChips(chipOrder[agents ? 'agents' : 'default']);
-    const url = new URL(location.href);
-    if (angle === 'talk') url.searchParams.delete('angle'); else url.searchParams.set('angle', angle);
-    history.replaceState(null, '', url);
-  }
-  document.querySelectorAll('.proto button').forEach((button) => button.addEventListener('click', () => setAngle(button.dataset.angle, true)));
-  setAngle(new URLSearchParams(location.search).get('angle'));
-  document.fonts?.ready.then(placePill);
-  addEventListener('resize', placePill);
-  requestAnimationFrame(() => requestAnimationFrame(() => pill.classList.add('ready')));
-
-  // The bar steps aside while it would cover the suggestions or the composer, and comes back the way it left.
-  let pending = false;
-  function clearComposer() {
-    pending = false;
-    const top = chips.getBoundingClientRect().top, bottom = $('composer').getBoundingClientRect().bottom;
-    const w = proto.offsetWidth, left = (innerWidth - w) / 2, barTop = innerHeight - 14 - proto.offsetHeight - 8;
-    const chat = $('chat').getBoundingClientRect();
-    proto.classList.toggle('away', bottom > barTop && top < innerHeight && chat.left < left + w && chat.right > left);
-  }
-  const onScroll = () => { if (!pending) { pending = true; requestAnimationFrame(clearComposer); } };
-  addEventListener('scroll', onScroll, { passive: true });
-  addEventListener('resize', onScroll);
-  clearComposer();
-
-  // The language picker: each language in its own name; choosing one reloads the page in it.
+  // The language picker: each option's value is that language's page (the footer links to them too, without a script).
   const picker = $('lang');
-  picker.replaceChildren(...i18n.languages.map((code) => Object.assign(document.createElement('option'), { value: code, textContent: i18n.names[code], selected: code === i18n.language })));
-  picker.addEventListener('change', () => i18n.choose(picker.value));
+  picker.addEventListener('change', () => { location.href = picker.value; });
 
   // The hero's order of arrival, and the blocks below it that rise into view.
   document.querySelectorAll('.hero-copy > *').forEach((el, i) => el.style.setProperty('--i', i));

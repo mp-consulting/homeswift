@@ -33,6 +33,38 @@
     <xhtml:link rel="alternate" hreflang="x-default" href="https://homeswift.dev/"/>
   </url>
   <url>
+    <loc>https://homeswift.dev/bridge.html</loc><lastmod>2026-10-24</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://homeswift.dev/bridge.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://homeswift.dev/fr/bridge.html"/>
+    <xhtml:link rel="alternate" hreflang="es" href="https://homeswift.dev/es/bridge.html"/>
+    <xhtml:link rel="alternate" hreflang="pt" href="https://homeswift.dev/pt/bridge.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://homeswift.dev/bridge.html"/>
+  </url>
+  <url>
+    <loc>https://homeswift.dev/fr/bridge.html</loc><lastmod>2026-10-24</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://homeswift.dev/bridge.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://homeswift.dev/fr/bridge.html"/>
+    <xhtml:link rel="alternate" hreflang="es" href="https://homeswift.dev/es/bridge.html"/>
+    <xhtml:link rel="alternate" hreflang="pt" href="https://homeswift.dev/pt/bridge.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://homeswift.dev/bridge.html"/>
+  </url>
+  <url>
+    <loc>https://homeswift.dev/es/bridge.html</loc><lastmod>2026-10-24</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://homeswift.dev/bridge.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://homeswift.dev/fr/bridge.html"/>
+    <xhtml:link rel="alternate" hreflang="es" href="https://homeswift.dev/es/bridge.html"/>
+    <xhtml:link rel="alternate" hreflang="pt" href="https://homeswift.dev/pt/bridge.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://homeswift.dev/bridge.html"/>
+  </url>
+  <url>
+    <loc>https://homeswift.dev/pt/bridge.html</loc><lastmod>2026-10-24</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://homeswift.dev/bridge.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://homeswift.dev/fr/bridge.html"/>
+    <xhtml:link rel="alternate" hreflang="es" href="https://homeswift.dev/es/bridge.html"/>
+    <xhtml:link rel="alternate" hreflang="pt" href="https://homeswift.dev/pt/bridge.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://homeswift.dev/bridge.html"/>
+  </url>
+  <url>
     <loc>https://homeswift.dev/privacy.html</loc><lastmod>2026-10-24</lastmod>
     <xhtml:link rel="alternate" hreflang="en" href="https://homeswift.dev/privacy.html"/>
     <xhtml:link rel="alternate" hreflang="fr" href="https://homeswift.dev/fr/privacy.html"/>
