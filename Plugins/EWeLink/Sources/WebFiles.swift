@@ -132,6 +132,7 @@ extension EWeLinkPlugin {
 
   async function saveConfiguration(button) {
     await act(button, async () => {
+      clearProblem($("#save-problem"));
       try {
         let block;
         const result = await homeswift.updateBlock((current) => {
@@ -150,7 +151,7 @@ extension EWeLinkPlugin {
         $("#restart-status").textContent = "";
         showStep("complete");
       } catch (e) {
-        alert(e.message || "Failed to save configuration");
+        showProblem($("#save-problem"), e.message || "Failed to save configuration", "Saving this instance's block of config.json from the eWeLink plugin settings failed.");
       }
     });
   }
@@ -158,12 +159,13 @@ extension EWeLinkPlugin {
   async function restart() {
     await api("/api/restart", { method: "POST" });
     $("#restart-status").textContent = "Restarting…";
-    for (let tries = 0; tries < 60; tries++) {
+    let back = false;
+    for (let tries = 0; tries < 60 && !back; tries++) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      try { await request("status"); break; } catch { /* not back yet */ }
+      try { await request("status"); back = true; } catch { /* not back yet */ }
     }
-    $("#restart-status").textContent = "Homeswift restarted.";
-    $("#restart").classList.add("hidden");
+    $("#restart-status").textContent = back ? "Homeswift restarted." : "Homeswift has not answered for a minute: check its log, then reload this page.";
+    $("#restart").classList.toggle("hidden", back);
   }
 
   // MARK: Events
@@ -272,6 +274,12 @@ extension EWeLinkPlugin {
      devices and settings, done) with one step showing at a time. */
   .page-head { align-items: center; }
   .tile.ewelink { background: linear-gradient(160deg, #ff7b6b, #e74c3c); }
+  /* RF and LAN hues, lighter on dark backgrounds so their small text stays readable. */
+  :root { --rf: #9c27b0; --rf-line: rgba(156, 39, 176, 0.35); --rf-fill: rgba(156, 39, 176, 0.1); --lan: #1f6fe0; --lan-line: rgba(31, 111, 224, 0.35); }
+  @media (prefers-color-scheme: dark) {
+    :root:not(:where([data-theme="light"])) { --rf: #d58cf0; --rf-line: rgba(213, 140, 240, 0.4); --rf-fill: rgba(213, 140, 240, 0.14); --lan: #6aa8ff; --lan-line: rgba(106, 168, 255, 0.4); }
+  }
+  :root:where([data-theme="dark"]) { --rf: #d58cf0; --rf-line: rgba(213, 140, 240, 0.4); --rf-fill: rgba(213, 140, 240, 0.14); --lan: #6aa8ff; --lan-line: rgba(106, 168, 255, 0.4); }
   .step { margin-bottom: 22px; animation: materialize var(--normal) var(--ease-out); }
   .step-head { display: flex; align-items: center; gap: 12px; margin: 22px 0 12px; }
   .step-head h2 { margin: 0; }
@@ -297,12 +305,12 @@ extension EWeLinkPlugin {
   .device .meta .mono { margin-right: 8px; }
   .device .badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: none; }
   .device .explain { flex: 0 0 100%; min-width: 0; }
-  .device.rf { margin-left: 22px; padding-left: 12px; border-left: 3px solid #9c27b0; }
-  .pill.lan { color: #1f6fe0; border-color: rgba(31, 111, 224, 0.35); }
+  .device.rf { margin-left: 22px; padding-left: 12px; border-left: 3px solid var(--rf); }
+  .pill.lan { color: var(--lan); border-color: var(--lan-line); }
   .pill.lan-warn { color: var(--warn); border-color: rgba(201, 115, 26, 0.35); }
-  .pill.rf { color: #9c27b0; border-color: rgba(156, 39, 176, 0.35); }
+  .pill.rf { color: var(--rf); border-color: var(--rf-line); }
   .buttons { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-  .buttons span { font-size: 0.75rem; font-weight: 500; padding: 1px 8px; border-radius: 6px; color: #9c27b0; background: rgba(156, 39, 176, 0.1); }
+  .buttons span { font-size: 0.75rem; font-weight: 500; padding: 1px 8px; border-radius: 6px; color: var(--rf); background: var(--rf-fill); }
   .problem { margin-bottom: 12px; padding: 12px 14px; border-radius: 14px; border: 1px solid rgba(208, 56, 59, 0.35); background: rgba(208, 56, 59, 0.06); }
   .problem p { margin: 0; color: var(--error); }
   .problem .explain { margin-top: 6px; }
@@ -314,6 +322,7 @@ extension EWeLinkPlugin {
     border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+  @media (max-width: 520px) { .device.rf { margin-left: 8px; } }
   @media (prefers-reduced-motion: reduce) {
     .step { animation: none; }
     .busy::after { animation: none; border-right-color: currentColor; opacity: 0.5; }
@@ -375,7 +384,7 @@ extension EWeLinkPlugin {
         </select></label>
       <div class="actions"><button id="connect" class="primary" type="submit">Connect account</button></div>
     </form>
-    <div id="login-problem" class="problem hidden"></div>
+    <div id="login-problem" class="problem hidden" role="alert"></div>
   </section>
 
   <section id="step-devices" class="step hidden">
@@ -385,10 +394,11 @@ extension EWeLinkPlugin {
       <button id="new-login">Log in with another account</button>
     </div>
     <div class="group tabs" role="tablist">
-      <button id="tab-devices" role="tab" class="on" aria-selected="true">Devices</button>
-      <button id="tab-settings" role="tab" aria-selected="false">Settings</button>
+      <button id="tab-devices" role="tab" class="on" aria-selected="true" aria-controls="pane-devices">Devices</button>
+      <button id="tab-settings" role="tab" aria-selected="false" aria-controls="pane-settings">Settings</button>
     </div>
-    <div id="pane-devices" class="card">
+    <div id="save-problem" class="problem hidden" role="alert"></div>
+    <div id="pane-devices" class="card" role="tabpanel">
       <div id="status" class="facts status-facts"></div>
       <div class="list-head">
         <h3>Discovered devices <span id="device-count" class="count">0</span></h3>
@@ -399,7 +409,7 @@ extension EWeLinkPlugin {
       <div class="save-bar"><span class="muted">Saving writes the account and settings to this instance's block; the plugin reloads with them.</span>
         <button id="save" class="primary">Save configuration</button></div>
     </div>
-    <div id="pane-settings" class="card hidden">
+    <div id="pane-settings" class="card hidden" role="tabpanel">
       <label class="field"><span class="field-title">Connection mode</span>
         <select id="mode"><option value="auto">Auto (LAN + Cloud)</option><option value="lan">LAN Only</option><option value="wan">Cloud Only</option></select>
         <span class="help">Auto mode tries LAN first, then falls back to cloud.</span></label>

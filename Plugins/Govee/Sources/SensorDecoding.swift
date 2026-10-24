@@ -31,10 +31,10 @@ enum SensorDecoding {
 
     /// Whether manufacturer data is a sensor reading this plugin decodes.
     static func isValid(manufacturerData: [UInt8]?) -> Bool {
-        guard let data = manufacturerData else { return false }
-        let hex = Secrets.hex(data)
-        return isH5074(hex) || isH5075(hex) || isH5101(hex) || isH5179(hex)
+        manufacturerData.map { isValid(hex: Secrets.hex($0)) } ?? false
     }
+
+    static func isValid(hex: String) -> Bool { isH5074(hex) || isH5075(hex) || isH5101(hex) || isH5179(hex) }
 
     static func decode(_ hex: String) throws -> Reading {
         if isH5074(hex) { return try decodeH5074(hex) }

@@ -7,7 +7,7 @@ import Logging
 struct SystemLANNetwork: LANNetwork {
     static let serviceType = "_ewelink._tcp"
 
-    var transport: any HTTPSending = URLSessionTransport()
+    var transport: any HTTPSending = HTTPClient.eWeLinkLAN
 
     func browse(logger: Logger) -> AsyncStream<LANServiceEvent> {
         AsyncStream { continuation in

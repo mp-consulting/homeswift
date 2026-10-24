@@ -367,6 +367,7 @@ final class L2CAPConnection: BLEConnection, @unchecked Sendable {
         try await run { cancellation in
             var discovery = CharacteristicDiscovery()
             while let request = discovery.request {
+                if cancellation.isCancelled { throw CancellationError() }
                 try self.send(request, cancellation)
                 try discovery.receive(self.response(cancellation))
             }

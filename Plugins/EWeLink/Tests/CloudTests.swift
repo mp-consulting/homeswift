@@ -47,6 +47,13 @@ struct CloudAPITests {
         await #expect(throws: EWeLinkError("Unknown region received: mars")) { try await self.api().login() }
     }
 
+    @Test func aRegionRedirectLoopEnds() async throws {
+        let bounce: [JSONValue] = (0..<10).map { ["error": 10004, "data": ["region": .string($0 % 2 == 0 ? "us" : "eu")]] }
+        cloud.update { $0.loginAnswers = bounce }
+        await #expect(throws: EWeLinkError.self) { try await self.api().login() }
+        #expect(cloud.requests(path: "/v2/user/login").count == CloudAPI.maximumRegionRedirects + 1)
+    }
+
     @Test func triesTheBase64DecodedPasswordOnce() async throws {
         cloud.update { $0.loginAnswers = [["error": 10001, "msg": "wrong password"]] }
         try await api(password: "c2VjcmV0\n").login()
@@ -300,6 +307,11 @@ struct CommandDispatcherTests {
         #expect(await eventually { await blocked.queuedCount == 1 })
         blocked.clear()
         await #expect(throws: EWeLinkError("Queue cleared")) { try await waiting.value }
+
+        // A concurrency of 0 (config.json) still runs commands.
+        let none = CommandQueue(minInterval: 0, concurrency: 0, clock: testClock)
+        #expect(none.concurrency == 1)
+        #expect(try await none.enqueue("z") { true })
     }
 }
 
@@ -358,6 +370,9 @@ struct LANControlTests {
         // An API registration does not move a device mDNS found.
         await lan.registerDevice("1000aaaaaa", ip: "10.0.0.99", port: 8081, deviceKey: "x", encrypt: false)
         #expect(await lan.lanDevice("1000aaaaaa")?.ip == "10.0.0.7")
+        // Announced encrypted, a device stays encrypted whatever a later announcement (anyone's) says.
+        await lan.handle(.found(name: "eWeLink_1000aaaaaa", addresses: ["10.0.0.66"], port: 8081, txt: [:]))
+        #expect(await lan.lanDevice("1000aaaaaa")?.encrypt == true)
     }
 
     @Test func acceptsUDPUpdatesThatAuthenticate() async throws {

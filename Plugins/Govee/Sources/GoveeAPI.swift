@@ -27,6 +27,14 @@ enum GoveeAPIError: Error, CustomStringConvertible, Equatable {
         }
     }
 
+    /// Govee's new-device check: a code was asked for, or the one given was refused.
+    var needsVerificationCode: Bool {
+        switch self {
+        case .twoFactorRequired, .twoFactorInvalid: true
+        default: false
+        }
+    }
+
     /// Whether the account token was rejected, rather than the network failing.
     var isAuthFailure: Bool {
         switch self {

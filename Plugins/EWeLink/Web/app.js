@@ -123,6 +123,7 @@
 
   async function saveConfiguration(button) {
     await act(button, async () => {
+      clearProblem($("#save-problem"));
       try {
         let block;
         const result = await homeswift.updateBlock((current) => {
@@ -141,7 +142,7 @@
         $("#restart-status").textContent = "";
         showStep("complete");
       } catch (e) {
-        alert(e.message || "Failed to save configuration");
+        showProblem($("#save-problem"), e.message || "Failed to save configuration", "Saving this instance's block of config.json from the eWeLink plugin settings failed.");
       }
     });
   }
@@ -149,12 +150,13 @@
   async function restart() {
     await api("/api/restart", { method: "POST" });
     $("#restart-status").textContent = "Restarting…";
-    for (let tries = 0; tries < 60; tries++) {
+    let back = false;
+    for (let tries = 0; tries < 60 && !back; tries++) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      try { await request("status"); break; } catch { /* not back yet */ }
+      try { await request("status"); back = true; } catch { /* not back yet */ }
     }
-    $("#restart-status").textContent = "Homeswift restarted.";
-    $("#restart").classList.add("hidden");
+    $("#restart-status").textContent = back ? "Homeswift restarted." : "Homeswift has not answered for a minute: check its log, then reload this page.";
+    $("#restart").classList.toggle("hidden", back);
   }
 
   // MARK: Events

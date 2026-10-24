@@ -14,13 +14,13 @@ actor AWSClient {
     let accountTopic: String
     private let connection: any MQTTConnection
     private let debug: DebugLog
-    private let receive: @Sendable (JSONValue) -> Void
+    private let receive: @Sendable (JSONValue) async -> Void
     private(set) var connected = false
     private var tasks: [Task<Void, Never>] = []
 
     init(
         accountTopic: String, connection: any MQTTConnection, publishTimeout: Duration = AWSClient.publishTimeout, debug: DebugLog,
-        receive: @escaping @Sendable (JSONValue) -> Void
+        receive: @escaping @Sendable (JSONValue) async -> Void
     ) {
         self.accountTopic = accountTopic
         self.publishTimeout = publishTimeout
@@ -112,8 +112,8 @@ actor AWSClient {
     }
 
     /// A message of the account topic: JSON, possibly with the real message as a JSON string in `msg`, and
-    /// `data` as a JSON string too.
-    func handle(payload: Data) {
+    /// `data` as a JSON string too. Delivered before the next message is read, so updates keep their order.
+    func handle(payload: Data) async {
         let text = String(decoding: payload, as: UTF8.self)
         guard var parsed = try? JSONValue(data: payload) else {
             debug("[AWS] \(Lang.invalidJson) [\(text)].")
@@ -131,7 +131,7 @@ actor AWSClient {
             parsed = .object(object)
         }
         debug("[AWS] \(Lang.awsEventMessage) [\(text)].")
-        receive(parsed)
+        await receive(parsed)
     }
 
     static func transaction() -> String { "v_\(Int(Date().timeIntervalSince1970 * 1000))000" }

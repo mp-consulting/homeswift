@@ -60,6 +60,9 @@ actor LANControl {
     private(set) var devices: [String: LANDevice] = [:]
     private var failureCounts: [String: Int] = [:]
     private var cooldownUntil: [String: Double] = [:]
+    /// Devices that announced `encrypt=true`: an announcement without it later is not believed, since anyone on
+    /// the LAN can announce a device's name, and plaintext would open its updates to spoofing.
+    private var announcedEncrypted: Set<String> = []
     private var running = false
     private var browser: Task<Void, Never>?
     private var listener: (any LANDatagramListener)?
@@ -135,6 +138,7 @@ actor LANControl {
         devices.removeAll()
         failureCounts.removeAll()
         cooldownUntil.removeAll()
+        announcedEncrypted.removeAll()
         logger.debug("LAN control stopped")
     }
 
@@ -172,6 +176,13 @@ actor LANControl {
                 return
             }
             let port = port == 0 ? Timing.lanHTTPPort : port
+            var encrypt = txt["encrypt"] == "true"
+            if encrypt {
+                announcedEncrypted.insert(deviceID)
+            } else if announcedEncrypted.contains(deviceID) {
+                logger.debug("[LAN] \(serviceName) announced without encryption after announcing it: kept encrypted")
+                encrypt = true
+            }
             let info = await deviceInfo(deviceID)
             // The device announced itself: LAN is worth trying again.
             resetHealth(deviceID)
@@ -183,7 +194,7 @@ actor LANControl {
                 return
             }
             let key = info?.deviceKey.flatMap { $0.isEmpty ? nil : $0 } ?? devices[deviceID]?.deviceKey
-            devices[deviceID] = LANDevice(deviceID: deviceID, ip: ip, port: port, encrypt: txt["encrypt"] == "true", iv: txt["iv"], deviceKey: key)
+            devices[deviceID] = LANDevice(deviceID: deviceID, ip: ip, port: port, encrypt: encrypt, iv: txt["iv"], deviceKey: key)
             logger.debug("[LAN] Discovered device: \(info?.name ?? deviceID) at \(ip):\(port)")
         case .lost(let serviceName):
             guard let deviceID = Self.deviceID(fromServiceName: serviceName) else { return }

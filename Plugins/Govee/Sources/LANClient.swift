@@ -31,6 +31,8 @@ actor LANClient {
     static let receiverPort = 4002
     static let devicePort = 4003
     static let scanSettleTime: Duration = .milliseconds(2000)
+    /// A scan ends after this however many replies keep coming (anyone on the LAN can send them).
+    static let scanMaximumTime: Duration = .seconds(10)
     static let maximumDevices = 256
     static let maximumLoggedLength = 200
 
@@ -63,13 +65,16 @@ actor LANClient {
         })
     }
 
-    /// Scans, and returns the devices once none has answered for two seconds.
+    /// Scans, and returns the devices once none has answered for two seconds, or after ten seconds.
     func discover() async -> [LANDevice] {
         await sendScan()
         latestScanReply = .now
-        // Each reply moves the deadline on.
-        while ContinuousClock.now < latestScanReply + Self.scanSettleTime {
-            do { try await Task.sleep(until: latestScanReply + Self.scanSettleTime, clock: .continuous) } catch { break }
+        let end = ContinuousClock.now + Self.scanMaximumTime
+        // Each reply moves the deadline on, up to the end.
+        while true {
+            let deadline = min(latestScanReply + Self.scanSettleTime, end)
+            guard ContinuousClock.now < deadline else { break }
+            do { try await Task.sleep(until: deadline, clock: .continuous) } catch { break }
         }
         return devices
     }

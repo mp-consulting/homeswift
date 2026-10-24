@@ -132,6 +132,13 @@ import Testing
         #expect(throws: CharacteristicDiscovery.Failure.self) { try discovery.receive(Self.bytes("0b 00")) }
     }
 
+    @Test func discoveryFailsWhenThePeripheralGoesBackwards() throws {
+        var discovery = CharacteristicDiscovery()
+        try discovery.receive(Self.bytes("09 07 0200 02 0300 002a 0400 02 0500 012a"))
+        // Asked from handle 6 on, an answer ending at handle 3 would ask from 4 again, forever.
+        #expect(throws: CharacteristicDiscovery.Failure.self) { try discovery.receive(Self.bytes("09 07 0200 02 0300 002a")) }
+    }
+
     @Test func writesAndThePeripheralsOwnPDUs() {
         // A colour frame to the control characteristic's value handle, as a write command.
         let frame = Self.bytes("3305 02ff0000 0000000000000000000000000000")

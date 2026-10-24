@@ -19,7 +19,7 @@ public actor EWeLinkPlugin: HomeswiftPlugin {
 
     /// What the plugin uses to reach the cloud and the LAN; tests swap them for fakes.
     struct Dependencies: Sendable {
-        var transport: any HTTPSending = URLSessionTransport()
+        var transport: any HTTPSending = HTTPClient.eWeLinkCloud
         var connectSocket: CloudSocket.Connect = CloudSocket.connectWebSocket
         var lanNetwork: any LANNetwork = SystemLANNetwork()
         var clock = EWeLinkClock()

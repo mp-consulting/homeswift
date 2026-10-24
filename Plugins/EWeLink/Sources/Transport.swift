@@ -1,21 +1,13 @@
 import Foundation
 import Homeswift
 import HomeswiftNetwork
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
 
-/// Foundation's URLSession: the cloud has public certificates, devices on the LAN speak plain HTTP.
-struct URLSessionTransport: HTTPSending {
-    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        let timeout = request.timeout.components
-        var urlRequest = URLRequest(url: request.url, timeoutInterval: Double(timeout.seconds) + Double(timeout.attoseconds) / 1e18)
-        urlRequest.httpMethod = request.method
-        for (name, value) in request.headers { urlRequest.setValue(value, forHTTPHeaderField: name) }
-        urlRequest.httpBody = request.body
-        let (data, response) = try await URLSession.shared.data(for: urlRequest)
-        return HTTPResponse(status: (response as? HTTPURLResponse)?.statusCode ?? 0, body: data)
-    }
+extension HTTPClient {
+    /// The cloud: public certificates, the system's roots; an account's device list fits easily.
+    static let eWeLinkCloud = HTTPClient(maximumBodySize: 16 * 1024 * 1024)
+    /// Devices on the LAN speak plain HTTP and answer a few bytes of JSON: whatever answers at an address mDNS
+    /// gave cannot make the bridge hold more, or follow it elsewhere (no redirects).
+    static let eWeLinkLAN = HTTPClient(maximumBodySize: 64 * 1024)
 }
 
 /// Time for the plugin's timers and timestamps. Tests run it faster (`scale` 0.01 makes a 10 s timer last

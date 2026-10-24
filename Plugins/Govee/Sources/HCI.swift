@@ -359,7 +359,8 @@ struct CharacteristicDiscovery {
                 valueHandle: UInt16(pdu[offset + 3]) | UInt16(pdu[offset + 4]) << 8, uuid: ATT.uuidString(pdu[(offset + 5)..<(offset + size)])))
             offset += size
         }
-        guard let last = found.last else { throw Failure.unexpected(pdu) }
+        // A peripheral that answers with handles before the requested range would keep the search going forever.
+        guard let last = found.last, let start = next, last.valueHandle >= start else { throw Failure.unexpected(pdu) }
         characteristics += found
         next = last.valueHandle == 0xffff ? nil : last.valueHandle + 1
     }

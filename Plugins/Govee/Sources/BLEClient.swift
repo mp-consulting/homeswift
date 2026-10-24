@@ -264,10 +264,9 @@ actor BLEClient {
     }
 
     func handle(_ advertisement: BLEAdvertisement) {
-        guard !isShuttingDown, let callback = discoverCallback, SensorDecoding.isValid(manufacturerData: advertisement.manufacturerData),
-            let data = advertisement.manufacturerData
-        else { return }
+        guard !isShuttingDown, let callback = discoverCallback, let data = advertisement.manufacturerData else { return }
         let hex = Secrets.hex(data)
+        guard SensorDecoding.isValid(hex: hex) else { return }
         debug("[BLE] sensor data from \(advertisement.address ?? advertisement.localName ?? advertisement.identifier): \(hex).")
         do {
             let reading = try SensorDecoding.decode(hex)

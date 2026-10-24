@@ -190,6 +190,8 @@ actor CloudSocket {
         }
         defer { timeout.cancel() }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            // An earlier authentication still waiting would otherwise never end.
+            failAuthentication(EWeLinkError("WebSocket authentication superseded"))
             authentication = continuation
             Task {
                 do {

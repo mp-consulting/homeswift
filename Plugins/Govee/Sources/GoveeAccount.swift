@@ -157,8 +157,7 @@ actor GoveeAccount {
                 credentials: AccountCredentials(topic: login.topic, token: login.token, accountId: login.accountId, endpoint: key.endpoint, iotPass: key.p12Password),
                 iot: key.p12)
         } catch let error as GoveeAPIError {
-            if case .twoFactorRequired = error { logger.warning("[HTTP] \(error)") }
-            if case .twoFactorInvalid = error { logger.warning("[HTTP] \(error)") }
+            if error.needsVerificationCode { logger.warning("[HTTP] \(error)") }
             guard case .unreachable(let reason) = error else { throw error }
             guard retry < Self.maximumRetries else {
                 logger.warning("[HTTP] login() failed after \(Self.maximumRetries) retries [\(reason)].")
