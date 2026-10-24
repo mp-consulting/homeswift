@@ -51,6 +51,11 @@ COPY Scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 ENV AVAHI_COMPAT_NOWARN=1
 # The Status page's update notice gives the image's new tag.
 ENV HOMESWIFT_INSTALL=docker
+# Two glibc heaps rather than eight per core: a camera's livestream, read on whichever thread, otherwise spreads
+# over them and they keep what it freed (Synology/package/app/environment.sh).
+ENV MALLOC_ARENA_MAX=2
+# Blocks of 128 KB and more mapped on their own and given back when freed, rather than from a heap that keeps them.
+ENV MALLOC_MMAP_THRESHOLD_=131072
 # config.json, the pairings, the accessory cache, logs and metrics.
 VOLUME /homeswift
 # HAP (the bridge's port in config.json), the web UI, mDNS. Informational: host networking publishes nothing.

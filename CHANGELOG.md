@@ -21,6 +21,16 @@ All notable changes to this project are documented here. The format follows
   avatar) a deeper fill; the amber of "Not paired", the green of "Saved" and JSON numbers are darker in light
   mode, and dark mode gets the brighter green it lacked. The bright orange stays for borders, rings and switches.
 
+### Fixed
+
+- Synology package and container image: the bridge runs with `MALLOC_ARENA_MAX=2`. With cameras recording to
+  HomeKit Secure Video, the livestreams spread over glibc's per-thread heaps (up to eight per core), which keep
+  what is freed. On a DS1522+ with three recording cameras, the bridge went from about 185 MB to 170 MB and
+  its reserved address space from 2.2 GB to 380 MB. They also run with `MALLOC_MMAP_THRESHOLD_=131072`: glibc
+  otherwise raises that threshold to the largest block freed, so once a recording has joined a camera's buffer
+  into one block, every snapshot and fMP4 fragment came from a heap that kept the room between them; blocks of
+  128 KB and more are now mapped on their own and given back. An environment that sets either keeps its own value.
+
 ## [0.6.0] - 2026-10-24
 
 ### Added
