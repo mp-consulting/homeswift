@@ -30,6 +30,11 @@ public final class UIServer: Sendable {
         /// What the Status page says about a newer release; the CLI's, kept across restarts of the UI. Libraries
         /// and tests have none.
         public var releases: ReleaseWatcher?
+        /// How long a connection may stay silent while no answer is under way (a kept-alive connection between
+        /// requests, a request that stopped half-way) before it is closed.
+        var idleTimeout: TimeAmount = .seconds(60)
+        /// How often an event stream sends a comment to stay open, and checks its caller still may read it.
+        var keepalive: Duration = .seconds(20)
         public init() {}
     }
 
@@ -49,6 +54,8 @@ public final class UIServer: Sendable {
     private let assets = NIOLockedValueBox<[String: (file: WebFile, body: Data, tag: String)]>([:])
     let options: Options
     let throttle = FailureThrottle()
+    /// The password and code checks under way, one per client address at a time.
+    let credentialChecks = CredentialChecks()
     let events = EventHub()
     let chat: AssistantChat
     /// The pages' one-shot Assistant requests, streamed and cancellable (`AssistantRoutes.swift`).
@@ -57,6 +64,8 @@ public final class UIServer: Sendable {
     let preferences: PreferencesStore
     /// Who watches which camera's live feed, to cap them.
     let cameraViewers = CameraViewers()
+    /// The snapshot each camera is taking, shared by the requests that come meanwhile.
+    let cameraSnapshots = CameraSnapshots()
     private let channel = NIOLockedValueBox<(any Channel)?>(nil)
     let live: LiveWebFiles?
     private let watcher = NIOLockedValueBox<Task<Void, Never>?>(nil)
@@ -103,11 +112,13 @@ public final class UIServer: Sendable {
     public func start() async throws {
         events.attach(to: catalog)
         let sslContext = try configuration.https ? makeSSLContext() : nil
+        let idleTimeout = options.idleTimeout
         let bootstrap = ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton)
             .serverChannelOption(.backlog, value: 32)
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { [self] channel in
                 channel.eventLoop.makeCompletedFuture {
+                    try channel.pipeline.syncOperations.addHandler(IdleStateHandler(readTimeout: idleTimeout))
                     if let sslContext { try channel.pipeline.syncOperations.addHandler(NIOSSLServerHandler(context: sslContext)) }
                     try channel.pipeline.syncOperations.configureHTTPServerPipeline(withErrorHandling: true)
                     try channel.pipeline.syncOperations.addHandler(UIRequestHandler(server: self))
@@ -172,7 +183,8 @@ public final class UIServer: Sendable {
 
     enum Reply: Sendable {
         case data(status: Int, contentType: String, body: Data, headers: [String: String] = [:])
-        case events(AsyncStream<Data>)
+        /// Server-sent events; `allowed`, asked at each keepalive, ends the stream once it answers false.
+        case events(AsyncStream<Data>, allowed: (@Sendable () -> Bool)? = nil)
         /// A camera's live feed, chunked: the initialization segment, then each fragment until the browser leaves.
         case media(MediaStream)
 
@@ -198,6 +210,10 @@ public final class UIServer: Sendable {
         guard isAllowedHost(request.headers["host"]) else {
             return .error(421, "this is not a name the web UI answers to; add it to allowedHosts in the HomeswiftUI block")
         }
+        // The handler stopped keeping the body past what the request may send (UIRequestHandler's body limits).
+        if request.truncated {
+            return .error(413, Self.acceptsArchive(request) ? "the upload is larger than \(InstanceBackups.maxArchiveSize / 1_048_576) MB" : "the request is too large")
+        }
         let parts = request.path.split(separator: "/").map { String($0).removingPercentEncoding ?? String($0) }
         guard parts.first == "api" else { return page(for: parts, request) }
         let route = Array(parts.dropFirst())
@@ -211,8 +227,13 @@ public final class UIServer: Sendable {
             return .error(403, caller.token?.scope == .read ? "this API token can only read" : "only an administrator can do this")
         }
         do {
-            let reply = try await api(route, request, caller: caller)
+            var reply = try await api(route, request, caller: caller)
             if request.method != .GET { audit(route, request, caller: caller, reply: reply) }
+            // A stream outlives the request: it ends once its caller could no longer open it (signed out, removed,
+            // the token revoked, or no longer an administrator, whose stream carries the log).
+            if case .events(let stream, .none) = reply {
+                reply = .events(stream, allowed: { [self] in self.caller(request, bearer: true, refresh: false)?.scope == caller.scope })
+            }
             return reply
         } catch let error as JSONRPCError {
             return .error(400, error.message)
@@ -269,7 +290,8 @@ public final class UIServer: Sendable {
             // certificate, and falls back to a letter: over HTTPS the page carries the icon itself.
             let link = #"<link rel="apple-touch-icon" href="/apple-touch-icon.png">"#
             if body.contains(link), let icon = live?.file("apple-touch-icon.png", platform: nil, unreadable: { _, _ in }) ?? files["apple-touch-icon.png"] {
-                body = body.replacingOccurrences(of: link, with: #"<link rel="apple-touch-icon" href="data:image/png;base64,\#(icon.data.base64EncodedString())">"#)
+                let base64 = icon.isBase64 ? icon.body : icon.data.base64EncodedString()
+                body = body.replacingOccurrences(of: link, with: #"<link rel="apple-touch-icon" href="data:image/png;base64,\#(base64)">"#)
             }
         }
         if let instance, let platform {
@@ -326,19 +348,18 @@ public final class UIServer: Sendable {
 
     /// The request's caller: by its session cookie, or, with `bearer`, by an `Authorization: Bearer` API token
     /// (which, when present, is the only thing looked at). With `auth: none`, everyone is the administrator.
-    func caller(_ request: Request, bearer: Bool) -> Caller? {
+    /// `refresh` false looks without counting it as activity: neither the session's expiry nor the token's last use.
+    func caller(_ request: Request, bearer: Bool, refresh: Bool = true) -> Caller? {
         if configuration.auth == .none { return Caller(username: "local", scope: .admin) }
         if bearer, let header = request.headers["authorization"] {
             guard header.count > 7, header.prefix(7).lowercased() == "bearer " else { return nil }
-            guard let token = tokens.validate(header.dropFirst(7).trimmingCharacters(in: .whitespaces)) else { return nil }
+            guard let token = tokens.validate(header.dropFirst(7).trimmingCharacters(in: .whitespaces), noteUse: refresh) else { return nil }
             return Caller(username: "api-token:\(token.name)", scope: token.scope == .admin ? .admin : .read, token: token)
         }
-        guard let session = request.cookies[Self.cookieName], let username = sessions.username(for: session),
+        guard let session = request.cookies[Self.cookieName], let username = sessions.username(for: session, refresh: refresh),
               let user = users.user(named: username) else { return nil }
         return Caller(username: user.username, scope: user.admin ? .admin : .control, session: session)
     }
-
-    func authenticatedUser(_ request: Request) -> String? { caller(request, bearer: false)?.username }
 
     /// What a route needs, after Glass UI's guards: reading the bridge's state and accessories is for anyone signed
     /// in (and read tokens), controlling accessories and the Assistant's chat for any user, and everything else
@@ -427,6 +448,8 @@ public final class UIServer: Sendable {
             guard let setupCode, users.isEmpty else { return .error(409, AuthError.setupDone.description) }
             guard let (username, password) = credentials(request) else { return .error(400, "username and password are required") }
             let presented = (try? JSONValue(data: request.body))?["setupCode"]?.stringValue ?? ""
+            guard credentialChecks.begin(request.remote) else { return Self.checkUnderWay }
+            defer { credentialChecks.end(request.remote) }
             let delay = throttle.delay(for: request.remote)
             if delay > .zero { try? await Task.sleep(for: delay) }
             guard Self.setupCodeMatches(presented, setupCode) else {
@@ -435,7 +458,8 @@ public final class UIServer: Sendable {
                 return .error(403, AuthError.wrongSetupCode.description)
             }
             do {
-                try users.createFirst(username: username, password: password)
+                let users = users
+                _ = try await Self.hashing { Result { try users.createFirst(username: username, password: password) } }.get()
             } catch AuthError.setupDone {
                 return .error(409, AuthError.setupDone.description)
             } catch {
@@ -448,9 +472,13 @@ public final class UIServer: Sendable {
             if let refused = refuseCrossSite(request) { return refused }
             guard configuration.auth == .form else { return .error(400, "no login is needed") }
             guard let (username, password) = credentials(request) else { return .error(400, "username and password are required") }
+            // One attempt at a time per address: parallel guesses would all get the delay due before any failed.
+            guard credentialChecks.begin(request.remote) else { return Self.checkUnderWay }
+            defer { credentialChecks.end(request.remote) }
             let delay = throttle.delay(for: request.remote)
             if delay > .zero { try? await Task.sleep(for: delay) }
-            guard let user = users.authenticate(username: username, password: password) else {
+            let users = users
+            guard let user = await Self.hashing({ users.authenticate(username: username, password: password) }) else {
                 throttle.failed(request.remote)
                 logger.warning("Web UI login failed", metadata: ["remote": "\(request.remote)"])
                 return .error(401, AuthError.badCredentials.description)
@@ -481,6 +509,7 @@ public final class UIServer: Sendable {
                 "minimumBits": .number(PasswordPolicy.minimumBits),
             ])
         case (.POST, "logout"):
+            if let refused = refuseCrossSite(request) { return refused }
             if let token = request.cookies[Self.cookieName] { sessions.revoke(token) }
             return .json(JSONValue.object([:]), headers: ["Set-Cookie": cookie(nil, secure: request.secure)])
         default:
@@ -733,7 +762,7 @@ public final class UIServer: Sendable {
             }
             if route == ["logs", "truncate"] {
                 // For administrators, as the MCP tool is admin-scoped.
-                guard isAdmin(username) else { return .error(403, "only an administrator can empty the log") }
+                guard caller.isAdmin else { return .error(403, "only an administrator can empty the log") }
                 return .json(catalog.truncateLogs(by: "web UI user \(username)"))
             }
             if route == ["restart"] {
@@ -810,6 +839,7 @@ public final class UIServer: Sendable {
         case (.POST, ["account", "password"]):
             // The signed-in user's own password: the current one first, slowed down after mistakes like a login.
             guard let current = body["current"]?.stringValue, let new = body["new"]?.stringValue else { return .error(400, "the current and the new password are required") }
+            let users = users
             if let refused = await checkingPassword(request, user: user, { try users.changePassword(username: user.username, current: current, new: new) }) { return refused }
             sessions.revokeAll(of: user.username, keeping: caller.session)
             logger.info("Web UI password changed; the user's other sessions are signed out", metadata: ["user": "\(user.username)"])
@@ -826,6 +856,8 @@ public final class UIServer: Sendable {
             return .json(["secret": .string(Base32.encode(secret)), "uri": .string(shown?.0 ?? uris[0]), "qr": shown.map { .string($0.1) } ?? .null])
         case (.POST, ["account", "otp", "activate"]):
             guard let code = body["code"]?.stringValue else { return .error(400, "the code is required") }
+            guard credentialChecks.begin(request.remote) else { return Self.checkUnderWay }
+            defer { credentialChecks.end(request.remote) }
             let delay = throttle.delay(for: request.remote)
             if delay > .zero { try? await Task.sleep(for: delay) }
             do {
@@ -843,6 +875,7 @@ public final class UIServer: Sendable {
             return .json(["twoFactor": true])
         case (.POST, ["account", "otp", "disable"]):
             guard let password = body["password"]?.stringValue else { return .error(400, "the password is required") }
+            let users = users
             if let refused = await checkingPassword(request, user: user, { try users.disableTwoFactor(username: user.username, password: password) }) { return refused }
             sessions.revokeAll(of: user.username, keeping: caller.session)
             logger.info("Web UI two-factor authentication turned off; the user's other sessions are signed out", metadata: ["user": "\(user.username)"])
@@ -858,8 +891,9 @@ public final class UIServer: Sendable {
         case (.POST, ["users"]):
             guard let username = body["username"]?.stringValue, let password = body["password"]?.stringValue else { return .error(400, "a username and a password are required") }
             let created: UserStore.User
+            let (users, name, admin) = (users, body["name"]?.stringValue, body["admin"]?.boolValue ?? false)
             do {
-                created = try users.create(username: username, password: password, name: body["name"]?.stringValue, admin: body["admin"]?.boolValue ?? false)
+                created = try await Self.hashing { Result { try users.create(username: username, password: password, name: name, admin: admin) } }.get()
             } catch AuthError.userExists {
                 return .error(409, AuthError.userExists.description)
             } catch let error as AuthError {
@@ -870,8 +904,9 @@ public final class UIServer: Sendable {
         case (.PUT, let path) where path.count == 2 && path[0] == "users":
             let password = body["password"]?.stringValue
             let updated: UserStore.User
+            let (users, name, admin) = (users, body["name"]?.stringValue, body["admin"]?.boolValue)
             do {
-                updated = try users.update(username: path[1], name: body["name"]?.stringValue, admin: body["admin"]?.boolValue, password: password)
+                updated = try await Self.hashing { Result { try users.update(username: path[1], name: name, admin: admin, password: password) } }.get()
             } catch AuthError.noSuchUser {
                 return .error(404, AuthError.noSuchUser.description)
             } catch let error as AuthError {
@@ -891,7 +926,9 @@ public final class UIServer: Sendable {
                 return .error(400, error.description)
             }
             sessions.revokeAll(of: target, keeping: nil)
-            await chat.reset(user: target)
+            // Their conversations and choices go with them: a later account of the same name starts afresh.
+            await chat.forget(user: target)
+            preferences.forget(user: target)
             logger.info("Web UI user removed", metadata: ["user": "\(target)", "by": "\(user.username)"])
             return .json(JSONValue.object([:]))
         case (.GET, ["tokens"]):
@@ -923,11 +960,13 @@ public final class UIServer: Sendable {
     }
 
     /// Runs a change that checks the user's password, slowed down after mistakes like a login; a refusal's reply.
-    private func checkingPassword(_ request: Request, user: UserStore.User, _ change: () throws -> Void) async -> Reply? {
+    private func checkingPassword(_ request: Request, user: UserStore.User, _ change: @escaping @Sendable () throws -> Void) async -> Reply? {
+        guard credentialChecks.begin(request.remote) else { return Self.checkUnderWay }
+        defer { credentialChecks.end(request.remote) }
         let delay = throttle.delay(for: request.remote)
         if delay > .zero { try? await Task.sleep(for: delay) }
         do {
-            try change()
+            try await Self.hashing { Result { try change() } }.get()
         } catch AuthError.wrongPassword {
             throttle.failed(request.remote)
             logger.warning("Web UI change refused: wrong password", metadata: ["user": "\(user.username)", "remote": "\(request.remote)"])
@@ -1019,9 +1058,6 @@ public final class UIServer: Sendable {
     /// The most lines one time range answers with: the latest of them.
     static let logLimit = 10_000
 
-    /// Whether a log line is about an accessory: its own server's lines, and those naming it, its id, the
-    /// address its id carries (`ElgatoKeyLights:3C:6A:…`) or its serial number. The page filters live lines
-    /// the same way.
     /// What names an accessory in a line, lower-cased: its name, id, address (`ElgatoKeyLights:3C:6A:…`) and serial.
     static func logTerms(for found: HomeswiftCatalog.Located) -> [String] {
         let accessory = found.accessory
@@ -1049,6 +1085,8 @@ public final class UIServer: Sendable {
         return { row in keys.contains { TextSearch.contains(row, ascii: $0) } }
     }
 
+    /// Whether a log line is about an accessory: the lines naming it, its id, the address its id carries or its
+    /// serial number. The page filters live lines the same way.
     static func logMatcher(for found: HomeswiftCatalog.Located) -> @Sendable (LogBuffer.Line) -> Bool {
         let terms = logTerms(for: found)
         // A lower-cased term that is not ASCII never occurs in an ASCII line.
@@ -1217,11 +1255,24 @@ final class EventHub: Sendable {
 final class UIRequestHandler: ChannelInboundHandler {
     typealias InboundIn = HTTPServerRequestPart
 
+    /// What a signed-in caller may send; a backup to restore, an administrator's, is the one larger body: an
+    /// archive, up to InstanceBackups.maxArchiveSize.
+    static let bodyLimit = 4 * 1024 * 1024
+    /// What anyone else may send: a sign-in's JSON. Bodies are kept before the route checks anything, so a client
+    /// with no session cannot make the bridge hold megabytes per connection.
+    static let anonymousBodyLimit = 64 * 1024
+
+    /// Sent through the pipeline once an answer is written, so the idle timeout applies again.
+    struct ResponseDone: Sendable {}
+
     let server: UIServer
     private var head: HTTPRequestHead?
+    private var headers: [String: String] = [:]
     private var body = Data()
-    private var limit = 4 * 1024 * 1024
+    private var limit = UIRequestHandler.anonymousBodyLimit
     private var truncated = false
+    /// Answers under way: while there is one, a silent connection is waiting for it (a stream, a slow Assistant).
+    private var answering = 0
 
     init(server: UIServer) {
         self.server = server
@@ -1231,17 +1282,20 @@ final class UIRequestHandler: ChannelInboundHandler {
         switch unwrapInboundIn(data) {
         case .head(let head):
             self.head = head
+            headers = [:]
+            for (name, value) in head.headers { headers[name.lowercased()] = value }
             body = Data()
             truncated = false
-            // A backup to restore is the one large body: an archive, up to InstanceBackups.maxArchiveSize.
-            limit = head.uri.hasPrefix("/api/backups/restore") ? InstanceBackups.maxArchiveSize : 4 * 1024 * 1024
+            // Who sends it, looked up without counting as activity: the route checks again with the whole request.
+            let probe = UIServer.Request(method: head.method, path: String(head.uri.prefix { $0 != "?" }), headers: headers, body: Data(), remote: "")
+            let caller = server.caller(probe, bearer: true, refresh: false)
+            limit = caller == nil ? Self.anonymousBodyLimit
+                : caller?.isAdmin == true && probe.path == "/api/backups/restore" ? InstanceBackups.maxArchiveSize : Self.bodyLimit
         case .body(var buffer):
             if body.count + buffer.readableBytes > limit { truncated = true }
             if !truncated, let bytes = buffer.readBytes(length: buffer.readableBytes) { body.append(contentsOf: bytes) }
         case .end:
             guard let head else { return }
-            var headers: [String: String] = [:]
-            for (name, value) in head.headers { headers[name.lowercased()] = value }
             let components = URLComponents(string: head.uri)
             let query = Dictionary((components?.queryItems ?? []).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { _, last in last })
             var request = UIServer.Request(
@@ -1255,14 +1309,30 @@ final class UIRequestHandler: ChannelInboundHandler {
             }
             request.truncated = truncated
             self.head = nil
+            body = Data()
+            answering += 1
             Self.respond(to: request, keepAlive: head.isKeepAlive, channel: context.channel, server: server)
         }
     }
 
+    func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
+        if event is ResponseDone {
+            answering = max(0, answering - 1)
+        } else if let idle = event as? IdleStateHandler.IdleStateEvent, idle == .read {
+            // Nothing read for a while and nothing to answer: a kept-alive connection nobody uses, or a request
+            // that stopped coming. Closed, so idle or slow clients cannot hold the bridge's sockets.
+            if answering == 0 { context.close(promise: nil) }
+        } else {
+            context.fireUserInboundEventTriggered(event)
+        }
+    }
+
     private static func respond(to request: UIServer.Request, keepAlive: Bool, channel: any Channel, server: UIServer) {
+        let keepalive = server.options.keepalive
         Task {
             let reply = await server.reply(to: request)
-            await write(reply, to: channel, keepAlive: keepAlive)
+            await write(reply, to: channel, keepAlive: keepAlive, keepalive: keepalive)
+            channel.pipeline.fireUserInboundEventTriggered(ResponseDone())
         }
     }
 
@@ -1274,7 +1344,7 @@ final class UIRequestHandler: ChannelInboundHandler {
         ("Cache-Control", "no-store"),
     ]
 
-    private static func write(_ reply: UIServer.Reply, to channel: any Channel, keepAlive: Bool) async {
+    private static func write(_ reply: UIServer.Reply, to channel: any Channel, keepAlive: Bool, keepalive interval: Duration) async {
         var head = HTTPResponseHead(version: .http1_1, status: .ok)
         for (name, value) in securityHeaders { head.headers.add(name: name, value: value) }
         switch reply {
@@ -1290,21 +1360,28 @@ final class UIRequestHandler: ChannelInboundHandler {
             if !keepAlive { channel.close(promise: nil) }
         case .media(let media):
             await writeMedia(media, head: head, to: channel)
-        case .events(let stream):
+        case .events(let stream, let allowed):
             head.headers.add(name: "Content-Type", value: "text/event-stream")
             head.headers.add(name: "Connection", value: "close")
             channel.writeAndFlush(HTTPServerResponsePart.head(head), promise: nil)
-            let keepalive = Task {
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(20))
-                    guard !Task.isCancelled else { break }
-                    channel.writeAndFlush(HTTPServerResponsePart.body(.byteBuffer(ByteBuffer(string: ": keepalive\n\n"))), promise: nil)
-                }
-            }
-            // A closed connection stops reading the stream, which ends what feeds it (a run, a subscription).
+            // Each event once the previous one is out: a browser that stops reading leaves events in the stream's
+            // own bounded buffer, not in the channel's, which nothing bounds. A closed connection stops reading the
+            // stream, which ends what feeds it (a run, a subscription).
             let forward = Task {
                 for await chunk in stream {
-                    channel.writeAndFlush(HTTPServerResponsePart.body(.byteBuffer(ByteBuffer(bytes: chunk))), promise: nil)
+                    do { try await channel.writeAndFlush(HTTPServerResponsePart.body(.byteBuffer(ByteBuffer(bytes: chunk)))).get() } catch { break }
+                }
+            }
+            let keepalive = Task {
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: interval)
+                    guard !Task.isCancelled else { break }
+                    // The caller signed out, was removed or changed role: the stream ends, and the page asks again.
+                    if let allowed, !allowed() {
+                        forward.cancel()
+                        break
+                    }
+                    channel.writeAndFlush(HTTPServerResponsePart.body(.byteBuffer(ByteBuffer(string: ": keepalive\n\n"))), promise: nil)
                 }
             }
             channel.closeFuture.whenComplete { _ in forward.cancel() }
@@ -1359,4 +1436,45 @@ extension UIServer {
         func bare(_ code: String) -> Data { Data(code.uppercased().filter { $0.isLetter || $0.isNumber }.utf8) }
         return Secrets.constantTimeEqual(bare(presented), bare(expected))
     }
+}
+
+// MARK: Password checks
+
+extension UIServer {
+    /// The answer while another check from the same address is under way.
+    static var checkUnderWay: Reply {
+        .json(["error": "another attempt from this address is under way; try again in a moment"], status: 429, headers: ["Retry-After": "1"])
+    }
+
+    /// PBKDF2 runs here, two hashes at a time and off the concurrency pool: a burst of sign-ins (210,000 rounds each,
+    /// seconds on a NAS) slows sign-ins, not the accessories and plugins sharing the pool.
+    private static let hashQueue = HashQueue()
+
+    static func hashing<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { continuation in
+            hashQueue.queue.addOperation { continuation.resume(returning: work()) }
+        }
+    }
+
+    /// OperationQueue is thread-safe, but not marked Sendable on every platform.
+    private final class HashQueue: @unchecked Sendable {
+        let queue = OperationQueue()
+
+        init() {
+            queue.name = "homeswift.ui.passwords"
+            queue.maxConcurrentOperationCount = 2
+            queue.qualityOfService = .userInitiated
+        }
+    }
+}
+
+/// The client addresses with a password or code check under way. A second attempt from one of them is refused
+/// rather than queued: parallel attempts would all be given the throttle's delay before any of them failed, and so
+/// guess as many times at once as the client likes.
+final class CredentialChecks: Sendable {
+    private let active = NIOLockedValueBox<Set<String>>([])
+
+    func begin(_ remote: String) -> Bool { active.withLockedValue { $0.insert(remote).inserted } }
+
+    func end(_ remote: String) { _ = active.withLockedValue { $0.remove(remote) } }
 }

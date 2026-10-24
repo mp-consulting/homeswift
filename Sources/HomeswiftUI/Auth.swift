@@ -379,7 +379,9 @@ public final class SessionStore: Sendable {
     public let lifetime: TimeInterval
     let url: URL?
     private let isKnownUser: @Sendable (String) -> Bool
-    private let sessions: NIOLockedValueBox<[String: Session]>
+    /// The sessions, and how many changes they have had: the file is written from a snapshot taken under this lock.
+    private let sessions: NIOLockedValueBox<(all: [String: Session], generation: UInt64)>
+    private let writer = SnapshotWriter()
 
     public init(lifetime: TimeInterval, url: URL? = nil, isKnownUser: @escaping @Sendable (String) -> Bool = { _ in true }) {
         self.lifetime = lifetime
@@ -387,10 +389,10 @@ public final class SessionStore: Sendable {
         self.isKnownUser = isKnownUser
         let saved = url.flatMap { try? Data(contentsOf: $0) }.flatMap { try? JSONDecoder().decode([String: Session].self, from: $0) } ?? [:]
         let latest = Date().addingTimeInterval(lifetime)
-        sessions = NIOLockedValueBox(saved.compactMapValues { session in
+        sessions = NIOLockedValueBox((saved.compactMapValues { session in
             let capped = Session(username: session.username, expires: min(session.expires, latest))
             return capped.expires > Date() && isKnownUser(session.username) ? capped : nil
-        })
+        }, 0))
     }
 
     public func create(username: String) -> String {
@@ -402,15 +404,16 @@ public final class SessionStore: Sendable {
         return token
     }
 
-    /// The user of a live session, refreshing its expiry. A session whose user is gone ends here.
-    public func username(for token: String) -> String? {
+    /// The user of a live session, refreshing its expiry unless `refresh` is false (a check that is not the user's
+    /// own request, such as an open event stream's). A session whose user is gone ends here.
+    public func username(for token: String, refresh: Bool = true) -> String? {
         let key = Self.key(for: token)
         let found: Session? = sessions.withLockedValue { sessions in
-            guard let session = sessions[key], session.expires > Date() else {
-                sessions.removeValue(forKey: key)
+            guard let session = sessions.all[key], session.expires > Date() else {
+                sessions.all.removeValue(forKey: key)
                 return nil
             }
-            sessions[key]?.expires = Date().addingTimeInterval(lifetime)
+            if refresh { sessions.all[key]?.expires = Date().addingTimeInterval(lifetime) }
             return session
         }
         guard let found else { return nil }
@@ -426,7 +429,7 @@ public final class SessionStore: Sendable {
         update { $0.removeValue(forKey: key) }
     }
 
-    public var count: Int { sessions.withLockedValue { $0.count } }
+    public var count: Int { sessions.withLockedValue { $0.all.count } }
 
     /// Ends every session of a user but the one with `keeping`: after a password change, a browser signed in with
     /// the old password is signed out.
@@ -436,14 +439,17 @@ public final class SessionStore: Sendable {
         update { sessions in sessions = sessions.filter { $0.key == kept || $0.value.username.lowercased() != name } }
     }
 
-    /// Changes the sessions under the lock and writes the file after it, so requests never wait on the disk.
+    /// Changes the sessions under the lock and writes the file after it, so requests never wait on the disk. Two
+    /// changes at once write in order: an older snapshot never replaces a newer one, which would bring a revoked
+    /// session back at the next start.
     private func update(_ change: (inout [String: Session]) -> Void) {
-        let snapshot = sessions.withLockedValue { sessions -> [String: Session] in
-            change(&sessions)
-            return sessions
+        let (snapshot, generation) = sessions.withLockedValue { sessions -> ([String: Session], UInt64) in
+            change(&sessions.all)
+            sessions.generation += 1
+            return (sessions.all, sessions.generation)
         }
         guard let url else { return }
-        try? OwnerOnlyFile.write(JSONEncoder().encode(snapshot), to: url)
+        writer.write(generation) { try? OwnerOnlyFile.write(JSONEncoder().encode(snapshot), to: url) }
     }
 
     static func key(for token: String) -> String {
@@ -455,5 +461,20 @@ public final class SessionStore: Sendable {
             hex.append(digits[Int(byte & 0x0F)])
         }
         return String(decoding: hex, as: UTF8.self)
+    }
+}
+
+/// Writes a file from snapshots taken under another lock, newest first: a snapshot older than the one written last
+/// is dropped, so two changes saved at once never leave the earlier one on disk.
+final class SnapshotWriter: Sendable {
+    private let written = NIOLockedValueBox<UInt64>(0)
+
+    /// Runs `save` for the snapshot of change number `generation`, unless a later one was written already.
+    func write(_ generation: UInt64, _ save: () throws -> Void) rethrows {
+        try written.withLockedValue { last in
+            guard generation > last else { return }
+            try save()
+            last = generation
+        }
     }
 }

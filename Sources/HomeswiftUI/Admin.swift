@@ -18,10 +18,6 @@ struct ScheduleState: Sendable {
 // Everything but the history is for administrators; every change is in the audit log as client "web UI".
 
 extension UIServer {
-    /// Whether this user may administer the bridge: their role in `ui-users.json` (UserStore), or everyone with
-    /// `auth: none`. A request's own check is its `Caller` (`caller.isAdmin`), which knows API tokens too.
-    func isAdmin(_ username: String) -> Bool { configuration.auth == .none || users.isAdmin(username) }
-
     /// The restore route takes the archive itself, not JSON.
     static func acceptsArchive(_ request: Request) -> Bool {
         let type = (request.headers["content-type"] ?? "").lowercased()
@@ -47,7 +43,6 @@ extension UIServer {
         let isConfigBackups = route.count >= 2 && route[0] == "config" && route[1] == "backups"
         guard let first = route.first, routes.contains(first) || isConfigBackups else { return nil }
         guard caller.isAdmin else { return .error(403, "only an administrator can do this") }
-        if request.truncated { return .error(413, "the upload is larger than \(InstanceBackups.maxArchiveSize / 1_048_576) MB") }
         // Everything but the archive upload is JSON.
         let body: JSONValue = request.body.isEmpty || Self.acceptsArchive(request) ? .null : try JSONValue(data: request.body)
         let confirmed = body["confirm"]?.boolValue == true

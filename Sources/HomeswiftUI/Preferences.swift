@@ -56,6 +56,12 @@ final class PreferencesStore: Sendable {
         return preferences(for: user)
     }
 
+    /// Forgets a removed user's choices and wallpaper: a new account by the same name starts with the defaults.
+    func forget(user: String) {
+        try? FileManager.default.removeItem(at: wallpaperURL(for: user))
+        try? save { $0[user] = nil }
+    }
+
     private func save(_ change: (inout [String: JSONValue]) -> Void) throws {
         try state.withLockedValue { all in
             var next = all

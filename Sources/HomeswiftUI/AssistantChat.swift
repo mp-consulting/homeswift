@@ -116,6 +116,12 @@ final class AssistantChat: Sendable {
         return conversation.record
     }
 
+    /// Forgets everything of a user who was removed: a new account by the same name starts with nothing of theirs.
+    func forget(user: String) async {
+        _ = await closeCurrent(of: user)
+        store?.remove(user)
+    }
+
     func close() async {
         let tasks = conversations.withLockedValue { conversations in
             defer { conversations = [:] }
@@ -431,6 +437,8 @@ struct ChatRecord: Sendable {
     var messages: [ChatMessage]
     /// What the page shows.
     var items: [JSONValue]
+    /// `json`, once worked out: for a record read from the file or filed away, which does not change any more.
+    var kept: JSONValue?
 
     var isEmpty: Bool { items.isEmpty }
 
@@ -464,6 +472,7 @@ struct ChatRecord: Sendable {
         let date = { (key: String) in json[key]?.stringValue.flatMap(UIServer.date(iso:)) ?? Date() }
         let messages = (try? json["messages"].map { try JSONDecoder().decode([ChatMessage].self, from: $0.encoded()) }) ?? nil
         self.init(id: id, created: date("created"), updated: date("updated"), messages: messages ?? [], items: items)
+        kept = json
     }
 }
 
@@ -475,7 +484,9 @@ final class ChatStore: Sendable {
 
         /// Puts a conversation first among the earlier ones (an empty one is dropped).
         mutating func file(_ record: ChatRecord?) {
-            guard let record, !record.isEmpty else { return }
+            guard var record, !record.isEmpty else { return }
+            // Worked out once: every later save writes the earlier conversations again.
+            if record.kept == nil { record.kept = record.json }
             recent = Array(([record] + recent.filter { $0.id != record.id }).prefix(ChatStore.keptConversations))
         }
     }
@@ -483,29 +494,42 @@ final class ChatStore: Sendable {
     static let keptConversations = 10
     let url: URL
     let logger: Logger
-    private let state: NIOLockedValueBox<[String: UserChats]>
+    /// Each user's conversations, and how many changes they have had (for `writer`).
+    private let state: NIOLockedValueBox<(all: [String: UserChats], generation: UInt64)>
+    private let writer = SnapshotWriter()
 
     init(url: URL, logger: Logger) {
         self.url = url
         self.logger = logger
         let root = (try? Data(contentsOf: url)).flatMap { try? JSONValue(data: $0) }?.objectValue ?? [:]
-        state = NIOLockedValueBox(root.mapValues { user in
+        state = NIOLockedValueBox((root.mapValues { user in
             UserChats(current: user["current"].flatMap(ChatRecord.init(json:)), recent: (user["recent"]?.arrayValue ?? []).compactMap(ChatRecord.init(json:)))
-        })
+        }, 0))
     }
 
-    func chats(of user: String) -> UserChats { state.withLockedValue { $0[user] ?? UserChats() } }
+    func chats(of user: String) -> UserChats { state.withLockedValue { $0.all[user] ?? UserChats() } }
 
     func update(_ user: String, _ change: (inout UserChats) -> Void) {
-        let snapshot = state.withLockedValue { all -> [String: UserChats] in
-            change(&all[user, default: UserChats()])
-            return all
+        save { change(&$0[user, default: UserChats()]) }
+    }
+
+    /// Forgets a user's conversations.
+    func remove(_ user: String) {
+        save { $0[user] = nil }
+    }
+
+    /// Changes the conversations under the lock, then writes them: an older snapshot never replaces a newer one.
+    private func save(_ change: (inout [String: UserChats]) -> Void) {
+        let (snapshot, generation) = state.withLockedValue { state -> ([String: UserChats], UInt64) in
+            change(&state.all)
+            state.generation += 1
+            return (state.all, state.generation)
         }
         let json = JSONValue.object(snapshot.mapValues { chats in
-            ["current": chats.current?.json ?? .null, "recent": .array(chats.recent.map(\.json))]
+            ["current": chats.current.map { $0.kept ?? $0.json } ?? .null, "recent": .array(chats.recent.map { $0.kept ?? $0.json })]
         })
         do {
-            try OwnerOnlyFile.write(json.encoded(), to: url)
+            try writer.write(generation) { try OwnerOnlyFile.write(json.encoded(), to: url) }
         } catch {
             logger.warning("Could not keep the Assistant's conversations", metadata: ["error": "\(error)"])
         }

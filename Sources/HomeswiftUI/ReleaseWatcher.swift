@@ -140,16 +140,23 @@ public final class ReleaseWatcher: Sendable {
     }
 
     static func release(from json: JSONValue) throws -> Release {
-        guard let tag = json["tag_name"]?.stringValue, let url = json["html_url"]?.stringValue else {
+        guard let tag = json["tag_name"]?.stringValue, let url = json["html_url"]?.stringValue, isWeb(url) else {
             throw CheckError(message: "GitHub's answer has no release")
         }
         let assets = (json["assets"]?.arrayValue ?? []).compactMap { asset -> Asset? in
-            guard let name = asset["name"]?.stringValue, let url = asset["browser_download_url"]?.stringValue else { return nil }
+            guard let name = asset["name"]?.stringValue, let url = asset["browser_download_url"]?.stringValue, isWeb(url) else { return nil }
             return Asset(name: name, url: url)
         }
         let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+        // The version goes into a command the Status page offers to copy: digits, letters, dots and dashes only.
+        guard !version.isEmpty, version.count <= 40, version.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || ".-+".contains($0)) }) else {
+            throw CheckError(message: "GitHub's latest release has an unexpected tag")
+        }
         return Release(version: version, url: url, notes: String((json["body"]?.stringValue ?? "").prefix(4000)), publishedAt: json["published_at"]?.stringValue, assets: assets)
     }
+
+    /// An https address, the only kind the page links to.
+    static func isWeb(_ url: String) -> Bool { URL(string: url)?.scheme?.lowercased() == "https" }
 
     /// Whether `version` comes after `current`, part by part as numbers: `0.10.0` after `0.9.2`. A suffix
     /// (`-beta`, a package's `-2`) is left out.
@@ -173,7 +180,7 @@ public final class ReleaseWatcher: Sendable {
         guard let checkedAt = state.checkedAt else { return nil }
         var object: [String: JSONValue] = [
             "current": .string(options.current), "install": .string(options.install.rawValue),
-            "checkedAt": .string(ISO8601DateFormatter().string(from: checkedAt)),
+            "checkedAt": .string(Timestamp.iso8601(checkedAt)),
         ]
         if let error = state.error { object["error"] = .string(error) }
         guard let latest = state.latest else {
