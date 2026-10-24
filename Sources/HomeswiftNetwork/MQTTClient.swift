@@ -120,7 +120,7 @@ public struct MQTTConfiguration: Sendable {
     /// user name and password in it (`mqtt://user:pass@host:1883`). `tls` applies to the secure schemes.
     public init(url: URL, clientID: String, tls: TLSOptions = .system) throws {
         guard let scheme = url.scheme?.lowercased(), let host = url.host, !host.isEmpty else {
-            throw MQTTError.invalidURL(url.absoluteString)
+            throw MQTTError.invalidURL(redactingPassword(url))
         }
         let transport: Transport
         switch scheme {
@@ -131,10 +131,10 @@ public struct MQTTConfiguration: Sendable {
             components?.user = nil
             components?.password = nil
             if components?.path.isEmpty ?? false { components?.path = "/mqtt" }
-            guard let socketURL = components?.url else { throw MQTTError.invalidURL(url.absoluteString) }
+            guard let socketURL = components?.url else { throw MQTTError.invalidURL(redactingPassword(url)) }
             transport = .webSocket(socketURL, options: WebSocket.Options(tls: tls))
         default:
-            throw MQTTError.invalidURL(url.absoluteString)
+            throw MQTTError.invalidURL(redactingPassword(url))
         }
         // `user` and `password` come decoded: decoding them again would turn a password's `%2541` into `A`.
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
@@ -283,6 +283,8 @@ public actor MQTTClient: MQTTConnection {
         defer { if inFlight?.id == id { inFlight = nil } }
         generation += 1
         let generation = generation
+        // `connectTimeout` runs from here to the CONNACK, the connection included.
+        let deadline = ContinuousClock.now + configuration.connectTimeout
         stateBroadcast.yield(.connecting)
         let transport: any MQTTByteTransport
         switch configuration.transport {
@@ -329,9 +331,8 @@ public actor MQTTClient: MQTTConnection {
             connect.properties.entries.append((MQTTProperties.maximumPacketSize, .uint32(UInt32(clamping: configuration.maximumPacketSize))))
         }
         let connectBytes = MQTTPacket.connect(connect).encode()
-        let timeout = configuration.connectTimeout
         let timer = Task { [weak self] in
-            try? await Task.sleep(for: timeout)
+            try? await Task.sleep(until: deadline, clock: .continuous)
             if !Task.isCancelled { await self?.connackTimedOut(generation: generation) }
         }
         defer { timer.cancel() }

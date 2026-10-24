@@ -55,7 +55,9 @@ public enum AWSSignatureV4 {
         let scope = "\(dateStamp)/\(region)/\(service)/aws4_request"
         var all = headers.filter { $0.name.lowercased() != "authorization" }
         if !all.contains(where: { $0.name.lowercased() == "host" }), let host = url.host {
-            all.append(("host", url.port.map { "\(host):\($0)" } ?? host))
+            // As `HTTPClient` sends it: `:443` signed but not sent fails the signature.
+            let defaultPort = url.scheme?.lowercased() == "http" ? 80 : 443
+            all.append(("host", hostHeader(host: host, port: url.port ?? defaultPort, defaultPort: defaultPort)))
         }
         var added: [(name: String, value: String)] = [("X-Amz-Date", amzDate)]
         if let token = credentials.sessionToken { added.append(("X-Amz-Security-Token", token)) }

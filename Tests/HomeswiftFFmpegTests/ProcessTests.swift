@@ -112,6 +112,7 @@ import Darwin
         }
         #expect(redactCommandLine(["-srtp_out_suite", "AES_CM_128_HMAC_SHA1_80", "-srtp_out_params", "c2VjcmV0a2V5", "srtp://10.0.0.3:5000"])
             == "-srtp_out_suite AES_CM_128_HMAC_SHA1_80 -srtp_out_params *** srtp://10.0.0.3:5000")
+        #expect(redactCommandLine(["-i", "rtsp://admin:p@ss@w0rd@10.0.0.4:554/live"]) == "-i rtsp://admin:***@10.0.0.4:554/live")
     }
 
     @Test func logsTheCommandLineWithoutPasswords() async {
@@ -235,6 +236,46 @@ import Darwin
         #expect(status?.signal == "SIGKILL")
         #expect(ContinuousClock.now - start >= .milliseconds(FFMPEG_INPUT_TIMEOUT - 500))
         #expect(logs.messages(.debug).contains("FFmpeg process ended (Killed)."))
+    }
+
+    @Test func killsAStoppedProcessThatARestartReplaced() async throws {
+        let (_, options) = shellOptions()
+        let process = FfmpegProcess(options, commandLineArgs: ["-c", "trap '' TERM; echo up >&2; while :; do sleep 0.1; done"])
+        process.start()
+        try await process.waitForStart()
+        let first = try #require(process.processIdentifier)
+        process.stop()
+        // The restart comes before the failsafe: it must still end the process it was armed for.
+        process.start(["-c", "echo two >&2; exec sleep 30"])
+        let second = try #require(process.processIdentifier)
+        #expect(await eventually(timeout: .milliseconds(FFMPEG_INPUT_TIMEOUT + 5000)) { kill(first, 0) != 0 })
+        #expect(kill(second, 0) == 0)
+        _ = await waitForExit(process) { process.stop() }
+    }
+
+    @Test func stopsTheRunningProcessARestartReplaces() async throws {
+        let (_, options) = shellOptions()
+        let process = FfmpegProcess(options, commandLineArgs: ["-c", "echo one >&2; exec sleep 30"])
+        process.start()
+        try await process.waitForStart()
+        let first = try #require(process.processIdentifier)
+        // Never stopped: nothing could reach it once the instance runs another process.
+        process.start(["-c", "echo two >&2; exec sleep 30"])
+        #expect(await eventually { kill(first, 0) != 0 })
+        #expect(process.isRunning)
+        _ = await waitForExit(process) { process.stop() }
+    }
+
+    @Test func boundsAStandardErrorLineThatNeverEnds() async throws {
+        let (_, options) = shellOptions()
+        // 100 kB without a line break, then one.
+        let process = FfmpegProcess(options, commandLineArgs: ["-c", "head -c 100000 /dev/zero | tr '\\0' x >&2; echo >&2; echo done >&2"])
+        process.start()
+        #expect(await eventually { !process.isRunning })
+        let log = process.stderrLog
+        #expect(log.last == "done")
+        #expect(log.allSatisfy { $0.utf8.count <= FFMPEG_STDERR_LINE_LIMIT + 65536 })
+        #expect(log.map(\.utf8.count).reduce(0, +) == 100_000 + 4)
     }
 
     @Test func endsTheProcessWithItsObject() async throws {
@@ -546,6 +587,33 @@ import Darwin
         #expect(logs.messages(.error) == [
             "FFmpeg ended unexpectedly due to issues processing the media stream. This error can be safely ignored - it will occur occasionally."
         ])
+    }
+
+    @Test func handsOverWhatFFmpegWroteBeforeItEnded() async throws {
+        let (_, options) = shellOptions()
+        let process = recording(options)
+        let initSegment = box("ftyp", bytes(4)) + box("moov", bytes(4))
+        let fragment = box("moof", bytes(8, 2)) + box("mdat", bytes(100, 3))
+        // FFmpeg flushes its last fragment and exits before the generator has taken any of it.
+        _ = await waitForExit(process) {
+            try? await process.writeStdin(initSegment + fragment)
+            process.endStdin()
+        }
+        #expect(process.isEnded)
+        var segments: [Data] = []
+        for await segment in process.segmentGenerator() { segments.append(segment) }
+        #expect(segments == [initSegment, fragment])
+        #expect(!process.isTimedOut)
+    }
+
+    @Test func keepsAQuietStopOutOfTheLog() async throws {
+        let (logs, options) = shellOptions()
+        let process = FfmpegRecordingProcess(options, recordingConfig: recordingConfiguration())
+        // Ends with an error code when asked to stop, as FFmpeg does on a broken pipe.
+        process.start(["-c", "trap 'exit 1' TERM; echo up >&2; while :; do sleep 0.1; done"])
+        try await process.waitForStart()
+        _ = await waitForExit(process) { process.stop(logErrors: false) }
+        #expect(!logs.messages(.error).contains { $0.hasPrefix("FFmpeg process ended unexpectedly") })
     }
 }
 

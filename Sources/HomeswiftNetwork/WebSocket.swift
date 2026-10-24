@@ -158,16 +158,17 @@ public final class WebSocket: WebSocketConnection {
         to url: URL, options: Options = Options(), group: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton
     ) async throws -> WebSocket {
         guard let scheme = url.scheme?.lowercased(), scheme == "ws" || scheme == "wss", let host = url.host, !host.isEmpty else {
-            throw WebSocketError.invalidURL(url.absoluteString)
+            throw WebSocketError.invalidURL(redactingPassword(url))
         }
         let secure = scheme == "wss"
         let port = url.port ?? (secure ? 443 : 80)
         let uri = requestTarget(of: url)
+        let deadline = ContinuousClock.now + options.timeout
 
         var headers = HTTPHeaders()
-        headers.add(name: "Host", value: port == (secure ? 443 : 80) ? host : "\(host):\(port)")
+        headers.add(name: "Host", value: hostHeader(host: host, port: port, defaultPort: secure ? 443 : 80))
         if !options.subprotocols.isEmpty { headers.add(name: "Sec-WebSocket-Protocol", value: options.subprotocols.joined(separator: ", ")) }
-        for header in options.headers { headers.replaceOrAdd(name: header.name, value: header.value) }
+        headers.applying(options.headers)
         let requestHead = HTTPRequestHead(version: .http1_1, method: .GET, uri: uri, headers: headers)
 
         let context = secure ? try options.tls.makeContext() : nil
@@ -218,7 +219,8 @@ public final class WebSocket: WebSocketConnection {
             let (code, reason) = connectionFailure(error)
             throw WebSocketError.cannotConnect(host: host, port: port, code: code, reason: reason)
         }
-        let deadline = channel.eventLoop.scheduleTask(in: TimeAmount(options.timeout)) {
+        // What the connection left of the timeout, not the whole of it again.
+        let timer = channel.eventLoop.scheduleTask(in: TimeAmount(max(.zero, deadline - .now))) {
             upgraded.fail(WebSocketError.timeout)
             channel.close(promise: nil)
         }
@@ -230,7 +232,7 @@ public final class WebSocket: WebSocketConnection {
                 upgraded.fail(CancellationError())
                 channel.close(promise: nil)
             }
-            deadline.cancel()
+            timer.cancel()
             if let chosen = head.headers.first(name: "Sec-WebSocket-Protocol"), !options.subprotocols.contains(chosen) {
                 channel.close(promise: nil)
                 throw WebSocketError.unexpectedSubprotocol(chosen)
@@ -238,7 +240,7 @@ public final class WebSocket: WebSocketConnection {
             core.attach(channel)
             return WebSocket(url: url, channel: channel, core: core, head: head, fingerprint: observed.withLockedValue { $0 })
         } catch {
-            deadline.cancel()
+            timer.cancel()
             channel.close(promise: nil)
             if let mismatch = mismatch.withLockedValue({ $0 }) { throw mismatch }
             throw error
@@ -264,8 +266,13 @@ public final class WebSocket: WebSocketConnection {
     public func ping(timeout: Duration = .seconds(10)) async throws {
         guard isOpen else { throw WebSocketError.notConnected }
         let promise = channel.eventLoop.makePromise(of: Void.self)
+        let core = core
         core.state.withLockedValue { $0.pings.append(promise) }
-        let deadline = channel.eventLoop.scheduleTask(in: TimeAmount(timeout)) { promise.fail(WebSocketError.timeout) }
+        let deadline = channel.eventLoop.scheduleTask(in: TimeAmount(timeout)) {
+            // A peer that never answers must not have every ping kept until the connection ends.
+            core.state.withLockedValue { $0.pings.removeAll { $0.futureResult === promise.futureResult } }
+            promise.fail(WebSocketError.timeout)
+        }
         channel.writeAndFlush(WebSocketFrame(fin: true, opcode: .ping, maskKey: .random(), data: ByteBuffer()), promise: nil)
         defer { deadline.cancel() }
         try await promise.futureResult.get()
@@ -457,6 +464,8 @@ private final class WebSocketFrameHandler: ChannelInboundHandler {
             }
         case .continuation:
             guard var buffer = fragments else { return fail(context: context, "a continuation frame without a message") }
+            // The only reference while it grows: with `fragments` still holding it, every frame would copy the message so far.
+            fragments = nil
             var data = frame.unmaskedData
             buffer.writeBuffer(&data)
             fragments = buffer
@@ -502,7 +511,7 @@ private final class WebSocketFrameHandler: ChannelInboundHandler {
             return close(context: context, code: 1009, error: WebSocketError.messageTooLarge(limit: maximumMessageSize))
         }
         if opcode == .text {
-            guard let text = String(data: Data(buffer.readableBytesView), encoding: .utf8) else {
+            guard let text = String(bytes: buffer.readableBytesView, encoding: .utf8) else {
                 return close(context: context, code: 1007, error: WebSocketError.protocolError("a text message is not valid UTF-8"))
             }
             core.deliver(.text(text))

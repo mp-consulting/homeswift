@@ -1,7 +1,7 @@
 import Crypto
 import Foundation
 
-/// HTTP Digest authentication (RFC 2617, MD5, `qop=auth`), the scheme of Philips TVs and other devices.
+/// HTTP Digest authentication (RFC 2617 and 7616: MD5 or SHA-256, `qop=auth`), the scheme of Philips TVs and other devices.
 ///
 /// Remembers the challenge of a 401 so later requests carry an `Authorization` header straight away, with
 /// a nonce count that grows by one per request. The password stays inside; nothing here prints it.
@@ -44,9 +44,11 @@ public struct DigestAuthentication: Sendable {
                 if !key.isEmpty { parameters[key] = value }
             }
             guard let realm = parameters["realm"], let nonce = parameters["nonce"], !nonce.isEmpty else { return nil }
-            // A server may offer several qop values; `auth` is the one this implements.
-            let qop = parameters["qop"].map { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) } }
-                .flatMap { $0.contains("auth") ? "auth" : $0.first }
+            // A server may offer several qop values; `auth` is the one this implements. Without it (`auth-int` alone), the
+            // response is RFC 2069's, without qop, rather than a `qop=auth-int` whose hash would leave the body out.
+            let qop = parameters["qop"].flatMap { offered in
+                offered.split(separator: ",").contains { $0.trimmingCharacters(in: .whitespaces) == "auth" } ? "auth" : nil
+            }
             self.init(realm: realm, nonce: nonce, qop: qop, opaque: parameters["opaque"], algorithm: parameters["algorithm"])
         }
     }
@@ -85,20 +87,25 @@ public struct DigestAuthentication: Sendable {
         nonceCount &+= 1
         let nc = String(format: "%08x", nonceCount)
         let cnonce = cnonce ?? Self.randomHex(16)
-        let ha1 = Self.md5("\(username):\(challenge.realm):\(password)")
-        let ha2 = Self.md5("\(method.uppercased()):\(uri)")
+        // RFC 7616's algorithms: MD5 or SHA-256, and their `-sess` variants, whose HA1 also covers the nonces.
+        let algorithm = challenge.algorithm?.uppercased() ?? "MD5"
+        let sha256 = algorithm.hasPrefix("SHA-256")
+        func hash(_ string: String) -> String { sha256 ? Self.sha256(string) : Self.md5(string) }
+        var ha1 = hash("\(username):\(challenge.realm):\(password)")
+        if algorithm.hasSuffix("-SESS") { ha1 = hash("\(ha1):\(challenge.nonce):\(cnonce)") }
+        let ha2 = hash("\(method.uppercased()):\(uri)")
         let response: String
         if let qop = challenge.qop {
-            response = Self.md5("\(ha1):\(challenge.nonce):\(nc):\(cnonce):\(qop):\(ha2)")
+            response = hash("\(ha1):\(challenge.nonce):\(nc):\(cnonce):\(qop):\(ha2)")
         } else {
-            response = Self.md5("\(ha1):\(challenge.nonce):\(ha2)")
+            response = hash("\(ha1):\(challenge.nonce):\(ha2)")
         }
-        var header = "Digest username=\"\(Self.quote(username))\", realm=\"\(Self.quote(challenge.realm))\", nonce=\"\(challenge.nonce)\", uri=\"\(uri)\", response=\"\(response)\""
+        var header = "Digest username=\"\(Self.quote(username))\", realm=\"\(Self.quote(challenge.realm))\", nonce=\"\(Self.quote(challenge.nonce))\", uri=\"\(uri)\", response=\"\(response)\""
         if let qop = challenge.qop {
             header += ", qop=\(qop), nc=\(nc), cnonce=\"\(cnonce)\""
         }
         if let opaque = challenge.opaque {
-            header += ", opaque=\"\(opaque)\""
+            header += ", opaque=\"\(Self.quote(opaque))\""
         }
         if let algorithm = challenge.algorithm {
             header += ", algorithm=\(algorithm)"
@@ -108,6 +115,10 @@ public struct DigestAuthentication: Sendable {
 
     static func md5(_ string: String) -> String {
         hexString(Insecure.MD5.hash(data: Data(string.utf8)))
+    }
+
+    static func sha256(_ string: String) -> String {
+        hexString(SHA256.hash(data: Data(string.utf8)))
     }
 
     static func randomHex(_ bytes: Int) -> String {

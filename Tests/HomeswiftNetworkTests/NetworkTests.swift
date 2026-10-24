@@ -339,6 +339,32 @@ struct HTTPClientTests {
         #expect(DigestAuthentication.Challenge(header: "Digest realm=x, nonce=") == nil)
         #expect(DigestAuthentication.Challenge(header: "digest realm=XTV,nonce=abc,algorithm=MD5") == .init(realm: "XTV", nonce: "abc", qop: nil, opaque: nil, algorithm: "MD5"))
     }
+
+    /// RFC 7616 section 3.9.1: the same challenge answered with MD5 and SHA-256.
+    @Test(arguments: [("MD5", "8ca523f5e9506fed4657c9700eebdbec"), ("SHA-256", "753927fa0e85d155564e2e272a28d1802ca10daf4496794697cf8db5856cb6c1")])
+    func matchesTheRFC7616Examples(algorithm: String, response: String) {
+        var digest = DigestAuthentication(username: "Mufasa", password: "Circle of Life")
+        digest.accept(challenge: "Digest realm=\"http-auth@example.org\", qop=\"auth, auth-int\", algorithm=\(algorithm), nonce=\"7ypf/xlj9XXwfDPEoM4URrv/xwf94BcCAzFZH4GiTo0v\", opaque=\"FQhe/qaU925kfnzjCev0ciny7QMkPqMAFRtzCUYo5tdS\"")
+        let header = digest.authorization(method: "GET", uri: "/dir/index.html", cnonce: "f2/wE4q74E6zIJEtWaHKaf5wv/H5QzzpXusqGemxURZJ")
+        #expect(header?.contains("response=\"\(response)\"") == true)
+        #expect(header?.hasSuffix("algorithm=\(algorithm)") == true)
+    }
+
+    @Test func coversTheNoncesInASessionHA1() {
+        var digest = DigestAuthentication(username: "Mufasa", password: "Circle Of Life")
+        digest.accept(challenge: "Digest realm=\"testrealm@host.com\", qop=\"auth\", nonce=\"dcd98b7102dd2f0e8b11d0f600bfb0c093\", algorithm=MD5-sess")
+        let header = digest.authorization(method: "GET", uri: "/dir/index.html", cnonce: "0a4f113b")
+        #expect(header?.contains("response=\"8e3825c57e897f5a0dec6c2d4e5059d0\"") == true)
+    }
+
+    @Test func answersWithoutQopWhenAuthIsNotOffered() {
+        // auth-int would hash the body, which this does not: RFC 2069's response, not a qop it cannot honour.
+        #expect(DigestAuthentication.Challenge(header: "Digest realm=\"x\", nonce=\"n\", qop=\"auth-int\"")?.qop == nil)
+        #expect(DigestAuthentication.Challenge(header: "Digest realm=\"x\", nonce=\"n\", qop=\"auth-int,auth\"")?.qop == "auth")
+        var digest = DigestAuthentication(username: "u", password: "p")
+        digest.accept(challenge: "Digest realm=\"x\", nonce=\"n\", qop=\"auth-int\"")
+        #expect(digest.authorization(method: "GET", uri: "/")?.contains("qop=") == false)
+    }
 }
 
 @Suite(.timeLimit(.minutes(1)))

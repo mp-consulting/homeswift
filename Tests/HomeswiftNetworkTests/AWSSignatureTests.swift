@@ -57,6 +57,16 @@ struct AWSSignatureTests {
         )
     }
 
+    /// `HTTPClient` leaves a default port out of `Host`, so the signature must too.
+    @Test func signsTheHostAsItIsSent() {
+        func authorization(_ url: String) -> String? {
+            AWSSignatureV4.signatureHeaders(method: "GET", url: URL(string: url)!, service: "iotdata", region: "eu-west-1", credentials: credentials, date: date)
+                .first { $0.name == "Authorization" }?.value
+        }
+        #expect(authorization("https://data.iot.example.com:443/things") == authorization("https://data.iot.example.com/things"))
+        #expect(authorization("https://data.iot.example.com:8443/things") != authorization("https://data.iot.example.com/things"))
+    }
+
     @Test func uriEncodingIsRFC3986() {
         #expect(URLEncoding.rfc3986("a b/c~d_e.f-g!'()*+=") == "a%20b%2Fc~d_e.f-g%21%27%28%29%2A%2B%3D")
     }

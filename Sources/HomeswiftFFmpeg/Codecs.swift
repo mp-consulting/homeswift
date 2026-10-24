@@ -1,7 +1,11 @@
 import Foundation
 import Logging
 import NIOConcurrencyHelpers
-#if canImport(Darwin)
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(Darwin)
 import Darwin
 #endif
 
@@ -75,8 +79,10 @@ public struct FfmpegHostEnvironment: Sendable {
     }
 }
 
-/// Runs a command to completion and returns its standard output, as Node's promisified `execFile` does.
-func runCommand(_ command: String, _ arguments: [String]) async throws(FfmpegCommandError) -> String {
+/// Runs a command to completion and returns its standard output, as Node's promisified `execFile` does. A command still
+/// running after `timeout` is killed and fails: a test encode through an accelerator whose driver hangs must not hold the
+/// probe, and the camera plugin waiting on it, forever.
+func runCommand(_ command: String, _ arguments: [String], timeout: Duration = .seconds(60)) async throws(FfmpegCommandError) -> String {
     let child: Subprocess
     do throws(FfmpegProcessError) {
         child = try Subprocess.launch(command, arguments: arguments)
@@ -87,6 +93,12 @@ func runCommand(_ command: String, _ arguments: [String]) async throws(FfmpegCom
     let output = NIOLockedValueBox((stdout: Data(), stderr: Data()))
     child.addStdoutHandler { data in output.withLockedValue { $0.stdout.append(data) } }
     child.addStderrHandler { data in output.withLockedValue { $0.stderr.append(data) } }
+    let watchdog = Task {
+        try? await Task.sleep(for: timeout)
+        guard !Task.isCancelled else { return }
+        child.kill(SIGKILL)
+    }
+    defer { watchdog.cancel() }
     let status: FfmpegExitStatus = await withCheckedContinuation { continuation in
         if !child.addExitHandler({ continuation.resume(returning: $0) }) {
             continuation.resume(returning: FfmpegExitStatus(exitCode: nil, signal: nil))
@@ -302,7 +314,7 @@ public final class FfmpegCodecs: Sendable {
             hostSystem = "macOS." + (apple ? "Apple" : "Intel")
             if apple {
                 cpuGeneration = 0
-                if let match = cpuModelString.firstMatch(of: #/Apple M(\d+) .*/#.ignoresCase()), let generation = Int(match.output.1) {
+                if let match = cpuModelString.firstMatch(of: #/Apple M(\d+)\b/#.ignoresCase()), let generation = Int(match.output.1) {
                     cpuGeneration = generation
                 }
             }
