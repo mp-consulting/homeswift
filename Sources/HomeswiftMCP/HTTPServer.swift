@@ -104,17 +104,27 @@ public final class MCPHTTPServer: Sendable {
 
     // MARK: Requests
 
-    struct Request: Sendable {
-        var method: HTTPMethod
-        var path: String
-        var headers: [String: String]
-        var body: Data
-        var remote: String
+    /// One request, headers lower-cased. The web UI hands its `/mcp` requests over in this shape (`handle`).
+    public struct Request: Sendable {
+        public var method: HTTPMethod
+        public var path: String
+        public var headers: [String: String]
+        public var body: Data
+        public var remote: String
         /// The body was longer than `RequestHandler.maxBody`: answered 413, never parsed.
-        var tooLarge = false
+        public var tooLarge = false
+
+        public init(method: HTTPMethod, path: String, headers: [String: String], body: Data, remote: String, tooLarge: Bool = false) {
+            self.method = method
+            self.path = path
+            self.headers = headers
+            self.body = body
+            self.remote = remote
+            self.tooLarge = tooLarge
+        }
     }
 
-    enum Reply: Sendable {
+    public enum Reply: Sendable {
         case json(status: Int, body: Data, headers: [String: String] = [:])
         case empty(status: Int, headers: [String: String] = [:])
         case events(status: Int, headers: [String: String], stream: AsyncStream<Data>)
@@ -131,6 +141,12 @@ public final class MCPHTTPServer: Sendable {
         guard let principal = await authenticate(request) else {
             return .json(status: 401, body: Self.errorBody("a bearer token is required"), headers: ["WWW-Authenticate": "Bearer"])
         }
+        return await handle(request, principal: principal)
+    }
+
+    /// Answers a request whose caller is already known: the web UI's `/mcp`, which checks the origin and the bearer
+    /// token itself (its OAuth tokens as well as this configuration's).
+    public func handle(_ request: Request, principal: Principal) async -> Reply {
         if request.tooLarge {
             return .json(status: 413, body: Self.errorBody("the request body is larger than \(RequestHandler.maxBody / (1024 * 1024)) MB"))
         }
@@ -142,27 +158,33 @@ public final class MCPHTTPServer: Sendable {
         }
     }
 
-    private func originAllowed(_ origin: String) -> Bool {
-        guard let url = URL(string: origin), let host = url.host.map(HostName.of) else { return false }
-        if HostName.isLoopback(host) || host == HostName.of(options.host) { return true }
-        return options.allowedOrigins.contains { $0 == "*" || $0.lowercased() == origin.lowercased() || URL(string: $0)?.host.map(HostName.of) == host }
+    /// Loopback, this server's own address (or `host`, the name the request reached it by), or an allowed origin.
+    public func originAllowed(_ origin: String, host: String? = nil) -> Bool {
+        guard let url = URL(string: origin), let originHost = url.host.map(HostName.of) else { return false }
+        if HostName.isLoopback(originHost) || originHost == HostName.of(options.host) || host.map(HostName.of) == originHost { return true }
+        return options.allowedOrigins.contains { $0 == "*" || $0.lowercased() == origin.lowercased() || URL(string: $0)?.host.map(HostName.of) == originHost }
     }
 
     /// The principal of the bearer token. Repeated failures from an address are slowed down.
     private func authenticate(_ request: Request) async -> Principal? {
-        let header = request.headers["authorization"] ?? ""
-        let token = header.hasPrefix("Bearer ") ? String(header.dropFirst(7)).trimmingCharacters(in: .whitespaces) : ""
-        if !token.isEmpty, let principal = configuration.principal(for: token) {
+        if let token = Self.bearerToken(request.headers["authorization"]), let principal = configuration.principal(for: token) {
             throttle.succeeded(request.remote)
             return principal
         }
-        let penalty = throttle.failed(request.remote)
         logger.warning("MCP request with a bad token", metadata: ["remote": "\(request.remote)"])
-        if penalty > .zero { try? await Task.sleep(for: penalty) }
+        await throttle.failAndWait(request.remote)
         return nil
     }
 
-    static func errorBody(_ message: String, code: Int = JSONRPCError.invalidRequest) -> Data {
+    /// The token of an `Authorization: Bearer …` header (the scheme in any case, RFC 9110 §11.1); nil for another
+    /// scheme or none. The web UI reads its API and OAuth tokens with it too.
+    public static func bearerToken(_ header: String?) -> String? {
+        guard let header, header.count > 7, header.prefix(7).lowercased() == "bearer " else { return nil }
+        let token = header.dropFirst(7).trimmingCharacters(in: .whitespaces)
+        return token.isEmpty ? nil : token
+    }
+
+    public static func errorBody(_ message: String, code: Int = JSONRPCError.invalidRequest) -> Data {
         JSONRPCMessage.failure(id: .null, error: JSONRPCError(code: code, message: message)).json.encoded()
     }
 

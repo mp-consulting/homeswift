@@ -10,12 +10,14 @@ enum UICommands {
     /// One for the process: the web UI restarts with its settings, the checks go on.
     static let releases = ReleaseWatcher()
 
-    static func startServer(catalog: HomeswiftCatalog, configuration: HomeswiftConfiguration, logger: Logger) async -> UIServer? {
+    /// `mcp` is the bridge's MCP server as it runs now: the UI serves it at `/mcp` for OAuth clients.
+    static func startServer(catalog: HomeswiftCatalog, configuration: HomeswiftConfiguration, mcp: @escaping @Sendable () -> MCPHTTPServer?, logger: Logger) async -> UIServer? {
         do {
             guard let block = try configuration.block(for: UIConfiguration.platform) else { return nil }
             let ui = try UIConfiguration(block: block)
             var options = UIServer.Options()
             options.logger = logger
+            options.mcp = mcp
             if let root = ProcessInfo.processInfo.environment["HOMESWIFT_WEB_ROOT"], !root.isEmpty {
                 options.webRoot = URL(fileURLWithPath: NSString(string: root).expandingTildeInPath)
             }

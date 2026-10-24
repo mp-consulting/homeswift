@@ -6,6 +6,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- MCP for claude.ai and the Claude apps: the web UI serves the MCP server at `/mcp` and signs clients in with
+  OAuth 2.1 and the UI's accounts. Discovery (RFC 9728 and RFC 8414), open dynamic client registration
+  (RFC 7591), the authorization code grant with PKCE S256, refresh tokens rotated at each use, revocation
+  (RFC 7009). The sign-in page (`/oauth/authorize`) takes the UI's login and two-factor code and lets the user
+  choose `read`, `control` or `admin` up to their role, which caps the app at every request. **Account ›
+  Connected apps** lists and disconnects them; a new password, a two-factor change or removing the user ends
+  them too. An app of a user who is not an administrator sees, as in the UI, neither the log, config.json, the
+  pairings nor the child bridges' health. Only these OAuth tokens are taken at the UI's `/mcp`: the HomeswiftAiKit
+  block's tokens stay on the MCP server's own listener. Tokens are kept hashed in `ui-oauth.json`. See
+  docs/mcp.md, "claude.ai and the Claude apps", for the configuration and the sign-in step by step.
+
+### Security
+
+- MCP: a principal can hide tools, resources and prompts its scope allows, and the server refuses them as for any
+  client. The web UI's chat now hides the administrator's reads from other users there too, not only from the
+  list the model is shown.
+
 ### Changed
 
 - Web UI, Users: adding or editing a user and making an API token happen in a side panel at the right, the page
@@ -24,6 +43,8 @@ All notable changes to this project are documented here. The format follows
   nil; `JSONValue.nonNull` replaces it everywhere: an MCP request with `"params": null` is no longer refused, a
   UniFi Access door without a name is "Unknown" again, and an eWeLink light reporting no brightness starts at its
   minimum.
+- Web UI: query strings are form-decoded, so a `+` written by `URLSearchParams` is a space (the Settings ›
+  Audit log search with spaces in it). A script that sends a literal `+` (a time zone in `from=`) writes `%2B`.
 
 ## [0.5.1] - 2026-10-24
 

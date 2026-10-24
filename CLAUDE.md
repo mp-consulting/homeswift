@@ -20,7 +20,7 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `Sources/HomeswiftCLI` | The `homeswift` binary: arguments, log format, `Plugins.swift` lists the plugins compiled in, `AssistantCommands.swift` the `ask`/`explain`/`diagnose`/`digest`/`organize`/`usage`/`test-ai` commands |
 | `Sources/HomeswiftAI` | The Assistant: `Provider` adapters (`Providers/`), `AIConfiguration` (the `HomeswiftAiKit` block), `Redaction`, `Prompts`, `JSONGeneration`, `Pricing`/`UsageTracker` (usage on disk, budgets), `RateLimit`, `Features` (digest, organiser, connection test), `AssistantService` |
 | `Sources/HomeswiftMCP` | The MCP server: `JSONRPC`, `MCPServer`/`MCPSession` (methods, elicitation), `Scopes` (`MCPConfiguration`, tokens), `AuditLog`, `HomeswiftCatalog` (the tools, resources and prompts over a `PluginHost`; also the web UI's control surface; `AssistantTools`: usage, connection test, the daily digest, log export and truncation), `HTTPServer` (Streamable HTTP on NIO), `StdioProxy` (`homeswift mcp`), `ChatToolbox` (the tools for the web UI's chat, an in-process session), `HostName` and `FailureThrottle` (shared with the web UI) |
-| `Sources/HomeswiftUI` | The web UI: `UIConfiguration` (the `HomeswiftUI` block), `Auth` (users, PBKDF2, sessions, login throttle), `UIServer` (NIO HTTP, the JSON API, the event stream), `Cameras` (camera snapshots and live fMP4 streams), `AssistantChat` (the chat's conversations, kept in `ui-chats.json`), `AccessoryLayout` (the Accessories wall's order and sizes, `ui-layout.json`), `AssistantRoutes` (the pages' streamed, cancellable Assistant requests), `Preferences` (each user's appearance and Status layout), `Certificate` (HTTPS, self-signed), `Web/` (the pages, `widgets.js` the accessory widgets; `WebAssets.swift` is generated from it) |
+| `Sources/HomeswiftUI` | The web UI: `UIConfiguration` (the `HomeswiftUI` block), `Auth` (users, PBKDF2, sessions, login throttle), `UIServer` (NIO HTTP, the JSON API, the event stream), `Cameras` (camera snapshots and live fMP4 streams), `AssistantChat` (the chat's conversations, kept in `ui-chats.json`), `AccessoryLayout` (the Accessories wall's order and sizes, `ui-layout.json`), `AssistantRoutes` (the pages' streamed, cancellable Assistant requests), `Preferences` (each user's appearance and Status layout), `Certificate` (HTTPS, self-signed), `OAuth`/`OAuthRoutes` (the MCP server at the UI's `/mcp` for claude.ai: discovery, client registration, PKCE codes and rotated refresh tokens in `ui-oauth.json`, the `/oauth/authorize` sign-in page, Account's connected apps), `Web/` (the pages, `widgets.js` the accessory widgets; `WebAssets.swift` is generated from it) |
 | `Sources/HomeswiftNetwork` | For plugins reaching devices and clouds: `NetworkInterfaces`, `HTTPClient` (NIO and NIOSSL; trusts or pins a self-signed certificate, the same on Linux; `TrustOnFirstUse`), `DigestAuthentication`, `WakeOnLAN`, `UDPSocket` and `localIPv4Networks`, `WebSocket`, `MQTTClient` (`MQTTPacket`, `MQTTTransport`; MQTT 3.1.1 and 5), `TLSOptions` (roots such as Amazon Root CA 1, client certificates, ALPN, cipher lists), `MDNSQuery` (a one-shot mDNS query whose answers carry the sender's address), `AWSSignatureV4`, `URLEncoding`, `Backoff` |
 | `Scripts/embed-assets.swift` | Embeds a plugin's `config.schema.json` or the `Web/` directory into Swift source; tests fail when the generated files are stale |
 | `Scripts/docs-screenshots.mjs` | Retakes the docs' web UI screenshots from a throwaway bridge with headless Chrome (docs/widgets.md, "Screenshots") |
@@ -35,7 +35,7 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `Tests/HomeswiftPluginTests` | Config decoding, `PluginHost` with a recording plugin: cache, child bridges, id conflicts; controller storage, Eve history against fakegato's output |
 | `docs/plugins.md` | How to write a plugin, the runtime's files, porting from Homebridge, where plugins live |
 | `docs/ai.md` | The Assistant: configuration, providers, command line, use from a plugin, what reaches a provider |
-| `docs/mcp.md` | The MCP server: configuration, scopes, confirmations, resources, prompts, security |
+| `docs/mcp.md` | The MCP server: configuration, claude.ai over OAuth, scopes, confirmations, resources, prompts, security |
 | `docs/ui.md` | The web UI: configuration, pages, security, what plugin authors ship |
 | `docs/widgets.md` | The Accessories page's widgets: sizes, the wall, Adaptive Lighting, paused plugins, what a plugin does to get good widgets; screenshots in `docs/images/widgets` |
 | `Tests/HomeswiftUITests` | Users and sessions, embedded assets are current, the server end to end with a cookie-keeping client |
@@ -113,7 +113,10 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
   and the name map stays out of the repository.
 - The web UI: pages are plain HTML, CSS and JavaScript without dependencies or a build step; they are
   embedded, so edit `Web/` and rerun the embed script (the tests say when it is stale). The API is the
-  `HomeswiftCatalog` surface; mutations need JSON bodies and a same-origin `Origin`. `HomeswiftUI` and
+  `HomeswiftCatalog` surface; mutations need JSON bodies and a same-origin `Origin`. The OAuth endpoints outside
+  `/api` (`/oauth/token`, `/oauth/register`, `/oauth/revoke`) are the exception the protocol requires: form bodies
+  from claude.ai's servers, no `Origin`, no cookie; their tokens reach `/mcp` only. An app a user who is not an
+  administrator connects gets `HomeswiftCatalog.administratorOnly` hidden, as the UI's chat does. `HomeswiftUI` and
   `HomeswiftAiKit` are system platforms: the CLI starts them, `PluginHost` skips them. The first account
   needs the set-up code the banner prints (`UIServer.setupCode`), never logged; requests are answered only
   for the server's own `Host` names (`allowedHosts`). The UI's views are paths (`/plugins/<slug>/expert`,

@@ -70,12 +70,14 @@ final class UITestEnvironment: @unchecked Sendable {
     let logs = LogBuffer()
     let host: PluginHost
     let server: UIServer
+    /// With `mcp`, the MCP server the UI serves at `/mcp` (never started: the UI hands it its requests).
+    let mcpServer: MCPServer?
     var configURL: URL { directory.appendingPathComponent("config.json") }
 
     /// `assistant`: a HomeswiftAiKit block whose provider nothing answers for (it is never reached in the tests);
     /// `model`: one whose provider answers through this transport.
     init(auth: UIConfiguration.AuthMode = .form, webRoot: URL? = nil, https: Bool = false, metrics: Metrics? = nil, assistant: Bool = false,
-         model: (any HTTPTransport)? = nil, options configure: (inout UIServer.Options) -> Void = { _ in }) throws {
+         model: (any HTTPTransport)? = nil, mcp: MCPConfiguration? = nil, options configure: (inout UIServer.Options) -> Void = { _ in }) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let ai = assistant || model != nil ? #",{ "platform": "HomeswiftAiKit", "provider": "openai-compatible", "model": "llama3.1", "baseUrl": "http://127.0.0.1:9/v1", "maxRetries": 0 }"# : ""
         let config = """
@@ -108,6 +110,16 @@ final class UITestEnvironment: @unchecked Sendable {
         serverOptions.hashIterations = 1000
         serverOptions.logger = testLogger
         serverOptions.webRoot = webRoot
+        if let mcp {
+            var mcpOptions = MCPServer.Options(version: "test")
+            mcpOptions.logger = testLogger
+            let mcpServer = MCPServer(options: mcpOptions, tools: catalog.tools, resources: catalog.resources, templates: catalog.templates, prompts: catalog.prompts)
+            let transport = MCPHTTPServer(server: mcpServer, configuration: mcp)
+            serverOptions.mcp = { transport }
+            self.mcpServer = mcpServer
+        } else {
+            mcpServer = nil
+        }
         configure(&serverOptions)
         server = UIServer(configuration: configuration, catalog: catalog, usersURL: directory.appendingPathComponent("ui-users.json"), options: serverOptions)
     }

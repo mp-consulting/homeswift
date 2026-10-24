@@ -67,6 +67,113 @@ the same machine with the same `-U` directory, or from `HOMESWIFT_MCP_URL` and `
 (or `--url` and `--token`). A client that speaks Streamable HTTP connects to `http://127.0.0.1:8582/mcp`
 with `Authorization: Bearer <token>`.
 
+## claude.ai and the Claude apps
+
+claude.ai, and the Claude apps on iPhone, Android and the desktop, add a remote MCP server as a custom
+connector and sign in to it with OAuth. Homeswift serves that through the web UI: `/mcp` on the UI's own
+address, with the sign-in done by the UI's accounts. It needs:
+
+- the MCP server turned on (`mcp.http.enabled`, as above: its own listener can stay on `127.0.0.1`);
+- the web UI with sign-in (`auth: form`), reachable from the internet over HTTPS at a name, since claude.ai
+  connects from Anthropic's servers: a tunnel (Cloudflare Tunnel, Tailscale Funnel) or a reverse proxy in front
+  of the UI, the name in `allowedHosts`, and the proxy in `trustProxy` so the UI knows the browser came over
+  HTTPS (the addresses in the metadata are `https://` only then, or with the UI's own `https`).
+
+```json
+{ "platform": "HomeswiftUI", "port": 8581, "allowedHosts": ["home.example.com"], "trustProxy": ["loopback"] }
+```
+
+(`loopback` for a tunnel that runs on the same machine, such as `cloudflared`.) Then, in claude.ai, **Settings ›
+Connectors › Add custom connector**, with the URL `https://home.example.com/mcp` and no OAuth client ID or
+secret: claude.ai registers itself. **Connect** opens Homeswift's sign-in page: sign in (with the two-factor
+code when it is on), check which app asks and where approving sends you back (claude.ai), choose what it may
+do, and **Allow**. The connector is then there in the Claude apps signed in to the same account too.
+
+What it may do is one of the scopes below, chosen on that page up to the user's role: an administrator may
+give `admin`, any other user `control` at most, and the page never picks `admin` in advance, whatever the app
+asks. As in the web UI, an app of a user who is not an administrator controls accessories and runs scenes but
+does not see the log, config.json, the pairings or the child bridges' health (those tools, resources and
+prompts are not listed for it), nor writes the daily digest again. The user's role is read again at every
+request, so demoting a user narrows the apps they connected, and `readOnly` caps them all at `read`. Sessions show in the audit log as the app and its user,
+`Claude (rosaly)`. **Account › Connected apps** lists a user's apps, with what each may do and when it last
+came, and disconnects one at once.
+
+### How the sign-in goes
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as claude.ai (its servers)
+    participant B as Your browser
+    participant H as Homeswift web UI
+    C->>H: POST /mcp, no token
+    H-->>C: 401, WWW-Authenticate: Bearer resource_metadata=".../.well-known/oauth-protected-resource/mcp"
+    C->>H: GET /.well-known/oauth-protected-resource/mcp
+    H-->>C: resource /mcp, authorization server = this address
+    C->>H: GET /.well-known/oauth-authorization-server
+    H-->>C: the endpoints, PKCE S256, scopes read control admin
+    C->>H: POST /oauth/register (name, redirect URI)
+    H-->>C: 201 client_id
+    C->>B: open /oauth/authorize?client_id&redirect_uri&code_challenge&state&scope&resource
+    B->>H: GET /oauth/authorize (the sign-in page)
+    B->>H: POST /api/auth/login (password, two-factor code)
+    B->>H: GET /api/oauth/request (which app, where it returns, choices)
+    Note over B: You choose Read, Control or Administer and Allow
+    B->>H: POST /api/oauth/decision
+    H-->>B: redirect URI ?code&state&iss
+    B->>C: the redirect URI, with the code
+    C->>H: POST /oauth/token (code, code_verifier)
+    H-->>C: access token (an hour), refresh token
+    C->>H: POST /mcp, Authorization: Bearer hsa_…
+    H-->>C: the MCP session, as "Claude (you)" at the scope chosen, capped by your role
+    Note over C,H: An hour on, POST /oauth/token with the refresh token gives new tokens and replaces it
+```
+
+1. **Discovery.** claude.ai calls `/mcp` without a token. The 401's `WWW-Authenticate` names the protected
+   resource metadata, which names this same address as the authorization server; its metadata lists the
+   endpoints. Every address in them is built from the `Host` the request came with, `https` when the UI serves
+   HTTPS or a `trustProxy` proxy says the client came over it.
+2. **Registration.** claude.ai registers itself at `/oauth/register` with its name and redirect URI, and gets a
+   `client_id` (a public client: no secret, PKCE proves it).
+3. **Sign-in and consent.** Your browser opens `/oauth/authorize`, a page of the UI. Signed out, it asks for your
+   username, password and two-factor code (the UI's own login, throttle included); signed in already, it goes on.
+   It shows the app's name, where approving sends you (claude.ai), and the scopes your role allows, with
+   Control picked. Nothing is focused, and Allow and Deny wait a moment, so a keypress meant for the sign-in never
+   approves. Deny sends `access_denied` back; a client or redirect URI the bridge does not know is shown on the
+   page and never redirected to.
+4. **Code for tokens.** Allow redirects the browser to claude.ai with a code good for five minutes, bound to the
+   app, the redirect URI, your username, the scope and the PKCE challenge. claude.ai's servers trade it at
+   `/oauth/token` with the verifier for an access token (an hour) and a refresh token.
+5. **Using it.** claude.ai sends `Authorization: Bearer hsa_…` to `/mcp`. Each request reads your account
+   again: the scope is the one you chose, at most what your role allows now, `read` with `readOnly`. The audit
+   log names the session after the app and you.
+6. **Refreshing.** Before or after the hour, claude.ai trades the refresh token for new tokens; the old one
+   is replaced. Unused for 90 days, the grant ends and the app signs in again.
+7. **Ending it.** **Account › Connected apps › Disconnect**, removing the user, a new password or turning
+   two-factor authentication on or off (which sign the user's other browsers out too), or the app's own revocation
+   (`/oauth/revoke`) ends the grant: the next request gets a 401 and open streams close.
+
+What the UI serves for it:
+
+| Path | What it is |
+|---|---|
+| `/mcp` | The MCP server, for its OAuth tokens only: the `token` and `clients` tokens above stay on the server's own listener |
+| `/.well-known/oauth-protected-resource`, `…/mcp` | Where to sign in (RFC 9728); a 401 from `/mcp` points there |
+| `/.well-known/oauth-authorization-server` | The endpoints below (RFC 8414) |
+| `/oauth/register` | Dynamic client registration (RFC 7591), open, as claude.ai needs it |
+| `/oauth/authorize` | The sign-in page |
+| `/oauth/token`, `/oauth/revoke` | Codes and refresh tokens for tokens (RFC 6749), and revocation (RFC 7009) |
+
+The authorization code grant with PKCE (S256 only), as OAuth 2.1 and the MCP specification have it. An access
+token (`hsa_…`) lasts an hour and reaches `/mcp` only, never `/api`; a refresh token (`hsr_…`) is replaced at
+each use (the replaced one is taken again for a minute, for a client that lost the answer; later, it ends the
+grant as a stolen copy), and a grant unused for 90 days ends. `ui-oauth.json` next to config.json (owner-only)
+keeps the clients and grants with the SHA-256 of each token and secret; codes stay in memory for five minutes,
+and a second use of one ends what the first got. Registration is open: at most 100 clients are kept, those
+that got no grant going after a day or to make room. Anyone can so register an app and send you a link to
+the sign-in page under a name of their choosing: approve only a connection you started, and check where it
+sends you back.
+
 ## Scopes
 
 | Scope | Tools |
@@ -196,6 +303,9 @@ plugins are compiled into the binary.
   slow its next attempts. The server binds to `127.0.0.1` unless `host` says otherwise.
 - **Origins** other than localhost and the server's own address are refused unless listed, so a web page
   cannot reach the server from the user's browser.
+- **On the web UI's address**, for claude.ai, the UI's protections apply first (its `allowedHosts`, body
+  limits and idle timeouts), then the same token checks and origins. Exposing the UI to the internet exposes
+  its sign-in too: use a strong password and turn on two-factor authentication.
 - **Secrets stay out.** `get_config` and the plugin actions (a TV's password after pairing) give each secret
   as a handle of the session's vault, `__SECRET_…__`, which becomes the secret again when the same session
   passes it back under a secret's key (password, token, key, pin); a handle anywhere else, or from another
