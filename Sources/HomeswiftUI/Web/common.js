@@ -66,6 +66,7 @@
     history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6M3.5 4.5V9H8"/><path d="M12 7.5V12l3 2"/>',
     sliders: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
     up: '<path d="M6 15l6-6 6 6"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
     down: '<path d="M6 9l6 6 6-6"/>',
   };
 

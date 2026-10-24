@@ -236,7 +236,7 @@
     $("#view").replaceWith(main);
     leaveGuard = null;
     shownPath = location.pathname + location.search;
-    view(main, args).catch((e) => { if (e.status !== 401) main.replaceChildren(el("p", { class: "error", text: e.message })); });
+    return view(main, args).catch((e) => { if (e.status !== 401) main.replaceChildren(el("p", { class: "error", text: e.message })); });
   }
   /// Something loading: a turning ring, read as "Loading"; it shows after a moment, so a quick load does not flash it.
   function spinner() {
@@ -1932,7 +1932,7 @@
           setup.qr ? el("img", { class: "qr", src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(setup.qr)}`, alt: "QR code for an authenticator app", width: 148, height: 148 }) : null,
           el("div", {},
             el("p", { text: "Scan this code with your authenticator app, or open the link on this device; or type the key by hand." }),
-            el("p", {}, secret, " ", el("button", { type: "button", class: "link", text: "Copy", onclick: () => copyText(setup.secret) }),
+            el("p", {}, secret, " ", copyButton(setup.secret, secret),
               " · ", el("a", { href: setup.uri, text: "Open in the app" })))),
         el("form", { onsubmit: async (event) => {
           event.preventDefault();
@@ -1945,6 +1945,135 @@
     return card;
   }
 
+  /// A side panel over the page, which is dimmed behind it: a form that is a task of its own (adding or editing a
+  /// user, making a token). `build(done)` makes its content; `done(result)` closes it, as Cancel and Escape do
+  /// (`result` undefined). It arrives from the right, from the bottom on a phone, and leaves the same way; a touch
+  /// can also drag it back out along that edge, as an iOS sheet is swiped away. Once it has gone, `onClose(result)`
+  /// runs, or, with no result, focus goes back to `returnFocus`, the control that opened it.
+  function openSheet(build, labelledBy, { onClose = null, returnFocus = document.activeElement } = {}) {
+    const dialog = el("dialog", { class: "admin-dialog card sheet", "aria-labelledby": labelledBy });
+    const reduce = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const vertical = () => matchMedia("(max-width: 640px)").matches;   // a phone: a sheet from the bottom edge
+    let result, leaving = false;
+    // Out along the edge it came from, from wherever it is now (a drag may have moved it), faster than it came.
+    const dismiss = (value) => {
+      if (leaving) return;
+      leaving = true;
+      result = value;
+      const from = getComputedStyle(dialog).transform;
+      const to = vertical() ? "translateY(calc(100% + 12px))" : "translateX(calc(100% + 12px))";
+      const duration = reduce() ? 140 : 220;
+      dialog.classList.add("leaving");
+      const motion = reduce() ? [{ opacity: 1 }, { opacity: 0 }] : [{ transform: from === "none" ? "none" : from }, { transform: to }];
+      const done = () => dialog.close();
+      try {
+        dialog.animate(motion, { duration, easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" }).finished.then(done, done);
+      } catch { done(); }
+    };
+    dialog.append(el("div", { class: "sheet-grabber", "aria-hidden": "true" }), build(dismiss));
+    dialog.addEventListener("cancel", (event) => { event.preventDefault(); dismiss(); });   // Escape
+    dialog.addEventListener("close", () => {
+      dialog.remove();
+      if (onClose) onClose(result);
+      else if (returnFocus?.isConnected) returnFocus.focus();
+    });
+    dragToDismiss(dialog, vertical, dismiss);
+    document.body.append(dialog);
+    dialog.showModal();
+    $("input:not([type=hidden]):not([disabled]), select", dialog)?.focus();
+    return dialog;
+  }
+
+  /// A touch drags the panel out along its edge (right, or down on a phone), 1:1 from where it was grabbed, with
+  /// resistance the other way. Released, it goes where it was heading: Apple's projection of the flick from its
+  /// velocity; past 40% of its size it leaves, otherwise it settles back. A field or a button keeps the touch for
+  /// itself.
+  function dragToDismiss(dialog, vertical, dismiss) {
+    const project = (velocity, rate = 0.998) => (velocity / 1000) * rate / (1 - rate);   // px/s to px
+    const rubber = (over, size) => (over * size * 0.55) / (size + 0.55 * Math.abs(over));
+    let drag = null;
+    dialog.addEventListener("pointerdown", (event) => {
+      if (event.pointerType === "mouse" || event.target.closest("input, select, textarea, button, a, label")) return;
+      // On a phone the sheet scrolls: a downward drag starts on the grabber or the title only.
+      if (vertical() && !event.target.closest(".sheet-grabber, .account-form > h2")) return;
+      drag = { id: event.pointerId, x: event.clientX, y: event.clientY, axis: vertical() ? "y" : "x", moving: false, samples: [] };
+    });
+    dialog.addEventListener("pointermove", (event) => {
+      if (!drag || event.pointerId !== drag.id) return;
+      const along = drag.axis === "y" ? event.clientY - drag.y : event.clientX - drag.x;
+      const across = drag.axis === "y" ? event.clientX - drag.x : event.clientY - drag.y;
+      if (!drag.moving) {
+        if (Math.abs(along) < 10 && Math.abs(across) < 10) return;   // hysteresis before choosing
+        if (Math.abs(across) > Math.abs(along)) { drag = null; return; }   // a scroll or a swipe the other way
+        drag.moving = true;
+        try { dialog.setPointerCapture(event.pointerId); } catch { /* a pointer that has already gone */ }
+        dialog.style.transition = "none";
+      }
+      const size = drag.axis === "y" ? dialog.offsetHeight : dialog.offsetWidth;
+      const offset = along >= 0 ? along : rubber(along, size);
+      dialog.style.transform = drag.axis === "y" ? `translateY(${offset}px)` : `translateX(${offset}px)`;
+      drag.samples.push([along, event.timeStamp]);
+      if (drag.samples.length > 5) drag.samples.shift();
+    });
+    const release = (event) => {
+      if (!drag || event.pointerId !== drag.id) return;
+      const { moving, samples, axis } = drag;
+      drag = null;
+      if (!moving) return;
+      const [first, last] = [samples[0], samples[samples.length - 1]];
+      const velocity = first && last && last[1] > first[1] ? ((last[0] - first[0]) / (last[1] - first[1])) * 1000 : 0;
+      const position = last ? Math.max(0, last[0]) : 0;
+      const size = axis === "y" ? dialog.offsetHeight : dialog.offsetWidth;
+      // The snappier of Apple's two rates: a panel thrown aside, not a page scrolled.
+      if (position + project(velocity, 0.99) > size * 0.4) { dismiss(); return; }
+      dialog.style.transition = "transform 300ms cubic-bezier(0.32, 0.72, 0, 1)";
+      dialog.style.transform = "";
+    };
+    dialog.addEventListener("pointerup", release);
+    dialog.addEventListener("pointercancel", release);
+  }
+
+  /// Draws the page again, then brings the card `key` (its `data-key`) to the eye and the keyboard: focused, and
+  /// lit for a moment, as the one that was just added or changed.
+  async function showChanged(key) {
+    await route();
+    const card = key && document.querySelector(`[data-key="${CSS.escape(key)}"]`);
+    if (!card) return;
+    card.tabIndex = -1;
+    card.focus({ preventScroll: true });
+    card.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    card.classList.add("just-changed");
+    card.addEventListener("animationend", () => card.classList.remove("just-changed"), { once: true });
+  }
+
+  /// A Copy button for `text` that says it worked ("Copied", for two seconds), or, when the browser refuses,
+  /// selects `field` so it can be copied by hand.
+  function copyButton(text, field) {
+    const button = el("button", { type: "button", class: "link", text: "Copy" });
+    let timer = null;
+    button.addEventListener("click", async () => {
+      clearTimeout(timer);
+      try {
+        await copyText(text);
+        button.textContent = "✓ Copied";
+      } catch {
+        const range = document.createRange();
+        range.selectNodeContents(field);
+        getSelection().removeAllRanges();
+        getSelection().addRange(range);
+        button.textContent = "Selected: press ⌘C or Ctrl+C";
+      }
+      timer = setTimeout(() => { button.textContent = "Copy"; }, 2000);
+    });
+    return button;
+  }
+
+  /// A small round + beside a heading, adding one more of what the section lists (Add user, Create token): the action
+  /// next to its title rather than alone at the page's edge. `label` is its name for screen readers and its tooltip.
+  const addButton = (label, onclick) => el("button", { type: "button", class: "add-button", "aria-label": label, title: label, onclick }, HomeswiftCommon.icon("plus"));
+  /// A heading with its add button: `tag` is h1 for a page, h2 for a section.
+  const titleWithAdd = (tag, text, label, onclick) => el("div", { class: "title-add" }, el(tag, { text }), addButton(label, onclick));
+
   // ---- Users ---------------------------------------------------------------
   // Glass UI's Users page: the accounts of this web UI, each a card whose ⋯ menu edits it (name, role, a new
   // password) or removes it, and the API tokens for scripts. An administrator's; the last one stays one.
@@ -1956,7 +2085,9 @@
     }
     const [users, tokens] = await Promise.all([api("/api/users"), api("/api/tokens")]);
     const admins = users.filter((user) => user.admin).length;
-    const when = (iso) => iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "Never";
+    // A card's facts are a third of its width: the day alone ("24 Oct 2026"), the time in the tooltip.
+    const when = (iso) => iso ? new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "Never";
+    const whenFull = (iso) => iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "full", timeStyle: "short" }) : "Never";
     const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);
     const checkbox = (label, checked, help) => {
       const input = el("input", { type: "checkbox", checked });
@@ -1967,14 +2098,18 @@
     /// The form that adds a user, or changes one (`user`): name, role, and a password (a new one, for a user).
     function userForm(user, done) {
       const username = el("input", { autocomplete: "off", required: true, maxLength: 64, spellcheck: false, value: user?.username ?? "" });
-      const name = el("input", { autocomplete: "off", maxLength: 64, value: user && user.name !== user.username ? user.name : "", placeholder: user?.username ?? "The username" });
+      const name = el("input", { autocomplete: "off", maxLength: 64, value: user && user.name !== user.username ? user.name : "", placeholder: user ? `${user.username} (the username)` : "The username" });
       const password = el("input", { type: "password", autocomplete: "new-password", required: !user });
       const gauge = strengthGauge(password, () => username.value);
+      // The gauge once there is a password to judge (an empty field keeps theirs, and needs no meter): it unfolds,
+      // easing the fields below down rather than pushing them.
+      const gaugeBox = el("div", { class: "unfold", inert: true }, el("div", {}, gauge));
+      password.addEventListener("input", () => { gaugeBox.classList.toggle("open", Boolean(password.value)); gaugeBox.inert = !password.value; });
       const [roleLabel, roleNote, admin] = checkbox("Administrator", user ? user.admin : false, roleHelp);
       if (user?.admin && admins < 2) { admin.disabled = true; roleNote.textContent = "The last administrator stays one: make another user an administrator first."; }
       const message = el("p", { class: "status-line muted", role: "status" });
       const submit = el("button", { class: "primary", type: "submit", text: user ? "Save" : "Add user" });
-      const form = el("form", { class: "card account-form", onsubmit: async (event) => {
+      const form = el("form", { class: "account-form", onsubmit: async (event) => {
         event.preventDefault();
         if (password.value && !(await gauge.acceptable())) { message.className = "status-line error"; message.textContent = "The password is not strong enough yet: the gauge says what is missing."; return; }
         submit.disabled = true;
@@ -1986,103 +2121,130 @@
           } else {
             await api("/api/users", { method: "POST", body: { username: username.value, name: name.value, password: password.value, admin: admin.checked } });
           }
-          done(true);
+          done(`user:${(user?.username ?? username.value).trim().toLowerCase()}`);
         } catch (e) { message.className = "status-line error"; message.textContent = e.message; submit.disabled = false; }
       } },
-        el("h2", { text: user ? `Edit ${user.name}` : "Add a user" }),
+        el("h2", { id: "user-form-title", text: user ? `Edit ${user.name}` : "Add a user" }),
         user ? null : field("Username", username, "What they sign in with: no spaces or colons."),
         field("Name", name, "Shown in the web UI; the username when empty."),
         el("label", { class: "field" }, el("span", { class: "field-title", text: user ? "New password" : "Password" }), password,
-          user ? el("span", { class: "help", text: "Leave empty to keep theirs. A new one signs them out everywhere." }) : null, gauge),
+          user ? el("span", { class: "help", text: "Leave empty to keep theirs. A new one signs them out everywhere." }) : null, gaugeBox),
         roleLabel, roleNote,
-        el("div", { class: "actions" }, submit, el("button", { type: "button", text: "Cancel", onclick: () => done(false) })), message);
+        message, el("div", { class: "actions" }, el("button", { type: "button", text: "Cancel", onclick: () => done() }), submit));
       return form;
     }
 
+    // Adding or editing a user is a task of its own: a sheet over the page, the page dimmed behind it.
     const list = el("div", { class: "grid" });
-    const formSlot = el("div", {});
-    const closeForm = (changed) => { formSlot.replaceChildren(); if (changed) route(); };
-    const openForm = (user) => { formSlot.replaceChildren(userForm(user, closeForm)); formSlot.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); $("input", formSlot)?.focus(); };
+    const openForm = (user, returnFocus) => openSheet((done) => userForm(user, done), "user-form-title", {
+      returnFocus, onClose: (key) => { if (key) showChanged(key); else if (returnFocus?.isConnected) returnFocus.focus(); } });
 
     for (const user of users) {
       const lastAdmin = user.admin && admins < 2;
-      list.append(el("div", { class: "card" },
+      const actions = menuButton(`Actions for ${user.name}`, () => [
+        { label: "Edit", icon: "edit", onSelect: () => openForm(user, actions) },
+        user.you ? { label: "Your account", icon: "user", href: "/account" } : null,
+        lastAdmin ? null : { label: user.you ? "Remove your account" : "Remove", icon: "trash", danger: true, onSelect: async () => {
+          if (!confirm(`Remove ${user.name} (${user.username})? They are signed out at once.${user.you ? " That is you: this browser is signed out too." : ""}`)) return;
+          try { await api(`/api/users/${encodeURIComponent(user.username)}`, { method: "DELETE" }); if (user.you) await loadAuth(); else route(); } catch (e) { alert(e.message); }
+        } },
+      ]);
+      list.append(el("div", { class: "card", "data-key": `user:${user.username.toLowerCase()}` },
         el("div", { class: "server-head" },
           tile(user.admin ? "key" : "user", user.admin ? "orange" : "blue"),
-          el("div", { class: "who" }, el("strong", { text: user.name }), el("div", { class: "muted mono", text: user.username })),
-          user.you ? el("span", { class: "pill", text: "You" }) : null),
-        el("div", { class: "facts" },
-          fact("Role", user.admin ? "Administrator" : "User"),
+          el("div", { class: "who" }, el("strong", { text: user.name }),
+            el("div", { class: "muted" }, el("span", { class: "mono", text: user.username }), user.you ? " · you" : "")),
+          el("span", { class: user.admin ? "pill status admin" : "pill status standby", text: user.admin ? "Administrator" : "User" })),
+        el("div", { class: "facts two" },
           fact("Two-factor", user.twoFactor ? "On" : "Off"),
-          fact("Added", new Date(user.created).toLocaleDateString())),
+          fact("Added", when(user.created), { title: whenFull(user.created) })),
         el("div", { class: "card-foot" },
-          el("span", { class: "muted", text: user.you ? "Your own password and two-factor: Account" : lastAdmin ? "The last administrator" : "" }),
-          menuButton(`Actions for ${user.name}`, () => [
-            { label: "Edit", icon: "edit", onSelect: () => openForm(user) },
-            user.you ? { label: "Your account", icon: "user", href: "/account" } : null,
-            lastAdmin ? null : { label: user.you ? "Remove your account" : "Remove", icon: "trash", danger: true, onSelect: async () => {
-              if (!confirm(`Remove ${user.name} (${user.username})? They are signed out at once.${user.you ? " That is you: this browser is signed out too." : ""}`)) return;
-              try { await api(`/api/users/${encodeURIComponent(user.username)}`, { method: "DELETE" }); if (user.you) await loadAuth(); else route(); } catch (e) { alert(e.message); }
-            } },
-          ]))));
+          user.you ? el("a", { href: "/account", text: "Your password and two-factor" })
+            : el("span", { class: "muted", text: lastAdmin ? "The last administrator" : "" }),
+          actions)));
     }
 
     show(main,
-      pageHead("Users", "Who may use this web UI. Administrators change settings, plugins and users; other users see the bridge and control accessories.",
-        el("button", { class: "primary", text: "Add user", onclick: () => openForm(null) })),
-      formSlot, list,
-      apiTokens(tokens, when));
+      el("div", { class: "page-head" },
+        el("div", { class: "who" }, titleWithAdd("h1", "Users", "Add user", (event) => openForm(null, event.currentTarget)),
+          el("p", { class: "muted", text: "Who may use this web UI. Administrators change settings, plugins and users; other users see the bridge and control accessories." }))),
+      list,
+      apiTokens(tokens, when, whenFull));
   };
 
   /// The API tokens: for scripts, sent as `Authorization: Bearer hst_…` on /api/*. A read token reads; an admin
-  /// token does what an administrator does. Shown once, when made; the bridge keeps only a hash.
-  function apiTokens(tokens, when) {
+  /// token does what an administrator does. Shown once, when made; the bridge keeps only a hash. Laid out as the
+  /// users are: a button in the section's head opens the form at the head of the grid.
+  function apiTokens(tokens, when, whenFull) {
     const name = el("input", { required: true, maxLength: 64, placeholder: "Backup script", autocomplete: "off" });
-    const scope = el("select", {}, el("option", { value: "read", text: "Read: status, accessories, metrics" }), el("option", { value: "admin", text: "Admin: everything an administrator does" }));
+    const scope = el("select", {}, el("option", { value: "read", text: "Read" }), el("option", { value: "admin", text: "Admin" }));
+    const scopeHelp = el("span", { class: "help" });
+    const describeScope = () => { scopeHelp.textContent = scope.value === "admin" ? "Everything an administrator does, except users and tokens." : "The status, accessories and metrics."; };
+    scope.addEventListener("change", describeScope);
+    describeScope();
     const expiry = el("select", {}, ...[["", "Never"], ["30", "In 30 days"], ["90", "In 90 days"], ["365", "In a year"]].map(([value, text]) => el("option", { value, text })));
     const message = el("p", { class: "status-line muted", role: "status" });
-    const created = el("div", {});
     const submit = el("button", { class: "primary", type: "submit", text: "Create token" });
-    const form = el("form", { class: "card account-form", onsubmit: async (event) => {
+    const grid = el("div", { class: "grid" });
+    let close = () => {};
+    let made = null;   // the token made in the panel: the list is drawn again with it once the panel closes
+    const form = el("form", { class: "account-form", onsubmit: async (event) => {
       event.preventDefault();
       submit.disabled = true;
       try {
         const token = await api("/api/tokens", { method: "POST", body: { name: name.value, scope: scope.value, expiresInDays: expiry.value ? Number(expiry.value) : null } });
-        form.reset();
-        message.textContent = "";
-        created.replaceChildren(el("div", { class: "card token-once" },
-          el("h2", { text: `Token “${token.name}”` }),
-          el("p", { class: "muted", text: "Copy it now: it is shown once. Send it as Authorization: Bearer <token>." }),
-          el("p", {}, el("code", { class: "mono secret", text: token.token }), " ", el("button", { type: "button", class: "link", text: "Copy", onclick: () => copyText(token.token) })),
-          el("div", { class: "actions" }, el("button", { type: "button", text: "Done", onclick: () => route() }))));
+        made = `token:${token.id}`;
+        const secret = el("code", { class: "mono secret", text: token.token });
+        form.replaceWith(el("div", { class: "account-form token-once" },
+          el("h2", { id: "token-form-title", text: `Token “${token.name}”` }),
+          el("p", { class: "help" }, "Copy it now: it is shown once. Send it as ", el("code", { text: "Authorization: Bearer <token>" }), "."),
+          el("p", {}, secret, " ", copyButton(token.token, secret)),
+          el("div", { class: "actions" }, el("button", { type: "button", class: "primary", text: "Done", onclick: () => close() }))));
       } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
       submit.disabled = false;
     } },
-      el("h2", { text: "Create an API token" }),
+      el("h2", { id: "token-form-title", text: "Create an API token" }),
       el("div", { class: "fields" },
-        el("label", { class: "field" }, el("span", { class: "field-title", text: "Name" }), name),
-        el("label", { class: "field" }, el("span", { class: "field-title", text: "Scope" }), scope),
+        el("label", { class: "field" }, el("span", { class: "field-title", text: "Name" }), name, el("span", { class: "help", text: "What uses it, to know it again." })),
+        el("label", { class: "field" }, el("span", { class: "field-title", text: "Scope" }), scope, scopeHelp),
         el("label", { class: "field" }, el("span", { class: "field-title", text: "Expires" }), expiry)),
-      el("div", { class: "actions" }, submit), message);
-    const cards = tokens.map((token) => el("div", { class: "card" },
-      el("div", { class: "server-head" },
-        tile("key", token.scope === "admin" ? "orange" : "teal"),
-        el("div", { class: "who" }, el("strong", { text: token.name }), el("div", { class: "muted", text: token.createdBy ? `Made by ${token.createdBy}` : "" })),
-        el("span", { class: "pill", text: token.scope === "admin" ? "Admin" : "Read" })),
-      el("div", { class: "facts" }, fact("Created", when(token.created)), fact("Last used", when(token.lastUsed)), fact("Expires", token.expires ? when(token.expires) : "Never")),
-      el("div", { class: "card-foot" },
-        el("span", { class: "muted", text: token.expires && new Date(token.expires) < new Date() ? "Expired" : "" }),
-        menuButton(`Actions for the token ${token.name}`, () => [
-          { label: "Revoke", icon: "trash", danger: true, onSelect: async () => {
-            if (!confirm(`Revoke the token “${token.name}”? Scripts using it are refused at once.`)) return;
-            try { await api(`/api/tokens/${encodeURIComponent(token.id)}`, { method: "DELETE" }); route(); } catch (e) { alert(e.message); }
-          } },
-        ]))));
+      message, el("div", { class: "actions" }, el("button", { type: "button", text: "Cancel", onclick: () => close() }), submit));
+    const openTokenForm = (event) => {
+      const opener = event?.currentTarget;
+      form.reset();
+      describeScope();
+      message.textContent = "";
+      made = null;
+      openSheet((done) => { close = done; return form; }, "token-form-title", {
+        returnFocus: opener, onClose: () => { if (made) showChanged(made); else if (opener?.isConnected) opener.focus(); } });
+    };
+    const cards = tokens.map((token) => {
+      const expired = token.expires && new Date(token.expires) < new Date();
+      return el("div", { class: "card", "data-key": `token:${token.id}` },
+        el("div", { class: "server-head" },
+          tile("key", token.scope === "admin" ? "orange" : "teal"),
+          el("div", { class: "who" }, el("strong", { text: token.name }),
+            el("div", { class: "muted", title: whenFull(token.created), text: token.createdBy ? `${token.createdBy} · ${when(token.created)}` : when(token.created) })),
+          el("span", { class: token.scope === "admin" ? "pill status admin" : "pill status standby", text: token.scope === "admin" ? "Admin" : "Read" })),
+        el("div", { class: "facts two" },
+          fact("Last used", when(token.lastUsed), { title: whenFull(token.lastUsed) }),
+          fact("Expires", token.expires ? when(token.expires) : "Never", token.expires ? { title: whenFull(token.expires) } : {})),
+        el("div", { class: "card-foot" },
+          el("span", { class: expired ? "pill status bad" : "muted", text: expired ? "Expired" : "" }),
+          menuButton(`Actions for the token ${token.name}`, () => [
+            { label: "Revoke", icon: "trash", danger: true, onSelect: async () => {
+              if (!confirm(`Revoke the token “${token.name}”? Scripts using it are refused at once.`)) return;
+              try { await api(`/api/tokens/${encodeURIComponent(token.id)}`, { method: "DELETE" }); route(); } catch (e) { alert(e.message); }
+            } },
+          ])));
+    });
+    grid.append(...(cards.length ? cards : [el("div", { class: "card empty" },
+      el("p", { class: "muted", text: "No tokens yet. One lets a script or another program read the bridge, or change it as an administrator would." }))]));
     return el("section", {},
-      el("h2", { text: "API tokens" }),
-      el("p", { class: "muted", text: "For scripts and other programs: send a token as Authorization: Bearer <token> to /api/*. A read token reads the status, accessories and metrics; an admin token does what an administrator does, but cannot manage users or tokens." }),
-      created, form,
-      tokens.length ? el("div", { class: "grid" }, cards) : el("p", { class: "muted", text: "No token yet." }));
+      el("div", { class: "section-head" },
+        el("div", {}, titleWithAdd("h2", "API tokens", "Create token", openTokenForm),
+          el("span", { class: "muted" }, "For scripts: ", el("code", { text: "Authorization: Bearer <token>" }), " on ", el("code", { text: "/api/*" })))),
+      grid);
   }
 
   const appearanceLink = () => el("a", { class: "card link-card", href: "/appearance" }, HomeswiftCommon.icon("sliders"),

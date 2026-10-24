@@ -238,6 +238,79 @@ button.busy::after {
 .account-lead { margin: 4px 0 0; }
 .account-password { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 22px; align-items: start; margin-top: 16px; }
 .account-fields .field:first-child { margin-top: 0; }
+/* A form card starts at its title and ends at its buttons: no heading margin above, no empty message line below. */
+.account-form > h2:first-child { margin-top: 0; }
+.account-form .status-line:empty { margin: 0; min-height: 0; }
+/* A side panel (openSheet in app.js: Add a user, Edit, Create a token): a task over the dimmed page, floating at
+   the right edge as the header floats at the top, full height, its buttons kept at the bottom. It slides in from the
+   right with the drawer curve and leaves the same way, faster (the leaving motion is openSheet's, from wherever a
+   drag left it). A phone gets a sheet from the bottom edge, with a grabber to swipe it down. Reduced motion: fades. */
+.admin-dialog.sheet {
+  margin: 12px 12px 12px auto; width: min(460px, calc(100% - 24px)); height: calc(100% - 24px); max-height: none;
+  padding: 22px 24px 20px; border-radius: var(--radius); overscroll-behavior: contain; touch-action: pan-y;
+}
+.admin-dialog.sheet[open] { display: flex; flex-direction: column; animation: sheet-in 320ms cubic-bezier(0.32, 0.72, 0, 1); }
+.admin-dialog.sheet[open]::backdrop { animation: sheet-dim 240ms var(--ease-out); }
+.admin-dialog.sheet.leaving::backdrop { animation: sheet-undim 220ms var(--ease-out) forwards; }
+.sheet-grabber { display: none; }
+.admin-dialog.sheet > .account-form { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.admin-dialog.sheet .account-form > h2:first-child { font-size: 1.25rem; letter-spacing: -0.015em; margin-bottom: 14px; }
+.admin-dialog.sheet .account-form > .actions { margin-top: auto; padding-top: 18px; }
+.admin-dialog.sheet .status-line:not(:empty) { margin-top: 14px; }
+.admin-dialog.sheet .fields { grid-template-columns: 1fr; }
+@keyframes sheet-in { from { transform: translateX(calc(100% + 12px)); } }
+@keyframes sheet-up { from { transform: translateY(calc(100% + 12px)); } }
+@keyframes sheet-dim { from { opacity: 0; } }
+@keyframes sheet-undim { to { opacity: 0; } }
+@media (max-width: 640px) {
+  .admin-dialog.sheet {
+    margin: auto 0 0; width: 100%; max-width: 100%; height: calc(100% - 16px - env(safe-area-inset-top)); max-height: 100%;
+    border-radius: var(--radius) var(--radius) 0 0; border-bottom: 0;
+    padding: 26px 18px calc(18px + env(safe-area-inset-bottom));
+  }
+  .admin-dialog.sheet[open] { animation-name: sheet-up; }
+  .sheet-grabber { display: block; position: absolute; top: 0; left: 0; right: 0; height: 26px; touch-action: none; cursor: grab; }
+  .sheet-grabber::before { content: ""; position: absolute; top: 8px; left: 50%; width: 36px; height: 5px; margin-left: -18px; border-radius: 3px; background: var(--line); }
+  .admin-dialog.sheet .account-form > h2:first-child { touch-action: none; }
+  .admin-dialog.sheet .account-form > .actions > button { flex: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .admin-dialog.sheet[open] { animation: sheet-dim 160ms ease; }
+}
+/* The password gauge unfolds once there is a password (Users' form): its height eased open, not jumped. */
+.unfold { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 200ms var(--ease-out), opacity 160ms ease-out; }
+.unfold.open { grid-template-rows: 1fr; opacity: 1; }
+.unfold > div { min-height: 0; overflow: hidden; }
+@media (prefers-reduced-motion: reduce) { .unfold { transition: opacity 160ms ease-out; } }
+/* The card just added or changed: an accent ring that fades out, where the eye lands after the panel goes. */
+.card.just-changed { animation: just-changed 1.6s var(--ease-out); }
+.card.just-changed:focus { outline: none; }
+@keyframes just-changed { from { box-shadow: 0 0 0 3px var(--accent), var(--shadow); } }
+.facts.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* A heading's add button (Add user, Create token): a small round + right after the title, tinted with the accent;
+   the accent fills it under a pointer. */
+.title-add { display: flex; align-items: center; gap: 10px; }
+.title-add > :is(h1, h2) { margin: 0; }
+button.add-button {
+  display: inline-grid; place-items: center; flex: none; width: 28px; height: 28px; min-height: 0; padding: 0; border-radius: 50%;
+  color: var(--accent); background: rgba(255, 122, 26, 0.14); border: 1px solid rgba(255, 122, 26, 0.35);
+  background: color-mix(in srgb, var(--accent) 14%, transparent); border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  box-shadow: none; transition: background-color var(--fast) var(--ease-out), color var(--fast) var(--ease-out), transform 120ms var(--ease-out);
+}
+.page-head button.add-button { width: 30px; height: 30px; }
+button.add-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
+@media (hover: hover) and (pointer: fine) {
+  button.add-button:hover { background: var(--accent); color: var(--accent-text); transform: none; }
+}
+@media (pointer: coarse) { button.add-button { position: relative; } button.add-button::after { content: ""; position: absolute; inset: -8px; } }
+.pill.status.admin { color: var(--accent); border-color: rgba(255, 122, 26, 0.4); }
+.pill.status.bad { color: var(--error); border-color: rgba(208, 56, 59, 0.4); }
+.section-head > div > h2 { margin: 0; }
+.section-head > div > .muted { display: block; margin-top: 2px; }
+.section-head .actions { margin: 0; }
+.section-head code, .account-form .help code { font-family: var(--mono); font-size: 0.92em; }
+.card-foot a { color: var(--accent); text-decoration: none; font-weight: 500; }
+.card-foot a:hover { text-decoration: underline; }
 .strength-panel {
   padding: 16px 18px; border-radius: calc(var(--radius) - 6px);
   background: var(--material-thin); box-shadow: inset 0 0 0 1px var(--line);
@@ -1645,6 +1718,15 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .chat-history-open strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-history-open .muted { font-size: 0.75rem; }
 .chat-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-/* A page's title and line on a wallpaper, outside the glass: lifted off it. */
-:root[data-wallpaper] .page-head > .who { color: #fff; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45); }
-:root[data-wallpaper] .page-head > .who .muted { color: rgba(255, 255, 255, 0.85); }
+/* Text on a wallpaper, outside the glass (a page's title, a section's heading and line, a "Show as a table"): on a
+   plate of the header's material, in the theme's own colours. White with a shadow faded into a light wallpaper
+   (Sunset's yellow), and the theme's dark text into a dark one. */
+:root[data-wallpaper] main .page-head,
+:root[data-wallpaper] main :is(h2, .section-head, details.more > summary, section > p.muted):not(:is(.card, .log, .banner, .section-head, .page-head, dialog, .menu) *) {
+  width: fit-content; max-width: 100%; padding: 6px 14px; border-radius: 14px;
+  background-color: var(--material-thick);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(180%); backdrop-filter: blur(var(--blur)) saturate(180%);
+  box-shadow: var(--shadow-control), inset 0 0 0 1px var(--edge);
+}
+:root[data-wallpaper] main .page-head { width: auto; padding: 12px 14px 12px 20px; border-radius: 20px; align-items: center; }
+:root[data-wallpaper] main :is(h2, details.more > summary):not(:is(.card, .log, .banner, .section-head, .page-head, dialog, .menu) *) { padding: 5px 12px; border-radius: 12px; }
