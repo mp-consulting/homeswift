@@ -77,7 +77,7 @@ final class UITestEnvironment: @unchecked Sendable {
     /// `assistant`: a HomeswiftAiKit block whose provider nothing answers for (it is never reached in the tests);
     /// `model`: one whose provider answers through this transport.
     init(auth: UIConfiguration.AuthMode = .form, webRoot: URL? = nil, https: Bool = false, metrics: Metrics? = nil, assistant: Bool = false,
-         model: (any HTTPTransport)? = nil, mcp: MCPConfiguration? = nil, options configure: (inout UIServer.Options) -> Void = { _ in }) throws {
+         model: (any HTTPTransport)? = nil, mcp: MCPConfiguration? = nil, trustProxy: String? = nil, options configure: (inout UIServer.Options) -> Void = { _ in }) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let ai = assistant || model != nil ? #",{ "platform": "HomeswiftAiKit", "provider": "openai-compatible", "model": "llama3.1", "baseUrl": "http://127.0.0.1:9/v1", "maxRetries": 0 }"# : ""
         let config = """
@@ -106,6 +106,7 @@ final class UITestEnvironment: @unchecked Sendable {
         configuration.port = 0
         configuration.auth = auth
         configuration.https = https
+        if let trustProxy { configuration.trustProxy = try UIConfiguration(block: ["trustProxy": .string(trustProxy)]).trustProxy }
         var serverOptions = UIServer.Options()
         serverOptions.hashIterations = 1000
         serverOptions.logger = testLogger
@@ -527,6 +528,18 @@ struct MetricsAPITests {
 
 @Suite(.timeLimit(.minutes(1)))
 struct UIServerTests {
+    /// HSTS only when a trusted proxy says the browser came over HTTPS: the proxy's certificate is a real one.
+    @Test func sendsHSTSOnlyBehindATrustedHTTPSProxy() async throws {
+        let environment = try UITestEnvironment(trustProxy: "loopback")
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let browser = Browser(base: base)
+        #expect(try await browser.get("/").headers["strict-transport-security"] == nil)
+        let proxied = try await browser.send("GET", "/", headers: ["X-Forwarded-Proto": "https"])
+        #expect(proxied.headers["strict-transport-security"] == "max-age=31536000")
+        #expect(try await browser.send("GET", "/", headers: ["X-Forwarded-Proto": "http"]).headers["strict-transport-security"] == nil)
+    }
+
     @Test func servesPagesAndTheAPIBehindALogin() async throws {
         let environment = try UITestEnvironment()
         let base = try await environment.start()
@@ -538,6 +551,11 @@ struct UIServerTests {
         #expect(page.body.contains("<title>Homeswift</title>"))
         #expect(page.headers["content-security-policy"]?.contains("default-src 'self'") == true)
         #expect(page.headers["x-frame-options"] == "DENY")
+        #expect(page.headers["permissions-policy"]?.contains("camera=()") == true && page.headers["permissions-policy"]?.contains("microphone=(self)") == true)
+        #expect(page.headers["x-robots-tag"] == "noindex, nofollow")
+        #expect(page.headers["strict-transport-security"] == nil)
+        let robots = try await browser.get("/robots.txt")
+        #expect(robots.status == 200 && robots.body == "User-agent: *\nDisallow: /\n")
         #expect(try await browser.get("/app.js").headers["content-type"]?.hasPrefix("text/javascript") == true)
         #expect(try await browser.get("/nope.html").status == 404)
         #expect(try await browser.get("/api/status").status == 401)
