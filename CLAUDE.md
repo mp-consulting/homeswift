@@ -45,6 +45,7 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `Tests/HomeswiftFFmpegTests` | FFmpeg options and codecs per host, the process wrapper against a shell, RTP, fMP4 parsing on fixtures |
 | `Dockerfile`, `docker-compose.yml` | The container image (bridge, Avahi, FFmpeg; `Scripts/docker-entrypoint.sh` starts Avahi, seeds config.json, drops to `PUID:PGID`), published to GHCR by `.github/workflows/docker.yml`; `docs/synology.md` |
 | `Synology` | The Synology package: `build.sh` makes an `.spk` per architecture with Docker (`Dockerfile`: the binary on Amazon Linux 2, glibc 2.26 as on DSM 7.0; `bundle-libraries.sh` puts Avahi's dns_sd beside it), `conf/` (privilege, resources, the systemd unit), `scripts/`, the install wizard, `package/` (the `homeswift` command, `start.sh`); `.github/workflows/synology.yml` attaches them to releases |
+| `site` | The homeswift.dev website: one plain HTML page (no build step, no dependencies), its icons and `CNAME`; `.github/workflows/pages.yml` publishes it to GitHub Pages when it changes on main. Its benchmark numbers come from `Benchmarks/README.md` and its plugin list from `Plugins/`: update them together |
 | `Benchmarks` | A separate package: `hap-bench`, a HomeKit controller that measures a server (pairing, requests, events, load, memory), `hap-bench-server` (a Homeswift bridge with N lightbulbs) and the same bridge on HAP-NodeJS under `hap-nodejs/`; `run.sh` compares them, `README.md` has the numbers |
 
 ## Commands
