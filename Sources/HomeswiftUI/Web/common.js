@@ -55,6 +55,8 @@
     eye: '<path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7z"/><circle cx="12" cy="12" r="2.5"/>',
     bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/>',
     user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+    users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.2a6.5 6.5 0 0 1 3.5 5.8"/>',
+    logout: '<path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4"/><path d="M9 16.5 4.5 12 9 7.5M4.5 12H15"/>',
     chart: '<path d="M4 4v16h16"/><path d="m7 15 4-5 3 3 5-6"/>',
     archive: '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/>',
     key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l2 2M15 8l2 2"/>',
@@ -249,6 +251,8 @@
     openMenu?.close(true);
     const nodes = items.filter(Boolean).map((item) => {
       if (item.separator) return el("hr", { class: "menu-separator", role: "separator" });
+      // Who the menu is about (the header's account menu): a name and a line under it, not an action.
+      if (item.heading !== undefined) return el("div", { class: "menu-heading" }, el("strong", { text: item.heading }), item.detail ? el("span", { text: item.detail }) : null);
       const glyph = typeof item.icon === "string" ? icon(item.icon) : item.icon ?? null;
       const choice = typeof item.checked === "boolean";
       const role = choice ? "menuitemradio" : "menuitem";
@@ -259,7 +263,7 @@
       node.addEventListener("click", () => { close(); item.onSelect?.(); });
       return node;
     });
-    const entries = nodes.filter((node) => node.tagName !== "HR");
+    const entries = nodes.filter((node) => node.getAttribute("role")?.startsWith("menuitem"));
     const list = el("div", { class: "menu", role: "menu", tabIndex: -1, "aria-label": trigger.getAttribute("aria-label") || "Actions" }, nodes);
     document.body.append(list);
     // Under the button, its right edges aligned, inside the window; above it when there is no room below.
@@ -543,7 +547,7 @@
   const formatTemperature = (celsius) => { const { value, unit } = temperature(celsius); return `${value} ${unit}`; };
 
   window.HomeswiftCommon = {
-    $, el, icon, tile, fact, markdown, sparkle, api, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
+    $, el, icon, tile, fact, markdown, sparkle, api, menu, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature,
   };
 })();

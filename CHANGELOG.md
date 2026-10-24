@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Web UI: an account menu at the header's right end, your initial on the accent: who is signed in and as what, Your
+  account, Appearance, Users and tokens (administrators) and Sign out; Users leaves the header's links. On a phone the
+  tab bar has a column per section, so Logs no longer wraps to a second row.
 - Web UI: the scheduled restart is set as a time and the days it runs on (none: every day), or a cron expression
   under Custom (`x-schema-form.type: "schedule"`); the daily backup is "Turn on the daily backup", on while
   `scheduledBackupDisable` is false (`x-schema-form.invert`).
@@ -16,6 +19,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A cron schedule no longer spins a core forever in the day before a clock change: finding the next time stepped
+  out of the hour that repeats in autumn back into its first occurrence. A daily backup or a scheduled restart
+  set after that hour hit it, and the core stayed busy until the bridge restarted.
 - Web UI: over HTTPS the page carries its home screen icon, which iOS could not fetch past a self-signed certificate,
   so Add to Home Screen showed a letter.
 - The Synology package includes FFmpeg (ffmpeg-for-homeswift, as the container image): DSM's own FFmpeg 4.1 has no

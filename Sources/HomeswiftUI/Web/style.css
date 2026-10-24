@@ -100,8 +100,22 @@ nav a:hover { background-color: var(--material-thin); }
 nav a:active { transform: scale(0.96); }
 nav a.active { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); box-shadow: 0 6px 16px rgba(255, 122, 26, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
 .spacer { flex: 1; }
-#user { color: var(--muted); text-decoration: none; padding: 6px 10px; border-radius: 999px; }
-#user:hover { color: var(--text); background: var(--material-thin); }
+/* The account button at the header's right end: the user's initial on the accent and their name, opening its menu. */
+.user-button {
+  flex: none; display: inline-flex; align-items: center; gap: 8px; padding: 3px 12px 3px 3px; max-width: 14em;
+  border: 0; border-radius: 999px; background: none; box-shadow: none; color: var(--text); font-weight: 500;
+}
+.user-button:hover, .user-button[aria-expanded="true"] { background: var(--material-thin); transform: none; }
+.user-avatar {
+  flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+  font-size: 0.875rem; font-weight: 650; color: var(--accent-text);
+  background: linear-gradient(145deg, var(--accent-2), var(--accent)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 2px 8px rgba(255, 122, 26, 0.3);
+}
+.user-avatar svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.user-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-heading { display: grid; gap: 2px; padding: 8px 12px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.menu-heading strong { font-size: 0.9375rem; }
+.menu-heading span { color: var(--muted); font-size: 0.8125rem; }
 /* A plugin's settings page: the form in a card, a save bar that floats at the bottom of the window while the
    form scrolls (a thick material, like the header), and removal set apart at the end. */
 .settings-head { align-items: center; }
@@ -1107,7 +1121,8 @@ dd { margin: 0; }
   header nav { flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
   header nav::-webkit-scrollbar { display: none; }
   header .spacer { display: none; }
-  #user { padding: 6px 8px; max-width: 7em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .user-button { padding: 3px; }
+  .user-name { display: none; }
   .page-head .tools, .page-head .search, .editor-bar .search { width: 100%; }
   .log-line { grid-template-columns: auto minmax(0, 1fr); }
   .log-line .label { display: none; }
@@ -1332,24 +1347,25 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
 .tabbar { display: none; }
 @media (max-width: 640px) {
   header { top: max(8px, env(safe-area-inset-top)); width: calc(100% - 20px); margin-top: max(8px, env(safe-area-inset-top)); padding: 6px 8px 6px 6px; }
-  header nav, #logout { display: none; }
+  header nav { display: none; }
   header .brand { font-size: 1.0625rem; gap: 8px; letter-spacing: -0.015em; }
   header .spacer { display: block; flex: 1; }
-  #user { max-width: 9em; font-weight: 500; }
   main { padding: 14px 12px calc(104px + env(safe-area-inset-bottom)); }
   .tabbar {
     position: fixed; z-index: 15; left: 10px; right: 10px; bottom: max(10px, env(safe-area-inset-bottom));
-    display: grid; grid-template-columns: repeat(5, 1fr); padding: 6px; border-radius: 28px;
+    /* A column per section the user may open (six for an administrator, fewer otherwise); a long label widens its own. */
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(min-content, 1fr); padding: 6px 4px; border-radius: 28px;
     background-color: var(--material-thick); background-image: var(--sheen);
     -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
     border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
   }
   .tabbar a {
-    display: grid; justify-items: center; gap: 2px; padding: 7px 2px 6px; border-radius: 22px; min-height: 50px;
-    color: var(--muted); text-decoration: none; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.01em;
+    display: grid; justify-items: center; gap: 2px; padding: 7px 0 6px; border-radius: 22px; min-height: 50px;
+    color: var(--muted); text-decoration: none; font-size: 0.625rem; font-weight: 600; letter-spacing: -0.025em;
     touch-action: manipulation; -webkit-user-select: none; user-select: none;
     transition: transform var(--fast) var(--ease-out), background-color var(--fast) var(--ease-out), color var(--fast) var(--ease-out);
   }
+  .tabbar a span { white-space: nowrap; }
   .tabbar a svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .tabbar a.active { color: var(--accent); background: var(--material-thin); }
   .tabbar a:active { transform: scale(0.92); transition-duration: 80ms; }

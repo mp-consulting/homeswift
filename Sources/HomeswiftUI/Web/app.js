@@ -98,7 +98,32 @@
     }
   });
 
-  $("#logout").addEventListener("click", async () => { try { await api("/api/auth/logout", { method: "POST" }); } catch {} await loadAuth(); });
+  const signOut = async () => { try { await api("/api/auth/logout", { method: "POST" }); } catch {} await loadAuth(); };
+
+  /// The name the header shows: the user's display name, else their username; "This machine" without sign-in.
+  const shownName = () => (auth.mode === "form" ? (auth.name && auth.name !== auth.username ? auth.name : auth.username || "") : "This machine");
+
+  /// The header's account button: the user's initial on the accent (a person without sign-in), the name beside it on
+  /// a wide window.
+  function drawUser() {
+    const name = shownName();
+    $("#user .user-avatar").replaceChildren(auth.mode === "form" && name ? name.slice(0, 1).toUpperCase() : HomeswiftCommon.icon("user"));
+    $("#user .user-name").textContent = name;
+  }
+
+  // Its menu: who is signed in and as what, their account and appearance, the users for an administrator, signing out.
+  $("#user").addEventListener("click", (event) => {
+    event.stopPropagation();
+    const form = auth.mode === "form";
+    HomeswiftCommon.menu($("#user"), [
+      { heading: shownName(), detail: form ? `${auth.username}${isAdmin() ? " · Administrator" : ""}` : "No sign-in on this web UI" },
+      { label: form ? "Your account" : "Account", icon: "user", href: "/account" },
+      { label: "Appearance", icon: "sliders", href: "/appearance" },
+      form && isAdmin() ? { label: "Users and tokens", icon: "users", href: "/users" } : null,
+      form ? { separator: true } : null,
+      form ? { label: "Sign out", icon: "logout", onSelect: signOut } : null,
+    ], { keyboard: event.detail === 0 });
+  });
 
   /// What a save did: applied at once, homeswift restarting by itself (the bridge block), or, when it
   /// cannot, what still waits for a restart (which also shows the banner).
@@ -151,11 +176,10 @@
   function showApp() {
     $("#auth").classList.add("hidden");
     $("#app").classList.remove("hidden");
-    $("#user").textContent = auth.username || "";
+    drawUser();
     HomeswiftCommon.tabBar({ parent: $("#app") });
     showSections();
     HomeswiftChat.mount();
-    $("#logout").classList.toggle("hidden", auth.mode !== "form");
     openEvents();
     // The user's theme, wallpaper and units; a page showing temperatures draws again when the unit changed.
     const shownUnit = HomeswiftCommon.preferences().temperatureUnit;
@@ -179,7 +203,7 @@
       const users = section === "users";
       link.classList.toggle("hidden", adminSections.has(section) && (!isAdmin() || (users && auth.mode !== "form")));
     }
-    $("#user").textContent = auth.name && auth.name !== auth.username ? auth.name : auth.username || "";
+    drawUser();
   }
 
   // ---- Routing -------------------------------------------------------------
@@ -1837,7 +1861,7 @@
       el("div", { class: "account-who" },
         el("h2", { text: state.username }),
         el("p", { class: "muted", text: `Signed in on this browser. Logins last ${days} day${days === 1 ? "" : "s"} without activity; changing the password, or turning two-factor authentication on or off, signs the others out.` })),
-      el("button", { text: "Sign out", onclick: () => $("#logout").click() }));
+      el("button", { text: "Sign out", onclick: signOut }));
     show(main, pageHead("Account", `Your sign-in to this bridge's web UI${state.admin ? ", as an administrator" : ""}.`),
       el("div", { class: "account" }, profile, form, twoFactorCard(state),
         state.admin ? el("div", { class: "card" }, el("h2", { text: "Users and API tokens" }),

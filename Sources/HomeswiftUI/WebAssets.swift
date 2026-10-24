@@ -627,7 +627,32 @@ enum WebAssets {
     }
   });
 
-  $("#logout").addEventListener("click", async () => { try { await api("/api/auth/logout", { method: "POST" }); } catch {} await loadAuth(); });
+  const signOut = async () => { try { await api("/api/auth/logout", { method: "POST" }); } catch {} await loadAuth(); };
+
+  /// The name the header shows: the user's display name, else their username; "This machine" without sign-in.
+  const shownName = () => (auth.mode === "form" ? (auth.name && auth.name !== auth.username ? auth.name : auth.username || "") : "This machine");
+
+  /// The header's account button: the user's initial on the accent (a person without sign-in), the name beside it on
+  /// a wide window.
+  function drawUser() {
+    const name = shownName();
+    $("#user .user-avatar").replaceChildren(auth.mode === "form" && name ? name.slice(0, 1).toUpperCase() : HomeswiftCommon.icon("user"));
+    $("#user .user-name").textContent = name;
+  }
+
+  // Its menu: who is signed in and as what, their account and appearance, the users for an administrator, signing out.
+  $("#user").addEventListener("click", (event) => {
+    event.stopPropagation();
+    const form = auth.mode === "form";
+    HomeswiftCommon.menu($("#user"), [
+      { heading: shownName(), detail: form ? `${auth.username}${isAdmin() ? " · Administrator" : ""}` : "No sign-in on this web UI" },
+      { label: form ? "Your account" : "Account", icon: "user", href: "/account" },
+      { label: "Appearance", icon: "sliders", href: "/appearance" },
+      form && isAdmin() ? { label: "Users and tokens", icon: "users", href: "/users" } : null,
+      form ? { separator: true } : null,
+      form ? { label: "Sign out", icon: "logout", onSelect: signOut } : null,
+    ], { keyboard: event.detail === 0 });
+  });
 
   /// What a save did: applied at once, homeswift restarting by itself (the bridge block), or, when it
   /// cannot, what still waits for a restart (which also shows the banner).
@@ -680,11 +705,10 @@ enum WebAssets {
   function showApp() {
     $("#auth").classList.add("hidden");
     $("#app").classList.remove("hidden");
-    $("#user").textContent = auth.username || "";
+    drawUser();
     HomeswiftCommon.tabBar({ parent: $("#app") });
     showSections();
     HomeswiftChat.mount();
-    $("#logout").classList.toggle("hidden", auth.mode !== "form");
     openEvents();
     // The user's theme, wallpaper and units; a page showing temperatures draws again when the unit changed.
     const shownUnit = HomeswiftCommon.preferences().temperatureUnit;
@@ -708,7 +732,7 @@ enum WebAssets {
       const users = section === "users";
       link.classList.toggle("hidden", adminSections.has(section) && (!isAdmin() || (users && auth.mode !== "form")));
     }
-    $("#user").textContent = auth.name && auth.name !== auth.username ? auth.name : auth.username || "";
+    drawUser();
   }
 
   // ---- Routing -------------------------------------------------------------
@@ -2366,7 +2390,7 @@ enum WebAssets {
       el("div", { class: "account-who" },
         el("h2", { text: state.username }),
         el("p", { class: "muted", text: `Signed in on this browser. Logins last ${days} day${days === 1 ? "" : "s"} without activity; changing the password, or turning two-factor authentication on or off, signs the others out.` })),
-      el("button", { text: "Sign out", onclick: () => $("#logout").click() }));
+      el("button", { text: "Sign out", onclick: signOut }));
     show(main, pageHead("Account", `Your sign-in to this bridge's web UI${state.admin ? ", as an administrator" : ""}.`),
       el("div", { class: "account" }, profile, form, twoFactorCard(state),
         state.admin ? el("div", { class: "card" }, el("h2", { text: "Users and API tokens" }),
@@ -4343,6 +4367,8 @@ enum WebAssets {
     eye: '<path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7z"/><circle cx="12" cy="12" r="2.5"/>',
     bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/>',
     user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+    users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.2a6.5 6.5 0 0 1 3.5 5.8"/>',
+    logout: '<path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4"/><path d="M9 16.5 4.5 12 9 7.5M4.5 12H15"/>',
     chart: '<path d="M4 4v16h16"/><path d="m7 15 4-5 3 3 5-6"/>',
     archive: '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/>',
     key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l2 2M15 8l2 2"/>',
@@ -4537,6 +4563,8 @@ enum WebAssets {
     openMenu?.close(true);
     const nodes = items.filter(Boolean).map((item) => {
       if (item.separator) return el("hr", { class: "menu-separator", role: "separator" });
+      // Who the menu is about (the header's account menu): a name and a line under it, not an action.
+      if (item.heading !== undefined) return el("div", { class: "menu-heading" }, el("strong", { text: item.heading }), item.detail ? el("span", { text: item.detail }) : null);
       const glyph = typeof item.icon === "string" ? icon(item.icon) : item.icon ?? null;
       const choice = typeof item.checked === "boolean";
       const role = choice ? "menuitemradio" : "menuitem";
@@ -4547,7 +4575,7 @@ enum WebAssets {
       node.addEventListener("click", () => { close(); item.onSelect?.(); });
       return node;
     });
-    const entries = nodes.filter((node) => node.tagName !== "HR");
+    const entries = nodes.filter((node) => node.getAttribute("role")?.startsWith("menuitem"));
     const list = el("div", { class: "menu", role: "menu", tabIndex: -1, "aria-label": trigger.getAttribute("aria-label") || "Actions" }, nodes);
     document.body.append(list);
     // Under the button, its right edges aligned, inside the window; above it when there is no room below.
@@ -4831,7 +4859,7 @@ enum WebAssets {
   const formatTemperature = (celsius) => { const { value, unit } = temperature(celsius); return `${value} ${unit}`; };
 
   window.HomeswiftCommon = {
-    $, el, icon, tile, fact, markdown, sparkle, api, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
+    $, el, icon, tile, fact, markdown, sparkle, api, menu, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature,
   };
 })();
@@ -5547,11 +5575,9 @@ enum WebAssets {
       <a href="/config">Config</a>
       <a href="/logs">Logs</a>
       <a href="/settings">Settings</a>
-      <a href="/users">Users</a>
     </nav>
     <span class="spacer"></span>
-    <a id="user" href="/account" title="Your account: change the password"></a>
-    <button id="logout" class="link">Sign out</button>
+    <button id="user" type="button" class="user-button" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu"><span class="user-avatar" aria-hidden="true"></span><span class="user-name"></span></button>
   </header>
   <div id="banner" class="banner hidden">Some changes need a restart of homeswift. <button id="restart" class="link">Restart now</button></div>
   <main id="view"></main>
@@ -6117,8 +6143,22 @@ nav a:hover { background-color: var(--material-thin); }
 nav a:active { transform: scale(0.96); }
 nav a.active { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); box-shadow: 0 6px 16px rgba(255, 122, 26, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
 .spacer { flex: 1; }
-#user { color: var(--muted); text-decoration: none; padding: 6px 10px; border-radius: 999px; }
-#user:hover { color: var(--text); background: var(--material-thin); }
+/* The account button at the header's right end: the user's initial on the accent and their name, opening its menu. */
+.user-button {
+  flex: none; display: inline-flex; align-items: center; gap: 8px; padding: 3px 12px 3px 3px; max-width: 14em;
+  border: 0; border-radius: 999px; background: none; box-shadow: none; color: var(--text); font-weight: 500;
+}
+.user-button:hover, .user-button[aria-expanded="true"] { background: var(--material-thin); transform: none; }
+.user-avatar {
+  flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+  font-size: 0.875rem; font-weight: 650; color: var(--accent-text);
+  background: linear-gradient(145deg, var(--accent-2), var(--accent)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 2px 8px rgba(255, 122, 26, 0.3);
+}
+.user-avatar svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.user-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-heading { display: grid; gap: 2px; padding: 8px 12px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.menu-heading strong { font-size: 0.9375rem; }
+.menu-heading span { color: var(--muted); font-size: 0.8125rem; }
 /* A plugin's settings page: the form in a card, a save bar that floats at the bottom of the window while the
    form scrolls (a thick material, like the header), and removal set apart at the end. */
 .settings-head { align-items: center; }
@@ -7124,7 +7164,8 @@ dd { margin: 0; }
   header nav { flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
   header nav::-webkit-scrollbar { display: none; }
   header .spacer { display: none; }
-  #user { padding: 6px 8px; max-width: 7em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .user-button { padding: 3px; }
+  .user-name { display: none; }
   .page-head .tools, .page-head .search, .editor-bar .search { width: 100%; }
   .log-line { grid-template-columns: auto minmax(0, 1fr); }
   .log-line .label { display: none; }
@@ -7349,24 +7390,25 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
 .tabbar { display: none; }
 @media (max-width: 640px) {
   header { top: max(8px, env(safe-area-inset-top)); width: calc(100% - 20px); margin-top: max(8px, env(safe-area-inset-top)); padding: 6px 8px 6px 6px; }
-  header nav, #logout { display: none; }
+  header nav { display: none; }
   header .brand { font-size: 1.0625rem; gap: 8px; letter-spacing: -0.015em; }
   header .spacer { display: block; flex: 1; }
-  #user { max-width: 9em; font-weight: 500; }
   main { padding: 14px 12px calc(104px + env(safe-area-inset-bottom)); }
   .tabbar {
     position: fixed; z-index: 15; left: 10px; right: 10px; bottom: max(10px, env(safe-area-inset-bottom));
-    display: grid; grid-template-columns: repeat(5, 1fr); padding: 6px; border-radius: 28px;
+    /* A column per section the user may open (six for an administrator, fewer otherwise); a long label widens its own. */
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(min-content, 1fr); padding: 6px 4px; border-radius: 28px;
     background-color: var(--material-thick); background-image: var(--sheen);
     -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
     border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
   }
   .tabbar a {
-    display: grid; justify-items: center; gap: 2px; padding: 7px 2px 6px; border-radius: 22px; min-height: 50px;
-    color: var(--muted); text-decoration: none; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.01em;
+    display: grid; justify-items: center; gap: 2px; padding: 7px 0 6px; border-radius: 22px; min-height: 50px;
+    color: var(--muted); text-decoration: none; font-size: 0.625rem; font-weight: 600; letter-spacing: -0.025em;
     touch-action: manipulation; -webkit-user-select: none; user-select: none;
     transition: transform var(--fast) var(--ease-out), background-color var(--fast) var(--ease-out), color var(--fast) var(--ease-out);
   }
+  .tabbar a span { white-space: nowrap; }
   .tabbar a svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .tabbar a.active { color: var(--accent); background: var(--material-thin); }
   .tabbar a:active { transform: scale(0.92); transition-duration: 80ms; }
