@@ -6586,6 +6586,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
   :root { --heat: #ff8d3a; --cool: #4aa3ff; --auto: #3ccf7a; --track: rgba(255, 255, 255, 0.12); --tile-on: rgba(255, 255, 255, 0.92); --knob: #f3f4f7; }
 }
 .accessory-walls { container-type: inline-size; }
+/* --unit until widgets.js sets each wall's from its width (the columns that fit, widened to fill it). */
 .wall { --unit: min(160px, calc((100cqw - var(--unit-gap)) / 2)); display: grid; grid-template-columns: repeat(auto-fill, var(--unit)); grid-auto-rows: var(--unit);
   grid-auto-flow: row dense; gap: var(--unit-gap); }
 .wall > .widget { width: auto; height: auto; }
@@ -9496,6 +9497,38 @@ self.addEventListener("notificationclick", (event) => {
         el("div", { class: "controls" }, more)) : null,
       el("div", { class: "card-foot" }, el("span", { class: "muted", text: accessory.bridge }), actionsButton(ctx, true)));
   }
+
+  // ---- The wall's unit -------------------------------------------------------------------------------------------
+  // The wall's columns are squares of 160 px at least (two on a phone, which fill it): as many as fit, widened so the
+  // row ends at the wall's right edge instead of leaving a strip. CSS cannot size a square track to a share of the
+  // width, so each wall gets its --unit from its width, when it appears and when it resizes.
+  const unitMinimum = 160;
+  const fitted = new WeakMap();
+  function fitWall(wall) {
+    const width = wall.clientWidth;
+    if (!width || fitted.get(wall) === width) return;
+    fitted.set(wall, width);
+    const gap = parseFloat(getComputedStyle(wall).columnGap) || 12;
+    const columns = width <= 520 ? 2 : Math.max(2, Math.floor((width + gap) / (unitMinimum + gap)));
+    wall.style.setProperty("--unit", `${Math.floor(((width - gap * (columns - 1)) / columns) * 100) / 100}px`);
+  }
+  const resized = new ResizeObserver((entries) => { for (const entry of entries) fitWall(entry.target); });
+  // The walls an added or removed node is or holds: a node without children (a log line, a chat word) costs a check.
+  const walls = (node) => {
+    if (node.nodeType !== 1) return [];
+    if (node.classList.contains("wall")) return [node];
+    return node.firstElementChild ? [...node.getElementsByClassName("wall")] : [];
+  };
+  // Walls are in the page's view (the Accessories page, Status's Quick section): what the chat or a sheet adds elsewhere
+  // is not looked at.
+  const view = document.getElementById("view") ?? document.documentElement;
+  new MutationObserver((records) => {
+    for (const record of records) {
+      for (const node of record.addedNodes) for (const wall of walls(node)) resized.observe(wall);
+      for (const node of record.removedNodes) for (const wall of walls(node)) resized.unobserve(wall);
+    }
+  }).observe(view, { childList: true, subtree: true });
+  for (const wall of walls(view)) resized.observe(wall);
 
   window.HomeswiftWidgets = {
     card, open, kindOf, sizes, event, listen, describeModel, labelFor, enumLabels,

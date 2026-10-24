@@ -27,7 +27,8 @@ A widget is a fixed box of the wall's grid:
 
 Every kind has the three sizes, and a default: large for climate, purifiers and televisions, medium for lights
 with colour, valves, gates and groups of switches, small for switches, shutters and sensors. A unit is 160
-points, two columns on a phone, where the units stretch to fill the width.
+points at least: the wall takes as many columns as fit and widens them a little so the row fills the width, two
+on a phone.
 
 ![A purifier, a valve and a gate in their three sizes](images/widgets/sizes-more.png)
 
