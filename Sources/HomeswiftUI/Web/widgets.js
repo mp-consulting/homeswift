@@ -1800,22 +1800,24 @@
     wall.style.setProperty("--unit", `${Math.floor(((width - gap * (columns - 1)) / columns) * 100) / 100}px`);
   }
   const resized = new ResizeObserver((entries) => { for (const entry of entries) fitWall(entry.target); });
+  // A new wall is sized at once, before it is first drawn at the default unit, then again whenever its width changes.
+  const watch = (wall) => { fitWall(wall); resized.observe(wall); };
   // The walls an added or removed node is or holds: a node without children (a log line, a chat word) costs a check.
   const walls = (node) => {
     if (node.nodeType !== 1) return [];
     if (node.classList.contains("wall")) return [node];
     return node.firstElementChild ? [...node.getElementsByClassName("wall")] : [];
   };
-  // Walls are in the page's view (the Accessories page, Status's Quick section): what the chat or a sheet adds elsewhere
-  // is not looked at.
-  const view = document.getElementById("view") ?? document.documentElement;
+  // Walls are in the page's view (the Accessories page, Status's Quick section), a new <main id="view"> for each page:
+  // its parent stays, so it is what is watched, and what the chat or a sheet adds to the body is not looked at.
+  const view = document.getElementById("view")?.parentElement ?? document.documentElement;
   new MutationObserver((records) => {
     for (const record of records) {
-      for (const node of record.addedNodes) for (const wall of walls(node)) resized.observe(wall);
+      for (const node of record.addedNodes) for (const wall of walls(node)) watch(wall);
       for (const node of record.removedNodes) for (const wall of walls(node)) resized.unobserve(wall);
     }
   }).observe(view, { childList: true, subtree: true });
-  for (const wall of walls(view)) resized.observe(wall);
+  for (const wall of walls(view)) watch(wall);
 
   window.HomeswiftWidgets = {
     card, open, kindOf, sizes, event, listen, describeModel, labelFor, enumLabels,
