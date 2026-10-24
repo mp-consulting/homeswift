@@ -30,6 +30,23 @@ import FoundationNetworking
         }
     }
 
+    /// Clock changes: the hour that repeats in autumn is passed once, not forever, and the one skipped in spring is skipped.
+    @Test func readsCronExpressionsAcrossClockChanges() throws {
+        func date(_ text: String) -> Date { ISO8601DateFormatter().date(from: text)! }
+        var dublin = Calendar(identifier: .gregorian)
+        dublin.timeZone = TimeZone(identifier: "Europe/Dublin")!
+        // 2026-10-25 02:00 IST is 01:00 GMT: 01:00 to 02:00 happens twice.
+        #expect(try CronSchedule("30 4 * * *").next(after: date("2026-10-24T06:41:00Z"), calendar: dublin) == date("2026-10-25T04:30:00Z"))
+        #expect(try CronSchedule("15 1 * * *").next(after: date("2026-10-24T06:41:00Z"), calendar: dublin) == date("2026-10-25T00:15:00Z"))
+        var paris = Calendar(identifier: .gregorian)
+        paris.timeZone = TimeZone(identifier: "Europe/Paris")!
+        // 2026-10-25 03:00 CEST is 02:00 CET.
+        #expect(try CronSchedule("0 4 * * *").next(after: date("2026-10-24T10:00:00Z"), calendar: paris) == date("2026-10-25T03:00:00Z"))
+        // 2027-03-28 02:00 CET is 03:00 CEST: 02:30 does not exist that day.
+        #expect(try CronSchedule("0 4 * * *").next(after: date("2027-03-27T12:00:00Z"), calendar: paris) == date("2027-03-28T02:00:00Z"))
+        #expect(try CronSchedule("30 2 * * *").next(after: date("2027-03-27T12:00:00Z"), calendar: paris) == date("2027-03-29T00:30:00Z"))
+    }
+
     @Test func trustsOnlyTheProxiesNamed() throws {
         let proxies = try TrustedProxies(["127.0.0.1", "10.0.0.0/8", "fd00::/8", "192.168.1.0/255.255.255.0"])
         #expect(proxies.trusts("127.0.0.1"))

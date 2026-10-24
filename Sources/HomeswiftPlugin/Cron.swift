@@ -82,21 +82,21 @@ public struct CronSchedule: Sendable, Equatable {
         return minutes.contains(minute) && hours.contains(hour) && matchesDay(components)
     }
 
-    /// The first minute after `date` the expression names, within the next four years.
+    /// The first minute after `date` the expression names, within the next four years. Hours are stepped in
+    /// absolute time, so the hour a clock change repeats is passed twice and the one it skips never comes:
+    /// rebuilding the hour from its components named the first of the repeated hours again and again.
     public func next(after date: Date, calendar: Calendar = .current) -> Date? {
         var candidate = Date(timeIntervalSinceReferenceDate: (date.timeIntervalSinceReferenceDate / 60).rounded(.down) * 60 + 60)
         let limit = date.addingTimeInterval(4 * 366 * 86400)
         while candidate < limit {
             let components = calendar.dateComponents([.year, .month, .day, .hour, .minute, .weekday], from: candidate)
             if !matchesDay(components) {
-                guard let midnight = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: candidate)) else { return nil }
+                guard let midnight = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: candidate)), midnight > candidate else { return nil }
                 candidate = midnight
                 continue
             }
             if let hour = components.hour, !hours.contains(hour) {
-                guard let start = calendar.date(from: DateComponents(year: components.year, month: components.month, day: components.day, hour: hour)),
-                      let next = calendar.date(byAdding: .hour, value: 1, to: start) else { return nil }
-                candidate = next
+                candidate = candidate.addingTimeInterval(Double(60 - (components.minute ?? 0)) * 60)
                 continue
             }
             if let minute = components.minute, minutes.contains(minute) { return candidate }
