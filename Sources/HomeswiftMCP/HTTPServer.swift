@@ -188,6 +188,11 @@ public final class MCPHTTPServer: Sendable {
         JSONRPCMessage.failure(id: .null, error: JSONRPCError(code: code, message: message)).json.encoded()
     }
 
+    /// An event stream's headers. `no-transform` keeps a proxy that compresses (Cloudflare's Brotli) from holding
+    /// events until it has enough to compress; `X-Accel-Buffering: no` keeps nginx (DSM's reverse proxy) from
+    /// buffering them.
+    public static let streamHeaders = ["Content-Type": "text/event-stream", "Cache-Control": "no-store, no-transform", "X-Accel-Buffering": "no"]
+
     enum SessionLookup {
         case none
         case found(MCPSession)
@@ -232,8 +237,7 @@ public final class MCPHTTPServer: Sendable {
             return .empty(status: 202, headers: headers)
         }
         if acceptsEvents {
-            headers["Content-Type"] = "text/event-stream"
-            headers["Cache-Control"] = "no-cache"
+            headers.merge(Self.streamHeaders) { $1 }
             let server = self.server
             // A client that disconnects has not cancelled its requests (the Streamable HTTP transport's rule): they run
             // to the end, their answers going nowhere, and the session is busy until then.
@@ -290,7 +294,7 @@ public final class MCPHTTPServer: Sendable {
                 _ = attached.withLockedValue { $0.remove(session.id) }
             }
         }
-        return .events(status: 200, headers: ["Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Mcp-Session-Id": session.id], stream: stream)
+        return .events(status: 200, headers: Self.streamHeaders.merging(["Mcp-Session-Id": session.id]) { $1 }, stream: stream)
     }
 
     private func delete(_ request: Request, principal: Principal) -> Reply {

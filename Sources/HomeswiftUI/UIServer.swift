@@ -1407,7 +1407,9 @@ final class UIRequestHandler: ChannelInboundHandler {
         case .media(let media):
             await writeMedia(media, head: head, to: channel)
         case .events(let stream, let allowed, let headers):
-            head.headers.add(name: "Content-Type", value: "text/event-stream")
+            // Events as they happen, through a proxy too: one that compresses (Cloudflare) or buffers (nginx) would
+            // hold them until it had enough (MCPHTTPServer.streamHeaders).
+            for (name, value) in MCPHTTPServer.streamHeaders { head.headers.replaceOrAdd(name: name, value: value) }
             for (name, value) in headers { head.headers.replaceOrAdd(name: name, value: value) }
             head.headers.add(name: "Connection", value: "close")
             channel.writeAndFlush(HTTPServerResponsePart.head(head), promise: nil)

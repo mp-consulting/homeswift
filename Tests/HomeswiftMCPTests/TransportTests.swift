@@ -97,6 +97,7 @@ struct TransportTests {
         let listed = try await client.send(body: request(2, "tools/list"))
         #expect(listed.status == 200)
         #expect(listed.headers["content-type"]?.hasPrefix("text/event-stream") == true)
+        #expect(listed.headers["cache-control"] == "no-store, no-transform" && listed.headers["x-accel-buffering"] == "no")
         let tools = HTTPClientForTests.messages(in: listed.body).first?["result"]?["tools"]?.arrayValue ?? []
         #expect(tools.contains { $0["name"] == "update_config" })
 
