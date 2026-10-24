@@ -274,6 +274,20 @@ struct UsersServerTests {
         #expect(try await admin.send("DELETE", "/api/tokens/\(id)").status == 404)
     }
 
+    /// Never, as the page sends it: `"expiresInDays": null`.
+    @Test func makesAPITokensThatNeverExpire() async throws {
+        let environment = try UITestEnvironment()
+        let (_, admin) = try await signedIn(environment)
+        defer { Task { await environment.stop() } }
+        let never = try await admin.post("/api/tokens", ["name": "Forever", "scope": "read", "expiresInDays": nil])
+        #expect(never.status == 201, "\(never.body)")
+        #expect(try await admin.post("/api/tokens", ["name": "Unset", "scope": "read"]).status == 201)
+        #expect(try await admin.post("/api/tokens", ["name": "x", "scope": "read", "expiresInDays": "soon"]).status == 400)
+        let listed = try await admin.get("/api/tokens").json?.arrayValue ?? []
+        #expect(listed.map { $0["name"] } == ["Unset", "Forever"])
+        #expect(listed.allSatisfy { $0["expires"]?.stringValue == nil })
+    }
+
     @Test func limitsEachUsersAssistantRequests() async throws {
         let environment = try UITestEnvironment(assistant: true) { $0.assistantRateLimiter = SlidingWindowRateLimiter(limit: 2, window: 60) }
         let (_, admin) = try await signedIn(environment)

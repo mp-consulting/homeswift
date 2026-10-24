@@ -935,7 +935,7 @@ public final class UIServer: Sendable {
             return .json(.array(tokens.tokens.map(Self.tokenJSON)))
         case (.POST, ["tokens"]):
             guard let scope = body["scope"]?.stringValue.flatMap(APITokenStore.Scope.init(rawValue:)) else { return .error(400, "the scope is read or admin") }
-            let days = body["expiresInDays"].flatMap { $0.isNull ? nil : $0 }
+            let days = body["expiresInDays"]?.nonNull
             guard days == nil || days?.intValue != nil else { return .error(400, AuthError.invalidExpiry.description) }
             do {
                 let (token, value) = try tokens.create(name: body["name"]?.stringValue ?? "", scope: scope, expiresInDays: days?.intValue, createdBy: user.username)

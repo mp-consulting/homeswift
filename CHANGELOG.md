@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Web UI: an API token set to expire Never was refused ("a token expires after 1 to 3650 days, or never"). In
+  Swift, `JSONValue` takes `nil` literals, so `.flatMap { $0.isNull ? nil : $0 }` gave `.null` back rather than
+  nil; `JSONValue.nonNull` replaces it everywhere: an MCP request with `"params": null` is no longer refused, a
+  UniFi Access door without a name is "Unknown" again, and an eWeLink light reporting no brightness starts at its
+  minimum.
+
 ## [0.5.1] - 2026-10-24
 
 ### Fixed
