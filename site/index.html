@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<!-- GitHub Pages sends no security headers: the policy rides in the page. Its own files only, nothing inline. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; base-uri 'none'; form-action 'none'; upgrade-insecure-requests">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Homeswift: every device in the Home app</title>
 <meta name="description" content="Homebridge, rewritten in Swift. One small binary that speaks HomeKit, runs your Homebridge config and plugins, and idles in under 10 MB.">
@@ -15,278 +18,11 @@
 <meta property="og:title" content="Homeswift">
 <meta property="og:description" content="Homebridge, rewritten in Swift. Every device, in the Home app.">
 <meta property="og:image" content="https://homeswift.dev/apple-touch-icon.png">
-<style>
-/* Layout: an Apple product page in Homeswift's own materials. Translucent nav over a warm/cool wash, a live
-   accessory wall as the hero, then benchmarks, features, plugins, install and code, each a centred 1080px band. */
-:root {
-  --bg: #f4f5f9; --bg-raised: #ffffff; --wash-warm: #ffe6cf; --wash-cool: #d9ecff;
-  --ink: #15171c; --muted: #5b6270; --faint: #8a909c; --line: rgba(20, 30, 50, 0.1);
-  --glass: rgba(255, 255, 255, 0.64); --glass-edge: rgba(255, 255, 255, 0.85); --glass-solid: #fbfbfd;
-  --tile: rgba(255, 255, 255, 0.62); --tile-on: #ffffff; --tile-off-icon: linear-gradient(160deg, #b4bbc7, #8b94a4);
-  --accent: #ff7a1a; --accent-deep: #f0442e; --accent-ink: #c4500a; --on-accent: #ffffff;
-  --cool: #1f7fe8; --ok: #1f9d55; --track: rgba(120, 128, 142, 0.18);
-  --code-bg: #15171c; --code-ink: #e8eaf0; --code-kw: #ff8fb0; --code-str: #ffb46b; --code-com: #7d8596; --code-type: #8fd0ff;
-  --shadow: 0 12px 36px rgba(25, 34, 56, 0.12); --shadow-small: 0 2px 8px rgba(25, 34, 56, 0.08);
-  --font: system-ui, -apple-system, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
-  --radius: 22px; --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0c0e13; --bg-raised: #161920; --wash-warm: #3a2414; --wash-cool: #12233a;
-    --ink: #f3f4f7; --muted: #a2a9b5; --faint: #7a818e; --line: rgba(255, 255, 255, 0.1);
-    --glass: rgba(26, 29, 37, 0.66); --glass-edge: rgba(255, 255, 255, 0.12); --glass-solid: #1b1e26;
-    --tile: rgba(44, 48, 60, 0.6); --tile-on: rgba(255, 255, 255, 0.94); --tile-off-icon: linear-gradient(160deg, #6c7484, #4d5462);
-    --accent: #ff8a33; --accent-deep: #ff5a3c; --accent-ink: #ffa45c; --on-accent: #1a0d00;
-    --cool: #4aa3ff; --ok: #3ccf7a; --track: rgba(255, 255, 255, 0.12);
-    --code-bg: #0f1116; --shadow: 0 14px 40px rgba(0, 0, 0, 0.45); --shadow-small: 0 2px 8px rgba(0, 0, 0, 0.3);
-    color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #0c0e13; --bg-raised: #161920; --wash-warm: #3a2414; --wash-cool: #12233a;
-  --ink: #f3f4f7; --muted: #a2a9b5; --faint: #7a818e; --line: rgba(255, 255, 255, 0.1);
-  --glass: rgba(26, 29, 37, 0.66); --glass-edge: rgba(255, 255, 255, 0.12); --glass-solid: #1b1e26;
-  --tile: rgba(44, 48, 60, 0.6); --tile-on: rgba(255, 255, 255, 0.94); --tile-off-icon: linear-gradient(160deg, #6c7484, #4d5462);
-  --accent: #ff8a33; --accent-deep: #ff5a3c; --accent-ink: #ffa45c; --on-accent: #1a0d00;
-  --cool: #4aa3ff; --ok: #3ccf7a; --track: rgba(255, 255, 255, 0.12);
-  --code-bg: #0f1116; --shadow: 0 14px 40px rgba(0, 0, 0, 0.45); --shadow-small: 0 2px 8px rgba(0, 0, 0, 0.3);
-  color-scheme: dark;
-}
-
-* { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
-body { margin: 0; }
-img { max-width: 100%; }
-[hidden] { display: none !important; }
-body {
-  background: var(--bg); color: var(--ink); font: 1rem/1.55 var(--font); -webkit-font-smoothing: antialiased;
-  background-image:
-    radial-gradient(60rem 40rem at 0% -10%, var(--wash-warm), transparent 60%),
-    radial-gradient(50rem 36rem at 100% 0%, var(--wash-cool), transparent 60%);
-  background-repeat: no-repeat;
-}
-body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--glass-solid); }
-a { color: inherit; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
-
-.band { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
-.wrap { max-width: 1080px; margin: 0 auto; }
-
-/* Type: size-specific tracking and leading, tight as it grows. */
-h1, h2, h3 { margin: 0; text-wrap: balance; }
-h1 { font-size: clamp(2.5rem, 6.4vw, 4.6rem); line-height: 1.02; letter-spacing: -0.035em; font-weight: 700; }
-h2 { font-size: clamp(1.9rem, 4vw, 3rem); line-height: 1.06; letter-spacing: -0.028em; font-weight: 700; }
-h3 { font-size: 1.125rem; line-height: 1.3; letter-spacing: -0.01em; font-weight: 600; }
-p { margin: 0; }
-.lede { font-size: clamp(1.1rem, 1.6vw, 1.3rem); line-height: 1.45; color: var(--muted); letter-spacing: -0.005em; max-width: 34em; }
-.eyebrow { font-size: 0.8125rem; font-weight: 600; letter-spacing: 0.02em; color: var(--accent-ink); }
-.small { font-size: 0.8125rem; color: var(--faint); }
-code, pre { font-family: var(--mono); }
-
-/* Nav: a translucent material, content scrolls under it; the edge is a soft fade, not a rule. */
-.nav { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; padding-block: 10px; }
-.nav-bar { display: flex; align-items: center; gap: 4px; padding: 6px 6px 6px 8px; border-radius: 999px;
-  background: var(--glass); -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid var(--glass-edge); box-shadow: var(--shadow-small); }
-.brand { display: flex; align-items: center; gap: 9px; padding-right: 10px; text-decoration: none; font-weight: 650; letter-spacing: -0.01em; }
-.brand svg { width: 30px; height: 30px; flex: none; }
-.nav-links { display: flex; gap: 2px; margin-right: auto; }
-.nav-links a { text-decoration: none; font-size: 0.9375rem; padding: 7px 12px; border-radius: 999px; color: var(--muted); transition: color 160ms var(--ease-out), background-color 160ms var(--ease-out); }
-.nav-links a:hover { color: var(--ink); background: var(--track); }
-.btn { display: inline-flex; align-items: center; gap: 8px; font: 600 0.9375rem/1 var(--font); letter-spacing: -0.005em; text-decoration: none; padding: 11px 18px; border-radius: 999px; border: 0; cursor: pointer; white-space: nowrap;
-  transition: transform 100ms ease-out, background-color 160ms var(--ease-out); -webkit-tap-highlight-color: transparent; }
-.btn:active { transform: scale(0.97); }
-.btn-primary { background: linear-gradient(180deg, var(--accent), var(--accent-deep)); color: var(--on-accent); box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 35%, transparent), inset 0 1px 0 rgba(255,255,255,0.25); }
-.btn-plain { background: var(--bg-raised); color: var(--ink); box-shadow: var(--shadow-small); border: 1px solid var(--line); }
-.btn svg { width: 17px; height: 17px; }
-.nav .btn { padding: 9px 14px; }
-
-/* Hero */
-.hero { padding-block: clamp(36px, 7vw, 88px) clamp(16px, 3vw, 32px); }
-.hero .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: clamp(32px, 5vw, 64px); align-items: center; }
-.hero-copy { display: grid; gap: 22px; min-width: 0; }
-.cta { display: flex; flex-wrap: wrap; gap: 10px; }
-.meta { display: flex; flex-wrap: wrap; gap: 6px; font-size: 0.75rem; color: var(--muted); }
-.meta span { padding: 4px 10px; border-radius: 999px; background: var(--track); white-space: nowrap; }
-
-/* The wall: widgets on square units, as the web UI lays them out. */
-.stage { container-type: inline-size; min-width: 0; }
-.wall { --gap: 12px; --u: calc((100cqw - 3 * var(--gap)) / 4); display: grid; grid-template-columns: repeat(4, var(--u)); grid-auto-rows: var(--u); gap: var(--gap); grid-auto-flow: row dense; }
-@container (max-width: 440px) { .wall { --u: calc((100cqw - var(--gap)) / 2); grid-template-columns: repeat(2, var(--u)); } }
-.w { position: relative; border-radius: var(--radius); background: var(--tile); border: 1px solid var(--glass-edge);
-  -webkit-backdrop-filter: blur(20px) saturate(160%); backdrop-filter: blur(20px) saturate(160%); box-shadow: var(--shadow);
-  padding: 12px; display: flex; flex-direction: column; justify-content: space-between; gap: 8px; min-width: 0; overflow: hidden;
-  -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
-  transition: background-color 200ms var(--ease-out), color 200ms var(--ease-out), transform 100ms ease-out; }
-.w.medium { grid-column: span 2; }
-.w.tap { cursor: pointer; }
-.w.tap:active, .w.pressed { transform: scale(0.97); }
-.w.on.small { background: var(--tile-on); color: #15171c; }
-.w.on.small .status { color: rgba(21, 23, 28, 0.6); }
-.w-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.who { display: grid; min-width: 0; flex: 1; }
-.who strong { font-size: 0.875rem; line-height: 1.25; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.small .who strong { white-space: normal; }
-.status { font-size: 0.75rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 200ms var(--ease-out); }
-.status.heat { color: var(--accent-ink); } .status.cool { color: var(--cool); } .status.ok { color: var(--ok); }
-.icon { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; flex: none; color: #fff;
-  background: var(--tile-off-icon); box-shadow: inset 0 1px 0 rgba(255,255,255,0.35); transition: background 200ms var(--ease-out), box-shadow 200ms var(--ease-out), color 200ms; }
-.icon svg { width: 19px; height: 19px; }
-.on .icon.light { background: linear-gradient(160deg, #ffd66b, #f0a01e); color: #3a2600; box-shadow: 0 4px 14px rgba(240,160,30,0.45), inset 0 1px 0 rgba(255,255,255,0.4); }
-.on .icon.plug { background: linear-gradient(160deg, #5fd68a, #24a35a); }
-.icon.heat { background: linear-gradient(160deg, #ffb15c, #f2711c); }
-.icon.blind { background: linear-gradient(160deg, #6fb4ff, #2a7ae4); }
-.icon.lock { background: linear-gradient(160deg, #6fb4ff, #2a7ae4); }
-.unlocked .icon.lock { background: linear-gradient(160deg, #ffb15c, #f2711c); }
-.big { font-size: 1.6rem; font-weight: 650; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
-
-/* Switch */
-.switch { margin-left: auto; width: 46px; height: 28px; border-radius: 999px; border: 0; padding: 0; background: var(--track); position: relative; cursor: pointer; flex: none; transition: background-color 200ms var(--ease-out); }
-.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.2); transition: transform 260ms var(--ease-out); }
-.switch[aria-checked="true"] { background: var(--accent); }
-.switch[aria-checked="true"]::after { transform: translateX(18px); }
-
-/* Slider: a bar that tracks the finger 1:1 from where it was grabbed. */
-.slider { position: relative; height: 44px; border-radius: 14px; background: var(--track); overflow: hidden; cursor: ew-resize; touch-action: none; }
-.slider .fill { position: absolute; inset: 0; transform-origin: left; background: linear-gradient(90deg, #b6e27a, #dff3a8); transform: scaleX(var(--v, 0.7)); }
-.off .slider .fill { background: linear-gradient(90deg, rgba(150,158,172,0.45), rgba(150,158,172,0.25)); }
-.slider .labels { position: relative; display: flex; justify-content: space-between; align-items: center; height: 100%; padding: 0 14px; font-size: 0.8125rem; font-weight: 600; color: #22300c; font-variant-numeric: tabular-nums; }
-.off .slider .labels { color: var(--muted); }
-.slider .labels span:last-child { color: var(--ink); }
-
-/* Thermostat */
-.thermo { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.round { width: 34px; height: 34px; border-radius: 50%; border: 0; background: var(--bg-raised); color: var(--ink); box-shadow: var(--shadow-small); font: 500 1.25rem/1 var(--font); cursor: pointer; flex: none; transition: transform 100ms ease-out; }
-.round:active { transform: scale(0.92); }
-.target { text-align: center; display: grid; }
-.target small, .inside small { font-size: 0.6875rem; color: var(--muted); }
-.inside { display: grid; }
-
-/* Shutter: drag it up or down; past either end it resists, then springs back. */
-.shutter { touch-action: none; cursor: ns-resize; }
-.shutter .slats { position: absolute; inset: 0 0 auto; height: calc(var(--closed, 0) * 100%); pointer-events: none;
-  background: repeating-linear-gradient(180deg, var(--track) 0 7px, transparent 7px 9px); border-bottom: 1px solid var(--line); }
-.shutter > * { position: relative; }
-.shutter .pct { font-size: 1.5rem; font-weight: 650; letter-spacing: -0.03em; margin-left: auto; font-variant-numeric: tabular-nums; }
-
-/* Lock: a hold confirms, as the web UI asks for security accessories. */
-.lock .hold { position: absolute; left: 0; bottom: 0; height: 4px; width: 100%; background: var(--accent); transform: scaleX(0); transform-origin: left; transition: transform 180ms var(--ease-out); }
-.lock.holding .hold { transform: scaleX(1); transition: transform 650ms linear; }
-
-.wire { margin-top: 14px; display: flex; gap: 10px; align-items: baseline; font: 0.75rem/1.4 var(--mono); color: var(--muted); min-width: 0; padding: 10px 14px; border-radius: 14px; background: var(--glass); border: 1px solid var(--glass-edge); }
-.wire b { color: var(--accent-ink); font-weight: 600; flex: none; }
-.wire span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.stage-note { margin-top: 8px; text-align: center; }
-
-/* Sections */
-section { padding-block: clamp(56px, 8vw, 104px); }
-.section-head { display: grid; gap: 14px; max-width: 46rem; margin-bottom: clamp(28px, 4vw, 48px); }
-.section-head .lede { font-size: 1.125rem; }
-
-/* Benchmarks: one scale per row, Homeswift beside HAP-NodeJS. */
-.bench { display: grid; gap: 4px; background: var(--bg-raised); border: 1px solid var(--line); border-radius: var(--radius); padding: clamp(16px, 3vw, 28px); box-shadow: var(--shadow-small); }
-.row { display: grid; grid-template-columns: minmax(0, 13rem) minmax(0, 1fr) 4.5rem; gap: 8px 20px; align-items: center; padding-block: 14px; border-top: 1px solid var(--line); }
-.legend + .row { border-top: 0; }
-.row-label { display: grid; min-width: 0; }
-.row-label strong { font-weight: 600; font-size: 0.9375rem; }
-.row-label span { font-size: 0.75rem; color: var(--faint); }
-.bars { display: grid; gap: 6px; min-width: 0; }
-.bar { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
-.bar i { display: block; height: 12px; border-radius: 6px; flex: none; min-width: 3px; }
-.bar.us i { background: linear-gradient(90deg, var(--accent), var(--accent-deep)); }
-.bar.them i { background: var(--track); }
-.bar.them { color: var(--muted); }
-.ratio { text-align: right; font-size: 1.5rem; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
-.ratio small { display: block; font-size: 0.6875rem; font-weight: 500; letter-spacing: 0; color: var(--faint); }
-.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 0.8125rem; color: var(--muted); margin-bottom: 6px; }
-.legend span { display: inline-flex; align-items: center; gap: 8px; }
-.legend i { width: 12px; height: 12px; border-radius: 4px; }
-.bench-foot { margin-top: 14px; max-width: 60rem; }
-
-/* Features */
-.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-.card { background: var(--bg-raised); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; display: grid; gap: 10px; align-content: start; min-width: 0; }
-.card p { color: var(--muted); font-size: 0.9375rem; }
-.card .glyph { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; color: #fff; margin-bottom: 6px; }
-.card .glyph svg { width: 21px; height: 21px; }
-.card.wide { grid-column: span 2; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 24px; }
-.card.wide > div { display: grid; gap: 10px; }
-.card.span2 { grid-column: span 2; }
-.card.span2 p { max-width: 36rem; }
-
-/* Setup code: HomeKit's label, 8 digits in two rows of four. */
-.code-label { justify-self: center; display: grid; grid-template-columns: auto auto; gap: 14px; align-items: center; padding: 16px 20px; border-radius: 14px; background: #fff; color: #111; border: 2px solid #111; box-shadow: var(--shadow); }
-.code-label svg { width: 40px; height: 40px; }
-.code-label .digits { font: 600 1.6rem/1.15 var(--mono); letter-spacing: 0.08em; font-variant-numeric: tabular-nums; }
-
-/* Plugins */
-.plugins { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); gap: 10px; }
-.plugin { display: flex; gap: 12px; align-items: center; padding: 14px 16px; border-radius: 16px; background: var(--glass); border: 1px solid var(--glass-edge); min-width: 0; }
-.plugin .mono { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; font-weight: 700; font-size: 0.8125rem; letter-spacing: -0.02em; background: var(--track); color: var(--ink); flex: none; }
-.plugin div { display: grid; min-width: 0; }
-.plugin strong { font-size: 0.9375rem; font-weight: 600; }
-.plugin span { font-size: 0.8125rem; color: var(--muted); }
-.plugin.add { border-style: dashed; border-color: var(--line); background: transparent; text-decoration: none; }
-.plugin.add .mono { background: none; border: 1.5px dashed var(--faint); color: var(--muted); }
-
-/* Install */
-.install { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 20px; align-items: start; }
-.seg { display: inline-flex; padding: 3px; border-radius: 12px; background: var(--track); gap: 2px; margin-bottom: 14px; max-width: 100%; overflow-x: auto; }
-.seg button { font: 500 0.875rem/1 var(--font); border: 0; padding: 9px 16px; border-radius: 9px; background: none; color: var(--muted); cursor: pointer; white-space: nowrap; transition: background-color 200ms var(--ease-out), color 200ms var(--ease-out); }
-.seg button[aria-selected="true"] { background: var(--bg-raised); color: var(--ink); box-shadow: var(--shadow-small); }
-.term { position: relative; background: var(--code-bg); color: var(--code-ink); border-radius: 18px; padding: 18px 20px; overflow-x: auto; font-size: 0.8125rem; line-height: 1.7; }
-.term pre { margin: 0; white-space: pre; }
-.term .c { color: var(--code-com); } .term .k { color: var(--code-kw); } .term .s { color: var(--code-str); } .term .t { color: var(--code-type); }
-.copy { position: absolute; top: 10px; right: 10px; font: 500 0.75rem/1 var(--font); color: var(--code-ink); background: rgba(255,255,255,0.1); border: 0; border-radius: 8px; padding: 7px 10px; cursor: pointer; }
-.copy:active { transform: scale(0.96); }
-.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; counter-reset: s; }
-.steps li { counter-increment: s; display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 14px; padding: 16px 0; border-top: 1px solid var(--line); }
-.steps li:first-child { border-top: 0; padding-top: 4px; }
-.steps li::before { content: counter(s); width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--track); font-size: 0.8125rem; font-weight: 600; }
-.steps strong { display: block; font-weight: 600; }
-.steps p { color: var(--muted); font-size: 0.9375rem; }
-
-/* Code */
-.dev { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); gap: clamp(24px, 4vw, 48px); align-items: center; }
-.dev ul { margin: 18px 0 0; padding: 0; list-style: none; display: grid; gap: 10px; color: var(--muted); }
-.dev li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 10px; }
-.dev li::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-top: 0.6em; }
-
-footer { padding-block: 40px 56px; border-top: 1px solid var(--line); }
-footer .wrap { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: center; justify-content: space-between; }
-footer nav { display: flex; flex-wrap: wrap; gap: 6px 20px; font-size: 0.875rem; }
-footer nav a { color: var(--muted); text-decoration: none; }
-footer nav a:hover { color: var(--ink); }
-footer .small { max-width: 34rem; }
-
-@media (max-width: 900px) {
-  .hero .wrap, .install, .dev { grid-template-columns: minmax(0, 1fr); }
-  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .card.wide { grid-column: span 2; }
-}
-@media (max-width: 720px) {
-  .nav-links { display: none; }
-  .brand { margin-right: auto; }
-  .grid { grid-template-columns: minmax(0, 1fr); }
-  .card.wide { grid-column: auto; grid-template-columns: minmax(0, 1fr); }
-  .card.span2 { grid-column: auto; }
-  .row { grid-template-columns: minmax(0, 1fr) 4rem; }
-  .row .bars { grid-column: 1 / -1; grid-row: 2; }
-}
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { transition-duration: 0.01ms !important; }
-  html { scroll-behavior: auto; }
-  .w.tap:active, .w.pressed, .btn:active { transform: none; }
-}
-@media (prefers-reduced-transparency: reduce) {
-  .nav-bar, .w, .wire, .plugin { background: var(--glass-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
-}
-</style>
+<link rel="stylesheet" href="site.css">
 </head>
 <body>
 
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<svg class="sprite" width="0" height="0" aria-hidden="true">
   <defs>
     <linearGradient id="hs-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFA01C"/><stop offset="1" stop-color="#F0442E"/></linearGradient>
     <symbol id="logo" viewBox="0 0 1024 1024">
@@ -395,7 +131,7 @@ footer .small { max-width: 34rem; }
         <p class="lede">The same HomeKit controller drove two bridges with the same 30 lightbulbs: Homeswift, and HAP-NodeJS, the library inside Homebridge.</p>
       </div>
       <div class="bench" id="bench">
-        <div class="legend"><span><i style="background:linear-gradient(90deg,var(--accent),var(--accent-deep))"></i>Homeswift</span><span><i style="background:var(--track)"></i>HAP-NodeJS 2.2.2</span></div>
+        <div class="legend"><span><i class="key-us"></i>Homeswift</span><span><i class="key-them"></i>HAP-NodeJS 2.2.2</span></div>
       </div>
       <p class="small bench-foot">Apple M1, macOS 27.0.1, 21 October 2026, one run each over loopback. Lower is better on every row. The full table, with throughput and the rows where HAP-NodeJS uses less CPU per request, is in <a href="https://github.com/mp-consulting/homeswift/blob/main/Benchmarks/README.md">Benchmarks/README.md</a>.</p>
     </div>
@@ -410,7 +146,7 @@ footer .small { max-width: 34rem; }
       <div class="grid">
         <article class="card wide">
           <div>
-            <div class="glyph" style="background:linear-gradient(160deg,#ffb15c,#f0442e)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 11 12 4l8 7M6 9.5V20h12V9.5"/></svg></div>
+            <div class="glyph tone-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 11 12 4l8 7M6 9.5V20h12V9.5"/></svg></div>
             <h3>Add it with the code on the label</h3>
             <p>Pair setup with an 8-digit code over SRP-6a, encrypted sessions on every request, up to 16 controllers. Every accessory keeps its IDs, so rooms, scenes and automations survive restarts.</p>
           </div>
@@ -420,32 +156,32 @@ footer .small { max-width: 34rem; }
           </div>
         </article>
         <article class="card">
-          <div class="glyph" style="background:linear-gradient(160deg,#9b8cff,#5856d6)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg></div>
+          <div class="glyph tone-violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg></div>
           <h3>Your Homebridge config, as is</h3>
           <p>Reads a Homebridge-style config.json. Plugins keep their platform and option names, and child bridges work the same way.</p>
         </article>
         <article class="card">
-          <div class="glyph" style="background:linear-gradient(160deg,#6fb4ff,#2a7ae4)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/></svg></div>
+          <div class="glyph tone-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/></svg></div>
           <h3>Cameras and doorbells</h3>
           <p>Live video and snapshots over SRTP, HomeKit Secure Video recording, two-way audio and the doorbell's ring, with FFmpeg doing the encoding.</p>
         </article>
         <article class="card">
-          <div class="glyph" style="background:linear-gradient(160deg,#ffd66b,#f0a01e)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="18" height="8" rx="2"/></svg></div>
+          <div class="glyph tone-yellow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="18" height="8" rx="2"/></svg></div>
           <h3>A web UI shaped like Home</h3>
           <p>Every accessory is a widget on a wall you arrange. Status, plugins, config, logs and backups sit beside it, behind your own accounts, with two-factor if you like.</p>
         </article>
         <article class="card">
-          <div class="glyph" style="background:linear-gradient(160deg,#5fd68a,#24a35a)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M6 18l2-2M16 8l2-2"/></svg></div>
+          <div class="glyph tone-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M6 18l2-2M16 8l2-2"/></svg></div>
           <h3>An Assistant, if you want one</h3>
           <p>Ask why a light dropped off, explain a log, or get a daily digest. Optional, with a budget, and everything is redacted before a provider sees it.</p>
         </article>
         <article class="card span2">
-          <div class="glyph" style="background:linear-gradient(160deg,#8a909c,#4d5462)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 7 4 12l5 5M15 7l5 5-5 5"/></svg></div>
+          <div class="glyph tone-grey"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 7 4 12l5 5M15 7l5 5-5 5"/></svg></div>
           <h3>Your home in Claude, and other AI apps</h3>
           <p>An MCP server that claude.ai and the Claude apps add as a connector: you sign in with your web UI account and choose what it may do. Anything destructive asks first, every change is audited, and locks, garage doors and alarms go through one guarded tool.</p>
         </article>
         <article class="card">
-          <div class="glyph" style="background:linear-gradient(160deg,#ff9fb8,#e5487a)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg></div>
+          <div class="glyph tone-pink"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg></div>
           <h3>Runs where your home runs</h3>
           <p>A container for amd64 and arm64, a Synology package for DSM 7, or a plain binary on macOS 14 and Linux.</p>
         </article>
@@ -528,7 +264,7 @@ dependencies: [
     <div class="wrap dev">
       <div>
         <p class="eyebrow">For developers</p>
-        <h2 style="margin-top:14px">A lamp in twenty lines.</h2>
+        <h2 class="dev-title">A lamp in twenty lines.</h2>
         <ul>
           <li>All 73 services and 252 characteristics HomeKit knows, with their units, ranges and valid values.</li>
           <li>Swift 6 concurrency: handlers are async, and a thrown error shows as No Response in Home.</li>
@@ -568,186 +304,12 @@ print(<span class="s">"Setup code:"</span>, server.setupCode)  <span class="c">/
       <a href="https://github.com/mp-consulting/homeswift/blob/main/CHANGELOG.md">Changelog</a>
       <a href="https://github.com/mp-consulting/homeswift/blob/main/CONTRIBUTING.md">Contributing</a>
       <a href="https://github.com/mp-consulting/homeswift/blob/main/LICENSE">MIT licence</a>
+      <a href="/privacy.html">Privacy</a>
     </nav>
     <p class="small">HomeKit, Swift and the Swift logo are trademarks of Apple Inc. Homeswift is an independent project, not made or endorsed by Apple.</p>
   </div>
 </footer>
 
-<script>
-(() => {
-  const $ = (id) => document.getElementById(id);
-  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const wire = $('wire');
-  const send = (aid, iid, value) => { wire.textContent = `/characteristics {"aid":${aid},"iid":${iid},"value":${JSON.stringify(value)}}`; };
-
-  // A critically damped spring (damping 1, response 0.4 s), started from the current value and velocity.
-  function spring(from, to, velocity, onFrame, response = 0.4) {
-    if (reduce) { onFrame(to); return () => {}; }
-    const w = (2 * Math.PI) / response;
-    let x = from, v = velocity, last = performance.now(), raf;
-    const step = (now) => {
-      const dt = Math.min(0.032, (now - last) / 1000); last = now;
-      v += (-w * w * (x - to) - 2 * w * v) * dt; x += v * dt;
-      if (Math.abs(x - to) < 0.05 && Math.abs(v) < 0.5) { onFrame(to); return; }
-      onFrame(x); raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }
-
-  // Desk Light: switch and a slider that follows the finger from where it was grabbed.
-  const desk = $('desk'), deskSwitch = $('desk-switch'), slider = $('desk-slider');
-  let deskOn = true, bright = 70;
-  const renderDesk = () => {
-    desk.classList.toggle('on', deskOn); desk.classList.toggle('off', !deskOn);
-    deskSwitch.setAttribute('aria-checked', deskOn);
-    slider.style.setProperty('--v', bright / 100); slider.setAttribute('aria-valuenow', Math.round(bright));
-    $('desk-pct').textContent = `${Math.round(bright)} %`;
-    $('desk-status').textContent = deskOn ? `On · ${Math.round(bright)} %` : 'Off';
-  };
-  deskSwitch.addEventListener('click', () => { deskOn = !deskOn; renderDesk(); send(2, 10, deskOn); });
-  let drag = null;
-  slider.addEventListener('pointerdown', (e) => { slider.setPointerCapture(e.pointerId); drag = { x: e.clientX, start: bright, w: slider.clientWidth }; });
-  slider.addEventListener('pointermove', (e) => {
-    if (!drag) return;
-    bright = Math.max(1, Math.min(100, drag.start + ((e.clientX - drag.x) / drag.w) * 100));
-    if (!deskOn) deskOn = true;
-    renderDesk();
-  });
-  const endSlide = () => { if (drag && Math.round(bright) !== Math.round(drag.start)) send(2, 11, Math.round(bright)); drag = null; };
-  slider.addEventListener('pointerup', endSlide); slider.addEventListener('pointercancel', endSlide);
-  slider.addEventListener('keydown', (e) => {
-    const d = { ArrowRight: 5, ArrowUp: 5, ArrowLeft: -5, ArrowDown: -5 }[e.key];
-    if (!d) return; e.preventDefault(); bright = Math.max(1, Math.min(100, bright + d)); deskOn = true; renderDesk(); send(2, 11, Math.round(bright));
-  });
-
-  // Thermostat
-  let target = 21.5; const inside = 19.5;
-  const renderThermo = () => {
-    $('t-target').textContent = `${target.toFixed(1)}°`;
-    const s = $('thermo-status');
-    s.className = 'status ' + (target > inside ? 'heat' : 'ok');
-    s.textContent = target > inside ? `Heating to ${target.toFixed(1)}°` : `Idle · ${inside}° inside`;
-  };
-  const nudge = (d) => { target = Math.max(10, Math.min(30, target + d)); renderThermo(); send(3, 14, target); };
-  $('t-down').addEventListener('click', () => nudge(-0.5));
-  $('t-up').addEventListener('click', () => nudge(0.5));
-
-  // Shutter: 0 closed, 100 open. Dragging down closes it; past either end it rubber-bands, then springs back.
-  const shutter = $('shutter');
-  let pos = 60, stop = null, sd = null;
-  const rubber = (over, dim, c = 0.55) => (over * dim * c) / (dim + c * Math.abs(over));
-  const renderShutter = (p) => {
-    const shown = Math.max(0, Math.min(100, p));
-    shutter.style.setProperty('--closed', (100 - shown) / 100);
-    $('shutter-pct').textContent = `${Math.round(shown)}%`;
-    $('shutter-status').textContent = shown <= 0 ? 'Closed' : `Open · ${Math.round(shown)} %`;
-    shutter.setAttribute('aria-valuenow', Math.round(shown));
-    const over = p > 100 ? p - 100 : p < 0 ? p : 0;
-    shutter.style.transform = over ? `translateY(${-rubber(over, 100) * 0.5}px)` : '';
-  };
-  shutter.addEventListener('pointerdown', (e) => {
-    if (stop) stop();
-    shutter.setPointerCapture(e.pointerId);
-    sd = { y: e.clientY, start: pos, h: shutter.clientHeight, hist: [[e.clientY, e.timeStamp]], moved: false };
-    shutter.classList.add('pressed');
-  });
-  shutter.addEventListener('pointermove', (e) => {
-    if (!sd) return;
-    const dy = e.clientY - sd.y;
-    if (Math.abs(dy) > 6) sd.moved = true;
-    sd.hist.push([e.clientY, e.timeStamp]); if (sd.hist.length > 5) sd.hist.shift();
-    let p = sd.start - (dy / sd.h) * 100;
-    if (p > 100) p = 100 + rubber(p - 100, 60); else if (p < 0) p = rubber(p, 60);
-    pos = p; renderShutter(pos);
-  });
-  const endShutter = () => {
-    if (!sd) return;
-    shutter.classList.remove('pressed');
-    const [y0, t0] = sd.hist[0], [y1, t1] = sd.hist[sd.hist.length - 1];
-    const v = t1 > t0 ? (-(y1 - y0) / (t1 - t0)) * 1000 / sd.h * 100 : 0; // %/s, up is open
-    let to;
-    if (!sd.moved) to = pos > 0 ? 0 : 100;                            // a tap opens or closes
-    else to = Math.max(0, Math.min(100, Math.round(pos + (v / 1000) * 0.99 / (1 - 0.99)))); // project the flick
-    stop = spring(pos, to, sd.moved ? v : 0, (x) => { pos = x; renderShutter(x); });
-    send(4, 9, to);
-    sd = null;
-  };
-  shutter.addEventListener('pointerup', endShutter); shutter.addEventListener('pointercancel', endShutter);
-  shutter.addEventListener('keydown', (e) => {
-    const d = { ArrowUp: 10, ArrowDown: -10 }[e.key]; if (!d) return; e.preventDefault();
-    if (stop) stop(); const to = Math.max(0, Math.min(100, Math.round(pos) + d));
-    stop = spring(pos, to, 0, (x) => { pos = x; renderShutter(x); }); send(4, 9, to);
-  });
-
-  // Tiles that toggle on press.
-  const tile = (id, aid, iid) => {
-    const el = $(id);
-    const flip = () => {
-      const on = !el.classList.contains('on');
-      el.classList.toggle('on', on); el.setAttribute('aria-pressed', on);
-      el.querySelector('.status').textContent = on ? 'On' : 'Off';
-      send(aid, iid, on);
-    };
-    el.addEventListener('click', flip);   // highlighted on press by :active, committed on release
-    el.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); flip(); } });
-  };
-  tile('porch', 5, 10); tile('kitchen', 6, 10);
-
-  // Front Door: a hold of 650 ms confirms; letting go early cancels.
-  const lock = $('lock'); let locked = true, timer = null;
-  const setLock = () => {
-    lock.classList.toggle('unlocked', !locked);
-    $('lock-glyph').setAttribute('href', locked ? '#i-lock' : '#i-unlock');
-    $('lock-status').textContent = locked ? 'Locked · hold' : 'Unlocked · hold';
-  };
-  const startHold = () => {
-    lock.classList.add('holding', 'pressed');
-    timer = setTimeout(() => { locked = !locked; setLock(); send(7, 12, locked ? 1 : 0); release(); }, 650);
-  };
-  const release = () => { clearTimeout(timer); timer = null; lock.classList.remove('holding', 'pressed'); };
-  lock.addEventListener('pointerdown', (e) => { lock.setPointerCapture(e.pointerId); startHold(); });
-  lock.addEventListener('pointerup', release); lock.addEventListener('pointercancel', release);
-  lock.addEventListener('keydown', (e) => { if ((e.key === ' ' || e.key === 'Enter') && !timer && !e.repeat) { e.preventDefault(); startHold(); } });
-  lock.addEventListener('keyup', release);
-
-  renderDesk(); renderThermo(); renderShutter(pos);
-
-  // Benchmarks, each row on its own scale: the longer bar fills the track.
-  const rows = [
-    ['Memory at idle', 'Resident size', 8.6, 76.1, 'MB', '8.8×', 'less'],
-    ['Startup', 'Launch to listening', 59, 399, 'ms', '6.8×', 'faster'],
-    ['Pair verify', 'Round trips, median', 0.57, 12.5, 'ms', '22×', 'faster'],
-    ['Event latency', 'Write to notification, median', 0.30, 252.39, 'ms', '834×', 'faster'],
-  ];
-  const bench = $('bench');
-  for (const [name, sub, us, them, unit, ratio, word] of rows) {
-    const max = Math.max(us, them);
-    const row = document.createElement('div'); row.className = 'row';
-    row.innerHTML = `<div class="row-label"><strong>${name}</strong><span>${sub}</span></div>
-      <div class="bars">
-        <div class="bar us"><i style="width:calc((100% - 5.5rem) * ${us / max})"></i>${us} ${unit}</div>
-        <div class="bar them"><i style="width:calc((100% - 5.5rem) * ${them / max})"></i>${them} ${unit}</div>
-      </div>
-      <div class="ratio">${ratio}<small>${word}</small></div>`;
-    bench.appendChild(row);
-  }
-
-  // Install tabs and copy buttons.
-  const tabs = document.querySelectorAll('.seg button');
-  tabs.forEach((b) => b.addEventListener('click', () => {
-    tabs.forEach((t) => t.setAttribute('aria-selected', t === b));
-    document.querySelectorAll('#install .term').forEach((p) => { p.hidden = p.dataset.pane !== b.dataset.pane; });
-  }));
-  document.querySelectorAll('.copy').forEach((btn) => btn.addEventListener('click', () => {
-    const text = btn.parentElement.querySelector('pre').innerText;
-    const done = () => { btn.textContent = 'Copied'; setTimeout(() => { btn.textContent = 'Copy'; }, 1400); };
-    navigator.clipboard?.writeText(text).then(done, () => {
-      const r = document.createRange(); r.selectNodeContents(btn.parentElement.querySelector('pre'));
-      const s = getSelection(); s.removeAllRanges(); s.addRange(r); btn.textContent = 'Selected';
-    });
-  }));
-})();
-</script>
+<script src="site.js" defer></script>
 </body>
 </html>
