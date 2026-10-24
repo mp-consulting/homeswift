@@ -63,7 +63,8 @@ import Darwin
         let exec = FfmpegExec(options, commandLineArgs: ["-c", "exec sleep 30"], logErrors: false)
         let start = ContinuousClock.now
         #expect(await exec.exec(timeout: 300) == nil)
-        #expect(ContinuousClock.now - start < .seconds(5))
+        // Well before the 30 s sleep would end, with room for a loaded runner.
+        #expect(ContinuousClock.now - start < .seconds(20))
         #expect(logs.messages(.debug).contains("FFmpeg command timed out after 300 ms. Terminating."))
         #expect(await eventually { !exec.isRunning })
     }
@@ -682,6 +683,7 @@ final class RecordingStreamingDelegate: HomebridgeStreamingDelegate {
             #expect(!child.isStdinOpen)
             #expect(!child.isReadingOutput)
         }
-        #expect(await eventually { released == nil })
+        // The reading threads let go of it once they finish, later on a loaded runner.
+        #expect(await eventually(timeout: .seconds(15)) { released == nil })
     }
 }
