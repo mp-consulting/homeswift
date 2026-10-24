@@ -42,6 +42,8 @@ struct CurlTransport: HTTPSending {
             "url = \(try quote(request.url.absoluteString))",
             "request = \(try quote(request.method))",
             "max-time = \(seconds)",
+            // The built-in client's cap: the whole output is read into memory.
+            "max-filesize = \(DaikinHTTP.maximumBodySize)",
             "silent",
             "show-error",
             "include",

@@ -321,6 +321,7 @@ extension DaikinCloudPlugin {
       [...$("#wizard-steps").children].forEach((item, i) => {
         item.classList.toggle("current", i + 1 === step && step < 3);
         item.classList.toggle("done", i + 1 < step || step === 3);
+        if (i + 1 === step && step < 3) item.setAttribute("aria-current", "step"); else item.removeAttribute("aria-current");
       });
     },
 
@@ -798,6 +799,7 @@ extension DaikinCloudPlugin {
 .subtab > .note { margin-bottom: 4px; }
 .row-toggle { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
 .row-toggle:last-child { border-bottom: 0; }
+@media (hover: hover) and (pointer: fine) { .row-toggle:hover .field-title { color: var(--accent); } }
 .row-toggle .field-title { margin: 0 0 2px; }
 .row-toggle .help { display: block; }
 .row-toggle .side { display: inline-flex; align-items: center; gap: 10px; flex: none; }
@@ -887,14 +889,14 @@ input:invalid, input.invalid { border-color: var(--error) !important; }
   </div>
 
   <div class="group tabs" role="tablist" id="tabs">
-    <button role="tab" data-tab="devices" class="on" aria-selected="true">Devices</button>
-    <button role="tab" data-tab="settings" aria-selected="false">Settings</button>
-    <button role="tab" data-tab="auth" aria-selected="false">Authentication</button>
-    <button role="tab" data-tab="help" aria-selected="false">Help</button>
+    <button role="tab" aria-controls="tab-devices" data-tab="devices" class="on" aria-selected="true">Devices</button>
+    <button role="tab" aria-controls="tab-settings" data-tab="settings" aria-selected="false">Settings</button>
+    <button role="tab" aria-controls="tab-auth" data-tab="auth" aria-selected="false">Authentication</button>
+    <button role="tab" aria-controls="tab-help" data-tab="help" aria-selected="false">Help</button>
   </div>
 
   <!-- Devices -->
-  <section class="tab-pane" id="tab-devices">
+  <section class="tab-pane" id="tab-devices" role="tabpanel">
     <div class="section-head"><h2>Discovered devices</h2><span class="tools"><span id="devices-fetched" class="muted"></span><button id="btn-refresh-devices">Refresh</button></span></div>
     <p id="session-line" class="muted note hidden"></p>
     <div id="devices-list" class="grid"></div>
@@ -902,7 +904,7 @@ input:invalid, input.invalid { border-color: var(--error) !important; }
   </section>
 
   <!-- Settings -->
-  <section class="tab-pane hidden" id="tab-settings">
+  <section class="tab-pane hidden" id="tab-settings" role="tabpanel">
     <div class="section-head"><h2>Plugin settings</h2></div>
     <div class="card settings-card">
       <div class="group tabs subtabs" role="tablist" id="subtabs">
@@ -946,13 +948,13 @@ input:invalid, input.invalid { border-color: var(--error) !important; }
         <div id="device-toggles"></div>
       </div>
 
-      <div class="save-bar" id="settings-bar"><span id="settings-status" class="muted">Saving applies at once: the plugin reloads with the new settings.</span>
+      <div class="save-bar" id="settings-bar"><span id="settings-status" class="muted" role="status" aria-live="polite">Saving applies at once: the plugin reloads with the new settings.</span>
         <button id="btn-settings-discard" disabled>Discard</button><button id="btn-settings-save" class="primary" disabled>Save</button></div>
     </div>
   </section>
 
   <!-- Authentication -->
-  <section class="tab-pane hidden" id="tab-auth">
+  <section class="tab-pane hidden" id="tab-auth" role="tabpanel">
     <div class="section-head"><h2>Authentication</h2></div>
     <div class="card">
       <label class="field"><span class="field-title">Authentication method</span>
@@ -975,7 +977,7 @@ input:invalid, input.invalid { border-color: var(--error) !important; }
         <button id="btn-authenticate-mobile" class="primary hidden">Configure credentials</button>
         <button id="btn-revoke" class="danger hidden">Revoke access</button>
       </div>
-      <p id="test-result" class="status-line"></p>
+      <p id="test-result" class="status-line" role="status" aria-live="polite"></p>
       <div id="test-problem"></div>
     </div>
 
@@ -985,7 +987,7 @@ input:invalid, input.invalid { border-color: var(--error) !important; }
         <label class="field"><span class="field-title">Daikin account email</span><input type="email" id="daikinEmail" placeholder="your@email.com" autocomplete="username"></label>
         <label class="field"><span class="field-title">Daikin account password</span><input type="password" id="daikinPassword" placeholder="Enter your password" autocomplete="current-password"></label>
       </div>
-      <p id="mobile-auth-result" class="status-line"></p>
+      <p id="mobile-auth-result" class="status-line" role="status" aria-live="polite"></p>
       <div id="mobile-auth-problem"></div>
       <div class="actions end"><button id="btn-mobile-cancel">Cancel</button><button id="btn-test-mobile-auth" class="primary">Test &amp; save credentials</button></div>
     </div>
@@ -1019,7 +1021,7 @@ input:invalid, input.invalid { border-color: var(--error) !important; }
         </div>
         <div class="actions"><button id="btn-wizard-back">Back</button><button id="btn-open-auth" class="primary">Open Daikin login</button></div>
         <div id="wizard-auth-problem"></div>
-        <p id="callback-server-status" class="status-line waiting hidden">Waiting for authentication… Complete the login in the new window. This page will update automatically.</p>
+        <p id="callback-server-status" class="status-line waiting hidden" role="status" aria-live="polite">Waiting for authentication… Complete the login in the new window. This page will update automatically.</p>
         <details id="manual-callback">
           <summary>Manual entry (if the automatic redirect fails)</summary>
           <p class="warn-box">If you see an error page after the login, copy the <strong>full URL</strong> from your browser's address bar and paste it below. Your browser also warns once about the callback server's self-signed certificate: that is expected.</p>
@@ -1039,7 +1041,7 @@ input:invalid, input.invalid { border-color: var(--error) !important; }
   </section>
 
   <!-- Help -->
-  <section class="tab-pane hidden" id="tab-help">
+  <section class="tab-pane hidden" id="tab-help" role="tabpanel">
     <div class="section-head"><h2>Help &amp; information</h2></div>
     <div class="card">
       <div class="item-head"><strong>API rate limit</strong><button id="btn-rate-limit">Check</button></div>

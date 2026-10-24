@@ -30,9 +30,12 @@ struct DaikinHTTP: Sendable {
         return mode ?? .node
     }
 
+    /// The largest response either transport reads.
+    static let maximumBodySize = 10 * 1024 * 1024
+
     static func makeTransport(_ mode: TransportMode) -> any HTTPSending {
         switch mode {
-        case .node: HTTPClient(tls: .system, cipherSuites: cipherSuites, maximumBodySize: 10 * 1024 * 1024)
+        case .node: HTTPClient(tls: .system, cipherSuites: cipherSuites, maximumBodySize: maximumBodySize)
         case .curl: CurlTransport()
         }
     }

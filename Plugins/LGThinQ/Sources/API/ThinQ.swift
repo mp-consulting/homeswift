@@ -44,7 +44,18 @@ final class ThinQ {
     }
 
     func setup(_ device: ThinQDevice) async throws -> Bool {
-        device.deviceModel = try await loadDeviceModel(device)
+        do {
+            device.deviceModel = try await loadDeviceModel(device)
+        } catch let error as ThinQError {
+            // A model the CDN does not serve skips this device only; an account or connection failure stops
+            // the discovery (which retries when LG is unreachable).
+            switch error {
+            case .http, .invalid, .monitor: break
+            default: throw error
+            }
+            logger.error("[\(device.name)] Could not load the device model: \(error)")
+            return false
+        }
         let data = device.deviceModel.data
         if data["Monitoring"] == nil, data["MonitoringValue"] == nil, data["Value"] == nil {
             logger.warning("[\(device.name)] This device may not \"smart\" device. Ignore it!")

@@ -26,6 +26,7 @@
 .subtab > .note { margin-bottom: 4px; }
 .row-toggle { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
 .row-toggle:last-child { border-bottom: 0; }
+@media (hover: hover) and (pointer: fine) { .row-toggle:hover .field-title { color: var(--accent); } }
 .row-toggle .field-title { margin: 0 0 2px; }
 .row-toggle .help { display: block; }
 .row-toggle .side { display: inline-flex; align-items: center; gap: 10px; flex: none; }

@@ -17,6 +17,7 @@ final class LGThinQPlatform {
     let interval: Duration
     /// `refresh_interval`, seconds.
     let intervalSeconds: Double
+    static let defaultIntervalSeconds: Double = 60
     private(set) var handlers: [String: BaseDevice] = [:]
     private var startTask: Task<Void, Never>?
     private var thinq2Poll: Task<Void, Never>?
@@ -40,9 +41,11 @@ final class LGThinQPlatform {
         }
         thinq = ThinQ(api: api, persist: Persist(directory: context.storageDirectory.appendingPathComponent("persist")), mqtt: mqtt, logger: context.logger)
         thinq1Enabled = configuration.thinq1 ?? false
-        intervalSeconds = configuration.refresh_interval.flatMap { $0 > 0 ? $0 : nil } ?? 5
+        // The schema's and the page's default; the Homebridge runtime fell back to 5 s, a monitoring request per
+        // ThinQ1 device every 5 s against LG's rate limit.
+        intervalSeconds = configuration.refresh_interval.flatMap { $0 > 0 ? $0 : nil } ?? Self.defaultIntervalSeconds
         // Saturated: a huge or infinite refresh_interval polls (almost) never instead of trapping.
-        interval = .milliseconds(Int64(saturating: intervalSeconds * 1000, in: 1...Int64(Int32.max) * 1000) ?? 5000)
+        interval = .milliseconds(Int64(saturating: intervalSeconds * 1000, in: 1...Int64(Int32.max) * 1000) ?? Int64(Self.defaultIntervalSeconds * 1000))
     }
 
     /// The configured devices (empty: all of them).

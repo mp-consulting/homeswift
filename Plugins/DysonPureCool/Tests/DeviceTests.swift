@@ -292,9 +292,11 @@ struct DeviceTests {
         try await device.setAutoMode(true)
         try await device.setFanSpeed(3)
         #expect(dyson.commands == [["fmod": "OFF"]])
-        // Switching on lifts it.
+        // Switching on through the speed lifts it, though the device has not confirmed the OFF yet.
         try await device.powerOnAndSetSpeed(3)
         #expect(dyson.commands.last == ["fmod": "FAN", "fnsp": "0003"])
+        try await device.setAutoMode(true)
+        #expect(dyson.commands.last == ["fmod": "AUTO"])
     }
 
     @Test func otherCommands() async throws {

@@ -157,6 +157,9 @@ actor TokenClient: OAuthProvider {
     let file: URL
     private(set) var tokens: TokenSet?
     private var refreshing: Task<TokenSet, any Error>?
+    /// Bumped when the tokens are cleared or reloaded: a refresh that started before keeps its answer to
+    /// itself instead of writing a revoked or replaced login back to the file.
+    private var generation = 0
     private let requestRefresh: Refresh
     private let onError: @Sendable (String) -> Void
 
@@ -184,15 +187,21 @@ actor TokenClient: OAuthProvider {
         guard let refreshToken = tokens?.refresh_token else { throw DaikinError("No refresh token available") }
         if let refreshing { return try await refreshing.value }
         let request = requestRefresh
+        let started = generation
         let task = Task { () -> TokenSet in
             var fresh = try await request(refreshToken)
             // A provider that does not rotate refresh tokens leaves the previous one valid (RFC 6749 §6).
             if fresh.refresh_token == nil { fresh.refresh_token = refreshToken }
-            return self.store(fresh)
+            return try self.storeRefreshed(fresh, generation: started)
         }
         refreshing = task
-        defer { refreshing = nil }
+        defer { if generation == started { refreshing = nil } }
         return try await task.value
+    }
+
+    private func storeRefreshed(_ tokens: TokenSet, generation started: Int) throws -> TokenSet {
+        guard generation == started else { throw DaikinError("Not authenticated. Please authenticate first.") }
+        return store(tokens)
     }
 
     /// Keeps a new token set in memory and on disk, with `expires_at` filled in.
@@ -210,12 +219,16 @@ actor TokenClient: OAuthProvider {
 
     /// Forgets the tokens and deletes the file.
     func clear() {
+        generation += 1
+        refreshing = nil
         TokenFile.delete(file)
         tokens = nil
     }
 
     /// Reads the file again, after the settings page logged in.
     func reload() {
+        generation += 1
+        refreshing = nil
         tokens = TokenFile.load(file)
     }
 }

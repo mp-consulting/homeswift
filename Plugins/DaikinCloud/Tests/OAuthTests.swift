@@ -124,6 +124,26 @@ struct OAuthTests {
         #expect(TokenFile.load(url)?.refresh_token == "new")
     }
 
+    /// Revoking from the page while a poll refreshes: the refresh's answer must not write the login back.
+    @Test func aRefreshInFlightDoesNotRestoreClearedTokens() async throws {
+        let url = directory.appendingPathComponent("tokens")
+        try TokenFile.save(TokenSet(access_token: "old", refresh_token: "refresh", token_type: "Bearer", expires_at: 1), to: url)
+        let started = Signal()
+        let release = Signal()
+        let client = TokenClient(file: url) { _ in
+            started.fire()
+            await release.wait()
+            return TokenSet(access_token: "fresh", refresh_token: "new", token_type: "Bearer", expires_in: 3600)
+        }
+        let refresh = Task { try await client.accessToken() }
+        await started.wait()
+        await client.clear()
+        release.fire()
+        await #expect(throws: DaikinError("Not authenticated. Please authenticate first.")) { try await refresh.value }
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        #expect(!(await client.isAuthenticated()))
+    }
+
     @Test func expiredWithoutARefreshToken() async throws {
         let url = directory.appendingPathComponent("tokens")
         try TokenFile.save(TokenSet(access_token: "old", token_type: "Bearer", expires_at: 1), to: url)

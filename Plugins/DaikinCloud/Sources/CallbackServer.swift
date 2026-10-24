@@ -15,6 +15,9 @@ final class CallbackServer: @unchecked Sendable {
     private let state = NIOLockedValueBox<State>(State())
     private let logger: Logger
     private let group: any EventLoopGroup
+    /// A connection that stays quiet this long is closed: the server listens on the LAN, and a client that never
+    /// finishes its handshake or request must not hold a socket for good.
+    static let idleTimeout: TimeAmount = .seconds(30)
 
     private struct State {
         var channel: (any Channel)?
@@ -54,6 +57,8 @@ final class CallbackServer: @unchecked Sendable {
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { channel in
                 channel.eventLoop.makeCompletedFuture {
+                    try channel.pipeline.syncOperations.addHandler(IdleStateHandler(allTimeout: Self.idleTimeout))
+                    try channel.pipeline.syncOperations.addHandler(IdleCloser())
                     try channel.pipeline.syncOperations.addHandler(NIOSSLServerHandler(context: context))
                     try channel.pipeline.syncOperations.configureHTTPServerPipeline()
                     try channel.pipeline.syncOperations.addHandler(CallbackHandler(handler: handler))
@@ -149,6 +154,19 @@ final class CallbackServer: @unchecked Sendable {
     static func escapeHTML(_ value: String) -> String {
         value.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
             .replacingOccurrences(of: "\"", with: "&quot;").replacingOccurrences(of: "'", with: "&#39;")
+    }
+}
+
+/// Closes a connection when the `IdleStateHandler` before it reports it idle.
+private final class IdleCloser: ChannelInboundHandler, Sendable {
+    typealias InboundIn = NIOAny
+
+    func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
+        if event is IdleStateHandler.IdleStateEvent {
+            context.close(promise: nil)
+        } else {
+            context.fireUserInboundEventTriggered(event)
+        }
     }
 }
 

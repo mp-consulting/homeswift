@@ -195,6 +195,7 @@
     [...progress.children].forEach((item, i) => {
       item.classList.toggle("current", i + 1 === numeric);
       item.classList.toggle("done", i + 1 < numeric);
+      if (i + 1 === numeric) item.setAttribute("aria-current", "step"); else item.removeAttribute("aria-current");
     });
     state.step = step;
   }

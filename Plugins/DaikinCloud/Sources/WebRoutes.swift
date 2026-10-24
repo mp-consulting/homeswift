@@ -343,14 +343,16 @@ extension DaikinCloudPlugin {
                 logger.warning("Failed to revoke token at server: \(message(of: error))")
             }
         }
-        TokenFile.delete(tokenFile(.developerPortal))
-        TokenFile.delete(tokenFile(.mobileApp))
-        // The running instance stops using the tokens now, not at the next restart.
+        // The running instance stops using the tokens now, not at the next restart, and before the files go: a
+        // refresh in flight must not write them back.
         if let session {
             await session.stop()
+            await session.tokens.clear()
             self.session = nil
             logger.warning("[Auth] Authentication revoked from the settings page; authenticate again to reconnect")
         }
+        TokenFile.delete(tokenFile(.developerPortal))
+        TokenFile.delete(tokenFile(.mobileApp))
         return ["success": true, "message": "Authentication revoked. You will need to re-authenticate."]
     }
 

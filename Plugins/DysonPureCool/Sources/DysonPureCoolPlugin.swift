@@ -590,7 +590,7 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
             let state = try await currentState(client)
             await client.disconnect()
             await client.finish()
-            let monitoring = MessageCodec.value(state["product-state"]?["rhtm"]) == MessageCodec.on
+            let monitoring = MessageCodec.value(state.objectValue.flatMap(MessageCodec.stateFields)?["rhtm"]) == MessageCodec.on
             logger.info("Device state: continuousMonitoring=\(monitoring)")
             var answer: [String: JSONValue] = ["success": true, "continuousMonitoring": .bool(monitoring)]
             // A retry after rediscovery passes the new address as if it were cached: still report it to be saved.

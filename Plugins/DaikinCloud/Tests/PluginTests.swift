@@ -331,6 +331,7 @@ struct PluginTests {
         environment.tokens = (.mobileApp, DaikinEnvironment.validToken)
         environment.timing.pollInterval = .milliseconds(100)
         environment.timing.webSocketSafetyPoll = .seconds(3600)
+        environment.timing.reconnectCatchUp = .milliseconds(200)
         let host = try await environment.start(["authMode": "mobile_app", "daikinEmail": "me@example.com", "daikinPassword": "right"])
         defer { Task { await host.stop() } }
         let session = try #require(await environment.plugin?.session)

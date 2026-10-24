@@ -755,6 +755,7 @@ window.LG_COUNTRIES = [
     display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 14px; border-radius: 14px; cursor: pointer;
     background: var(--material-thin); border: 1px solid var(--line); transition: background-color var(--fast) var(--ease-out), border-color var(--fast) var(--ease-out);
   }
+  @media (hover: hover) and (pointer: fine) { .device:not(.selected):hover { border-color: var(--edge); } }
   .device.selected { background: var(--control); border-color: var(--edge); box-shadow: inset 0 1px 0 var(--edge-light), var(--shadow-control); }
   .device input[type="checkbox"] { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--accent); }
   .device .who { flex: 1; min-width: 0; }
@@ -833,11 +834,11 @@ window.LG_COUNTRIES = [
   <section id="step-devices" class="step hidden">
     <div class="step-head"><span class="step-number">2</span><h2>Your devices</h2></div>
     <div class="group tabs" role="tablist">
-      <button id="tab-devices" role="tab" class="on" aria-selected="true">Devices</button>
-      <button id="tab-settings" role="tab" aria-selected="false">Settings</button>
+      <button id="tab-devices" role="tab" class="on" aria-selected="true" aria-controls="pane-devices">Devices</button>
+      <button id="tab-settings" role="tab" aria-selected="false" aria-controls="pane-settings">Settings</button>
     </div>
 
-    <div id="pane-devices">
+    <div id="pane-devices" role="tabpanel" aria-labelledby="tab-devices">
       <div class="card">
         <div class="list-head">
           <h3>Devices in your account <span id="device-count" class="pill count">0</span></h3>
@@ -851,12 +852,12 @@ window.LG_COUNTRIES = [
       <div class="save-bar"><span id="devices-status" class="muted"></span><button id="save" class="primary">Save configuration</button></div>
     </div>
 
-    <div id="pane-settings" class="settings hidden">
+    <div id="pane-settings" class="settings hidden" role="tabpanel" aria-labelledby="tab-settings">
       <div class="card">
         <h3>Authentication</h3>
         <label class="field"><span class="field-title">Auth mode</span>
           <select id="auth-mode"><option value="account">LG account (email and password)</option><option value="token">Refresh token</option></select></label>
-        <label id="token-field" class="field"><span class="field-title">Refresh token</span><input type="text" id="refresh-token" placeholder="Paste your refresh token" autocapitalize="none" spellcheck="false" class="mono"></label>
+        <label id="token-field" class="field"><span class="field-title">Refresh token</span><input type="password" id="refresh-token" placeholder="Paste your refresh token" autocomplete="off" autocapitalize="none" spellcheck="false" class="mono"></label>
         <div class="actions"><button id="switch-account" class="link">Sign in with another account</button></div>
       </div>
       <div class="card">
