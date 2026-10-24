@@ -1,6 +1,7 @@
 import Foundation
 import HomeswiftNetworkTestSupport
 import NIOConcurrencyHelpers
+import NIOHTTP1
 import NIOSSL
 import Testing
 
@@ -143,5 +144,33 @@ struct FakeTests {
         #expect(connection.closeCode == 4000 && connection.closeReason == "bye")
         await #expect(throws: WebSocketError.notConnected) { try await socket.send(text: "late") }
         #expect(socket.sentText == ["ping"])
+    }
+}
+
+struct HTTPHeaderTests {
+    @Test func requestHeadersReplaceDefaultsAndKeepRepeats() {
+        var headers = HTTPHeaders()
+        headers.add(name: "Host", value: "device")
+        headers.add(name: "Connection", value: "close")
+        headers.applying([("host", "proxy"), ("Cookie", "a=1"), ("Cookie", "b=2")])
+        #expect(headers["Host"] == ["proxy"])
+        #expect(headers["Connection"] == ["close"])
+        #expect(headers["Cookie"] == ["a=1", "b=2"])
+    }
+
+    @Test func bracketsIPv6HostsAndLeavesDefaultPortsOut() {
+        #expect(hostHeader(host: "fe80::1", port: 8080, defaultPort: 80) == "[fe80::1]:8080")
+        #expect(hostHeader(host: "fe80::1", port: 443, defaultPort: 443) == "[fe80::1]")
+        #expect(hostHeader(host: "192.168.1.2", port: 1926, defaultPort: 443) == "192.168.1.2:1926")
+        #expect(hostHeader(host: "tv.local", port: 80, defaultPort: 80) == "tv.local")
+    }
+
+    @Test func errorsDoNotCarryAURLsPassword() throws {
+        let error = #expect(throws: MQTTError.self) {
+            try MQTTConfiguration(url: URL(string: "mqtts2://user:s3cret@broker:8883")!, clientID: "x")
+        }
+        #expect(error.map { "\($0)" }?.contains("s3cret") == false)
+        #expect(error.map { "\($0)" }?.contains("user:***@broker") == true)
+        #expect(redactingPassword(URL(string: "http://host/path?x=1")!) == "http://host/path?x=1")
     }
 }

@@ -113,7 +113,8 @@ public final class HTTPClient: HTTPSending, Sendable {
     /// Responses larger than this fail instead of filling memory.
     public let maximumBodySize: Int
     private let group: any EventLoopGroup
-    private let sslContext: NIOLockedValueBox<NIOSSLContext?> = .init(nil)
+    /// `tls` and `cipherSuites` as the WebSocket and MQTT clients take them; it builds the context once per client.
+    private let tlsOptions: TLSOptions
 
     public init(
         tls: TLS = .system, cipherSuites: String? = nil, maximumBodySize: Int = 4 * 1024 * 1024,
@@ -123,6 +124,9 @@ public final class HTTPClient: HTTPSending, Sendable {
         self.cipherSuites = cipherSuites
         self.maximumBodySize = maximumBodySize
         self.group = group
+        var tlsOptions = TLSOptions(tls)
+        tlsOptions.cipherSuites = cipherSuites
+        self.tlsOptions = tlsOptions
     }
 
     /// A fingerprint as the client compares it: lowercase hex without separators.
@@ -137,20 +141,19 @@ public final class HTTPClient: HTTPSending, Sendable {
 
     public func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         guard let scheme = request.url.scheme?.lowercased(), scheme == "http" || scheme == "https", let host = request.url.host, !host.isEmpty else {
-            throw HTTPClientError.invalidURL(request.url.absoluteString)
+            throw HTTPClientError.invalidURL(redactingPassword(request.url))
         }
         let secure = scheme == "https"
         let port = request.url.port ?? (secure ? 443 : 80)
-        let start = ContinuousClock.now
+        let deadline = ContinuousClock.now + request.timeout
         do {
-            return try await exchange(request, host: host, port: port, secure: secure, timeout: request.timeout)
+            return try await exchange(request, host: host, port: port, secure: secure, deadline: deadline)
         } catch let dropped as DroppedConnection {
             // The server closed the connection without a byte of an answer (a restart, a connection limit, an idle
             // timeout): once more on a fresh connection, when the request never went out or may be seen twice.
-            let remaining = request.timeout - (ContinuousClock.now - start)
-            guard dropped.unsent || Self.idempotentMethods.contains(request.method.uppercased()), remaining > .zero else { throw dropped.error }
+            guard dropped.unsent || Self.idempotentMethods.contains(request.method.uppercased()), deadline > .now else { throw dropped.error }
             do {
-                return try await exchange(request, host: host, port: port, secure: secure, timeout: remaining)
+                return try await exchange(request, host: host, port: port, secure: secure, deadline: deadline)
             } catch let dropped as DroppedConnection {
                 throw dropped.error
             }
@@ -160,11 +163,11 @@ public final class HTTPClient: HTTPSending, Sendable {
     /// Methods a server may receive twice without harm (RFC 9110, 9.2.2).
     static let idempotentMethods: Set<String> = ["GET", "HEAD", "PUT", "DELETE", "OPTIONS"]
 
-    /// One request on one new connection. A connection that closed before any of the response arrived throws
-    /// `DroppedConnection`, which `send` may retry.
-    private func exchange(_ request: HTTPRequest, host: String, port: Int, secure: Bool, timeout: Duration) async throws -> HTTPResponse {
+    /// One request on one new connection, connecting and answering before `deadline`. A connection that closed before
+    /// any of the response arrived throws `DroppedConnection`, which `send` may retry.
+    private func exchange(_ request: HTTPRequest, host: String, port: Int, secure: Bool, deadline: ContinuousClock.Instant) async throws -> HTTPResponse {
         let observed = NIOLockedValueBox<String?>(nil)
-        let mismatch = NIOLockedValueBox<HTTPClientError?>(nil)
+        let mismatch = NIOLockedValueBox<(any Error)?>(nil)
         let progress = NIOLockedValueBox(ResponseCollector.Progress())
         let eventLoop = group.next()
         let promise = eventLoop.makePromise(of: HTTPResponse.self)
@@ -172,27 +175,26 @@ public final class HTTPClient: HTTPSending, Sendable {
         let channel: any Channel
         do {
             channel = try await connect(
-                host: host, port: port, secure: secure, eventLoop: eventLoop, observed: observed, mismatch: mismatch, timeout: timeout
+                host: host, port: port, secure: secure, eventLoop: eventLoop, observed: observed, mismatch: mismatch, timeout: deadline - .now
             ) { ResponseCollector(promise: promise, limit: limit, progress: progress) }
         } catch {
             promise.fail(error)
             if let mismatch = mismatch.withLockedValue({ $0 }) { throw mismatch }
             throw error
         }
-        let deadline = channel.eventLoop.scheduleTask(in: TimeAmount(timeout)) {
+        // What the connection left of the request's time, not the whole of it again.
+        let timer = channel.eventLoop.scheduleTask(in: TimeAmount(max(.zero, deadline - .now))) {
             promise.fail(HTTPClientError.timeout)
             channel.close(promise: nil)
         }
         do {
             var head = HTTPRequestHead(version: .http1_1, method: HTTPMethod(rawValue: request.method.uppercased()), uri: requestTarget(of: request.url))
-            head.headers.add(name: "Host", value: port == (secure ? 443 : 80) ? host : "\(host):\(port)")
+            head.headers.add(name: "Host", value: hostHeader(host: host, port: port, defaultPort: secure ? 443 : 80))
             head.headers.add(name: "Connection", value: "close")
             if let body = request.body {
                 head.headers.add(name: "Content-Length", value: String(body.count))
             }
-            for header in request.headers {
-                head.headers.replaceOrAdd(name: header.name, value: header.value)
-            }
+            head.headers.applying(request.headers)
             channel.write(HTTPClientRequestPart.head(head), promise: nil)
             if let body = request.body, !body.isEmpty {
                 channel.write(HTTPClientRequestPart.body(.byteBuffer(ByteBuffer(bytes: body))), promise: nil)
@@ -209,12 +211,12 @@ public final class HTTPClient: HTTPSending, Sendable {
                 promise.fail(CancellationError())
                 channel.close(promise: nil)
             }
-            deadline.cancel()
+            timer.cancel()
             channel.close(promise: nil)
             response.certificateFingerprint = observed.withLockedValue { $0 }
             return response
         } catch {
-            deadline.cancel()
+            timer.cancel()
             promise.fail(error)
             channel.close(promise: nil)
             if let mismatch = mismatch.withLockedValue({ $0 }) { throw mismatch }
@@ -247,39 +249,19 @@ public final class HTTPClient: HTTPSending, Sendable {
 
     private func connect(
         host: String, port: Int, secure: Bool, eventLoop: any EventLoop, observed: NIOLockedValueBox<String?>,
-        mismatch: NIOLockedValueBox<HTTPClientError?>, timeout: Duration, collector: @escaping @Sendable () -> ResponseCollector
+        mismatch: NIOLockedValueBox<(any Error)?>, timeout: Duration, collector: @escaping @Sendable () -> ResponseCollector
     ) async throws -> any Channel {
-        let tls = tls
-        let context = secure ? try self.context() : nil
-        // SNI carries host names only; a TV is reached by its address.
-        let serverName = host.contains(":") || host.allSatisfy({ $0.isNumber || $0 == "." }) ? nil : host
+        let tlsOptions = tlsOptions
+        let context = secure ? try tlsOptions.makeContext() : nil
         let bootstrap = ClientBootstrap(group: eventLoop)
-            .connectTimeout(TimeAmount(timeout))
+            .connectTimeout(TimeAmount(max(.zero, timeout)))
             .channelOption(.tcpOption(.tcp_nodelay), value: 1)
             .channelInitializer { channel in
                 channel.eventLoop.makeCompletedFuture {
                     if let context {
-                        let handler: NIOSSLClientHandler
-                        switch tls {
-                        case .system:
-                            handler = try NIOSSLClientHandler(context: context, serverHostname: serverName)
-                        case .any, .pinned:
-                            handler = try NIOSSLClientHandler(context: context, serverHostname: serverName) { certificates, promise in
-                                guard let leaf = certificates.first, let der = try? leaf.toDERBytes() else {
-                                    promise.succeed(.failed)
-                                    return
-                                }
-                                let fingerprint = HTTPClient.fingerprint(der: der)
-                                observed.withLockedValue { $0 = fingerprint }
-                                if case .pinned(let expected) = tls, HTTPClient.normalizeFingerprint(expected) != fingerprint {
-                                    mismatch.withLockedValue { $0 = .certificateMismatch(expected: HTTPClient.normalizeFingerprint(expected), observed: fingerprint) }
-                                    promise.succeed(.failed)
-                                    return
-                                }
-                                promise.succeed(.certificateVerified)
-                            }
-                        }
-                        try channel.pipeline.syncOperations.addHandler(handler)
+                        try channel.pipeline.syncOperations.addHandler(
+                            tlsOptions.makeHandler(context: context, host: host, observed: observed, mismatch: mismatch)
+                        )
                     }
                     try channel.pipeline.syncOperations.addHTTPClientHandlers()
                     try channel.pipeline.syncOperations.addHandler(collector())
@@ -292,24 +274,28 @@ public final class HTTPClient: HTTPSending, Sendable {
             throw HTTPClientError.cannotConnect(host: host, port: port, code: code, reason: reason)
         }
     }
+}
 
-    private func context() throws -> NIOSSLContext {
-        try sslContext.withLockedValue { cached in
-            if let cached { return cached }
-            var configuration = TLSConfiguration.makeClientConfiguration()
-            if case .system = tls {} else {
-                // The callback decides; nothing a self-signed certificate lacks should fail the handshake first.
-                configuration.certificateVerification = .noHostnameVerification
-            }
-            if let cipherSuites {
-                // NIOSSL stops the process on a list BoringSSL refuses.
-                guard TLSCipherList.isUsable(cipherSuites) else { throw TLSCipherListError(list: cipherSuites) }
-                configuration.cipherSuites = cipherSuites
-            }
-            let context = try NIOSSLContext(configuration: configuration)
-            cached = context
-            return context
-        }
+/// The `Host` header for a host and port: an IPv6 address in brackets, no port when it is the scheme's default.
+/// Shared by the HTTP and WebSocket clients and AWS signing, so the signed `Host` is the one sent.
+func hostHeader(host: String, port: Int, defaultPort: Int) -> String {
+    let name = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+    return port == defaultPort ? name : "\(name):\(port)"
+}
+
+/// A URL for an error message, without its password (`mqtt://user:pass@host` is a broker URL users write).
+func redactingPassword(_ url: URL) -> String {
+    guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false), components.password != nil else { return url.absoluteString }
+    components.percentEncodedPassword = "***"
+    return components.string ?? "(a URL with a password)"
+}
+
+extension HTTPHeaders {
+    /// Adds a request's own headers: each name it sets replaces the client's default (`Host`, `Connection`), and a
+    /// name it repeats (`Cookie`) is sent once for each value.
+    mutating func applying(_ headers: [(name: String, value: String)]) {
+        for name in Set(headers.map { $0.name.lowercased() }) { remove(name: name) }
+        for header in headers { add(name: header.name, value: header.value) }
     }
 }
 
@@ -379,14 +365,14 @@ private final class ResponseCollector: ChannelDuplexHandler {
         case .head(let head):
             status = Int(head.status.code)
             headers = head.headers.map { (name: $0.name, value: $0.value) }
-        case .body(var buffer):
+        case .body(let buffer):
             guard body.count + buffer.readableBytes <= limit else {
                 done = true
                 promise.fail(HTTPClientError.responseTooLarge(limit: limit))
                 context.close(promise: nil)
                 return
             }
-            if let bytes = buffer.readBytes(length: buffer.readableBytes) { body.append(contentsOf: bytes) }
+            body.append(contentsOf: buffer.readableBytesView)
         case .end:
             done = true
             promise.succeed(HTTPResponse(status: status, headers: headers, body: body))

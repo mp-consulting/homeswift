@@ -13,6 +13,9 @@ import Darwin
 /// in the last lines.
 let FFMPEG_STDERR_LOG_MAX_LINES = 100
 
+/// The longest standard error line kept whole: beyond it, the text so far counts as a line.
+let FFMPEG_STDERR_LINE_LIMIT = 64 * 1024
+
 /// The command line with the password of every URL replaced (`rtsp://user:secret@host` becomes `rtsp://user:***@host`) and SRTP
 /// parameters (the session keys) hidden, joined with spaces.
 public func redactCommandLine(_ commandLineArgs: [String]) -> String {
@@ -30,10 +33,11 @@ public func redactCommandLine(_ commandLineArgs: [String]) -> String {
     return redacted.joined(separator: " ")
 }
 
-/// `\b([a-z][a-z0-9+.-]*:\/\/[^:/?#@\s]*):[^@/?#\s]*@` (case-insensitive) replaced by `$1:***@`.
+/// `\b([a-z][a-z0-9+.-]*:\/\/[^:/?#@\s]*):[^/?#\s]*@` (case-insensitive) replaced by `$1:***@`. The password runs to the
+/// last `@` before the host, so one holding a raw `@` (cameras accept them unencoded) is hidden whole.
 func redactURLPasswords(_ text: String) -> String {
     guard text.contains("://") else { return text }
-    return text.replacing(#/\b([a-zA-Z][a-zA-Z0-9+.\-]*:\/\/[^:\/?#@\s]*):[^@\/?#\s]*@/#) { match in
+    return text.replacing(#/\b([a-zA-Z][a-zA-Z0-9+.\-]*:\/\/[^:\/?#@\s]*):[^\/?#\s]*@/#) { match in
         match.output.1 + ":***@"
     }
 }
@@ -153,10 +157,19 @@ public class FfmpegProcess: @unchecked Sendable {
     /// Starts FFmpeg, with a new command line if one is given. `errorHandler` is called with a message when FFmpeg cannot start or
     /// ends unexpectedly.
     public func start(_ commandLineArgs: [String]? = nil, errorHandler: (@Sendable (String) -> Void)? = nil) {
+        // A process still running from an earlier start(), never stopped, would run on with nothing left to stop it.
+        let previous = base.withLockedValue { state -> (child: Subprocess, arguments: [String])? in
+            guard let child = state.child, !state.stopRequested else { return nil }
+            return (child, state.commandLineArgs)
+        }
+        if let previous {
+            log.debug("Stopping the FFmpeg process a restart replaces.")
+            _ = beginStop(previous.child, arguments: previous.arguments)
+            previous.child.kill(SIGTERM)
+        }
         prepareProcess(commandLineArgs)
-        // A kill timer armed for a previous process must not strike the replacement.
         let arguments = base.withLockedValue { state -> [String] in
-            state.killTimer?.cancel()
+            // A kill timer armed for a previous process stays armed: it ends that process only, never the replacement.
             state.killTimer = nil
             state.stopRequested = false
             if case .failed = state.readiness { state.readiness = .pending }
@@ -194,15 +207,16 @@ public class FfmpegProcess: @unchecked Sendable {
                 state.isEnded = false
                 justStarted = true
             }
-            // Non-printable characters become line breaks, which keeps the log readable.
+            // Non-printable characters become line breaks, which keeps the log readable. The text after the last one waits for
+            // the rest of its line, within bounds.
             state.stderrBuffer += replacingNonPrintable(String(decoding: data, as: UTF8.self))
-            var lines: [String] = []
-            while let newline = state.stderrBuffer.firstIndex(of: "\n") {
-                let line = String(state.stderrBuffer[..<newline])
-                state.stderrBuffer = String(state.stderrBuffer[state.stderrBuffer.index(after: newline)...])
-                Self.appendStderrLog(line, to: &state)
-                lines.append(line)
+            var lines = state.stderrBuffer.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            state.stderrBuffer = lines.removeLast()
+            if state.stderrBuffer.utf8.count > FFMPEG_STDERR_LINE_LIMIT {
+                lines.append(state.stderrBuffer)
+                state.stderrBuffer = ""
             }
+            for line in lines { Self.appendStderrLog(line, to: &state) }
             return (justStarted, lines, state.isLogging || isVerbose || options.debug)
         }
         if justStarted {
@@ -271,21 +285,29 @@ public class FfmpegProcess: @unchecked Sendable {
         let (child, arguments) = base.withLockedValue { ($0.child, $0.commandLineArgs) }
         // Nothing to kill when the process has already ended.
         guard let child else { return }
+        let timer = beginStop(child, arguments: arguments)
+        base.withLockedValue { state in
+            // An earlier timer is not cancelled: it holds the same process, and does nothing once that has ended.
+            state.stopRequested = true
+            state.killTimer = timer
+        }
+        child.kill(SIGTERM)
+    }
+
+    /// Asks `child` to quit: `q` on standard input (unless FFmpeg reads its input there), then its input and output closed.
+    /// Returns the SIGKILL failsafe, due after `FFMPEG_INPUT_TIMEOUT`: it holds the process it was armed for, so a restart
+    /// meanwhile neither cancels it nor turns it on the new process. The caller sends SIGTERM.
+    private func beginStop(_ child: Subprocess, arguments: [String]) -> Task<Void, Never> {
         if !arguments.contains("pipe:0") {
             child.end(Data("q".utf8)) { [log] error in log.error("FFmpeg error: \(error).") }
         }
         child.end()
         child.destroyStdout()
-        base.withLockedValue { state in
-            state.killTimer?.cancel()
-            state.stopRequested = true
-            state.killTimer = Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(FFMPEG_INPUT_TIMEOUT))
-                guard !Task.isCancelled, let self else { return }
-                self.base.withLockedValue { $0.child }?.kill(SIGKILL)
-            }
+        return Task {
+            try? await Task.sleep(for: .milliseconds(FFMPEG_INPUT_TIMEOUT))
+            guard !Task.isCancelled else { return }
+            child.kill(SIGKILL)
         }
-        child.kill(SIGTERM)
     }
 
     /// Stops the FFmpeg process.

@@ -13,6 +13,8 @@ import Foundation
 public enum MDNSQuery {
     public static let multicastAddress = "224.0.0.251"
     public static let port = 5353
+    /// The most answer packets one query collects.
+    static let maximumResponses = 1024
 
     /// The record types this asks for.
     public enum RecordType: UInt16, Sendable {
@@ -58,7 +60,8 @@ public enum MDNSQuery {
         let reader = Task { () -> [Response] in
             var responses: [Response] = []
             for await datagram in socket.datagrams {
-                guard let names = responseNames(Array(datagram.data)), !names.isEmpty else { continue }
+                // Anyone on the network can answer; a flood within `duration` stops being collected, not read.
+                guard responses.count < maximumResponses, let names = responseNames(Array(datagram.data)), !names.isEmpty else { continue }
                 responses.append(Response(sender: datagram.address, names: names))
             }
             return responses

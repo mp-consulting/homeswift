@@ -343,7 +343,7 @@ public class FfmpegFMp4Process: FfmpegProcess, @unchecked Sendable {
     /// Starts FFmpeg; a restarted instance can emit `close` again.
     override public func start(_ commandLineArgs: [String]? = nil, errorHandler: (@Sendable (String) -> Void)? = nil) {
         willStart()
-        fmp4State.withLockedValue { $0.hasEmittedClose = false }
+        fmp4State.withLockedValue { $0 = FMp4State() }
         super.start(commandLineArgs, errorHandler: errorHandler)
     }
 
@@ -358,14 +358,11 @@ public class FfmpegFMp4Process: FfmpegProcess, @unchecked Sendable {
         if emit { closeEvents.emit() }
     }
 
-    /// Stops FFmpeg; `logErrors` says whether an abnormal exit is logged (the current setting by default).
+    /// Stops FFmpeg; `logErrors` says whether an abnormal exit is logged. It holds until the next `start()`: the exit comes
+    /// after this returns, so a setting restored here would log it anyway.
     public func stop(logErrors: Bool) {
-        let saved = fmp4State.withLockedValue { state -> Bool in
-            defer { state.isLoggingErrors = logErrors }
-            return state.isLoggingErrors
-        }
+        fmp4State.withLockedValue { $0.isLoggingErrors = logErrors }
         super.stop()
-        fmp4State.withLockedValue { $0.isLoggingErrors = saved }
     }
 
     override func logFfmpegError(_ status: FfmpegExitStatus) {
@@ -461,8 +458,10 @@ public final class FfmpegRecordingProcess: FfmpegFMp4Process, @unchecked Sendabl
             let task = Task { [weak self] in
                 var segment = Data()
                 while let self, !Task.isCancelled {
-                    // FFmpeg has finished its output.
-                    if self.isEnded { break }
+                    // Stopped, or FFmpeg has finished its output and every box of it was handed over (its exit comes after the
+                    // last of its output, which may still wait here).
+                    let (isStopped, isDrained) = self.recordingState.withLockedValue { ($0.isStopped, $0.recordingBuffer.isEmpty) }
+                    if isStopped || (self.isEnded && isDrained) { break }
                     self.beforeBoxWait.withLockedValue { $0 }?()
                     // Wait for FFmpeg to produce more boxes, within HKSV's timing. A stop since the check above is seen here too: it
                     // is flagged before its signal, and the flag is read under the signal's lock.
