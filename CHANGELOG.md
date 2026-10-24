@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-24
+
 ### Added
 
 - Config validation against the plugins' schemas. Saving from the Config page, a plugin's Expert view or the MCP
@@ -750,7 +752,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/mp-consulting/homeswift/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/mp-consulting/homeswift/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/mp-consulting/homeswift/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/mp-consulting/homeswift/compare/v0.5.0...v0.5.1
