@@ -75,8 +75,18 @@ public struct CronSchedule: Sendable, Equatable {
         return dayMatches || weekdayMatches
     }
 
+    /// `calendar`'s time zone on the Gregorian calendar, whose months and days the fields name: the system's calendar
+    /// can be Hebrew or Islamic.
+    private static func gregorian(_ calendar: Calendar) -> Calendar {
+        guard calendar.identifier != .gregorian else { return calendar }
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = calendar.timeZone
+        return gregorian
+    }
+
     /// Whether it names this local minute.
     public func matches(_ date: Date, calendar: Calendar = .current) -> Bool {
+        let calendar = Self.gregorian(calendar)
         let components = calendar.dateComponents([.month, .day, .hour, .minute, .weekday], from: date)
         guard let minute = components.minute, let hour = components.hour else { return false }
         return minutes.contains(minute) && hours.contains(hour) && matchesDay(components)
@@ -86,6 +96,7 @@ public struct CronSchedule: Sendable, Equatable {
     /// absolute time, so the hour a clock change repeats is passed twice and the one it skips never comes:
     /// rebuilding the hour from its components named the first of the repeated hours again and again.
     public func next(after date: Date, calendar: Calendar = .current) -> Date? {
+        let calendar = Self.gregorian(calendar)
         var candidate = Date(timeIntervalSinceReferenceDate: (date.timeIntervalSinceReferenceDate / 60).rounded(.down) * 60 + 60)
         let limit = date.addingTimeInterval(4 * 366 * 86400)
         while candidate < limit {
