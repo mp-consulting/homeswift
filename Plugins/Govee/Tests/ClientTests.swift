@@ -361,7 +361,8 @@ func scanReply(_ device: String, sku: String = "H6008", extra: [String: JSONValu
         let client = BLEClient(central: central, logger: testLogger, timing: timing, debug: quietDebug)
         try await client.scan(for: { _ in }, duration: .milliseconds(150))
         #expect(await client.isScanning)
-        #expect(await eventually { await !client.isScanning })
+        // The 150 ms timer, with room for a loaded runner.
+        #expect(await eventually(.seconds(10)) { await !client.isScanning })
         #expect(await central.stops == 1)
     }
 

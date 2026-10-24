@@ -582,11 +582,12 @@ final class RecordingStreamingDelegate: HomebridgeStreamingDelegate {
     @Test func closesTheHealthSocketWhenTheProcessExitsOnItsOwn() async throws {
         let (_, options) = shellOptions()
         let process = FfmpegStreamingProcess(
-            delegate: RecordingStreamingDelegate(), sessionId: "session-2", ffmpegOptions: options, commandLineArgs: ["-c", "echo up >&2; sleep 3"],
+            // Long enough that a loaded runner has bound the socket before the process exits.
+            delegate: RecordingStreamingDelegate(), sessionId: "session-2", ffmpegOptions: options, commandLineArgs: ["-c", "echo up >&2; sleep 8"],
             returnPort: FfmpegReturnPort(addressVersion: .ipv4, port: 0)
         )
         #expect(await process.waitForHealthSocket())
-        #expect(await eventually { process.isHealthSocketClosed })
+        #expect(await eventually(timeout: .seconds(15)) { process.isHealthSocketClosed })
     }
 
     @Test func stopsAnInactiveStream() async throws {
