@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-24
+
 ### Added
 
 - MCP for claude.ai and the Claude apps: the web UI serves the MCP server at `/mcp` and signs clients in with
@@ -696,7 +698,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/mp-consulting/homeswift/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/mp-consulting/homeswift/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/mp-consulting/homeswift/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/mp-consulting/homeswift/compare/v0.3.0...v0.4.0
