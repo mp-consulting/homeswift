@@ -1561,6 +1561,18 @@
     const done = el("button", { type: "button", class: "link", text: "Done" });
     const dialog = el("dialog", { class: "widget-sheet", "aria-label": accessory.name }, el("div", { class: "sheet-bar" }, done), node);
     done.addEventListener("click", () => dialog.close());
+    // On a phone a swipe down from the grabber or the name puts the sheet away, from where the finger left it.
+    if (matchMedia("(max-width: 640px)").matches) {
+      node.prepend(el("div", { class: "sheet-grabber", "aria-hidden": "true" }));
+      const dismiss = () => {
+        const from = getComputedStyle(dialog).transform;
+        const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const motion = reduce ? [{ opacity: 1 }, { opacity: 0 }] : [{ transform: from === "none" ? "none" : from }, { transform: "translateY(calc(100% + 12px))" }];
+        const close = () => dialog.close();
+        try { dialog.animate(motion, { duration: reduce ? 140 : 220, easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" }).finished.then(close, close); } catch { close(); }
+      };
+      HomeswiftCommon.dragToDismiss(dialog, { vertical: () => true, dismiss, handle: ".sheet-grabber, .widget-full > .w-head" });
+    }
     dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
     dialog.addEventListener("close", () => dialog.remove());
     document.body.append(dialog);

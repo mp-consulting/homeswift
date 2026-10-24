@@ -25,10 +25,12 @@ enum WebAssets {
   const when = (iso) => (iso ? dateTime.format(new Date(iso)) : "–");
   const size = (bytes) => bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : bytes >= 1024 ? `${Math.round(bytes / 1024)} KB` : `${bytes} B`;
 
-  /// The pages of Settings as a row of links, the current one lit.
+  /// The pages of Settings as a row of links, a glyph each, the current one lit (a phone puts the glyph over the name,
+  /// the five across).
   function subnav(current) {
-    return el("nav", { class: "group subnav", "aria-label": "Settings pages" }, pages.map(([path, text]) =>
-      el("a", { href: `/settings${path ? `/${path}` : ""}`, text, class: path === current ? "on" : "", "aria-current": path === current ? "page" : null })));
+    return el("nav", { class: "group subnav", "aria-label": "Settings pages" }, pages.map(([path, text, glyph]) =>
+      el("a", { href: `/settings${path ? `/${path}` : ""}`, class: path === current ? "on" : "", "aria-current": path === current ? "page" : null },
+        glyph === "sparkle" ? HomeswiftCommon.sparkle() : HomeswiftCommon.icon(glyph), el("span", { text }))));
   }
 
   /// A modal question for what cannot be undone: `typed`, when given, must be typed before the button works.
@@ -183,7 +185,7 @@ enum WebAssets {
     ]);
     return el("section", {},
       sectionHead("Cached accessories", `${list.length} in ${new Set(list.map((c) => c.cacheFile)).size} cache file(s)`, reset),
-      list.length ? el("div", { class: "card rows" }, list.map(row)) : el("div", { class: "card empty" }, el("p", { class: "muted", text: "No cached accessory." })));
+      list.length ? el("div", { class: "card rows" }, list.map(row)) : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("accessory")), el("p", { class: "muted", text: "No cached accessory." })));
   }
 
   async function removeCached(cached) {
@@ -247,7 +249,7 @@ enum WebAssets {
       app().pageHead("Child bridges", "Plugins on HomeKit bridges of their own (a block with _bridge), inside this process: one can restart without the others."),
       subnav("child-bridges"),
       childBridges.length ? el("div", { class: "servers" }, childBridges.map(card))
-        : el("div", { class: "card empty" }, el("p", { class: "muted", text: "No child bridge. Give a plugin's block a \"_bridge\" object (its Expert JSON) to run it on a bridge of its own." })));
+        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("child")), el("p", { class: "muted", text: "No child bridge. Give a plugin's block a \"_bridge\" object (its Expert JSON) to run it on a bridge of its own." })));
   }
 
   async function control(bridge, action) {
@@ -287,7 +289,7 @@ enum WebAssets {
       restoreCard(backups),
       sectionHead("Kept backups", backups.backups.length ? `${backups.backups.length}, newest first` : ""),
       backups.backups.length ? el("div", { class: "card rows" }, backups.backups.map(backupRow))
-        : el("div", { class: "card empty" }, el("p", { class: "muted", text: "None yet: the daily backup and Back up now keep them here." })),
+        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("archive")), el("p", { class: "muted", text: "None yet: the daily backup and Back up now keep them here." })),
       sectionHead("config.json backups", `The file before each of its last ${configBackups.kept} saves`),
       configBackups.backups.length ? el("div", { class: "card rows" }, configBackups.backups.map(configBackupRow))
         : el("div", { class: "card empty" }, el("p", { class: "muted", text: "None yet: each save of config.json keeps the file it replaces." })));
@@ -441,7 +443,7 @@ enum WebAssets {
       body.replaceChildren(found.entries.length ? el("div", { class: "card" }, el("div", { class: "table-scroll" }, el("table", { class: "data-table" },
         el("thead", {}, el("tr", {}, ["Time", "Who", "What", "Outcome", "Details"].map((text) => el("th", { text })))),
         el("tbody", {}, found.entries.map(auditRow)))), el("p", { class: "muted note", text: found.path }))
-        : el("div", { class: "card empty" }, el("p", { class: "muted", text: "Nothing in this range matches." })));
+        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("shield")), el("p", { class: "muted", text: "Nothing in this range matches." })));
     }
     let typing = null;
     for (const input of [tool, client]) input.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(load, 250); });
@@ -658,6 +660,8 @@ enum WebAssets {
       { label: form ? "Your account" : "Account", icon: "user", href: "/account" },
       { label: "Appearance", icon: "sliders", href: "/appearance" },
       form && isAdmin() ? { label: "Users and tokens", icon: "users", href: "/users" } : null,
+      // A phone's tab bar has no room for Settings: it is here, as the header holds it on a wider window.
+      isAdmin() && matchMedia("(max-width: 640px)").matches ? { label: "Settings", icon: "gear", href: "/settings" } : null,
       form ? { separator: true } : null,
       form ? { label: "Sign out", icon: "logout", onSelect: signOut } : null,
     ], { keyboard: event.detail === 0 });
@@ -880,11 +884,13 @@ enum WebAssets {
           el("p", { class: `health ${healthKind}`, text: health }),
           el("p", { class: "muted", text: `Version ${status.version} · ${status.system.hostname}` }))),
       updateCard(status.update),
+      // Each figure with its glyph; on a phone the four share one row, "Home app controllers" shortened.
       el("div", { class: "stats" },
-        el("div", { class: "stat" }, el("b", { text: status.bridges.reduce((sum, bridge) => sum + bridge.accessories, 0) }), el("span", { text: "Accessories" })),
-        el("div", { class: "stat" }, el("b", { text: plugins.size }), el("span", { text: plugins.size === 1 ? "Plugin" : "Plugins" })),
-        el("div", { class: "stat" }, el("b", { text: main0 ? main0.controllers : 0 }), el("span", { text: "Home app controllers" })),
-        el("div", { class: "stat" }, el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: "Up" })))],
+        el("a", { class: "stat", href: "/accessories" }, HomeswiftCommon.icon("bulb"), el("b", { text: status.bridges.reduce((sum, bridge) => sum + bridge.accessories, 0) }), el("span", { text: "Accessories" })),
+        el(isAdmin() ? "a" : "div", { class: "stat", href: isAdmin() ? "/plugins" : null }, HomeswiftCommon.icon("plugin"), el("b", { text: plugins.size }), el("span", { text: plugins.size === 1 ? "Plugin" : "Plugins" })),
+        el("div", { class: "stat", title: "Home app controllers" }, HomeswiftCommon.icon("users"), el("b", { text: main0 ? main0.controllers : 0 }),
+          el("span", { class: "long", text: "Home app controllers" }), el("span", { class: "short", "aria-hidden": "true", text: "Controllers" })),
+        el("div", { class: "stat" }, HomeswiftCommon.icon("history"), el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: "Up" })))],
       quick: () => window.HomeswiftHome?.quickSection(accessories),
       digest: () => status.assistant ? digestWidget() : null,
       activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
@@ -907,7 +913,7 @@ enum WebAssets {
     show(main,
       layout.order.filter((id) => !layout.hidden.includes(id)).map((id) => {
         const nodes = [widgets[id]?.()].flat().filter(Boolean);
-        return nodes.length ? el("section", { class: "widget", "data-widget": id }, nodes) : null;
+        return nodes.length ? el("section", { class: "dash-widget", "data-widget": id }, nodes) : null;
       }),
       el("div", { class: "actions page-foot" },
         el("button", { class: "link", onclick: () => customiseDashboard(main, { assistant: Boolean(status.assistant), scroll: true }) }, HomeswiftCommon.icon("sliders"), " Customise this page…")));
@@ -1453,14 +1459,15 @@ enum WebAssets {
       none.classList.toggle("hidden", shown > 0);
     }
     search.addEventListener("input", filter);
-    const groupings = [["none", "One wall"], ...(rooms.length ? [["room", "By room"]] : []), ["plugin", "By plugin"]];
-    const grouping = el("div", { class: "group", role: "group", "aria-label": "Group the accessories" }, groupings.map(([value, text]) =>
-      el("button", { type: "button", text, class: layout.grouping === value ? "on" : "", "aria-pressed": String(layout.grouping === value), onclick: (event) => {
+    // Each with its glyph; a phone shows the glyphs alone.
+    const groupings = [["none", "One wall", "grid"], ...(rooms.length ? [["room", "By room", "room"]] : []), ["plugin", "By plugin", "plugin"]];
+    const grouping = el("div", { class: "group with-icons", role: "group", "aria-label": "Group the accessories" }, groupings.map(([value, text, glyph]) =>
+      el("button", { type: "button", title: text, "aria-label": text, class: layout.grouping === value ? "on" : "", "aria-pressed": String(layout.grouping === value), onclick: (event) => {
         layout.grouping = value;
         for (const button of grouping.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
         save();
         render();
-      } })));
+      } }, HomeswiftCommon.icon(glyph), el("span", { text }))));
     const edit = el("button", { type: "button", text: "Edit", "aria-pressed": "false", title: "Sizes and order of the widgets", onclick: () => {
       editing = !editing;
       edit.textContent = editing ? "Done" : "Edit";
@@ -1475,14 +1482,14 @@ enum WebAssets {
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
     } }), el("span", { text: `Show hidden (${hiddenCount})` })) : null;
     const suggest = isAdmin() && window.HomeswiftChat?.available() && all.length
-      ? el("button", { class: "ai-button", onclick: () => HomeswiftHome.suggestRooms(content, all) }, sparkle(), "Suggest rooms") : null;
+      ? el("button", { class: "ai-button icon-on-phone", title: "Suggest rooms", "aria-label": "Suggest rooms", onclick: () => HomeswiftHome.suggestRooms(content, all) }, sparkle(), el("span", { text: "Suggest rooms" })) : null;
 
     render();
     show(main,
       pageHead("Accessories", accessories.length ? `${accessories.length} on ${servers} ${servers === 1 ? "server" : "servers"}, as the Home app sees them. Changes here reach your devices.` : "",
         ...(accessories.length ? [search, grouping, edit] : []), hiddenToggle, suggest),
       note,
-      accessories.length ? [content, none] : el("div", { class: "card empty" }, el("p", { class: "muted", text: all.length ? "Every accessory is hidden." : "No accessories yet. Plugins add them once they reach their devices." })));
+      accessories.length ? [content, none] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? "Every accessory is hidden." : "No accessories yet. Plugins add them once they reach their devices." })));
   };
 
   /// Accessories by plugin: [name, accessories] pairs by the plugin's name, each list by name; those of no
@@ -1510,16 +1517,21 @@ enum WebAssets {
       const [state, kind] = blockState(block, plugin, instance);
       // The name opens what the menu's first item opens: the plugin's page, else the form.
       const opens = plugin && plugin.hasPages && instance && !instance.paused ? pluginPage(block) : block.system ? settingsLink(block) : expertLink(block);
+      // Under the name, what it is when the name does not say it already: the plugin, else its platform.
+      const kindName = [plugin?.name, block.platform].find((name) => name && name !== block.name);
       return el("div", { class: "card server" },
         el("div", { class: "server-head" },
           tile(block.system ? "gear" : "plugin", block.system ? "grey" : "orange"),
           el("div", { class: "who" }, el("a", { class: "card-title", href: opens }, el("strong", { text: block.name })),
-            el("div", { class: "muted", text: [plugin ? plugin.name : block.platform, block.childBridge ? "child bridge" : null].filter(Boolean).join(" · ") })),
+            el("div", { class: "muted", text: [kindName, block.childBridge ? "child bridge" : null].filter(Boolean).join(" · ") })),
           el("span", { class: `pill status ${kind}`, text: state })),
-        instance ? el("div", { class: "facts" }, fact("Bridge", instance.bridge), fact("Accessories", instance.accessories), fact("Platform", block.platform))
-          : el("p", { class: "muted note", text: block.system ? "A block of the runtime itself." : plugin ? "It did not start: the log says why." : "No plugin compiled into this homeswift provides this platform." }),
+        // Its accessories and the bridge they are on, a glyph each, on one line.
+        instance ? el("div", { class: "meta" },
+          el("span", { title: "Accessories" }, HomeswiftCommon.icon("bulb"), `${instance.accessories} ${instance.accessories === 1 ? "accessory" : "accessories"}`),
+          el("span", { title: `On the bridge ${instance.bridge}` }, HomeswiftCommon.icon(block.childBridge ? "child" : "bridge"), instance.bridge)) : null,
         el("div", { class: "card-foot" },
-          el("span", { class: "muted", text: instance?.paused ? "Paused: no calls to its devices; they show No Response in the Home app." : "" }),
+          el("span", { class: "muted", text: instance?.paused ? "No calls to its devices; they show No Response in the Home app."
+            : instance ? "" : block.system ? "A block of the runtime itself." : plugin ? "It did not start: the log says why." : "No plugin compiled into this homeswift provides this platform." }),
           menuButton(`Actions for ${block.name}`, () => blockActions(block, plugin, instance))));
     };
 
@@ -1568,7 +1580,7 @@ enum WebAssets {
     show(main,
       pageHead("Plugins", "The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept."),
       plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: `No plugin provides ${plugins.unknownPlatforms.join(", ")}: those blocks are ignored.` })) : null,
-      plugins.blocks.length ? el("div", { class: "grid" }, plugins.blocks.map(blockCard)) : el("div", { class: "card empty" }, el("p", { class: "muted", text: "No plugin yet. Add one below." })),
+      plugins.blocks.length ? el("div", { class: "grid" }, plugins.blocks.map(blockCard)) : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("plugin")), el("p", { class: "muted", text: "No plugin yet. Add one below." })),
       el("div", { class: "section-head" }, el("h2", { text: "Add a plugin" }), el("span", { class: "muted", text: "compiled into this homeswift" })),
       catalog);
   };
@@ -1931,7 +1943,7 @@ enum WebAssets {
         result.replaceChildren(el("p", { class: "error", text: e.message }));
       } finally { ask.disabled = false; }
     });
-    card.append(el("summary", {}, sparkle(), el("strong", { text: " Describe your setup" }), el("span", { class: "muted", text: " · the Assistant writes the settings" })),
+    card.append(el("summary", {}, sparkle(), el("strong", { text: " Describe your setup" }), el("span", { class: "muted describe-note", text: "the Assistant writes the settings" })),
       el("div", { class: "describe-body" }, request, el("div", { class: "actions" }, ask), result));
     return card;
   }
@@ -2561,60 +2573,11 @@ enum WebAssets {
       if (onClose) onClose(result);
       else if (returnFocus?.isConnected) returnFocus.focus();
     });
-    dragToDismiss(dialog, vertical, dismiss);
+    HomeswiftCommon.dragToDismiss(dialog, { vertical, dismiss, handle: ".sheet-grabber, .account-form > h2" });
     document.body.append(dialog);
     dialog.showModal();
     $("input:not([type=hidden]):not([disabled]), select", dialog)?.focus();
     return dialog;
-  }
-
-  /// A touch drags the panel out along its edge (right, or down on a phone), 1:1 from where it was grabbed, with
-  /// resistance the other way. Released, it goes where it was heading: Apple's projection of the flick from its
-  /// velocity; past 40% of its size it leaves, otherwise it settles back. A field or a button keeps the touch for
-  /// itself.
-  function dragToDismiss(dialog, vertical, dismiss) {
-    const project = (velocity, rate = 0.998) => (velocity / 1000) * rate / (1 - rate);   // px/s to px
-    const rubber = (over, size) => (over * size * 0.55) / (size + 0.55 * Math.abs(over));
-    let drag = null;
-    dialog.addEventListener("pointerdown", (event) => {
-      if (event.pointerType === "mouse" || event.target.closest("input, select, textarea, button, a, label")) return;
-      // On a phone the sheet scrolls: a downward drag starts on the grabber or the title only.
-      if (vertical() && !event.target.closest(".sheet-grabber, .account-form > h2")) return;
-      drag = { id: event.pointerId, x: event.clientX, y: event.clientY, axis: vertical() ? "y" : "x", moving: false, samples: [] };
-    });
-    dialog.addEventListener("pointermove", (event) => {
-      if (!drag || event.pointerId !== drag.id) return;
-      const along = drag.axis === "y" ? event.clientY - drag.y : event.clientX - drag.x;
-      const across = drag.axis === "y" ? event.clientX - drag.x : event.clientY - drag.y;
-      if (!drag.moving) {
-        if (Math.abs(along) < 10 && Math.abs(across) < 10) return;   // hysteresis before choosing
-        if (Math.abs(across) > Math.abs(along)) { drag = null; return; }   // a scroll or a swipe the other way
-        drag.moving = true;
-        try { dialog.setPointerCapture(event.pointerId); } catch { /* a pointer that has already gone */ }
-        dialog.style.transition = "none";
-      }
-      const size = drag.axis === "y" ? dialog.offsetHeight : dialog.offsetWidth;
-      const offset = along >= 0 ? along : rubber(along, size);
-      dialog.style.transform = drag.axis === "y" ? `translateY(${offset}px)` : `translateX(${offset}px)`;
-      drag.samples.push([along, event.timeStamp]);
-      if (drag.samples.length > 5) drag.samples.shift();
-    });
-    const release = (event) => {
-      if (!drag || event.pointerId !== drag.id) return;
-      const { moving, samples, axis } = drag;
-      drag = null;
-      if (!moving) return;
-      const [first, last] = [samples[0], samples[samples.length - 1]];
-      const velocity = first && last && last[1] > first[1] ? ((last[0] - first[0]) / (last[1] - first[1])) * 1000 : 0;
-      const position = last ? Math.max(0, last[0]) : 0;
-      const size = axis === "y" ? dialog.offsetHeight : dialog.offsetWidth;
-      // The snappier of Apple's two rates: a panel thrown aside, not a page scrolled.
-      if (position + project(velocity, 0.99) > size * 0.4) { dismiss(); return; }
-      dialog.style.transition = "transform 300ms cubic-bezier(0.32, 0.72, 0, 1)";
-      dialog.style.transform = "";
-    };
-    dialog.addEventListener("pointerup", release);
-    dialog.addEventListener("pointercancel", release);
   }
 
   /// Draws the page again, then brings the card `key` (its `data-key`) to the eye and the keyboard: focused, and
@@ -2673,15 +2636,17 @@ enum WebAssets {
     const when = (iso) => iso ? new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "Never";
     const whenFull = (iso) => iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "full", timeStyle: "short" }) : "Never";
     const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);
+    // A choice as a switch, as the rest of the UI's on and off.
     const checkbox = (label, checked, help) => {
       const input = el("input", { type: "checkbox", checked });
-      return [el("label", { class: "check" }, input, el("span", { text: label })), help ? el("p", { class: "help", text: help }) : null, input];
+      return [el("label", { class: "toggle" }, el("span", { class: "switch" }, input, el("span")), el("span", { class: "field-title", text: label })), help ? el("p", { class: "help", text: help }) : null, input];
     };
     const roleHelp = "An administrator changes settings, plugins and users; anyone else sees the bridge and controls accessories.";
 
     /// The form that adds a user, or changes one (`user`): name, role, and a password (a new one, for a user).
     function userForm(user, done) {
-      const username = el("input", { autocomplete: "off", required: true, maxLength: 64, spellcheck: false, value: user?.username ?? "" });
+      const username = el("input", { autocomplete: "off", autocapitalize: "none", required: true, maxLength: 64, spellcheck: false, value: user?.username ?? "" });
+      username.setAttribute("autocorrect", "off");
       const name = el("input", { autocomplete: "off", maxLength: 64, value: user && user.name !== user.username ? user.name : "", placeholder: user ? `${user.username} (the username)` : "The username" });
       const password = el("input", { type: "password", autocomplete: "new-password", required: !user });
       const gauge = strengthGauge(password, () => username.value);
@@ -2983,7 +2948,7 @@ enum WebAssets {
     show(main,
       pageHead("Configuration", "The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once."),
       el("div", { class: "card editor-card" },
-        el("div", { class: "editor-bar" }, el("span", { class: "mono muted", text: "config.json" }), check, el("span", { class: "spacer" }), format, revert, force, save),
+        el("div", { class: "editor-bar" }, el("span", { class: "mono muted file-name", text: "config.json" }), check, el("span", { class: "spacer" }), format, revert, force, save),
         editor, message));
   };
 
@@ -3186,7 +3151,7 @@ enum WebAssets {
     // read them, after the latest lines moved on. Off, only the lines in memory have them. Shown when the bridge
     // keeps a log on disk.
     const saveDetails = el("input", { type: "checkbox" });
-    const saveToggle = el("label", { class: "toggle compact hidden", title: "Keep each line's JSON payload in the log on disk, secrets masked, so you and the Assistant can read it later. Off: only the latest lines, in memory, have it." },
+    const saveToggle = el("label", { class: "toggle compact hidden save-payloads", title: "Keep each line's JSON payload in the log on disk, secrets masked, so you and the Assistant can read it later. Off: only the latest lines, in memory, have it." },
       el("span", { class: "switch" }, saveDetails, el("span")), el("span", { text: "Save payloads" }));
     api("/api/logs/settings").then((settings) => {
       if (!settings.available) return;
@@ -3235,7 +3200,11 @@ enum WebAssets {
       const chosen = range.span();
       const query = new URLSearchParams();
       if (chosen) { query.set("from", chosen[0].toISOString()); if (chosen[1]) query.set("to", chosen[1].toISOString()); }
+      // A phone keeps the toolbar short: Save payloads is here rather than beside Follow.
+      const phone = matchMedia("(max-width: 640px)").matches && !saveToggle.classList.contains("hidden");
       return [
+        phone ? { label: "Save payloads", checked: saveDetails.checked, onSelect: () => { saveDetails.checked = !saveDetails.checked; saveDetails.dispatchEvent(new Event("change")); } } : null,
+        phone ? { separator: true } : null,
         { label: chosen ? "Download this range" : "Download the whole log", icon: "download", href: `/api/logs/download${query.size ? `?${query}` : ""}` },
         { label: "Empty the log…", icon: "trash", danger: true, onSelect: async () => {
           if (!confirm("Empty the log? Every line goes, in memory and the files kept on disk (up to a week). This cannot be undone.")) return;
@@ -3258,7 +3227,7 @@ enum WebAssets {
   /// Log Doctor (Glass UI's): a Diagnose button and the card the diagnosis streams into. `lines()` gives the
   /// lines to read, `focus()` what they were picked by. Hidden while the Assistant is off.
   function logDoctor(lines, focus) {
-    const button = el("button", { class: "ai-button hidden", title: "The Assistant reads the lines shown and groups the issues, with causes and fixes" }, sparkle(), el("span", { text: "Diagnose" }));
+    const button = el("button", { class: "ai-button icon-on-phone hidden", "aria-label": "Diagnose", title: "The Assistant reads the lines shown and groups the issues, with causes and fixes" }, sparkle(), el("span", { text: "Diagnose" }));
     const card = el("div", { class: "ai-card log-doctor hidden", role: "region", "aria-label": "Log Doctor", "aria-live": "polite" });
     api("/api/assistant").then((state) => { if (state?.enabled) button.classList.remove("hidden"); }).catch(() => {});
     let controller = null;
@@ -3389,7 +3358,7 @@ enum WebAssets {
     <h1 id="title">Connect to Homeswift</h1>
     <p id="lead" class="muted">Checking the request…</p>
     <form id="login" class="hidden">
-      <label>Username <input name="username" autocomplete="username" required></label>
+      <label>Username <input name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required></label>
       <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
       <label id="login-otp" class="hidden">Code from your authenticator app <input name="otp" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" placeholder="123 456" maxlength="9"></label>
       <p class="error" id="login-error" role="alert"></p>
@@ -4817,6 +4786,15 @@ enum WebAssets {
       else node[key] = value;
     }
     for (const child of children.flat()) if (child != null) node.append(child.nodeType ? child : document.createTextNode(String(child)));
+    // A search field as iOS's: no capitals or corrections, a Search key, and on a touch screen that key puts the
+    // keyboard away (the results are already there).
+    if (tag === "input" && node.type === "search") {
+      node.setAttribute("enterkeyhint", "search");
+      node.setAttribute("autocapitalize", "none");
+      node.setAttribute("autocorrect", "off");
+      node.spellcheck = false;
+      node.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.isComposing && matchMedia("(pointer: coarse)").matches) node.blur(); });
+    }
     return node;
   };
 
@@ -4826,6 +4804,7 @@ enum WebAssets {
     child: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/>',
     accessory: '<rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/>',
     system: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
+    grid: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/>',
     bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/>',
     switch: '<rect x="6" y="3" width="12" height="18" rx="3"/><circle cx="12" cy="9" r="2"/>',
     outlet: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M10 9v2M14 9v2M10 15h4"/>',
@@ -5066,15 +5045,27 @@ enum WebAssets {
       return node;
     });
     const entries = nodes.filter((node) => node.getAttribute("role")?.startsWith("menuitem"));
-    const list = el("div", { class: "menu", role: "menu", tabIndex: -1, "aria-label": trigger.getAttribute("aria-label") || "Actions" }, nodes);
+    // On a phone a card's menu is an action sheet over a dimmed page, at the bottom within the thumb's reach, as
+    // iOS's; the header's (the account) still drops down from its button.
+    const sheet = matchMedia("(max-width: 640px)").matches && !trigger.closest("header");
+    const list = el("div", { class: `menu${sheet ? " sheet-menu" : ""}`, role: "menu", tabIndex: -1, "aria-label": trigger.getAttribute("aria-label") || "Actions" }, nodes);
+    const scrim = sheet ? el("div", { class: "menu-scrim", "aria-hidden": "true" }) : null;
+    // A sheet's grabber: a swipe down from it puts the sheet away, as the scrim's tap does.
+    if (sheet) {
+      list.prepend(el("div", { class: "sheet-grabber", "aria-hidden": "true" }));
+      dragToDismiss(list, { vertical: () => true, dismiss: () => close(true), handle: ".sheet-grabber" });
+    }
+    if (scrim) document.body.append(scrim);
     document.body.append(list);
-    // Under the button, its right edges aligned, inside the window; above it when there is no room below.
-    const box = trigger.getBoundingClientRect();
-    const width = list.offsetWidth, height = list.offsetHeight;
-    const below = box.bottom + 6 + height < innerHeight;
-    list.style.left = `${Math.max(8, Math.min(innerWidth - width - 8, box.right - width))}px`;
-    list.style.top = `${below ? box.bottom + 6 : box.top - 6 - height}px`;
-    list.style.transformOrigin = `${box.right - parseFloat(list.style.left) - box.width / 2}px ${below ? "0" : "100%"}`;
+    if (!sheet) {
+      // Under the button, its right edges aligned, inside the window; above it when there is no room below.
+      const box = trigger.getBoundingClientRect();
+      const width = list.offsetWidth, height = list.offsetHeight;
+      const below = box.bottom + 6 + height < innerHeight;
+      list.style.left = `${Math.max(8, Math.min(innerWidth - width - 8, box.right - width))}px`;
+      list.style.top = `${Math.max(8, below ? box.bottom + 6 : box.top - 6 - height)}px`;
+      list.style.transformOrigin = `${box.right - parseFloat(list.style.left) - box.width / 2}px ${below ? "0" : "100%"}`;
+    }
     trigger.setAttribute("aria-expanded", "true");
     const focusAt = (index) => entries[(index + entries.length) % entries.length]?.focus();
     const onKey = (event) => {
@@ -5095,7 +5086,8 @@ enum WebAssets {
       removeEventListener("resize", onResize);
       trigger.setAttribute("aria-expanded", "false");
       list.classList.add("closing");
-      setTimeout(() => list.remove(), 160);
+      scrim?.classList.add("closing");
+      setTimeout(() => { list.remove(); scrim?.remove(); }, 200);
       if (!quietly) trigger.focus({ preventScroll: true });
     }
     const onResize = () => close(true);
@@ -5104,6 +5096,55 @@ enum WebAssets {
     addEventListener("resize", onResize);
     openMenu = { trigger, list, close };
     if (keyboard) focusAt(0); else list.focus({ preventScroll: true });
+  }
+
+  /// A touch drags a panel or a sheet out along its edge (right, or down on a phone), 1:1 from where it was grabbed,
+  /// with resistance the other way. Released, it goes where it was heading: Apple's projection of the flick from its
+  /// velocity; past 40% of its size it leaves, otherwise it settles back. A field or a button keeps the touch for
+  /// itself.
+  function dragToDismiss(dialog, { vertical, dismiss, handle }) {
+    const project = (velocity, rate = 0.998) => (velocity / 1000) * rate / (1 - rate);   // px/s to px
+    const rubber = (over, size) => (over * size * 0.55) / (size + 0.55 * Math.abs(over));
+    let drag = null;
+    dialog.addEventListener("pointerdown", (event) => {
+      if (event.pointerType === "mouse" || event.target.closest("input, select, textarea, button, a, label")) return;
+      // On a phone the sheet scrolls: a downward drag starts on its `handle` only (the grabber, the title).
+      if (vertical() && !event.target.closest(handle)) return;
+      drag = { id: event.pointerId, x: event.clientX, y: event.clientY, axis: vertical() ? "y" : "x", moving: false, samples: [] };
+    });
+    dialog.addEventListener("pointermove", (event) => {
+      if (!drag || event.pointerId !== drag.id) return;
+      const along = drag.axis === "y" ? event.clientY - drag.y : event.clientX - drag.x;
+      const across = drag.axis === "y" ? event.clientX - drag.x : event.clientY - drag.y;
+      if (!drag.moving) {
+        if (Math.abs(along) < 10 && Math.abs(across) < 10) return;   // hysteresis before choosing
+        if (Math.abs(across) > Math.abs(along)) { drag = null; return; }   // a scroll or a swipe the other way
+        drag.moving = true;
+        try { dialog.setPointerCapture(event.pointerId); } catch { /* a pointer that has already gone */ }
+        dialog.style.transition = "none";
+      }
+      const size = drag.axis === "y" ? dialog.offsetHeight : dialog.offsetWidth;
+      const offset = along >= 0 ? along : rubber(along, size);
+      dialog.style.transform = drag.axis === "y" ? `translateY(${offset}px)` : `translateX(${offset}px)`;
+      drag.samples.push([along, event.timeStamp]);
+      if (drag.samples.length > 5) drag.samples.shift();
+    });
+    const release = (event) => {
+      if (!drag || event.pointerId !== drag.id) return;
+      const { moving, samples, axis } = drag;
+      drag = null;
+      if (!moving) return;
+      const [first, last] = [samples[0], samples[samples.length - 1]];
+      const velocity = first && last && last[1] > first[1] ? ((last[0] - first[0]) / (last[1] - first[1])) * 1000 : 0;
+      const position = last ? Math.max(0, last[0]) : 0;
+      const size = axis === "y" ? dialog.offsetHeight : dialog.offsetWidth;
+      // The snappier of Apple's two rates: a panel thrown aside, not a page scrolled.
+      if (position + project(velocity, 0.99) > size * 0.4) { dismiss(); return; }
+      dialog.style.transition = "transform 300ms cubic-bezier(0.32, 0.72, 0, 1)";
+      dialog.style.transform = "";
+    };
+    dialog.addEventListener("pointerup", release);
+    dialog.addEventListener("pointercancel", release);
   }
 
   /// A round icon button that opens `menu` with what `items()` gives when pressed.
@@ -5484,7 +5525,7 @@ enum WebAssets {
   const formatTemperature = (celsius) => { const { value, unit } = temperature(celsius); return `${value} ${unit}`; };
 
   window.HomeswiftCommon = {
-    $, el, icon, tile, fact, markdown, sparkle, api, menu, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
+    $, el, icon, tile, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature,
   };
 })();
@@ -5607,7 +5648,7 @@ enum WebAssets {
       ]);
       const favourites = list.filter((a) => a.favourite && !a.hidden);
       if (!favourites.length && !scenes.length) {
-        if (standalone) section.append(el("div", { class: "card empty" }, el("p", { class: "muted", text: "Nothing here yet. On the Accessories page, a card's menu adds it to the Quick Controls; scenes you make show here too." })));
+        if (standalone) section.append(el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("star")), el("p", { class: "muted", text: "Nothing here yet. On the Accessories page, a card's menu adds it to the Quick Controls; scenes you make show here too." })));
         return;
       }
       const rooms = [...new Set(favourites.map((a) => a.room).filter(Boolean))];
@@ -5717,7 +5758,7 @@ enum WebAssets {
       app.pageHead("Scenes", "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them.",
         el("a", { class: "button primary", href: "/scenes/new", text: "New scene" })),
       data.scenes.length ? el("div", { class: "grid" }, data.scenes.map(card))
-        : el("div", { class: "card empty" }, el("p", { class: "muted", text: "No scene yet. A scene sets several accessories at once, such as every light of a room for the evening." })),
+        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: "No scene yet. A scene sets several accessories at once, such as every light of a room for the evening." })),
       locationCard(data));
   }
 
@@ -6181,12 +6222,12 @@ enum WebAssets {
     <img src="/icon.svg" class="logo large" alt="">
     <h1>Homeswift</h1>
     <p id="auth-text"></p>
-    <label>Username <input name="username" autocomplete="username" required></label>
+    <label>Username <input name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required></label>
     <label>Password <input name="password" type="password" autocomplete="current-password" required minlength="1"></label>
     <label id="auth-otp" class="hidden">Code from your authenticator app <input name="otp" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" placeholder="123 456" maxlength="9"></label>
     <label id="auth-setup-code" class="hidden">Set-up code <input name="setupCode" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX"></label>
     <p class="error" id="auth-error"></p>
-    <button type="submit" id="auth-submit">Sign in</button>
+    <button type="submit" id="auth-submit" class="primary">Sign in</button>
   </form>
 </div>
 <div id="app" class="hidden">
@@ -6814,6 +6855,7 @@ nav a.active { background: linear-gradient(180deg, var(--accent-fill-top), var(-
 .settings-head { align-items: center; }
 .settings-head .tools { margin-left: auto; }
 .form-card { margin: 0; }
+.form-card > .server-head { margin-bottom: 14px; }
 .page-note { display: flex; align-items: center; gap: 14px; justify-content: space-between; margin: 0 0 14px; padding: 12px 16px 12px 18px; }
 .page-note p { margin: 0; font-size: 0.875rem; }
 .page-note .button, .danger-zone button { flex: none; white-space: nowrap; }
@@ -7126,6 +7168,8 @@ label > input, label > select { margin-top: 5px; }
 .page-head h1 { margin: 0; }
 .page-head p { margin: 4px 0 0; max-width: 62ch; }
 .page-head .tools { display: flex; gap: 10px; align-items: center; }
+/* The title and its line keep room to read (the tools go under them when both do not fit), not a word a line. */
+.page-head > .who { flex: 1 1 280px; }
 .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 26px 0 10px; }
 .section-head h2 { margin: 0; }
 .section-head .muted { font-size: 0.8125rem; }
@@ -7133,6 +7177,10 @@ label > input, label > select { margin-top: 5px; }
 .grid > .card { margin: 0; min-width: 0; }
 .card.empty { text-align: center; padding: 28px 20px; grid-column: 1 / -1; }
 .card.empty p { margin: 0; }
+/* An empty state's glyph: what would be here, in a soft disc above the words. */
+.empty-glyph { display: grid; place-items: center; width: 52px; height: 52px; margin: 0 auto 12px; border-radius: 50%; color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.empty-glyph svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.card.empty:has(> .empty-glyph) p { max-width: 34em; margin-inline: auto; }
 .card.notice { color: var(--warn); font-weight: 500; }
 .card.notice p { margin: 0; }
 .search { width: 240px; max-width: 100%; }
@@ -7231,6 +7279,9 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .group button:hover:not(:disabled) { transform: none; }
 .group button:hover:not(:disabled):not(.on) { background: var(--material-thin); }
 .group button.on { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); }
+/* A segmented control whose choices carry a glyph before their name (a phone shows the glyph alone). */
+.group.with-icons button { display: inline-flex; align-items: center; gap: 6px; }
+.group.with-icons svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 
 /* The mini remote (remote.js): a round pad with OK in the middle, round keys and a volume rocker. Keys give
    way under the press at once and the one that sent flashes the accent; a TV that cannot take keys dims it. */
@@ -7289,6 +7340,10 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .card-remote { padding: 8px 0 2px; display: flex; justify-content: center; }
 .card-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 0.8125rem; }
 .card-foot .link { padding: 0; font-size: inherit; }
+/* A card's facts as a line of glyphs and values (a plugin's accessories and bridge). */
+.meta { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); font-size: 0.8125rem; min-width: 0; }
+.meta > span { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.meta svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 /* A card with a foot, or the catalog's Add: a column whose last row sits at the bottom, so the dividers and
    menus of cards side by side line up whatever each card holds. */
 .server:has(> .card-foot), .accessory-card, .server.catalog { display: flex; flex-direction: column; }
@@ -7458,7 +7513,12 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget-sheet::backdrop { background: rgba(15, 18, 24, 0.35); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 .widget-sheet[open] { animation: materialize var(--normal) var(--ease-out); }
 .sheet-bar { display: flex; justify-content: flex-end; padding: 0 6px 8px; }
-.sheet-bar .link { color: #fff; font-weight: 600; }
+/* Done on a glass pill: white words alone were lost over a light page behind the blur. */
+.sheet-bar .link {
+  padding: 6px 16px; border-radius: 999px; color: var(--accent-ink); font-weight: 600;
+  background-color: var(--material-thick); -webkit-backdrop-filter: blur(var(--blur)) saturate(180%); backdrop-filter: blur(var(--blur)) saturate(180%);
+  border: 1px solid var(--edge); box-shadow: var(--shadow-control), inset 0 1px 0 var(--edge-light);
+}
 .widget-sheet .widget-full { margin: 0; max-height: calc(100dvh - 90px); overflow-y: auto; overscroll-behavior: contain; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35); }
 /* On a phone, a sheet rising from the bottom edge, within the thumb's reach, its last control above the home
    indicator. */
@@ -7467,6 +7527,9 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
   .widget-sheet[open] { animation: sheet-up 340ms cubic-bezier(0.32, 0.72, 0, 1); }
   .widget-sheet .widget-full { max-height: calc(100dvh - max(12px, env(safe-area-inset-top)) - 44px); border-radius: 26px 26px 0 0; border-bottom: 0; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
   .sheet-bar { padding: 0 14px 8px; }
+  /* Its grabber over the card's top edge, and the name row that drags with it. */
+  .widget-sheet .widget-full { position: relative; padding-top: 22px; }
+  .widget-sheet .widget-full > .w-head { touch-action: none; }
 }
 @keyframes sheet-up { from { transform: translateY(100%); } }
 .w-main, .w-side { display: grid; gap: 14px; align-content: start; min-width: 0; }
@@ -7672,11 +7735,26 @@ textarea.short { min-height: 220px; }
 /* A choice among several (a widget's size): the chosen one ticked at the right. */
 .menu-check { margin-left: auto; font-weight: 700; color: var(--accent-ink); }
 .menu [role="menuitemradio"]:hover .menu-check, .menu [role="menuitemradio"]:focus-visible .menu-check { color: inherit; }
+/* Choices without a glyph (Small, Medium) line up with the items that have one. */
+.menu:has([role="menuitem"] svg) [role="menuitemradio"]:not(:has(svg))::before { content: ""; flex: none; width: 17px; }
 .menu-separator { border: 0; border-top: 1px solid var(--line); margin: 4px 8px; }
 .menu [role="menuitem"].danger { color: var(--error); }
 .menu [role="menuitem"].danger:hover, .menu [role="menuitem"].danger:focus-visible { background: var(--error); color: #fff; }
 .menu [role="menuitem"] svg { width: 17px; height: 17px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-@media (prefers-reduced-motion: reduce) { .menu, .menu.closing { animation-name: fade; } }
+/* A phone's action sheet: across the bottom over a dimmed page, rising on the drawer curve and leaving faster;
+   scrolls when it is taller than the window. */
+.menu-scrim { position: fixed; inset: 0; z-index: 29; background: rgba(10, 14, 24, 0.28); animation: sheet-dim 200ms var(--ease-out); }
+.menu-scrim.closing { animation: sheet-undim 180ms var(--ease-out) forwards; }
+.menu.sheet-menu {
+  left: 10px; right: 10px; bottom: max(10px, env(safe-area-inset-bottom)); max-height: calc(100dvh - 24px - env(safe-area-inset-top));
+  overflow-y: auto; overscroll-behavior: contain; padding: 8px; border-radius: 24px; transform-origin: 50% 100%;
+  animation: menu-sheet-in 280ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.menu.sheet-menu.closing { animation: menu-sheet-out 180ms var(--ease-out) forwards; }
+.menu.sheet-menu { padding-top: 22px; }
+@keyframes menu-sheet-in { from { transform: translateY(calc(100% + 12px)); } }
+@keyframes menu-sheet-out { to { transform: translateY(calc(100% + 12px)); } }
+@media (prefers-reduced-motion: reduce) { .menu, .menu.closing, .menu.sheet-menu, .menu.sheet-menu.closing { animation-name: fade; } }
 @media (prefers-reduced-transparency: reduce) { .menu { background: var(--material-solid); -webkit-backdrop-filter: none; backdrop-filter: none; } }
 /* A custom time range: from and to, under the toolbar, as the material arriving. */
 .log-range { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%; animation: fade var(--normal) var(--ease-out); }
@@ -7714,17 +7792,23 @@ textarea.short { min-height: 220px; }
 .update-command button { flex: none; padding: 5px 12px; font-size: 0.8125rem; }
 .update-card details.more-options { margin: 0; }
 .who { flex: 1; min-width: 0; }
-.health { font-weight: 500; display: flex; align-items: center; gap: 8px; }
-.health::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+.health { font-weight: 500; display: flex; align-items: flex-start; gap: 8px; }
+/* The dot on the first line's middle, when the text wraps. */
+.health::before { content: ""; width: 8px; height: 8px; margin-top: calc(0.725em - 4px); border-radius: 50%; background: currentColor; flex: none; }
 .health.on { color: var(--ok); }
 .health.away { color: var(--warn); }
-.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0 0 6px; }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0 0 14px; }
 .stat {
   padding: 14px 16px; border-radius: 18px; background: var(--material); border: 1px solid var(--edge);
   box-shadow: var(--shadow-control), inset 0 1px 0 var(--edge-light);
 }
+.stat { position: relative; display: block; color: inherit; text-decoration: none; }
+a.stat { touch-action: manipulation; transition: transform var(--fast) var(--ease-out); }
+a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
+.stat > svg { position: absolute; top: 14px; right: 14px; width: 20px; height: 20px; fill: none; stroke: var(--muted); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; opacity: 0.7; }
 .stat b { display: block; font-size: 1.5rem; line-height: 1.1; letter-spacing: -0.02em; font-weight: 650; font-variant-numeric: tabular-nums; }
 .stat span { color: var(--muted); font-size: 0.8125rem; letter-spacing: 0.01em; }
+.stat .short { display: none; }
 /* The Status page's activity charts: the filters in one row above them, two charts a row, one on a phone. */
 .activity { transition: opacity var(--normal) var(--ease-out); }
 .activity.loading .chart-grid { opacity: 0.55; }
@@ -7796,6 +7880,7 @@ textarea.short { min-height: 220px; }
 .auth .card { width: min(400px, 100%); padding: 26px 26px 22px; animation: materialize 320ms var(--ease-out); }
 .auth h1 { margin-top: 6px; }
 .auth button { width: 100%; margin-top: 10px; }
+.auth p.error:empty { display: none; }
 /* The OAuth sign-in page (authorize.html): one choice per scope, each saying what it allows; Deny and Allow side by side. */
 .auth .scopes { display: grid; gap: 8px; margin: 14px 0 8px; padding: 0; border: 0; background: none; }
 .auth .scopes legend { padding: 0; margin-bottom: 2px; }
@@ -7864,7 +7949,7 @@ textarea.short { min-height: 220px; }
 .empty-log { padding: 20px; text-align: center; }
 
 /* Forms */
-fieldset { border: 1px solid var(--line); border-radius: 18px; padding: 8px 16px 14px; margin: 14px 0; background: var(--material-thin); }
+fieldset { min-width: 0; border: 1px solid var(--line); border-radius: 18px; padding: 8px 16px 14px; margin: 14px 0; background: var(--material-thin); }
 legend { color: var(--muted); padding: 0 8px; font-weight: 500; }
 .item { border: 1px solid var(--line); border-radius: 16px; padding: 6px 14px 12px; margin: 10px 0; background: var(--material-thin); }
 .item-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
@@ -7907,8 +7992,10 @@ dd { margin: 0; }
   .user-button { padding: 3px; }
   .user-name { display: none; }
   .page-head .tools, .page-head .search, .editor-bar .search { width: 100%; }
-  .log-line { grid-template-columns: auto minmax(0, 1fr); }
-  .log-line .label { display: none; }
+  /* A line's time and source on top, its text across the width under them. */
+  .log-line { grid-template-columns: auto minmax(0, 1fr); gap: 1px 8px; padding: 5px 12px; }
+  .log-line .label { font-size: 0.75rem; }
+  .log-line .text { grid-column: 1 / -1; }
   .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .setup { flex-direction: column; align-items: flex-start; }
 }
@@ -7922,7 +8009,8 @@ dd { margin: 0; }
 /* The Assistant's sparkle, round, beside the account button. */
 .chat-open { flex: none; display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border-radius: 50%; }
 .chat-open .sparkle { width: 19px; height: 19px; }
-.chat-open[aria-expanded="true"] { box-shadow: 0 0 0 3px rgba(191, 90, 242, 0.22), var(--shadow-control); }
+/* Open: a violet ring, an outline (Safari draws a spread shadow square inside the blurred header). */
+.chat-open[aria-expanded="true"] { outline: 3px solid rgba(191, 90, 242, 0.22); outline-offset: 0; }
 .chat {
   position: fixed; z-index: 20; top: 84px; right: max(16px, calc((100vw - 1100px) / 2));
   width: min(420px, calc(100vw - 32px)); height: min(740px, calc(100dvh - 100px));
@@ -8195,15 +8283,63 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   .log-card .editor-bar > .group { flex: 1 1 100%; display: grid; grid-template-columns: repeat(4, 1fr); }
   .log-card .editor-bar > .group button { padding: 6px 4px; }
   .log-card .editor-bar > select.popup { flex: 1 1 40%; max-width: none; min-width: 0; }
-  .log-card .editor-bar > .search { flex: 1 1 100%; width: 100%; }
+  /* The filter with the count at its end; then the Assistant, Copy, Follow and the menu, Follow pushed right. */
+  .log-card .editor-bar > .search { flex: 1 1 180px; width: auto; min-width: 0; }
   .log-card .editor-bar > .spacer { display: none; }
-  .log-card .editor-bar > .count { flex: 1; }
-  .log-card .editor-bar > label.toggle { margin: 0; }
+  .log-card .editor-bar > .count { flex: none; font-size: 0.75rem; white-space: nowrap; }
+  .log-card .editor-bar > .count + * { margin-left: 0; }
+  .log-card .editor-bar > label.toggle { margin: 0 0 0 auto; }
+  .log-card .editor-bar > .save-payloads { display: none; }
   .log-card .editor-bar > .log-range { flex: 1 1 100%; }
   .log-card .log { height: 60dvh; min-height: 260px; }
   /* Two figures a row, so a label such as "Home app controllers" reads on one or two lines, not three; a
      bridge's device ID, the longest fact, across. */
+  /* The four figures in one row, each its glyph, number and a one-line label. */
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  /* Toolbar buttons that become their glyph alone: a segmented control's choices, an Assistant action. */
+  .group.with-icons button { padding: 7px 13px; }
+  .group.with-icons button > span, .icon-on-phone > span { display: none; }
+  .group.with-icons svg { width: 19px; height: 19px; }
+  .icon-on-phone { justify-content: center; width: 40px; height: 40px; padding: 0; flex: none; }
+  .icon-on-phone .sparkle { width: 19px; height: 19px; }
+  /* A note beside its button (a plugin's Expert part), and removal: the text across, the button under it. */
+  .page-note, .danger-zone { flex-direction: column; align-items: stretch; gap: 10px; }
+  .page-note > :is(button, .button), .danger-zone > button, .page-note > .expert-links { align-self: flex-start; }
+  .describe-note { flex-basis: 100%; padding-left: 20px; }
+  .describe-setup .describe-note::before { content: none; }
+  /* The activity's two menus side by side, the custom range under them. */
+  .filter-bar { gap: 8px; }
+  .filter-bar > .popup { flex: 1 1 40%; min-width: 0; max-width: none; }
+  .filter-bar > .log-range { flex: 1 1 100%; }
+  /* The config editor's bar on one line: the page says which file it is. */
+  .editor-card .editor-bar { gap: 8px; padding: 10px 10px 10px 14px; }
+  .editor-card .editor-bar > .file-name { display: none; }
+  /* A section's heading with its buttons: the buttons under it when they do not fit beside it, never folded. */
+  .section-head { flex-wrap: wrap; row-gap: 8px; }
+  .section-head button, .section-head .button { white-space: nowrap; }
+  /* A card head's button (Test connection) goes under the name rather than squeezing it. */
+  .server-head:has(> button) { flex-wrap: wrap; }
+  .server-head:has(> button) > .who { flex: 1 1 160px; }
+  .filter-bar > .search { flex: 1 1 40%; width: auto; min-width: 0; }
+  .filter-bar > .spacer { display: none; }
+  .filter-bar > .count { flex: 1 1 100%; text-align: right; font-size: 0.8125rem; }
+  .filter-bar > .count:empty { display: none; }
+  .dash-widget .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .dash-widget .stat { padding: 10px 6px 9px; border-radius: 16px; text-align: center; }
+  .dash-widget .stat > svg { position: static; display: block; margin: 0 auto 4px; width: 18px; height: 18px; }
+  .dash-widget .stat b { font-size: 1.25rem; }
+  .dash-widget .stat span { display: block; font-size: 0.6875rem; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dash-widget .stat .long { display: none; }
+  .dash-widget .stat .short { display: block; }
+}
+/* The narrowest phones (320 points): the figures two by two, so their names read whole. */
+@media (max-width: 360px) {
+  .dash-widget .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* The overview's card, smaller: the icon beside the name and the health under it. */
+  .hero { gap: 14px; padding: 16px; }
+  .hero .logo.large { width: 56px; height: 56px; border-radius: 14px; }
+  .hero h1 { font-size: 1.375rem; }
+  .hero p { font-size: 0.875rem; }
   .facts, .facts.lead { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .facts.lead > :first-child { grid-column: 1 / -1; }
   /* The chat sheet sits over the tab bar, its field above the home indicator. */
@@ -8289,7 +8425,9 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
 }
 
 /* Describe your setup: the Assistant's suggestion for a block, as a diff to review. */
-.describe-setup summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 4px; }
+.describe-setup summary { cursor: pointer; list-style: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.describe-setup summary strong { white-space: nowrap; }
+.describe-note::before { content: "· "; }
 .describe-setup summary::-webkit-details-marker { display: none; }
 .describe-body { display: grid; gap: 10px; margin-top: 12px; }
 .describe-body .actions { display: flex; gap: 8px; }
@@ -8336,7 +8474,13 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .scene-editor .actions { flex-wrap: wrap; }
 .scene-editor .actions > button { flex: none; white-space: nowrap; }
 .scene-editor .actions > select { width: auto; flex: 0 1 auto; min-width: 0; }
-@media (max-width: 640px) { .editor-row { padding: 8px; } .editor-row select { flex: 1 1 40%; } }
+/* A phone: what the row is about (the accessory) across, the rest under it, Remove at the right end. */
+@media (max-width: 640px) {
+  .editor-row { padding: 8px; }
+  .editor-row select { flex: 1 1 40%; }
+  .editor-row > select:first-child { flex-basis: 100%; }
+  .editor-row > .icon-button:last-child { margin-left: auto; }
+}
 
 /* Settings (admin.js): its pages as a segmented row of links, lists of rows in one card, the confirmation and
    history sheets, the audit table. */
@@ -8348,6 +8492,16 @@ a.link:hover { text-decoration: underline; }
 .group a { color: var(--text); text-decoration: none; padding: 5px 13px; border-radius: 999px; white-space: nowrap; transition: background-color var(--fast) var(--ease-out); }
 .group a:hover:not(.on) { background: var(--material-thin); }
 .group a.on { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); }
+.subnav a { display: inline-flex; align-items: center; gap: 6px; }
+.subnav svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.subnav svg.sparkle { stroke: none; }
+/* A phone: the pages across the width, each its glyph over its name, as a tab bar. */
+@media (max-width: 640px) {
+  .subnav { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); width: 100%; border-radius: 22px; }
+  .subnav a { display: grid; justify-items: center; gap: 3px; padding: 7px 0 6px; border-radius: 18px; font-size: 0.65625rem; font-weight: 600; letter-spacing: -0.02em; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+  .subnav a span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .subnav svg { width: 20px; height: 20px; }
+}
 .card.rows { padding: 4px 0; }
 .rows > .row, .rows > .row-block > .row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; min-width: 0; }
 .rows > * + * { border-top: 1px solid var(--line); }
@@ -8404,7 +8558,7 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .link-card svg { width: 24px; height: 24px; fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 /* ---- The Status page's widgets, Customise, and the daily digest ------------------------------------------- */
-.widget + .widget { margin-top: 0; }
+.dash-widget { min-width: 0; }
 .page-foot { justify-content: center; margin: 24px 0 8px; }
 .page-foot svg, .customise .icon-button svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: -3px; }
 .customise { margin-bottom: 16px; padding: 16px 18px; }
@@ -10052,6 +10206,18 @@ self.addEventListener("notificationclick", (event) => {
     const done = el("button", { type: "button", class: "link", text: "Done" });
     const dialog = el("dialog", { class: "widget-sheet", "aria-label": accessory.name }, el("div", { class: "sheet-bar" }, done), node);
     done.addEventListener("click", () => dialog.close());
+    // On a phone a swipe down from the grabber or the name puts the sheet away, from where the finger left it.
+    if (matchMedia("(max-width: 640px)").matches) {
+      node.prepend(el("div", { class: "sheet-grabber", "aria-hidden": "true" }));
+      const dismiss = () => {
+        const from = getComputedStyle(dialog).transform;
+        const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const motion = reduce ? [{ opacity: 1 }, { opacity: 0 }] : [{ transform: from === "none" ? "none" : from }, { transform: "translateY(calc(100% + 12px))" }];
+        const close = () => dialog.close();
+        try { dialog.animate(motion, { duration: reduce ? 140 : 220, easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" }).finished.then(close, close); } catch { close(); }
+      };
+      HomeswiftCommon.dragToDismiss(dialog, { vertical: () => true, dismiss, handle: ".sheet-grabber, .widget-full > .w-head" });
+    }
     dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
     dialog.addEventListener("close", () => dialog.remove());
     document.body.append(dialog);

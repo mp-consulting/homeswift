@@ -114,7 +114,7 @@
       ]);
       const favourites = list.filter((a) => a.favourite && !a.hidden);
       if (!favourites.length && !scenes.length) {
-        if (standalone) section.append(el("div", { class: "card empty" }, el("p", { class: "muted", text: "Nothing here yet. On the Accessories page, a card's menu adds it to the Quick Controls; scenes you make show here too." })));
+        if (standalone) section.append(el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("star")), el("p", { class: "muted", text: "Nothing here yet. On the Accessories page, a card's menu adds it to the Quick Controls; scenes you make show here too." })));
         return;
       }
       const rooms = [...new Set(favourites.map((a) => a.room).filter(Boolean))];
@@ -224,7 +224,7 @@
       app.pageHead("Scenes", "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them.",
         el("a", { class: "button primary", href: "/scenes/new", text: "New scene" })),
       data.scenes.length ? el("div", { class: "grid" }, data.scenes.map(card))
-        : el("div", { class: "card empty" }, el("p", { class: "muted", text: "No scene yet. A scene sets several accessories at once, such as every light of a room for the evening." })),
+        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: "No scene yet. A scene sets several accessories at once, such as every light of a room for the evening." })),
       locationCard(data));
   }
 

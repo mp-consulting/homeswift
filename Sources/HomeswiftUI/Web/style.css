@@ -128,6 +128,7 @@ nav a.active { background: linear-gradient(180deg, var(--accent-fill-top), var(-
 .settings-head { align-items: center; }
 .settings-head .tools { margin-left: auto; }
 .form-card { margin: 0; }
+.form-card > .server-head { margin-bottom: 14px; }
 .page-note { display: flex; align-items: center; gap: 14px; justify-content: space-between; margin: 0 0 14px; padding: 12px 16px 12px 18px; }
 .page-note p { margin: 0; font-size: 0.875rem; }
 .page-note .button, .danger-zone button { flex: none; white-space: nowrap; }
@@ -440,6 +441,8 @@ label > input, label > select { margin-top: 5px; }
 .page-head h1 { margin: 0; }
 .page-head p { margin: 4px 0 0; max-width: 62ch; }
 .page-head .tools { display: flex; gap: 10px; align-items: center; }
+/* The title and its line keep room to read (the tools go under them when both do not fit), not a word a line. */
+.page-head > .who { flex: 1 1 280px; }
 .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 26px 0 10px; }
 .section-head h2 { margin: 0; }
 .section-head .muted { font-size: 0.8125rem; }
@@ -447,6 +450,10 @@ label > input, label > select { margin-top: 5px; }
 .grid > .card { margin: 0; min-width: 0; }
 .card.empty { text-align: center; padding: 28px 20px; grid-column: 1 / -1; }
 .card.empty p { margin: 0; }
+/* An empty state's glyph: what would be here, in a soft disc above the words. */
+.empty-glyph { display: grid; place-items: center; width: 52px; height: 52px; margin: 0 auto 12px; border-radius: 50%; color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.empty-glyph svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.card.empty:has(> .empty-glyph) p { max-width: 34em; margin-inline: auto; }
 .card.notice { color: var(--warn); font-weight: 500; }
 .card.notice p { margin: 0; }
 .search { width: 240px; max-width: 100%; }
@@ -545,6 +552,9 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .group button:hover:not(:disabled) { transform: none; }
 .group button:hover:not(:disabled):not(.on) { background: var(--material-thin); }
 .group button.on { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); }
+/* A segmented control whose choices carry a glyph before their name (a phone shows the glyph alone). */
+.group.with-icons button { display: inline-flex; align-items: center; gap: 6px; }
+.group.with-icons svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 
 /* The mini remote (remote.js): a round pad with OK in the middle, round keys and a volume rocker. Keys give
    way under the press at once and the one that sent flashes the accent; a TV that cannot take keys dims it. */
@@ -603,6 +613,10 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .card-remote { padding: 8px 0 2px; display: flex; justify-content: center; }
 .card-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 0.8125rem; }
 .card-foot .link { padding: 0; font-size: inherit; }
+/* A card's facts as a line of glyphs and values (a plugin's accessories and bridge). */
+.meta { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); font-size: 0.8125rem; min-width: 0; }
+.meta > span { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.meta svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 /* A card with a foot, or the catalog's Add: a column whose last row sits at the bottom, so the dividers and
    menus of cards side by side line up whatever each card holds. */
 .server:has(> .card-foot), .accessory-card, .server.catalog { display: flex; flex-direction: column; }
@@ -772,7 +786,12 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget-sheet::backdrop { background: rgba(15, 18, 24, 0.35); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 .widget-sheet[open] { animation: materialize var(--normal) var(--ease-out); }
 .sheet-bar { display: flex; justify-content: flex-end; padding: 0 6px 8px; }
-.sheet-bar .link { color: #fff; font-weight: 600; }
+/* Done on a glass pill: white words alone were lost over a light page behind the blur. */
+.sheet-bar .link {
+  padding: 6px 16px; border-radius: 999px; color: var(--accent-ink); font-weight: 600;
+  background-color: var(--material-thick); -webkit-backdrop-filter: blur(var(--blur)) saturate(180%); backdrop-filter: blur(var(--blur)) saturate(180%);
+  border: 1px solid var(--edge); box-shadow: var(--shadow-control), inset 0 1px 0 var(--edge-light);
+}
 .widget-sheet .widget-full { margin: 0; max-height: calc(100dvh - 90px); overflow-y: auto; overscroll-behavior: contain; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35); }
 /* On a phone, a sheet rising from the bottom edge, within the thumb's reach, its last control above the home
    indicator. */
@@ -781,6 +800,9 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
   .widget-sheet[open] { animation: sheet-up 340ms cubic-bezier(0.32, 0.72, 0, 1); }
   .widget-sheet .widget-full { max-height: calc(100dvh - max(12px, env(safe-area-inset-top)) - 44px); border-radius: 26px 26px 0 0; border-bottom: 0; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
   .sheet-bar { padding: 0 14px 8px; }
+  /* Its grabber over the card's top edge, and the name row that drags with it. */
+  .widget-sheet .widget-full { position: relative; padding-top: 22px; }
+  .widget-sheet .widget-full > .w-head { touch-action: none; }
 }
 @keyframes sheet-up { from { transform: translateY(100%); } }
 .w-main, .w-side { display: grid; gap: 14px; align-content: start; min-width: 0; }
@@ -986,11 +1008,26 @@ textarea.short { min-height: 220px; }
 /* A choice among several (a widget's size): the chosen one ticked at the right. */
 .menu-check { margin-left: auto; font-weight: 700; color: var(--accent-ink); }
 .menu [role="menuitemradio"]:hover .menu-check, .menu [role="menuitemradio"]:focus-visible .menu-check { color: inherit; }
+/* Choices without a glyph (Small, Medium) line up with the items that have one. */
+.menu:has([role="menuitem"] svg) [role="menuitemradio"]:not(:has(svg))::before { content: ""; flex: none; width: 17px; }
 .menu-separator { border: 0; border-top: 1px solid var(--line); margin: 4px 8px; }
 .menu [role="menuitem"].danger { color: var(--error); }
 .menu [role="menuitem"].danger:hover, .menu [role="menuitem"].danger:focus-visible { background: var(--error); color: #fff; }
 .menu [role="menuitem"] svg { width: 17px; height: 17px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-@media (prefers-reduced-motion: reduce) { .menu, .menu.closing { animation-name: fade; } }
+/* A phone's action sheet: across the bottom over a dimmed page, rising on the drawer curve and leaving faster;
+   scrolls when it is taller than the window. */
+.menu-scrim { position: fixed; inset: 0; z-index: 29; background: rgba(10, 14, 24, 0.28); animation: sheet-dim 200ms var(--ease-out); }
+.menu-scrim.closing { animation: sheet-undim 180ms var(--ease-out) forwards; }
+.menu.sheet-menu {
+  left: 10px; right: 10px; bottom: max(10px, env(safe-area-inset-bottom)); max-height: calc(100dvh - 24px - env(safe-area-inset-top));
+  overflow-y: auto; overscroll-behavior: contain; padding: 8px; border-radius: 24px; transform-origin: 50% 100%;
+  animation: menu-sheet-in 280ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.menu.sheet-menu.closing { animation: menu-sheet-out 180ms var(--ease-out) forwards; }
+.menu.sheet-menu { padding-top: 22px; }
+@keyframes menu-sheet-in { from { transform: translateY(calc(100% + 12px)); } }
+@keyframes menu-sheet-out { to { transform: translateY(calc(100% + 12px)); } }
+@media (prefers-reduced-motion: reduce) { .menu, .menu.closing, .menu.sheet-menu, .menu.sheet-menu.closing { animation-name: fade; } }
 @media (prefers-reduced-transparency: reduce) { .menu { background: var(--material-solid); -webkit-backdrop-filter: none; backdrop-filter: none; } }
 /* A custom time range: from and to, under the toolbar, as the material arriving. */
 .log-range { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%; animation: fade var(--normal) var(--ease-out); }
@@ -1028,17 +1065,23 @@ textarea.short { min-height: 220px; }
 .update-command button { flex: none; padding: 5px 12px; font-size: 0.8125rem; }
 .update-card details.more-options { margin: 0; }
 .who { flex: 1; min-width: 0; }
-.health { font-weight: 500; display: flex; align-items: center; gap: 8px; }
-.health::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+.health { font-weight: 500; display: flex; align-items: flex-start; gap: 8px; }
+/* The dot on the first line's middle, when the text wraps. */
+.health::before { content: ""; width: 8px; height: 8px; margin-top: calc(0.725em - 4px); border-radius: 50%; background: currentColor; flex: none; }
 .health.on { color: var(--ok); }
 .health.away { color: var(--warn); }
-.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0 0 6px; }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0 0 14px; }
 .stat {
   padding: 14px 16px; border-radius: 18px; background: var(--material); border: 1px solid var(--edge);
   box-shadow: var(--shadow-control), inset 0 1px 0 var(--edge-light);
 }
+.stat { position: relative; display: block; color: inherit; text-decoration: none; }
+a.stat { touch-action: manipulation; transition: transform var(--fast) var(--ease-out); }
+a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
+.stat > svg { position: absolute; top: 14px; right: 14px; width: 20px; height: 20px; fill: none; stroke: var(--muted); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; opacity: 0.7; }
 .stat b { display: block; font-size: 1.5rem; line-height: 1.1; letter-spacing: -0.02em; font-weight: 650; font-variant-numeric: tabular-nums; }
 .stat span { color: var(--muted); font-size: 0.8125rem; letter-spacing: 0.01em; }
+.stat .short { display: none; }
 /* The Status page's activity charts: the filters in one row above them, two charts a row, one on a phone. */
 .activity { transition: opacity var(--normal) var(--ease-out); }
 .activity.loading .chart-grid { opacity: 0.55; }
@@ -1110,6 +1153,7 @@ textarea.short { min-height: 220px; }
 .auth .card { width: min(400px, 100%); padding: 26px 26px 22px; animation: materialize 320ms var(--ease-out); }
 .auth h1 { margin-top: 6px; }
 .auth button { width: 100%; margin-top: 10px; }
+.auth p.error:empty { display: none; }
 /* The OAuth sign-in page (authorize.html): one choice per scope, each saying what it allows; Deny and Allow side by side. */
 .auth .scopes { display: grid; gap: 8px; margin: 14px 0 8px; padding: 0; border: 0; background: none; }
 .auth .scopes legend { padding: 0; margin-bottom: 2px; }
@@ -1178,7 +1222,7 @@ textarea.short { min-height: 220px; }
 .empty-log { padding: 20px; text-align: center; }
 
 /* Forms */
-fieldset { border: 1px solid var(--line); border-radius: 18px; padding: 8px 16px 14px; margin: 14px 0; background: var(--material-thin); }
+fieldset { min-width: 0; border: 1px solid var(--line); border-radius: 18px; padding: 8px 16px 14px; margin: 14px 0; background: var(--material-thin); }
 legend { color: var(--muted); padding: 0 8px; font-weight: 500; }
 .item { border: 1px solid var(--line); border-radius: 16px; padding: 6px 14px 12px; margin: 10px 0; background: var(--material-thin); }
 .item-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
@@ -1221,8 +1265,10 @@ dd { margin: 0; }
   .user-button { padding: 3px; }
   .user-name { display: none; }
   .page-head .tools, .page-head .search, .editor-bar .search { width: 100%; }
-  .log-line { grid-template-columns: auto minmax(0, 1fr); }
-  .log-line .label { display: none; }
+  /* A line's time and source on top, its text across the width under them. */
+  .log-line { grid-template-columns: auto minmax(0, 1fr); gap: 1px 8px; padding: 5px 12px; }
+  .log-line .label { font-size: 0.75rem; }
+  .log-line .text { grid-column: 1 / -1; }
   .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .setup { flex-direction: column; align-items: flex-start; }
 }
@@ -1236,7 +1282,8 @@ dd { margin: 0; }
 /* The Assistant's sparkle, round, beside the account button. */
 .chat-open { flex: none; display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border-radius: 50%; }
 .chat-open .sparkle { width: 19px; height: 19px; }
-.chat-open[aria-expanded="true"] { box-shadow: 0 0 0 3px rgba(191, 90, 242, 0.22), var(--shadow-control); }
+/* Open: a violet ring, an outline (Safari draws a spread shadow square inside the blurred header). */
+.chat-open[aria-expanded="true"] { outline: 3px solid rgba(191, 90, 242, 0.22); outline-offset: 0; }
 .chat {
   position: fixed; z-index: 20; top: 84px; right: max(16px, calc((100vw - 1100px) / 2));
   width: min(420px, calc(100vw - 32px)); height: min(740px, calc(100dvh - 100px));
@@ -1509,15 +1556,63 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   .log-card .editor-bar > .group { flex: 1 1 100%; display: grid; grid-template-columns: repeat(4, 1fr); }
   .log-card .editor-bar > .group button { padding: 6px 4px; }
   .log-card .editor-bar > select.popup { flex: 1 1 40%; max-width: none; min-width: 0; }
-  .log-card .editor-bar > .search { flex: 1 1 100%; width: 100%; }
+  /* The filter with the count at its end; then the Assistant, Copy, Follow and the menu, Follow pushed right. */
+  .log-card .editor-bar > .search { flex: 1 1 180px; width: auto; min-width: 0; }
   .log-card .editor-bar > .spacer { display: none; }
-  .log-card .editor-bar > .count { flex: 1; }
-  .log-card .editor-bar > label.toggle { margin: 0; }
+  .log-card .editor-bar > .count { flex: none; font-size: 0.75rem; white-space: nowrap; }
+  .log-card .editor-bar > .count + * { margin-left: 0; }
+  .log-card .editor-bar > label.toggle { margin: 0 0 0 auto; }
+  .log-card .editor-bar > .save-payloads { display: none; }
   .log-card .editor-bar > .log-range { flex: 1 1 100%; }
   .log-card .log { height: 60dvh; min-height: 260px; }
   /* Two figures a row, so a label such as "Home app controllers" reads on one or two lines, not three; a
      bridge's device ID, the longest fact, across. */
+  /* The four figures in one row, each its glyph, number and a one-line label. */
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  /* Toolbar buttons that become their glyph alone: a segmented control's choices, an Assistant action. */
+  .group.with-icons button { padding: 7px 13px; }
+  .group.with-icons button > span, .icon-on-phone > span { display: none; }
+  .group.with-icons svg { width: 19px; height: 19px; }
+  .icon-on-phone { justify-content: center; width: 40px; height: 40px; padding: 0; flex: none; }
+  .icon-on-phone .sparkle { width: 19px; height: 19px; }
+  /* A note beside its button (a plugin's Expert part), and removal: the text across, the button under it. */
+  .page-note, .danger-zone { flex-direction: column; align-items: stretch; gap: 10px; }
+  .page-note > :is(button, .button), .danger-zone > button, .page-note > .expert-links { align-self: flex-start; }
+  .describe-note { flex-basis: 100%; padding-left: 20px; }
+  .describe-setup .describe-note::before { content: none; }
+  /* The activity's two menus side by side, the custom range under them. */
+  .filter-bar { gap: 8px; }
+  .filter-bar > .popup { flex: 1 1 40%; min-width: 0; max-width: none; }
+  .filter-bar > .log-range { flex: 1 1 100%; }
+  /* The config editor's bar on one line: the page says which file it is. */
+  .editor-card .editor-bar { gap: 8px; padding: 10px 10px 10px 14px; }
+  .editor-card .editor-bar > .file-name { display: none; }
+  /* A section's heading with its buttons: the buttons under it when they do not fit beside it, never folded. */
+  .section-head { flex-wrap: wrap; row-gap: 8px; }
+  .section-head button, .section-head .button { white-space: nowrap; }
+  /* A card head's button (Test connection) goes under the name rather than squeezing it. */
+  .server-head:has(> button) { flex-wrap: wrap; }
+  .server-head:has(> button) > .who { flex: 1 1 160px; }
+  .filter-bar > .search { flex: 1 1 40%; width: auto; min-width: 0; }
+  .filter-bar > .spacer { display: none; }
+  .filter-bar > .count { flex: 1 1 100%; text-align: right; font-size: 0.8125rem; }
+  .filter-bar > .count:empty { display: none; }
+  .dash-widget .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .dash-widget .stat { padding: 10px 6px 9px; border-radius: 16px; text-align: center; }
+  .dash-widget .stat > svg { position: static; display: block; margin: 0 auto 4px; width: 18px; height: 18px; }
+  .dash-widget .stat b { font-size: 1.25rem; }
+  .dash-widget .stat span { display: block; font-size: 0.6875rem; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dash-widget .stat .long { display: none; }
+  .dash-widget .stat .short { display: block; }
+}
+/* The narrowest phones (320 points): the figures two by two, so their names read whole. */
+@media (max-width: 360px) {
+  .dash-widget .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* The overview's card, smaller: the icon beside the name and the health under it. */
+  .hero { gap: 14px; padding: 16px; }
+  .hero .logo.large { width: 56px; height: 56px; border-radius: 14px; }
+  .hero h1 { font-size: 1.375rem; }
+  .hero p { font-size: 0.875rem; }
   .facts, .facts.lead { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .facts.lead > :first-child { grid-column: 1 / -1; }
   /* The chat sheet sits over the tab bar, its field above the home indicator. */
@@ -1603,7 +1698,9 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
 }
 
 /* Describe your setup: the Assistant's suggestion for a block, as a diff to review. */
-.describe-setup summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 4px; }
+.describe-setup summary { cursor: pointer; list-style: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.describe-setup summary strong { white-space: nowrap; }
+.describe-note::before { content: "· "; }
 .describe-setup summary::-webkit-details-marker { display: none; }
 .describe-body { display: grid; gap: 10px; margin-top: 12px; }
 .describe-body .actions { display: flex; gap: 8px; }
@@ -1650,7 +1747,13 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .scene-editor .actions { flex-wrap: wrap; }
 .scene-editor .actions > button { flex: none; white-space: nowrap; }
 .scene-editor .actions > select { width: auto; flex: 0 1 auto; min-width: 0; }
-@media (max-width: 640px) { .editor-row { padding: 8px; } .editor-row select { flex: 1 1 40%; } }
+/* A phone: what the row is about (the accessory) across, the rest under it, Remove at the right end. */
+@media (max-width: 640px) {
+  .editor-row { padding: 8px; }
+  .editor-row select { flex: 1 1 40%; }
+  .editor-row > select:first-child { flex-basis: 100%; }
+  .editor-row > .icon-button:last-child { margin-left: auto; }
+}
 
 /* Settings (admin.js): its pages as a segmented row of links, lists of rows in one card, the confirmation and
    history sheets, the audit table. */
@@ -1662,6 +1765,16 @@ a.link:hover { text-decoration: underline; }
 .group a { color: var(--text); text-decoration: none; padding: 5px 13px; border-radius: 999px; white-space: nowrap; transition: background-color var(--fast) var(--ease-out); }
 .group a:hover:not(.on) { background: var(--material-thin); }
 .group a.on { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); }
+.subnav a { display: inline-flex; align-items: center; gap: 6px; }
+.subnav svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.subnav svg.sparkle { stroke: none; }
+/* A phone: the pages across the width, each its glyph over its name, as a tab bar. */
+@media (max-width: 640px) {
+  .subnav { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); width: 100%; border-radius: 22px; }
+  .subnav a { display: grid; justify-items: center; gap: 3px; padding: 7px 0 6px; border-radius: 18px; font-size: 0.65625rem; font-weight: 600; letter-spacing: -0.02em; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+  .subnav a span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .subnav svg { width: 20px; height: 20px; }
+}
 .card.rows { padding: 4px 0; }
 .rows > .row, .rows > .row-block > .row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; min-width: 0; }
 .rows > * + * { border-top: 1px solid var(--line); }
@@ -1718,7 +1831,7 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .link-card svg { width: 24px; height: 24px; fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 /* ---- The Status page's widgets, Customise, and the daily digest ------------------------------------------- */
-.widget + .widget { margin-top: 0; }
+.dash-widget { min-width: 0; }
 .page-foot { justify-content: center; margin: 24px 0 8px; }
 .page-foot svg, .customise .icon-button svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: -3px; }
 .customise { margin-bottom: 16px; padding: 16px 18px; }

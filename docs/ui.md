@@ -351,6 +351,11 @@ The UI is an installable web app: `manifest.webmanifest` (standalone, starting o
 and a maskable 512) and an `apple-touch-icon.png`, all served without a session like the other static files.
 Over HTTPS the page carries the touch icon inline: iOS fetches a home screen icon without the exception accepted for a
 self-signed certificate, and would show a letter instead.
+On a phone the sections are a tab bar at the bottom, within the thumb's reach, and Settings is in the account menu;
+a card's ⋯ menu opens as a sheet from the bottom of the screen (a swipe down puts it away, as an accessory's
+sheet), and toolbars keep their glyphs (the Accessories page's
+grouping, the Assistant's sparkle) where a wide window also shows the words.
+
 In Safari, Share › Add to Home Screen; in Chrome, Install app. It opens full screen with the tab bar at the
 bottom; `/quick` makes a good first page to keep there (a manifest shortcut opens it). The service worker (`/sw.js`)
 only shows notifications, nothing is kept offline: the bridge must be reachable to use it.
