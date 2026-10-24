@@ -157,7 +157,8 @@ final class ProtectLivestreamListener {
 
     init(_ livestream: ProtectLivestream, _ handler: @escaping @ProtectActor (ProtectLivestream.Event) -> Void) {
         self.livestream = livestream
-        let (events, continuation) = AsyncStream.makeStream(of: ProtectLivestream.Event.self)
+        // Bounded: segments a busy actor cannot take in time are dropped, oldest first, rather than kept.
+        let (events, continuation) = AsyncStream.makeStream(of: ProtectLivestream.Event.self, bufferingPolicy: .bufferingNewest(ProtectSettings.segmentQueueMaxLength))
         self.continuation = continuation
         token = livestream.observe { event in continuation.yield(event) }
         task = Task { @ProtectActor in

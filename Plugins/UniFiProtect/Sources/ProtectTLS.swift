@@ -7,10 +7,9 @@ import NIOConcurrencyHelpers
 /// A SHA-256 fingerprint as the Homebridge plugin writes it (Node's `fingerprint256`): upper-case hex pairs
 /// separated by colons. nil for anything that is not 32 bytes of hex.
 func normalizeFingerprint(_ fingerprint: String?) -> String? {
-    let hex = (fingerprint ?? "").filter(\.isHexDigit).uppercased()
+    let hex = Array(HTTPClient.normalizeFingerprint(fingerprint ?? "").uppercased())
     guard hex.count == 64 else { return nil }
-    let characters = Array(hex)
-    return stride(from: 0, to: 64, by: 2).map { String(characters[$0..<$0 + 2]) }.joined(separator: ":")
+    return stride(from: 0, to: 64, by: 2).map { String(hex[$0..<$0 + 2]) }.joined(separator: ":")
 }
 
 /// Trust on first use for one controller (`ProtectTlsPin`, on `HTTPClient.TrustOnFirstUse`): the first
@@ -77,22 +76,28 @@ final class ProtectTLSPinStore: Sendable {
     }
 
     func get(_ address: String) -> String? {
-        load()[key(address)]
+        pins.withLockedValue { cached in
+            if cached == nil { cached = load() }
+            return cached?[key(address)]
+        }
     }
 
     func set(_ address: String, fingerprint: String) {
         guard let normalized = normalizeFingerprint(fingerprint) else { return }
-        var current = load()
-        current[key(address)] = normalized
-        pins.withLockedValue { $0 = current }
-        do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            var data = try encoder.encode(current)
-            data.append(0x0A)
-            try OwnerOnlyFile.write(data, to: url)
-        } catch {
-            onError("Unable to save the pinned TLS certificate fingerprint to \(url.path): \(error).")
+        pins.withLockedValue { cached in
+            // Read the file again first: the settings page or another instance may have pinned since.
+            var current = load()
+            current[key(address)] = normalized
+            cached = current
+            do {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                var data = try encoder.encode(current)
+                data.append(0x0A)
+                try OwnerOnlyFile.write(data, to: url)
+            } catch {
+                onError("Unable to save the pinned TLS certificate fingerprint to \(url.path): \(error).")
+            }
         }
     }
 
@@ -100,10 +105,9 @@ final class ProtectTLSPinStore: Sendable {
         address.trimmingCharacters(in: .whitespaces).lowercased()
     }
 
+    /// The file's pins; the caller holds the lock.
     private func load() -> [String: String] {
-        if let loaded = pins.withLockedValue({ $0 }) { return loaded }
         var result: [String: String] = [:]
-        defer { pins.withLockedValue { $0 = result } }
         guard FileManager.default.fileExists(atPath: url.path) else { return result }
         let data: Data
         do {

@@ -87,21 +87,27 @@ extension UniFiProtectPlugin {
       el("div", { class: "fact" }, el("span", { text: "Devices" }), el("b", { text: String(live.devices.length) })),
       el("div", { class: "fact" }, el("span", { text: "Events" }), el("b", { text: live.events ? "Live" : live.connected ? "Every 2 minutes" : "—" })),
       el("div", { class: "fact" }, el("span", { text: "Certificate" }), el("b", { text: controller.verifyTls ? "Verified" : live.tlsFingerprint ? "Pinned" : "Not yet seen" }))) : null;
+    const remove = async () => {
+      if (!confirm(`Remove ${controller.name || controller.address}?`)) return;
+      state.block.controllers.splice(index, 1);
+      try { await saveBlock(); } catch (e) { alert(`Unable to remove the controller: ${e.message}`); }
+      await renderControllers();
+      if (!controllers().length) showDiscovery(false);
+    };
+    // The card's actions in its menu, bottom right, as on the other pages' cards.
     const card = el("div", { class: "card controller" },
       el("div", { class: "controller-head" },
-        el("span", { class: "tile accessory", "aria-hidden": "true" }, "▤"),
+        el("span", { class: "tile accessory", "aria-hidden": "true" }, HomeswiftCommon.icon("system")),
         el("div", { class: "who" }, el("strong", { text: controller.name || controller.address }), el("div", { class: "muted", text: controller.address })),
-        badge,
-        el("button", { class: "primary", text: "Options", onclick: () => openFeatureOptions(index) }),
-        el("button", { text: "Edit", onclick: () => openEditController(index) }),
-        el("button", { class: "danger", text: "Remove", onclick: (event) => act(event.currentTarget, async () => {
-          if (!confirm(`Remove ${controller.name || controller.address}?`)) return;
-          state.block.controllers.splice(index, 1);
-          await saveBlock();
-          await renderControllers();
-          if (!controllers().length) showDiscovery(false);
-        }) })),
-      facts, slot);
+        badge),
+      facts, slot,
+      el("div", { class: "card-foot" },
+        el("span", { class: "muted", text: live ? (live.connected ? "Connected" : "Not connected yet: see the log.") : "Not running" }),
+        HomeswiftCommon.menuButton(`Actions for ${controller.name || controller.address}`, () => [
+          { label: "Feature options", icon: "sliders", onSelect: () => openFeatureOptions(index) },
+          { label: "Edit", icon: "edit", onSelect: () => openEditController(index) },
+          { label: "Remove", icon: "trash", danger: true, onSelect: remove },
+        ])));
     request("check-status", { method: "POST", body: { address: controller.address } }).then(({ online }) => {
       badge.className = `pill status ${online ? "on" : "away"}`;
       badge.textContent = online ? "Online" : "Offline";
@@ -1157,6 +1163,10 @@ extension UniFiProtectPlugin {
 
 .category { padding: 0; overflow: hidden; margin: 0 0 12px; }
 .category-head { width: 100%; display: flex; align-items: center; gap: 10px; padding: 14px 16px; border: 0; background: none; box-shadow: none; border-radius: 0; text-align: left; font-weight: 500; }
+/* A section header, not a pressable card: no lift or squeeze, a tint on hover, the focus ring inside the clipped card. */
+.category-head:hover, .category-head:active:not(:disabled) { transform: none; }
+.category-head:focus-visible { outline-offset: -2px; }
+@media (hover: hover) and (pointer: fine) { .category-head:hover { background: var(--material-thin); } }
 .category-title { flex: 1; }
 .category-icon { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; color: #fff; background: var(--category-color, #6c757d); font-size: 0.75rem; }
 .category-count { font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -1205,6 +1215,7 @@ extension UniFiProtectPlugin {
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .screen, .controller { animation: none; }
+  .chevron { transition: none; }
   .busy::after { animation: none; border-right-color: currentColor; opacity: 0.5; }
 }
 @media (max-width: 760px) {

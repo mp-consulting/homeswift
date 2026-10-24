@@ -1,5 +1,6 @@
 import Crypto
 import Foundation
+import Homeswift
 import HomeswiftPlugin
 import NIOCore
 import NIOHTTP1
@@ -49,8 +50,7 @@ enum ProtectPlaylist {
         guard let token, !token.isEmpty else { return true }
         guard let components = URLComponents(string: "http://localhost" + (path.hasPrefix("/") ? path : "/" + path)),
               let supplied = components.queryItems?.first(where: { $0.name == "token" })?.value else { return false }
-        let a = Array(SHA256.hash(data: Data(supplied.utf8))), b = Array(SHA256.hash(data: Data(token.utf8)))
-        return zip(a, b).reduce(0) { $0 | ($1.0 ^ $1.1) } == 0
+        return Secrets.constantTimeEqual(Array(SHA256.hash(data: Data(supplied.utf8))), Array(SHA256.hash(data: Data(token.utf8))))
     }
 }
 

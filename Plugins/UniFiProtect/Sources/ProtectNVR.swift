@@ -77,9 +77,7 @@ final class ProtectNVR {
             await timers.sleep(ProtectSettings.controllerRetryInterval * 1000)
         }
         guard !isStopped else { return }
-        for _ in 0..<5 where await api.bootstrap == nil && !isStopped {
-            await bootstrapNVR()
-        }
+        await bootstrapNVR()
         guard !isStopped else { return }
         guard let bootstrap = await api.bootstrap else {
             log.error("Unable to initialize. This may be due to the Protect controller rebooting or becoming unavailable.")
@@ -179,7 +177,7 @@ final class ProtectNVR {
 
     /// The device sync, and the accessories published again when one changed shape.
     func syncUfpHomeKit() async {
-        _ = await discoverAndSyncAccessories()
+        await discoverAndSyncAccessories()
     }
 
     // MARK: Devices
@@ -210,9 +208,8 @@ final class ProtectNVR {
             if host.accessoryIDs.contains(id) || configuredDevices[id] != nil { await removeHomeKitDevice(id: id, noRemovalDelay: true) }
             return false
         }
-        if let existing = configuredDevices[id] {
+        if configuredDevices[id] != nil {
             events.ufpUpdates(ProtectEventPacket(header: ["action": "update", "hbupBootstrap": true, "id": .string(config.id), "modelKey": .string(config.modelKey)], payload: device))
-            _ = existing
             return true
         }
         let standalone = hasFeature("Device.Standalone", device: config.mac)
@@ -261,6 +258,7 @@ final class ProtectNVR {
     }
 
     /// Adds the controller's devices, removes those it no longer has, and refreshes the rest.
+    @discardableResult
     private func discoverAndSyncAccessories() async -> Bool {
         guard let bootstrap = await api.bootstrap, !(await api.isThrottled) else {
             if !deviceRemovalQueue.isEmpty {
@@ -287,18 +285,17 @@ final class ProtectNVR {
 
     /// Removes the accessories of devices the controller no longer has, the orphans of a restart, and
     /// moves devices between the bridge and their own server when `Device.Standalone` changed.
+    /// A device that comes back leaves the removal queue before anything queued is removed: queued devices
+    /// are all accessories of this controller, so this one pass handles them too.
     private func cleanupDevices(bootstrap: JSONValue) async {
-        for id in host.accessoryIDs where deviceRemovalQueue[id] != nil {
-            let serial = platform.contexts[id].mac ?? ""
-            await removeHomeKitDevice(id: id, noRemovalDelay: !featureOptions.test("Device", device: serial, controllers: controllerScopes))
-        }
+        let present = Set(Self.deviceCategories.flatMap { category in bootstrap.array(category + "s").map { category + "/" + ProtectDeviceConfig($0).mac } })
         for id in host.accessoryIDs where platform.contexts[id].nvr == mac {
             guard let device = configuredDevices[id] else {
                 let serial = platform.contexts[id].mac ?? ""
-                await removeHomeKitDevice(id: id, noRemovalDelay: !featureOptions.test("Device", device: serial))
+                await removeHomeKitDevice(id: id, noRemovalDelay: !featureOptions.test("Device", device: serial, controllers: controllerScopes))
                 continue
             }
-            let stillThere = bootstrap.array(device.ufp.modelKey + "s").contains { ProtectDeviceConfig($0).mac == device.ufp.mac }
+            let stillThere = present.contains(device.ufp.modelKey + "/" + device.ufp.mac)
             let external = host.isExternal(id: id)
             if stillThere, device.hints.enabled, external == device.hints.standalone {
                 deviceRemovalQueue[id] = nil
@@ -369,10 +366,6 @@ final class ProtectNVR {
     /// An integer option, truncated and clamped to `range`.
     func getFeatureInt(_ option: String, in range: ClosedRange<Int>) -> Int? {
         getFeatureNumber(option).flatMap { Int(saturating: $0, in: range) }
-    }
-
-    func getFeatureFloat(_ option: String) -> Double? {
-        featureOptions.getFloat(option, device: nil, controllers: controllerScopes).orNil
     }
 
     /// Whether the option is set for the controller or globally (`isNvrFeature`).

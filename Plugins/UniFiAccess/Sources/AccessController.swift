@@ -306,9 +306,8 @@ actor AccessController {
             return shared.options.test("Device", device: serial, controller: id)
         }
 
-        for accessoryId in removalQueue.keys.sorted() where owned.contains(accessoryId) {
-            await removeAccessory(accessoryId, immediately: !enabled(accessoryId))
-        }
+        // One pass: a queued hub that is back leaves the queue here before anything queued is removed, and
+        // every queued hub is one of these.
         for accessoryId in owned {
             if let parent = shared.owners[accessoryId]?.childOf {
                 if hubs[parent] == nil {

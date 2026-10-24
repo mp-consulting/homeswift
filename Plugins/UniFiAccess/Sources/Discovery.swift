@@ -2,6 +2,11 @@ import Foundation
 import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Darwin)
+import Darwin
+#endif
 
 /// A UniFi console that answered the discovery probe.
 struct DiscoveredConsole: Sendable, Equatable {
@@ -118,14 +123,68 @@ enum UbiquitiDiscovery {
         return await collect.value
     }
 
-    /// Whether the controller answers HTTPS on its address within five seconds (`/checkStatus`).
-    static func isOnline(address: String) async -> Bool {
-        guard let url = URL(string: "https://\(address)/") else { return false }
+    /// Whether the controller answers HTTPS on its address within five seconds (`/checkStatus`). The name is
+    /// resolved here once and every address it has vetted: one on loopback, link-local or unspecified answers
+    /// false (`isValidAddress` only sees the spelling), and the probe goes to the vetted address with the name as
+    /// `Host`, so a second DNS answer cannot steer it elsewhere.
+    static func isOnline(address: String, resolve: @Sendable (String) async -> [String] = systemResolve) async -> Bool {
+        guard AccessSettings.isValidAddress(address), let components = URLComponents(string: "https://\(address)/"), let host = components.host else { return false }
+        let addresses = await resolve(host)
+        guard let vetted = addresses.first, !addresses.contains(where: isBlocked) else { return false }
+        var target = components
+        target.host = vetted.contains(":") ? "[\(vetted)]" : vetted
+        guard let url = target.url else { return false }
+        var request = HTTPRequest(method: "HEAD", url: url, timeout: .seconds(5))
+        request.setHeader("Host", address)
         do {
-            _ = try await HTTPClient(tls: .any).send(HTTPRequest(method: "HEAD", url: url, timeout: .seconds(5)))
+            _ = try await HTTPClient(tls: .any).send(request)
             return true
         } catch {
             return false
         }
+    }
+
+    /// Whether a numeric address is refused: loopback, link-local (the cloud metadata address among them),
+    /// unspecified, and anything that is not an address.
+    static func isBlocked(_ address: String) -> Bool {
+        var v4 = in_addr()
+        if inet_pton(AF_INET, address, &v4) == 1 {
+            let raw = UInt32(bigEndian: v4.s_addr)
+            return raw >> 24 == 0 || raw >> 24 == 127 || raw >> 16 == 0xA9FE
+        }
+        var v6 = in6_addr()
+        guard inet_pton(AF_INET6, address.split(separator: "%").first.map(String.init) ?? address, &v6) == 1 else { return true }
+        let bytes = withUnsafeBytes(of: &v6) { Array($0) }
+        // An IPv4-mapped address is judged as its IPv4 address.
+        if bytes[0..<10].allSatisfy({ $0 == 0 }), bytes[10] == 0xFF, bytes[11] == 0xFF { return isBlocked(bytes[12..<16].map(String.init).joined(separator: ".")) }
+        // ::/96 (unspecified, loopback, IPv4-compatible) and fe80::/10.
+        return bytes[0..<12].allSatisfy { $0 == 0 } || (bytes[0] == 0xFE && bytes[1] & 0xC0 == 0x80)
+    }
+
+    /// The system resolver (`getaddrinfo`, off the cooperative pool): every address of a name, numeric.
+    @Sendable static func systemResolve(_ host: String) async -> [String] {
+        await Task.detached {
+            var hints = addrinfo()
+            hints.ai_family = AF_UNSPEC
+            #if canImport(Glibc)
+            hints.ai_socktype = Int32(SOCK_STREAM.rawValue)
+            #else
+            hints.ai_socktype = SOCK_STREAM
+            #endif
+            var result: UnsafeMutablePointer<addrinfo>?
+            guard getaddrinfo(host, nil, &hints, &result) == 0, let first = result else { return [] }
+            defer { freeaddrinfo(first) }
+            var addresses: [String] = []
+            var cursor: UnsafeMutablePointer<addrinfo>? = first
+            while let entry = cursor {
+                var buffer = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                if getnameinfo(entry.pointee.ai_addr, entry.pointee.ai_addrlen, &buffer, socklen_t(buffer.count), nil, 0, NI_NUMERICHOST) == 0 {
+                    let text = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+                    if !addresses.contains(text) { addresses.append(text) }
+                }
+                cursor = entry.pointee.ai_next
+            }
+            return addresses
+        }.value
     }
 }

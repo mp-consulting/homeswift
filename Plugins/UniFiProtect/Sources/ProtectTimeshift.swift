@@ -96,7 +96,7 @@ final class ProtectTimeshiftBuffer {
             log.error("Unable to connect to the Protect livestream API — usually occurs when the Protect controller or devices reboot. Retrying shortly.")
             return false
         }
-        onSegment?(segments.reduce(initSegment, +))
+        onSegment?(Self.joined(initSegment, segments))
         isTransmitting = true
         return true
     }
@@ -130,13 +130,22 @@ final class ProtectTimeshiftBuffer {
         guard let initSegment = livestream?.initSegment, !segments.isEmpty else { return nil }
         // `slice(-start)`: a fraction of a segment takes them all, as in JavaScript.
         let count = Int(start)
-        return (count == 0 ? segments : Array(segments.suffix(count))).reduce(initSegment, +)
+        return Self.joined(initSegment, count == 0 ? segments[...] : segments.suffix(count))
     }
 
     /// The initialization segment and the whole buffer.
     var buffer: Data? {
         guard let initSegment = livestream?.initSegment, !segments.isEmpty else { return nil }
-        return segments.reduce(initSegment, +)
+        return Self.joined(initSegment, segments)
+    }
+
+    /// The initialization segment and `segments` in one buffer, each copied once (`reduce(+)` copies the
+    /// whole buffer again for each segment).
+    private static func joined(_ initSegment: Data, _ segments: some Collection<Data>) -> Data {
+        var data = Data(capacity: segments.reduce(initSegment.count) { $0 + $1.count })
+        data.append(initSegment)
+        for segment in segments { data.append(segment) }
+        return data
     }
 
     var isRestarting: Bool { rtspEntry.map { camera.livestream.isRestarting($0) } ?? false }

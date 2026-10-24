@@ -156,8 +156,6 @@ class ProtectDevice: ProtectBase {
         hints.occupancyDuration = max(hints.occupancyDuration, 60)
         if hints.syncName {
             logFeature("Device.SyncName", "Syncing Protect device name to HomeKit.", nvrMessage: "Syncing Protect device names to HomeKit.")
-        } else if isDeviceFeature("Device.SyncName") {
-            log.info("Not syncing this Protect device name to HomeKit.")
         }
         if hints.motionDuration != ProtectSettings.motionDuration { log.info("Motion event duration set to \(hints.motionDuration) seconds.") }
         if hints.occupancyDuration != ProtectSettings.occupancyDuration { log.info("Occupancy event duration set to \(hints.occupancyDuration) seconds.") }
@@ -384,17 +382,9 @@ class ProtectDevice: ProtectBase {
         platform.featureOptions.test(option, device: ufp.mac, controllers: nvr.controllerScopes)
     }
 
-    /// Whether the option is set at the device scope. The Homebridge plugin asks without the device's id, so
-    /// this is never true and a device's option is announced once through the controller's log; kept so.
-    func isDeviceFeature(_ option: String) -> Bool {
-        platform.featureOptions.scope(option) == .device
-    }
-
+    /// Announces an option once, in the controller's log. (The Homebridge plugin's `isDeviceFeature` check asks
+    /// without the device's id, so it never finds the device scope and the per-device message never shows.)
     func logFeature(_ option: String, _ message: String, nvrMessage: String? = nil) {
-        if isDeviceFeature(option) {
-            log.info(message)
-            return
-        }
         nvr.logFeature(option, nvrMessage ?? message)
     }
 

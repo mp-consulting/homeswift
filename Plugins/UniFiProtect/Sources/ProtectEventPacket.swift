@@ -27,7 +27,7 @@ struct ProtectEventPacket: Sendable, Equatable {
 
     static let headerSize = 8
     /// Largest size a deflated frame may inflate to; event payloads are small JSON documents.
-    static let maximumInflatedSize = 16 * 1024 * 1024
+    static let maximumInflatedSize = 4 * 1024 * 1024
 
     enum DecodeError: Error, CustomStringConvertible, Equatable {
         case lengthMismatch

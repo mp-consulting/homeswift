@@ -101,27 +101,29 @@ struct ProtectAccessoryContext: Codable, Sendable, Equatable {
     var systemInfo: Bool?
 }
 
-/// The contexts of every accessory of a plugin instance, saved owner-only after each change.
+/// The contexts of every accessory of a plugin instance, saved owner-only shortly after a change: a burst of
+/// changes (a liveview scene turning motion detection off on every camera) makes one write.
 @ProtectActor
 final class ProtectContextStore {
     private let contexts: PersistedDictionary<ProtectAccessoryContext>
     private let log: ProtectLog
 
     init(url: URL, log: ProtectLog) {
-        contexts = PersistedDictionary(url: url, autosave: nil)
+        contexts = PersistedDictionary(url: url, logger: log.logger)
         self.log = log
     }
 
     subscript(id: String) -> ProtectAccessoryContext {
         get { contexts[id] ?? ProtectAccessoryContext() }
-        set { if contexts.update(id, { $0 = newValue }) { save() } }
+        set { contexts.update(id, { $0 = newValue }) }
     }
 
     func remove(_ id: String) {
-        if contexts.removeValue(forKey: id) != nil { save() }
+        contexts.removeValue(forKey: id)
     }
 
-    private func save() {
+    /// Writes what is pending now (the plugin stopping).
+    func save() {
         do {
             try contexts.flush()
         } catch {

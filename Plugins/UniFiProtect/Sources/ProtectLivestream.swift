@@ -21,8 +21,8 @@ struct ProtectLivestreamParser: Sendable {
     enum Output: Sendable, Equatable {
         case codec(String)
         case initSegment(Data)
-        /// A complete segment, and its MOOF and MDAT parts.
-        case segment(Data, moof: Data, mdat: Data)
+        /// A complete segment: its MOOF, MDAT, video and audio packets in that order.
+        case segment(Data)
         /// The decode timestamps of the frames of the next segment, as in its `tfdt` box.
         case timestamps([UInt64])
     }
@@ -31,44 +31,51 @@ struct ProtectLivestreamParser: Sendable {
         let header: UInt8
     }
 
-    private var remaining = Data()
-    private var moof: [Data] = []
-    private var mdat: [Data] = []
-    private var video: [Data] = []
-    private var audio: [Data] = []
+    /// A segment larger than `maximumSegmentSize`, or made of more than `maximumSegmentParts` packets: the
+    /// controller never ends it, and buffering it would take the bridge's memory.
+    struct SegmentTooLarge: Error, Equatable {}
 
-    /// Consumes a WebSocket message. Throws on a packet type that does not exist: framing is lost and the
-    /// rest of the stream cannot be read.
+    /// A 4K camera's segment of a second and a half is a few megabytes.
+    static let maximumSegmentSize = 32 * 1024 * 1024
+    static let maximumSegmentParts = 4096
+
+    /// The bytes received and not parsed yet, from `offset`: a packet arriving in pieces is appended to, not
+    /// copied again with each message.
+    private var buffer = Data()
+    private var offset = 0
+    /// The packets of the segment under way, in the order they make it: MOOF, MDAT, video, audio.
+    private var parts: [[Data]] = [[], [], [], []]
+    private var partCount = 0
+    private var segmentSize = 0
+
+    /// Consumes a WebSocket message. Throws on a packet type that does not exist (framing is lost and the
+    /// rest of the stream cannot be read), and on a segment that never ends.
     mutating func feed(_ message: Data) throws -> [Output] {
-        var packet = remaining.isEmpty ? message : remaining + message
-        remaining = Data()
-        packet = Data(packet)
+        if buffer.isEmpty {
+            buffer = message
+            offset = buffer.startIndex
+        } else {
+            buffer.append(message)
+        }
         var outputs: [Output] = []
-        var offset = packet.startIndex
-        while true {
-            if packet.endIndex - offset < 4 {
-                remaining = Data(packet[offset...])
-                break
-            }
-            let header = packet[offset]
+        while buffer.endIndex - offset >= 4 {
+            let header = buffer[offset]
             guard let frame = Frame(rawValue: header) else { throw InvalidHeader(header: header) }
-            let length = Int(packet[offset + 1]) << 16 | Int(packet[offset + 2]) << 8 | Int(packet[offset + 3])
-            guard packet.endIndex - offset >= 4 + length else {
-                remaining = Data(packet[offset...])
-                break
-            }
-            let data = Data(packet[(offset + 4)..<(offset + 4 + length)])
+            let length = Int(buffer[offset + 1]) << 16 | Int(buffer[offset + 2]) << 8 | Int(buffer[offset + 3])
+            guard buffer.endIndex - offset >= 4 + length else { break }
+            let data = buffer.subdata(in: (offset + 4)..<(offset + 4 + length))
+            offset += 4 + length
             switch frame {
-            case .audio: audio.append(data)
+            case .audio: try add(data, part: 3)
             case .endSegment:
-                let moofData = moof.reduce(Data(), +), mdatData = mdat.reduce(Data(), +)
-                outputs.append(.segment(moofData + mdatData + video.reduce(Data(), +) + audio.reduce(Data(), +), moof: moofData, mdat: mdatData))
+                var segment = Data(capacity: segmentSize)
+                for part in parts.joined() { segment.append(part) }
+                outputs.append(.segment(segment))
             case .codecInformation: outputs.append(.codec(String(decoding: data, as: UTF8.self)))
             case .beginSegment:
-                moof = []
-                mdat = []
-                video = []
-                audio = []
+                parts = [[], [], [], []]
+                partCount = 0
+                segmentSize = 0
             case .initSegment: outputs.append(.initSegment(data))
             case .timestamp:
                 var stamps: [UInt64] = []
@@ -78,13 +85,26 @@ struct ProtectLivestreamParser: Sendable {
                     index += 8
                 }
                 outputs.append(.timestamps(stamps))
-            case .mdat: mdat.append(data)
-            case .moof: moof.append(data)
-            case .video: video.append(data)
+            case .mdat: try add(data, part: 1)
+            case .moof: try add(data, part: 0)
+            case .video: try add(data, part: 2)
             }
-            offset += 4 + length
         }
+        // Keep only the unparsed tail, copied once when packets were taken from the front.
+        if offset == buffer.endIndex {
+            buffer = Data()
+        } else if offset != buffer.startIndex {
+            buffer = buffer.subdata(in: offset..<buffer.endIndex)
+        }
+        offset = buffer.startIndex
         return outputs
+    }
+
+    private mutating func add(_ data: Data, part: Int) throws {
+        segmentSize += data.count
+        partCount += 1
+        guard segmentSize <= Self.maximumSegmentSize, partCount <= Self.maximumSegmentParts else { throw SegmentTooLarge() }
+        parts[part].append(data)
     }
 }
 
@@ -252,7 +272,11 @@ final class ProtectLivestream: @unchecked Sendable {
                         self.log.error("Invalid header found while decoding the livestream: \(error.header)")
                         self.teardown(generation: generation)
                         return
-                    } catch {}
+                    } catch {
+                        self.log.error("\(requestId): the livestream sent a segment that does not end. Restarting it.")
+                        self.teardown(generation: generation)
+                        return
+                    }
                 }
             } catch {
                 // A dropped connection ends the session like a close.
@@ -334,7 +358,7 @@ final class ProtectLivestream: @unchecked Sendable {
             state.pendingMoof = nil
             return moof + box
         }
-        if let segment { deliver(.segment(segment, moof: Data(), mdat: Data()), useStream: false) }
+        if let segment { deliver(.segment(segment), useStream: false) }
     }
 
     /// Ends the session: `close` goes to the observers once, a pending `getInitSegment()` fails.
@@ -390,7 +414,7 @@ final class ProtectLivestream: @unchecked Sendable {
             } else {
                 observers.forEach { $0(.initSegment(segment)) }
             }
-        case .segment(let segment, _, _):
+        case .segment(let segment):
             // The Homebridge plugin also emits a segment's MOOF and MDAT apart; nothing here listens to them.
             if useStream {
                 continuation?.yield(segment)

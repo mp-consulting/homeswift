@@ -51,7 +51,8 @@ final class ProtectTalkback {
         return ([
             "v=0",
             "o=- 0 0 IN " + sdpIpVersion + " 127.0.0.1",
-            "s=" + accessoryName + " Audio Talkback",
+            // A name is one line: a line break in it would add lines to the SDP.
+            "s=" + accessoryName.filter { !$0.isNewline } + " Audio Talkback",
             "c=IN " + sdpIpVersion + " " + session.address,
             "t=0 0",
             "m=audio " + String(session.audioIncomingRtpPort) + " RTP/AVP " + String(request.audio.pt),
