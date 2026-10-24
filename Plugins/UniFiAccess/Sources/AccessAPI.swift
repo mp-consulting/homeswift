@@ -262,10 +262,10 @@ actor AccessAPI {
                 let targetName = extensionJSON.removeValue(forKey: "target_name")
                 let targetValue = extensionJSON.removeValue(forKey: "target_value")
                 var door = base.merging(extensionJSON) { $1 }
-                door["alias"] = targetName.flatMap { $0.isNull ? nil : $0 } ?? .string("Unknown")
+                door["alias"] = targetName?.nonNull ?? .string("Unknown")
                 let sourceId = extensionJSON["source_id"]?.stringValue
                 door["display_model"] = .string(displayModel + (sourceId.map { " " + Self.startCase($0) } ?? ""))
-                door["location_id"] = targetValue.flatMap { $0.isNull ? nil : $0 } ?? locationId ?? .null
+                door["location_id"] = targetValue?.nonNull ?? locationId ?? .null
                 door["name"] = alias ?? .null
                 deviceList.append(AccessDevice(door))
             }

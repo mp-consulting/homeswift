@@ -88,7 +88,7 @@ struct MyDolphinClient: Sendable {
             default: status = nil
             }
             alert = json["Alert"]?.stringValue
-            data = json["Data"].flatMap { $0.isNull ? nil : $0 }
+            data = json["Data"]?.nonNull
         }
     }
 

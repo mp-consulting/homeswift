@@ -270,6 +270,13 @@ public enum JSONValue: Sendable, Hashable, Codable, CustomStringConvertible {
         if case .null = self { return true }
         return false
     }
+
+    /// The value, or nil for `null`. Use it rather than `.flatMap { $0.isNull ? nil : $0 }`: JSONValue takes nil
+    /// literals, so that closure's `nil` is `.null` again and the result is never nil.
+    public var nonNull: JSONValue? {
+        if isNull { return nil }
+        return self
+    }
 }
 
 extension JSONValue: ExpressibleByStringLiteral, ExpressibleByIntegerLiteral, ExpressibleByFloatLiteral, ExpressibleByBooleanLiteral,

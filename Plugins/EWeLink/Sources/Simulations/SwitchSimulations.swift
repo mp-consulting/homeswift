@@ -471,7 +471,8 @@ final class LightFanAccessory: BaseAccessory {
         let switchParam = DeviceCatalog.switchParamName(uiid)
         cacheState = deviceParams[switchParam] == "on" ? "on" : "off"
         if let brightness = DeviceCatalog.brightness(uiid) {
-            let raw = deviceParams[brightness.param].flatMap { $0.jsNumber == 0 || $0.isNull ? nil : $0 } ?? .number(Double(brightness.min))
+            let value = deviceParams[brightness.param]?.nonNull
+            let raw = (value?.jsNumber == 0 ? nil : value) ?? .number(Double(brightness.min))
             cacheSpeed = Double(DeviceCatalog.normalizeBrightness(uiid, Double(raw.jsParseInt ?? 0)))
         }
         service.characteristic(.on).value = .bool(cacheState == "on")

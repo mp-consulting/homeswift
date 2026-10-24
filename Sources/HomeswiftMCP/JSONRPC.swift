@@ -43,13 +43,13 @@ public enum JSONRPCMessage: Sendable, Equatable {
     public static func parse(_ value: JSONValue) throws(JSONRPCError) -> JSONRPCMessage {
         guard let object = value.objectValue else { throw .invalidRequest("a JSON-RPC message is an object") }
         guard object["jsonrpc"] == "2.0" else { throw .invalidRequest("jsonrpc must be \"2.0\"") }
-        let id = object["id"].flatMap { $0.isNull ? nil : $0 }
+        let id = object["id"]?.nonNull
         if let id, !(id.stringValue != nil || id.doubleValue != nil) {
             throw .invalidRequest("id must be a string or a number")
         }
         if let method = object["method"] {
             guard let name = method.stringValue else { throw .invalidRequest("method must be a string") }
-            let params = object["params"].flatMap { $0.isNull ? nil : $0 }
+            let params = object["params"]?.nonNull
             if let params, params.objectValue == nil, params.arrayValue == nil { throw .invalidRequest("params must be an object or an array") }
             return id.map { .request(id: $0, method: name, params: params) } ?? .notification(method: name, params: params)
         }

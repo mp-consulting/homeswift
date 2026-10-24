@@ -10,6 +10,9 @@ import Testing
         let request = try JSONRPCMessage.parse(data: Data(#"{"jsonrpc":"2.0","id":7,"method":"ping"}"#.utf8))
         #expect(request == [.request(id: 7, method: "ping", params: nil)])
         #expect(try JSONRPCMessage.parse(data: Data(#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#.utf8)) == [.notification(method: "notifications/initialized", params: nil)])
+        // null params and a null id are absent ones.
+        #expect(try JSONRPCMessage.parse(data: Data(#"{"jsonrpc":"2.0","id":8,"method":"ping","params":null}"#.utf8)) == [.request(id: 8, method: "ping", params: nil)])
+        #expect(try JSONRPCMessage.parse(data: Data(#"{"jsonrpc":"2.0","id":null,"method":"notifications/initialized"}"#.utf8)) == [.notification(method: "notifications/initialized", params: nil)])
         #expect(try JSONRPCMessage.parse(data: Data(#"{"jsonrpc":"2.0","id":"a","result":{}}"#.utf8)) == [.response(id: "a", result: [:])])
         #expect(try JSONRPCMessage.parse(data: Data(#"{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"no"}}"#.utf8)) == [.failure(id: 1, error: JSONRPCError(code: -32601, message: "no"))])
         #expect(try JSONRPCMessage.parse(data: Data(#"[{"jsonrpc":"2.0","id":1,"method":"a"},{"jsonrpc":"2.0","method":"b"}]"#.utf8)).count == 2)

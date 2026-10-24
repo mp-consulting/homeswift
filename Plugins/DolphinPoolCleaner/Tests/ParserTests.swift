@@ -112,7 +112,7 @@ import Testing
         (.string("waterline"), "water"), (.string("cove"), "cove"), (.number(7), "spot"), (.number(99), "all"), (.null, "all"),
     ])
     func cleaningModes(input: JSONValue, expected: String) {
-        #expect(ShadowParser.cleaningMode(input.isNull ? nil : input) == expected)
+        #expect(ShadowParser.cleaningMode(input.nonNull) == expected)
     }
 
     /// Numbers far outside Int's range clamp instead of trapping; sums that overflow are ignored.
