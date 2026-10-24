@@ -24,6 +24,9 @@ public final class MCPHTTPServer: Sendable {
         /// At most this many sessions: a new one ends the least recently used idle one, or is refused with 503
         /// when all are busy. The configuration's `maxSessions` when nil.
         public var maxSessions: Int?
+        /// How often an SSE stream gets a comment: it keeps proxies and client timeouts quiet, and a write that fails
+        /// is how a client gone away is found (NIO's HTTP pipeline stops reading while a response is open).
+        public var keepAliveInterval: Duration = .seconds(15)
         public var logger = Logger(label: "homeswift.mcp")
 
         public init(host: String = MCPConfiguration.defaultHost, port: Int = MCPConfiguration.defaultPort, allowedOrigins: [String] = []) {
@@ -107,6 +110,8 @@ public final class MCPHTTPServer: Sendable {
         var headers: [String: String]
         var body: Data
         var remote: String
+        /// The body was longer than `RequestHandler.maxBody`: answered 413, never parsed.
+        var tooLarge = false
     }
 
     enum Reply: Sendable {
@@ -125,6 +130,9 @@ public final class MCPHTTPServer: Sendable {
         }
         guard let principal = await authenticate(request) else {
             return .json(status: 401, body: Self.errorBody("a bearer token is required"), headers: ["WWW-Authenticate": "Bearer"])
+        }
+        if request.tooLarge {
+            return .json(status: 413, body: Self.errorBody("the request body is larger than \(RequestHandler.maxBody / (1024 * 1024)) MB"))
         }
         switch request.method {
         case .POST: return await post(request, principal: principal)
@@ -205,8 +213,10 @@ public final class MCPHTTPServer: Sendable {
             headers["Content-Type"] = "text/event-stream"
             headers["Cache-Control"] = "no-cache"
             let server = self.server
+            // A client that disconnects has not cancelled its requests (the Streamable HTTP transport's rule): they run
+            // to the end, their answers going nowhere, and the session is busy until then.
             let stream = AsyncStream<Data> { continuation in
-                let task = Task {
+                Task {
                     for message in messages {
                         for await outgoing in server.handle(message, session: session) {
                             continuation.yield(Self.event(outgoing))
@@ -214,7 +224,6 @@ public final class MCPHTTPServer: Sendable {
                     }
                     continuation.finish()
                 }
-                continuation.onTermination = { _ in task.cancel() }
             }
             return .events(status: 200, headers: headers, stream: stream)
         }
@@ -244,9 +253,11 @@ public final class MCPHTTPServer: Sendable {
         guard first else { return .json(status: 409, body: Self.errorBody("a stream is already open for this session")) }
         session.setStandingStream(true)
         let attached = self.attached
+        // This stream's own listener: when the client goes away it ends, and a later GET opens the next.
+        let messages = session.openOutbound()
         let stream = AsyncStream<Data> { continuation in
             let task = Task {
-                for await message in session.outbound {
+                for await message in messages {
                     continuation.yield(Self.event(message))
                 }
                 continuation.finish()
@@ -292,6 +303,9 @@ final class RequestHandler: ChannelInboundHandler {
     let transport: MCPHTTPServer
     private var head: HTTPRequestHead?
     private var body = Data()
+    private var tooLarge = false
+    /// The largest request body read; a longer one is answered 413 and the rest of it dropped as it arrives.
+    static let maxBody = 4 * 1024 * 1024
 
     init(transport: MCPHTTPServer) {
         self.transport = transport
@@ -302,16 +316,24 @@ final class RequestHandler: ChannelInboundHandler {
         case .head(let head):
             self.head = head
             body = Data()
-        case .body(var buffer):
-            if body.count < 4 * 1024 * 1024, let bytes = buffer.readBytes(length: buffer.readableBytes) { body.append(contentsOf: bytes) }
+            tooLarge = false
+        case .body(let buffer):
+            guard !tooLarge else { return }
+            guard body.count + buffer.readableBytes <= Self.maxBody else {
+                tooLarge = true
+                body = Data()
+                return
+            }
+            body.append(contentsOf: buffer.readableBytesView)
         case .end:
             guard let head else { return }
             var headers: [String: String] = [:]
             for (name, value) in head.headers { headers[name.lowercased()] = value }
             let request = MCPHTTPServer.Request(
                 method: head.method, path: String(head.uri.split(separator: "?", maxSplits: 1).first ?? ""), headers: headers, body: body,
-                remote: context.remoteAddress?.ipAddress ?? "?")
+                remote: context.remoteAddress?.ipAddress ?? "?", tooLarge: tooLarge)
             self.head = nil
+            body = Data()
             Self.respond(to: request, keepAlive: head.isKeepAlive, channel: context.channel, transport: transport)
         }
     }
@@ -320,11 +342,11 @@ final class RequestHandler: ChannelInboundHandler {
     private static func respond(to request: MCPHTTPServer.Request, keepAlive: Bool, channel: any Channel, transport: MCPHTTPServer) {
         Task {
             let reply = await transport.reply(to: request)
-            await write(reply, to: channel, keepAlive: keepAlive)
+            await write(reply, to: channel, keepAlive: keepAlive, interval: transport.options.keepAliveInterval)
         }
     }
 
-    private static func write(_ reply: MCPHTTPServer.Reply, to channel: any Channel, keepAlive: Bool) async {
+    private static func write(_ reply: MCPHTTPServer.Reply, to channel: any Channel, keepAlive: Bool, interval: Duration) async {
         var head = HTTPResponseHead(version: .http1_1, status: .ok)
         func finish(_ body: Data?) {
             if let body, !body.isEmpty {
@@ -352,17 +374,24 @@ final class RequestHandler: ChannelInboundHandler {
             for (name, value) in headers { head.headers.add(name: name, value: value) }
             head.headers.add(name: "Connection", value: "close")
             channel.writeAndFlush(HTTPServerResponsePart.head(head), promise: nil)
-            // A comment every 15 seconds keeps proxies and client timeouts quiet while the user is asked something.
+            // A comment every 15 seconds keeps proxies and client timeouts quiet while the user is asked something,
+            // and finds a client that went away: the write fails and NIO closes the channel.
             let keepalive = Task {
                 while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(15))
+                    try? await Task.sleep(for: interval)
                     guard !Task.isCancelled else { break }
                     channel.writeAndFlush(HTTPServerResponsePart.body(.byteBuffer(ByteBuffer(string: ": keepalive\n\n"))), promise: nil)
                 }
             }
-            for await chunk in stream {
-                channel.writeAndFlush(HTTPServerResponsePart.body(.byteBuffer(ByteBuffer(bytes: chunk))), promise: nil)
+            // A closed channel ends the stream: a standing one would otherwise stay open on a dead connection, holding
+            // its session busy (never expired, never evicted) and refusing the client's next GET.
+            let forward = Task {
+                for await chunk in stream {
+                    channel.writeAndFlush(HTTPServerResponsePart.body(.byteBuffer(ByteBuffer(bytes: chunk))), promise: nil)
+                }
             }
+            channel.closeFuture.whenComplete { _ in forward.cancel() }
+            await forward.value
             keepalive.cancel()
             channel.writeAndFlush(HTTPServerResponsePart.end(nil), promise: nil)
             channel.close(promise: nil)

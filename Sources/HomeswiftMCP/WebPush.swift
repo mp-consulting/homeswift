@@ -5,6 +5,22 @@ import HomeswiftNetwork
 /// Web Push without a dependency, as Glass UI's web-push.ts: VAPID (RFC 8292) signed with ES256, and the payload
 /// encrypted as `aes128gcm` (RFC 8188, RFC 8291) in one record.
 public enum WebPush {
+    /// The push services browsers subscribe with: Chrome and its kin (FCM), Firefox (Mozilla), Safari (Apple), Edge (WNS).
+    static let pushServiceDomains = ["fcm.googleapis.com", "android.googleapis.com", "push.services.mozilla.com", "push.apple.com", "notify.windows.com"]
+
+    /// Whether `host` (lower case) is one of `pushServiceDomains` or a name under one.
+    public static func isPushService(_ host: String) -> Bool {
+        pushServiceDomains.contains { host == $0 || host.hasSuffix("." + $0) }
+    }
+
+    /// A notification's page on the bridge: a path with a single leading slash, else the home page. The service worker
+    /// opens it on the bridge's origin, where `//host` or `/\host` would leave for another site.
+    public static func localPath(_ path: String?) -> String {
+        guard let path, path.hasPrefix("/"), !path.hasPrefix("//"), !path.hasPrefix("/\\"),
+              !path.contains(where: { $0.isNewline || $0 == "\0" }) else { return "/" }
+        return path
+    }
+
     public struct Keys: Codable, Sendable, Equatable {
         /// The uncompressed P-256 public key (65 bytes), base64url: the browser's `applicationServerKey`.
         public var publicKey: String

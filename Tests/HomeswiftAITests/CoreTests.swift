@@ -154,6 +154,11 @@ import Testing
         #expect(!redacted.contains("AIzaSyA1234567890"))
         #expect(redacted.contains("token=__REDACTED__"))
 
+        let headers = Redaction.redactText("Cookie: TOKEN=c00kie sessionId=s3ss10n X-Amz-Signature=5ig Authorization: Bearer abcdefghijklmnop")
+        for secret in ["c00kie", "s3ss10n", "5ig", "abcdefghijklmnop"] { #expect(!headers.contains(secret), "\(secret)") }
+        #expect(Redaction.isSecretKey("Authorization") && Redaction.isSecretKey("sessionId") && Redaction.isSecretKey("sid"))
+        #expect(!Redaction.isSecretKey("session") && !Redaction.isSecretKey("sensor"))
+
         let banner = "Setup code: 8518-2617\nSetup URI:  X-HM://0024VNBFDNEMH\npin=031-45-154 pass: hunter3 on 2026-10-21"
         let masked = Redaction.redactText(banner)
         #expect(!masked.contains("8518-2617"))
@@ -167,7 +172,7 @@ import Testing
     /// One pass finds what a search for each needle finds.
     @Test func hintsAreWhatEachSearchFinds() {
         let pieces = ["Bearer x", "Basic y", "sk-", "SK-", "hbg_", "AIza", "aiza", "eyJ", "X-HM://", "x-hm://", "PASS", "pin", "Setup",
-                      "secret", "TOKEN", "api", "Private", "credential", "=", ":", "123-45-678", "a123-45-678", "1234-5678", "12345-678",
+                      "secret", "TOKEN", "api", "Private", "credential", "Authorization", "cookie", "SESSION", "signature", "=", ":", "123-45-678", "a123-45-678", "1234-5678", "12345-678",
                       "plain words", " ", "2026-10-23", "_1234-5678", "Entrée"]
         var generator = SystemRandomNumberGenerator()
         for _ in 0..<3000 {
@@ -177,7 +182,7 @@ import Testing
             let lower = text.lowercased()
             func expect(_ hint: Redaction.Hints, _ found: Bool) { #expect(hints.contains(hint) == found, "\(text)") }
             expect(.separator, text.contains(":") || text.contains("="))
-            expect(.keyword, ["pass", "pin", "setup", "secret", "token", "api", "private", "credential"].contains { lower.contains($0) })
+            expect(.keyword, ["pass", "pin", "setup", "secret", "token", "api", "private", "credential", "cookie", "session", "signature"].contains { lower.contains($0) })
             expect(.bearer, text.contains("Bearer") || text.contains("Basic"))
             expect(.openAI, text.contains("sk-"))
             expect(.homebridge, text.contains("hbg_"))
@@ -195,7 +200,7 @@ import Testing
             "Basic dXNlcjpwYXNz", "token=abc", "maxOutputTokens=2048", "AIzaSyA1234567890abcdefghijklmnopqrstuv", "hbg_abcdefgh123",
             "eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2Q", "X-HM://0024VNBFDNEMH", "031-45-154", "8518-2617", "2026-10-21",
             "Sensor reading sensor=3 value=18.2", "Connection opened remote=192.168.2.151:53318", "PIN=1234", "setup code 1234-5678",
-            "private_key=abc", "credentials: {user}", "ping 3 ms", "spinning", "Entrée PIN=4321", "paßword=xyz", "KEY=v", "sk-short",
+            "private_key=abc", "credentials: {user}", "Cookie: sid=abc123", "sessionId=s3ss10n", "X-Amz-Signature=deadbeef", "authorization=xyz", "ping 3 ms", "spinning", "Entrée PIN=4321", "paßword=xyz", "KEY=v", "sk-short",
             "[Govee] [AWS] sending update {\"msg\":{\"cmd\":\"status\"}}", "", "=", ":",
             "[2026-10-23 09:22:52Z] [Homeswift] Connection opened", "123-45-678", "a123-45-678", "123-45-6789", "1234-5678x", "_1234-5678",
             "(1234-5678)", "12345-6789", "-031-45-154-", "0314-5154.", "١٢٣-٤٥-٦٧٨",

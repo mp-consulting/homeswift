@@ -99,7 +99,13 @@ public struct URLSessionTransport: HTTPTransport {
         }
         task.resume()
         session.finishTasksAndInvalidate()
-        let (status, headers) = try await delegate.response()
+        // Cancelled while waiting for the headers (a page's Stop before the provider's first byte): the request
+        // goes, instead of running until its answer or the timeout.
+        let (status, headers) = try await withTaskCancellationHandler {
+            try await delegate.response()
+        } onCancel: {
+            task.cancel()
+        }
         return HTTPStream(status: status, headers: headers, body: body)
     }
 }
@@ -156,6 +162,8 @@ final class StreamingDelegate: NSObject, URLSessionDataDelegate, @unchecked Send
             waiting?.resume(throwing: error)
             body?.finish(throwing: error)
         } else {
+            // Finished without a response: whoever waits for the headers must not wait for ever.
+            waiting?.resume(throwing: URLError(.badServerResponse))
             body?.finish()
         }
         session.finishTasksAndInvalidate()

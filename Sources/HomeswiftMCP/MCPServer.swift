@@ -37,16 +37,56 @@ public final class MCPSession: Sendable, Identifiable {
     }
 
     let state: NIOLockedValueBox<State>
-    /// Messages the server sends on its own, outside any request: resource updates, log messages.
-    public let outbound: AsyncStream<JSONRPCMessage>
-    private let outboundContinuation: AsyncStream<JSONRPCMessage>.Continuation
+
+    /// Server-initiated messages: delivered to the open listener, else kept (the newest 256) for the next one.
+    struct Outbox {
+        var queued: [JSONRPCMessage] = []
+        var listener: AsyncStream<JSONRPCMessage>.Continuation?
+        /// Which `openOutbound` the listener came from, so an older one ending does not drop a newer one.
+        var generation = 0
+        var closed = false
+    }
+
+    static let outboxLimit = 256
+    private let outbox = NIOLockedValueBox(Outbox())
 
     init(principal: Principal) {
         id = UUID().uuidString
         self.principal = principal
         state = NIOLockedValueBox(State())
-        (outbound, outboundContinuation) = AsyncStream<JSONRPCMessage>.makeStream(bufferingPolicy: .bufferingNewest(256))
     }
+
+    /// Messages the server sends on its own, outside any request (resource updates, log messages), for one
+    /// consumer at a time: a transport's standing stream (an HTTP GET). What was sent while none listened comes
+    /// first. A new one replaces the one before; one that ends (its consumer gone, its task cancelled) leaves
+    /// the session for the next, which a single stream for the session's life could not: it ends for good when
+    /// its consumer is cancelled.
+    public func openOutbound() -> AsyncStream<JSONRPCMessage> {
+        let (stream, continuation) = AsyncStream<JSONRPCMessage>.makeStream(bufferingPolicy: .bufferingNewest(Self.outboxLimit))
+        let (generation, replaced) = outbox.withLockedValue { box -> (Int?, AsyncStream<JSONRPCMessage>.Continuation?) in
+            guard !box.closed else { return (nil, nil) }
+            box.generation += 1
+            for message in box.queued { continuation.yield(message) }
+            box.queued = []
+            defer { box.listener = continuation }
+            return (box.generation, box.listener)
+        }
+        // Finished outside the lock: a stream's end runs its onTermination, which takes it.
+        replaced?.finish()
+        guard let generation else {
+            continuation.finish()
+            return stream
+        }
+        continuation.onTermination = { [outbox] _ in
+            outbox.withLockedValue { box in
+                if box.generation == generation { box.listener = nil }
+            }
+        }
+        return stream
+    }
+
+    /// `openOutbound()`: a new listener at each read.
+    public var outbound: AsyncStream<JSONRPCMessage> { openOutbound() }
 
     public var isInitialized: Bool { state.withLockedValue { $0.initialized } }
     public var protocolVersion: String? { state.withLockedValue { $0.protocolVersion } }
@@ -71,7 +111,15 @@ public final class MCPSession: Sendable, Identifiable {
 
     /// Queues a server-initiated message for the client's standing stream.
     public func send(_ message: JSONRPCMessage) {
-        outboundContinuation.yield(message)
+        outbox.withLockedValue { box in
+            guard !box.closed else { return }
+            // Taken by the listener unless it already ended (`.dropped` gives up an older message, not this one).
+            if let listener = box.listener {
+                if case .terminated = listener.yield(message) { box.listener = nil } else { return }
+            }
+            box.queued.append(message)
+            if box.queued.count > Self.outboxLimit { box.queued.removeFirst(box.queued.count - Self.outboxLimit) }
+        }
     }
 
     /// Sends a request to the client through `emit` and waits for the answer, which arrives as a response
@@ -121,7 +169,13 @@ public final class MCPSession: Sendable, Identifiable {
             return Array(state.pending.values)
         }
         for continuation in pending { continuation.resume(throwing: MCPError.sessionClosed) }
-        outboundContinuation.finish()
+        let listener = outbox.withLockedValue { box -> AsyncStream<JSONRPCMessage>.Continuation? in
+            box.closed = true
+            box.queued = []
+            defer { box.listener = nil }
+            return box.listener
+        }
+        listener?.finish()
     }
 }
 
@@ -436,18 +490,23 @@ public final class MCPServer: Sendable {
     /// A new session when there are fewer than `limit`, else after ending the least recently used idle one;
     /// nil when every session is busy.
     public func makeSession(principal: Principal, limit: Int) -> MCPSession? {
-        let evicted = sessions.withLockedValue { sessions -> (session: MCPSession?, full: Bool) in
-            guard sessions.count >= max(1, limit) else { return (nil, false) }
-            guard let oldest = sessions.values.filter(\.isIdle).min(by: { $0.lastActivity < $1.lastActivity }) else { return (nil, true) }
-            sessions.removeValue(forKey: oldest.id)
-            return (oldest, false)
+        let session = MCPSession(principal: principal)
+        // Counted and added under one lock: clients initializing at the same time cannot pass the limit together.
+        let (added, evicted) = sessions.withLockedValue { sessions -> (Bool, MCPSession?) in
+            var evicted: MCPSession?
+            if sessions.count >= max(1, limit) {
+                guard let oldest = sessions.values.filter(\.isIdle).min(by: { $0.lastActivity < $1.lastActivity }) else { return (false, nil) }
+                sessions.removeValue(forKey: oldest.id)
+                evicted = oldest
+            }
+            sessions[session.id] = session
+            return (true, evicted)
         }
-        if let session = evicted.session {
-            logger.info("MCP session evicted: too many sessions", metadata: ["session": "\(session.id)", "limit": "\(limit)"])
-            session.close()
+        if let evicted {
+            logger.info("MCP session evicted: too many sessions", metadata: ["session": "\(evicted.id)", "limit": "\(limit)"])
+            evicted.close()
         }
-        guard !evicted.full else { return nil }
-        return makeSession(principal: principal)
+        return added ? session : nil
     }
 
     public func session(id: String) -> MCPSession? {

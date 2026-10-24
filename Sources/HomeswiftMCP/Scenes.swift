@@ -563,17 +563,20 @@ extension HomeswiftCatalog {
 
     /// A characteristic changed: runs the scenes whose triggers fire, each at most once per 5 seconds.
     func characteristicChanged(_ accessory: Accessory, _ characteristic: Characteristic, _ value: HAPValue, now: Date = Date()) {
-        let key = Self.watchKey(accessory.id, characteristic.type.name)
+        // Every change of every accessory comes here: the accessory's id first, the names only for its triggers.
         let scenes = home.scenes.value.scenes
-        let watching = scenes.contains { $0.triggers.contains { $0.type == "characteristic" && $0.id == accessory.id && Self.normalized($0.characteristic ?? "") == Self.normalized(characteristic.type.name) } }
+        guard scenes.contains(where: { $0.triggers.contains { $0.type == "characteristic" && $0.id == accessory.id } }) else { return }
+        let name = Self.normalized(characteristic.type.name)
+        let watching = scenes.contains { $0.triggers.contains { $0.type == "characteristic" && $0.id == accessory.id && Self.normalized($0.characteristic ?? "") == name } }
         guard watching else { return }
+        let key = Self.watchKey(accessory.id, characteristic.type.name)
         let previous = home.watched.withLockedValue { watched -> HAPValue? in
             defer { watched.values[key] = value }
             return watched.values[key]
         }
         for scene in scenes {
             for trigger in scene.triggers where trigger.type == "characteristic" && trigger.isEnabled && trigger.id == accessory.id
-                && Self.normalized(trigger.characteristic ?? "") == Self.normalized(characteristic.type.name) {
+                && Self.normalized(trigger.characteristic ?? "") == name {
                 guard SceneRules.fires(trigger, previous: previous.map(Self.json), next: Self.json(value)) else { continue }
                 let cooldownKey = "\(scene.id)|\(key)"
                 let allowed = home.watched.withLockedValue { watched -> Bool in

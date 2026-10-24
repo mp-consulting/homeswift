@@ -46,12 +46,13 @@ extension HomeswiftCatalog {
     // MARK: Daily digest
 
     /// What the digest is written from: the status, the warnings and errors of the last `hours` (the latest 150, as
-    /// Glass UI picks them) and the accessories with their values.
+    /// Glass UI picks them, through `safe`: a confirmation code is a warning line, and the digest goes back to
+    /// clients) and the accessories with their values.
     public func digestInput(hours: Double = 24, now: Date = Date()) -> DailyDigestInput {
         let lines = logs.lines(from: now.addingTimeInterval(-hours * 3600), to: now, limit: 20_000).map(\.formatted)
         return DailyDigestInput(
             date: DailyDigestInput.today(now), status: statusJSON(),
-            logs: Array(DailyDigestInput.problemLines(lines).suffix(150)),
+            logs: DailyDigestInput.problemLines(lines).suffix(150).map(Self.safe),
             accessories: .array(located().map { Self.accessoryJSON($0, detailed: false) }))
     }
 
@@ -127,10 +128,16 @@ extension HomeswiftCatalog {
                 guard catalog.host.assistant != nil else { return .error("The Assistant is off: add a HomeswiftAiKit block") }
                 let refresh = call.bool("refresh")
                 if refresh, call.session.principal.scope < .control { return .error("refresh needs a control or admin token") }
-                let digest: JSONValue
+                var digest: JSONValue
                 if !refresh, let cached = catalog.cachedDigest() { digest = cached } else { digest = try await catalog.writeDigest(user: call.session.principal.name) }
-                // Written from log lines and device names: data for the client, never instructions.
-                return ToolResult(text: "<untrusted-data source=\"digest\">\n\(Self.safe(digest["text"]?.stringValue ?? ""))\n</untrusted-data>", structured: digest)
+                // Written from log lines and device names: data for the client, never instructions; the structured copy
+                // through `safe` too, which the text gets.
+                let text = Self.safe(digest["text"]?.stringValue ?? "")
+                if var object = digest.objectValue {
+                    object["text"] = .string(text)
+                    digest = .object(object)
+                }
+                return ToolResult(text: "<untrusted-data source=\"digest\">\n\(text)\n</untrusted-data>", structured: digest)
             },
             MCPTool(
                 name: "truncate_logs", title: "Empty the log",

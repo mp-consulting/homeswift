@@ -251,6 +251,10 @@ extension HomeswiftCatalog {
         guard let endpoint = body["endpoint"]?.stringValue, endpoint.count <= 2048, let url = URL(string: endpoint), url.scheme == "https", url.host?.isEmpty == false, url.user == nil else {
             throw CatalogError("The push endpoint must be an https URL")
         }
+        // The bridge posts to the endpoint: only the browsers' push services, so a user cannot point it at a LAN address.
+        guard let host = url.host?.lowercased(), url.port == nil || url.port == 443, WebPush.isPushService(host) else {
+            throw CatalogError("The push endpoint is not a known browser push service")
+        }
         guard let p256dh = body["keys"]?["p256dh"]?.stringValue, let auth = body["keys"]?["auth"]?.stringValue,
               WebPush.data(base64url: p256dh)?.count == 65, WebPush.data(base64url: auth)?.count == 16 else { throw CatalogError("Invalid push subscription keys") }
         let label = String((body["label"]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty ?? url.host ?? "browser").prefix(100))
@@ -260,6 +264,9 @@ extension HomeswiftCatalog {
         try home.notifications.update { settings in
             settings.subscriptions.removeAll { $0.endpoint == endpoint }
             guard settings.subscriptions.count < 20 else { throw CatalogError("At most 20 devices can receive browser notifications") }
+            guard settings.subscriptions.count(where: { $0.username == username }) < 5 else {
+                throw CatalogError("At most 5 devices per user can receive browser notifications")
+            }
             settings.subscriptions.append(subscription)
         }
         return Self.subscriptionJSON(subscription)
@@ -282,7 +289,7 @@ extension HomeswiftCatalog {
         guard let keys = settings.webPushKeys, keys.isValid, !targets.isEmpty else { throw CatalogError(endpoint != nil ? "This browser is not subscribed" : "No browser is subscribed") }
         let payload: JSONValue = [
             "title": .string("\(instanceName): \(message.title)"), "body": .string(NotificationRules.truncate(message.message, NotificationRules.pushBodyMax)),
-            "tag": .string(message.event.rawValue), "path": .string(message.path ?? "/"), "urgent": .bool(message.urgent),
+            "tag": .string(message.event.rawValue), "path": .string(WebPush.localPath(message.path)), "urgent": .bool(message.urgent),
         ]
         let http = home.http
         var gone: [String] = [], errors: [String] = []
@@ -452,9 +459,9 @@ extension HomeswiftCatalog {
         let day = DailyDigestInput.today(now, timeZone: calendar.timeZone)
         if settings.isOn(.dailyDigest), time == settings.dailyDigestTime, home.dispatch.withLockedValue({ $0.digestDay }) != day, let assistant = host.assistant {
             home.dispatch.withLockedValue { $0.digestDay = day }
-            let input = DailyDigestInput(
-                date: day, status: statusJSON(), logs: DailyDigestInput.problemLines(logs.recent(2000, level: .trace).filter { now.timeIntervalSince($0.date) < 86_400 }.map(\.formatted)),
-                accessories: .array(located().map { Self.accessoryJSON($0, detailed: false) }))
+            // get_daily_digest's input, whose lines go through `safe` (a confirmation code is a warning line).
+            var input = digestInput(now: now)
+            input.date = day
             do {
                 let digest = try await assistant.dailyDigest(input).text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !digest.isEmpty { await notify(.dailyDigest, title: "Daily digest", message: digest, subject: day, now: now) }

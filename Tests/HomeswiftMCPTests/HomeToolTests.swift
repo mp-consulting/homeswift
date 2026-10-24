@@ -359,8 +359,13 @@ struct NotificationTests {
 
         let browser = P256.KeyAgreement.PrivateKey()
         let auth = Data((0..<16).map { UInt8($0) })
-        let endpoint = "https://push.example.com/send/abc"
-        #expect(throws: CatalogError.self) { try catalog.subscribeToPush(["endpoint": "http://push.example.com/x", "keys": ["p256dh": "x", "auth": "y"]], username: "me") }
+        let endpoint = "https://fcm.googleapis.com/fcm/send/abc"
+        let keys: JSONValue = ["p256dh": .string(WebPush.base64url(browser.publicKey.x963Representation)), "auth": .string(WebPush.base64url(auth))]
+        #expect(throws: CatalogError.self) { try catalog.subscribeToPush(["endpoint": "http://fcm.googleapis.com/x", "keys": keys], username: "me") }
+        // The bridge posts to the endpoint: never to a host of the user's choosing.
+        for elsewhere in ["https://192.168.1.10/x", "https://router.local/x", "https://fcm.googleapis.com.evil.example/x", "https://fcm.googleapis.com:8443/x"] {
+            #expect(throws: CatalogError.self, "\(elsewhere)") { try catalog.subscribeToPush(["endpoint": .string(elsewhere), "keys": keys], username: "me") }
+        }
         let subscription = try catalog.subscribeToPush([
             "endpoint": .string(endpoint), "keys": ["p256dh": .string(WebPush.base64url(browser.publicKey.x963Representation)), "auth": .string(WebPush.base64url(auth))], "label": "Safari on macOS",
         ], username: "me")
@@ -397,6 +402,21 @@ struct NotificationTests {
         sender.status = 410
         _ = try await catalog.sendTestNotification(channel: .browser)
         #expect(catalog.home.notifications.value.subscriptions.isEmpty)
+
+        // One user fills at most five of the twenty places.
+        for index in 0..<5 {
+            _ = try catalog.subscribeToPush(["endpoint": .string("https://web.push.apple.com/\(index)"), "keys": keys], username: "me")
+        }
+        #expect(throws: CatalogError.self) { try catalog.subscribeToPush(["endpoint": "https://web.push.apple.com/6", "keys": keys], username: "me") }
+        _ = try catalog.subscribeToPush(["endpoint": "https://updates.push.services.mozilla.com/wpush/v2/x", "keys": keys], username: "other")
+    }
+
+    @Test func notificationsOpenPagesOnTheBridgeOnly() {
+        #expect(WebPush.localPath("/notifications") == "/notifications")
+        #expect(WebPush.localPath("/logs/homeswift?since=24h") == "/logs/homeswift?since=24h")
+        for elsewhere in [nil, "", "//evil.example", "/\\evil.example", "https://evil.example", "notifications", "/a\nb"] {
+            #expect(WebPush.localPath(elsewhere) == "/", "\(String(describing: elsewhere))")
+        }
     }
 
     /// Glass UI's encryptPayload (Node's crypto) with these keys and salt gives this record.

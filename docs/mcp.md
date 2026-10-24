@@ -208,6 +208,9 @@ plugins are compiled into the binary.
   the session, the token's name and scope, `dryRun` and `notConfirmed`; the file rotates at 5 MB.
 - **Sessions** belong to the token that opened them and expire after `sessionIdleMinutes` (30) idle
   minutes; there are at most `maxSessions` (32), the least recently used idle one making room for a new one.
+  A session answering a request or holding a stream is busy; a client that disconnects ends its standing
+  stream, while the requests it sent run to the end (a disconnection does not cancel them). A request body
+  over 4 MB is refused with 413.
 
 Configuration changes apply at once, plugin blocks reloading in place; the answer lists what still needs a
 restart (the bridge block, the runtime's own blocks, child bridges). The tools back up the previous

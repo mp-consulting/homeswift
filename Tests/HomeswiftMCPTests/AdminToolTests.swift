@@ -47,6 +47,21 @@ private let accept: JSONValue = ["action": "accept", "content": ["confirm": true
         // Not tar at all.
         #expect(throws: Tar.FormatError.self) { try Tar.read(Data(repeating: 65, count: 2048)) }
     }
+
+    /// A GNU base-256 size of Int.max is refused, not added to the offset (which trapped).
+    @Test func refusesASizePastTheEnd() throws {
+        var header = [UInt8](repeating: 0, count: 512)
+        for (index, byte) in "storage/huge".utf8.enumerated() { header[index] = byte }
+        for (index, byte) in "0000644\0".utf8.enumerated() { header[100 + index] = byte }
+        header[124] = 0x80
+        header[128] = 0x7f
+        for index in 129..<136 { header[index] = 0xff }
+        header[156] = UInt8(ascii: "0")
+        for index in 148..<156 { header[index] = 32 }
+        let sum = String(header.reduce(0) { $0 + Int($1) }, radix: 8)
+        for (index, byte) in (String(repeating: "0", count: 6 - sum.count) + sum + "\0 ").utf8.enumerated() { header[148 + index] = byte }
+        #expect(throws: Tar.FormatError.self) { try Tar.read(Data(header + [UInt8](repeating: 0, count: 1024))) }
+    }
 }
 
 @Suite struct InstanceBackupTests {

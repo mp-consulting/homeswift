@@ -129,7 +129,8 @@ public enum Tar {
             let size = try number(header, at: 124, length: 12)
             let type = header[header.startIndex + 156]
             let start = offset + block
-            guard size >= 0, start + size <= bytes.count else { throw FormatError("an entry runs past the end of the archive") }
+            // Compared without adding: a base-256 size near Int.max would overflow `start + size` and trap.
+            guard size >= 0, size <= bytes.count - start else { throw FormatError("an entry runs past the end of the archive") }
             let body = Data(bytes[start..<(start + size)])
             offset = start + (size + block - 1) / block * block
             switch type {
