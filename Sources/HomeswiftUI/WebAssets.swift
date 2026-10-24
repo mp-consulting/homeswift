@@ -5566,7 +5566,7 @@ enum WebAssets {
 </div>
 <div id="app" class="hidden">
   <header>
-    <a class="brand" href="/"><img src="/icon.svg" class="logo" alt="">Homeswift</a>
+    <a class="brand" href="/" aria-label="Homeswift" title="Homeswift"><img src="/icon.svg" class="logo" alt=""></a>
     <nav>
       <a href="/status">Status</a>
       <a href="/accessories">Accessories</a>

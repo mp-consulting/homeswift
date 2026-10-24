@@ -706,7 +706,7 @@ extension UniFiAccessPlugin {
 </style>
 </head>
 <body>
-<header><a class="brand" href="/"><img src="/icon.svg" class="logo" alt="">Homeswift</a></header>
+<header><a class="brand" href="/" aria-label="Homeswift" title="Homeswift"><img src="/icon.svg" class="logo" alt=""></a></header>
 <main>
   <div class="page-head">
     <span class="tile large accessory" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 21V4a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v17"/><path d="M3 21h18"/><circle cx="15" cy="12.5" r="1"/></svg></span>
