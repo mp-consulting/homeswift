@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Web UI, Users: adding or editing a user and making an API token happen in a side panel at the right, the page
+  dimmed behind it (a sheet from the bottom on a phone, with a grabber); it leaves the way it came, a touch can
+  swipe it away, and focus goes back to what opened it, or to the card just added or changed, lit for a moment.
+  A small + beside the Users and API tokens headings opens it. The cards show the role as a badge and dates that
+  fit ("24 Oct 2026", the time in the tooltip); the password gauge unfolds once there is a password; Copy says
+  "Copied", or selects the token when the browser refuses.
+- Web UI: on a wallpaper, a page's title, a section's heading and the text outside the cards sit on a plate of the
+  header's material, readable on a light wallpaper (Sunset) as on a dark one.
+
 ### Fixed
 
 - Web UI: an API token set to expire Never was refused ("a token expires after 1 to 3650 days, or never"). In
