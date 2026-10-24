@@ -692,7 +692,7 @@ extension DysonPureCoolPlugin {
 </style>
 </head>
 <body>
-<header><a class="brand" href="/"><img src="/icon.svg" class="logo" alt="">Homeswift</a></header>
+<header><a class="brand" href="/" aria-label="Homeswift" title="Homeswift"><img src="/icon.svg" class="logo" alt=""></a></header>
 <main>
   <div class="page-head">
     <span class="tile large dyson" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" opacity="0.35"/><circle cx="12" cy="12" r="6" opacity="0.6"/><circle cx="12" cy="12" r="3"/></svg></span>
