@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Web UI: the Accessories wall fills its row: as many columns of 160 points or more as fit, widened to end where the
+  header ends, instead of a strip left empty at the right.
 - Web UI: an account menu at the header's right end, your initial on the accent: who is signed in and as what, Your
   account, Appearance, Users and tokens (administrators) and Sign out; Users leaves the header's links, and the
   Assistant's button is its sparkle alone. On a phone the

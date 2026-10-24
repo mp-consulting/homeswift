@@ -543,6 +543,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
   :root { --heat: #ff8d3a; --cool: #4aa3ff; --auto: #3ccf7a; --track: rgba(255, 255, 255, 0.12); --tile-on: rgba(255, 255, 255, 0.92); --knob: #f3f4f7; }
 }
 .accessory-walls { container-type: inline-size; }
+/* --unit until widgets.js sets each wall's from its width (the columns that fit, widened to fill it). */
 .wall { --unit: min(160px, calc((100cqw - var(--unit-gap)) / 2)); display: grid; grid-template-columns: repeat(auto-fill, var(--unit)); grid-auto-rows: var(--unit);
   grid-auto-flow: row dense; gap: var(--unit-gap); }
 .wall > .widget { width: auto; height: auto; }
