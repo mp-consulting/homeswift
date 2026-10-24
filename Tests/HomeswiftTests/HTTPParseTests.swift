@@ -62,7 +62,7 @@ import Testing
             // A slice of a larger buffer too, whose indices do not start at zero.
             let sliced = (Data("junk".utf8) + bytes).dropFirst(4)
             for input in [bytes, Data(sliced)] + [sliced] {
-                #expect(Self.outcome(HTTPRequest.parse, input) == Self.outcome(Self.reference, input), "\(head.debugDescription)")
+                #expect(Self.outcome({ try HTTPRequest.parse(&$0) }, input) == Self.outcome(Self.reference, input), "\(head.debugDescription)")
             }
         }
         // Two requests in one buffer: the first comes off, the second stays.

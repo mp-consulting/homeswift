@@ -10,7 +10,8 @@ import NIOCore
 final class HAPConnection: @unchecked Sendable {
     enum Work {
         case data(ByteBuffer)
-        case event(HTTPResponse)
+        /// An event, serialized once for every connection it goes to.
+        case event(Data)
     }
 
     /// What to do after a response has gone out.
@@ -21,12 +22,12 @@ final class HAPConnection: @unchecked Sendable {
     }
 
     struct Shared {
+        /// When bytes last came in or went out, for the idle check (`HAPServer.closeIdleConnections`).
+        var lastActivity = NIODeadline.now()
         var controllerID: String?
         var isAdmin = false
         var subscriptions: Set<CharacteristicKey> = []
-        /// By registration token, so a stream or session that ends first removes its own.
-        var closeHandlers: [Int: @Sendable () -> Void] = [:]
-        var nextCloseHandler = 0
+        var closeHandlers = CloseHandlers()
         var closed = false
     }
 
@@ -69,6 +70,11 @@ final class HAPConnection: @unchecked Sendable {
     var controllerID: String? { shared.withLockedValue { $0.controllerID } }
     var isAdmin: Bool { shared.withLockedValue { $0.isAdmin } }
     var isVerified: Bool { session != nil }
+    var lastActivity: NIODeadline { shared.withLockedValue { $0.lastActivity } }
+
+    /// The largest body before pair verify: pair setup's and pair verify's TLVs take a few hundred bytes, and a
+    /// connection nobody verified must not make the server hold a megabyte.
+    static let maxUnverifiedBody = 16 * 1024
 
     init(channel: any Channel, server: HAPServer) {
         self.channel = channel
@@ -82,18 +88,18 @@ final class HAPConnection: @unchecked Sendable {
         for await work in stream {
             switch work {
             case .data(let buffer):
+                shared.withLockedValue { $0.lastActivity = .now() }
                 raw.append(contentsOf: buffer.readableBytesView)
                 await processInbound()
-            case .event(let response):
+            case .event(let message):
                 guard session != nil else { continue }
-                write(response.serialized(protocol: "EVENT/1.0"))
+                write(message)
             }
         }
         server.unregister(self)
         let handlers = shared.withLockedValue { shared in
             shared.closed = true
-            defer { shared.closeHandlers = [:] }
-            return shared.closeHandlers.sorted { $0.key < $1.key }.map(\.value)
+            return shared.closeHandlers.takeAll()
         }
         for handler in handlers { handler() }
         server.logger.debug("Connection closed", metadata: ["controller": "\(controllerID ?? "-")"])
@@ -110,9 +116,7 @@ final class HAPConnection: @unchecked Sendable {
     func onClose(_ handler: @escaping @Sendable () -> Void) -> Int? {
         let token = shared.withLockedValue { shared -> Int? in
             guard !shared.closed else { return nil }
-            shared.nextCloseHandler += 1
-            shared.closeHandlers[shared.nextCloseHandler] = handler
-            return shared.nextCloseHandler
+            return shared.closeHandlers.add(handler)
         }
         if token == nil { handler() }
         return token
@@ -120,7 +124,7 @@ final class HAPConnection: @unchecked Sendable {
 
     /// Drops a close handler whose stream or session ended before the connection.
     func removeCloseHandler(_ token: Int) {
-        _ = shared.withLockedValue { $0.closeHandlers.removeValue(forKey: token) }
+        shared.withLockedValue { $0.closeHandlers.remove(token) }
     }
 
     /// What handlers may know of this connection while they serve one of its requests.
@@ -143,8 +147,9 @@ final class HAPConnection: @unchecked Sendable {
         return address
     }
 
-    func sendEvent(_ response: HTTPResponse) {
-        continuation.yield(.event(response))
+    /// Queues an event message (`HTTPResponse.serialized(protocol: "EVENT/1.0")`).
+    func sendEvent(_ message: Data) {
+        continuation.yield(.event(message))
     }
 
     func isSubscribed(to key: CharacteristicKey) -> Bool {
@@ -167,7 +172,7 @@ final class HAPConnection: @unchecked Sendable {
     private func processInbound() async {
         do {
             try drainRaw()
-            while let request = try HTTPRequest.parse(&plain) {
+            while let request = try HTTPRequest.parse(&plain, maxBody: isVerified ? HTTPRequest.maxBody : Self.maxUnverifiedBody) {
                 let (response, after) = await handle(request)
                 write(response.serialized())
                 switch after {
@@ -199,6 +204,7 @@ final class HAPConnection: @unchecked Sendable {
     }
 
     private func write(_ data: Data) {
+        shared.withLockedValue { $0.lastActivity = .now() }
         do {
             let out = session != nil ? try session!.encrypt(data) : data
             channel.writeAndFlush(ByteBuffer(bytes: out), promise: nil)

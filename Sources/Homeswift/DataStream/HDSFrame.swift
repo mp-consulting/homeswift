@@ -26,13 +26,18 @@ enum HDSFrame {
 
     enum FrameError: Error { case payloadTooLong }
 
+    /// The payload length in the header of the frame at `start`, whose four bytes `buffer` holds.
+    static func payloadLength(_ buffer: Data, at start: Int) -> Int {
+        Int(buffer[start + 1]) << 16 | Int(buffer[start + 2]) << 8 | Int(buffer[start + 3])
+    }
+
     /// Takes every complete frame off the front of `buffer`; frames of another type are skipped.
     static func split(_ buffer: inout Data) throws -> [Sealed] {
         var frames: [Sealed] = []
         var start = buffer.startIndex
         while buffer.endIndex - start >= 4 {
             let type = buffer[start]
-            let length = Int(buffer[start + 1]) << 16 | Int(buffer[start + 2]) << 8 | Int(buffer[start + 3])
+            let length = payloadLength(buffer, at: start)
             guard length <= maxPayloadLength else { throw FrameError.payloadTooLong }
             guard buffer.endIndex - start - 4 >= length + 16 else { break }
             let payload = start + 4

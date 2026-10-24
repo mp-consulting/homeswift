@@ -235,9 +235,7 @@ final class DataStreamConnection: @unchecked Sendable {
         var readCounter: UInt64 = 0
         var writeCounter: UInt64 = 0
         var protocolHandlers: [String: ProtocolHandler] = [:]
-        /// By registration token, so a recording stream that ends first removes its own.
-        var closeHandlers: [Int: @Sendable () -> Void] = [:]
-        var nextCloseHandler = 0
+        var closeHandlers = CloseHandlers()
         var helloTimer: Task<Void, Never>?
         /// The close handler on the HAP connection the session was set up on.
         var hapCloseRegistration: HAPRequestContext.CloseRegistration?
@@ -279,11 +277,10 @@ final class DataStreamConnection: @unchecked Sendable {
             state.state = .closed
             state.helloTimer?.cancel()
             defer {
-                state.closeHandlers = [:]
                 state.protocolHandlers = [:]
                 state.hapCloseRegistration = nil
             }
-            return (state.closeHandlers.sorted { $0.key < $1.key }.map(\.value), state.hapCloseRegistration)
+            return (state.closeHandlers.takeAll(), state.hapCloseRegistration)
         }
         // The HAP connection outlives this socket: it must not keep a handler for it.
         registration?.remove()
@@ -297,16 +294,14 @@ final class DataStreamConnection: @unchecked Sendable {
     func onClose(_ handler: @escaping @Sendable () -> Void) -> Int? {
         let token = state.withLockedValue { state -> Int? in
             guard state.state != .closed else { return nil }
-            state.nextCloseHandler += 1
-            state.closeHandlers[state.nextCloseHandler] = handler
-            return state.nextCloseHandler
+            return state.closeHandlers.add(handler)
         }
         if token == nil { handler() }
         return token
     }
 
     func removeCloseHandler(_ token: Int) {
-        _ = state.withLockedValue { $0.closeHandlers.removeValue(forKey: token) }
+        state.withLockedValue { $0.closeHandlers.remove(token) }
     }
 
     func addProtocolHandler(_ proto: String, _ handler: ProtocolHandler) -> Bool {
@@ -371,8 +366,18 @@ final class DataStreamConnection: @unchecked Sendable {
 
     // MARK: Receiving
 
+    /// The first frame of a socket is the controller's hello, a few dozen bytes: a longer one is not waited for, so
+    /// sockets that never identify cannot each make the server hold a megabyte for the ten seconds they have.
+    static let maxUnidentifiedFrame = 4096
+
     private func onSocketData() {
         guard !isConsideredClosed else { return }
+        if buffer.count >= 4, state.withLockedValue({ $0.state == .unidentified }) {
+            guard HDSFrame.payloadLength(buffer, at: buffer.startIndex) <= Self.maxUnidentifiedFrame else {
+                close()
+                return
+            }
+        }
         var frames: [HDSFrame.Sealed]
         do {
             frames = try HDSFrame.split(&buffer)

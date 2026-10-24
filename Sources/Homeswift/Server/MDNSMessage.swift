@@ -6,18 +6,19 @@ import Foundation
 
 /// A domain name as its labels. Compared without regard to ASCII case, as DNS does.
 struct DNSName: Hashable, CustomStringConvertible, Sendable {
-    var labels: [String]
+    let labels: [String]
+    /// The labels lowercased, for comparing and hashing: made once, as every query compares names many times.
+    let key: String
 
     init(_ labels: [String]) {
         self.labels = labels
+        key = labels.map { $0.lowercased() }.joined(separator: "\u{0}")
     }
 
     /// A dotted name such as `_hap._tcp.local`; an instance label containing dots goes in `labels` instead.
     init(dotted: String) {
-        labels = dotted.split(separator: ".").map(String.init)
+        self.init(dotted.split(separator: ".").map(String.init))
     }
-
-    var key: String { labels.map { $0.lowercased() }.joined(separator: "\u{0}") }
 
     static func == (lhs: DNSName, rhs: DNSName) -> Bool { lhs.key == rhs.key }
     func hash(into hasher: inout Hasher) { hasher.combine(key) }

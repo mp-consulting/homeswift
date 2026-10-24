@@ -33,10 +33,12 @@ struct SecureSession {
             let end = plaintext.index(offset, offsetBy: Self.maxFrame, limitedBy: plaintext.endIndex) ?? plaintext.endIndex
             let length = UInt16(end - offset)
             let aad = Data([UInt8(length & 0xFF), UInt8(length >> 8)])
-            let sealed = try HAPCrypto.seal(plaintext[offset..<end], key: writeKey, nonce: HAPCrypto.nonce(counter: writeCounter), aad: aad)
+            // Sealed and appended part by part: `HAPCrypto.seal` would join the ciphertext and tag in a copy first.
+            let sealed = try ChaChaPoly.seal(plaintext[offset..<end], using: writeKey, nonce: HAPCrypto.nonce(counter: writeCounter), authenticating: aad)
             writeCounter += 1
             out.append(aad)
-            out.append(sealed)
+            out.append(sealed.ciphertext)
+            out.append(sealed.tag)
             offset = end
         } while offset < plaintext.endIndex
         return out

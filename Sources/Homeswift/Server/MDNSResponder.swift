@@ -54,7 +54,20 @@ final class MDNSResponder: @unchecked Sendable {
         var name: String
         /// IPv4 addresses, 4 bytes each.
         var addresses: [[UInt8]]
+        /// The netmask of each address, in the same order; an address without one (a test's interface) takes
+        /// packets from anywhere.
+        var netmasks: [[UInt8]?] = []
         var channel: (any Channel)?
+
+        /// Whether `source` is on one of the interface's networks (ciao's check, RFC 6762 §11): a packet from
+        /// elsewhere reached port 5353 by unicast, and answering it would make the bridge a reflector.
+        func isOnLink(_ source: SocketAddress) -> Bool {
+            guard case .v4 = source, let ip = source.ipAddress, let bytes = MDNSResponder.parseIPv4(ip) else { return false }
+            return addresses.indices.contains { index in
+                guard index < netmasks.count, let mask = netmasks[index] else { return true }
+                return (0..<4).allSatisfy { bytes[$0] & mask[$0] == addresses[index][$0] & mask[$0] }
+            }
+        }
     }
 
     // Everything below is used on `loop` only.
@@ -64,6 +77,9 @@ final class MDNSResponder: @unchecked Sendable {
     private var nextID = 1
     private var filter: [String] = []
     private var refreshTask: RepeatedTask?
+    /// When each record last went out by multicast in answer to a query, by interface: RFC 6762 §6 allows it once a
+    /// second, so a flood of queries cannot make the bridge flood the network.
+    private var lastMulticast: [Int: [DNSRecord: NIODeadline]] = [:]
     private var logger = Logger(label: "homeswift.mdns")
     /// Sends instead of the sockets, for tests: the interface index, the destination and the packet.
     var send: (@Sendable (Int, SocketAddress, [UInt8]) -> Void)?
@@ -125,6 +141,7 @@ final class MDNSResponder: @unchecked Sendable {
                 refreshTask = nil
                 let channels = interfaces.values.compactMap(\.channel)
                 interfaces = [:]
+                lastMulticast = [:]
                 return EventLoopFuture.andAllComplete(channels.map { $0.close() }, on: loop)
             }
         }
@@ -245,7 +262,7 @@ final class MDNSResponder: @unchecked Sendable {
     // MARK: Incoming packets
 
     func received(_ bytes: [UInt8], from source: SocketAddress, interface index: Int) {
-        guard let interface = interfaces[index], let message = try? DNSMessage(bytes: bytes) else { return }
+        guard let interface = interfaces[index], interface.isOnLink(source), let message = try? DNSMessage(bytes: bytes) else { return }
         if message.isResponse {
             checkConflicts(in: message)
         } else {
@@ -328,10 +345,11 @@ final class MDNSResponder: @unchecked Sendable {
         func add(_ record: DNSRecord, to list: inout [DNSRecord]) {
             if !list.contains(where: { $0.sameData(as: record) }) { list.append(record) }
         }
+        // Built once for the query, not for each of its questions.
+        let owned = announced.map { (service: $0, records: records(of: $0, on: interface)) }
         for question in query.questions {
             let wants = { (type: UInt16) in question.type == type || question.type == DNSType.any }
-            for service in announced {
-                let own = records(of: service, on: interface)
+            for (service, own) in owned {
                 switch question.name {
                 case Self.serviceEnumeration where wants(DNSType.ptr):
                     add(own.enumeration, to: &answers)
@@ -372,6 +390,15 @@ final class MDNSResponder: @unchecked Sendable {
         } else if query.questions.allSatisfy(\.unicastResponse) {
             _ = transmit(DNSMessage(isResponse: true, answers: answers, additionals: additionals).encode(), to: source, on: interface)
         } else {
+            // Not a record more than once a second on an interface, but at once for a probe (RFC 6762 §6).
+            if query.authorities.isEmpty {
+                let now = NIODeadline.now()
+                var recent = (lastMulticast[interface.index] ?? [:]).filter { now - $0.value < .seconds(1) }
+                answers.removeAll { recent[$0] != nil }
+                for record in answers { recent[record] = now }
+                lastMulticast[interface.index] = recent
+                guard !answers.isEmpty else { return }
+            }
             let response = DNSMessage(isResponse: true, answers: answers, additionals: additionals)
             // Shared records go out after 20–120 ms, so the answers of several responders can merge (§6).
             if answers.contains(where: { $0.type == DNSType.ptr }) {
@@ -414,12 +441,16 @@ final class MDNSResponder: @unchecked Sendable {
         for (index, current) in interfaces where wanted[index] == nil {
             current.channel?.close(promise: nil)
             interfaces[index] = nil
+            lastMulticast[index] = nil
         }
         for (index, interface) in wanted {
             if var current = interfaces[index] {
-                guard current.addresses != interface.addresses else { continue }
+                guard current.addresses != interface.addresses || current.netmasks != interface.netmasks else { continue }
+                let moved = current.addresses != interface.addresses
                 current.addresses = interface.addresses
+                current.netmasks = interface.netmasks
                 interfaces[index] = current
+                guard moved else { continue }
                 for service in services.values where service.isAnnounced { announce(service) }
                 continue
             }
@@ -489,6 +520,7 @@ final class MDNSResponder: @unchecked Sendable {
             }
             var interface = result[device.interfaceIndex] ?? Interface(index: device.interfaceIndex, name: device.name, addresses: [])
             interface.addresses.append(bytes)
+            interface.netmasks.append(device.netmask?.ipAddress.flatMap(parseIPv4))
             result[device.interfaceIndex] = interface
         }
         return result
