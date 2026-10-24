@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The web UI in French, Spanish (Spain) and Portuguese (Portugal), as well as English: every page, plugins' own
+  pages and the server's error messages. The language follows the browser, or each user picks theirs under
+  Appearance or from the flags in the account menu; it is saved with their other preferences. The Assistant
+  answers in it. homeswift.dev has French, Spanish and Portuguese pages too. docs/translations.md explains the
+  `t()` strings, the catalogs, and how a plugin's page translates its own.
+
 ### Changed
 
 - Web UI on a phone: a card's ⋯ menu opens as a sheet from the bottom of the screen, never cut off at the top,
@@ -23,6 +31,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Plugins' own pages (UniFi Protect and Access, Govee, Elgato…) showed only their Form and JSON since 0.6.1: the
+  web UI's Content-Security-Policy said `base-uri 'none'`, so browsers ignored the page's `<base>` and its scripts
+  were not found. It is `base-uri 'self'` now.
 - Web UI: the Status page's sections took the accessory widgets' padding and clipping, which left an empty band
   under the figures and cut the digest card's shadow; a plugin form's list (an Elgato's devices) ran off a phone's
   screen, its Remove out of reach; a page's title and line were squeezed to a word a line beside its tools on a

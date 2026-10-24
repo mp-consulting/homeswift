@@ -5,6 +5,7 @@
 (() => {
   "use strict";
   const { $, el, request, explain, breadcrumb, readBlock, updateBlock } = homeswift;
+  const { t, tn } = HomeswiftI18n;
 
   const screens = ["controllers-screen", "discovery-screen", "setup-screen", "options-screen", "support-screen"];
   const categoryColors = { AccessMethod: "#fd7e14", Controller: "#6f42c1", Device: "#0d6efd", Hub: "#20c997", Log: "#6c757d" };
@@ -76,7 +77,7 @@
     const list = $("#controllers");
     const all = controllers();
     if (!all.length) {
-      list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: "No controllers configured yet. Add one to get started." })));
+      list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("No controllers configured yet. Add one to get started.") })));
       return;
     }
     let live = [];
@@ -85,10 +86,10 @@
   }
 
   function controllerCard(ctrl, index, live) {
-    const status = el("span", { class: "pill status standby", text: "Checking…" });
+    const status = el("span", { class: "pill status standby", text: t("Checking…") });
     const slot = el("div");
     const liveText = live
-      ? (live.connected ? `Connected · ${live.devices.length} device${live.devices.length === 1 ? "" : "s"} in HomeKit` : "Not connected yet: see the log.")
+      ? (live.connected ? tn("Connected · {n} device in HomeKit", "Connected · {n} devices in HomeKit", live.devices.length) : t("Not connected yet: see the log."))
       : "";
     // The card's actions in its menu, bottom right, as on the other pages' cards.
     const card = el("div", { class: "card controller" },
@@ -98,15 +99,15 @@
         status),
       slot,
       el("div", { class: "card-foot" },
-        el("span", { class: "muted", text: liveText || "Not running" }),
-        HomeswiftCommon.menuButton(`Actions for ${ctrl.name || ctrl.address}`, () => [
-          { label: "Feature options", icon: "sliders", onSelect: () => openOptions(index) },
-          { label: "Edit", icon: "edit", onSelect: () => openSetup(index) },
-          { label: "Remove", icon: "trash", danger: true, onSelect: () => removeController(index) },
+        el("span", { class: "muted", text: liveText || t("Not running") }),
+        HomeswiftCommon.menuButton(t("Actions for {name}", { name: ctrl.name || ctrl.address }), () => [
+          { label: t("Feature options"), icon: "sliders", onSelect: () => openOptions(index) },
+          { label: t("Edit"), icon: "edit", onSelect: () => openSetup(index) },
+          { label: t("Remove"), icon: "trash", danger: true, onSelect: () => removeController(index) },
         ])));
     request("status", { method: "POST", body: { address: ctrl.address } }).then((result) => {
       status.className = `pill status ${result.online ? "on" : "away"}`;
-      status.textContent = result.online ? "Online" : "Offline";
+      status.textContent = result.online ? t("Online") : t("Offline");
       if (!result.online) {
         slot.replaceChildren(explain({
           error: "The controller did not answer an HTTPS request on port 443 within 5 seconds (status check from the Homeswift server), so it is shown as Offline.",
@@ -116,17 +117,17 @@
       }
     }).catch(() => {
       status.className = "pill status standby";
-      status.textContent = "Unknown";
+      status.textContent = t("Unknown");
     });
     return card;
   }
 
   async function removeController(index) {
     const ctrl = controllers()[index];
-    if (!confirm(`Remove ${ctrl.name || ctrl.address}? Its devices leave HomeKit.`)) return;
+    if (!confirm(t("Remove {name}? Its devices leave HomeKit.", { name: ctrl.name || ctrl.address }))) return;
     try {
       await writeBlock((current) => { (current.controllers || []).splice(index, 1); });
-    } catch (e) { alert(`Unable to remove the controller: ${e.message}`); }
+    } catch (e) { alert(t("Unable to remove the controller: {message}", { message: e.message })); }
     renderControllers();
   }
 
@@ -134,9 +135,9 @@
     $("#cancel-discovery").classList.toggle("hidden", !controllers().length);
     $("#discovered").replaceChildren();
     show("discovery-screen");
-    breadcrumb("Add a controller", backToControllers);
+    breadcrumb(t("Add a controller"), backToControllers);
   });
-  $("#open-support").addEventListener("click", () => { show("support-screen"); breadcrumb("Support", backToControllers); });
+  $("#open-support").addEventListener("click", () => { show("support-screen"); breadcrumb(t("Support"), backToControllers); });
   $("#back-from-support").addEventListener("click", backToControllers);
 
   function backToControllers() {
@@ -150,7 +151,7 @@
 
   const discoveryContext = "Discovering UniFi consoles from the plugin's page with the Ubiquiti discovery protocol (UDP port 10001 broadcast on the local subnets plus a unicast scan of nearby /24 subnets, 5 seconds).";
 
-  $("#discover").addEventListener("click", (event) => act(event.currentTarget, "Searching…", async () => {
+  $("#discover").addEventListener("click", (event) => act(event.currentTarget, t("Searching…"), async () => {
     const container = $("#discovered");
     container.replaceChildren();
     try {
@@ -158,19 +159,19 @@
       const configured = controllers().map((c) => c.address);
       const available = devices.filter((d) => !configured.includes(d.ip));
       if (!available.length) {
-        const message = devices.length ? "All discovered devices are already configured." : "No devices found. Make sure your UniFi console is on and connected.";
+        const message = devices.length ? t("All discovered devices are already configured.") : t("No devices found. Make sure your UniFi console is on and connected.");
         container.replaceChildren(el("p", { class: `status-line ${devices.length ? "ok" : "error"}`, text: message }),
           devices.length ? null : explain({ error: message, context: discoveryContext }));
         return;
       }
-      container.replaceChildren(el("h2", { text: "Found devices" }), el("div", { class: "found" }, available.map((device) =>
+      container.replaceChildren(el("h2", { text: t("Found devices") }), el("div", { class: "found" }, available.map((device) =>
         el("button", { type: "button", class: "card item", onclick: () => openSetup(null, device.ip) },
           el("span", { class: "tile accessory", "aria-hidden": "true" }, HomeswiftCommon.icon("inputs")),
           el("div", {}, el("strong", { text: device.name }),
             el("div", { class: "muted", text: [device.ip, device.model, device.mac].filter(Boolean).join(" · ") })),
-          el("span", { class: "pill", text: "Select" })))));
+          el("span", { class: "pill", text: t("Select") })))));
     } catch (e) {
-      container.replaceChildren(el("p", { class: "status-line error", text: `Discovery error: ${e.message}` }),
+      container.replaceChildren(el("p", { class: "status-line error", text: t("Discovery error: {message}", { message: e.message }) }),
         explain({ error: scrub(`Discovery error: ${e.message}`), context: discoveryContext }));
     }
   }));
@@ -182,8 +183,8 @@
   function openSetup(index, prefill) {
     editingIndex = index;
     const ctrl = index === null ? {} : controllers()[index];
-    $("#setup-title").textContent = index === null ? "Add a UniFi Access controller" : "Edit controller";
-    $("#setup-subtitle").textContent = index === null ? "Enter your UniFi Access controller details and login credentials." : `Editing ${ctrl.name || ctrl.address}`;
+    $("#setup-title").textContent = index === null ? t("Add a UniFi Access controller") : t("Edit controller");
+    $("#setup-subtitle").textContent = index === null ? t("Enter your UniFi Access controller details and login credentials.") : t("Editing {name}", { name: ctrl.name || ctrl.address });
     $("#address").value = prefill || ctrl.address || "";
     $("#username").value = ctrl.username || "";
     $("#password").value = ctrl.password || "";
@@ -197,7 +198,7 @@
     $("#setup-explain").replaceChildren();
     $("#cancel-setup").classList.toggle("hidden", index === null && !controllers().length);
     show("setup-screen");
-    breadcrumb(index === null ? "Add a controller" : `Edit ${ctrl.name || ctrl.address}`, backToControllers);
+    breadcrumb(index === null ? t("Add a controller") : t("Edit {name}", { name: ctrl.name || ctrl.address }), backToControllers);
     (prefill ? $("#username") : $("#address")).focus();
   }
 
@@ -230,7 +231,7 @@
     // Passwords may begin or end with spaces.
     const password = $("#password").value;
     if (!address || !username || !password) {
-      say("Please fill in all fields.");
+      say(t("Please fill in all fields."));
       return;
     }
     const explainError = (message) => $("#setup-explain").replaceChildren(explain({
@@ -238,13 +239,13 @@
       context: "Logging in to the UniFi Access controller and loading its devices (bootstrap) from the plugin's page failed.",
       device: assistantController({ mqttUrl: $("#mqtt-url").value.trim(), mqttVerifyTls: $("#mqtt-verify-tls").checked, verifyTls: $("#verify-tls").checked }),
     }));
-    act($("#save-controller"), "Validating…", async () => {
+    act($("#save-controller"), t("Validating…"), async () => {
       say("");
       $("#setup-explain").replaceChildren();
       try {
         const answer = await request("devices", { method: "POST", body: { address, username, password, verifyTls: $("#verify-tls").checked } });
         if (!answer.devices?.length) {
-          const message = `Unable to connect. ${answer.error || "Check your address and credentials."}`;
+          const message = t("Unable to connect. {reason}", { reason: answer.error ? HomeswiftI18n.message(answer.error) : t("Check your address and credentials.") });
           say(message);
           explainError(message);
           return;
@@ -259,11 +260,11 @@
         });
         breadcrumb(null);
         show("controllers-screen");
-        $("#controllers-note").textContent = adding ? "Controller added." : "Controller updated.";
+        $("#controllers-note").textContent = adding ? t("Controller added.") : t("Controller updated.");
         renderControllers();
       } catch (e) {
-        say(`Error: ${e.message}`);
-        explainError(`Error: ${e.message}`);
+        say(t("Error: {message}", { message: e.message }));
+        explainError(t("Error: {message}", { message: e.message }));
       }
     });
   });
@@ -276,6 +277,8 @@
     working: [], saved: "[]", open: new Set(),
   };
 
+  /// A scope's name on the badge of an option set at that scope.
+  const scopeNames = { global: t("global"), controller: t("controller"), device: t("device") };
   const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const optionKey = (category, opt) => category.name + (opt.name ? `.${opt.name}` : "");
 
@@ -285,8 +288,8 @@
     options.working = [...(block.options || [])];
     options.saved = JSON.stringify(options.working);
     show("options-screen");
-    breadcrumb(`Feature options of ${ctrl.name || ctrl.address}`, backToControllers);
-    $("#options-title").textContent = `Feature options · ${ctrl.name || ctrl.address}`;
+    breadcrumb(t("Feature options of {name}", { name: ctrl.name || ctrl.address }), backToControllers);
+    $("#options-title").textContent = t("Feature options · {name}", { name: ctrl.name || ctrl.address });
     $("#options-loading").classList.remove("hidden");
     $("#options").replaceChildren();
     $("#options-problem").replaceChildren();
@@ -315,12 +318,12 @@
           if (device.capabilities?.includes("is_hub") || device.capabilities?.includes("is_reader")) options.devices.push(device);
         }
       } else {
-        showOptionsProblem(ctrl, `Unable to load the devices of this controller. ${answer.error || "Check its address and credentials."}`);
+        showOptionsProblem(ctrl, t("Unable to load the devices of this controller. {reason}", { reason: answer.error ? HomeswiftI18n.message(answer.error) : t("Check its address and credentials.") }));
       }
       buildScopes(ctrl);
       renderOptions();
     } catch (e) {
-      showOptionsProblem(ctrl, `Failed to load: ${e.message}`);
+      showOptionsProblem(ctrl, t("Failed to load: {message}", { message: e.message }));
     } finally {
       $("#options-loading").classList.add("hidden");
     }
@@ -338,12 +341,12 @@
   function buildScopes(ctrl) {
     const select = $("#scope");
     const previous = select.value;
-    select.replaceChildren(el("option", { value: "global", text: "Global options" }));
-    if (options.controllerId) select.append(el("option", { value: `controller:${options.controllerId}`, text: `Controller: ${ctrl.name || ctrl.address}` }));
+    select.replaceChildren(el("option", { value: "global", text: t("Global options") }));
+    if (options.controllerId) select.append(el("option", { value: `controller:${options.controllerId}`, text: t("Controller: {name}", { name: ctrl.name || ctrl.address }) }));
     const hubs = options.devices.filter((d) => d.capabilities?.includes("is_hub"));
     // A device that is a hub and a reader is listed once, with the hubs.
     const readers = options.devices.filter((d) => d.capabilities?.includes("is_reader") && !d.capabilities.includes("is_hub"));
-    for (const [label, items] of [["Hubs", hubs], ["Readers", readers]]) {
+    for (const [label, items] of [[t("Hubs"), hubs], [t("Readers"), readers]]) {
       if (!items.length) continue;
       select.append(el("optgroup", { label }, items.map((d) => el("option", { value: `device:${d.serialNumber}`, text: d.name }))));
     }
@@ -364,9 +367,9 @@
     const order = ["global", "controller", "device"];
     const active = order.indexOf(type);
     const hints = {
-      global: ["Editing this scope", "Inherits global", "Inherits global"],
-      controller: ["Base values", "Editing this scope", "Inherits controller"],
-      device: ["Base values", "Intermediate", "Editing this scope"],
+      global: [t("Editing this scope"), t("Inherits global"), t("Inherits global")],
+      controller: [t("Base values"), t("Editing this scope"), t("Inherits controller")],
+      device: [t("Base values"), t("Intermediate"), t("Editing this scope")],
     };
     document.querySelectorAll("#cascade .level").forEach((level, i) => {
       level.classList.toggle("active", i === active);
@@ -442,7 +445,7 @@
       const head = el("div", { class: "category-head", role: "button", tabIndex: 0, "aria-expanded": String(isOpen) },
         el("span", { class: "category-icon", text: categoryLetters[category.name] || "•" }),
         el("span", { class: "title", text: category.description.replace(/ feature options\.?/i, "") }),
-        el("span", { class: "count", text: `${enabled}/${list.length} on` }),
+        el("span", { class: "count", text: t("{enabled}/{total} on", { enabled, total: list.length }) }),
         el("span", { class: "progress" }, el("span", {})),
         modified ? el("span", { class: "pill", text: String(modified) }) : null,
         el("span", { class: "chevron", text: "›" }));
@@ -458,7 +461,7 @@
       cards.push(card);
     }
     if (!cards.length) {
-      cards.push(el("p", { class: "muted", text: modifiedOnly ? "No modified options" : search ? "No options match your search" : "No options available" }));
+      cards.push(el("p", { class: "muted", text: modifiedOnly ? t("No modified options") : search ? t("No options match your search") : t("No options available") }));
     }
     container.replaceChildren(...cards);
     $("#modified-count").textContent = totalModified ? `(${totalModified})` : "";
@@ -475,10 +478,10 @@
     }
     panel.classList.remove("hidden");
     panel.replaceChildren(el("div", { class: "facts info" },
-      el("div", { class: "fact" }, el("span", { text: "Model" }), el("b", { text: device.model || device.display_model || "—" })),
-      el("div", { class: "fact" }, el("span", { text: "Serial" }), el("b", { text: device.serialNumber })),
-      el("div", { class: "fact" }, el("span", { text: "IP" }), el("b", { text: device.ip || "N/A" })),
-      el("div", { class: "fact" }, el("span", { text: "Status" }), el("b", { class: device.is_online ? "ok" : "error", text: device.is_online ? "Connected" : "Disconnected" }))));
+      el("div", { class: "fact" }, el("span", { text: t("Model") }), el("b", { text: device.model || device.display_model || "—" })),
+      el("div", { class: "fact" }, el("span", { text: t("Serial") }), el("b", { text: device.serialNumber })),
+      el("div", { class: "fact" }, el("span", { text: "IP" }), el("b", { text: device.ip || t("N/A") })),
+      el("div", { class: "fact" }, el("span", { text: t("Status") }), el("b", { class: device.is_online ? "ok" : "error", text: device.is_online ? t("Connected") : t("Disconnected") }))));
     const problem = deviceProblem(device);
     $("#device-problem").replaceChildren(...(problem ? [explain({
       error: problem,
@@ -499,28 +502,29 @@
     const checkbox = el("input", { type: "checkbox", checked: state.enabled, "aria-label": key });
     checkbox.addEventListener("change", () => { setOption(key, checkbox.checked, scope, opt); renderOptions(); });
     const badge = state.explicit
-      ? el("span", { class: "badge scope", text: scope.type })
-      : state.scope === "controller" ? el("span", { class: "badge inherited", text: "↓ controller" })
-        : state.scope === "global" && scope.type !== "global" ? el("span", { class: "badge inherited", text: "↓ global" }) : null;
+      ? el("span", { class: "badge scope", text: scopeNames[scope.type] ?? scope.type })
+      : state.scope === "controller" ? el("span", { class: "badge inherited", text: t("↓ controller") })
+        : state.scope === "global" && scope.type !== "global" ? el("span", { class: "badge inherited", text: t("↓ global") }) : null;
     let valueRow = null;
     if (opt.defaultValue !== undefined && state.enabled) {
       const unit = (opt.description.match(/\bin (seconds?|minutes?|hours?)\b/i) || [])[1] || "";
-      const input = el("input", { type: "number", min: "0", step: "1", value: String(state.value ?? opt.defaultValue), "aria-label": `${key} value` });
+      const units = { second: t("second"), seconds: t("seconds"), minute: t("minute"), minutes: t("minutes"), hour: t("hour"), hours: t("hours") };
+      const input = el("input", { type: "number", min: "0", step: "1", value: String(state.value ?? opt.defaultValue), "aria-label": t("{key} value", { key }) });
       input.addEventListener("change", () => {
         const value = parseInt(input.value, 10);
         if (!isNaN(value) && value >= 0) { setOption(key, true, scope, opt, value); renderOptions(); }
       });
-      valueRow = el("div", { class: "value-row" }, input, unit ? el("span", { class: "muted", text: unit }) : null,
-        el("span", { class: "muted", text: `(default: ${opt.defaultValue})` }));
+      valueRow = el("div", { class: "value-row" }, input, unit ? el("span", { class: "muted", text: units[unit.toLowerCase()] ?? unit }) : null,
+        el("span", { class: "muted", text: t("(default: {value})", { value: opt.defaultValue }) }));
     }
     const row = el("div", { class: `option ${scopeClass} ${grouped ? "grouped" : ""}` },
       el("label", { class: "switch" }, checkbox, el("span")),
       el("div", { class: "text" },
         el("div", { class: "name" }, el("span", { text: label }),
-          el("span", { class: `badge ${opt.default ? "default-on" : ""}`, text: `default: ${opt.default ? "on" : "off"}` }), badge),
+          el("span", { class: `badge ${opt.default ? "default-on" : ""}`, text: opt.default ? t("default: on") : t("default: off") }), badge),
         el("div", { class: "description", text: opt.description }),
         valueRow),
-      state.explicit ? el("button", { class: "reset", text: "Reset", title: "Reset to the inherited value", onclick: () => { removeOption(key, scope); renderOptions(); } }) : null);
+      state.explicit ? el("button", { class: "reset", text: t("Reset"), title: t("Reset to the inherited value"), onclick: () => { removeOption(key, scope); renderOptions(); } }) : null);
     return row;
   }
 
@@ -549,7 +553,7 @@
   /// Leaving the options screen: false when the person keeps unsaved changes.
   function leaveOptions() {
     if ($("#options-screen").classList.contains("hidden") || !optionsDirty()) return true;
-    if (!confirm("Discard the changes to the feature options?")) return false;
+    if (!confirm(t("Discard the changes to the feature options?"))) return false;
     options.working = JSON.parse(options.saved);
     updateSaveBar();
     return true;
@@ -561,15 +565,32 @@
   $("#modified-only").addEventListener("change", renderOptions);
   $("#back-from-options").addEventListener("click", backToControllers);
   $("#discard-options").addEventListener("click", () => { options.working = JSON.parse(options.saved); updateSaveBar(); renderOptions(); });
-  $("#save-options").addEventListener("click", (event) => act(event.currentTarget, "Saving…", async () => {
+  $("#save-options").addEventListener("click", (event) => act(event.currentTarget, t("Saving…"), async () => {
     try {
       const working = [...options.working];
       await writeBlock((current) => { if (working.length) current.options = working; else delete current.options; });
       options.saved = JSON.stringify(working);
       updateSaveBar();
-    } catch (e) { alert(`Unable to save the feature options: ${e.message}`); }
+    } catch (e) { alert(t("Unable to save the feature options: {message}", { message: e.message })); }
   }));
   addEventListener("beforeunload", (event) => { if (!$("#options-screen").classList.contains("hidden") && optionsDirty()) event.preventDefault(); });
+
+  // MARK: Sentences of the page with elements in them (links, code): the translation's {0}, {1}… are the
+  // element's children, in order. The links have data-i18n for their own text.
+
+  function sentence(node, text) {
+    const parts = [...node.children];
+    node.replaceChildren(...text.split(/\{(\d+)\}/).map((part, i) => (i % 2 ? parts[Number(part)] : part)));
+  }
+  sentence($("#local-account"), t("{0} Ubiquiti.com and UI.com accounts are not supported. Create one in the {1} tab of your UniFi console."));
+  sentence($("#support-about"), t("A port of {0} to {1}. If you find it useful, consider starring the projects on GitHub."));
+  sentence($("#support-readme"), t("{0} in Homeswift, and what differs from Homebridge."));
+  sentence($("#support-options"), t("{0}: options to set per controller or device."));
+  sentence($("#support-mqtt"), t("{0}: the topics published and accepted."));
+  sentence($("#support-changelog"), t("{0} of the Homebridge plugin this one follows."));
+  sentence($("#support-discord"), t("{0} of the UniFi plugins."));
+  sentence($("#support-issues"), t("{0} for the Homebridge plugin's behaviour, or {1} for this port."));
+  sentence($("#support-log"), t("The Homeswift log (the Logs page) shows what the plugin sees; feature option {0} entries turn event logging on and off."));
 
   // MARK: Start
 

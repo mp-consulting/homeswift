@@ -147,6 +147,11 @@ scopes, schema checks, confirmations and the audit log are the MCP server's. A d
 run first; its answer goes on the page's confirmation card, and the user's choice answers the session's
 elicitation. `docs/ui.md` describes the chat.
 
+The web UI's requests (the chat, explain, ask, Log Doctor, the digest, room suggestions, the config copilot)
+carry the page's language as `Accept-Language`; for French, Spanish or Portuguese the Assistant is told to
+answer in it (`Prompts.answerLanguage`, `AssistantService.speaking`), and the day's digest is kept per language.
+The command line and the MCP server leave the language to the model.
+
 ## What goes to the provider
 
 - **Secrets never.** Configuration values under keys such as `password`, `token`, `apiKey`, `pin` are

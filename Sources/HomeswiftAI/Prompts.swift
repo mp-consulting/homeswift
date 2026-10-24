@@ -81,6 +81,20 @@ public enum Prompts {
         }
     }
 
+    /// The instruction to answer in the language of the web UI's reader, by its BCP 47 tag ("fr-FR", "pt"): nil for
+    /// English and for languages the UI does not speak, which the model then picks by itself.
+    public static func answerLanguage(_ tag: String?) -> String? {
+        let language: String
+        switch tag?.lowercased().split(separator: "-").first {
+        case "fr": language = "French"
+        case "es": language = "Spanish, as written in Spain"
+        case "pt": language = "European Portuguese, as written in Portugal"
+        default: return nil
+        }
+        return "Write your answers in \(language), whatever the language of the logs, data and tool results."
+            + " Keep configuration keys, plugin names, accessory names, code and quoted log lines as they are."
+    }
+
     /// The connection test's one-word request.
     public static let connectionTest = "Reply with the single word OK."
 

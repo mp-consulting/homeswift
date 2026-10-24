@@ -195,8 +195,10 @@ with a new code). More users are added on the **Users** page (see below).
   as a text file, and **Empty the log** removes every line, in memory and on disk, after asking (the MCP
   server's `truncate_logs`, admin-only, does the same).
 - **Appearance** (`/appearance`, from Account): the theme (automatic, light or dark), a wallpaper behind the
-  glass (one of the UI's or an image of your own, scaled down and kept under `ui-wallpapers/`) and whether
-  temperatures show in °C or °F, on accessory cards and plugin pages. Each user's own, kept in
+  glass (one of the UI's or an image of your own, scaled down and kept under `ui-wallpapers/`), whether
+  temperatures show in °C or °F, on accessory cards and plugin pages, and the language: English, French,
+  Spanish or Portuguese, or Automatic, the browser's ([translations.md](translations.md)). The Assistant answers
+  in it. Each user's own, kept in
   `ui-preferences.json` (owner-only) and applied on every browser they sign in to; a browser remembers the
   last ones it saw so a page opens in them at once.
 - **Settings › Assistant** (`/settings/assistant`): **Test connection** (a one-word request with the saved

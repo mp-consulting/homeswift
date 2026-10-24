@@ -7,6 +7,7 @@
     $, el, tile, request, platform, explain, breadcrumb, api, act,
     updateDevice, putDevice, findDevice, setKey, poll, renderKeyed, canonicalMAC, isMAC, sameMAC,
   } = homeswift;
+  const { t, tn } = HomeswiftI18n;
 
   // MARK: Your TVs
 
@@ -22,15 +23,15 @@
   };
 
   function tvCard(tv) {
-    const state = tv.on ? ["On", "on"] : tv.reachable ? ["Standby", "standby"] : ["Not responding", "away"];
-    const updates = tv.longPoll === "confirmed" ? "Updates pushed by the TV" : tv.longPoll === "waiting" ? "Waiting for the TV's push" : "Polling for changes";
+    const state = tv.on ? [t("On"), "on"] : tv.reachable ? [t("Standby"), "standby"] : [t("Not responding"), "away"];
+    const updates = tv.longPoll === "confirmed" ? t("Updates pushed by the TV") : tv.longPoll === "waiting" ? t("Waiting for the TV's push") : t("Polling for changes");
     const body = tv.on
       ? el("div", { class: "facts" },
-        el("div", { class: "fact" }, el("span", { text: "Input" }), el("b", { text: tv.currentInput ?? tv.currentApp ?? "—", title: tv.currentApp ?? "" })),
-        el("div", { class: "fact" }, el("span", { text: "Ambilight" }), el("b", { text: tv.ambilight ? styleName(tv.ambilightStyle) : "Off" })),
-        el("div", { class: "fact" }, el("span", { text: "Sound" }), el("b", { text: tv.muted ? "Muted" : "On" })))
+        el("div", { class: "fact" }, el("span", { text: t("Input") }), el("b", { text: tv.currentInput ?? tv.currentApp ?? "—", title: tv.currentApp ?? "" })),
+        el("div", { class: "fact" }, el("span", { text: "Ambilight" }), el("b", { text: tv.ambilight ? styleName(tv.ambilightStyle) : t("Off") })),
+        el("div", { class: "fact" }, el("span", { text: t("Sound") }), el("b", { text: tv.muted ? t("Muted") : t("On") })))
       : el("div", { class: "off-note" },
-        el("p", { text: tv.reachable ? "In standby. Its input and Ambilight show once it is on." : "Off, or not on the network. Wake sends a Wake-on-LAN packet." }),
+        el("p", { text: tv.reachable ? t("In standby. Its input and Ambilight show once it is on.") : t("Off, or not on the network. Wake sends a Wake-on-LAN packet.") }),
         tv.reachable ? null : explain({
           error: `The TV ${tv.name} does not answer at ${tv.ip}.`,
           context: "The Homeswift plugin polls the Philips TV's JointSpace API over HTTPS on port 1926; after two polls without an answer the TV is shown as not responding.",
@@ -43,29 +44,30 @@
         el("span", { class: `pill status ${state[1]}`, text: state[0] })),
       body,
       HomeswiftRemote.build({
-        actions: Object.keys(tvKeys), label: `Remote for ${tv.name}`, disabled: !tv.reachable,
+        actions: Object.keys(tvKeys), label: t("Remote for {name}", { name: tv.name }), disabled: !tv.reachable,
         send: (action) => request("key", { method: "POST", body: { mac: tv.mac, key: tvKeys[action] } }),
         extra: [
           tv.on
-            ? keyButton(tv, "Standby", "Turn off")
-            : el("button", { class: "primary", text: "Wake", onclick: (event) => act(event.currentTarget, () => request(`wake?mac=${encodeURIComponent(tv.mac)}`, { method: "POST" })) }),
+            ? keyButton(tv, "Standby", t("Turn off"))
+            : el("button", { class: "primary", text: t("Wake"), onclick: (event) => act(event.currentTarget, () => request(`wake?mac=${encodeURIComponent(tv.mac)}`, { method: "POST" })) }),
           keyButton(tv, "AmbilightOnOff", "Ambilight"),
         ],
       }),
       el("div", { class: "tv-foot muted" },
-        el("span", { text: `${tv.inputs} inputs · ${updates} · Certificate ${tv.pinned ? "pinned" : "not pinned, pair again to pin it"}` }),
+        el("span", { text: [tn("{n} input", "{n} inputs", tv.inputs), updates, tv.pinned ? t("Certificate pinned") : t("Certificate not pinned, pair again to pin it")].join(" · ") }),
         // The same menu as the Accessories page's cards, with what this page adds.
-        HomeswiftCommon.menuButton(`Actions for ${tv.name}`, () => [
-          { label: "Inputs", icon: "inputs", onSelect: () => openSources(tv) },
-          { label: "Edit", icon: "edit", onSelect: () => openEditor(tv) },
-          { label: "Show its log", icon: "logs", href: `/logs/${encodeURIComponent(`${platform}:${tv.mac}`)}` },
-          window.HomeswiftChat?.available() ? { label: "Ask the Assistant", icon: HomeswiftCommon.sparkle(), onSelect: () => HomeswiftChat.ask(`About my TV ${tv.name}: `) } : null,
-          { label: "Remove", icon: "trash", danger: true, onSelect: () => removeTV(tv).catch((e) => alert(e.message)) },
+        HomeswiftCommon.menuButton(t("Actions for {name}", { name: tv.name }), () => [
+          { label: t("Inputs"), icon: "inputs", onSelect: () => openSources(tv) },
+          { label: t("Edit"), icon: "edit", onSelect: () => openEditor(tv) },
+          { label: t("Show its log"), icon: "logs", href: `/logs/${encodeURIComponent(`${platform}:${tv.mac}`)}` },
+          window.HomeswiftChat?.available() ? { label: t("Ask the Assistant"), icon: HomeswiftCommon.sparkle(), onSelect: () => HomeswiftChat.ask(t("About my TV {name}: ", { name: tv.name })) } : null,
+          { label: t("Remove"), icon: "trash", danger: true, onSelect: () => removeTV(tv).catch((e) => alert(e.message)) },
         ])));
   }
 
   /// `FOLLOW_VIDEO` as "Follow video"; nil as "On".
-  const styleName = (style) => style ? style.replaceAll("_", " ").toLowerCase().replace(/^./, (c) => c.toUpperCase()) : "On";
+  const styleNames = { FOLLOW_VIDEO: t("Follow video"), FOLLOW_AUDIO: t("Follow audio"), FOLLOW_COLOR: t("Follow color"), "LOUNGE LIGHT": t("Lounge light") };
+  const styleName = (style) => style ? styleNames[style] ?? style.replaceAll("_", " ").toLowerCase().replace(/^./, (c) => c.toUpperCase()) : t("On");
 
   // A card drawn again because its TV changed (an input, the sound) stays still: only a TV new to the page
   // arrives with the material's animation.
@@ -83,7 +85,7 @@
       if (tvs.length === 0) {
         if (!list.querySelector(".empty")) {
           list.replaceChildren(el("div", { class: "card empty" },
-            el("p", { class: "muted", text: "No TV yet. Switch your TV on, then add it above." })));
+            el("p", { class: "muted", text: t("No TV yet. Switch your TV on, then add it above.") })));
         }
         if (!pairingOpened) openPairing(false);
         return;
@@ -102,16 +104,16 @@
   // pool; names edited in place. Nothing is written until Save, since a save reloads the plugin.
 
   const sourcesCard = $("#sources");
-  const kindLabels = { tv: "TV", home: "Home", hdmi: "HDMI", channel: "Channel", app: "App", custom: "Custom" };
+  const kindLabels = { tv: "TV", home: t("Home"), hdmi: "HDMI", channel: t("Channel"), app: t("App"), custom: t("Custom") };
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   let editing = null;   // { tv, sources: [{ id, name, kind, customName, visible }], saved: JSON }
 
   async function openSources(tv) {
     if (!closeEditor()) return;
     editing = { tv, sources: [], saved: "" };
-    breadcrumb(`Inputs of ${tv.name}`, closeSources);
+    breadcrumb(t("Inputs of {name}", { name: tv.name }), closeSources);
     sourcesCard.classList.remove("hidden");
-    sourcesCard.replaceChildren(el("p", { class: "muted", text: `Loading the inputs of ${tv.name}…` }));
+    sourcesCard.replaceChildren(el("p", { class: "muted", text: t("Loading the inputs of {name}…", { name: tv.name }) }));
     sourcesCard.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth", block: "start" });
     try {
       const { sources } = await request(`sources?mac=${encodeURIComponent(tv.mac)}`);
@@ -126,7 +128,7 @@
 
   /// Closes the inputs editor; false when the person keeps unsaved changes.
   function closeSources() {
-    if (editing && isDirty() && !confirm("Discard the changes to the inputs?")) return false;
+    if (editing && isDirty() && !confirm(t("Discard the changes to the inputs?"))) return false;
     if (editing) breadcrumb(null);
     editing = null;
     sourcesCard.classList.add("hidden");
@@ -141,33 +143,33 @@
   function renderSources() {
     const shown = shownSources();
     const hidden = hiddenSources();
-    const shownList = el("ol", { class: "sources", "aria-label": "Shown inputs, in order" }, shown.map((source) => sourceRow(source, true)));
-    const hiddenList = el("ul", { class: "sources pool", "aria-label": "Hidden inputs" }, hidden.map((source) => sourceRow(source, false)));
+    const shownList = el("ol", { class: "sources", "aria-label": t("Shown inputs, in order") }, shown.map((source) => sourceRow(source, true)));
+    const hiddenList = el("ul", { class: "sources pool", "aria-label": t("Hidden inputs") }, hidden.map((source) => sourceRow(source, false)));
     const dirty = isDirty();
     sourcesCard.replaceChildren(
       el("div", { class: "panel-head" },
-        el("div", {}, el("h2", { text: `Inputs of ${editing.tv.name}` }),
-          el("p", { class: "muted", text: editing.note ?? "The order of the input wheel in the Home app. Drag a row by its handle, or press Alt and an arrow key. Click a name to rename it." })),
+        el("div", {}, el("h2", { text: t("Inputs of {name}", { name: editing.tv.name }) }),
+          el("p", { class: "muted", text: editing.note ?? t("The order of the input wheel in the Home app. Drag a row by its handle, or press Alt and an arrow key. Click a name to rename it.") })),
         el("div", { class: "head-actions" },
-          el("button", { class: "link", text: "Refresh from TV", title: "Read the TV's apps again", onclick: (event) => act(event.currentTarget, refreshSources) }),
-          el("button", { class: "link", text: "Close", onclick: closeSources }))),
+          el("button", { class: "link", text: t("Refresh from TV"), title: t("Read the TV's apps again"), onclick: (event) => act(event.currentTarget, refreshSources) }),
+          el("button", { class: "link", text: t("Close"), onclick: closeSources }))),
       el("div", { class: "panel-columns" },
-        el("section", {}, el("div", { class: "column-head" }, el("span", { class: "pill status on", text: `Shown · ${shown.length}` }), el("span", { class: "muted", text: "drag to reorder" })),
-          shown.length ? shownList : el("p", { class: "muted empty-list", text: "No input is shown." })),
-        el("section", {}, el("div", { class: "column-head" }, el("span", { class: "pill status standby", text: `Hidden · ${hidden.length}` }), el("span", { class: "muted", text: "+ shows an input" })),
-          hidden.length ? hiddenList : el("p", { class: "muted empty-list", text: "Every input is shown." }))),
+        el("section", {}, el("div", { class: "column-head" }, el("span", { class: "pill status on", text: t("Shown · {n}", { n: shown.length }) }), el("span", { class: "muted", text: t("drag to reorder") })),
+          shown.length ? shownList : el("p", { class: "muted empty-list", text: t("No input is shown.") })),
+        el("section", {}, el("div", { class: "column-head" }, el("span", { class: "pill status standby", text: t("Hidden · {n}", { n: hidden.length }) }), el("span", { class: "muted", text: t("+ shows an input") })),
+          hidden.length ? hiddenList : el("p", { class: "muted empty-list", text: t("Every input is shown.") }))),
       el("div", { class: `save-bar ${dirty ? "dirty" : ""}` },
-        el("span", { class: "muted", text: dirty ? "Unsaved changes" : "Saved. The Home app shows this order." }),
-        el("button", { class: "link", text: "Reset to the TV's order", onclick: (event) => act(event.currentTarget, resetSources) }),
-        el("button", { text: "Discard", disabled: !dirty, onclick: () => { editing.sources = JSON.parse(editing.saved); renderSources(); } }),
-        el("button", { class: "primary", text: "Save", disabled: !dirty, onclick: (event) => act(event.currentTarget, saveSources) })));
+        el("span", { class: "muted", text: dirty ? t("Unsaved changes") : t("Saved. The Home app shows this order.") }),
+        el("button", { class: "link", text: t("Reset to the TV's order"), onclick: (event) => act(event.currentTarget, resetSources) }),
+        el("button", { text: t("Discard"), disabled: !dirty, onclick: () => { editing.sources = JSON.parse(editing.saved); renderSources(); } }),
+        el("button", { class: "primary", text: t("Save"), disabled: !dirty, onclick: (event) => act(event.currentTarget, saveSources) })));
     if (shown.length) enableSorting(shownList);
   }
 
   function sourceRow(source, shown) {
     const name = el("input", {
       class: "source-name", value: source.customName || source.name, placeholder: source.name, maxLength: 64,
-      "aria-label": `Name of ${source.name}`, spellcheck: false,
+      "aria-label": t("Name of {name}", { name: source.name }), spellcheck: false,
     });
     name.addEventListener("change", () => {
       const typed = name.value.trim();
@@ -177,8 +179,8 @@
     });
     name.addEventListener("keydown", (event) => { if (event.key === "Enter") name.blur(); });
     const toggle = el("button", {
-      class: "icon-button", text: shown ? "×" : "+", title: shown ? "Hide" : "Show",
-      "aria-label": `${shown ? "Hide" : "Show"} ${source.customName || source.name}`,
+      class: "icon-button", text: shown ? "×" : "+", title: shown ? t("Hide") : t("Show"),
+      "aria-label": shown ? t("Hide {name}", { name: source.customName || source.name }) : t("Show {name}", { name: source.customName || source.name }),
       onclick: () => {
         source.visible = !shown;
         // A shown input joins the end of the wheel; a hidden one goes to the end of the pool.
@@ -192,10 +194,10 @@
       shown ? handle() : null,
       el("span", { class: `kind ${source.kind}`, text: kindLabels[source.kind] ?? source.kind }),
       name,
-      source.customName ? el("span", { class: "original muted", text: source.name, title: "The name the TV gives it" }) : null,
+      source.customName ? el("span", { class: "original muted", text: source.name, title: t("The name the TV gives it") }) : null,
       toggle);
     if (shown) {
-      row.setAttribute("aria-label", `${source.customName || source.name}. Press Alt and an arrow key to move it.`);
+      row.setAttribute("aria-label", t("{name}. Press Alt and an arrow key to move it.", { name: source.customName || source.name }));
       row.addEventListener("keydown", (event) => {
         if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown") || event.target !== row) return;
         event.preventDefault();
@@ -213,7 +215,7 @@
 
   /// Six dots in two columns, the usual grip.
   function handle() {
-    const grip = el("span", { class: "handle", "aria-hidden": "true", title: "Drag to reorder" });
+    const grip = el("span", { class: "handle", "aria-hidden": "true", title: t("Drag to reorder") });
     grip.innerHTML = '<svg viewBox="0 0 10 16"><circle cx="2.5" cy="3" r="1.4"/><circle cx="7.5" cy="3" r="1.4"/><circle cx="2.5" cy="8" r="1.4"/><circle cx="7.5" cy="8" r="1.4"/><circle cx="2.5" cy="13" r="1.4"/><circle cx="7.5" cy="13" r="1.4"/></svg>';
     return grip;
   }
@@ -320,12 +322,14 @@
       editing.sources = [...fresh.filter((source) => source.visible), ...fresh.filter((source) => !source.visible)];
       editing.saved = JSON.stringify(editing.sources);
     }
-    editing.note = added.length ? `${added.length} new input${added.length === 1 ? "" : "s"} from the TV: ${added.map((source) => source.name).join(", ")}.` : "The TV has no new app.";
+    editing.note = added.length
+      ? tn("{n} new input from the TV: {names}.", "{n} new inputs from the TV: {names}.", added.length, { names: added.map((source) => source.name).join(", ") })
+      : t("The TV has no new app.");
     renderSources();
   }
 
   async function resetSources() {
-    if (!confirm(`Put the inputs of ${editing.tv.name} back in the TV's order, all shown, with their own names?`)) return;
+    if (!confirm(t("Put the inputs of {name} back in the TV's order, all shown, with their own names?", { name: editing.tv.name }))) return;
     const tv = editing.tv;
     await updateDevice(tv.mac, (device) => { delete device.sources; });
     // The plugin reloads with the TV's order; read it back.
@@ -349,11 +353,11 @@
   /// "Get MAC" next to a MAC address field: the plugin asks the TV when it is configured, else reads this
   /// machine's ARP table, which has the TV once it answered on the network.
   function macButton(ipOf, input, report) {
-    return el("button", { type: "button", text: "Get MAC", onclick: (event) => {
+    return el("button", { type: "button", text: t("Get MAC"), onclick: (event) => {
       event.preventDefault();
       act(event.currentTarget, async () => {
         const ip = (ipOf() ?? "").trim();
-        if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) throw new Error("Enter the TV's IPv4 address first.");
+        if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) throw new Error(t("Enter the TV's IPv4 address first."));
         const { mac } = await request(`mac?ip=${encodeURIComponent(ip)}`);
         input.value = mac;
         input.dispatchEvent(new Event("input"));
@@ -385,24 +389,24 @@
       changed();
     });
     return [
-      toggleRow("Source switches", draft.sourceSwitches === true, (on) => { setKey(draft, "sourceSwitches", on, false); changed(); }, schema.sourceSwitches.description),
-      toggleRow("Ambilight + Hue switch", draft.ambilightHueSwitch === true, (on) => { setKey(draft, "ambilightHueSwitch", on, false); changed(); }, schema.ambilightHueSwitch.description),
+      toggleRow(t("Source switches"), draft.sourceSwitches === true, (on) => { setKey(draft, "sourceSwitches", on, false); changed(); }, schema.sourceSwitches.description),
+      toggleRow(t("Ambilight + Hue switch"), draft.ambilightHueSwitch === true, (on) => { setKey(draft, "ambilightHueSwitch", on, false); changed(); }, schema.ambilightHueSwitch.description),
       el("p", { class: "help sensors-help", text: schema.stateSensors.description }),
-      sensorToggle("power", "Power sensor: motion while the TV is on"),
-      sensorToggle("ambilight", "Ambilight sensor: motion while Ambilight is on"),
-      sensorToggle("mute", "Mute sensor: motion while the sound is muted"),
+      sensorToggle("power", t("Power sensor: motion while the TV is on")),
+      sensorToggle("ambilight", t("Ambilight sensor: motion while Ambilight is on")),
+      sensorToggle("mute", t("Mute sensor: motion while the sound is muted")),
     ];
   }
 
   async function openEditor(tv) {
     if (!closeSources() || !closeEditor()) return;
     editorCard.classList.remove("hidden");
-    breadcrumb(`Edit ${tv.name}`, closeEditor);
-    editorCard.replaceChildren(el("p", { class: "muted", text: `Loading ${tv.name}…` }));
+    breadcrumb(t("Edit {name}", { name: tv.name }), closeEditor);
+    editorCard.replaceChildren(el("p", { class: "muted", text: t("Loading {name}…", { name: tv.name }) }));
     editorCard.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth", block: "start" });
     try {
       const [schema, device] = await Promise.all([deviceSchema(), findDevice(tv.mac)]);
-      if (!device) throw new Error("This TV is not in the configuration.");
+      if (!device) throw new Error(t("This TV is not in the configuration."));
       editorState = { tv, schema, draft: structuredClone(device), saved: JSON.stringify(device), section: "general" };
       renderEditor();
     } catch (e) {
@@ -412,7 +416,7 @@
 
   /// Closes the editor; false when the person keeps unsaved changes.
   function closeEditor() {
-    if (editorState && JSON.stringify(editorState.draft) !== editorState.saved && !confirm("Discard the changes to this TV?")) return false;
+    if (editorState && JSON.stringify(editorState.draft) !== editorState.saved && !confirm(t("Discard the changes to this TV?"))) return false;
     if (!editorCard.classList.contains("hidden")) breadcrumb(null);
     editorState = null;
     editorCard.classList.add("hidden");
@@ -424,16 +428,16 @@
     const { tv, schema, draft } = editorState;
     const message = el("span", { class: "muted" });
     const report = (text) => { message.className = "error"; message.textContent = text; };
-    const save = el("button", { class: "primary", text: "Save", onclick: (event) => act(event.currentTarget, saveEditor, report) });
-    const discard = el("button", { text: "Discard", onclick: () => { editorState.draft = JSON.parse(editorState.saved); renderEditor(); } });
+    const save = el("button", { class: "primary", text: t("Save"), onclick: (event) => act(event.currentTarget, saveEditor, report) });
+    const discard = el("button", { text: t("Discard"), onclick: () => { editorState.draft = JSON.parse(editorState.saved); renderEditor(); } });
     const changed = () => {
       const dirty = JSON.stringify(editorState.draft) !== editorState.saved;
       save.disabled = !dirty;
       discard.disabled = !dirty;
       message.className = dirty ? "dirty" : "muted";
-      message.textContent = dirty ? "Unsaved changes" : "Saved";
+      message.textContent = dirty ? t("Unsaved changes") : t("Saved");
     };
-    const sections = [["general", "General"], ["remote", "Remote"], ["automations", "Automations"], ["apps", "Apps"], ["buttons", "Buttons"]];
+    const sections = [["general", t("General")], ["remote", t("Remote")], ["automations", t("Automations")], ["apps", t("Apps")], ["buttons", t("Buttons")]];
     const tabs = el("div", { class: "group tabs", role: "tablist" }, sections.map(([key, label]) => el("button", {
       text: label, role: "tab", class: key === editorState.section ? "on" : "", "aria-selected": String(key === editorState.section),
       onclick: () => { editorState.section = key; renderEditor(); },
@@ -450,20 +454,20 @@
       interval.addEventListener("input", () => { setKey(draft, "pollingInterval", interval.value ? Number(interval.value) : undefined, schema.pollingInterval.default); changed(); });
       body = el("div", {},
         el("div", { class: "fields" },
-          fieldRow("Name in the Home app", text("name", { maxLength: 64 })),
-          fieldRow("Address", text("ip", { inputmode: "decimal" }), "The TV's IPv4 address. Give it a fixed address in your router."),
-          fieldRow("MAC address", (() => {
+          fieldRow(t("Name in the Home app"), text("name", { maxLength: 64 })),
+          fieldRow(t("Address"), text("ip", { inputmode: "decimal" }), t("The TV's IPv4 address. Give it a fixed address in your router.")),
+          fieldRow(t("MAC address"), (() => {
             const input = text("mac");
             return el("div", { class: "with-button" }, input, macButton(() => draft.ip, input, report));
-          })(), "For Wake-on-LAN, which switches the TV on from deep standby."),
-          fieldRow("Ambilight style", selectFor(schema.ambilightMode, draft.ambilightMode, (value) => { setKey(draft, "ambilightMode", value, schema.ambilightMode.default); changed(); }), schema.ambilightMode.description),
-          fieldRow("Polling interval (ms)", interval, schema.pollingInterval.description)),
-        toggleRow("Switch Ambilight on whenever the TV comes on", draft.ambilightOnStart === true, (on) => { setKey(draft, "ambilightOnStart", on, false); changed(); }),
+          })(), t("For Wake-on-LAN, which switches the TV on from deep standby.")),
+          fieldRow(t("Ambilight style"), selectFor(schema.ambilightMode, draft.ambilightMode, (value) => { setKey(draft, "ambilightMode", value, schema.ambilightMode.default); changed(); }), schema.ambilightMode.description),
+          fieldRow(t("Polling interval (ms)"), interval, schema.pollingInterval.description)),
+        toggleRow(t("Switch Ambilight on whenever the TV comes on"), draft.ambilightOnStart === true, (on) => { setKey(draft, "ambilightOnStart", on, false); changed(); }),
         toggleRow("Wake-on-LAN", draft.wakeOnLanEnabled !== false, (on) => { setKey(draft, "wakeOnLanEnabled", on, true); changed(); }, schema.wakeOnLanEnabled.description),
         el("div", { class: "repair" },
-          el("div", {}, el("strong", { text: "Pairing" }),
-            el("p", { class: "help", text: tv.pinned ? "Paired, with the TV's certificate pinned. Pair again after a reset of the TV, when it refuses Homeswift." : "Paired without a pinned certificate. Pair again to pin it." })),
-          el("button", { text: "Pair again", onclick: () => { if (closeEditor()) repair(tv); } })));
+          el("div", {}, el("strong", { text: t("Pairing") }),
+            el("p", { class: "help", text: tv.pinned ? t("Paired, with the TV's certificate pinned. Pair again after a reset of the TV, when it refuses Homeswift.") : t("Paired without a pinned certificate. Pair again to pin it.") })),
+          el("button", { text: t("Pair again"), onclick: () => { if (closeEditor()) repair(tv); } })));
       break;
     }
     case "remote":
@@ -481,8 +485,8 @@
     }
     editorCard.replaceChildren(
       el("div", { class: "panel-head" },
-        el("div", {}, el("h2", { text: `Edit ${tv.name}` }), el("p", { class: "muted", text: "Saving applies at once: the TV keeps its place in the Home app." })),
-        el("button", { class: "link", text: "Close", onclick: closeEditor })),
+        el("div", {}, el("h2", { text: t("Edit {name}", { name: tv.name }) }), el("p", { class: "muted", text: t("Saving applies at once: the TV keeps its place in the Home app.") })),
+        el("button", { class: "link", text: t("Close"), onclick: closeEditor })),
       tabs, el("div", { class: "editor-body" }, body),
       el("div", { class: "save-bar" }, message, discard, save));
     changed();
@@ -493,20 +497,20 @@
     const apps = draft.customApps || [];
     const appName = el("input", { type: "text", placeholder: "EON", maxLength: 64 });
     const packageName = el("input", { type: "text", placeholder: "com.ug.eon.android.tv", spellcheck: false });
-    const className = el("input", { type: "text", placeholder: "Found by the plugin when left empty", spellcheck: false });
+    const className = el("input", { type: "text", placeholder: t("Found by the plugin when left empty"), spellcheck: false });
     const status = el("p", { class: "status-line muted" });
-    const detect = el("button", { text: "Detect from TV", onclick: (event) => act(event.currentTarget, async () => {
+    const detect = el("button", { text: t("Detect from TV"), onclick: (event) => act(event.currentTarget, async () => {
       status.className = "status-line muted";
-      status.textContent = "Asking the TV which app is open…";
+      status.textContent = t("Asking the TV which app is open…");
       const { app } = await request(`current-app?mac=${encodeURIComponent(editorState.tv.mac)}`);
       packageName.value = app.packageName;
       className.value = app.className ?? "";
       if (!appName.value) appName.value = app.name ?? "";
       status.className = "status-line ok";
-      status.textContent = `Found ${app.packageName}.`;
+      status.textContent = t("Found {name}.", { name: app.packageName });
     }, (text) => { status.className = "status-line error"; status.replaceChildren(text); }) });
-    const add = el("button", { class: "primary", text: "Add app", onclick: () => {
-      if (!appName.value.trim() || !packageName.value.trim()) { status.className = "status-line error"; status.textContent = "An app needs a name and a package name."; return; }
+    const add = el("button", { class: "primary", text: t("Add app"), onclick: () => {
+      if (!appName.value.trim() || !packageName.value.trim()) { status.className = "status-line error"; status.textContent = t("An app needs a name and a package name."); return; }
       const app = { name: appName.value.trim(), packageName: packageName.value.trim() };
       if (className.value.trim()) app.className = className.value.trim();
       draft.customApps = [...apps.filter((a) => a.packageName !== app.packageName), app];
@@ -516,11 +520,11 @@
       el("p", { class: "help", text: schema.customApps.description }),
       apps.length ? el("ul", { class: "entries" }, apps.map((app) => el("li", {},
         el("div", {}, el("strong", { text: app.name }), el("div", { class: "muted mono", text: [app.packageName, app.className].filter(Boolean).join(" / ") })),
-        el("button", { class: "link danger", text: "Remove", onclick: () => { setKey(draft, "customApps", apps.filter((a) => a !== app).length ? apps.filter((a) => a !== app) : undefined); changed(); } }))))
-        : el("p", { class: "muted empty-list", text: "No custom app." }),
+        el("button", { class: "link danger", text: t("Remove"), onclick: () => { setKey(draft, "customApps", apps.filter((a) => a !== app).length ? apps.filter((a) => a !== app) : undefined); changed(); } }))))
+        : el("p", { class: "muted empty-list", text: t("No custom app.") }),
       el("div", { class: "add-box" },
-        el("strong", { text: "Add an app" }),
-        el("div", { class: "fields" }, fieldRow("Name", appName), fieldRow("Package name", packageName), fieldRow("Launch activity (optional)", className)),
+        el("strong", { text: t("Add an app") }),
+        el("div", { class: "fields" }, fieldRow(t("Name"), appName), fieldRow(t("Package name"), packageName), fieldRow(t("Launch activity (optional)"), className)),
         el("div", { class: "actions" }, detect, add), status));
   }
 
@@ -529,31 +533,31 @@
     const buttons = draft.customButtons || [];
     const keys = schema.customButtons.items.properties.key.enum;
     const used = new Set(buttons.map((b) => b.key));
-    const buttonName = el("input", { type: "text", placeholder: "Power menu", maxLength: 64 });
+    const buttonName = el("input", { type: "text", placeholder: t("Power menu"), maxLength: 64 });
     const key = el("select", {}, keys.filter((k) => !used.has(k)).map((k) => el("option", { value: k, text: k.replace(/([a-z])([A-Z0-9])/g, "$1 $2") })));
     const status = el("p", { class: "status-line muted" });
-    const add = el("button", { class: "primary", text: "Add button", disabled: key.options.length === 0, onclick: () => {
-      if (!buttonName.value.trim()) { status.className = "status-line error"; status.textContent = "A button needs a name."; return; }
+    const add = el("button", { class: "primary", text: t("Add button"), disabled: key.options.length === 0, onclick: () => {
+      if (!buttonName.value.trim()) { status.className = "status-line error"; status.textContent = t("A button needs a name."); return; }
       draft.customButtons = [...buttons, { name: buttonName.value.trim(), key: key.value }];
       changed();
     } });
     return el("div", {},
       el("p", { class: "help", text: schema.customButtons.description }),
       buttons.length ? el("ul", { class: "entries" }, buttons.map((button) => el("li", {},
-        el("div", {}, el("strong", { text: button.name }), el("div", { class: "muted", text: `Sends ${button.key}` })),
-        el("button", { class: "link danger", text: "Remove", onclick: () => { setKey(draft, "customButtons", buttons.filter((b) => b !== button).length ? buttons.filter((b) => b !== button) : undefined); changed(); } }))))
-        : el("p", { class: "muted empty-list", text: "No custom button." }),
+        el("div", {}, el("strong", { text: button.name }), el("div", { class: "muted", text: t("Sends {key}", { key: button.key }) })),
+        el("button", { class: "link danger", text: t("Remove"), onclick: () => { setKey(draft, "customButtons", buttons.filter((b) => b !== button).length ? buttons.filter((b) => b !== button) : undefined); changed(); } }))))
+        : el("p", { class: "muted empty-list", text: t("No custom button.") }),
       el("div", { class: "add-box" },
-        el("strong", { text: "Add a button" }),
-        el("div", { class: "fields" }, fieldRow("Name", buttonName), fieldRow("Remote key", key, "Each key can be used by one button only.")),
+        el("strong", { text: t("Add a button") }),
+        el("div", { class: "fields" }, fieldRow(t("Name"), buttonName), fieldRow(t("Remote key"), key, t("Each key can be used by one button only."))),
         el("div", { class: "actions" }, add), status));
   }
 
   async function saveEditor() {
     const { tv, draft } = editorState;
-    if (!draft.name) throw new Error("The TV needs a name.");
-    if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(draft.ip ?? "")) throw new Error("The address must be an IPv4 address, like 192.168.1.20.");
-    if (!isMAC(draft.mac)) throw new Error("The MAC address must look like AA:BB:CC:DD:EE:FF.");
+    if (!draft.name) throw new Error(t("The TV needs a name."));
+    if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(draft.ip ?? "")) throw new Error(t("The address must be an IPv4 address, like 192.168.1.20."));
+    if (!isMAC(draft.mac)) throw new Error(t("The MAC address must look like AA:BB:CC:DD:EE:FF."));
     draft.mac = canonicalMAC(draft.mac);
     await updateDevice(tv.mac, () => draft);
     editorState.saved = JSON.stringify(draft);
@@ -563,7 +567,7 @@
   }
 
   async function removeTV(tv) {
-    if (!confirm(`Remove ${tv.name}? It leaves the Home app, with its scenes and automations.`)) return;
+    if (!confirm(t("Remove {name}? It leaves the Home app, with its scenes and automations.", { name: tv.name }))) return;
     if (editingTV(tv) && (!closeSources() || !closeEditor())) return;
     await updateDevice(tv.mac, () => null);
     await refresh();
@@ -571,6 +575,9 @@
   const editingTV = (tv) => (editing && sameMAC(editing.tv.mac, tv.mac)) || (editorState && sameMAC(editorState.tv.mac, tv.mac));
 
   // MARK: Add a TV: find → PIN → confirm, one step at a time
+
+  /// A sentence with a TV's name in bold: the translation's {name} becomes a <strong>.
+  const withName = (text, name) => text.split("{name}").flatMap((part, i) => (i ? [el("strong", { text: name }), part] : [part]));
 
   // The wizard opens from "Add a TV" next to the TVs' heading, as Homebridge's "Pair a TV" does; on its own
   // while there is no TV yet, and for "Pair again".
@@ -597,7 +604,7 @@
       closePairing();
     }
   });
-  const stepNames = ["Find", "PIN", "Confirm"];
+  const stepNames = [t("Find"), t("PIN"), t("Confirm")];
   const steps = el("ol", { class: "steps" }, stepNames.map((label, i) => el("li", { "data-n": String(i + 1), text: label })));
   const status = el("p", { class: "status-line muted", role: "status" });
   const say = (message, kind = "muted") => { status.textContent = message; status.className = `status-line ${kind}`; };
@@ -613,44 +620,44 @@
     const known = attempt && tvs.find((tv) => tv.ip === attempt.ip);
     const sleeper = known ?? (attempt ? { name: attempt.name ?? attempt.ip, ip: attempt.ip } : null);
     status.append(
-      sleeper ? el("button", { class: "link", text: `Wake ${sleeper.name}`, onclick: (event) => act(event.currentTarget, async () => {
+      sleeper ? el("button", { class: "link", text: t("Wake {name}", { name: sleeper.name }), onclick: (event) => act(event.currentTarget, async () => {
         const address = sleeper.mac ?? (await request(`mac?ip=${encodeURIComponent(sleeper.ip)}`)).mac;
         await request("wake", { method: "POST", body: { mac: address, ip: sleeper.ip } });
-        say(`Sent. Give ${sleeper.name} a few seconds to start, then pair again.`, "ok");
+        say(t("Sent. Give {name} a few seconds to start, then pair again.", { name: sleeper.name }), "ok");
       }, fail) }) : null,
       explain({ error: message, context: "Pairing a Philips Android TV from the Homeswift plugin page: POST pair/request on port 1926, the TV shows a PIN, then pair/grant with an HMAC of the PIN.", device: { model: "Philips Android TV with Ambilight" } }));
   }
 
   // Step 1: find the TV, or type its address.
   const found = el("div", { class: "found" });
-  const address = el("input", { type: "text", placeholder: "192.168.1.20", inputmode: "decimal", autocomplete: "off", spellcheck: false, "aria-label": "TV address" });
-  const findButton = el("button", { text: "Find TVs", onclick: (event) => act(event.currentTarget, discover, fail) });
+  const address = el("input", { type: "text", placeholder: "192.168.1.20", inputmode: "decimal", autocomplete: "off", spellcheck: false, "aria-label": t("TV address") });
+  const findButton = el("button", { text: t("Find TVs"), onclick: (event) => act(event.currentTarget, discover, fail) });
   const find = el("div", { class: "step" },
-    el("p", { class: "muted", text: "Switch the TV on: it has to be on and on this network. Homeswift looks for it for five seconds." }),
+    el("p", { class: "muted", text: t("Switch the TV on: it has to be on and on this network. Homeswift looks for it for five seconds.") }),
     findButton, found,
-    el("div", { class: "or", text: "or enter its address" }),
+    el("div", { class: "or", text: t("or enter its address") }),
     el("form", { class: "manual", onsubmit: (event) => { event.preventDefault(); act(event.submitter ?? manualPair, () => pair({ ip: address.value.trim() }), fail); } },
-      address, el("button", { type: "submit", text: "Pair" })));
+      address, el("button", { type: "submit", text: t("Pair") })));
   const manualPair = find.querySelector(".manual button");
 
   // Step 2: the PIN the TV shows, a box per digit.
-  const digits = [0, 1, 2, 3].map((i) => el("input", { type: "text", inputmode: "numeric", maxlength: 1, autocomplete: i === 0 ? "one-time-code" : "off", "aria-label": `PIN digit ${i + 1}` }));
+  const digits = [0, 1, 2, 3].map((i) => el("input", { type: "text", inputmode: "numeric", maxlength: 1, autocomplete: i === 0 ? "one-time-code" : "off", "aria-label": t("PIN digit {n}", { n: i + 1 }) }));
   const pinPrompt = el("p", {});
-  const confirmPin = el("button", { class: "primary", text: "Confirm PIN", onclick: (event) => act(event.currentTarget, grant, fail) });
+  const confirmPin = el("button", { class: "primary", text: t("Confirm PIN"), onclick: (event) => act(event.currentTarget, grant, fail) });
   const pinStep = el("div", { class: "step" },
     pinPrompt, el("div", { class: "pin" }, digits),
-    el("div", { class: "actions" }, confirmPin, el("button", { class: "link", text: "Cancel", onclick: reset })));
+    el("div", { class: "actions" }, confirmPin, el("button", { class: "link", text: t("Cancel"), onclick: reset })));
 
   // Step 3: the details of the TV's entry.
-  const tvName = el("input", { type: "text", maxlength: 64, autocomplete: "off", placeholder: "Living Room TV" });
+  const tvName = el("input", { type: "text", maxlength: 64, autocomplete: "off", placeholder: t("Living Room TV") });
   const ipField = el("input", { type: "text", readOnly: true, tabIndex: -1 });
   const mac = el("input", { type: "text", placeholder: "AA:BB:CC:DD:EE:FF", autocomplete: "off", spellcheck: false });
-  const macHelp = el("p", { class: "help", text: "For Wake-on-LAN, which switches the TV on from deep standby." });
-  const modeField = el("div", { class: "wide" }, el("label", { text: "Ambilight style when switched on from HomeKit" }));
+  const macHelp = el("p", { class: "help", text: t("For Wake-on-LAN, which switches the TV on from deep standby.") });
+  const modeField = el("div", { class: "wide" }, el("label", { text: t("Ambilight style when switched on from HomeKit") }));
   const onStart = el("input", { type: "checkbox", id: "ambilight-on-start" });
   const entryText = el("pre", { class: "json" });
   let options = {};   // what is chosen for the TV being added, from the schema: Ambilight style, remote, automations
-  const moreOptions = el("details", { class: "group-box" }, el("summary", { text: "Remote and automations" }));
+  const moreOptions = el("details", { class: "group-box" }, el("summary", { text: t("Remote and automations") }));
   async function renderOptions() {
     options = {};
     const schema = await deviceSchema();
@@ -662,27 +669,27 @@
   }
   const confirmStep = el("div", { class: "step" },
     el("div", { class: "form" },
-      el("div", { class: "wide" }, el("label", { text: "Name in the Home app" }), tvName),
-      el("div", {}, el("label", { text: "Address" }), ipField),
-      el("div", {}, el("label", { text: "MAC address" }), el("div", { class: "with-button" }, mac, macButton(() => ipField.value, mac, fail)), macHelp),
+      el("div", { class: "wide" }, el("label", { text: t("Name in the Home app") }), tvName),
+      el("div", {}, el("label", { text: t("Address") }), ipField),
+      el("div", {}, el("label", { text: t("MAC address") }), el("div", { class: "with-button" }, mac, macButton(() => ipField.value, mac, fail)), macHelp),
       modeField),
-    el("div", { class: "check" }, el("label", { class: "switch" }, onStart, el("span", {})), el("label", { htmlFor: "ambilight-on-start", text: "Switch Ambilight on whenever the TV comes on" })),
+    el("div", { class: "check" }, el("label", { class: "switch" }, onStart, el("span", {})), el("label", { htmlFor: "ambilight-on-start", text: t("Switch Ambilight on whenever the TV comes on") })),
     moreOptions,
     el("div", { class: "actions" },
-      el("button", { class: "primary", text: "Add TV", onclick: (event) => act(event.currentTarget, addToConfiguration, fail) }),
-      el("button", { class: "link", text: "Cancel", onclick: reset })),
-    el("details", {}, el("summary", { text: "The entry for config.json" }), entryText,
-      el("button", { class: "link", text: "Copy", onclick: (event) => act(event.currentTarget, async () => { await HomeswiftCommon.copyText(entryText.textContent); say("Copied.", "ok"); }, fail) })));
+      el("button", { class: "primary", text: t("Add TV"), onclick: (event) => act(event.currentTarget, addToConfiguration, fail) }),
+      el("button", { class: "link", text: t("Cancel"), onclick: reset })),
+    el("details", {}, el("summary", { text: t("The entry for config.json") }), entryText,
+      el("button", { class: "link", text: t("Copy"), onclick: (event) => act(event.currentTarget, async () => { await HomeswiftCommon.copyText(entryText.textContent); say(t("Copied."), "ok"); }, fail) })));
 
   // After saving: the plugin reloads with the TV at once.
   const doneText = el("p", {});
   const done = el("div", { class: "step" },
     doneText,
-    el("div", { class: "actions" }, el("button", { class: "primary", text: "Done", onclick: closePairing }), el("button", { text: "Add another TV", onclick: reset })));
+    el("div", { class: "actions" }, el("button", { class: "primary", text: t("Done"), onclick: closePairing }), el("button", { text: t("Add another TV"), onclick: reset })));
 
   const bodies = [find, pinStep, confirmStep, done];
   pairing.replaceChildren(
-    el("div", { class: "panel-head" }, el("h2", { id: "add-title", text: "Add a TV" }), el("button", { class: "link", text: "Close", onclick: closePairing })),
+    el("div", { class: "panel-head" }, el("h2", { id: "add-title", text: t("Add a TV") }), el("button", { class: "link", text: t("Close"), onclick: closePairing })),
     steps, ...bodies, status);
 
   function show(step) {
@@ -706,14 +713,14 @@
 
   async function discover() {
     found.replaceChildren();
-    say("Looking for TVs…");
+    say(t("Looking for TVs…"));
     const answer = await request("discover");
     const known = new Set(tvs.map((tv) => tv.ip));
     const fresh = answer.tvs.filter((tv) => !known.has(tv.host));
-    say(fresh.length ? "" : answer.tvs.length ? "Every TV that answered is already added." : "No TV announced itself. Check it is on, or enter its address.");
+    say(fresh.length ? "" : answer.tvs.length ? t("Every TV that answered is already added.") : t("No TV announced itself. Check it is on, or enter its address."));
     found.replaceChildren(...fresh.map((tv) => el("div", { class: "item" },
       el("div", {}, el("strong", { text: tv.name }), el("div", { class: "muted", text: tv.host })),
-      el("button", { class: "primary", text: "Pair", onclick: (event) => act(event.currentTarget, () => pair({ ip: tv.host, name: tv.name }), fail) }))));
+      el("button", { class: "primary", text: t("Pair"), onclick: (event) => act(event.currentTarget, () => pair({ ip: tv.host, name: tv.name }), fail) }))));
   }
 
   /// Pairs a configured TV again (after a reset of the TV, or to pin its certificate): its entry keeps its
@@ -721,19 +728,19 @@
   async function repair(tv) {
     reset();
     repairing = tv.mac;
-    steps.children[2].textContent = "Done";
+    steps.children[2].textContent = t("Done");
     openPairing();
     await act(manualPair, () => pair({ ip: tv.ip, name: tv.name }), fail);
   }
 
   async function pair(tv) {
-    if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(tv.ip)) throw new Error("Enter the TV's IPv4 address, like 192.168.1.20.");
+    if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(tv.ip)) throw new Error(t("Enter the TV's IPv4 address, like 192.168.1.20."));
     attempt = tv;
-    say("Asking the TV for a PIN…");
+    say(t("Asking the TV for a PIN…"));
     const answer = await request("pair", { method: "POST", body: { ip: tv.ip, name: "Homeswift" } });
     target = tv;
-    pinPrompt.replaceChildren("Type the PIN ", el("strong", { text: tv.name ?? tv.ip }), " shows on screen.");
-    say(answer.certificateSeen ? "" : "The TV answered over plain HTTP, so its certificate cannot be pinned.");
+    pinPrompt.replaceChildren(...withName(t("Type the PIN {name} shows on screen."), tv.name ?? tv.ip));
+    say(answer.certificateSeen ? "" : t("The TV answered over plain HTTP, so its certificate cannot be pinned."));
     digits.forEach((digit) => { digit.value = ""; });
     show(1);
     digits[0].focus();
@@ -764,7 +771,7 @@
   }
 
   async function grant() {
-    if (pin().length !== 4) throw new Error("The PIN has four digits.");
+    if (pin().length !== 4) throw new Error(t("The PIN has four digits."));
     try {
       const answer = await request("pair/grant", { method: "POST", body: { ip: target.ip, pin: pin() } });
       device = answer.device;
@@ -774,7 +781,7 @@
           entry.password = device.password;
           if (device.certFingerprint) entry.certFingerprint = device.certFingerprint; else delete entry.certFingerprint;
         });
-        doneText.replaceChildren(el("strong", { text: target.name ?? target.ip }), answer.certificatePinned ? " is paired again, with its certificate pinned." : " is paired again.");
+        doneText.replaceChildren(...withName(answer.certificatePinned ? t("{name} is paired again, with its certificate pinned.") : t("{name} is paired again."), target.name ?? target.ip));
         show(3);
         say("");
         repairing = null;
@@ -789,7 +796,7 @@
       checkMAC();
       showEntry();
       show(2);
-      say(answer.certificatePinned ? "Paired, and the TV's certificate is pinned." : "Paired.", "ok");
+      say(answer.certificatePinned ? t("Paired, and the TV's certificate is pinned.") : t("Paired."), "ok");
       tvName.focus();
     } catch (e) {
       digits.forEach((digit) => { digit.value = ""; });
@@ -802,8 +809,8 @@
     const missing = !isMAC(mac.value);
     mac.classList.toggle("needs", missing);
     macHelp.textContent = missing && !mac.value.trim()
-      ? "The TV did not give it. Its network settings show it (Settings › Network › View network settings)."
-      : "For Wake-on-LAN, which switches the TV on from deep standby.";
+      ? t("The TV did not give it. Its network settings show it (Settings › Network › View network settings).")
+      : t("For Wake-on-LAN, which switches the TV on from deep standby.");
   }
 
   function entry() {
@@ -818,10 +825,9 @@
 
   async function addToConfiguration() {
     const tv = entry();
-    if (!isMAC(tv.mac)) { mac.focus(); throw new Error("A MAC address is needed to switch the TV on."); }
+    if (!isMAC(tv.mac)) { mac.focus(); throw new Error(t("A MAC address is needed to switch the TV on.")); }
     await putDevice(tv);
-    doneText.replaceChildren(el("strong", { text: tv.name }),
-      " is added. In the Home app, add it with the bridge's setup code: Add Accessory › More options, then the TV's name.");
+    doneText.replaceChildren(...withName(t("{name} is added. In the Home app, add it with the bridge's setup code: Add Accessory › More options, then the TV's name."), tv.name));
     say("");
     show(3);
     await refresh();

@@ -89,6 +89,13 @@ public final class AssistantService: Assistant, Sendable {
         AssistantService(provider: provider, maxOutputTokens: maxOutputTokens, systemContext: context, usage: usage, user: user, logger: logger)
     }
 
+    /// The same Assistant answering in the language of a BCP 47 tag (`Prompts.answerLanguage`), after any context.
+    public func speaking(_ tag: String?) -> AssistantService {
+        guard let instruction = Prompts.answerLanguage(tag) else { return self }
+        let context = [systemContext, instruction].compactMap { $0 }.joined(separator: "\n\n")
+        return AssistantService(provider: provider, maxOutputTokens: maxOutputTokens, systemContext: context, usage: usage, user: user, logger: logger)
+    }
+
     /// The same Assistant, its requests counted for `user`.
     public func forUser(_ user: String?) -> AssistantService {
         AssistantService(provider: provider, maxOutputTokens: maxOutputTokens, systemContext: systemContext, usage: usage, user: user, logger: logger)

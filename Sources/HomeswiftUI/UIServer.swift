@@ -309,8 +309,9 @@ public final class UIServer: Sendable {
             }
         }
         if let instance, let platform {
-            // Its files are beside it (`app.js` is /plugins/<slug>/app.js), and plugin.js reads which instance it is.
-            let head = #"<base href="/plugins/\#(Self.attribute(instance.slug))/"><meta name="homeswift-plugin" data-platform="\#(Self.attribute(platform))" data-name="\#(Self.attribute(instance.name))">"#
+            // Its files are beside it (`app.js` is /plugins/<slug>/app.js), plugin.js reads which instance it is, and
+            // i18n.js, first, gives it the UI's language (its own strings are in its i18n.js).
+            let head = #"<base href="/plugins/\#(Self.attribute(instance.slug))/"><meta name="homeswift-plugin" data-platform="\#(Self.attribute(platform))" data-name="\#(Self.attribute(instance.name))"><script src="/i18n.js"></script>"#
             body = body.range(of: "<head>").map { body.replacingCharacters(in: $0, with: "<head>" + head) } ?? head + body
         }
         return .data(status: 200, contentType: file.contentType, body: Data(body.utf8))
@@ -569,7 +570,7 @@ public final class UIServer: Sendable {
         if route.first == "assistant", route.count >= 2, route[1] != "chat", route[1] != "chats",
            let reply = try await assistantRoute(Array(route.dropFirst()), request, body: body, username: username) { return reply }
         // Rooms, scenes and notifications (HomeRoutes.swift).
-        if let reply = try await homeAPI(route, request.method, body: body, username: username) { return reply }
+        if let reply = try await homeAPI(route, request.method, body: body, username: username, language: Self.language(request)) { return reply }
         switch request.method {
         case .GET:
             switch route {
@@ -766,6 +767,7 @@ public final class UIServer: Sendable {
                 do {
                     let suggestion = try await assistant.forUser(username)
                         .withContext(PluginContext.assistantContext(name: entry.name, platform: platform, background: entry.assistantBackground))
+                        .speaking(Self.language(request))
                         .generateConfiguration(request: wish, schema: schema, current: current == .null ? nil : current, pluginName: entry.name, onChunk: nil)
                     return .json(["config": suggestion.config, "explanation": .string(suggestion.explanation), "model": .string(assistant.model)])
                 } catch {
@@ -789,7 +791,7 @@ public final class UIServer: Sendable {
                 return .json(JSONValue.object([:]))
             }
             if route.first == "assistant", route.count >= 2, route[1] == "chat" {
-                return try await chatAction(Array(route.dropFirst(2)), body: body, caller: caller)
+                return try await chatAction(Array(route.dropFirst(2)), body: body, caller: caller, language: Self.language(request))
             }
             if route == ["logs", "truncate"] {
                 // For administrators, as the MCP tool is admin-scoped.
@@ -1022,7 +1024,7 @@ public final class UIServer: Sendable {
 
     /// `POST assistant/chat` sends a message and streams the run; `…/confirm` answers a confirmation card;
     /// `…/stop` stops the run.
-    private func chatAction(_ action: [String], body: JSONValue, caller: Caller) async throws -> Reply {
+    private func chatAction(_ action: [String], body: JSONValue, caller: Caller, language: String?) async throws -> Reply {
         let username = caller.username
         let conversation = await chat.conversation(for: username, admin: caller.isAdmin)
         switch action {
@@ -1033,7 +1035,7 @@ public final class UIServer: Sendable {
             let page = body["page"]?.stringValue.map { String($0.prefix(100)) }
             if conversation.isRunning { return .error(409, "the Assistant is still answering; stop it first") }
             if let refused = limitAssistant(for: username) { return refused }
-            guard conversation.send(text, page: page, user: username, assistant: assistant.forUser(username), logger: logger) else {
+            guard conversation.send(text, page: page, user: username, assistant: assistant.forUser(username).speaking(language), logger: logger) else {
                 return .error(409, "the Assistant is still answering; stop it first")
             }
             return .events(conversation.subscribe())
@@ -1377,7 +1379,8 @@ final class UIRequestHandler: ChannelInboundHandler {
         ("X-Content-Type-Options", "nosniff"),
         ("X-Frame-Options", "DENY"),
         ("Referrer-Policy", "no-referrer"),
-        ("Content-Security-Policy", "default-src 'self'; manifest-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"),
+        // base-uri 'self': plugins' pages are served with a <base> of their own directory (/plugins/<slug>/).
+        ("Content-Security-Policy", "default-src 'self'; manifest-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"),
         // The microphone (the Assistant's dictation) and full screen (a camera) for the UI itself; nothing else.
         ("Permissions-Policy", "camera=(), geolocation=(), payment=(), usb=(), serial=(), hid=(), midi=(), bluetooth=(), magnetometer=(), gyroscope=(), accelerometer=(), display-capture=(), microphone=(self), fullscreen=(self)"),
         // A UI published through a tunnel or a proxy stays out of search engines (robots.txt says so too).

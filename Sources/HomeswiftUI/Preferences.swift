@@ -3,7 +3,7 @@ import Homeswift
 import HomeswiftAI
 import NIOConcurrencyHelpers
 
-/// Each user's choices for the pages: the appearance (`theme`, `wallpaper`, `temperatureUnit`) and the Status
+/// Each user's choices for the pages: the appearance (`theme`, `wallpaper`, `temperatureUnit`, `language`) and the Status
 /// page's widgets (`dashboard`: their `order` and those `hidden`). Kept in `ui-preferences.json` next to
 /// config.json, owner-only, so they follow the user from one browser to the next; a wallpaper of their own is an
 /// image under `ui-wallpapers/`. Glass UI keeps its theme and units in config.json and its dashboard layout in
@@ -13,6 +13,8 @@ final class PreferencesStore: Sendable {
     /// The backdrops the stylesheet draws (`[data-wallpaper]`), and `custom`, the user's own image.
     static let wallpapers: Set<String> = ["none", "aurora", "sunset", "ocean", "forest", "graphite", "custom"]
     static let temperatureUnits: Set<String> = ["c", "f"]
+    /// The pages' language (i18n.js): the browser's, or one of the UI's four.
+    static let languages: Set<String> = ["auto", "en", "fr", "es", "pt"]
     /// An uploaded wallpaper, after the page has scaled it down.
     static let maximumWallpaperBytes = 2_500_000
 
@@ -29,7 +31,7 @@ final class PreferencesStore: Sendable {
 
     /// The user's choices, with the defaults for what they never chose.
     func preferences(for user: String) -> JSONValue {
-        var object: [String: JSONValue] = ["theme": "auto", "wallpaper": "none", "temperatureUnit": "c", "dashboard": ["order": [], "hidden": []]]
+        var object: [String: JSONValue] = ["theme": "auto", "wallpaper": "none", "temperatureUnit": "c", "language": "auto", "dashboard": ["order": [], "hidden": []]]
         for (key, value) in state.withLockedValue({ $0[user]?.objectValue ?? [:] }) { object[key] = value }
         return .object(object)
     }
@@ -44,6 +46,7 @@ final class PreferencesStore: Sendable {
             case "theme": accepted[key] = try Self.choice(value, in: Self.themes, key)
             case "wallpaper": accepted[key] = try Self.choice(value, in: Self.wallpapers, key)
             case "temperatureUnit": accepted[key] = try Self.choice(value, in: Self.temperatureUnits, key)
+            case "language": accepted[key] = try Self.choice(value, in: Self.languages, key)
             case "dashboard": accepted[key] = try Self.dashboard(value)
             default: throw PreferencesError("unknown preference \(key)")
             }

@@ -131,11 +131,11 @@
     <span class="tile large tone-blue" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/></svg></span>
     <div>
       <h1>Philips Ambilight TV</h1>
-      <p class="muted">Pair your Philips Android TVs and control them from here and from the Home app.</p>
+      <p class="muted" data-i18n>Pair your Philips Android TVs and control them from here and from the Home app.</p>
     </div>
   </div>
 
-  <div class="section-head"><h2>Your TVs</h2><button id="add-tv" class="primary" aria-expanded="false" aria-controls="pairing">Add a TV</button></div>
+  <div class="section-head"><h2 data-i18n>Your TVs</h2><button id="add-tv" class="primary" data-i18n aria-expanded="false" aria-controls="pairing">Add a TV</button></div>
   <section id="pairing" class="card pairing hidden" aria-labelledby="add-title"></section>
   <div id="tvs" class="tvs"></div>
   <div id="sources" class="card panel hidden"></div>
@@ -144,6 +144,7 @@
 <script src="/common.js"></script>
 <script src="/plugin.js"></script>
 <script src="/remote.js"></script>
+<script src="i18n.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

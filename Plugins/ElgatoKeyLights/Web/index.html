@@ -39,10 +39,10 @@
     <span class="tile large tone-yellow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></svg></span>
     <div class="who">
       <h1>Elgato Key Lights</h1>
-      <p class="muted">The lights this instance knows, as it sees them right now. Identify flashes a light so you can tell which is which.</p>
+      <p class="muted" data-i18n>The lights this instance knows, as it sees them right now. Identify flashes a light so you can tell which is which.</p>
     </div>
   </div>
-  <div class="section-head"><h2>Your lights</h2><div class="actions"><button id="discover-toggle" aria-expanded="false" aria-controls="discovered">On the network</button><button id="add-toggle" aria-expanded="false" aria-controls="add-light">Add by address</button></div></div>
+  <div class="section-head"><h2 data-i18n>Your lights</h2><div class="actions"><button id="discover-toggle" aria-expanded="false" aria-controls="discovered" data-i18n>On the network</button><button id="add-toggle" aria-expanded="false" aria-controls="add-light" data-i18n>Add by address</button></div></div>
   <div id="discovered" class="card add-box hidden"></div>
   <div id="add-light" class="card add-box hidden"></div>
   <div id="lights" class="grid"></div>
@@ -51,6 +51,7 @@
 </main>
 <script src="/common.js"></script>
 <script src="/plugin.js"></script>
+<script src="i18n.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

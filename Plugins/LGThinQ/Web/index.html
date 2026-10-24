@@ -86,89 +86,90 @@
     <span class="tile large accessory" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg></span>
     <div>
       <h1>LG ThinQ</h1>
-      <p class="muted">Connect your LG account to manage its appliances in HomeKit.</p>
+      <p class="muted" data-i18n>Connect your LG account to manage its appliances in HomeKit.</p>
     </div>
   </div>
 
   <section id="step-login" class="step">
-    <div class="step-head"><span class="step-number">1</span><h2>Connect your LG account</h2></div>
+    <div class="step-head"><span class="step-number">1</span><h2 data-i18n>Connect your LG account</h2></div>
     <div id="session-notice" class="card notice hidden">
-      <div><strong>Active session</strong><p class="muted">Using the refresh token saved in this plugin's settings.</p></div>
-      <button id="new-login">Sign in with another account</button>
+      <div><strong data-i18n>Active session</strong><p class="muted" data-i18n>Using the refresh token saved in this plugin's settings.</p></div>
+      <button id="new-login" data-i18n>Sign in with another account</button>
     </div>
     <form id="login-form" class="card form" autocomplete="on" novalidate>
-      <label class="field"><span class="field-title">Country / language</span><select id="country-language"></select><span class="help">The region of your LG account.</span></label>
-      <label class="field"><span class="field-title">Email</span><input type="email" id="username" placeholder="your@email.com" autocomplete="username" autocapitalize="none" spellcheck="false"><span class="help">Your LG ThinQ account's email.</span></label>
-      <label class="field"><span class="field-title">Password</span><input type="password" id="password" autocomplete="current-password" enterkeyhint="go"></label>
-      <label class="toggle"><span class="switch"><input type="checkbox" id="remember"><span></span></span><span><span class="field-title">Remember the email and password</span><span class="help">Optional: the sign-in keeps only a refresh token otherwise.</span></span></label>
-      <div class="actions"><button type="submit" id="login" class="primary">Connect account</button></div>
-      <p class="wiki muted">Signing in to LG with Google, Apple, Facebook or Amazon? <a href="https://github.com/mp-consulting/homebridge-lg-thinq/wiki/Plugin-Authorization-Setting" target="_blank" rel="noopener">See the authorization guide</a>, or use LG's own sign-in page below.</p>
+      <label class="field"><span class="field-title" data-i18n>Country / language</span><select id="country-language"></select><span class="help" data-i18n>The region of your LG account.</span></label>
+      <label class="field"><span class="field-title" data-i18n>Email</span><input type="email" id="username" placeholder="your@email.com" autocomplete="username" autocapitalize="none" spellcheck="false"><span class="help" data-i18n>Your LG ThinQ account's email.</span></label>
+      <label class="field"><span class="field-title" data-i18n>Password</span><input type="password" id="password" autocomplete="current-password" enterkeyhint="go"></label>
+      <label class="toggle"><span class="switch"><input type="checkbox" id="remember"><span></span></span><span><span class="field-title" data-i18n>Remember the email and password</span><span class="help" data-i18n>Optional: the sign-in keeps only a refresh token otherwise.</span></span></label>
+      <div class="actions"><button type="submit" id="login" class="primary" data-i18n>Connect account</button></div>
+      <p class="wiki muted">Signing in to LG with Google, Apple, Facebook or Amazon? <a href="https://github.com/mp-consulting/homebridge-lg-thinq/wiki/Plugin-Authorization-Setting" target="_blank" rel="noopener" data-i18n>See the authorization guide</a>, or use LG's own sign-in page below.</p>
     </form>
     <div id="third-party" class="card form">
-      <strong>Sign in with Google, Apple, Facebook or Amazon</strong>
+      <strong data-i18n>Sign in with Google, Apple, Facebook or Amazon</strong>
       <p class="help">Open LG's sign-in page, sign in, then paste the address of the page it ends on (it starts with the LG account site and contains <span class="mono">iabClose</span>).</p>
-      <div class="actions"><button id="open-lg" type="button">Open LG's sign-in page</button></div>
-      <label class="field"><span class="field-title">Address after signing in</span><input type="url" id="redirect-url" placeholder="https://…/login/iabClose?…" spellcheck="false" autocapitalize="none"></label>
-      <div class="actions"><button id="redirect-login" type="button" class="primary">Use this sign-in</button></div>
+      <div class="actions"><button id="open-lg" type="button" data-i18n>Open LG's sign-in page</button></div>
+      <label class="field"><span class="field-title" data-i18n>Address after signing in</span><input type="url" id="redirect-url" placeholder="https://…/login/iabClose?…" spellcheck="false" autocapitalize="none"></label>
+      <div class="actions"><button id="redirect-login" type="button" class="primary" data-i18n>Use this sign-in</button></div>
     </div>
     <div id="login-problem" class="problem hidden"></div>
   </section>
 
   <section id="step-devices" class="step hidden">
-    <div class="step-head"><span class="step-number">2</span><h2>Your devices</h2></div>
+    <div class="step-head"><span class="step-number">2</span><h2 data-i18n>Your devices</h2></div>
     <div class="group tabs" role="tablist">
-      <button id="tab-devices" role="tab" class="on" aria-selected="true" aria-controls="pane-devices">Devices</button>
-      <button id="tab-settings" role="tab" aria-selected="false" aria-controls="pane-settings">Settings</button>
+      <button id="tab-devices" role="tab" class="on" aria-selected="true" aria-controls="pane-devices" data-i18n>Devices</button>
+      <button id="tab-settings" role="tab" aria-selected="false" aria-controls="pane-settings" data-i18n>Settings</button>
     </div>
 
     <div id="pane-devices" role="tabpanel" aria-labelledby="tab-devices">
       <div class="card">
         <div class="list-head">
-          <h3>Devices in your account <span id="device-count" class="pill count">0</span></h3>
-          <div class="actions"><button id="select-all">Select all</button><button id="refresh">Refresh</button></div>
+          <h3 data-i18n>Devices in your account <span id="device-count" class="pill count">0</span></h3>
+          <div class="actions"><button id="select-all" data-i18n>Select all</button><button id="refresh" data-i18n>Refresh</button></div>
         </div>
         <div id="devices-problem" class="problem hidden"></div>
         <ul id="device-list" class="devices"></ul>
-        <p class="list-foot muted">Checked devices are added to HomeKit (none checked: all of them). ⚙ sets a device's options.</p>
+        <p class="list-foot muted" data-i18n>Checked devices are added to HomeKit (none checked: all of them). ⚙ sets a device's options.</p>
       </div>
       <div id="device-panel" class="card panel hidden"></div>
-      <div class="save-bar"><span id="devices-status" class="muted"></span><button id="save" class="primary">Save configuration</button></div>
+      <div class="save-bar"><span id="devices-status" class="muted"></span><button id="save" class="primary" data-i18n>Save configuration</button></div>
     </div>
 
     <div id="pane-settings" class="settings hidden" role="tabpanel" aria-labelledby="tab-settings">
       <div class="card">
-        <h3>Authentication</h3>
-        <label class="field"><span class="field-title">Auth mode</span>
-          <select id="auth-mode"><option value="account">LG account (email and password)</option><option value="token">Refresh token</option></select></label>
-        <label id="token-field" class="field"><span class="field-title">Refresh token</span><input type="password" id="refresh-token" placeholder="Paste your refresh token" autocomplete="off" autocapitalize="none" spellcheck="false" class="mono"></label>
-        <div class="actions"><button id="switch-account" class="link">Sign in with another account</button></div>
+        <h3 data-i18n>Authentication</h3>
+        <label class="field"><span class="field-title" data-i18n>Auth mode</span>
+          <select id="auth-mode"><option value="account" data-i18n>LG account (email and password)</option><option value="token" data-i18n>Refresh token</option></select></label>
+        <label id="token-field" class="field"><span class="field-title" data-i18n>Refresh token</span><input type="password" id="refresh-token" data-i18n placeholder="Paste your refresh token" autocomplete="off" autocapitalize="none" spellcheck="false" class="mono"></label>
+        <div class="actions"><button id="switch-account" class="link" data-i18n>Sign in with another account</button></div>
       </div>
       <div class="card">
-        <h3>Region</h3>
+        <h3 data-i18n>Region</h3>
         <div class="columns">
-          <label class="field"><span class="field-title">Country</span><input type="text" id="country" placeholder="US" maxlength="2" autocapitalize="characters"></label>
-          <label class="field"><span class="field-title">Language</span><input type="text" id="language" placeholder="en-US" autocapitalize="none"></label>
+          <label class="field"><span class="field-title" data-i18n>Country</span><input type="text" id="country" placeholder="US" maxlength="2" autocapitalize="characters"></label>
+          <label class="field"><span class="field-title" data-i18n>Language</span><input type="text" id="language" placeholder="en-US" autocapitalize="none"></label>
         </div>
       </div>
       <div class="card">
-        <h3>Sync</h3>
-        <label class="toggle"><span class="switch"><input type="checkbox" id="thinq1"><span></span></span><span><span class="field-title">ThinQ1 support</span><span class="help">Adds the account's older ThinQ v1 devices, which are polled.</span></span></label>
-        <label class="field"><span class="field-title">Refresh interval (seconds)</span><input type="number" id="refresh-interval" min="1" inputmode="numeric" class="number"><span class="help">How often ThinQ1 devices are polled. Default: 60.</span></label>
+        <h3 data-i18n>Sync</h3>
+        <label class="toggle"><span class="switch"><input type="checkbox" id="thinq1"><span></span></span><span><span class="field-title" data-i18n>ThinQ1 support</span><span class="help" data-i18n>Adds the account's older ThinQ v1 devices, which are polled.</span></span></label>
+        <label class="field"><span class="field-title" data-i18n>Refresh interval (seconds)</span><input type="number" id="refresh-interval" min="1" inputmode="numeric" class="number"><span class="help" data-i18n>How often ThinQ1 devices are polled. Default: 60.</span></label>
       </div>
-      <div class="save-bar"><span class="muted">ThinQ2 devices are pushed by LG and need no polling.</span><button id="save-settings" class="primary">Save configuration</button></div>
+      <div class="save-bar"><span class="muted" data-i18n>ThinQ2 devices are pushed by LG and need no polling.</span><button id="save-settings" class="primary" data-i18n>Save configuration</button></div>
     </div>
   </section>
 
   <section id="step-complete" class="step hidden">
-    <div class="step-head"><span class="step-number done">✓</span><h2>Configuration saved</h2></div>
+    <div class="step-head"><span class="step-number done">✓</span><h2 data-i18n>Configuration saved</h2></div>
     <div class="card">
-      <p id="complete-text">The plugin restarted with the new settings.</p>
-      <div class="done-actions"><button id="restart" class="hidden">Restart Homeswift</button><button id="back">Back to the devices</button></div>
+      <p id="complete-text" data-i18n>The plugin restarted with the new settings.</p>
+      <div class="done-actions"><button id="restart" class="hidden" data-i18n>Restart Homeswift</button><button id="back" data-i18n>Back to the devices</button></div>
     </div>
   </section>
 </main>
 <script src="/common.js"></script>
 <script src="/plugin.js"></script>
+<script src="i18n.js"></script>
 <script src="countries.js"></script>
 <script src="app.js"></script>
 </body>

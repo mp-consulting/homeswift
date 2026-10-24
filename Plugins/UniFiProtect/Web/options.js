@@ -4,6 +4,7 @@
 // [.<scope id>][.<value>], the controller's scope id being its address, as that page wrote it.
 (() => {
   "use strict";
+  const { t } = HomeswiftI18n;
 
   const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -163,7 +164,7 @@
   }
 
   function formatProfileLabel(profile, index) {
-    const parts = [profile.name || "Profile " + (index + 1)];
+    const parts = [profile.name || t("Profile {n}", { n: index + 1 })];
     if (profile.resolution?.width && profile.resolution?.height) parts.push(profile.resolution.width + "×" + profile.resolution.height);
     if (profile.encoding) parts.push(profile.encoding);
     return parts.join(" — ");
@@ -190,10 +191,23 @@
 
   const assistantController = (controller) => ({ name: controller?.name, verifyTls: controller?.verifyTls === true });
 
+  /// "this camera", "this light"… in the page's language.
+  function thisDevice(modelKey) {
+    switch (modelKey) {
+    case "camera": return t("this camera");
+    case "chime": return t("this chime");
+    case "light": return t("this light");
+    case "sensor": return t("this sensor");
+    case "viewer": return t("this viewer");
+    case undefined: case null: case "": return t("this device");
+    default: return t("this {model}", { model: modelKey });
+    }
+  }
+
   function deviceProblem(device) {
     if (!device || device.modelKey === "nvr" || typeof device.state !== "string") return null;
-    if (device.isUpdating) return "UniFi Protect reports this " + (device.modelKey || "device") + " as updating its firmware.";
-    if (device.state !== "CONNECTED") return "UniFi Protect reports this " + (device.modelKey || "device") + " as " + device.state.toLowerCase() + " (not connected).";
+    if (device.isUpdating) return t("UniFi Protect reports {device} as updating its firmware.", { device: thisDevice(device.modelKey) });
+    if (device.state !== "CONNECTED") return t("UniFi Protect reports {device} as {state} (not connected).", { device: thisDevice(device.modelKey), state: device.state.toLowerCase() });
     return null;
   }
 

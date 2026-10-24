@@ -4,9 +4,9 @@
 // kept by Save Configuration, which writes this instance's block; the plugin reloads with it.
 (() => {
   "use strict";
+  const { t, tn } = HomeswiftI18n;
   const { $, el, request, name, platform, explain, breadcrumb, api, readBlock, updateBlock, poll } = homeswift;
 
-  const plural = (count, one, other) => `${count} ${count === 1 ? one : other}`;
   const clamp = (value, min, max, fallback) => {
     const number = Number(value);
     if (value === null || value === "" || value === undefined || !Number.isFinite(number)) return fallback;
@@ -18,94 +18,95 @@
 
   // MARK: Device types, as the Homebridge page lists them
 
+  // `count` says how many there are, `fresh` names a device not given an id yet.
   const typeNames = {
-    lightDevices: { one: "light", other: "lights", title: "Light Devices", add: "Add Light Device", badge: "Light" },
-    switchDevices: { one: "switch/outlet", other: "switches/outlets", title: "Switch/Outlet Devices", add: "Add Switch Device", badge: "Switch/Outlet" },
-    thermoDevices: { one: "temperature/humidity sensor", other: "temperature/humidity sensors", title: "Temperature/Humidity Sensors", add: "Add Sensor", badge: "Temp/Humidity Sensor" },
-    leakDevices: { one: "leak sensor", other: "leak sensors", title: "Leak Sensors", add: "Add Leak Sensor", badge: "Leak Sensor" },
-    fanDevices: { one: "fan", other: "fans", title: "Fan Devices", add: "Add Fan", badge: "Fan" },
-    heaterDevices: { one: "heater", other: "heaters", title: "Heater Devices", add: "Add Heater", badge: "Heater" },
-    humidifierDevices: { one: "humidifier", other: "humidifiers", title: "Humidifier Devices", add: "Add Humidifier", badge: "Humidifier" },
-    purifierDevices: { one: "air purifier", other: "air purifiers", title: "Air Purifier Devices", add: "Add Purifier", badge: "Air Purifier" },
-    dehumidifierDevices: { one: "dehumidifier", other: "dehumidifiers", title: "Dehumidifier Devices", add: "Add Dehumidifier", badge: "Dehumidifier" },
-    diffuserDevices: { one: "diffuser", other: "diffusers", title: "Diffuser Devices", add: "Add Diffuser", badge: "Diffuser" },
-    kettleDevices: { one: "kettle", other: "kettles", title: "Kettle Devices", add: "Add Kettle", badge: "Kettle" },
-    iceMakerDevices: { one: "ice maker", other: "ice makers", title: "Ice Maker Devices", add: "Add Ice Maker", badge: "Ice Maker" },
+    lightDevices: { count: (n) => tn("{n} light", "{n} lights", n), fresh: t("New light"), title: t("Light Devices"), add: t("Add Light Device"), badge: t("Light") },
+    switchDevices: { count: (n) => tn("{n} switch/outlet", "{n} switches/outlets", n), fresh: t("New switch/outlet"), title: t("Switch/Outlet Devices"), add: t("Add Switch Device"), badge: t("Switch/Outlet") },
+    thermoDevices: { count: (n) => tn("{n} temperature/humidity sensor", "{n} temperature/humidity sensors", n), fresh: t("New temperature/humidity sensor"), title: t("Temperature/Humidity Sensors"), add: t("Add Sensor"), badge: t("Temp/Humidity Sensor") },
+    leakDevices: { count: (n) => tn("{n} leak sensor", "{n} leak sensors", n), fresh: t("New leak sensor"), title: t("Leak Sensors"), add: t("Add Leak Sensor"), badge: t("Leak Sensor") },
+    fanDevices: { count: (n) => tn("{n} fan", "{n} fans", n), fresh: t("New fan"), title: t("Fan Devices"), add: t("Add Fan"), badge: t("Fan") },
+    heaterDevices: { count: (n) => tn("{n} heater", "{n} heaters", n), fresh: t("New heater"), title: t("Heater Devices"), add: t("Add Heater"), badge: t("Heater") },
+    humidifierDevices: { count: (n) => tn("{n} humidifier", "{n} humidifiers", n), fresh: t("New humidifier"), title: t("Humidifier Devices"), add: t("Add Humidifier"), badge: t("Humidifier") },
+    purifierDevices: { count: (n) => tn("{n} air purifier", "{n} air purifiers", n), fresh: t("New air purifier"), title: t("Air Purifier Devices"), add: t("Add Purifier"), badge: t("Air Purifier") },
+    dehumidifierDevices: { count: (n) => tn("{n} dehumidifier", "{n} dehumidifiers", n), fresh: t("New dehumidifier"), title: t("Dehumidifier Devices"), add: t("Add Dehumidifier"), badge: t("Dehumidifier") },
+    diffuserDevices: { count: (n) => tn("{n} diffuser", "{n} diffusers", n), fresh: t("New diffuser"), title: t("Diffuser Devices"), add: t("Add Diffuser"), badge: t("Diffuser") },
+    kettleDevices: { count: (n) => tn("{n} kettle", "{n} kettles", n), fresh: t("New kettle"), title: t("Kettle Devices"), add: t("Add Kettle"), badge: t("Kettle") },
+    iceMakerDevices: { count: (n) => tn("{n} ice maker", "{n} ice makers", n), fresh: t("New ice maker"), title: t("Ice Maker Devices"), add: t("Add Ice Maker"), badge: t("Ice Maker") },
   };
 
   const basic = [
-    { id: "deviceId", label: "Device ID", type: "text", required: true },
-    { id: "label", label: "Custom Label", type: "text" },
-    { id: "ignoreDevice", label: "Ignore Device", type: "checkbox" },
+    { id: "deviceId", label: t("Device ID"), type: "text", required: true },
+    { id: "label", label: t("Custom Label"), type: "text" },
+    { id: "ignoreDevice", label: t("Ignore Device"), type: "checkbox" },
   ];
 
   const deviceTypes = {
     lightDevices: {
       // A light does far more than the others, so its editor has tabs; `mode` hides a tab Govee says the light lacks.
       tabs: [
-        { id: "general", title: "General" },
-        { id: "scenes", title: "Scene Library", mode: "scene" },
-        { id: "music", title: "Music Mode", mode: "music" },
+        { id: "general", title: t("General") },
+        { id: "scenes", title: t("Scene Library"), mode: "scene" },
+        { id: "music", title: t("Music Mode"), mode: "music" },
       ],
       fields: [
-        { id: "deviceId", label: "Device ID", type: "text", required: true, help: "Govee's own identifier for this light. Discover Devices fills it in for you." },
-        { id: "label", label: "Custom Label", type: "text", help: "Replaces the name HomeKit shows. Leave blank to keep the name set in the Govee app." },
-        { id: "ignoreDevice", label: "Ignore Device", type: "checkbox", help: "Keeps this light out of HomeKit without discarding any of the settings below." },
-        { id: "showAs", label: "Show As", type: "select", help: "A Light gets brightness and colour controls. Pick Switch for a light you only ever turn on and off.",
-          options: [["default", "Light (default)"], ["switch", "Switch"]] },
-        { id: "musicModeLive.enabled", label: "Add a Music tile to HomeKit", type: "checkbox", tab: "music",
-          help: "Adds a second tile for this light. On/off starts music mode, brightness is the microphone sensitivity, and colour sets the music colour." },
-        { id: "musicModeLive.effect", label: "Effect", type: "iconselect", default: "rhythm", tab: "music",
-          help: "How the light reacts to sound. Rhythm follows the beat, Energic flashes on peaks, Rolling sweeps colour along the strip, and Spectrum maps pitch to colour.",
-          options: [["rhythm", "Rhythm"], ["energic", "Energic"], ["rolling", "Rolling"], ["spectrum", "Spectrum"]] },
-        { id: "musicModeLive.sensitivity", label: "Default Sensitivity", type: "range", min: 0, max: 100, step: 5, default: 50, unit: "%", tab: "music",
-          help: "How loud a sound must be before the light reacts. Only the starting value: the tile's brightness slider changes it live." },
-        { id: "musicModeLive.autoColour", label: "Auto Colour", type: "checkbox", default: true, tab: "music",
-          help: "Let the light pick colours from the music itself. Turn this off to choose the colour yourself, from the tile's colour picker." },
-        { id: "musicModeLive.soft", label: "Soft Rhythm", type: "checkbox", tab: "music", help: "Rhythm only: the gentler of its two styles, with slower fades between beats." },
-        { id: "musicModeLive.protocol", label: "Protocol", type: "select", tab: "music",
-          help: "Older lights speak an earlier version of the music command. If the tile appears but does nothing, switch to Legacy.",
-          options: [["modern", "Modern"], ["legacy", "Legacy (older lights)"]] },
-        { id: "customIPAddress", label: "Custom IP Address", type: "text", advanced: true,
-          help: "Only for LAN control, when the light is not found automatically. Pair it with a DHCP reservation so the address does not move." },
-        { id: "customAddress", label: "Custom BLE Address", type: "text", advanced: true,
-          help: "The light's Bluetooth MAC address. Only needed when Bluetooth control cannot find the device by name." },
-        { id: "brightnessStep", label: "Brightness Step", type: "range", min: 1, max: 100, step: 1, default: 1, unit: "%", advanced: true,
-          help: "Smallest brightness change HomeKit will send. Raise it to stop a dragged slider flooding the light with updates." },
-        { id: "adaptiveLightingShift", label: "Adaptive Lighting", type: "togglerange", advanced: true, offValue: -1, default: 0, min: 0, max: 500, step: 10,
-          unit: " mireds", rangeLabel: "Warmth shift",
-          help: "Lets HomeKit track the colour temperature to the time of day. Turn it off to keep whatever colour you set.",
-          rangeHelp: "Biases the curve warmer than Apple's. 150 keeps evenings noticeably cosier; 0 follows HomeKit exactly." },
-        { id: "awsBrightnessNoScale", label: "AWS Brightness No Scale", type: "checkbox", advanced: true,
-          help: "Sends brightness as 0-100 instead of 0-254. A few models need this, otherwise they jump straight to full brightness." },
-        { id: "awsColourMode", label: "AWS Colour Mode", type: "select", advanced: true,
-          help: "Which shape of colour command this model accepts over the cloud connection. Change it only if colours are ignored or come out wrong.",
-          options: [["default", "Default"], ["rgb", "RGB"], ["redgreenblue", "Red/Green/Blue"]] },
+        { id: "deviceId", label: t("Device ID"), type: "text", required: true, help: t("Govee's own identifier for this light. Discover Devices fills it in for you.") },
+        { id: "label", label: t("Custom Label"), type: "text", help: t("Replaces the name HomeKit shows. Leave blank to keep the name set in the Govee app.") },
+        { id: "ignoreDevice", label: t("Ignore Device"), type: "checkbox", help: t("Keeps this light out of HomeKit without discarding any of the settings below.") },
+        { id: "showAs", label: t("Show As"), type: "select", help: t("A Light gets brightness and colour controls. Pick Switch for a light you only ever turn on and off."),
+          options: [["default", t("Light (default)")], ["switch", t("Switch")]] },
+        { id: "musicModeLive.enabled", label: t("Add a Music tile to HomeKit"), type: "checkbox", tab: "music",
+          help: t("Adds a second tile for this light. On/off starts music mode, brightness is the microphone sensitivity, and colour sets the music colour.") },
+        { id: "musicModeLive.effect", label: t("Effect"), type: "iconselect", default: "rhythm", tab: "music",
+          help: t("How the light reacts to sound. Rhythm follows the beat, Energic flashes on peaks, Rolling sweeps colour along the strip, and Spectrum maps pitch to colour."),
+          options: [["rhythm", t("Rhythm")], ["energic", t("Energic")], ["rolling", t("Rolling")], ["spectrum", t("Spectrum")]] },
+        { id: "musicModeLive.sensitivity", label: t("Default Sensitivity"), type: "range", min: 0, max: 100, step: 5, default: 50, unit: "%", tab: "music",
+          help: t("How loud a sound must be before the light reacts. Only the starting value: the tile's brightness slider changes it live.") },
+        { id: "musicModeLive.autoColour", label: t("Auto Colour"), type: "checkbox", default: true, tab: "music",
+          help: t("Let the light pick colours from the music itself. Turn this off to choose the colour yourself, from the tile's colour picker.") },
+        { id: "musicModeLive.soft", label: t("Soft Rhythm"), type: "checkbox", tab: "music", help: t("Rhythm only: the gentler of its two styles, with slower fades between beats.") },
+        { id: "musicModeLive.protocol", label: t("Protocol"), type: "select", tab: "music",
+          help: t("Older lights speak an earlier version of the music command. If the tile appears but does nothing, switch to Legacy."),
+          options: [["modern", t("Modern")], ["legacy", t("Legacy (older lights)")]] },
+        { id: "customIPAddress", label: t("Custom IP Address"), type: "text", advanced: true,
+          help: t("Only for LAN control, when the light is not found automatically. Pair it with a DHCP reservation so the address does not move.") },
+        { id: "customAddress", label: t("Custom BLE Address"), type: "text", advanced: true,
+          help: t("The light's Bluetooth MAC address. Only needed when Bluetooth control cannot find the device by name.") },
+        { id: "brightnessStep", label: t("Brightness Step"), type: "range", min: 1, max: 100, step: 1, default: 1, unit: "%", advanced: true,
+          help: t("Smallest brightness change HomeKit will send. Raise it to stop a dragged slider flooding the light with updates.") },
+        { id: "adaptiveLightingShift", label: t("Adaptive Lighting"), type: "togglerange", advanced: true, offValue: -1, default: 0, min: 0, max: 500, step: 10,
+          unit: " mireds", rangeLabel: t("Warmth shift"),
+          help: t("Lets HomeKit track the colour temperature to the time of day. Turn it off to keep whatever colour you set."),
+          rangeHelp: t("Biases the curve warmer than Apple's. 150 keeps evenings noticeably cosier; 0 follows HomeKit exactly.") },
+        { id: "awsBrightnessNoScale", label: t("AWS Brightness No Scale"), type: "checkbox", advanced: true,
+          help: t("Sends brightness as 0-100 instead of 0-254. A few models need this, otherwise they jump straight to full brightness.") },
+        { id: "awsColourMode", label: t("AWS Colour Mode"), type: "select", advanced: true,
+          help: t("Which shape of colour command this model accepts over the cloud connection. Change it only if colours are ignored or come out wrong."),
+          options: [["default", t("Default")], ["rgb", t("RGB")], ["redgreenblue", t("Red/Green/Blue")]] },
       ],
     },
     switchDevices: {
       fields: [...basic,
-        { id: "showAs", label: "Show As", type: "select", options: [
-          ["default", "Default (Switch)"], ["outlet", "Outlet"], ["switch", "Switch"], ["purifier", "Air Purifier"], ["heater", "Heater"],
-          ["cooler", "Cooler"], ["tap", "Tap/Faucet"], ["valve", "Valve"], ["audio", "Audio Receiver"], ["box", "Set-Top Box"], ["stick", "Streaming Stick"]] },
-        { id: "temperatureSource", label: "Temperature Source (Device ID)", type: "text", advanced: true,
-          help: "For a plug shown as a heater or a cooler: the Govee thermo-hygrometer whose temperature switches it." }],
+        { id: "showAs", label: t("Show As"), type: "select", options: [
+          ["default", t("Default (Switch)")], ["outlet", t("Outlet")], ["switch", t("Switch")], ["purifier", t("Air Purifier")], ["heater", t("Heater")],
+          ["cooler", t("Cooler")], ["tap", t("Tap/Faucet")], ["valve", t("Valve")], ["audio", t("Audio Receiver")], ["box", t("Set-Top Box")], ["stick", t("Streaming Stick")]] },
+        { id: "temperatureSource", label: t("Temperature Source (Device ID)"), type: "text", advanced: true,
+          help: t("For a plug shown as a heater or a cooler: the Govee thermo-hygrometer whose temperature switches it.") }],
     },
-    thermoDevices: { fields: [...basic, { id: "lowBattThreshold", label: "Low Battery Threshold (%)", type: "number", min: 1, max: 100, default: 20 }, { id: "showExtraSwitch", label: "Show Extra Switch", type: "checkbox" }] },
-    leakDevices: { fields: [...basic, { id: "lowBattThreshold", label: "Low Battery Threshold (%)", type: "number", min: 1, max: 100, default: 20 }] },
-    fanDevices: { fields: [...basic, { id: "hideLight", label: "Hide Light Control", type: "checkbox" }] },
-    heaterDevices: { fields: [...basic, { id: "tempReporting", label: "Temperature Reporting", type: "checkbox" }] },
+    thermoDevices: { fields: [...basic, { id: "lowBattThreshold", label: t("Low Battery Threshold (%)"), type: "number", min: 1, max: 100, default: 20 }, { id: "showExtraSwitch", label: t("Show Extra Switch"), type: "checkbox" }] },
+    leakDevices: { fields: [...basic, { id: "lowBattThreshold", label: t("Low Battery Threshold (%)"), type: "number", min: 1, max: 100, default: 20 }] },
+    fanDevices: { fields: [...basic, { id: "hideLight", label: t("Hide Light Control"), type: "checkbox" }] },
+    heaterDevices: { fields: [...basic, { id: "tempReporting", label: t("Temperature Reporting"), type: "checkbox" }] },
     humidifierDevices: { fields: basic },
     purifierDevices: { fields: basic },
     dehumidifierDevices: { fields: basic },
     diffuserDevices: { fields: basic },
     kettleDevices: { fields: [...basic,
-      { id: "hideModeGreenTea", label: "Hide Green Tea Mode", type: "checkbox", advanced: true },
-      { id: "hideModeOolongTea", label: "Hide Oolong Tea Mode", type: "checkbox", advanced: true },
-      { id: "hideModeCoffee", label: "Hide Coffee Mode", type: "checkbox", advanced: true },
-      { id: "hideModeBlackTea", label: "Hide Black Tea Mode", type: "checkbox", advanced: true },
-      { id: "showCustomMode1", label: "Show Custom Mode 1", type: "checkbox", advanced: true },
-      { id: "showCustomMode2", label: "Show Custom Mode 2", type: "checkbox", advanced: true }] },
+      { id: "hideModeGreenTea", label: t("Hide Green Tea Mode"), type: "checkbox", advanced: true },
+      { id: "hideModeOolongTea", label: t("Hide Oolong Tea Mode"), type: "checkbox", advanced: true },
+      { id: "hideModeCoffee", label: t("Hide Coffee Mode"), type: "checkbox", advanced: true },
+      { id: "hideModeBlackTea", label: t("Hide Black Tea Mode"), type: "checkbox", advanced: true },
+      { id: "showCustomMode1", label: t("Show Custom Mode 1"), type: "checkbox", advanced: true },
+      { id: "showCustomMode2", label: t("Show Custom Mode 2"), type: "checkbox", advanced: true }] },
     iceMakerDevices: { fields: basic },
   };
 
@@ -140,8 +141,8 @@
     if (device.label || device.deviceId) return device.label || device.deviceId;
     const devices = config[type] || [];
     const position = devices.slice(0, index).filter((d) => !d?.label && !d?.deviceId).length + 1;
-    const noun = typeNames[type].one;
-    return position === 1 ? `New ${noun}` : `New ${noun} ${position}`;
+    const fresh = typeNames[type].fresh;
+    return position === 1 ? fresh : `${fresh} ${position}`;
   }
 
   const dirty = () => JSON.stringify(readSettings({ ...config })) !== saved;
@@ -149,7 +150,7 @@
     const state = $("#save-state");
     const changed = dirty();
     state.className = changed ? "dirty" : "muted";
-    state.textContent = changed ? "Unsaved changes" : "Changes are kept once you save.";
+    state.textContent = changed ? t("Unsaved changes") : t("Changes are kept once you save.");
   }
 
   // MARK: Problems, with the Assistant's Explain when there is one
@@ -193,11 +194,13 @@
         saved = JSON.stringify(config);
         const pending = result.restartNeeded || [];
         state.className = "ok";
-        state.textContent = pending.length ? `Saved. Restart Homeswift to apply: ${pending.join("; ")}.` : "Saved: the plugin restarted with the new configuration.";
+        state.textContent = pending.length
+          ? t("Saved. Restart Homeswift to apply: {changes}.", { changes: pending.map((change) => HomeswiftI18n.message(change)).join("; ") })
+          : t("Saved: the plugin restarted with the new configuration.");
         $("#restart").classList.toggle("hidden", pending.length === 0);
       } catch (e) {
         state.className = "error";
-        state.textContent = `Failed to save configuration: ${e.message}`;
+        state.textContent = t("Failed to save configuration: {error}", { error: e.message });
       }
     });
   }
@@ -206,20 +209,20 @@
 
   const textFields = ["username", "password", "code"];
   const numberFields = [
-    ["httpRefreshTime", "aws", "HTTP Refresh (seconds)", 30, 30, "How often to poll the Govee API for sensor readings. Minimum 30 seconds; leave blank for the default of 30."],
-    ["lanRefreshTime", "lan", "Refresh (seconds)", 10, 30, "How often to poll LAN devices for their state. Leave blank for the default of 30."],
-    ["lanScanInterval", "lan", "Scan Interval (seconds)", 30, 60, "How often to scan the network for new LAN-capable devices. Minimum 30 seconds; leave blank for the default of 60."],
-    ["bleRefreshTime", "ble", "Refresh (seconds)", 60, 300, "How often to scan for BLE sensor readings. Minimum 60 seconds; leave blank for the default of 300."],
-    ["bleControlInterval", "ble", "Control Interval (ms)", 500, 500, "Minimum time between BLE commands, so devices are not overwhelmed. Minimum 500 ms; leave blank for the default of 500."],
+    ["httpRefreshTime", "aws", t("HTTP Refresh (seconds)"), 30, 30, t("How often to poll the Govee API for sensor readings. Minimum 30 seconds; leave blank for the default of 30.")],
+    ["lanRefreshTime", "lan", t("Refresh (seconds)"), 10, 30, t("How often to poll LAN devices for their state. Leave blank for the default of 30.")],
+    ["lanScanInterval", "lan", t("Scan Interval (seconds)"), 30, 60, t("How often to scan the network for new LAN-capable devices. Minimum 30 seconds; leave blank for the default of 60.")],
+    ["bleRefreshTime", "ble", t("Refresh (seconds)"), 60, 300, t("How often to scan for BLE sensor readings. Minimum 60 seconds; leave blank for the default of 300.")],
+    ["bleControlInterval", "ble", t("Control Interval (ms)"), 500, 500, t("Minimum time between BLE commands, so devices are not overwhelmed. Minimum 500 ms; leave blank for the default of 500.")],
   ];
   const booleanFields = [
-    ["ignoreMatter", "general", "Ignore Matter Devices", "Skip devices that support Matter. Enable this if you connect those devices to HomeKit through Matter directly."],
-    ["disableDeviceLogging", "general", "Disable Device Logging", "Stop logging device state changes to reduce log clutter. Errors are still logged."],
-    ["colourSafeMode", "general", "Colour Safe Mode", "A slower but more reliable way of setting colours. Enable this if your lights show colour problems."],
-    ["debug", "general", "Debug Logging", "Verbose debug logging in the Homeswift log."],
-    ["awsDisable", "aws", "Disable", "Disable real-time cloud control through AWS IoT. Not recommended unless you have connection problems."],
-    ["lanDisable", "lan", "Disable", "Disable local network control. LAN is faster and works without internet; disable it only on network problems."],
-    ["bleDisable", "ble", "Disable", "Disable Bluetooth control and sensor scanning."],
+    ["ignoreMatter", "general", t("Ignore Matter Devices"), t("Skip devices that support Matter. Enable this if you connect those devices to HomeKit through Matter directly.")],
+    ["disableDeviceLogging", "general", t("Disable Device Logging"), t("Stop logging device state changes to reduce log clutter. Errors are still logged.")],
+    ["colourSafeMode", "general", t("Colour Safe Mode"), t("A slower but more reliable way of setting colours. Enable this if your lights show colour problems.")],
+    ["debug", "general", t("Debug Logging"), t("Verbose debug logging in the Homeswift log.")],
+    ["awsDisable", "aws", t("Disable"), t("Disable real-time cloud control through AWS IoT. Not recommended unless you have connection problems.")],
+    ["lanDisable", "lan", t("Disable"), t("Disable local network control. LAN is faster and works without internet; disable it only on network problems.")],
+    ["bleDisable", "ble", t("Disable"), t("Disable Bluetooth control and sensor scanning.")],
   ];
 
   function toggleRow(id, label, help) {
@@ -244,7 +247,7 @@
     $("#toggle-password").addEventListener("click", () => {
       const field = $("#password");
       field.type = field.type === "password" ? "text" : "password";
-      $("#toggle-password").textContent = field.type === "password" ? "Show" : "Hide";
+      $("#toggle-password").textContent = field.type === "password" ? t("Show") : t("Hide");
     });
   }
 
@@ -284,7 +287,7 @@
     const result = $("#login-result");
     const login = credentials();
     if (!login.username || !login.password) {
-      result.replaceChildren(el("p", { class: "status-line error", text: "Please enter your username and password." }));
+      result.replaceChildren(el("p", { class: "status-line error", text: t("Please enter your username and password.") }));
       return;
     }
     result.replaceChildren();
@@ -292,19 +295,19 @@
       try {
         const answer = await request("test-login", { method: "POST", body: login });
         if (answer.success) {
-          result.replaceChildren(el("p", { class: "status-line ok", text: answer.message }));
+          result.replaceChildren(el("p", { class: "status-line ok", text: HomeswiftI18n.message(answer.message) }));
         } else if (answer.twoFactorRequired) {
           // Govee just emailed a code: a prompt, not a failure.
-          result.replaceChildren(el("p", { class: "status-line", text: answer.message }));
+          result.replaceChildren(el("p", { class: "status-line", text: HomeswiftI18n.message(answer.message) }));
           $("#code").focus();
         } else {
-          problem(result, answer.message || "Connection failed",
+          problem(result, HomeswiftI18n.message(answer.message) || t("Connection failed"),
             context(answer.twoFactorInvalid ? "Test Connection logged in to the Govee cloud with a verification code, and Govee rejected the code."
               : "Test Connection tried to log in to the Govee cloud (app2.govee.com) from the plugin settings and Govee refused."), undefined, "error");
           if (answer.twoFactorInvalid) $("#code").focus();
         }
       } catch (e) {
-        problem(result, e.message || "Connection failed", context("Test Connection could not complete a Govee cloud login from the plugin settings."));
+        problem(result, e.message || t("Connection failed"), context("Test Connection could not complete a Govee cloud login from the plugin settings."));
       }
     });
   }
@@ -314,7 +317,8 @@
   function transportsOf(device) {
     const running = live[device.deviceId];
     if (!running) return null;
-    const pill = (label, state) => (state === "unsupported" ? null : el("span", { class: `pill ${state === "enabled" ? "on" : ""}`, text: label, title: `${label}: ${state}` }));
+    const states = { enabled: t("enabled"), disabled: t("disabled") };
+    const pill = (label, state) => (state === "unsupported" ? null : el("span", { class: `pill ${state === "enabled" ? "on" : ""}`, text: label, title: t("{transport}: {state}", { transport: label, state: states[state] ?? state }) }));
     return el("span", { class: "transports" }, pill("LAN", running.lan), pill("AWS", running.aws), pill("BLE", running.ble));
   }
 
@@ -342,13 +346,13 @@
               const label = displayName(type, index, device);
               return el("div", { class: `row-device ${device.ignoreDevice ? "ignored" : ""}` },
                 el("div", { class: "who" },
-                  el("strong", {}, label, device.ignoreDevice ? el("span", { class: "pill", text: "Ignored" }) : null, transportsOf(device)),
+                  el("strong", {}, label, device.ignoreDevice ? el("span", { class: "pill", text: t("Ignored") }) : null, transportsOf(device)),
                   device.deviceId ? el("span", { class: "mono", text: device.deviceId }) : null),
                 el("span", { class: "links" },
-                  el("button", { class: "link", text: "Edit", "aria-label": `Edit ${label}`, onclick: () => edit(type, index) }),
-                  el("button", { class: "link danger", text: "Remove", "aria-label": `Remove ${label}`, onclick: () => remove(type, index) })));
+                  el("button", { class: "link", text: t("Edit"), "aria-label": t("Edit {name}", { name: label }), onclick: () => edit(type, index) }),
+                  el("button", { class: "link danger", text: t("Remove"), "aria-label": t("Remove {name}", { name: label }), onclick: () => remove(type, index) })));
             }))
-            : el("p", { class: "muted note", text: "No devices configured." }),
+            : el("p", { class: "muted note", text: t("No devices configured.") }),
           el("button", { text: `+ ${names.add}`, onclick: () => add(type) }),
           // The open editor sits in its type's section, under the list, as on the Homebridge page.
           editing && editing.type === type ? editor : null));
@@ -369,7 +373,7 @@
   function remove(type, index) {
     const device = config[type]?.[index];
     if (!device) return;
-    if (!confirm(`Remove "${displayName(type, index, device)}" and its settings from the configuration? The change is kept once you click Save Configuration.`)) return;
+    if (!confirm(t("Remove “{name}” and its settings from the configuration? The change is kept once you click Save Configuration.", { name: displayName(type, index, device) }))) return;
     config[type].splice(index, 1);
     if (config[type].length === 0) delete config[type];
     if (editing && editing.type === type) closeEditor();
@@ -387,7 +391,7 @@
     renderTypes();
     editor.classList.remove("hidden");
     renderEditor();
-    breadcrumb(`Edit ${displayName(type, index, config[type][index])}`, closeEditor);
+    breadcrumb(t("Edit {name}", { name: displayName(type, index, config[type][index]) }), closeEditor);
     editor.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
     loadCapabilities(type, index);
   }
@@ -487,7 +491,7 @@
     const blocks = [];
     if (plain.length) blocks.push(el("div", { class: "fields" }, plain.map((f) => fieldControl(type, index, f))));
     if (advanced.length) {
-      const details = el("details", { class: "group-box", open: editing.advanced }, el("summary", { text: "Advanced settings" }),
+      const details = el("details", { class: "group-box", open: editing.advanced }, el("summary", { text: t("Advanced settings") }),
         el("div", { class: "fields" }, advanced.map((f) => fieldControl(type, index, f))));
       details.addEventListener("toggle", () => { editing.advanced = details.open; });
       blocks.push(details);
@@ -520,7 +524,7 @@
     editor.replaceChildren(
       el("div", { class: "editor-head" },
         el("div", {}, el("h2", { text: displayName(type, index, device) }), el("p", { class: "muted note", text: `${typeNames[type].badge}${deviceMeta[device.deviceId]?.model ? ` · ${deviceMeta[device.deviceId].model}` : ""}` })),
-        el("button", { class: "link", text: "Back", onclick: closeEditor })),
+        el("button", { class: "link", text: t("Back"), onclick: closeEditor })),
       tabs, el("div", {}, body));
     if (editing.tab === "scenes" && typeConfig.tabs) loadPicker(type, index);
   }
@@ -554,9 +558,9 @@
   function scenesTab(type, index) {
     return [
       el("div", { id: "selected-scenes" }, selectedScenes(type, index)),
-      el("h3", { text: "Add from the Govee library" }),
+      el("h3", { text: t("Add from the Govee library") }),
       el("div", { id: "picker-status" }),
-      el("div", { id: "picker-body" }, el("p", { class: "muted", text: "Loading scenes…" })),
+      el("div", { id: "picker-body" }, el("p", { class: "muted", text: t("Loading scenes…") })),
       el("div", { class: "picker-foot" }, el("span", { id: "picker-count", class: "muted" }), el("span", { id: "picker-warning", class: "warn" })),
     ];
   }
@@ -575,21 +579,21 @@
     const chosen = config[type][index].scenes || [];
     const sceneCount = chosen.filter((s) => s.kind !== "diy").length;
     const diyCount = chosen.length - sceneCount;
-    const summary = chosen.length === 0 ? "Nothing selected yet"
-      : [sceneCount ? plural(sceneCount, "scene", "scenes") : "", diyCount ? plural(diyCount, "DIY effect", "DIY effects") : ""].filter(Boolean).join(" · ");
+    const summary = chosen.length === 0 ? t("Nothing selected yet")
+      : [sceneCount ? tn("{n} scene", "{n} scenes", sceneCount) : "", diyCount ? tn("{n} DIY effect", "{n} DIY effects", diyCount) : ""].filter(Boolean).join(" · ");
     const body = chosen.length === 0
-      ? el("div", { class: "scene-empty" }, el("p", { text: "No scenes selected. Pick scenes and your own DIY effects from the library below; each becomes its own switch in HomeKit." }))
+      ? el("div", { class: "scene-empty" }, el("p", { text: t("No scenes selected. Pick scenes and your own DIY effects from the library below; each becomes its own switch in HomeKit.") }))
       : el("div", { class: "scene-strip" }, chosen.map((scene, sceneIndex) => el("span", { class: "scene-chip", title: scene.name || "" },
-        iconFor(scene), el("span", { class: "name", text: scene.name || "Scene" }), scene.kind === "diy" ? el("span", { class: "pill", text: "DIY" }) : null,
-        el("button", { class: "link", text: "×", "aria-label": `Remove ${scene.name || "scene"}`, onclick: () => {
+        iconFor(scene), el("span", { class: "name", text: scene.name || t("Scene") }), scene.kind === "diy" ? el("span", { class: "pill", text: "DIY" }) : null,
+        el("button", { class: "link", text: "×", "aria-label": scene.name ? t("Remove {name}", { name: scene.name }) : t("Remove the scene"), onclick: () => {
           chosen.splice(sceneIndex, 1);
           if (chosen.length === 0) delete config[type][index].scenes;
           refreshSelection();
         } }))));
     return el("div", { class: "scene-panel" },
       el("div", { class: "scene-panel-head" },
-        el("div", {}, el("strong", { text: "Selected scenes" }), el("p", { class: "muted", text: summary })),
-        chosen.length ? el("button", { class: "danger", text: "Clear all", onclick: () => { delete config[type][index].scenes; refreshSelection(); } }) : null),
+        el("div", {}, el("strong", { text: t("Selected scenes") }), el("p", { class: "muted", text: summary })),
+        chosen.length ? el("button", { class: "danger", text: t("Clear all"), onclick: () => { delete config[type][index].scenes; refreshSelection(); } }) : null),
       el("div", { class: "scene-panel-body" }, body));
   }
 
@@ -600,12 +604,12 @@
     pickerTarget = { type, index };
     if (body.dataset.loadedFor && body.dataset.loadedFor === device.deviceId) { refreshPicker(); return; }
     if (!device.deviceId) {
-      body.replaceChildren(el("p", { class: "notice", text: "Enter the device ID on the General tab and its scenes will appear here." }));
+      body.replaceChildren(el("p", { class: "notice", text: t("Enter the device ID on the General tab and its scenes will appear here.") }));
       return;
     }
     const payload = devicePayload(device);
     if (!payload.model) {
-      body.replaceChildren(el("p", { class: "notice", text: "This device's model is unknown. Run Discover Devices first so the plugin knows which scenes to offer." }));
+      body.replaceChildren(el("p", { class: "notice", text: t("This device's model is unknown. Run Discover Devices first so the plugin knows which scenes to offer.") }));
       return;
     }
     try {
@@ -621,7 +625,7 @@
       renderPicker(library, diys);
       $("#picker-body").dataset.loadedFor = device.deviceId;
     } catch (e) {
-      problem(body, e.message || "Could not load scenes",
+      problem(body, e.message || t("Could not load scenes"),
         "Loading the Govee scene library and DIY effects for one device in the plugin settings failed (the bundled catalogue had no entry for this model either).",
         assistantDevice(type, device));
     }
@@ -630,8 +634,8 @@
   function renderPicker(library, diys) {
     const body = $("#picker-body");
     const notes = [];
-    if (library.source === "offline") notes.push("Showing the scene list bundled with the plugin. Log in and rediscover for the full, device-specific list.");
-    if (library.warning) notes.push(library.warning);
+    if (library.source === "offline") notes.push(t("Showing the scene list bundled with the plugin. Log in and rediscover for the full, device-specific list."));
+    if (library.warning) notes.push(HomeswiftI18n.message(library.warning));
     $("#picker-status").replaceChildren(...notes.map((note) => el("p", { class: "notice", text: note })));
 
     const groups = library.categories.map((category) => ({
@@ -642,13 +646,13 @@
       })),
     }));
     if (diys.length) {
-      groups.push({ id: "cat-diy", name: "My DIY", items: diys.map((diy) => ({
+      groups.push({ id: "cat-diy", name: t("My DIY"), items: diys.map((diy) => ({
         key: `diy:${diy.diyId}`, name: diy.name, iconUrl: diy.iconUrl, variants: [],
         payload: { name: diy.name, sceneCode: diy.code, sceneId: diy.diyId, iconUrl: diy.iconUrl, kind: "diy" },
       })) });
     }
     if (!groups.length) {
-      body.replaceChildren(el("p", { class: "notice", text: "Govee returned no scenes for this device." }));
+      body.replaceChildren(el("p", { class: "notice", text: t("Govee returned no scenes for this device.") }));
       return;
     }
     pickerItems = {};
@@ -708,10 +712,10 @@
     const count = $("#picker-count");
     const warning = $("#picker-warning");
     if (!count || !warning) return;
-    count.textContent = `${plural(selected.size, "scene", "scenes")} selected`;
+    count.textContent = tn("{n} scene selected", "{n} scenes selected", selected.size);
     // HomeKit refuses accessories with too many services: a warning well before that.
     warning.textContent = selected.size > 50
-      ? `${selected.size} scenes means ${selected.size} HomeKit switches on this accessory. Much beyond this and HomeKit may refuse to add it — consider trimming the list.` : "";
+      ? t("{n} scenes means {n} HomeKit switches on this accessory. Much beyond this and HomeKit may refuse to add it — consider trimming the list.", { n: selected.size }) : "";
   }
 
   // MARK: Scene icons, proxied by the plugin in batches as their tiles come into view
@@ -781,14 +785,14 @@
     const result = $("#discover-result");
     const login = credentials();
     if (!login.username || !login.password) {
-      result.replaceChildren(el("p", { class: "status-line error", text: "Please enter your username and password in the Settings tab." }));
+      result.replaceChildren(el("p", { class: "status-line error", text: t("Please enter your username and password in the Settings tab.") }));
       return;
     }
     result.replaceChildren();
     await act(button, async () => {
       try {
         const devices = (await request("discover", { method: "POST", body: login })).devices || [];
-        if (!devices.length) { result.replaceChildren(el("p", { class: "summary", text: "No devices found." })); return; }
+        if (!devices.length) { result.replaceChildren(el("p", { class: "summary", text: t("No devices found.") })); return; }
         let added = 0;
         let skipped = 0;
         const addedByType = {};
@@ -807,19 +811,18 @@
         markDirty();
         const blocks = [];
         if (added) {
-          blocks.push(el("div", { class: "summary ok" }, el("strong", { text: `Added ${plural(added, "new device", "new devices")}: ` }),
-            Object.entries(addedByType).map(([type, count]) => plural(count, typeNames[type].one, typeNames[type].other)).join(", "),
-            ". Click Save Configuration to keep them."));
+          blocks.push(el("div", { class: "summary ok" }, el("strong", { text: tn("Added {n} new device: ", "Added {n} new devices: ", added) }),
+            t("{list}. Click Save Configuration to keep them.", { list: Object.entries(addedByType).map(([type, count]) => typeNames[type].count(count)).join(", ") })));
         }
-        if (skipped) blocks.push(el("p", { class: "summary", text: `${plural(skipped, "device was", "devices were")} already in the configuration.` }));
+        if (skipped) blocks.push(el("p", { class: "summary", text: tn("{n} device was already in the configuration.", "{n} devices were already in the configuration.", skipped) }));
         blocks.push(el("ul", { class: "found" }, devices.map((device) => el("li", {},
-          el("div", {}, el("strong", { text: device.deviceName || "Unknown" }), " ",
+          el("div", {}, el("strong", { text: device.deviceName || t("Unknown") }), " ",
             el("span", { class: "pill", text: typeNames[typeFor(device.model, device.deviceType)].badge }),
-            el("div", { class: "muted note", text: `Model: ${device.model || "Unknown"}` })),
+            el("div", { class: "muted note", text: t("Model: {model}", { model: device.model || t("Unknown") }) })),
           el("span", { class: "mono", text: device.deviceId || "" })))));
         result.replaceChildren(...blocks);
       } catch (e) {
-        problem(result, `Error: ${e.message || "Unknown error"}`, context("Discover Devices logged in to the Govee cloud and asked for the account's device list, and it failed."));
+        problem(result, t("Error: {error}", { error: e.message || t("Unknown error") }), context("Discover Devices logged in to the Govee cloud and asked for the account's device list, and it failed."));
       }
     });
   }
@@ -827,19 +830,19 @@
   // MARK: Tools
 
   async function clearCache(button) {
-    if (!confirm("Clear the cache? This removes the saved login, the IoT certificate and the device data. Restart Homeswift afterwards.")) return;
+    if (!confirm(t("Clear the cache? This removes the saved login, the IoT certificate and the device data. Restart Homeswift afterwards."))) return;
     const result = $("#clear-result");
     await act(button, async () => {
       try {
         const answer = await request("clear-cache", { method: "POST", body: {} });
         if (answer.success) {
-          result.replaceChildren(el("p", { class: "status-line ok", text: answer.message }));
+          result.replaceChildren(el("p", { class: "status-line ok", text: HomeswiftI18n.message(answer.message) }));
           $("#restart").classList.remove("hidden");
         } else {
-          problem(result, answer.message || "Cache partially cleared", "Clear Cache deletes the plugin's saved login, IoT certificate and device data; some could not be removed.", undefined, "error");
+          problem(result, HomeswiftI18n.message(answer.message) || t("Cache partially cleared"), "Clear Cache deletes the plugin's saved login, IoT certificate and device data; some could not be removed.", undefined, "error");
         }
       } catch (e) {
-        problem(result, e.message || "Failed to clear cache", "Clear Cache (the plugin's saved login, IoT certificate and device data) failed.");
+        problem(result, e.message || t("Failed to clear cache"), "Clear Cache (the plugin's saved login, IoT certificate and device data) failed.");
       }
     });
   }
@@ -847,7 +850,7 @@
   async function restart(button) {
     await act(button, async () => {
       await api("/api/restart", { method: "POST", body: {} });
-      $("#save-state").textContent = "Restarting…";
+      $("#save-state").textContent = t("Restarting…");
       for (let tries = 0; tries < 60; tries++) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
         try { await request("devices"); break; } catch { /* not back yet */ }
@@ -887,6 +890,10 @@
       if (changed) renderTypes();
     } catch { /* the plugin may be restarting */ }
   }
+
+  // Sentences with a word in bold, each one string to translate.
+  const [introBefore, introAfter = ""] = t("Discover all devices linked to your Govee account and add them to the lists below. Enter your credentials in the {tab} tab first.").split("{tab}");
+  $("#discover-intro").replaceChildren(introBefore, el("strong", { text: t("Settings") }), introAfter);
 
   (async () => {
     buildSettings();

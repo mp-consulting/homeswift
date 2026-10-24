@@ -4,6 +4,7 @@
 // stays in the plugin: the browser never sees a token.
 (() => {
   "use strict";
+  const { t, tn } = HomeswiftI18n;
   const { $, el, request, name, explain, api, fact } = homeswift;
   /// The button busy while `work` runs; errors go to the caller.
   const act = (button, work) => homeswift.act(button, work, null);
@@ -52,17 +53,17 @@
   function deviceRow(device) {
     const badges = [];
     if (device.isRfSubdevice) badges.push(el("span", { class: "pill rf", text: "RF" }));
-    if (device.lanEnabled && device.lanIp) badges.push(el("span", { class: "pill lan", text: `LAN: ${device.lanIp}` }));
-    else if (device.lanEnabled) badges.push(el("span", { class: "pill lan-warn", text: "LAN: No IP" }));
-    else badges.push(el("span", { class: "pill", text: "Cloud" }));
-    badges.push(el("span", { class: `pill status ${device.online ? "on" : "away"}`, text: device.online ? "Online" : "Offline" }));
+    if (device.lanEnabled && device.lanIp) badges.push(el("span", { class: "pill lan", text: t("LAN: {address}", { address: device.lanIp }) }));
+    else if (device.lanEnabled) badges.push(el("span", { class: "pill lan-warn", text: t("LAN: No IP") }));
+    else badges.push(el("span", { class: "pill", text: t("Cloud") }));
+    badges.push(el("span", { class: `pill status ${device.online ? "on" : "away"}`, text: device.online ? t("Online") : t("Offline") }));
     const problem = deviceProblem(device);
     return el("li", { class: `device ${device.isRfSubdevice ? "rf" : ""}` },
       el("div", { class: "info" },
         el("div", { class: "name", text: device.name }),
         el("div", { class: "meta" },
-          el("span", { class: "mono", text: `ID: ${device.deviceId}` }),
-          el("span", { text: `${device.brand || "Unknown"} — ${device.model || "Unknown"} (UIID: ${device.uiid ?? "N/A"})` })),
+          el("span", { class: "mono", text: t("ID: {id}", { id: device.deviceId }) }),
+          el("span", { text: t("{brand} — {model} (UIID: {uiid})", { brand: device.brand || t("Unknown"), model: device.model || t("Unknown"), uiid: device.uiid != null ? String(device.uiid) : t("N/A") }) })),
         device.buttons && device.buttons.length ? el("div", { class: "buttons" }, device.buttons.map((button) => el("span", { text: button }))) : null),
       el("div", { class: "badges" }, badges),
       problem ? explain({
@@ -78,7 +79,7 @@
   function renderDevices() {
     $("#device-count").textContent = String(devices.length);
     $("#devices").replaceChildren(...(devices.length ? devices.map(deviceRow)
-      : [el("li", { class: "empty" }, el("p", { text: "No devices found" }), el("p", { class: "muted", text: "Connect your eWeLink account and click Refresh." }))]));
+      : [el("li", { class: "empty" }, el("p", { text: t("No devices found") }), el("p", { class: "muted", text: t("Connect your eWeLink account and click Refresh.") }))]));
   }
 
   async function loadDevices() {
@@ -90,7 +91,7 @@
         devices = answer.devices || [];
         renderDevices();
       } catch (e) {
-        showProblem($("#devices-problem"), e.message || "Failed to load devices",
+        showProblem($("#devices-problem"), e.message || t("Failed to load devices"),
           "Loading the device list from the eWeLink cloud (plus a 3 second mDNS LAN scan) failed in the plugin settings.");
       }
     });
@@ -101,9 +102,9 @@
     try {
       const status = await request("status");
       $("#status").replaceChildren(
-        fact("Cloud", status.websocket ? "Connected" : status.retrying ? "Retrying" : status.initialized ? "Reconnecting" : "Not connected"),
-        fact("On the LAN", `${status.lanDevices ?? 0} device${status.lanDevices === 1 ? "" : "s"}`),
-        fact("In HomeKit", `${status.accessories ?? 0} accessor${status.accessories === 1 ? "y" : "ies"}`));
+        fact(t("Cloud"), status.websocket ? t("Connected") : status.retrying ? t("Retrying") : status.initialized ? t("Reconnecting") : t("Not connected")),
+        fact(t("On the LAN"), tn("{n} device", "{n} devices", status.lanDevices ?? 0)),
+        fact(t("In HomeKit"), tn("{n} accessory", "{n} accessories", status.accessories ?? 0)));
     } catch { $("#status").replaceChildren(); }
   }
 
@@ -136,26 +137,26 @@
         pendingAccount = null;
         const pending = result.restartNeeded || [];
         $("#restart").classList.toggle("hidden", pending.length === 0);
-        $("#complete-text").replaceChildren(el("strong", { text: "All done!" }), pending.length
-          ? ` The configuration is saved. Restart Homeswift to apply the rest (${pending.join("; ")}).`
-          : " The configuration is saved and the plugin reloaded with it.");
+        $("#complete-text").replaceChildren(el("strong", { text: t("All done!") }), " ", pending.length
+          ? t("The configuration is saved. Restart Homeswift to apply the rest ({changes}).", { changes: pending.map((change) => HomeswiftI18n.message(change)).join("; ") })
+          : t("The configuration is saved and the plugin reloaded with it."));
         $("#restart-status").textContent = "";
         showStep("complete");
       } catch (e) {
-        showProblem($("#save-problem"), e.message || "Failed to save configuration", "Saving this instance's block of config.json from the eWeLink plugin settings failed.");
+        showProblem($("#save-problem"), e.message || t("Failed to save configuration"), "Saving this instance's block of config.json from the eWeLink plugin settings failed.");
       }
     });
   }
 
   async function restart() {
     await api("/api/restart", { method: "POST" });
-    $("#restart-status").textContent = "Restarting…";
+    $("#restart-status").textContent = t("Restarting…");
     let back = false;
     for (let tries = 0; tries < 60 && !back; tries++) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       try { await request("status"); back = true; } catch { /* not back yet */ }
     }
-    $("#restart-status").textContent = back ? "Homeswift restarted." : "Homeswift has not answered for a minute: check its log, then reload this page.";
+    $("#restart-status").textContent = back ? t("Homeswift restarted.") : t("Homeswift has not answered for a minute: check its log, then reload this page.");
     $("#restart").classList.toggle("hidden", back);
   }
 
@@ -169,7 +170,7 @@
     const password = $("#password").value;
     const countryCode = $("#countryCode").value;
     if (!username || !password) {
-      showProblem($("#login-problem"), "Please enter your username and password", "The login form of the eWeLink plugin settings was submitted empty.");
+      showProblem($("#login-problem"), t("Please enter your username and password"), "The login form of the eWeLink plugin settings was submitted empty.");
       return;
     }
     await act(button, async () => {
@@ -181,7 +182,7 @@
         showStep("devices");
         await loadDevices();
       } catch (e) {
-        showProblem($("#login-problem"), e.message || "Login failed",
+        showProblem($("#login-problem"), e.message || t("Login failed"),
           `Logging in to the eWeLink cloud from the plugin settings failed. Selected country code: ${countryCode}.`);
       }
     });
@@ -229,6 +230,10 @@
   }
   document.addEventListener("visibilitychange", followConfigChanges);
   window.addEventListener("focus", followConfigChanges);
+
+  // The country picker's regions in the page's language (the countries' own names have data-i18n).
+  const regions = { Americas: t("Americas"), Europe: t("Europe"), "Asia Pacific": t("Asia Pacific"), "Middle East": t("Middle East"), Africa: t("Africa") };
+  for (const group of document.querySelectorAll("#countryCode optgroup")) group.label = regions[group.label] ?? group.label;
 
   // MARK: Start: the block, then the plugin's session if it has one.
 

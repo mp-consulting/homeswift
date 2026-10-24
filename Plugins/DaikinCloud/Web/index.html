@@ -15,24 +15,24 @@
     <span class="tile large daikin" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 8h11a3 3 0 1 0-3-3"/><path d="M3 12h16a3 3 0 1 1-3 3"/><path d="M3 16h7"/></svg></span>
     <div class="who">
       <h1>Daikin Cloud</h1>
-      <p class="muted">Onecta integration for HomeKit: your air conditioners and Altherma heat pumps, from the Daikin cloud.</p>
+      <p class="muted" data-i18n>Onecta integration for HomeKit: your air conditioners and Altherma heat pumps, from the Daikin cloud.</p>
     </div>
     <div class="tools head-status">
       <span id="token-expires" class="muted hidden"></span>
-      <span id="status-badge" class="pill status standby">Checking…</span>
+      <span id="status-badge" class="pill status standby" data-i18n>Checking…</span>
     </div>
   </div>
 
   <div class="group tabs" role="tablist" id="tabs">
-    <button role="tab" aria-controls="tab-devices" data-tab="devices" class="on" aria-selected="true">Devices</button>
-    <button role="tab" aria-controls="tab-settings" data-tab="settings" aria-selected="false">Settings</button>
-    <button role="tab" aria-controls="tab-auth" data-tab="auth" aria-selected="false">Authentication</button>
-    <button role="tab" aria-controls="tab-help" data-tab="help" aria-selected="false">Help</button>
+    <button role="tab" aria-controls="tab-devices" data-tab="devices" class="on" aria-selected="true" data-i18n>Devices</button>
+    <button role="tab" aria-controls="tab-settings" data-tab="settings" aria-selected="false" data-i18n>Settings</button>
+    <button role="tab" aria-controls="tab-auth" data-tab="auth" aria-selected="false" data-i18n>Authentication</button>
+    <button role="tab" aria-controls="tab-help" data-tab="help" aria-selected="false" data-i18n>Help</button>
   </div>
 
   <!-- Devices -->
   <section class="tab-pane" id="tab-devices" role="tabpanel">
-    <div class="section-head"><h2>Discovered devices</h2><span class="tools"><span id="devices-fetched" class="muted"></span><button id="btn-refresh-devices">Refresh</button></span></div>
+    <div class="section-head"><h2 data-i18n>Discovered devices</h2><span class="tools"><span id="devices-fetched" class="muted"></span><button id="btn-refresh-devices" data-i18n>Refresh</button></span></div>
     <p id="session-line" class="muted note hidden"></p>
     <div id="devices-list" class="grid"></div>
     <div id="devices-problem"></div>
@@ -40,171 +40,172 @@
 
   <!-- Settings -->
   <section class="tab-pane hidden" id="tab-settings" role="tabpanel">
-    <div class="section-head"><h2>Plugin settings</h2></div>
+    <div class="section-head"><h2 data-i18n>Plugin settings</h2></div>
     <div class="card settings-card">
       <div class="group tabs subtabs" role="tablist" id="subtabs">
-        <button role="tab" data-subtab="features" class="on" aria-selected="true">Features</button>
-        <button role="tab" data-subtab="polling" aria-selected="false">Polling</button>
-        <button role="tab" data-subtab="network" aria-selected="false">Network</button>
-        <button role="tab" data-subtab="devices" aria-selected="false">Devices</button>
+        <button role="tab" data-subtab="features" class="on" aria-selected="true" data-i18n>Features</button>
+        <button role="tab" data-subtab="polling" aria-selected="false" data-i18n>Polling</button>
+        <button role="tab" data-subtab="network" aria-selected="false" data-i18n>Network</button>
+        <button role="tab" data-subtab="devices" aria-selected="false" data-i18n>Devices</button>
       </div>
 
       <div class="subtab" id="subtab-features">
-        <p class="muted note">Switches for additional modes in HomeKit. A switch appears only when the unit supports the feature.</p>
+        <p class="muted note" data-i18n>Switches for additional modes in HomeKit. A switch appears only when the unit supports the feature.</p>
         <div id="feature-toggles"></div>
       </div>
 
       <div class="subtab hidden" id="subtab-polling">
         <div class="fields">
-          <label class="field"><span class="field-title">Update interval (minutes)</span>
+          <label class="field"><span class="field-title" data-i18n>Update interval (minutes)</span>
             <input type="number" id="updateIntervalInMinutes" min="1" max="60" step="1" placeholder="15 (recommended)">
-            <span class="help">Developer Portal: 15+ min · Mobile App: 1-5 min</span></label>
-          <label class="field"><span class="field-title">Force update delay (seconds)</span>
+            <span class="help" data-i18n>Developer Portal: 15+ min · Mobile App: 1-5 min</span></label>
+          <label class="field"><span class="field-title" data-i18n>Force update delay (seconds)</span>
             <input type="number" id="forceUpdateDelay" min="5" max="300" step="1" placeholder="60 (recommended)">
-            <span class="help">Developer Portal: 60 s · Mobile App: 10 s</span></label>
+            <span class="help" data-i18n>Developer Portal: 60 s · Mobile App: 10 s</span></label>
         </div>
         <label class="toggle hidden" id="websocket-setting-row"><span class="switch"><input type="checkbox" id="enableWebSocket"><span></span></span>
-          <span><span class="field-title">Enable WebSocket</span><span class="help">Real-time updates (Mobile App only)</span></span></label>
+          <span><span class="field-title" data-i18n>Enable WebSocket</span><span class="help" data-i18n>Real-time updates (Mobile App only)</span></span></label>
       </div>
 
       <div class="subtab hidden" id="subtab-network">
         <div class="fields">
-          <label class="field"><span class="field-title">OIDC callback bind address</span>
+          <label class="field"><span class="field-title" data-i18n>OIDC callback bind address</span>
             <input type="text" id="oidcCallbackServerBindAddr" placeholder="0.0.0.0" spellcheck="false" autocomplete="off">
-            <span class="help">The IPv4 address of the OAuth callback server (0.0.0.0 for all interfaces). 127.0.0.1 only accepts connections from this host, so the login redirect cannot reach it.</span></label>
-          <label class="field"><span class="field-title">HTTP transport</span>
-            <select id="httpTransport"><option value="node">Built-in client (default)</option><option value="curl">curl subprocess (WAF fingerprint workaround)</option></select>
-            <span class="help">Use "curl subprocess" only if authentication times out on your network while curl works: some WAFs drop a client's TLS fingerprint (issue #6). Requires the curl binary; the WebSocket still uses the built-in TLS.</span></label>
+            <span class="help" data-i18n>The IPv4 address of the OAuth callback server (0.0.0.0 for all interfaces). 127.0.0.1 only accepts connections from this host, so the login redirect cannot reach it.</span></label>
+          <label class="field"><span class="field-title" data-i18n>HTTP transport</span>
+            <select id="httpTransport"><option value="node" data-i18n>Built-in client (default)</option><option value="curl" data-i18n>curl subprocess (WAF fingerprint workaround)</option></select>
+            <span class="help" data-i18n>Use "curl subprocess" only if authentication times out on your network while curl works: some WAFs drop a client's TLS fingerprint (issue #6). Requires the curl binary; the WebSocket still uses the built-in TLS.</span></label>
         </div>
       </div>
 
       <div class="subtab hidden" id="subtab-devices">
-        <p class="muted note">Show or hide each device in HomeKit.</p>
+        <p class="muted note" data-i18n>Show or hide each device in HomeKit.</p>
         <div id="device-toggles"></div>
       </div>
 
-      <div class="save-bar" id="settings-bar"><span id="settings-status" class="muted" role="status" aria-live="polite">Saving applies at once: the plugin reloads with the new settings.</span>
-        <button id="btn-settings-discard" disabled>Discard</button><button id="btn-settings-save" class="primary" disabled>Save</button></div>
+      <div class="save-bar" id="settings-bar"><span id="settings-status" class="muted" role="status" aria-live="polite" data-i18n>Saving applies at once: the plugin reloads with the new settings.</span>
+        <button id="btn-settings-discard" disabled data-i18n>Discard</button><button id="btn-settings-save" class="primary" disabled data-i18n>Save</button></div>
     </div>
   </section>
 
   <!-- Authentication -->
   <section class="tab-pane hidden" id="tab-auth" role="tabpanel">
-    <div class="section-head"><h2>Authentication</h2></div>
+    <div class="section-head"><h2 data-i18n>Authentication</h2></div>
     <div class="card">
-      <label class="field"><span class="field-title">Authentication method</span>
+      <label class="field"><span class="field-title" data-i18n>Authentication method</span>
         <select id="authMode">
-          <option value="developer_portal">Developer Portal (200 API calls/day)</option>
-          <option value="mobile_app">Mobile App (3,000 API calls/day + WebSocket)</option>
+          <option value="developer_portal" data-i18n>Developer Portal (200 API calls/day)</option>
+          <option value="mobile_app" data-i18n>Mobile App (3,000 API calls/day + WebSocket)</option>
         </select>
-        <span class="help" id="auth-mode-hint">Requires API credentials from the Daikin Developer Portal</span></label>
+        <span class="help" id="auth-mode-hint" data-i18n>Requires API credentials from the Daikin Developer Portal</span></label>
     </div>
 
     <div class="card" id="auth-status-card">
       <div class="facts">
-        <div class="fact wide-on-phone"><span>Status</span><b id="auth-status">Loading…</b></div>
-        <div class="fact"><span>Mode</span><b id="auth-mode-text">Developer Portal</b></div>
-        <div class="fact hidden" id="expires-row"><span>Expires</span><b id="auth-token-expires">—</b></div>
+        <div class="fact wide-on-phone"><span data-i18n>Status</span><b id="auth-status" data-i18n>Loading…</b></div>
+        <div class="fact"><span data-i18n>Mode</span><b id="auth-mode-text">Developer Portal</b></div>
+        <div class="fact hidden" id="expires-row"><span data-i18n>Expires</span><b id="auth-token-expires">—</b></div>
       </div>
       <div class="actions">
-        <button id="btn-test">Test connection</button>
-        <button id="btn-authenticate" class="primary">Authenticate</button>
-        <button id="btn-authenticate-mobile" class="primary hidden">Configure credentials</button>
-        <button id="btn-revoke" class="danger hidden">Revoke access</button>
+        <button id="btn-test" data-i18n>Test connection</button>
+        <button id="btn-authenticate" class="primary" data-i18n>Authenticate</button>
+        <button id="btn-authenticate-mobile" class="primary hidden" data-i18n>Configure credentials</button>
+        <button id="btn-revoke" class="danger hidden" data-i18n>Revoke access</button>
       </div>
       <p id="test-result" class="status-line" role="status" aria-live="polite"></p>
       <div id="test-problem"></div>
     </div>
 
     <div class="card hidden" id="mobile-auth-form">
-      <div class="info-box"><strong>Mobile App authentication</strong><br>Use your Daikin Onecta account (the same as the mobile app).<br><span class="muted">3,000 API calls/day and real-time WebSocket updates.</span></div>
+      <div class="info-box"><strong data-i18n>Mobile App authentication</strong><br><span data-i18n>Use your Daikin Onecta account (the same as the mobile app).</span><br><span class="muted" data-i18n>3,000 API calls/day and real-time WebSocket updates.</span></div>
       <div class="fields">
-        <label class="field"><span class="field-title">Daikin account email</span><input type="email" id="daikinEmail" placeholder="your@email.com" autocomplete="username"></label>
-        <label class="field"><span class="field-title">Daikin account password</span><input type="password" id="daikinPassword" placeholder="Enter your password" autocomplete="current-password"></label>
+        <label class="field"><span class="field-title" data-i18n>Daikin account email</span><input type="email" id="daikinEmail" placeholder="your@email.com" autocomplete="username" data-i18n></label>
+        <label class="field"><span class="field-title" data-i18n>Daikin account password</span><input type="password" id="daikinPassword" placeholder="Enter your password" autocomplete="current-password" data-i18n></label>
       </div>
       <p id="mobile-auth-result" class="status-line" role="status" aria-live="polite"></p>
       <div id="mobile-auth-problem"></div>
-      <div class="actions end"><button id="btn-mobile-cancel">Cancel</button><button id="btn-test-mobile-auth" class="primary">Test &amp; save credentials</button></div>
+      <div class="actions end"><button id="btn-mobile-cancel" data-i18n>Cancel</button><button id="btn-test-mobile-auth" class="primary" data-i18n>Test & save credentials</button></div>
     </div>
 
     <div class="card hidden" id="wizard">
       <ol class="steps" id="wizard-steps">
-        <li data-n="1">Configure</li><li data-n="2">Authorize</li><li data-n="3">Complete</li>
+        <li data-n="1" data-i18n>Configure</li><li data-n="2" data-i18n>Authorize</li><li data-n="3" data-i18n>Complete</li>
       </ol>
 
       <div class="step" id="content-1">
-        <div class="info-box">Get your credentials from the <a href="https://developer.cloud.daikineurope.com/" target="_blank" rel="noopener noreferrer">Daikin Developer Portal</a>.
-          <br><span class="muted"><strong>Redirect URI:</strong> <code id="redirect-preview">https://&lt;address&gt;:&lt;port&gt;</code></span></div>
+        <div class="info-box"><span data-i18n>Get your credentials from the</span> <a href="https://developer.cloud.daikineurope.com/" target="_blank" rel="noopener noreferrer">Daikin Developer Portal</a>.
+          <br><span class="muted"><strong data-i18n>Redirect URI:</strong> <code id="redirect-preview">https://&lt;address&gt;:&lt;port&gt;</code></span></div>
         <div class="fields">
-          <label class="field"><span class="field-title">Client ID</span><input type="text" id="clientId" placeholder="Enter your Client ID" spellcheck="false" autocomplete="off"></label>
-          <label class="field"><span class="field-title">Client secret</span><input type="password" id="clientSecret" placeholder="Enter your Client Secret" autocomplete="off"></label>
-          <label class="field"><span class="field-title">Callback server address</span><input type="text" id="callbackServerExternalAddress" placeholder="Auto-detecting…" spellcheck="false" autocomplete="off">
-            <span class="help">This machine's address as your browser reaches it (detected).</span></label>
-          <label class="field"><span class="field-title">Callback server port</span><input type="number" id="callbackServerPort" placeholder="8582" min="1" max="65535"></label>
+          <label class="field"><span class="field-title" data-i18n>Client ID</span><input type="text" id="clientId" placeholder="Enter your Client ID" spellcheck="false" autocomplete="off" data-i18n></label>
+          <label class="field"><span class="field-title" data-i18n>Client secret</span><input type="password" id="clientSecret" placeholder="Enter your Client Secret" autocomplete="off" data-i18n></label>
+          <label class="field"><span class="field-title" data-i18n>Callback server address</span><input type="text" id="callbackServerExternalAddress" placeholder="Auto-detecting…" spellcheck="false" autocomplete="off" data-i18n>
+            <span class="help" data-i18n>This machine's address as your browser reaches it (detected).</span></label>
+          <label class="field"><span class="field-title" data-i18n>Callback server port</span><input type="number" id="callbackServerPort" placeholder="8582" min="1" max="65535"></label>
         </div>
         <div id="validation-errors" class="error-list"></div>
         <div id="wizard-start-problem"></div>
-        <div class="actions end"><button id="btn-wizard-cancel">Cancel</button><button id="btn-wizard-continue" class="primary">Continue</button></div>
+        <div class="actions end"><button id="btn-wizard-cancel" data-i18n>Cancel</button><button id="btn-wizard-continue" class="primary" data-i18n>Continue</button></div>
       </div>
 
       <div class="step hidden" id="content-2">
-        <p>Open the Daikin login page and sign in with your account. This page follows along.</p>
+        <p data-i18n>Open the Daikin login page and sign in with your account. This page follows along.</p>
         <div id="auth-url-container" class="hidden">
-          <span class="field-title">Authorization URL</span>
+          <span class="field-title" data-i18n>Authorization URL</span>
           <div class="url-box mono" id="auth-url"></div>
-          <span class="help">If the button does not work, copy this URL into your browser.</span>
+          <span class="help" data-i18n>If the button does not work, copy this URL into your browser.</span>
         </div>
-        <div class="actions"><button id="btn-wizard-back">Back</button><button id="btn-open-auth" class="primary">Open Daikin login</button></div>
+        <div class="actions"><button id="btn-wizard-back" data-i18n>Back</button><button id="btn-open-auth" class="primary" data-i18n>Open Daikin login</button></div>
         <div id="wizard-auth-problem"></div>
-        <p id="callback-server-status" class="status-line waiting hidden" role="status" aria-live="polite">Waiting for authentication… Complete the login in the new window. This page will update automatically.</p>
+        <p id="callback-server-status" class="status-line waiting hidden" role="status" aria-live="polite" data-i18n>Waiting for authentication… Complete the login in the new window. This page will update automatically.</p>
         <details id="manual-callback">
-          <summary>Manual entry (if the automatic redirect fails)</summary>
-          <p class="warn-box">If you see an error page after the login, copy the <strong>full URL</strong> from your browser's address bar and paste it below. Your browser also warns once about the callback server's self-signed certificate: that is expected.</p>
-          <label class="field"><span class="field-title">Callback URL</span><input type="text" id="callbackUrl" placeholder="Paste the full URL from your browser (https://…?code=…)" spellcheck="false" autocomplete="off">
-            <span class="help">The URL contains a <code>?code=</code> parameter.</span></label>
-          <div class="actions"><button id="btn-submit-callback" class="primary">Complete authentication</button></div>
+          <summary data-i18n>Manual entry (if the automatic redirect fails)</summary>
+          <p class="warn-box"><span data-i18n>If you see an error page after the login, copy the full URL from your browser's address bar and paste it below.</span> <span data-i18n>Your browser also warns once about the callback server's self-signed certificate: that is expected.</span></p>
+          <label class="field"><span class="field-title" data-i18n>Callback URL</span><input type="text" id="callbackUrl" placeholder="Paste the full URL from your browser (https://…?code=…)" spellcheck="false" autocomplete="off" data-i18n>
+            <span class="help"><span data-i18n>The URL contains the parameter</span> <code>?code=</code></span></label>
+          <div class="actions"><button id="btn-submit-callback" class="primary" data-i18n>Complete authentication</button></div>
         </details>
       </div>
 
       <div class="step hidden" id="content-3">
-        <div class="success"><span class="check" aria-hidden="true">✓</span><h3>Authentication successful</h3><p id="success-message" class="muted">Your Daikin Cloud account is now connected.</p></div>
-        <div class="info-box"><strong>Next steps</strong>
-          <ol><li>Your settings are saved, and the plugin reloads with them.</li><li>Your Daikin devices appear in HomeKit within a minute.</li></ol></div>
-        <div class="actions end"><button id="btn-wizard-done" class="primary">Done</button></div>
+        <div class="success"><span class="check" aria-hidden="true">✓</span><h3 data-i18n>Authentication successful</h3><p id="success-message" class="muted" data-i18n>Your Daikin Cloud account is now connected.</p></div>
+        <div class="info-box"><strong data-i18n>Next steps</strong>
+          <ol><li data-i18n>Your settings are saved, and the plugin reloads with them.</li><li data-i18n>Your Daikin devices appear in HomeKit within a minute.</li></ol></div>
+        <div class="actions end"><button id="btn-wizard-done" class="primary" data-i18n>Done</button></div>
       </div>
     </div>
   </section>
 
   <!-- Help -->
   <section class="tab-pane hidden" id="tab-help" role="tabpanel">
-    <div class="section-head"><h2>Help &amp; information</h2></div>
+    <div class="section-head"><h2 data-i18n>Help & information</h2></div>
     <div class="card">
-      <div class="item-head"><strong>API rate limit</strong><button id="btn-rate-limit">Check</button></div>
-      <p id="rate-limit-display" class="rate">200 requests/day</p>
-      <p class="muted note" id="rate-limit-info">The Daikin API limits you to 200 requests per day.</p>
+      <div class="item-head"><strong data-i18n>API rate limit</strong><button id="btn-rate-limit" data-i18n>Check</button></div>
+      <p id="rate-limit-display" class="rate" data-i18n>200 requests/day</p>
+      <p class="muted note" id="rate-limit-info" data-i18n>The Daikin API limits you to 200 requests per day.</p>
       <p class="muted note hidden" id="rate-limit-updated"></p>
-      <p class="muted note">Check shows the quota reported on the plugin's most recent API call; it does not use an API request itself.</p>
+      <p class="muted note" data-i18n>Check shows the quota reported on the plugin's most recent API call; it does not use an API request itself.</p>
     </div>
     <div class="card">
-      <strong>Useful links</strong>
+      <strong data-i18n>Useful links</strong>
       <ul class="links">
         <li><a href="https://developer.cloud.daikineurope.com/" target="_blank" rel="noopener noreferrer">Daikin Developer Portal</a></li>
-        <li><a href="https://github.com/mp-consulting/homebridge-daikin-cloud" target="_blank" rel="noopener noreferrer">The Homebridge plugin's repository</a></li>
-        <li><a href="https://github.com/mp-consulting/homebridge-daikin-cloud/issues" target="_blank" rel="noopener noreferrer">Report an issue</a></li>
+        <li><a href="https://github.com/mp-consulting/homebridge-daikin-cloud" target="_blank" rel="noopener noreferrer" data-i18n>The Homebridge plugin's repository</a></li>
+        <li><a href="https://github.com/mp-consulting/homebridge-daikin-cloud/issues" target="_blank" rel="noopener noreferrer" data-i18n>Report an issue</a></li>
       </ul>
     </div>
     <div class="card">
-      <strong>Troubleshooting</strong>
+      <strong data-i18n>Troubleshooting</strong>
       <dl class="trouble">
-        <dt>Token expired or invalid</dt><dd>Revoke access on the Authentication tab (or delete the token file in the plugin's folder), then authenticate again.</dd>
-        <dt>Authentication flow issues</dt><dd>Check that the redirect URI in the portal matches exactly, bind the callback server to 0.0.0.0, check the firewall for the callback port.</dd>
-        <dt>Device not appearing</dt><dd>Check the log, check the device in the Onecta app, check the hidden devices on Settings › Devices.</dd>
+        <dt data-i18n>Token expired or invalid</dt><dd data-i18n>Revoke access on the Authentication tab (or delete the token file in the plugin's folder), then authenticate again.</dd>
+        <dt data-i18n>Authentication flow issues</dt><dd data-i18n>Check that the redirect URI in the portal matches exactly, bind the callback server to 0.0.0.0, check the firewall for the callback port.</dd>
+        <dt data-i18n>Device not appearing</dt><dd data-i18n>Check the log, check the device in the Onecta app, check the hidden devices on Settings › Devices.</dd>
       </dl>
     </div>
   </section>
 </main>
 <script src="/common.js"></script>
 <script src="/plugin.js"></script>
+<script src="i18n.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

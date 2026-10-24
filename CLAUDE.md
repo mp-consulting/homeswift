@@ -37,6 +37,7 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `docs/ai.md` | The Assistant: configuration, providers, command line, use from a plugin, what reaches a provider |
 | `docs/mcp.md` | The MCP server: configuration, claude.ai over OAuth, scopes, confirmations, resources, prompts, security |
 | `docs/ui.md` | The web UI: configuration, pages, security, what plugin authors ship |
+| `docs/translations.md` | The web UI's languages (English, French, Spanish, Portuguese): `i18n.js`, the catalogs `i18n-<lang>.js`, `t()`/`tn()`, plugins' `Web/i18n.js`, the style and the glossary |
 | `docs/widgets.md` | The Accessories page's widgets: sizes, the wall, Adaptive Lighting, paused plugins, what a plugin does to get good widgets; screenshots in `docs/images/widgets` |
 | `Tests/HomeswiftUITests` | Users and sessions, embedded assets are current, the server end to end with a cookie-keeping client |
 | `Tests/HomeswiftMCPTests` | The protocol on a direct session (scopes, elicitation, config tools, resources), the HTTP transport and the stdio proxy against a real server on port 0 |
@@ -106,6 +107,10 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
   and alarms are written only by `set_security_accessory`; tool text from logs or devices is wrapped in
   `<untrusted-data>`. The protocol is implemented directly (no SDK): `MCPServer.protocolVersion` is the
   version to bump. `homeswift mcp` logs to stderr because stdout carries the protocol.
+- Translations: every text a person reads on a page goes through `t()`/`tn()` (or `data-i18n` in HTML), with its
+  French, Spanish and Portuguese in `Web/i18n-<lang>.js`, or a plugin's `Web/i18n.js` (`TranslationTests` fails
+  otherwise); follow docs/translations.md's style and glossary. A change to homeswift.dev's text is made in its
+  `fr/`, `es/` and `pt/` pages too.
 - Screenshots follow the UI: a change to how the web UI looks retakes, in the same change, the screenshots that show
   it (`docs/images`, the README) and brings `site/` (homeswift.dev, which draws widgets in its own HTML) in step.
   `Scripts/docs-screenshots.mjs` retakes the wall, phone and paused shots (docs/widgets.md, "Screenshots": a

@@ -80,13 +80,13 @@ extension UIServer {
         case (.GET, ["digest"]):
             // Today's digest when it was written already; the Status page's widget writes it on demand.
             guard catalog.host.assistant != nil else { return .error(404, Self.assistantOff) }
-            return .json(catalog.cachedDigest() ?? ["text": .null])
+            return .json(catalog.cachedDigest(language: Self.language(request)) ?? ["text": .null])
         case (.POST, ["digest"]):
             guard catalog.host.assistant != nil else { return .error(404, Self.assistantOff) }
-            let catalog = catalog
-            return await runAssistant(body, username: username) { onChunk in try await catalog.writeDigest(user: username, onChunk: onChunk) }
+            let (catalog, language) = (catalog, Self.language(request))
+            return await runAssistant(body, username: username) { onChunk in try await catalog.writeDigest(user: username, language: language, onChunk: onChunk) }
         case (.POST, ["explain"]):
-            guard let assistant = assistant(for: username, plugin: body["plugin"]?.stringValue) else { return .error(404, Self.assistantOff) }
+            guard let assistant = assistant(for: username, plugin: body["plugin"]?.stringValue, request: request) else { return .error(404, Self.assistantOff) }
             guard let error = body["error"]?.stringValue, !error.isEmpty else { return .error(400, "an error to explain is required") }
             let (context, device, plugin) = (body["context"]?.stringValue, body["device"], body["plugin"]?.stringValue)
             return await runAssistant(body, username: username) { onChunk in
@@ -94,7 +94,7 @@ extension UIServer {
             }
         case (.POST, ["ask"]):
             // A plugin page's question, with the plugin's background as for explain (ai-kit's /ai/ask).
-            guard let assistant = assistant(for: username, plugin: body["plugin"]?.stringValue) else { return .error(404, Self.assistantOff) }
+            guard let assistant = assistant(for: username, plugin: body["plugin"]?.stringValue, request: request) else { return .error(404, Self.assistantOff) }
             guard let prompt = body["prompt"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !prompt.isEmpty else { return .error(400, "a prompt is required") }
             guard prompt.count <= 8000 else { return .error(400, "the prompt is too long: 8000 characters at most") }
             let context = body["context"]?.stringValue
@@ -103,7 +103,7 @@ extension UIServer {
             }
         case (.POST, ["diagnose"]):
             // Log Doctor: the lines the Logs page shows, grouped into issues with causes and fixes.
-            guard let assistant = assistant(for: username, plugin: nil) else { return .error(404, Self.assistantOff) }
+            guard let assistant = assistant(for: username, plugin: nil, request: request) else { return .error(404, Self.assistantOff) }
             let lines = body["lines"]?.arrayValue?.compactMap(\.stringValue) ?? body["logs"]?.stringValue.map { $0.components(separatedBy: "\n") } ?? []
             let logs = lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
             guard !logs.isEmpty else { return .error(400, "there are no log lines to diagnose") }
@@ -121,13 +121,19 @@ extension UIServer {
         }
     }
 
-    /// The Assistant counting for `username`, with a plugin's background when a plugin page asks.
-    func assistant(for username: String, plugin platform: String?) -> AssistantService? {
+    /// The Assistant counting for `username`, with a plugin's background when a plugin page asks, answering in the
+    /// page's language.
+    func assistant(for username: String, plugin platform: String?, request: Request) -> AssistantService? {
         guard var assistant = catalog.host.assistant?.forUser(username) else { return nil }
         if let platform, let entry = catalog.host.registry.entry(for: platform) {
             assistant = assistant.withContext(PluginContext.assistantContext(name: entry.name, platform: platform, background: entry.assistantBackground))
         }
-        return assistant
+        return assistant.speaking(Self.language(request))
+    }
+
+    /// The page's language, which its requests send as their `Accept-Language` (i18n.js's locale): the first tag.
+    static func language(_ request: Request) -> String? {
+        request.headers["accept-language"]?.split(separator: ",").first.map { $0.split(separator: ";")[0].trimmingCharacters(in: .whitespaces) }
     }
 
     /// Runs `work`: streamed when the body has a `requestId`, else answered as JSON.

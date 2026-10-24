@@ -4,6 +4,9 @@
 (() => {
   "use strict";
 
+  // i18n.js is the first script of every page.
+  const { t } = HomeswiftI18n;
+
   const $ = (selector, root = document) => root.querySelector(selector);
   const el = (tag, attrs = {}, ...children) => {
     const node = document.createElement(tag);
@@ -279,7 +282,7 @@
     // On a phone a card's menu is an action sheet over a dimmed page, at the bottom within the thumb's reach, as
     // iOS's; the header's (the account) still drops down from its button.
     const sheet = matchMedia("(max-width: 640px)").matches && !trigger.closest("header");
-    const list = el("div", { class: `menu${sheet ? " sheet-menu" : ""}`, role: "menu", tabIndex: -1, "aria-label": trigger.getAttribute("aria-label") || "Actions" }, nodes);
+    const list = el("div", { class: `menu${sheet ? " sheet-menu" : ""}`, role: "menu", tabIndex: -1, "aria-label": trigger.getAttribute("aria-label") || t("Actions") }, nodes);
     const scrim = sheet ? el("div", { class: "menu-scrim", "aria-hidden": "true" }) : null;
     // A sheet's grabber: a swipe down from it puts the sheet away, as the scrim's tap does.
     if (sheet) {
@@ -390,7 +393,8 @@
   /// message and its `status`, and a signed-out visitor goes to the sign-in page. `stream: true` answers the Response itself,
   /// for a body read as it arrives.
   async function api(path, { method = "GET", body, stream = false } = {}) {
-    const options = { method, credentials: "same-origin", headers: {} };
+    // The Assistant answers in the page's language.
+    const options = { method, credentials: "same-origin", headers: { "Accept-Language": window.HomeswiftI18n?.locale || "en" } };
     if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
     const response = await fetch(path, options);
     if (response.status === 401) { location.href = "/"; throw new Error("signed out"); }
@@ -398,7 +402,7 @@
     const text = await response.text();
     let json = null;
     try { json = text ? JSON.parse(text) : null; } catch { json = { error: text }; }
-    if (!response.ok) throw Object.assign(new Error((json && json.error) || `HTTP ${response.status}`), { status: response.status });
+    if (!response.ok) throw Object.assign(new Error(window.HomeswiftI18n?.message((json && json.error) || `HTTP ${response.status}`) ?? `HTTP ${response.status}`), { status: response.status });
     return json;
   }
 
@@ -411,7 +415,7 @@
     field.select();
     const copied = document.execCommand("copy");
     field.remove();
-    if (!copied) throw new Error("The browser did not allow copying.");
+    if (!copied) throw new Error(t("The browser did not allow copying."));
   }
 
   // ---- JSON, coloured -----------------------------------------------------------------------------------
@@ -450,18 +454,18 @@
     const string = () => {
       at++;
       for (;;) {
-        if (at >= text.length) fail("This string is not closed");
+        if (at >= text.length) fail(t("This string is not closed"));
         const character = text[at];
         if (character === '"') { at++; return; }
         if (character === "\\") {
           const next = text[at + 1];
           if (next === "u" && /^[0-9a-fA-F]{4}$/.test(text.slice(at + 2, at + 6))) at += 6;
           else if (next !== undefined && "\"\\/bfnrt".includes(next)) at += 2;
-          else fail("Not a valid escape in a string");
+          else fail(t("Not a valid escape in a string"));
           continue;
         }
-        if (character === "\n") fail("This string is not closed before the end of the line");
-        if (character < " ") fail("A control character in a string must be escaped");
+        if (character === "\n") fail(t("This string is not closed before the end of the line"));
+        if (character < " ") fail(t("A control character in a string must be escaped"));
         at++;
       }
     };
@@ -470,7 +474,9 @@
       space();
       if (text[at] === ",") { at++; return false; }
       if (text[at] === closing) { at++; return true; }
-      fail(at >= text.length ? `The text ends before this ${closing === "}" ? "object" : "list"} is closed` : `A comma or a ${closing === "}" ? "closing brace" : "closing bracket"} is missing after this value`, end);
+      fail(at >= text.length
+        ? (closing === "}" ? t("The text ends before this object is closed") : t("The text ends before this list is closed"))
+        : (closing === "}" ? t("A comma or a closing brace is missing after this value") : t("A comma or a closing bracket is missing after this value")), end);
     };
     const value = (path) => {
       space();
@@ -481,13 +487,13 @@
         if (text[at] === "}") { at++; return; }
         for (;;) {
           space();
-          if (text[at] !== '"') fail(text[at] === "}" ? "A comma before the closing brace" : at >= text.length ? "The text ends before this object is closed" : "Expected a key in double quotes");
+          if (text[at] !== '"') fail(text[at] === "}" ? t("A comma before the closing brace") : at >= text.length ? t("The text ends before this object is closed") : t("Expected a key in double quotes"));
           const start = at;
           string();
           const key = JSON.parse(text.slice(start, at));
           places.set(JSON.stringify([...path, key]), start);
           space();
-          if (text[at] !== ":") fail("A colon is missing after this key");
+          if (text[at] !== ":") fail(t("A colon is missing after this key"));
           at++;
           value([...path, key]);
           if (after(at, "}")) return;
@@ -499,7 +505,7 @@
         if (text[at] === "]") { at++; return; }
         for (let index = 0; ; index++) {
           space();
-          if (text[at] === "]") fail("A comma before the closing bracket");
+          if (text[at] === "]") fail(t("A comma before the closing bracket"));
           places.set(JSON.stringify([...path, index]), at);
           value([...path, index]);
           if (after(at, "]")) return;
@@ -510,12 +516,12 @@
       numberPattern.lastIndex = at;
       const number = numberPattern.exec(text);
       if (number && number[0] !== "-") { at += number[0].length; return; }
-      fail(at >= text.length ? "The text ends where a value should be" : character === "'" ? "Strings take double quotes" : "Not a valid value");
+      fail(at >= text.length ? t("The text ends where a value should be") : character === "'" ? t("Strings take double quotes") : t("Not a valid value"));
     };
     try {
       value([]);
       space();
-      if (at < text.length) fail("Something follows the end of the JSON");
+      if (at < text.length) fail(t("Something follows the end of the JSON"));
       return { places };
     } catch (error) {
       if (error instanceof Error) throw error;
@@ -631,7 +637,7 @@
 
   // ---- The sections, and the tab bar a phone shows them in -----------------------------------------------
 
-  const sections = [["/status", "Status", "bridge"], ["/accessories", "Accessories", "bulb"], ["/scenes", "Scenes", "play"], ["/plugins", "Plugins", "plugin"], ["/config", "Config", "code"], ["/logs", "Logs", "logs"]];
+  const sections = [["/status", t("Status"), "bridge"], ["/accessories", t("Accessories"), "bulb"], ["/scenes", t("Scenes"), "play"], ["/plugins", t("Plugins"), "plugin"], ["/config", t("Config"), "code"], ["/logs", t("Logs"), "logs"]];
 
   /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
   /// a label each, the current one in the accent. `parent` is what hides it with the app (the sign-in screen has
@@ -639,7 +645,7 @@
   function tabBar({ active, parent = document.body } = {}) {
     const existing = document.querySelector("nav.tabbar");
     if (existing) return existing;
-    const bar = el("nav", { class: "tabbar", "aria-label": "Sections" }, sections.map(([path, text, glyph]) =>
+    const bar = el("nav", { class: "tabbar", "aria-label": t("Sections") }, sections.map(([path, text, glyph]) =>
       el("a", { href: path, class: path === active ? "active" : "", "aria-current": path === active ? "page" : null }, icon(glyph), el("span", { text }))));
     parent.append(bar);
     return bar;
@@ -683,7 +689,7 @@
     if (!onChunk) return api(path, { method: "POST", body });
     const requestId = `r${Date.now().toString(36)}-${++requests}`;
     const cancel = () => { api("/api/assistant/cancel", { method: "POST", body: { requestId } }).catch(() => {}); };
-    if (signal?.aborted) throw Object.assign(new Error("Stopped."), { name: "AbortError" });
+    if (signal?.aborted) throw Object.assign(new Error(t("Stopped.")), { name: "AbortError" });
     signal?.addEventListener("abort", cancel, { once: true });
     try {
       const response = await api(path, { method: "POST", body: { ...body, requestId }, stream: true });
@@ -704,10 +710,10 @@
           const payload = JSON.parse(data);
           if (event === "chunk") onChunk(payload.text);
           else if (event === "done") return payload;
-          else if (event === "error") throw Object.assign(new Error(payload.error), { status: payload.status });
+          else if (event === "error") throw Object.assign(new Error(window.HomeswiftI18n?.message(payload.error) ?? payload.error), { status: payload.status });
         }
       }
-      throw new Error(signal?.aborted ? "Stopped." : "The connection dropped before the answer ended.");
+      throw new Error(signal?.aborted ? t("Stopped.") : t("The connection dropped before the answer ended."));
     } finally {
       signal?.removeEventListener("abort", cancel);
     }
@@ -718,7 +724,7 @@
   // opens in them before the server answers. Storage may be missing (a private window): it then waits.
 
   const preferenceKey = "homeswift.preferences";
-  let preferences = { theme: "auto", wallpaper: "none", temperatureUnit: "c" };
+  let preferences = { theme: "auto", wallpaper: "none", temperatureUnit: "c", language: "auto" };
   try { Object.assign(preferences, JSON.parse(localStorage.getItem(preferenceKey) || "{}")); } catch {}
 
   /// Applies the user's choices to this page (and remembers them in this browser): `data-theme` and
@@ -736,6 +742,14 @@
       meta.media = preferences.theme === "auto" ? meta.dataset.media : (meta.dataset.media.includes(preferences.theme) ? "all" : "not all");
     }
     if (next) { try { localStorage.setItem(preferenceKey, JSON.stringify(preferences)); } catch {} }
+    // Another language is another catalog, which i18n.js loads before the page's scripts: the page opens again in it.
+    // Only once this browser kept the choice, or the page would open again in the browser's language, and again.
+    const I18N = window.HomeswiftI18n;
+    if (next && I18N && I18N.resolve(preferences.language) !== I18N.language) {
+      let kept = null;
+      try { kept = JSON.parse(localStorage.getItem(preferenceKey) || "{}").language; } catch {}
+      if (kept === preferences.language) { location.reload(); return preferences; }
+    }
     document.dispatchEvent(new CustomEvent("homeswift:preferences", { detail: preferences }));
     return preferences;
   }
@@ -743,7 +757,14 @@
 
   /// The user's choices from the server, applied; the ones this browser kept when it cannot be asked.
   async function loadPreferences() {
-    try { return applyPreferences(await api("/api/preferences")); } catch { return preferences; }
+    try {
+      let saved = await api("/api/preferences");
+      // A language chosen on the sign-in page, before the server could keep it: the account keeps it now.
+      let chosen = null;
+      try { chosen = localStorage.getItem("homeswift.language-chosen"); localStorage.removeItem("homeswift.language-chosen"); } catch {}
+      if (chosen && saved.language !== chosen) saved = await api("/api/preferences", { method: "PUT", body: { language: chosen } });
+      return applyPreferences(saved);
+    } catch { return preferences; }
   }
 
   /// A temperature HomeKit gives in °C, in the unit the user chose: `{ value, unit }`, the value rounded to a tenth.

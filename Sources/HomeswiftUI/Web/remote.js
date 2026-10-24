@@ -5,6 +5,7 @@
 (() => {
   "use strict";
 
+  const { t, tn } = HomeswiftI18n;
   const icons = {
     up: '<path d="M6 15l6-6 6 6"/>', down: '<path d="M6 9l6 6 6-6"/>', left: '<path d="M15 6l-6 6 6 6"/>', right: '<path d="M9 6l6 6-6 6"/>',
     back: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
@@ -16,8 +17,8 @@
     power: '<path d="M12 3v9"/><path d="M6.3 7.2a8 8 0 1 0 11.4 0"/>',
   };
   const labels = {
-    up: "Up", down: "Down", left: "Left", right: "Right", select: "OK", back: "Back", home: "Home", info: "Info",
-    playPause: "Play/Pause", mute: "Mute", volumeUp: "Volume up", volumeDown: "Volume down", power: "Power",
+    up: t("Up"), down: t("Down"), left: t("Left"), right: t("Right"), select: t("OK"), back: t("Back"), home: t("Home"), info: t("Info"),
+    playPause: t("Play/Pause"), mute: t("Mute"), volumeUp: t("Volume up"), volumeDown: t("Volume down"), power: t("Power"),
   };
   const keyboard = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", Enter: "select", Backspace: "back", " ": "playPause" };
 
@@ -31,7 +32,7 @@
 
   /// `actions`: the actions this TV takes (others are left out). `send(action)`: a promise. `disabled`: the
   /// TV cannot take keys now. `extra`: nodes for the side (a power or Ambilight button).
-  function build({ actions, send, disabled = false, label = "Remote", extra = [] }) {
+  function build({ actions, send, disabled = false, label = t("Remote"), extra = [] }) {
     const has = new Set(actions);
     const remote = document.createElement("div");
     remote.className = `mini-remote${disabled ? " is-disabled" : ""}`;
@@ -61,9 +62,9 @@
     const pad = document.createElement("div");
     pad.className = "pad";
     pad.tabIndex = disabled ? -1 : 0;
-    pad.setAttribute("aria-label", `${label}: arrows move, Enter selects, Backspace goes back`);
+    pad.setAttribute("aria-label", t("{remote}: arrows move, Enter selects, Backspace goes back", { remote: label }));
     const ok = document.createElement("span");
-    ok.textContent = "OK";
+    ok.textContent = t("OK");
     pad.append(key("up", "pad-key up"), key("left", "pad-key left"), key("select", "pad-ok", ok), key("right", "pad-key right"), key("down", "pad-key down"));
     pad.addEventListener("keydown", (event) => {
       const action = keyboard[event.key];
@@ -83,7 +84,7 @@
       const rocker = document.createElement("div");
       rocker.className = "rocker";
       rocker.setAttribute("role", "group");
-      rocker.setAttribute("aria-label", "Volume");
+      rocker.setAttribute("aria-label", t("Volume"));
       rocker.append(key("volumeUp", "rocker-key"), key("volumeDown", "rocker-key"));
       side.append(rocker);
     }

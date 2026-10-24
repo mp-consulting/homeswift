@@ -102,30 +102,30 @@
     <span class="tile large accessory" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 21V4a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v17"/><path d="M3 21h18"/><circle cx="15" cy="12.5" r="1"/></svg></span>
     <div>
       <h1>UniFi Access</h1>
-      <p class="muted">Manage your UniFi Access controllers and devices in HomeKit.</p>
+      <p class="muted" data-i18n>Manage your UniFi Access controllers and devices in HomeKit.</p>
     </div>
   </div>
 
   <!-- Controllers -->
   <section id="controllers-screen" class="screen hidden">
-    <div class="section-head"><h2>Configured controllers</h2><span class="muted" id="controllers-note"></span></div>
+    <div class="section-head"><h2 data-i18n>Configured controllers</h2><span class="muted" id="controllers-note"></span></div>
     <div id="controllers" class="controllers"></div>
     <div class="actions" style="margin-top: 14px">
-      <button class="primary" id="add-controller">Add controller</button>
-      <button id="open-support">Support</button>
+      <button class="primary" id="add-controller" data-i18n>Add controller</button>
+      <button id="open-support" data-i18n>Support</button>
     </div>
   </section>
 
   <!-- Discovery -->
   <section id="discovery-screen" class="screen hidden">
     <div class="card">
-      <h2 style="margin-top: 0">Discover your controller</h2>
-      <p class="muted">Scan your network for UniFi Access controllers, or enter the address manually.</p>
-      <p class="note-box">Make sure your UniFi console is powered on and connected to the same network.</p>
+      <h2 style="margin-top: 0" data-i18n>Discover your controller</h2>
+      <p class="muted" data-i18n>Scan your network for UniFi Access controllers, or enter the address manually.</p>
+      <p class="note-box" data-i18n>Make sure your UniFi console is powered on and connected to the same network.</p>
       <div class="actions" style="margin-top: 14px">
-        <button class="primary" id="discover">Discover controllers</button>
-        <button id="manual-entry">Manual entry</button>
-        <button class="link" id="cancel-discovery">Cancel</button>
+        <button class="primary" id="discover" data-i18n>Discover controllers</button>
+        <button id="manual-entry" data-i18n>Manual entry</button>
+        <button class="link" id="cancel-discovery" data-i18n>Cancel</button>
       </div>
       <div id="discovered"></div>
     </div>
@@ -134,76 +134,76 @@
   <!-- Add or edit a controller -->
   <section id="setup-screen" class="screen hidden">
     <form class="card" id="setup-form" novalidate>
-      <h2 style="margin-top: 0" id="setup-title">Add a UniFi Access controller</h2>
-      <p class="muted" id="setup-subtitle">Enter your UniFi Access controller details and login credentials.</p>
+      <h2 style="margin-top: 0" id="setup-title" data-i18n>Add a UniFi Access controller</h2>
+      <p class="muted" id="setup-subtitle" data-i18n>Enter your UniFi Access controller details and login credentials.</p>
       <div class="form">
-        <label class="wide">Controller<input id="address" placeholder="Hostname or IP (e.g. unvr.local)" autocomplete="off" spellcheck="false"><span class="help">The address of your UniFi Access controller.</span></label>
-        <label>Username<input id="username" autocomplete="username" placeholder="Local user account username"></label>
-        <label>Password<input id="password" type="password" autocomplete="current-password" placeholder="Local user account password"></label>
+        <label class="wide" data-i18n>Controller<input id="address" data-i18n placeholder="Hostname or IP (e.g. unvr.local)" autocomplete="off" spellcheck="false"><span class="help" data-i18n>The address of your UniFi Access controller.</span></label>
+        <label data-i18n>Username<input id="username" autocomplete="username" data-i18n placeholder="Local user account username"></label>
+        <label data-i18n>Password<input id="password" type="password" autocomplete="current-password" data-i18n placeholder="Local user account password"></label>
       </div>
       <details class="advanced" id="advanced">
-        <summary>Advanced settings</summary>
+        <summary data-i18n>Advanced settings</summary>
         <div class="form">
-          <label class="wide">Name<input id="ctrl-name" placeholder="Defaults to the controller's name"><span class="help">Used to identify this controller in the log.</span></label>
+          <label class="wide" data-i18n>Name<input id="ctrl-name" data-i18n placeholder="Defaults to the controller's name"><span class="help" data-i18n>Used to identify this controller in the log.</span></label>
         </div>
         <div class="check">
           <input type="checkbox" id="verify-tls">
-          <label for="verify-tls">Verify the controller's TLS certificate against trusted certificate authorities<span class="help">Leave this off unless your controller uses a CA-signed certificate. When off, the controller's self-signed certificate is pinned the first time Homeswift connects, and any later change is refused.</span></label>
+          <label for="verify-tls" data-i18n>Verify the controller's TLS certificate against trusted certificate authorities<span class="help" data-i18n>Leave this off unless your controller uses a CA-signed certificate. When off, the controller's self-signed certificate is pinned the first time Homeswift connects, and any later change is refused.</span></label>
         </div>
         <div class="form">
-          <label>MQTT broker<input id="mqtt-url" placeholder="e.g. mqtt://user:password@1.2.3.4" spellcheck="false"><span class="help">MQTT support is enabled only when a broker URL is provided.</span></label>
-          <label>MQTT topic<input id="mqtt-topic" placeholder="unifi/access" spellcheck="false"></label>
+          <label data-i18n>MQTT broker<input id="mqtt-url" data-i18n placeholder="e.g. mqtt://user:password@1.2.3.4" spellcheck="false"><span class="help" data-i18n>MQTT support is enabled only when a broker URL is provided.</span></label>
+          <label data-i18n>MQTT topic<input id="mqtt-topic" placeholder="unifi/access" spellcheck="false"></label>
         </div>
         <div class="check">
           <input type="checkbox" id="mqtt-verify-tls" checked>
-          <label for="mqtt-verify-tls">Verify the MQTT broker's TLS certificate<span class="help">Only turn this off if your mqtts:// broker uses a self-signed certificate.</span></label>
+          <label for="mqtt-verify-tls" data-i18n>Verify the MQTT broker's TLS certificate<span class="help" data-i18n>Only turn this off if your mqtts:// broker uses a self-signed certificate.</span></label>
         </div>
       </details>
-      <p class="note-box"><strong>Local account required.</strong> Ubiquiti.com and UI.com accounts are not supported. Create one in the <em>Admins &amp; Users</em> tab of your UniFi console.</p>
+      <p class="note-box" id="local-account"><strong data-i18n>Local account required.</strong> Ubiquiti.com and UI.com accounts are not supported. Create one in the <em>Admins &amp; Users</em> tab of your UniFi console.</p>
       <p class="status-line" id="setup-status"></p>
       <div id="setup-explain"></div>
       <div class="save-bar">
-        <span class="muted">Homeswift logs in to check the details before saving them.</span>
-        <button type="button" id="cancel-setup">Cancel</button>
-        <button type="submit" class="primary" id="save-controller">Save controller</button>
+        <span class="muted" data-i18n>Homeswift logs in to check the details before saving them.</span>
+        <button type="button" id="cancel-setup" data-i18n>Cancel</button>
+        <button type="submit" class="primary" id="save-controller" data-i18n>Save controller</button>
       </div>
     </form>
   </section>
 
   <!-- Feature options -->
   <section id="options-screen" class="screen hidden">
-    <div class="section-head"><h2 id="options-title">Feature options</h2><button class="link" id="back-from-options">Back</button></div>
+    <div class="section-head"><h2 id="options-title" data-i18n>Feature options</h2><button class="link" id="back-from-options" data-i18n>Back</button></div>
     <div class="options-layout">
       <aside class="scope-side">
-        <div class="card"><label for="scope">Scope</label><select id="scope"></select></div>
+        <div class="card"><label for="scope" data-i18n>Scope</label><select id="scope"></select></div>
         <div class="card cascade" id="cascade">
-          <div class="level" data-scope="global"><span class="dot">G</span><div><div class="label">Global</div><div class="hint">All devices</div></div></div>
+          <div class="level" data-scope="global"><span class="dot">G</span><div><div class="label" data-i18n>Global</div><div class="hint" data-i18n>All devices</div></div></div>
           <div class="connector"></div>
-          <div class="level" data-scope="controller"><span class="dot">C</span><div><div class="label">Controller</div><div class="hint">Overrides global</div></div></div>
+          <div class="level" data-scope="controller"><span class="dot">C</span><div><div class="label" data-i18n>Controller</div><div class="hint" data-i18n>Overrides global</div></div></div>
           <div class="connector"></div>
-          <div class="level" data-scope="device"><span class="dot">D</span><div><div class="label">Device</div><div class="hint">Final value</div></div></div>
+          <div class="level" data-scope="device"><span class="dot">D</span><div><div class="label" data-i18n>Device</div><div class="hint" data-i18n>Final value</div></div></div>
         </div>
         <div class="card hidden" id="device-info"></div>
         <div class="card legend">
-          <strong>Legend</strong>
-          <span><i class="bar global"></i>Set at global</span>
-          <span><i class="bar controller"></i>Set at controller</span>
-          <span><i class="bar device"></i>Set at device</span>
+          <strong data-i18n>Legend</strong>
+          <span data-i18n><i class="bar global"></i>Set at global</span>
+          <span data-i18n><i class="bar controller"></i>Set at controller</span>
+          <span data-i18n><i class="bar device"></i>Set at device</span>
         </div>
       </aside>
       <div>
         <div class="option-tools">
-          <input type="search" id="search" placeholder="Search options…" aria-label="Search options">
-          <label class="toggle compact"><span class="switch"><input type="checkbox" id="modified-only"><span></span></span><span class="muted">Modified <span id="modified-count"></span></span></label>
+          <input type="search" id="search" data-i18n placeholder="Search options…" aria-label="Search options">
+          <label class="toggle compact"><span class="switch"><input type="checkbox" id="modified-only"><span></span></span><span class="muted" data-i18n>Modified <span id="modified-count"></span></span></label>
         </div>
-        <p class="muted" id="options-loading">Loading options…</p>
+        <p class="muted" id="options-loading" data-i18n>Loading options…</p>
         <div id="options-problem"></div>
         <div id="device-problem"></div>
         <div id="options"></div>
         <div class="card save-bar hidden" id="options-save">
-          <span class="dirty">Unsaved changes to the feature options.</span>
-          <button id="discard-options">Discard</button>
-          <button class="primary" id="save-options">Save</button>
+          <span class="dirty" data-i18n>Unsaved changes to the feature options.</span>
+          <button id="discard-options" data-i18n>Discard</button>
+          <button class="primary" id="save-options" data-i18n>Save</button>
         </div>
       </div>
     </div>
@@ -211,28 +211,29 @@
 
   <!-- Support -->
   <section id="support-screen" class="screen hidden">
-    <div class="section-head"><h2>Support</h2><button class="link" id="back-from-support">Back</button></div>
+    <div class="section-head"><h2 data-i18n>Support</h2><button class="link" id="back-from-support" data-i18n>Back</button></div>
     <div class="card support">
-      <h2 style="margin-top: 0">About this plugin</h2>
-      <p>A port of <a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-access">homebridge-unifi-access</a> to <a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homeswift">Homeswift</a>. If you find it useful, consider starring the projects on GitHub.</p>
-      <h2>Getting started</h2>
+      <h2 style="margin-top: 0" data-i18n>About this plugin</h2>
+      <p id="support-about">A port of <a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-access">homebridge-unifi-access</a> to <a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homeswift">Homeswift</a>. If you find it useful, consider starring the projects on GitHub.</p>
+      <h2 data-i18n>Getting started</h2>
       <ul>
-        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homeswift/blob/main/Plugins/UniFiAccess/README.md">Installation and configuration</a> in Homeswift, and what differs from Homebridge.</li>
-        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-access/blob/main/docs/FeatureOptions.md">Feature options</a>: options to set per controller or device.</li>
-        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-access/blob/main/docs/MQTT.md">MQTT</a>: the topics published and accepted.</li>
-        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-access/blob/main/CHANGELOG.md">Changelog</a> of the Homebridge plugin this one follows.</li>
+        <li id="support-readme"><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homeswift/blob/main/Plugins/UniFiAccess/README.md" data-i18n>Installation and configuration</a> in Homeswift, and what differs from Homebridge.</li>
+        <li id="support-options"><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-access/blob/main/docs/FeatureOptions.md" data-i18n>Feature options</a>: options to set per controller or device.</li>
+        <li id="support-mqtt"><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-access/blob/main/docs/MQTT.md">MQTT</a>: the topics published and accepted.</li>
+        <li id="support-changelog"><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-access/blob/main/CHANGELOG.md" data-i18n>Changelog</a> of the Homebridge plugin this one follows.</li>
       </ul>
-      <h2>Get help</h2>
+      <h2 data-i18n>Get help</h2>
       <ul>
-        <li><a target="_blank" rel="noopener noreferrer" href="https://discord.gg/QXqfHEW">Discord support channel</a> of the UniFi plugins.</li>
-        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-access/issues/new/choose">Create a developer support request</a> for the Homebridge plugin's behaviour, or <a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homeswift/issues/new">open an issue on Homeswift</a> for this port.</li>
-        <li>The Homeswift log (the Logs page) shows what the plugin sees; feature option <code>Log.*</code> entries turn event logging on and off.</li>
+        <li id="support-discord"><a target="_blank" rel="noopener noreferrer" href="https://discord.gg/QXqfHEW" data-i18n>Discord support channel</a> of the UniFi plugins.</li>
+        <li id="support-issues"><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-access/issues/new/choose" data-i18n>Create a developer support request</a> for the Homebridge plugin's behaviour, or <a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homeswift/issues/new" data-i18n>open an issue on Homeswift</a> for this port.</li>
+        <li id="support-log">The Homeswift log (the Logs page) shows what the plugin sees; feature option <code>Log.*</code> entries turn event logging on and off.</li>
       </ul>
     </div>
   </section>
 </main>
 <script src="/common.js"></script>
 <script src="/plugin.js"></script>
+<script src="i18n.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

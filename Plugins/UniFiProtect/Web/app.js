@@ -6,6 +6,10 @@
 (() => {
   "use strict";
   const { $, el, request, explain, readBlock, updateBlock } = homeswift;
+  const { t } = HomeswiftI18n;
+  /// Text from the plugin (an error in an answer, a feature option's description), in the page's language when
+  /// the catalog knows it.
+  const said = (text) => HomeswiftI18n.message(text);
   const P = window.ProtectOptions;
   const pluginName = "UniFi Protect";
 
@@ -71,17 +75,17 @@
   }
 
   function controllerCard(controller, index) {
-    const badge = el("span", { class: "pill status standby", text: "Checking" });
+    const badge = el("span", { class: "pill status standby", text: t("Checking") });
     const slot = el("div", {});
     const live = runtime[controller.address];
     const facts = live ? el("div", { class: "facts" },
-      el("div", { class: "fact" }, el("span", { text: "Devices" }), el("b", { text: String(live.devices.length) })),
-      el("div", { class: "fact" }, el("span", { text: "Events" }), el("b", { text: live.events ? "Live" : live.connected ? "Every 2 minutes" : "—" })),
-      el("div", { class: "fact" }, el("span", { text: "Certificate" }), el("b", { text: controller.verifyTls ? "Verified" : live.tlsFingerprint ? "Pinned" : "Not yet seen" }))) : null;
+      el("div", { class: "fact" }, el("span", { text: t("Devices") }), el("b", { text: String(live.devices.length) })),
+      el("div", { class: "fact" }, el("span", { text: t("Events") }), el("b", { text: live.events ? t("Live") : live.connected ? t("Every 2 minutes") : "—" })),
+      el("div", { class: "fact" }, el("span", { text: t("Certificate") }), el("b", { text: controller.verifyTls ? t("Verified") : live.tlsFingerprint ? t("Pinned") : t("Not yet seen") }))) : null;
     const remove = async () => {
-      if (!confirm(`Remove ${controller.name || controller.address}?`)) return;
+      if (!confirm(t("Remove {name}?", { name: controller.name || controller.address }))) return;
       state.block.controllers.splice(index, 1);
-      try { await saveBlock(); } catch (e) { alert(`Unable to remove the controller: ${e.message}`); }
+      try { await saveBlock(); } catch (e) { alert(t("Unable to remove the controller: {error}", { error: e.message })); }
       await renderControllers();
       if (!controllers().length) showDiscovery(false);
     };
@@ -93,15 +97,15 @@
         badge),
       facts, slot,
       el("div", { class: "card-foot" },
-        el("span", { class: "muted", text: live ? (live.connected ? "Connected" : "Not connected yet: see the log.") : "Not running" }),
-        HomeswiftCommon.menuButton(`Actions for ${controller.name || controller.address}`, () => [
-          { label: "Feature options", icon: "sliders", onSelect: () => openFeatureOptions(index) },
-          { label: "Edit", icon: "edit", onSelect: () => openEditController(index) },
-          { label: "Remove", icon: "trash", danger: true, onSelect: remove },
+        el("span", { class: "muted", text: live ? (live.connected ? t("Connected") : t("Not connected yet: see the log.")) : t("Not running") }),
+        HomeswiftCommon.menuButton(t("Actions for {name}", { name: controller.name || controller.address }), () => [
+          { label: t("Feature options"), icon: "sliders", onSelect: () => openFeatureOptions(index) },
+          { label: t("Edit"), icon: "edit", onSelect: () => openEditController(index) },
+          { label: t("Remove"), icon: "trash", danger: true, onSelect: remove },
         ])));
     request("check-status", { method: "POST", body: { address: controller.address } }).then(({ online }) => {
       badge.className = `pill status ${online ? "on" : "away"}`;
-      badge.textContent = online ? "Online" : "Offline";
+      badge.textContent = online ? t("Online") : t("Offline");
       if (!online) {
         slot.replaceChildren(explain({
           error: "The controller did not answer an HTTPS request on port 443 within 5 seconds (status check from the Homeswift server; loopback and link-local addresses are refused), so it is shown as Offline.",
@@ -109,7 +113,7 @@
           device: P.assistantController(controller),
         }));
       }
-    }).catch(() => { badge.textContent = "Unknown"; });
+    }).catch(() => { badge.textContent = t("Unknown"); });
     return card;
   }
 
@@ -125,23 +129,23 @@
 
   async function discover(button) {
     const list = $("#deviceList");
-    list.replaceChildren(el("p", { class: "muted", text: "Searching…" }));
+    list.replaceChildren(el("p", { class: "muted", text: t("Searching…") }));
     try {
       const { devices } = await act(button, () => request("discover"));
       const configured = controllers().map((c) => c.address);
       const available = devices.filter((d) => !configured.includes(d.ip));
       if (!available.length) {
-        const message = devices.length ? "All discovered devices are already configured." : "No devices found. Make sure your UniFi console is on and connected.";
+        const message = devices.length ? t("All discovered devices are already configured.") : t("No devices found. Make sure your UniFi console is on and connected.");
         list.replaceChildren(el("p", { class: devices.length ? "ok" : "warn", text: message }),
           devices.length ? null : explain({ error: message, context: discoveryContext }));
         return;
       }
-      list.replaceChildren(el("p", { class: "muted", text: "Found devices:" }), ...available.map((device) => el("button", {
+      list.replaceChildren(el("p", { class: "muted", text: t("Found devices:") }), ...available.map((device) => el("button", {
         class: "card item", type: "button", onclick: () => openAddController(device.ip),
       }, el("div", {}, el("strong", { text: device.name }), el("div", { class: "muted", text: [device.ip, device.model, device.mac].filter(Boolean).join(" · ") })),
-      el("span", { class: "pill", text: "Select" }))));
+      el("span", { class: "pill", text: t("Select") }))));
     } catch (e) {
-      list.replaceChildren(el("p", { class: "error", text: "Discovery error: " + e.message }),
+      list.replaceChildren(el("p", { class: "error", text: t("Discovery error: {error}", { error: e.message }) }),
         explain({ error: P.scrubText("Discovery error: " + e.message), context: discoveryContext }));
     }
   }
@@ -150,8 +154,8 @@
 
   function openAddController(address) {
     state.editingIndex = null;
-    $("#setupTitle").textContent = "Add UniFi Protect controller";
-    $("#setupSubtitle").textContent = "Enter your UniFi Protect controller details and login credentials.";
+    $("#setupTitle").textContent = t("Add UniFi Protect controller");
+    $("#setupSubtitle").textContent = t("Enter your UniFi Protect controller details and login credentials.");
     $("#inputAddress").value = address || "";
     $("#inputUsername").value = "";
     $("#inputPassword").value = "";
@@ -165,8 +169,8 @@
   function openEditController(index) {
     state.editingIndex = index;
     const controller = controllers()[index];
-    $("#setupTitle").textContent = "Edit controller";
-    $("#setupSubtitle").textContent = "Editing " + (controller.name || controller.address);
+    $("#setupTitle").textContent = t("Edit controller");
+    $("#setupSubtitle").textContent = t("Editing {name}", { name: controller.name || controller.address });
     $("#inputAddress").value = controller.address || "";
     $("#inputUsername").value = controller.username || "";
     $("#inputPassword").value = controller.password || "";
@@ -193,18 +197,18 @@
     const password = $("#inputPassword").value.trim();
     const verifyTls = $("#inputVerifyTls").checked;
     if (!address || !username || !password) {
-      $("#setupErrorText").textContent = "Please fill in all fields.";
+      $("#setupErrorText").textContent = t("Please fill in all fields.");
       $("#setupError").classList.remove("hidden");
       return;
     }
     $("#setupError").classList.add("hidden");
     const button = $("#saveControllerBtn");
-    button.textContent = "Validating…";
+    button.textContent = t("Validating…");
     try {
       await act(button, async () => {
         const { devices, error } = await request("devices", { method: "POST", body: { address, username, password, verifyTls } });
         if (!devices?.length) {
-          setupError("Unable to connect. " + (error || "Check your address and credentials."), verifyTls, address);
+          setupError(t("Unable to connect. {error}", { error: error ? said(error) : t("Check your address and credentials.") }), verifyTls, address);
           return;
         }
         state.block.controllers ||= [];
@@ -221,9 +225,9 @@
         await renderControllers();
       });
     } catch (e) {
-      setupError("Error: " + e.message, verifyTls, address);
+      setupError(t("Error: {error}", { error: e.message }), verifyTls, address);
     } finally {
-      button.textContent = "Save controller";
+      button.textContent = t("Save controller");
     }
   }
 
@@ -255,11 +259,11 @@
       ]);
       state.catalog = catalog;
       state.devices = (answer.devices || []).map((device) => ({ ...device, name: device.name ?? device.marketName }));
-      if (!state.devices.length) showOptionsProblem(controller, "Unable to load the devices of this controller. " + (answer.error || "Check its address and credentials."));
+      if (!state.devices.length) showOptionsProblem(controller, t("Unable to load the devices of this controller. {error}", { error: answer.error ? said(answer.error) : t("Check its address and credentials.") }));
       buildScopeSelector(controller);
       renderOptions();
     } catch (e) {
-      showOptionsProblem(controller, "Failed to load: " + e.message);
+      showOptionsProblem(controller, t("Failed to load: {error}", { error: e.message }));
     } finally {
       $("#optionsLoading").classList.add("hidden");
     }
@@ -279,17 +283,17 @@
     const box = $("#infoAssistant");
     if (!problem) { box.classList.add("hidden"); box.replaceChildren(); return; }
     box.className = "problem warn";
-    box.replaceChildren(el("p", { text: (device.name || "This device") + ": " + problem }), explain({
+    box.replaceChildren(el("p", { text: t("{device}: {problem}", { device: device.name || t("This device"), problem }) }), explain({
       error: problem, context: "The user is looking at the feature options of a UniFi Protect device in the plugin's page.", device: P.assistantDevice(device),
     }));
   }
 
-  const modelLabels = { cameras: "Cameras", chimes: "Chimes", lights: "Lights", sensors: "Sensors", viewers: "Viewers" };
+  const modelLabels = { cameras: t("Cameras"), chimes: t("Chimes"), lights: t("Lights"), sensors: t("Sensors"), viewers: t("Viewers") };
 
   function buildScopeSelector(controller) {
     const select = $("#scopeSelect");
-    select.replaceChildren(el("option", { value: "global", text: "Global options" }),
-      el("option", { value: "controller:" + controller.address, text: "Controller: " + (controller.name || controller.address) }));
+    select.replaceChildren(el("option", { value: "global", text: t("Global options") }),
+      el("option", { value: "controller:" + controller.address, text: t("Controller: {name}", { name: controller.name || controller.address }) }));
     const groups = {};
     for (const device of state.devices) {
       if (device.modelKey === "nvr") continue;
@@ -317,7 +321,7 @@
       cameraIDs ||= new Set((await HomeswiftCommon.api("/api/accessories")).filter((a) => a.camera).map((a) => a.id));
     } catch { return; }
     if (!cameraIDs.has(id) || currentScope().device !== device) return;
-    preview = HomeswiftCamera.view({ id, name: device.name || device.marketName || "Camera", doorbell: device.featureFlags?.isDoorbell === true });
+    preview = HomeswiftCamera.view({ id, name: device.name || device.marketName || t("Camera"), doorbell: device.featureFlags?.isDoorbell === true });
     panel.append(preview.element);
     panel.classList.remove("hidden");
   }
@@ -335,9 +339,9 @@
     const order = ["global", "controller", "device"];
     const active = order.indexOf(type);
     const hints = {
-      global: ["Editing this scope", "Inherits global", "Inherits global"],
-      controller: ["Base values", "Editing this scope", "Inherits controller"],
-      device: ["Base values", "Intermediate", "Editing this scope"],
+      global: [t("Editing this scope"), t("Inherits global"), t("Inherits global")],
+      controller: [t("Base values"), t("Editing this scope"), t("Inherits controller")],
+      device: [t("Base values"), t("Intermediate"), t("Editing this scope")],
     };
     document.querySelectorAll("#scopeCascade .scope-level").forEach((level, index) => {
       level.classList.toggle("active", index === active);
@@ -353,7 +357,7 @@
     if (!P.validOptionCategory(scope.device, category)) return null;
     return (state.catalog.options[category.name] || []).filter((option) => {
       if (scope.device && scope.device.modelKey !== "nvr" && !P.validOption(scope.device, option)) return false;
-      return !search || (option.name + " " + option.description).toLowerCase().includes(search);
+      return !search || (option.name + " " + option.description + " " + said(option.description)).toLowerCase().includes(search);
     });
   }
 
@@ -367,13 +371,13 @@
       $("#deviceInfoPanel").classList.remove("hidden");
       $("#infoModel").textContent = scope.device.marketName || scope.device.type;
       $("#infoMac").textContent = scope.device.mac;
-      $("#infoIp").textContent = scope.device.host || (scope.device.modelKey === "sensor" ? (scope.device.connectionType === "lora" ? "SuperLink" : "Bluetooth") + " Device" : "N/A");
+      $("#infoIp").textContent = scope.device.host || (scope.device.modelKey === "sensor" ? t("{connection} device", { connection: scope.device.connectionType === "lora" ? "SuperLink" : "Bluetooth" }) : t("N/A"));
       const status = $("#infoStatus");
       if (typeof scope.device.state === "string") {
         status.textContent = scope.device.state.charAt(0).toUpperCase() + scope.device.state.slice(1).toLowerCase();
         status.className = scope.device.state === "CONNECTED" ? "ok" : "error";
       } else {
-        status.textContent = "Connected";
+        status.textContent = t("Connected");
         status.className = "ok";
       }
       showDeviceProblem(scope.device, P.deviceProblem(scope.device));
@@ -397,7 +401,7 @@
       }
       cards.push(categoryCard(category, options, stats, scope));
     }
-    if (!cards.length) cards.push(el("p", { class: "muted", text: view.modifiedOnly ? "No modified options" : view.search ? "No options match your search" : "No options available" }));
+    if (!cards.length) cards.push(el("p", { class: "muted", text: view.modifiedOnly ? t("No modified options") : view.search ? t("No options match your search") : t("No options available") }));
     container.replaceChildren(...cards);
     updateModifiedSummary(modified);
   }
@@ -416,12 +420,12 @@
     const badge = el("span", { class: "modified-badge" });
     const head = el("button", { class: "category-head", type: "button", "aria-expanded": String(isOpen) },
       el("span", { class: "category-icon", text: categoryIcons[category.name] || "•" }),
-      el("span", { class: "category-title", text: category.description.replace(/ feature options\.?/i, "") }),
+      el("span", { class: "category-title", text: said(category.description.replace(/ feature options\.?/i, "")) }),
       count, el("span", { class: "category-progress" }, fill), badge, el("span", { class: "chevron", text: "⌄" }));
     const card = el("div", { class: `card category${isOpen ? " open" : ""}`, "data-category": category.name });
     card.style.setProperty("--category-color", color);
     const fillHeader = (s) => {
-      count.textContent = `${s.enabled}/${s.total} on`;
+      count.textContent = t("{enabled}/{total} on", { enabled: s.enabled, total: s.total });
       fill.style.setProperty("--progress", String(s.fraction));
       badge.textContent = String(s.modified);
       badge.classList.toggle("hidden", !s.modified);
@@ -446,21 +450,29 @@
     return card;
   }
 
+  /// The units the options' descriptions name ("in seconds"), and the scopes, in the page's language.
+  const unitLabels = {
+    second: t("second"), seconds: t("seconds"), minute: t("minute"), minutes: t("minutes"), hour: t("hour"), hours: t("hours"),
+    millisecond: t("millisecond"), milliseconds: t("milliseconds"), decibel: t("decibel"), decibels: t("decibels"), hertz: t("Hertz"),
+    "kilobits per second": t("kilobits per second"), percentage: t("percentage"),
+  };
+  const scopeLabels = { global: t("global"), controller: t("controller"), device: t("device") };
+
   function optionRow(category, option, scope, changed) {
     const key = P.optionKey(category, option);
     const checkbox = el("input", { type: "checkbox", "aria-label": key });
     const badge = el("span", {});
-    const valueInput = option.defaultValue !== undefined ? el("input", { type: option.inputSize ? "text" : "number", min: "0", step: "1", "aria-label": key + " value" }) : null;
+    const valueInput = option.defaultValue !== undefined ? el("input", { type: option.inputSize ? "text" : "number", min: "0", step: "1", "aria-label": t("{option} value", { option: key }) }) : null;
     const unit = option.description.match(/\bin (seconds?|minutes?|hours?|milliseconds?|decibels?|Hertz|kilobits per second|percentage)\b/i)?.[1];
-    const valueRow = valueInput ? el("div", { class: "option-value" }, valueInput, unit ? el("span", { class: "muted", text: unit }) : null,
-      el("span", { class: "muted", text: `(default: ${option.defaultValue === "" ? "none" : option.defaultValue})` })) : null;
-    const reset = el("button", { class: "reset-option", type: "button", title: "Reset to inherited value", "aria-label": "Reset to inherited value", text: "↺" });
+    const valueRow = valueInput ? el("div", { class: "option-value" }, valueInput, unit ? el("span", { class: "muted", text: unitLabels[unit.toLowerCase()] || unit }) : null,
+      el("span", { class: "muted", text: t("(default: {value})", { value: option.defaultValue === "" ? t("none") : String(option.defaultValue) }) })) : null;
+    const reset = el("button", { class: "reset-option", type: "button", title: t("Reset to inherited value"), "aria-label": t("Reset to inherited value"), text: "↺" });
     const row = el("div", { class: "option" },
       el("label", { class: "switch" }, checkbox, el("span", {})),
       el("div", { class: "option-text" },
-        el("div", {}, el("span", { class: "option-name", text: option.name || category.description }),
-          el("span", { class: "default-indicator", text: `default: ${option.default ? "on" : "off"}` }), badge),
-        el("div", { class: "option-description", text: option.description }), valueRow),
+        el("div", {}, el("span", { class: "option-name", text: option.name || said(category.description) }),
+          el("span", { class: "default-indicator", text: option.default ? t("default: on") : t("default: off") }), badge),
+        el("div", { class: "option-description", text: said(option.description) }), valueRow),
       reset);
     const sync = () => {
       const s = P.getOptionState(configuredOptions(), key, option, scope, currentController()?.address);
@@ -470,8 +482,8 @@
       else if (s.scope === "global" && scope.type !== "global") scopeClass = "scope-global";
       else if (s.enabled !== option.default) scopeClass = "non-default";
       row.className = `option ${scopeClass}${option.group && option.name !== option.group ? " grouped" : ""}`;
-      if (s.explicit) { badge.className = `scope-badge ${scope.type}`; badge.textContent = scope.type; }
-      else if (s.scope === "controller" || (s.scope === "global" && scope.type !== "global")) { badge.className = `scope-badge inherited ${s.scope}`; badge.textContent = "↓ " + s.scope; }
+      if (s.explicit) { badge.className = `scope-badge ${scope.type}`; badge.textContent = scopeLabels[scope.type] || scope.type; }
+      else if (s.scope === "controller" || (s.scope === "global" && scope.type !== "global")) { badge.className = `scope-badge inherited ${s.scope}`; badge.textContent = "↓ " + (scopeLabels[s.scope] || s.scope); }
       else { badge.className = ""; badge.textContent = ""; }
       checkbox.checked = s.enabled;
       if (!s.explicit && document.activeElement === reset) checkbox.focus();
@@ -552,14 +564,14 @@
     const password = $("#thirdPartyOnvifPass").value;
     const servicePath = $("#thirdPartyOnvifPath").value.trim();
     const port = $("#thirdPartyOnvifPort").value;
-    if (!host || !username) { say("IP address and username are required.", "error"); return; }
+    if (!host || !username) { say(t("IP address and username are required."), "error"); return; }
     // What was entered or prefilled is remembered before talking to the camera.
     P.updateCameraOverride(controller, mac, "onvifPort", port);
     P.updateCameraOverride(controller, mac, "onvifUsername", username);
     P.updateCameraOverride(controller, mac, "onvifPassword", password);
     P.updateCameraOverride(controller, mac, "onvifServicePath", servicePath);
     markDirty();
-    say("Discovering…");
+    say(t("Discovering…"));
     const assistantSlot = $("#thirdPartyDiscoverAssistant");
     assistantSlot.replaceChildren();
     const explainFailure = (message) => assistantSlot.replaceChildren(explain({
@@ -570,16 +582,16 @@
     try {
       const result = await request("onvif", { method: "POST", body: { host, password, port: port ? parseInt(port, 10) : undefined, servicePath: servicePath || undefined, username } });
       if (!result?.ok) {
-        say("Discovery failed: " + (result?.error || "unknown error"), "error");
+        say(t("Discovery failed: {error}", { error: result?.error ? said(result.error) : t("unknown error") }), "error");
         explainFailure("Discovery failed: " + (result?.error || "unknown error"));
         return;
       }
       const raw = (result.profiles || []).filter((p) => p.rtspUrl || p.snapshotUrl);
-      if (!raw.length) { say("Camera did not return any URLs.", "warn"); return; }
+      if (!raw.length) { say(t("Camera did not return any URLs."), "warn"); return; }
       discoveries.set(P.normalizeMac(mac), { collapsedFrom: raw.length, host, port: result.port, profiles: P.dedupeProfilesByUrl(raw), thumbnails: new Map(), warnings: result.warnings || [], queue: Promise.resolve() });
       renderProfileSelector(mac);
     } catch (e) {
-      say("Discovery failed: " + e.message, "error");
+      say(t("Discovery failed: {error}", { error: e.message }), "error");
       explainFailure("Discovery failed: " + e.message);
     }
   }
@@ -597,10 +609,11 @@
     applyProfile(mac, selected);
     // The other thumbnails, one at a time: cheap cameras drop parallel snapshot requests.
     entry.profiles.forEach((_, index) => { if (index !== selected) loadThumbnail(mac, index); });
-    let text = entry.profiles.length > 1 ? `Found ${entry.profiles.length} profiles on port ${entry.port}. Pick the one to use.`
-      : entry.collapsedFrom > 1 ? `Camera reports ${entry.collapsedFrom} profiles but they all map to the same stream. Discovered URLs on port ${entry.port}.`
-        : `Discovered URLs on port ${entry.port}.`;
-    if (entry.warnings.length) { text += " " + entry.warnings.join(" "); say(text, "warn"); } else { say(text, "ok"); }
+    const port = String(entry.port);
+    let text = entry.profiles.length > 1 ? t("Found {n} profiles on port {port}. Pick the one to use.", { n: entry.profiles.length, port })
+      : entry.collapsedFrom > 1 ? t("Camera reports {n} profiles but they all map to the same stream. Discovered URLs on port {port}.", { n: entry.collapsedFrom, port })
+        : t("Discovered URLs on port {port}.", { port });
+    if (entry.warnings.length) { text += " " + entry.warnings.map(said).join(" "); say(text, "warn"); } else { say(text, "ok"); }
   }
 
   function showThumbnail(mac, index) {
@@ -646,20 +659,20 @@
         const result = await saveBlock();
         markDirty();
         const pending = result?.restartNeeded || [];
-        if (pending.length) alert(`Saved. Restart Homeswift to apply: ${pending.join("; ")}.`);
+        if (pending.length) alert(t("Saved. Restart Homeswift to apply: {changes}.", { changes: pending.join("; ") }));
       } catch (e) { alert(e.message); }
     });
   }
 
   async function discardOptions() {
-    if (!confirm("Discard the changes?")) return;
+    if (!confirm(t("Discard the changes?"))) return;
     state.block = JSON.parse(state.savedOptions);
     markDirty();
     renderOptions();
   }
 
   function leaveOptions() {
-    if (isOptionsDirty() && !confirm("Leave without saving the changes?")) return;
+    if (isOptionsDirty() && !confirm(t("Leave without saving the changes?"))) return;
     if (isOptionsDirty()) state.block = JSON.parse(state.savedOptions);
     markDirty();
     showScreen("controllersScreen");
