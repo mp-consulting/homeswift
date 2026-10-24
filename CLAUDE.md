@@ -127,7 +127,7 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
 
 A release is a tag: SwiftPM resolves versions from `vX.Y.Z` tags. Bump `PluginHost.version` (shown by
 `homeswift --version` and as the bridge's firmware revision), move the `[Unreleased]` section of CHANGELOG.md
-under the new version, commit, then `gh release create vX.Y.Z --notes-file <section>` and push the tag. There
+under the new version, commit, then `gh release create vX.Y.Z --title X.Y.Z --notes-file <section>` (the title is the bare version) and push the tag. There
 are no binaries to sign yet. The Homebrew formula (`mp-consulting/homebrew-tap`, `Formula/homeswift.rb`) builds
 `homeswift-demo` from the release tarball; it needs `homeswift` added at the next release.
 From the first release that has `THIRD-PARTY-NOTICES.md`, it needs `doc.install "THIRD-PARTY-NOTICES.md", "LICENSES"`
