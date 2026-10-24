@@ -21,9 +21,11 @@ public final class ChatToolbox: Sendable {
     public let session: MCPSession
     private let nextID = NIOLockedValueBox(1)
 
-    public init(server: MCPServer, user: String, scope: Scope = .admin) async {
+    /// `hidden`: what the user's scope allows that they still may not see (`HomeswiftCatalog.administratorOnly` for a
+    /// user who is not an administrator); the server refuses it as for any client.
+    public init(server: MCPServer, user: String, scope: Scope = .admin, hidden: Set<String> = []) async {
         self.server = server
-        session = server.makeSession(principal: Principal(name: user, scope: scope))
+        session = server.makeSession(principal: Principal(name: user, scope: scope, hidden: hidden))
         let initialize: JSONValue = [
             "protocolVersion": .string(MCPServer.protocolVersion), "capabilities": ["elicitation": [:]],
             "clientInfo": ["name": "web UI chat", "version": .string(server.options.version)],
@@ -41,7 +43,7 @@ public final class ChatToolbox: Sendable {
 
     /// The tools this user may call, for the Assistant. `confirm` decides each change; false leaves it undone.
     public func agentTools(confirm: @escaping @Sendable (ToolConfirmation) async -> Bool) -> [AgentTool] {
-        server.tools.filter { $0.scope <= session.principal.scope }.map { tool in
+        server.tools.filter { $0.scope <= session.principal.scope && !session.principal.hides($0.name) }.map { tool in
             var schema = tool.inputSchema.objectValue ?? [:]
             // The page asks the user itself: the log's one-time code is for clients that cannot.
             if var properties = schema["properties"]?.objectValue {

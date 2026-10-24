@@ -34,6 +34,17 @@ public enum URLEncoding {
         string.replacingOccurrences(of: "+", with: " ").removingPercentEncoding ?? string
     }
 
+    /// The fields of a form body or query (`a=1&b=x+y`), each side decoded; the last of a repeated name wins, and a
+    /// name without `=` is an empty value.
+    public static func fields(_ string: String) -> [String: String] {
+        string.split(separator: "&").reduce(into: [:]) { fields, pair in
+            let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            let name = decode(String(parts[0]))
+            guard !name.isEmpty else { return }
+            fields[name] = parts.count == 2 ? decode(String(parts[1])) : ""
+        }
+    }
+
     private static func encode(_ string: String, keeping kept: String, spaceAsPlus: Bool = false) -> String {
         let kept = Set(kept.utf8)
         var result: [UInt8] = []

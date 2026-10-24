@@ -242,6 +242,12 @@ is counted per user.
 
 User management is not an MCP tool: a model never creates accounts or tokens.
 
+**Connected apps**, under **Account**: with the MCP server on, the UI also serves it at `/mcp` for clients that
+sign in with OAuth, claude.ai and the Claude apps first (see [docs/mcp.md](mcp.md#claudeai-and-the-claude-apps)).
+They send the user to `/oauth/authorize`, which signs in with the UI's login (two-factor code included) and asks
+what the app may do, up to the user's role. The card gives the address to add as a custom connector, lists
+the apps the user allowed, what each may do and when it last came, and its **⋯ › Disconnect** ends one at once.
+
   A line that carries JSON of 160 bytes or more (a device's state, a cloud's message) shows a marker such as
   `{…} 1.4 KB` instead, in the terminal too; its **JSON** button shows the payload under it, formatted. The
   payload is kept with the line with its secrets masked (values of keys such as `password`, `token` or
@@ -306,6 +312,9 @@ Logins survive a restart: sessions are kept in `ui-sessions.json` next to config
   the log) and that the browser came over HTTPS (`X-Forwarded-Proto`, for a `Secure` cookie). Never every
   address: a client could pick its own and step around the throttle. Add the proxy's host name to
   `allowedHosts`.
+- `/mcp`, `/oauth/*` and `/.well-known/oauth-*` answer only with the MCP server on. Their tokens reach `/mcp`
+  and nothing else, an API token cannot approve an app, and the sign-in page cannot be framed and never
+  approves on the keypress that signed in.
 - The Settings pages' changes that cannot be undone (pairings, caches, a restore) ask first, some with a word
   to type; the pairing and cache resets refuse without `"confirm": true` in their body. They are an
   administrator's (see Users, roles and API tokens); an accessory's History is anyone's to read.

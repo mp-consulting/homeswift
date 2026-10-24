@@ -18,15 +18,22 @@ public enum Scope: String, Sendable, Codable, CaseIterable, Comparable {
     public static func < (a: Scope, b: Scope) -> Bool { a.rank < b.rank }
 }
 
-/// Who a session acts as: the token's name and scope.
+/// Who a session acts as: the token's name and scope, and what its scope allows that it still may not see: tools,
+/// resources (URIs and URI templates) and prompts by name. A web UI user who is not an administrator signs an app
+/// in with `HomeswiftCatalog.administratorOnly` hidden, as the UI hides the log and config.json from them.
 public struct Principal: Sendable, Hashable {
     public var name: String
     public var scope: Scope
+    public var hidden: Set<String>
 
-    public init(name: String, scope: Scope) {
+    public init(name: String, scope: Scope, hidden: Set<String> = []) {
         self.name = name
         self.scope = scope
+        self.hidden = hidden
     }
+
+    /// Whether a tool, resource URI or template, or prompt of this name is out of its sight.
+    public func hides(_ name: String) -> Bool { hidden.contains(name) }
 }
 
 /// The `mcp.http` part of the `HomeswiftAiKit` block: whether the HTTP MCP server runs, where, and

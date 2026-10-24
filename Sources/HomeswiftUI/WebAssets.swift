@@ -2373,7 +2373,7 @@ enum WebAssets {
   // ---- Account ---------------------------------------------------------------
 
   views.account = async (main) => {
-    const state = await api("/api/auth/state");
+    const [state, apps] = await Promise.all([api("/api/auth/state"), api("/api/account/apps").catch(() => null)]);
     if (state.mode !== "form") {
       show(main, pageHead("Account", "This web UI has no sign-in: its HomeswiftUI block says auth none, so there is no password to change."),
         el("div", { class: "card" }, el("p", { class: "muted", text: "Plugins › HomeswiftUI › Settings turns sign-in on." })), appearanceLink());
@@ -2422,12 +2422,37 @@ enum WebAssets {
         el("p", { class: "muted", text: `Signed in on this browser. Logins last ${days} day${days === 1 ? "" : "s"} without activity; changing the password, or turning two-factor authentication on or off, signs the others out.` })),
       el("button", { text: "Sign out", onclick: signOut }));
     show(main, pageHead("Account", `Your sign-in to this bridge's web UI${state.admin ? ", as an administrator" : ""}.`),
-      el("div", { class: "account" }, profile, form, twoFactorCard(state),
+      el("div", { class: "account" }, profile, form, twoFactorCard(state), connectedAppsCard(apps),
         state.admin ? el("div", { class: "card" }, el("h2", { text: "Users and API tokens" }),
           el("p", { class: "muted", text: "Add people who may use this web UI, choose who administers it, and make tokens for scripts." }),
           el("a", { class: "button", href: "/users", text: "Open Users" })) : null),
       appearanceLink());
   };
+
+  /// The apps this account connected through OAuth (claude.ai and the Claude apps, other MCP clients), each with what
+  /// it may do and when it last came; its ⋯ menu disconnects it. With the MCP server on, the address to give them.
+  function connectedAppsCard(apps) {
+    if (!apps || (!apps.mcp && !apps.apps.length)) return null;
+    const when = (iso) => iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "Never";
+    const scopes = { read: "Read", control: "Control", admin: "Admin" };
+    const rows = apps.apps.map((app) => el("div", { class: "server-head connected-app" },
+      tile("key", app.scope === "admin" ? "orange" : "teal"),
+      el("div", { class: "who" }, el("strong", { text: app.client }),
+        el("div", { class: "muted", text: `${app.redirect ? `${app.redirect} · ` : ""}last used ${when(app.lastUsed)}` })),
+      el("span", { class: app.scope === "admin" ? "pill status admin" : "pill status standby", text: scopes[app.scope] || app.scope }),
+      menuButton(`Actions for ${app.client}`, () => [
+        { label: "Disconnect", icon: "trash", danger: true, onSelect: async () => {
+          if (!confirm(`Disconnect ${app.client}? It is refused at once and must sign in again.`)) return;
+          try { await api(`/api/account/apps/${encodeURIComponent(app.id)}`, { method: "DELETE" }); route(); } catch (e) { alert(e.message); }
+        } },
+      ])));
+    return el("div", { class: "card account-form" },
+      el("h2", { text: "Connected apps" }),
+      el("p", { class: "muted" }, apps.mcp
+        ? ["Apps you allowed to use the bridge through its MCP server. To add one in claude.ai or the Claude apps, make a custom connector with ", el("code", { class: "mono", text: apps.mcp }), "."]
+        : "Apps you allowed to use the bridge through its MCP server, which is off now."),
+      ...(rows.length ? rows : [el("p", { class: "muted", text: "None yet." })]));
+  }
 
   /// Two-factor authentication (TOTP, RFC 6238): on, it can be turned off with the password; off, setting it up
   /// shows a QR code and the secret for an authenticator app, and a first code from the app turns it on.
@@ -3296,6 +3321,188 @@ enum WebAssets {
 
 """#),
         "apple-touch-icon.png": WebFile(contentType: "image/png", base64: "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"),
+        "authorize.html": WebFile(contentType: "text/html; charset=utf-8", body: #"""
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#e9edf6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1218" media="(prefers-color-scheme: dark)">
+<meta name="referrer" content="no-referrer">
+<title>Connect to Homeswift</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="auth">
+  <div class="card authorize">
+    <img src="/icon.svg" class="logo large" alt="">
+    <h1 id="title">Connect to Homeswift</h1>
+    <p id="lead" class="muted">Checking the request…</p>
+    <form id="login" class="hidden">
+      <label>Username <input name="username" autocomplete="username" required></label>
+      <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+      <label id="login-otp" class="hidden">Code from your authenticator app <input name="otp" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" placeholder="123 456" maxlength="9"></label>
+      <p class="error" id="login-error" role="alert"></p>
+      <button type="submit" class="primary" id="login-submit">Sign in</button>
+    </form>
+    <form id="consent" class="hidden">
+      <fieldset class="scopes" id="scopes"><legend class="muted">It may</legend></fieldset>
+      <p class="muted hidden" id="read-only">The MCP server is read-only (readOnly in the HomeswiftAiKit block): whatever you choose, the app can only read.</p>
+      <p class="muted" id="destination"></p>
+      <p class="error" id="consent-error" role="alert"></p>
+      <div class="actions">
+        <button type="button" id="deny">Deny</button>
+        <button type="submit" class="primary" id="allow">Allow</button>
+      </div>
+      <button type="button" class="link switch-user" id="switch-user">Not you? Sign in as someone else</button>
+    </form>
+  </div>
+</div>
+<script src="/authorize.js"></script>
+</body>
+</html>
+
+"""#),
+        "authorize.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
+"use strict";
+
+// The OAuth sign-in page (/oauth/authorize): an MCP client such as claude.ai sends the user here. They sign in with
+// their web UI account (the same login, two-factor code and throttle as the UI's), see which app asks and where
+// approving sends them back, choose what it may do, and the bridge redirects to the app with a code or a refusal.
+(() => {
+  const $ = (selector) => document.querySelector(selector);
+  const query = Object.fromEntries(new URLSearchParams(location.search));
+
+  async function api(path, { method = "GET", body } = {}) {
+    const options = { method, credentials: "same-origin", headers: {} };
+    if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
+    const response = await fetch(path, options);
+    const text = await response.text();
+    let json = null;
+    try { json = text ? JSON.parse(text) : null; } catch { json = { error: text }; }
+    if (!response.ok) throw Object.assign(new Error((json && json.error) || `HTTP ${response.status}`), { status: response.status });
+    return json;
+  }
+
+  /// One of the page's states: the sign-in form, the choice, or a message alone.
+  function show(part, lead) {
+    $("#login").classList.toggle("hidden", part !== "login");
+    $("#consent").classList.toggle("hidden", part !== "consent");
+    if (lead !== undefined) $("#lead").textContent = lead;
+  }
+  const stop = (message) => { $("#title").textContent = "Cannot connect"; show(null, message); };
+
+  const scopes = {
+    read: ["Read", "See your accessories, rooms, scenes and the bridge's state. Changes nothing."],
+    control: ["Control", "Also turn accessories on and off and run scenes. Locks, garage doors and alarms still ask you first."],
+    admin: ["Administer", "Also change config.json, plugins and settings, and restart the bridge: everything this web UI can do."],
+  };
+
+  async function start() {
+    let state;
+    try { state = await api("/api/auth/state"); } catch (e) { stop(`The bridge did not answer: ${e.message}`); return; }
+    if (state.setupNeeded) { stop("This bridge has no account yet. Open its web UI and create the administrator first."); return; }
+    if (!state.authenticated) {
+      show("login", "Sign in with your Homeswift account to connect an app.");
+      $("#login").username.focus();
+      return;
+    }
+    let request;
+    try { request = await api(`/api/oauth/request?${new URLSearchParams(query)}`); } catch (e) { stop(e.message); return; }
+    if (request.redirect) { location.replace(request.redirect); return; }
+    $("#title").textContent = `Connect ${request.client}`;
+    show("consent", state.mode === "form"
+      ? `${request.client} asks to use your bridge as ${request.username}.`
+      : `${request.client} asks to use your bridge. This web UI has no sign-in, so it acts as its administrator.`);
+    const fieldset = $("#scopes");
+    fieldset.querySelectorAll(".scope").forEach((node) => node.remove());
+    for (const name of request.choices) {
+      const input = Object.assign(document.createElement("input"), { type: "radio", name: "scope", value: name, checked: name === request.suggested });
+      const label = document.createElement("label");
+      label.className = "scope";
+      const title = document.createElement("strong");
+      title.textContent = scopes[name][0];
+      const help = document.createElement("span");
+      help.className = "help";
+      help.textContent = scopes[name][1];
+      label.append(input, title, help);
+      fieldset.append(label);
+    }
+    $("#read-only").classList.toggle("hidden", !request.readOnly);
+    const destination = document.createElement("strong");
+    destination.textContent = request.destination;
+    $("#destination").replaceChildren("Allowing sends you back to ", destination, ". You can disconnect it from your account page at any time.");
+    $("#switch-user").classList.toggle("hidden", state.mode !== "form");
+    // Nothing is focused and the answers wait a moment: the Enter that signed in, or a click meant for what was there
+    // before, never approves an app the user has not seen.
+    const buttons = [$("#allow"), $("#deny")];
+    buttons.forEach((button) => { button.disabled = true; });
+    setTimeout(() => buttons.forEach((button) => { button.disabled = false; }), 800);
+  }
+
+  // Signing in: the web UI's own login, so the session it makes also opens the UI.
+  const login = $("#login");
+  const askCode = (asked) => {
+    $("#login-otp").classList.toggle("hidden", !asked);
+    login.otp.required = asked;
+    if (asked) login.otp.focus(); else login.otp.value = "";
+  };
+  for (const name of ["username", "password"]) login[name].addEventListener("input", () => askCode(false));
+  login.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submit = $("#login-submit");
+    $("#login-error").textContent = "";
+    submit.disabled = true;
+    submit.textContent = "Signing in…";
+    const body = { username: login.username.value, password: login.password.value };
+    if (!$("#login-otp").classList.contains("hidden")) body.otp = login.otp.value;
+    try {
+      await api("/api/auth/login", { method: "POST", body });
+      login.password.value = "";
+      askCode(false);
+      await start();
+    } catch (e) {
+      if (e.status === 412) askCode(true);
+      else {
+        $("#login-error").textContent = e.message;
+        if (body.otp !== undefined) { login.otp.value = ""; login.otp.focus(); }
+      }
+    } finally {
+      submit.disabled = false;
+      submit.textContent = "Sign in";
+    }
+  });
+
+  // The answer: the bridge says where to send the browser, with a code or with access_denied.
+  async function decide(approve) {
+    const buttons = [$("#allow"), $("#deny")];
+    buttons.forEach((button) => { button.disabled = true; });
+    $("#consent-error").textContent = "";
+    const chosen = $("#scopes input:checked");
+    if (approve) $("#allow").textContent = "Connecting…";
+    try {
+      const answer = await api("/api/oauth/decision", { method: "POST", body: { ...query, approve, scope_granted: chosen ? chosen.value : null } });
+      location.assign(answer.redirect);
+    } catch (e) {
+      $("#consent-error").textContent = e.message;
+      buttons.forEach((button) => { button.disabled = false; });
+      $("#allow").textContent = "Allow";
+    }
+  }
+  $("#consent").addEventListener("submit", (event) => { event.preventDefault(); decide(true); });
+  $("#deny").addEventListener("click", () => decide(false));
+  $("#switch-user").addEventListener("click", async () => {
+    try { await api("/api/auth/logout", { method: "POST" }); } catch {}
+    $("#title").textContent = "Connect to Homeswift";
+    await start();
+  });
+
+  start();
+})();
+
+"""#),
         "camera.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // Camera views, for the Accessories page's camera cards and plugin pages: a 16:9 picture with the camera's name
 // and state over it. While the view is on screen and the page visible, it plays the camera's live feed
@@ -7401,6 +7608,20 @@ textarea.short { min-height: 220px; }
 .auth .card { width: min(400px, 100%); padding: 26px 26px 22px; animation: materialize 320ms var(--ease-out); }
 .auth h1 { margin-top: 6px; }
 .auth button { width: 100%; margin-top: 10px; }
+/* The OAuth sign-in page (authorize.html): one choice per scope, each saying what it allows; Deny and Allow side by side. */
+.auth .scopes { display: grid; gap: 8px; margin: 14px 0 8px; padding: 0; border: 0; background: none; }
+.auth .scopes legend { padding: 0; margin-bottom: 2px; }
+.auth .scope {
+  display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: start; margin: 0; padding: 10px 12px; cursor: pointer;
+  border-radius: 14px; border: 1px solid var(--edge); background: var(--material-thin);
+  transition: border-color var(--fast) var(--ease-out), box-shadow var(--fast) var(--ease-out);
+}
+.auth .scope:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(255, 122, 26, 0.18); }
+.auth .scope input { width: auto; margin: 3px 0 0; box-shadow: none; accent-color: var(--accent); grid-row: span 2; }
+.auth .scope .help { grid-column: 2; color: var(--muted); font-size: 0.8125rem; }
+.auth .actions button { margin-top: 0; }
+.auth button.switch-user { display: block; width: auto; margin: 12px auto 0; }
+.connected-app { margin-top: 12px; }
 .qr { width: 148px; height: 148px; border-radius: 14px; background: #fff; padding: 6px; box-shadow: var(--shadow-control); }
 .code { font-family: var(--mono); font-size: 1.875rem; letter-spacing: 0.1em; font-variant-numeric: tabular-nums; margin: 10px 0; padding: 10px 16px; border-radius: 16px; display: inline-block; background: var(--material-thin); border: 1px solid var(--edge); box-shadow: inset 0 1px 0 var(--edge-light); }
 

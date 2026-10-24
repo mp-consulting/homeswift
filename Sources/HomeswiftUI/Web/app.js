@@ -1838,7 +1838,7 @@
   // ---- Account ---------------------------------------------------------------
 
   views.account = async (main) => {
-    const state = await api("/api/auth/state");
+    const [state, apps] = await Promise.all([api("/api/auth/state"), api("/api/account/apps").catch(() => null)]);
     if (state.mode !== "form") {
       show(main, pageHead("Account", "This web UI has no sign-in: its HomeswiftUI block says auth none, so there is no password to change."),
         el("div", { class: "card" }, el("p", { class: "muted", text: "Plugins › HomeswiftUI › Settings turns sign-in on." })), appearanceLink());
@@ -1887,12 +1887,37 @@
         el("p", { class: "muted", text: `Signed in on this browser. Logins last ${days} day${days === 1 ? "" : "s"} without activity; changing the password, or turning two-factor authentication on or off, signs the others out.` })),
       el("button", { text: "Sign out", onclick: signOut }));
     show(main, pageHead("Account", `Your sign-in to this bridge's web UI${state.admin ? ", as an administrator" : ""}.`),
-      el("div", { class: "account" }, profile, form, twoFactorCard(state),
+      el("div", { class: "account" }, profile, form, twoFactorCard(state), connectedAppsCard(apps),
         state.admin ? el("div", { class: "card" }, el("h2", { text: "Users and API tokens" }),
           el("p", { class: "muted", text: "Add people who may use this web UI, choose who administers it, and make tokens for scripts." }),
           el("a", { class: "button", href: "/users", text: "Open Users" })) : null),
       appearanceLink());
   };
+
+  /// The apps this account connected through OAuth (claude.ai and the Claude apps, other MCP clients), each with what
+  /// it may do and when it last came; its ⋯ menu disconnects it. With the MCP server on, the address to give them.
+  function connectedAppsCard(apps) {
+    if (!apps || (!apps.mcp && !apps.apps.length)) return null;
+    const when = (iso) => iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "Never";
+    const scopes = { read: "Read", control: "Control", admin: "Admin" };
+    const rows = apps.apps.map((app) => el("div", { class: "server-head connected-app" },
+      tile("key", app.scope === "admin" ? "orange" : "teal"),
+      el("div", { class: "who" }, el("strong", { text: app.client }),
+        el("div", { class: "muted", text: `${app.redirect ? `${app.redirect} · ` : ""}last used ${when(app.lastUsed)}` })),
+      el("span", { class: app.scope === "admin" ? "pill status admin" : "pill status standby", text: scopes[app.scope] || app.scope }),
+      menuButton(`Actions for ${app.client}`, () => [
+        { label: "Disconnect", icon: "trash", danger: true, onSelect: async () => {
+          if (!confirm(`Disconnect ${app.client}? It is refused at once and must sign in again.`)) return;
+          try { await api(`/api/account/apps/${encodeURIComponent(app.id)}`, { method: "DELETE" }); route(); } catch (e) { alert(e.message); }
+        } },
+      ])));
+    return el("div", { class: "card account-form" },
+      el("h2", { text: "Connected apps" }),
+      el("p", { class: "muted" }, apps.mcp
+        ? ["Apps you allowed to use the bridge through its MCP server. To add one in claude.ai or the Claude apps, make a custom connector with ", el("code", { class: "mono", text: apps.mcp }), "."]
+        : "Apps you allowed to use the bridge through its MCP server, which is off now."),
+      ...(rows.length ? rows : [el("p", { class: "muted", text: "None yet." })]));
+  }
 
   /// Two-factor authentication (TOTP, RFC 6238): on, it can be turned off with the password; off, setting it up
   /// shows a QR code and the secret for an authenticator app, and a first code from the app turns it on.

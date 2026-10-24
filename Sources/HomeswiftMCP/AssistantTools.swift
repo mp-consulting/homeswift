@@ -127,7 +127,9 @@ extension HomeswiftCatalog {
             ) { call in
                 guard catalog.host.assistant != nil else { return .error("The Assistant is off: add a HomeswiftAiKit block") }
                 let refresh = call.bool("refresh")
-                if refresh, call.session.principal.scope < .control { return .error("refresh needs a control or admin token") }
+                if refresh, call.session.principal.scope < .control || call.session.principal.hides(HomeswiftCatalog.digestRefresh) {
+                    return .error("refresh needs a control or admin token, of an administrator for an app signed in through the web UI")
+                }
                 var digest: JSONValue
                 if !refresh, let cached = catalog.cachedDigest() { digest = cached } else { digest = try await catalog.writeDigest(user: call.session.principal.name) }
                 // Written from log lines and device names: data for the client, never instructions; the structured copy

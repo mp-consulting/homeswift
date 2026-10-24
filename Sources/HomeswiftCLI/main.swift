@@ -226,10 +226,10 @@ let main = Task {
             if platforms.contains(UIConfiguration.platform) {
                 // The old server goes first: the new one usually wants the same port.
                 await uiServer.withLockedValue { $0 }?.stop()
-                var started = await UICommands.startServer(catalog: catalog, configuration: next, logger: logger)
+                var started = await UICommands.startServer(catalog: catalog, configuration: next, mcp: { mcpServer.withLockedValue { $0 } }, logger: logger)
                 if started == nil, (try? next.block(for: UIConfiguration.platform)) != nil {
                     logger.error("The web UI could not start with its new settings; it is back on the previous ones until they are fixed")
-                    started = await UICommands.startServer(catalog: catalog, configuration: uiConfiguration.withLockedValue { $0 }, logger: logger)
+                    started = await UICommands.startServer(catalog: catalog, configuration: uiConfiguration.withLockedValue { $0 }, mcp: { mcpServer.withLockedValue { $0 } }, logger: logger)
                 } else {
                     uiConfiguration.withLockedValue { $0 = next }
                     logger.info(started == nil ? "Web UI stopped" : "Web UI restarted with the new settings")
@@ -252,7 +252,7 @@ let main = Task {
     if let startedMCP {
         mcpServer.withLockedValue { $0 = startedMCP }
     }
-    if let started = await UICommands.startServer(catalog: catalog, configuration: configuration, logger: logger) {
+    if let started = await UICommands.startServer(catalog: catalog, configuration: configuration, mcp: { mcpServer.withLockedValue { $0 } }, logger: logger) {
         uiServer.withLockedValue { $0 = started }
     }
     for bridge in host.bridges {

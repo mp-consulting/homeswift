@@ -650,17 +650,17 @@ public final class MCPServer: Sendable {
         switch method {
         case "tools/list":
             let version = session.protocolVersion
-            return ["tools": .array(tools.filter { $0.scope <= session.principal.scope }.map { $0.json(protocolVersion: version) })]
+            return ["tools": .array(tools.filter { $0.scope <= session.principal.scope && !session.principal.hides($0.name) }.map { $0.json(protocolVersion: version) })]
         case "tools/call":
             return try await callTool(params, session: session, serverRequests: serverRequests, emit: emit)
         case "resources/list":
-            return ["resources": .array(resources.map(\.json))]
+            return ["resources": .array(resources.filter { !isHidden(uri: $0.uri, from: session) }.map(\.json))]
         case "resources/templates/list":
-            return ["resourceTemplates": .array(templates.map(\.json))]
+            return ["resourceTemplates": .array(templates.filter { !session.principal.hides($0.uriTemplate) }.map(\.json))]
         case "resources/read":
-            return try await readResource(params)
+            return try await readResource(params, session: session)
         case "resources/subscribe":
-            let uri = try requiredString(params, "uri")
+            let uri = try visibleURI(params, session: session)
             _ = session.state.withLockedValue { $0.subscriptions.insert(uri) }
             return [:]
         case "resources/unsubscribe":
@@ -668,9 +668,9 @@ public final class MCPServer: Sendable {
             _ = session.state.withLockedValue { $0.subscriptions.remove(uri) }
             return [:]
         case "prompts/list":
-            return ["prompts": .array(prompts.map(\.json))]
+            return ["prompts": .array(prompts.filter { !session.principal.hides($0.name) }.map(\.json))]
         case "prompts/get":
-            return try getPrompt(params)
+            return try getPrompt(params, session: session)
         case "completion/complete":
             return try await complete(params)
         case "logging/setLevel":
@@ -719,7 +719,7 @@ public final class MCPServer: Sendable {
 
     private func callTool(_ params: JSONValue, session: MCPSession, serverRequests: Bool, emit: @escaping @Sendable (JSONRPCMessage) -> Void) async throws -> JSONValue {
         let name = try requiredString(params, "name")
-        guard let tool = tools.first(where: { $0.name == name }) else { throw JSONRPCError.invalidParams("unknown tool \(name)") }
+        guard let tool = tools.first(where: { $0.name == name }), !session.principal.hides(name) else { throw JSONRPCError.invalidParams("unknown tool \(name)") }
         let arguments = session.vault.reveal(params["arguments"] ?? [:])
         guard arguments.objectValue != nil else { throw JSONRPCError.invalidParams("arguments must be an object") }
         // A handle left after reveal is from another session, or outside a secret's place: never written as is.
@@ -843,8 +843,21 @@ public final class MCPServer: Sendable {
         return current
     }
 
-    private func readResource(_ params: JSONValue) async throws -> JSONValue {
+    /// A resource the session's principal may not see: its URI, or the template it matches, is hidden.
+    private func isHidden(uri: String, from session: MCPSession) -> Bool {
+        let principal = session.principal
+        return principal.hides(uri) || templates.contains { principal.hides($0.uriTemplate) && $0.match(uri) != nil }
+    }
+
+    /// The `uri` parameter, unless the session may not see it: then not found, as a resource that does not exist.
+    private func visibleURI(_ params: JSONValue, session: MCPSession) throws -> String {
         let uri = try requiredString(params, "uri")
+        guard !isHidden(uri: uri, from: session) else { throw JSONRPCError(code: -32002, message: "Resource not found: \(uri)") }
+        return uri
+    }
+
+    private func readResource(_ params: JSONValue, session: MCPSession) async throws -> JSONValue {
+        let uri = try visibleURI(params, session: session)
         if let resource = resources.first(where: { $0.uri == uri }) {
             return ["contents": [["uri": .string(uri), "mimeType": .string(resource.mimeType), "text": .string(try await resource.read())]]]
         }
@@ -856,9 +869,9 @@ public final class MCPServer: Sendable {
         throw JSONRPCError(code: -32002, message: "Resource not found: \(uri)")
     }
 
-    private func getPrompt(_ params: JSONValue) throws -> JSONValue {
+    private func getPrompt(_ params: JSONValue, session: MCPSession) throws -> JSONValue {
         let name = try requiredString(params, "name")
-        guard let prompt = prompts.first(where: { $0.name == name }) else { throw JSONRPCError.invalidParams("unknown prompt \(name)") }
+        guard let prompt = prompts.first(where: { $0.name == name }), !session.principal.hides(name) else { throw JSONRPCError.invalidParams("unknown prompt \(name)") }
         let arguments = (params["arguments"]?.objectValue ?? [:]).compactMapValues(\.stringValue)
         for argument in prompt.arguments where argument.required && arguments[argument.name]?.nonEmpty == nil {
             throw JSONRPCError.invalidParams("\(argument.name) is required")

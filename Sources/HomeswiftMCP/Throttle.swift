@@ -47,6 +47,12 @@ public final class FailureThrottle: Sendable {
         return penalty(after: count)
     }
 
+    /// Records a failure and waits what it costs before the answer goes out.
+    public func failAndWait(_ remote: String) async {
+        let penalty = failed(remote)
+        if penalty > .zero { try? await Task.sleep(for: penalty) }
+    }
+
     public func succeeded(_ remote: String) {
         failures.withLockedValue { $0[remote] = nil }
     }

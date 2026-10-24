@@ -30,6 +30,9 @@ public final class UIServer: Sendable {
         /// What the Status page says about a newer release; the CLI's, kept across restarts of the UI. Libraries
         /// and tests have none.
         public var releases: ReleaseWatcher?
+        /// The bridge's MCP server, served at `/mcp` too for clients that sign in with OAuth (OAuthRoutes.swift); the
+        /// CLI's, which may restart under the UI. Without one, `/mcp` and the OAuth endpoints answer 404.
+        public var mcp: (@Sendable () -> MCPHTTPServer?)?
         /// How long a connection may stay silent while no answer is under way (a kept-alive connection between
         /// requests, a request that stopped half-way) before it is closed.
         var idleTimeout: TimeAmount = .seconds(60)
@@ -44,6 +47,8 @@ public final class UIServer: Sendable {
     public let sessions: SessionStore
     /// API tokens for scripts (`Authorization: Bearer`), in `ui-api-tokens.json`.
     public let tokens: APITokenStore
+    /// The OAuth clients and grants of `/mcp`, in `ui-oauth.json`.
+    public let oauth: OAuthStore
     /// With `auth: form` and no account yet: what the first visitor must type to create one. The bridge's banner
     /// prints it; it is never logged, so a client of the MCP log tools cannot claim the UI.
     public let setupCode: String?
@@ -54,6 +59,8 @@ public final class UIServer: Sendable {
     private let assets = NIOLockedValueBox<[String: (file: WebFile, body: Data, tag: String)]>([:])
     let options: Options
     let throttle = FailureThrottle()
+    /// Bad bearer tokens at `/mcp`, as the MCP server's own transport slows them down.
+    let mcpThrottle = FailureThrottle(window: 600, threshold: 3, maxDelay: 5)
     /// The password and code checks under way, one per client address at a time.
     let credentialChecks = CredentialChecks()
     let events = EventHub()
@@ -95,6 +102,7 @@ public final class UIServer: Sendable {
         setupCode = configuration.auth == .form && users.isEmpty ? Self.makeSetupCode() : nil
         allowedHosts = Self.allowedHosts(for: configuration)
         tokens = APITokenStore(url: usersURL.deletingLastPathComponent().appendingPathComponent("ui-api-tokens.json"))
+        oauth = OAuthStore(url: usersURL.deletingLastPathComponent().appendingPathComponent("ui-oauth.json"))
         live = options.webRoot.map(LiveWebFiles.init(root:))
         chat = AssistantChat(catalog: catalog, storeURL: usersURL.deletingLastPathComponent().appendingPathComponent("ui-chats.json"), logger: options.logger)
         directory = usersURL.deletingLastPathComponent()
@@ -184,7 +192,7 @@ public final class UIServer: Sendable {
     enum Reply: Sendable {
         case data(status: Int, contentType: String, body: Data, headers: [String: String] = [:])
         /// Server-sent events; `allowed`, asked at each keepalive, ends the stream once it answers false.
-        case events(AsyncStream<Data>, allowed: (@Sendable () -> Bool)? = nil)
+        case events(AsyncStream<Data>, allowed: (@Sendable () -> Bool)? = nil, headers: [String: String] = [:])
         /// A camera's live feed, chunked: the initialization segment, then each fragment until the browser leaves.
         case media(MediaStream)
 
@@ -215,6 +223,7 @@ public final class UIServer: Sendable {
             return .error(413, Self.acceptsArchive(request) ? "the upload is larger than \(InstanceBackups.maxArchiveSize / 1_048_576) MB" : "the request is too large")
         }
         let parts = request.path.split(separator: "/").map { String($0).removingPercentEncoding ?? String($0) }
+        if let reply = await oauthEndpoint(parts, request) { return reply }
         guard parts.first == "api" else { return page(for: parts, request) }
         let route = Array(parts.dropFirst())
         if route.first == "auth" { return await auth(route.dropFirst().first ?? "", request) }
@@ -231,8 +240,8 @@ public final class UIServer: Sendable {
             if request.method != .GET { audit(route, request, caller: caller, reply: reply) }
             // A stream outlives the request: it ends once its caller could no longer open it (signed out, removed,
             // the token revoked, or no longer an administrator, whose stream carries the log).
-            if case .events(let stream, .none) = reply {
-                reply = .events(stream, allowed: { [self] in self.caller(request, bearer: true, refresh: false)?.scope == caller.scope })
+            if case .events(let stream, .none, let headers) = reply {
+                reply = .events(stream, allowed: { [self] in self.caller(request, bearer: true, refresh: false)?.scope == caller.scope }, headers: headers)
             }
             return reply
         } catch let error as JSONRPCError {
@@ -267,7 +276,8 @@ public final class UIServer: Sendable {
                              headers: ["Content-Disposition": "attachment; filename=\"homeswift-ui.crt\""])
             }
             files = WebAssets.files
-            name = parts.isEmpty ? "index.html" : parts.joined(separator: "/")
+            // `/oauth/authorize`: the page that signs a user in for an OAuth client (claude.ai) and asks what it may do.
+            name = parts.isEmpty ? "index.html" : parts == ["oauth", "authorize"] ? "authorize.html" : parts.joined(separator: "/")
             // A view's address, not a file: the page, which draws it.
             if files[name] == nil, parts.last?.contains(".") != true { name = "index.html" }
         }
@@ -352,8 +362,7 @@ public final class UIServer: Sendable {
     func caller(_ request: Request, bearer: Bool, refresh: Bool = true) -> Caller? {
         if configuration.auth == .none { return Caller(username: "local", scope: .admin) }
         if bearer, let header = request.headers["authorization"] {
-            guard header.count > 7, header.prefix(7).lowercased() == "bearer " else { return nil }
-            guard let token = tokens.validate(header.dropFirst(7).trimmingCharacters(in: .whitespaces), noteUse: refresh) else { return nil }
+            guard let token = MCPHTTPServer.bearerToken(header).flatMap({ tokens.validate($0, noteUse: refresh) }) else { return nil }
             return Caller(username: "api-token:\(token.name)", scope: token.scope == .admin ? .admin : .read, token: token)
         }
         guard let session = request.cookies[Self.cookieName], let username = sessions.username(for: session, refresh: refresh),
@@ -378,6 +387,8 @@ public final class UIServer: Sendable {
             // own conversations and appearance.
             if route == ["assistant", "digest"] { return .read }
             if route == ["assistant", "chats"] || route.first == "preferences" { return .control }
+            // What an OAuth client asks, on the sign-in page; one's own connected apps.
+            if route == ["oauth", "request"] || route == ["account", "apps"] { return .control }
         case .PUT:
             if route.count == 2, route[0] == "accessories" { return .control }
             if route.first == "preferences" { return .control }
@@ -392,15 +403,28 @@ public final class UIServer: Sendable {
             // its own notifications on and off.
             if route.count == 3, route[0] == "scenes", route[2] == "run" { return .control }
             if route == ["notifications", "push", "subscribe"] || route == ["notifications", "push", "unsubscribe"] { return .control }
+            // Approving an OAuth client: the token it gets is capped by the user's role.
+            if route == ["oauth", "decision"] { return .control }
         case .DELETE:
             if route == ["assistant", "chat"] { return .control }
             if route.count == 3, route[0] == "assistant", route[1] == "chats" { return .control }
             if route.first == "preferences" { return .control }
+            if route.count == 3, route[0] == "account", route[1] == "apps" { return .control }
         default:
             break
         }
         return .admin
     }
+
+    /// Signs a user out everywhere but `keeping` (this browser's session): their other sessions and the apps they
+    /// connected (OAuth grants), after a new password, a two-factor change or their removal.
+    func signOut(_ username: String, keeping session: String?) {
+        sessions.revokeAll(of: username, keeping: session)
+        oauth.revokeAll(of: username)
+    }
+
+    /// The browser reached this server over HTTPS: its own certificate, or a trusted proxy that says so.
+    func isSecure(_ request: Request) -> Bool { configuration.https || request.secure }
 
     private func cookie(_ token: String?, secure: Bool = false) -> String {
         let value = token ?? ""
@@ -524,6 +548,8 @@ public final class UIServer: Sendable {
         // Settings, child bridges, backups, the audit log: Admin.swift.
         if let reply = try await adminAPI(route, request, caller: caller) { return reply }
         let body = request.body.isEmpty ? JSONValue.null : try JSONValue(data: request.body)
+        // Approving an OAuth client, and the account's connected apps (OAuthRoutes.swift).
+        if let reply = oauthAPI(route, request, body: body, caller: caller) { return reply }
         if route.first == "account" || route.first == "users" || route.first == "tokens" {
             return try await accounts(route, request, body: body, caller: caller)
         }
@@ -841,7 +867,7 @@ public final class UIServer: Sendable {
             guard let current = body["current"]?.stringValue, let new = body["new"]?.stringValue else { return .error(400, "the current and the new password are required") }
             let users = users
             if let refused = await checkingPassword(request, user: user, { try users.changePassword(username: user.username, current: current, new: new) }) { return refused }
-            sessions.revokeAll(of: user.username, keeping: caller.session)
+            signOut(user.username, keeping: caller.session)
             logger.info("Web UI password changed; the user's other sessions are signed out", metadata: ["user": "\(user.username)"])
             return .json(["changed": true])
         case (.POST, ["account", "otp", "setup"]):
@@ -870,14 +896,14 @@ public final class UIServer: Sendable {
             }
             throttle.succeeded(request.remote)
             // Sessions opened without the code end, as Glass UI's; this one stays.
-            sessions.revokeAll(of: user.username, keeping: caller.session)
+            signOut(user.username, keeping: caller.session)
             logger.info("Web UI two-factor authentication turned on; the user's other sessions are signed out", metadata: ["user": "\(user.username)"])
             return .json(["twoFactor": true])
         case (.POST, ["account", "otp", "disable"]):
             guard let password = body["password"]?.stringValue else { return .error(400, "the password is required") }
             let users = users
             if let refused = await checkingPassword(request, user: user, { try users.disableTwoFactor(username: user.username, password: password) }) { return refused }
-            sessions.revokeAll(of: user.username, keeping: caller.session)
+            signOut(user.username, keeping: caller.session)
             logger.info("Web UI two-factor authentication turned off; the user's other sessions are signed out", metadata: ["user": "\(user.username)"])
             return .json(["twoFactor": false])
         default:
@@ -913,7 +939,7 @@ public final class UIServer: Sendable {
                 return .error(400, error.description)
             }
             // A new password ends the user's sessions (this browser's stays when it is their own).
-            if password != nil { sessions.revokeAll(of: updated.username, keeping: caller.session) }
+            if password != nil { signOut(updated.username, keeping: caller.session) }
             logger.info("Web UI user changed", metadata: ["user": "\(updated.username)", "admin": "\(updated.admin)", "password": "\(password != nil ? "reset" : "kept")", "by": "\(user.username)"])
             return .json(Self.userJSON(updated, you: updated.username == user.username))
         case (.DELETE, let path) where path.count == 2 && path[0] == "users":
@@ -925,7 +951,7 @@ public final class UIServer: Sendable {
             } catch let error as AuthError {
                 return .error(400, error.description)
             }
-            sessions.revokeAll(of: target, keeping: nil)
+            signOut(target, keeping: nil)
             // Their conversations and choices go with them: a later account of the same name starts afresh.
             await chat.forget(user: target)
             preferences.forget(user: target)
@@ -1289,7 +1315,11 @@ final class UIRequestHandler: ChannelInboundHandler {
             // Who sends it, looked up without counting as activity: the route checks again with the whole request.
             let probe = UIServer.Request(method: head.method, path: String(head.uri.prefix { $0 != "?" }), headers: headers, body: Data(), remote: "")
             let caller = server.caller(probe, bearer: true, refresh: false)
-            limit = caller == nil ? Self.anonymousBodyLimit
+            // MCP clients send tool arguments (a config block) to /mcp with an OAuth token of their own.
+            let mcpClient = probe.path == "/mcp" && MCPHTTPServer.bearerToken(headers["authorization"]).map { token in
+                if case .valid = server.oauth.validate(token, noteUse: false) { true } else { false }
+            } == true
+            limit = mcpClient ? Self.bodyLimit : caller == nil ? Self.anonymousBodyLimit
                 : caller?.isAdmin == true && probe.path == "/api/backups/restore" ? InstanceBackups.maxArchiveSize : Self.bodyLimit
         case .body(var buffer):
             if body.count + buffer.readableBytes > limit { truncated = true }
@@ -1297,7 +1327,9 @@ final class UIRequestHandler: ChannelInboundHandler {
         case .end:
             guard let head else { return }
             let components = URLComponents(string: head.uri)
-            let query = Dictionary((components?.queryItems ?? []).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { _, last in last })
+            // Form-decoded, as URLSearchParams writes them (the pages', an OAuth client's): `+` is a space.
+            let query = Dictionary((components?.percentEncodedQueryItems ?? []).map { (URLEncoding.decode($0.name), URLEncoding.decode($0.value ?? "")) },
+                                   uniquingKeysWith: { _, last in last })
             var request = UIServer.Request(
                 method: head.method, path: components?.percentEncodedPath ?? String(head.uri.prefix { $0 != "?" }), query: query, headers: headers, body: body,
                 remote: context.remoteAddress?.ipAddress ?? "?")
@@ -1360,8 +1392,9 @@ final class UIRequestHandler: ChannelInboundHandler {
             if !keepAlive { channel.close(promise: nil) }
         case .media(let media):
             await writeMedia(media, head: head, to: channel)
-        case .events(let stream, let allowed):
+        case .events(let stream, let allowed, let headers):
             head.headers.add(name: "Content-Type", value: "text/event-stream")
+            for (name, value) in headers { head.headers.replaceOrAdd(name: name, value: value) }
             head.headers.add(name: "Connection", value: "close")
             channel.writeAndFlush(HTTPServerResponsePart.head(head), promise: nil)
             // Each event once the previous one is out: a browser that stops reading leaves events in the stream's

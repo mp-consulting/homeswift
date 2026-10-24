@@ -17,12 +17,6 @@ final class AssistantChat: Sendable {
     let store: ChatStore?
     private let conversations = NIOLockedValueBox<[String: (admin: Bool, task: Task<ChatConversation, Never>)]>([:])
 
-    /// Read-only tools that show what only an administrator sees in the web UI: config.json and its backups, the
-    /// log, the cached accessories, the pairings and the child bridges' health.
-    static let administratorReads: Set<String> = [
-        "get_config", "list_config_backups", "get_recent_logs", "search_logs", "get_cached_accessories", "get_pairing_info", "get_child_bridge_health",
-    ]
-
     init(catalog: HomeswiftCatalog, storeURL: URL? = nil, logger: Logger) {
         var options = MCPServer.Options(version: PluginHost.version, instructions: HomeswiftCatalog.instructions)
         options.logger = logger
@@ -42,8 +36,8 @@ final class AssistantChat: Sendable {
             let task = Task {
                 // The conversation as it stood under the other role, else the one kept.
                 let record = await replaced?.value.record ?? store?.chats(of: user).current
-                let toolbox = await ChatToolbox(server: server, user: user, scope: admin ? .admin : .read)
-                return ChatConversation(toolbox: toolbox, hidden: admin ? [] : Self.administratorReads, readOnly: !admin, record: record) { conversation in
+                let toolbox = await ChatToolbox(server: server, user: user, scope: admin ? .admin : .read, hidden: admin ? [] : HomeswiftCatalog.administratorOnly)
+                return ChatConversation(toolbox: toolbox, readOnly: !admin, record: record) { conversation in
                     // Kept after every answer.
                     store?.update(user) { $0.current = conversation.record.isEmpty ? nil : conversation.record }
                 }
@@ -172,9 +166,9 @@ final class ChatConversation: Sendable {
     private let state = NIOLockedValueBox(State())
     private let onFinish: (@Sendable (ChatConversation) -> Void)?
 
-    /// `hidden`: tools the user's scope allows that the conversation still leaves out. `record`, an earlier
-    /// conversation to go on with; `onFinish` runs after each answer (to keep it).
-    init(toolbox: ChatToolbox, hidden: Set<String> = [], readOnly: Bool = false, record: ChatRecord? = nil, onFinish: (@Sendable (ChatConversation) -> Void)? = nil) {
+    /// The tools are the toolbox's: its principal's scope, less what it hides. `record`, an earlier conversation to go
+    /// on with; `onFinish` runs after each answer (to keep it).
+    init(toolbox: ChatToolbox, readOnly: Bool = false, record: ChatRecord? = nil, onFinish: (@Sendable (ChatConversation) -> Void)? = nil) {
         self.toolbox = toolbox
         self.readOnly = readOnly
         self.onFinish = onFinish
@@ -188,7 +182,7 @@ final class ChatConversation: Sendable {
             }
         }
         // Built once: the tools and the user's scope do not change while the conversation lasts.
-        let tools = toolbox.agentTools { [weak self] confirmation in await self?.ask(confirmation) ?? false }.filter { !hidden.contains($0.definition.name) }
+        let tools = toolbox.agentTools { [weak self] confirmation in await self?.ask(confirmation) ?? false }
         state.withLockedValue { $0.tools = tools }
     }
 
