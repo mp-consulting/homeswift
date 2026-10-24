@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Web UI and MCP server behind Cloudflare or nginx: live log lines, accessory values and the Assistant's streamed
+  answers came late. The event streams now say `Cache-Control: no-store, no-transform`, which keeps Cloudflare from
+  compressing them (its Brotli held events until it had enough to compress), and `X-Accel-Buffering: no`, which
+  keeps nginx and DSM's reverse proxy from buffering them. On the home network nothing changes: a line reached the
+  page in under 10 ms before too.
+
 ## [0.7.0] - 2026-10-24
 
 ### Added

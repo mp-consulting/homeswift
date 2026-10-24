@@ -322,7 +322,9 @@ Logins survive a restart: sessions are kept in `ui-sessions.json` next to config
   the log) and that the browser came over HTTPS (`X-Forwarded-Proto`, for a `Secure` cookie, and
   `Strict-Transport-Security` for a year: the proxy holds a real certificate). Never every
   address: a client could pick its own and step around the throttle. Add the proxy's host name to
-  `allowedHosts`.
+  `allowedHosts`. The event streams (the live log, accessory values, the Assistant's answers, `/mcp`) say
+  `Cache-Control: no-store, no-transform` and `X-Accel-Buffering: no`, so a proxy that compresses
+  (Cloudflare) or buffers (nginx, DSM's reverse proxy) passes each event on as it comes instead of holding it.
 - `/mcp`, `/oauth/*` and `/.well-known/oauth-*` answer only with the MCP server on. Their tokens reach `/mcp`
   and nothing else, an API token cannot approve an app, and the sign-in page cannot be framed and never
   approves on the keypress that signed in.

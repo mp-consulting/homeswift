@@ -721,6 +721,8 @@ struct UIServerTests {
         let streamTask = Task { () -> String in
             let http = try await URLSessionTransport(timeout: 10).stream(HTTPRequest(method: "GET", url: base.appendingPathComponent("/api/events"), headers: ["Cookie": browser.cookie ?? "", "Accept": "text/event-stream"]))
             #expect(http.status == 200)
+            // Neither compressed nor buffered by a proxy on the way (Cloudflare, nginx).
+            #expect(http.headers["cache-control"] == "no-store, no-transform" && http.headers["x-accel-buffering"] == "no")
             var text = ""
             for try await event in SSE.events(http.body) {
                 text += "\(event.event ?? ""):\(event.data)\n"

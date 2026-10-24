@@ -284,6 +284,7 @@ struct OAuthServerTests {
         let streamed = try await app.send("POST", "/mcp", body: Self.initialize.text(), headers: ["Authorization": "Bearer \(access)", "Accept": "application/json, text/event-stream"])
         #expect(streamed.status == 200)
         #expect(streamed.headers["content-type"] == "text/event-stream")
+        #expect(streamed.headers["cache-control"] == "no-store, no-transform" && streamed.headers["x-accel-buffering"] == "no")
         #expect(streamed.headers["mcp-session-id"] != nil)
         #expect(streamed.body.contains("event: message"))
         // Sam is not an administrator: as in the UI, no log, config.json or pairings.
