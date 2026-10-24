@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- GitHub Pages sends no security headers: the policy rides in the page. Its own files only, nothing inline. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; base-uri 'none'; form-action 'none'; upgrade-insecure-requests">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Homeswift: Homebridge, rewritten in Swift</title>
+<meta name="description" content="Homebridge, rewritten in Swift. One small binary that speaks HomeKit, runs your Homebridge config and plugins, and idles in under 10 MB.">
+<link rel="canonical" href="https://homeswift.dev/bridge.html">
+<link rel="alternate" hreflang="en" href="https://homeswift.dev/bridge.html">
+<link rel="alternate" hreflang="fr" href="https://homeswift.dev/fr/bridge.html">
+<link rel="alternate" hreflang="es" href="https://homeswift.dev/es/bridge.html">
+<link rel="alternate" hreflang="pt" href="https://homeswift.dev/pt/bridge.html">
+<link rel="alternate" hreflang="x-default" href="https://homeswift.dev/bridge.html">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#f4f5f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0c0e13" media="(prefers-color-scheme: dark)">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://homeswift.dev/bridge.html">
+<meta property="og:title" content="Homeswift">
+<meta property="og:description" content="Homebridge, rewritten in Swift. Every device, in the Home app.">
+<meta property="og:image" content="https://homeswift.dev/apple-touch-icon.png">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<!-- The bridge page (the home page is index.html, the Assistant and agents). fr/, es/ and pt/ hold this page and
+     privacy.html translated by hand: a change here (text, benchmark numbers, the plugin list, markup) goes into the
+     three copies too. -->
+
+<svg class="sprite" width="0" height="0" aria-hidden="true">
+  <defs>
+    <linearGradient id="hs-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFA01C"/><stop offset="1" stop-color="#F0442E"/></linearGradient>
+    <symbol id="logo" viewBox="0 0 1024 1024">
+      <rect width="1024" height="1024" rx="228" fill="url(#hs-bg)"/>
+      <path d="M165 420.3 L512 160 L859 420.3 M227 373.8 V763 Q227 787 251 787 H773 Q797 787 797 763 V373.8" fill="none" stroke="#fff" stroke-width="64" stroke-linecap="round" stroke-linejoin="round"/>
+      <path fill="#fff" transform="translate(512 522) scale(8) translate(-28.38 -28.5)" d="m47.06 36.66-.004-.004c.066-.224.134-.446.191-.675 2.465-9.821-3.55-21.432-13.731-27.546 4.461 6.048 6.434 13.374 4.681 19.78-.156.571-.344 1.12-.552 1.653-.225-.148-.51-.316-.89-.527 0 0-10.127-6.252-21.103-17.312-.288-.29 5.852 8.777 12.822 16.14-3.284-1.843-12.434-8.5-18.227-13.802.712 1.187 1.558 2.33 2.489 3.43C17.573 23.932 23.882 31.5 31.44 37.314c-5.31 3.25-12.814 3.502-20.285.003a30.646 30.646 0 0 1-5.193-3.098c3.162 5.058 8.033 9.423 13.96 11.97 7.07 3.039 14.1 2.833 19.336.05l-.004.007c.024-.016.055-.032.08-.047.214-.116.428-.234.636-.358 2.516-1.306 7.485-2.63 10.152 2.559.654 1.27 2.041-5.46-3.061-11.74z"/>
+    </symbol>
+    <symbol id="i-bulb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1 2V16h5.2v-.2c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></symbol>
+    <symbol id="i-thermo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 14.8V5a2 2 0 1 0-4 0v9.8a4 4 0 1 0 4 0z"/></symbol>
+    <symbol id="i-blind" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 8h16M4 12h16M12 12v4"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="3" width="12" height="18" rx="3"/><path d="M10.5 9v2M13.5 9v2"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+    <symbol id="i-unlock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.7-1.5"/></symbol>
+    <symbol id="i-gh" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.4-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.6 2.4 1.1 3 .9.1-.7.4-1.1.6-1.4-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.8 1a9.6 9.6 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.9v2.8c0 .3.2.6.7.5A10 10 0 0 0 12 2z"/></symbol>
+  </defs>
+</svg>
+
+<header class="nav band">
+  <div class="wrap nav-bar">
+    <a class="brand" href="/" aria-label="Homeswift home"><svg aria-hidden="true"><use href="#logo"/></svg>Homeswift</a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="/">AI agents</a>
+      <a href="#performance">Performance</a>
+      <a href="#features">Features</a>
+      <a href="#plugins">Plugins</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/mp-consulting/homeswift/tree/main/docs">Docs</a>
+    </nav>
+    <a class="btn btn-plain" href="https://github.com/mp-consulting/homeswift"><svg aria-hidden="true"><use href="#i-gh"/></svg>GitHub</a>
+  </div>
+</header>
+
+<main id="top">
+  <div class="band hero">
+    <div class="wrap">
+      <div class="hero-copy">
+        <p class="eyebrow">Homebridge, rewritten in Swift</p>
+        <h1>Every device, in the Home&nbsp;app.</h1>
+        <p class="lede">Homeswift speaks HomeKit for the lights, air conditioners, cameras and locks Apple never certified. One small binary runs your Homebridge config and plugins, with no Node.js and no npm, and idles in under 10&nbsp;MB.</p>
+        <div class="cta">
+          <a class="btn btn-primary" href="#install">Get started</a>
+          <a class="btn btn-plain" href="https://github.com/mp-consulting/homeswift"><svg aria-hidden="true"><use href="#i-gh"/></svg>View source</a>
+        </div>
+        <p class="meta"><span>v0.8.0, early release</span><span>macOS 14+ and Linux</span><span>MIT licence</span></p>
+      </div>
+
+      <div class="stage">
+        <div class="wall" id="wall">
+          <div class="w medium on" id="desk" data-aid="2">
+            <div class="w-head">
+              <div class="icon light"><svg><use href="#i-bulb"/></svg></div>
+              <div class="who"><strong>Desk Light</strong><span class="status" id="desk-status">On · 70 %</span></div>
+              <button class="switch" id="desk-switch" role="switch" aria-checked="true" aria-label="Desk Light power"></button>
+            </div>
+            <div class="slider" id="desk-slider" role="slider" tabindex="0" aria-label="Desk Light brightness" aria-valuemin="0" aria-valuemax="100" aria-valuenow="70">
+              <div class="fill"></div>
+              <div class="labels"><span>Brightness</span><span id="desk-pct">70 %</span></div>
+            </div>
+          </div>
+
+          <div class="w medium" id="thermo" data-aid="3">
+            <div class="w-head">
+              <div class="icon heat"><svg><use href="#i-thermo"/></svg></div>
+              <div class="who"><strong>Living Room</strong><span class="status heat" id="thermo-status">Heating to 21.5°</span></div>
+            </div>
+            <div class="thermo">
+              <div class="inside"><span class="big">19.5°</span><small>Inside</small></div>
+              <button class="round" id="t-down" aria-label="Lower target">−</button>
+              <div class="target"><span class="big" id="t-target">21.5°</span><small>Heat to</small></div>
+              <button class="round" id="t-up" aria-label="Raise target">+</button>
+            </div>
+          </div>
+
+          <div class="w small shutter" id="shutter" data-aid="4" role="slider" tabindex="0" aria-label="Bedroom Shutter position, drag up or down" aria-valuemin="0" aria-valuemax="100" aria-valuenow="60">
+            <div class="slats"></div>
+            <div class="w-head"><div class="icon blind"><svg><use href="#i-blind"/></svg></div><span class="pct" id="shutter-pct">60%</span></div>
+            <div class="who"><strong>Bedroom Shutter</strong><span class="status" id="shutter-status">Open · 60 %</span></div>
+          </div>
+
+          <div class="w small tap on" id="porch" data-aid="5" role="button" tabindex="0" aria-pressed="true">
+            <div class="w-head"><div class="icon light"><svg><use href="#i-bulb"/></svg></div></div>
+            <div class="who"><strong>Porch Light</strong><span class="status">On</span></div>
+          </div>
+
+          <div class="w small tap" id="kitchen" data-aid="6" role="button" tabindex="0" aria-pressed="false">
+            <div class="w-head"><div class="icon plug"><svg><use href="#i-plug"/></svg></div></div>
+            <div class="who"><strong>Coffee Machine</strong><span class="status">Off</span></div>
+          </div>
+
+          <div class="w small tap lock" id="lock" data-aid="7" role="button" tabindex="0" aria-label="Front Door, hold to unlock">
+            <div class="w-head"><div class="icon lock"><svg><use href="#i-lock" id="lock-glyph"/></svg></div></div>
+            <div class="who"><strong>Front Door</strong><span class="status" id="lock-status">Locked · hold</span></div>
+            <div class="hold"></div>
+          </div>
+        </div>
+        <div class="wire" aria-live="polite"><b>PUT</b><span id="wire">/characteristics {"aid":2,"iid":10,"value":true}</span></div>
+        <p class="small stage-note">A live demo of the bridge's web UI. Tap, drag, or hold the door.</p>
+      </div>
+    </div>
+  </div>
+
+  <section class="band" id="performance">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Performance</p>
+        <h2>Small enough to forget it's running.</h2>
+        <p class="lede">The same HomeKit controller drove two bridges with the same 30 lightbulbs: Homeswift, and HAP-NodeJS, the library inside Homebridge.</p>
+      </div>
+      <div class="bench" id="bench">
+        <div class="legend"><span><i class="key-us"></i>Homeswift</span><span><i class="key-them"></i>HAP-NodeJS 2.2.2</span></div>
+      </div>
+      <p class="small bench-foot">Apple M1, macOS 27.0.1, 21 October 2026, one run each over loopback. Lower is better on every row. The full table, with throughput and the rows where HAP-NodeJS uses less CPU per request, is in <a href="https://github.com/mp-consulting/homeswift/blob/main/Benchmarks/README.md">Benchmarks/README.md</a>.</p>
+    </div>
+  </section>
+
+  <section class="band" id="features">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">What's inside</p>
+        <h2>Everything a bridge needs. Nothing it doesn't.</h2>
+      </div>
+      <div class="grid">
+        <article class="card wide">
+          <div>
+            <div class="glyph tone-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 11 12 4l8 7M6 9.5V20h12V9.5"/></svg></div>
+            <h3>Add it with the code on the label</h3>
+            <p>Pair setup with an 8-digit code over SRP-6a, encrypted sessions on every request, up to 16 controllers. Every accessory keeps its IDs, so rooms, scenes and automations survive restarts.</p>
+          </div>
+          <div class="code-label" aria-label="Example setup code 0052-1956">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11 12 4l9 7M5.5 9.5V20h13V9.5"/></svg>
+            <div class="digits">0052<br>1956</div>
+          </div>
+        </article>
+        <article class="card">
+          <div class="glyph tone-violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg></div>
+          <h3>Your Homebridge config, as is</h3>
+          <p>Reads a Homebridge-style config.json. Plugins keep their platform and option names, child bridges work the same way, and an edit is checked against the plugin's schema before it is saved.</p>
+        </article>
+        <article class="card">
+          <div class="glyph tone-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/></svg></div>
+          <h3>Cameras and doorbells</h3>
+          <p>Live video and snapshots over SRTP, HomeKit Secure Video recording, two-way audio and the doorbell's ring, with FFmpeg doing the encoding.</p>
+        </article>
+        <article class="card">
+          <div class="glyph tone-yellow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="18" height="8" rx="2"/></svg></div>
+          <h3>A web UI shaped like Home</h3>
+          <p>Every accessory is a widget on a wall you arrange. Status, plugins, config, logs and backups sit beside it, behind your own accounts, with two-factor if you like.</p>
+        </article>
+        <article class="card">
+          <div class="glyph tone-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M6 18l2-2M16 8l2-2"/></svg></div>
+          <h3>An Assistant, if you want one</h3>
+          <p>Ask why a light dropped off, explain a log, or get a daily digest. Optional, with a budget, and everything is redacted before a provider sees it.</p>
+        </article>
+        <article class="card span2">
+          <div class="glyph tone-grey"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 7 4 12l5 5M15 7l5 5-5 5"/></svg></div>
+          <h3>Your home in Claude, and other AI apps</h3>
+          <p>An MCP server that claude.ai and the Claude apps add as a connector: you sign in with your web UI account and choose what it may do. Anything destructive asks first, every change is audited, and locks, garage doors and alarms go through one guarded tool.</p>
+        </article>
+        <article class="card">
+          <div class="glyph tone-pink"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg></div>
+          <h3>Runs where your home runs</h3>
+          <p>A container for amd64 and arm64, a Synology package for DSM 7, or a plain binary on macOS 14 and Linux.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="plugins">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Plugins</p>
+        <h2>Ten plugins, compiled in.</h2>
+        <p class="lede">Each one is a port of the Homebridge plugin you may already use, tested against a fake of its device or cloud.</p>
+      </div>
+      <div class="plugins">
+        <div class="plugin"><span class="mono">EK</span><div><strong>Elgato Key Lights</strong><span>Key Light, Ring Light</span></div></div>
+        <div class="plugin"><span class="mono">UP</span><div><strong>UniFi Protect</strong><span>Cameras, doorbells, sensors</span></div></div>
+        <div class="plugin"><span class="mono">UA</span><div><strong>UniFi Access</strong><span>Door locks and readers</span></div></div>
+        <div class="plugin"><span class="mono">DC</span><div><strong>Daikin Cloud</strong><span>Air conditioners</span></div></div>
+        <div class="plugin"><span class="mono">DY</span><div><strong>Dyson Pure Cool</strong><span>Purifiers and fans</span></div></div>
+        <div class="plugin"><span class="mono">LG</span><div><strong>LG ThinQ</strong><span>Appliances</span></div></div>
+        <div class="plugin"><span class="mono">PH</span><div><strong>Philips Ambilight TV</strong><span>Television, remote</span></div></div>
+        <div class="plugin"><span class="mono">GV</span><div><strong>Govee</strong><span>Lights</span></div></div>
+        <div class="plugin"><span class="mono">eW</span><div><strong>eWeLink</strong><span>Sonoff switches and plugs</span></div></div>
+        <div class="plugin"><span class="mono">DL</span><div><strong>Dolphin</strong><span>Pool cleaners</span></div></div>
+        <a class="plugin add" href="https://github.com/mp-consulting/homeswift/blob/main/docs/plugins.md"><span class="mono">+</span><div><strong>Port your own</strong><span>From Node.js to Swift, step by step</span></div></a>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="install">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Install</p>
+        <h2>Running in five minutes.</h2>
+      </div>
+      <div class="install">
+        <div>
+          <div class="seg" role="tablist" aria-label="Install method">
+            <button role="tab" id="tab-docker" aria-selected="true" data-pane="docker">Docker</button>
+            <button role="tab" id="tab-synology" aria-selected="false" data-pane="synology">Synology</button>
+            <button role="tab" id="tab-swift" aria-selected="false" data-pane="swift">Swift package</button>
+          </div>
+          <div class="term" data-pane="docker">
+            <button class="copy">Copy</button>
+<pre><span class="c"># amd64 and arm64. Host networking lets HomeKit find the bridge over mDNS.</span>
+docker run -d --name homeswift --network host \
+  --restart unless-stopped \
+  -v ~/homeswift:/homeswift \
+  ghcr.io/mp-consulting/homeswift:latest</pre>
+          </div>
+          <div class="term" data-pane="synology" hidden>
+            <button class="copy">Copy</button>
+<pre><span class="c"># DSM 7.0 or later, x86_64 and aarch64 models. No Docker needed.</span>
+<span class="c"># 1. Download the .spk for your model from the latest release:</span>
+https://github.com/mp-consulting/homeswift/releases/latest
+<span class="c"># 2. Package Center › Manual Install, then follow the wizard.</span>
+<span class="c"># 3. Open Homeswift from DSM's main menu.</span></pre>
+          </div>
+          <div class="term" data-pane="swift" hidden>
+            <button class="copy">Copy</button>
+<pre><span class="c">// Package.swift: build your own accessory on the library.</span>
+dependencies: [
+    .<span class="t">package</span>(url: <span class="s">"https://github.com/mp-consulting/homeswift.git"</span>,
+             from: <span class="s">"0.8.0"</span>),
+]</pre>
+          </div>
+        </div>
+        <ol class="steps">
+          <li><div><strong>Open the web UI</strong><p>On port 8581 of the machine running the bridge.</p></div></li>
+          <li><div><strong>Create your account</strong><p>With the set-up code the bridge prints when it starts.</p></div></li>
+          <li><div><strong>Add plugins</strong><p>Pick them on the Plugins page and fill in their settings.</p></div></li>
+          <li><div><strong>Add the bridge in Home</strong><p>Scan the QR code on the Status page, or type the 8-digit code.</p></div></li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="developers">
+    <div class="wrap dev">
+      <div>
+        <p class="eyebrow">For developers</p>
+        <h2 class="dev-title">A lamp in twenty lines.</h2>
+        <ul>
+          <li>All 73 services and 252 characteristics HomeKit knows, with their units, ranges and valid values.</li>
+          <li>Swift 6 concurrency: handlers are async, and a thrown error shows as No Response in Home.</li>
+          <li>Set a value when the device changes, and every subscribed Home app updates.</li>
+        </ul>
+      </div>
+      <div class="term">
+<pre><span class="k">import</span> <span class="t">Homeswift</span>
+
+<span class="k">let</span> light = <span class="t">Service</span>(.lightbulb, name: <span class="s">"Desk Lamp"</span>,
+                    optional: [.brightness], isPrimary: <span class="k">true</span>)
+
+light.characteristic(.on).onWrite(changesOnly: <span class="k">true</span>) { value <span class="k">in</span>
+    <span class="k">try await</span> lamp.setPower(value.boolValue ?? <span class="k">false</span>)
+}
+
+<span class="k">let</span> accessory = <span class="t">Accessory</span>(
+    id: <span class="s">"desk-lamp"</span>, name: <span class="s">"Desk Lamp"</span>,
+    manufacturer: <span class="s">"Acme"</span>, model: <span class="s">"L1"</span>,
+    category: .lightbulb, services: [light])
+
+<span class="k">let</span> server = <span class="k">try</span> <span class="t">HAPServer</span>(bridge: bridge, accessories: [accessory],
+                           storage: <span class="t">FileStorage</span>(name: <span class="s">"my-bridge"</span>))
+print(<span class="s">"Setup code:"</span>, server.setupCode)  <span class="c">// 1234-5678</span>
+<span class="k">try await</span> server.run()</pre>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="band">
+  <div class="wrap">
+    <a class="brand" href="/"><svg aria-hidden="true"><use href="#logo"/></svg>homeswift.dev</a>
+    <nav aria-label="Footer">
+      <a href="/">AI agents</a>
+      <a href="https://github.com/mp-consulting/homeswift">GitHub</a>
+      <a href="https://github.com/mp-consulting/homeswift/tree/main/docs">Docs</a>
+      <a href="https://github.com/mp-consulting/homeswift/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/mp-consulting/homeswift/blob/main/CONTRIBUTING.md">Contributing</a>
+      <a href="https://github.com/mp-consulting/homeswift/blob/main/LICENSE">MIT licence</a>
+      <a href="/privacy.html">Privacy</a>
+    </nav>
+    <nav class="langs" aria-label="Language">
+      <ul>
+        <li><a href="/bridge.html" hreflang="en" lang="en" title="English" aria-current="page">EN</a></li>
+        <li><a href="/fr/bridge.html" hreflang="fr" lang="fr" title="Français">FR</a></li>
+        <li><a href="/es/bridge.html" hreflang="es" lang="es" title="Español">ES</a></li>
+        <li><a href="/pt/bridge.html" hreflang="pt" lang="pt" title="Português">PT</a></li>
+      </ul>
+    </nav>
+    <p class="small">HomeKit, Swift and the Swift logo are trademarks of Apple Inc. Homeswift is an independent project, not made or endorsed by Apple.</p>
+  </div>
+</footer>
+
+<script src="site.js" defer></script>
+</body>
+</html>

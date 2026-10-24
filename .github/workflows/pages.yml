@@ -5,7 +5,7 @@ name: Pages
 on:
   push:
     branches: [main]
-    paths: ["site/**", ".github/workflows/pages.yml"]
+    paths: ["site/**", "Scripts/site-languages.mjs", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
 permissions:
@@ -27,6 +27,10 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      # fr/, es/ and pt/index.html are generated from index.html and the catalogs: a stale copy stops the deploy.
+      - name: Check the translated home pages
+        run: node Scripts/site-languages.mjs --check
 
       # Cloudflare, in front of Pages, keeps stylesheets and scripts for 4 hours and fetches HTML every time: a deploy
       # would pair new pages with the previous deploy's site.css and site.js. Each page's own .css and .js addresses

@@ -144,7 +144,7 @@ HomeswiftI18n.add("fr", {
  "<code>ask</code>, <code>explain</code> an error, <code>diagnose</code> a log, or get today's <code>digest</code>. Pipe <code>journalctl</code> straight in.": "<code>ask</code> pour une question, <code>explain</code> pour une erreur, <code>diagnose</code> pour un journal, ou le <code>digest</code> du jour. Envoyez-y directement la sortie de <code>journalctl</code>.",
  "Anything that unlocks, rewrites configuration or restarts the bridge runs as a dry run first. You see each setting and its new value, then <b>Allow</b> or <b>Don't allow</b>. A change that would fail anyway is never put to you.": "Tout ce qui déverrouille, réécrit la configuration ou redémarre le pont passe d’abord par un essai à blanc. Vous voyez chaque réglage et sa nouvelle valeur, puis choisissez <b>Autoriser</b> ou <b>Ne pas autoriser</b>. Un changement qui échouerait de toute façon ne vous est jamais proposé.",
  "<s>Secured</s> → Unsecured": "<s>Verrouillé</s> → Déverrouillé",
- "Apple M1, one run each over loopback. <a href=\"index.html#performance\">The full comparison</a>.": "Apple M1, une mesure chacun, en boucle locale. <a href=\"index.html#performance\">La comparaison complète</a>.",
+ "Apple M1, one run each over loopback. <a href=\"bridge.html#performance\">The full comparison</a>.": "Apple M1, une mesure chacun, en boucle locale. <a href=\"bridge.html#performance\">La comparaison complète</a>.",
  "On · {level}": "Allumé · {level}",
  "Off": "Éteint",
  "On": "Allumé",
@@ -237,5 +237,8 @@ HomeswiftI18n.add("fr", {
  "unlocked": "déverrouillé",
  "\\bunlock|open the (front )?door|let .* in": "deverrouill|ouvre la porte|ouvrir la porte|fais.* entrer|laisse.* entrer",
  "\\block\\b|lock up|leaving": "verrouill|fermer? a cle|fermer? la porte|je pars|je sors|je m.en vais",
- "kitchen": "cuisine"
+ "kitchen": "cuisine",
+ "Homeswift: let your AI run your HomeKit home": "Homeswift : confiez votre maison HomeKit à votre IA",
+ "A HomeKit bridge with an MCP server: let Claude or any AI agent run every device in the Home app, asking before it unlocks. Homebridge, rewritten in Swift.": "Un pont HomeKit avec un serveur MCP : Claude ou tout agent IA pilote chaque appareil de l’app Maison, et demande votre accord avant de déverrouiller. Homebridge, réécrit en Swift.",
+ "Let your AI run the house. It still asks before it unlocks.": "Confiez la maison à votre IA. Elle demande toujours avant de déverrouiller."
 });
