@@ -143,8 +143,8 @@ extension HomeswiftCatalog {
     /// The Assistant's rooms and names for the running accessories (`AssistantService.suggestOrganization`):
     /// `rooms` (name and the ids of known accessories), `renames` (id, current name, suggested name, reason),
     /// `orphans` (id, name, reason). Nothing changes until the page applies what the user kept.
-    public func suggestRooms(onProgress: (@Sendable (Int, Int) -> Void)? = nil) async throws -> JSONValue {
-        guard let assistant = host.assistant else { throw CatalogError("the Assistant is off: add a HomeswiftAiKit block") }
+    public func suggestRooms(language: String? = nil, onProgress: (@Sendable (Int, Int) -> Void)? = nil) async throws -> JSONValue {
+        guard let assistant = host.assistant?.speaking(language) else { throw CatalogError("the Assistant is off: add a HomeswiftAiKit block") }
         let all = located()
         let byID = Dictionary(all.map { ($0.accessory.id, $0) }, uniquingKeysWith: { first, _ in first })
         let accessories: [JSONValue] = all.map { located in

@@ -1,5 +1,67 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://homeswift.dev/</loc><lastmod>2026-10-24</lastmod></url>
-  <url><loc>https://homeswift.dev/privacy.html</loc><lastmod>2026-10-24</lastmod></url>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  <url>
+    <loc>https://homeswift.dev/</loc><lastmod>2026-10-24</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://homeswift.dev/"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://homeswift.dev/fr/"/>
+    <xhtml:link rel="alternate" hreflang="es" href="https://homeswift.dev/es/"/>
+    <xhtml:link rel="alternate" hreflang="pt" href="https://homeswift.dev/pt/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://homeswift.dev/"/>
+  </url>
+  <url>
+    <loc>https://homeswift.dev/fr/</loc><lastmod>2026-10-24</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://homeswift.dev/"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://homeswift.dev/fr/"/>
+    <xhtml:link rel="alternate" hreflang="es" href="https://homeswift.dev/es/"/>
+    <xhtml:link rel="alternate" hreflang="pt" href="https://homeswift.dev/pt/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://homeswift.dev/"/>
+  </url>
+  <url>
+    <loc>https://homeswift.dev/es/</loc><lastmod>2026-10-24</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://homeswift.dev/"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://homeswift.dev/fr/"/>
+    <xhtml:link rel="alternate" hreflang="es" href="https://homeswift.dev/es/"/>
+    <xhtml:link rel="alternate" hreflang="pt" href="https://homeswift.dev/pt/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://homeswift.dev/"/>
+  </url>
+  <url>
+    <loc>https://homeswift.dev/pt/</loc><lastmod>2026-10-24</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://homeswift.dev/"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://homeswift.dev/fr/"/>
+    <xhtml:link rel="alternate" hreflang="es" href="https://homeswift.dev/es/"/>
+    <xhtml:link rel="alternate" hreflang="pt" href="https://homeswift.dev/pt/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://homeswift.dev/"/>
+  </url>
+  <url>
+    <loc>https://homeswift.dev/privacy.html</loc><lastmod>2026-10-24</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://homeswift.dev/privacy.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://homeswift.dev/fr/privacy.html"/>
+    <xhtml:link rel="alternate" hreflang="es" href="https://homeswift.dev/es/privacy.html"/>
+    <xhtml:link rel="alternate" hreflang="pt" href="https://homeswift.dev/pt/privacy.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://homeswift.dev/privacy.html"/>
+  </url>
+  <url>
+    <loc>https://homeswift.dev/fr/privacy.html</loc><lastmod>2026-10-24</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://homeswift.dev/privacy.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://homeswift.dev/fr/privacy.html"/>
+    <xhtml:link rel="alternate" hreflang="es" href="https://homeswift.dev/es/privacy.html"/>
+    <xhtml:link rel="alternate" hreflang="pt" href="https://homeswift.dev/pt/privacy.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://homeswift.dev/privacy.html"/>
+  </url>
+  <url>
+    <loc>https://homeswift.dev/es/privacy.html</loc><lastmod>2026-10-24</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://homeswift.dev/privacy.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://homeswift.dev/fr/privacy.html"/>
+    <xhtml:link rel="alternate" hreflang="es" href="https://homeswift.dev/es/privacy.html"/>
+    <xhtml:link rel="alternate" hreflang="pt" href="https://homeswift.dev/pt/privacy.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://homeswift.dev/privacy.html"/>
+  </url>
+  <url>
+    <loc>https://homeswift.dev/pt/privacy.html</loc><lastmod>2026-10-24</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://homeswift.dev/privacy.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://homeswift.dev/fr/privacy.html"/>
+    <xhtml:link rel="alternate" hreflang="es" href="https://homeswift.dev/es/privacy.html"/>
+    <xhtml:link rel="alternate" hreflang="pt" href="https://homeswift.dev/pt/privacy.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://homeswift.dev/privacy.html"/>
+  </url>
 </urlset>

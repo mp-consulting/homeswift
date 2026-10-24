@@ -6,6 +6,7 @@
 (() => {
   "use strict";
 
+  const { t, tn } = HomeswiftI18n;
   const ns = "http://www.w3.org/2000/svg";
   const svg = (tag, attrs = {}) => {
     const node = document.createElementNS(ns, tag);
@@ -45,7 +46,7 @@
       first.setTime(local.getTime());
     }
     const ticks = [];
-    for (let t = first.getTime(); t <= to; t += step) ticks.push(t);
+    for (let tick = first.getTime(); tick <= to; tick += step) ticks.push(tick);
     return ticks;
   }
   /// A tick's label: the day at midnight, else the time.
@@ -54,9 +55,9 @@
     return date.getHours() === 0 && date.getMinutes() === 0 ? dayName.format(date) : hourMinute.format(date);
   };
 
-  const hourMinute = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit", hour12: false });
-  const dayName = new Intl.DateTimeFormat([], { weekday: "short", day: "numeric" });
-  const fullTime = new Intl.DateTimeFormat([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+  const hourMinute = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", hour12: false });
+  const dayName = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
+  const fullTime = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
 
   /// A chart in `container`: `series` are `{ label, value(point), tone }` (tone 1 or 2, the palette's slots),
   /// `points` have `time` (a Date), `from` and `to` bound the x axis, `step` is the points' spacing in ms and
@@ -91,7 +92,7 @@
       const x = (time) => pad.left + (time - from) / Math.max(to - from, 1) * plotWidth;
       const y = (value) => pad.top + plotHeight - value / top * plotHeight;
 
-      const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": `${title}, ${points.length ? "drawn over time" : "nothing recorded"}` });
+      const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": points.length ? t("{title}, drawn over time", { title }) : t("{title}, nothing recorded", { title }) });
       root.setAttribute("tabindex", "0");
       for (let i = 0; i <= 4; i++) {
         const value = top / 4 * i, at = y(value);
@@ -136,7 +137,7 @@
       }
       if (!points.length) {
         const empty = svg("text", { x: pad.left + plotWidth / 2, y: pad.top + plotHeight / 2, class: "tick", "text-anchor": "middle" });
-        empty.textContent = "Nothing recorded in this range";
+        empty.textContent = t("Nothing recorded in this range");
         root.append(empty);
       }
       const cross = svg("line", { y1: pad.top, y2: pad.top + plotHeight, class: "crosshair hidden" });

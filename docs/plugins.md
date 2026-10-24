@@ -220,7 +220,8 @@ for JSON, `Int(clamping:)` for a wider integer, and `x.finite` to drop NaN and i
 
 A plugin can give the web UI a page of its own: a `Web/` directory next to `Sources`, embedded as
 `webFiles`, and a `handleWebRequest(_:)` that answers the page's requests. `docs/ui.md` has the details
-and `Plugins/ElgatoKeyLights/Web` is the example.
+and `Plugins/ElgatoKeyLights/Web` is the example. The page speaks the user's language with `t()` and a `Web/i18n.js`
+of its own ([translations.md](translations.md)).
 
 ### In the web UI
 

@@ -14,16 +14,34 @@ extension DysonPureCoolPlugin {
 (() => {
   "use strict";
   const { $, el, request, name, explain, assistant, home, api, readBlock, updateBlock, poll } = homeswift;
+  const { t, tn } = HomeswiftI18n;
+
+  /// `text` with an element where its `{name}` placeholder is: a sentence keeps its words in the language's order.
+  const around = (text, name, element) => {
+    const [before, after = ""] = text.split(`{${name}}`);
+    return [before, element, after];
+  };
 
   const countries = [
-    ["Americas", [["CA", "Canada"], ["US", "United States"]]],
-    ["Asia Pacific", [["AU", "Australia"], ["CN", "China"], ["HK", "Hong Kong"], ["IN", "India"], ["JP", "Japan"], ["MY", "Malaysia"],
+    [t("Americas"), [["CA", "Canada"], ["US", "United States"]]],
+    [t("Asia Pacific"), [["AU", "Australia"], ["CN", "China"], ["HK", "Hong Kong"], ["IN", "India"], ["JP", "Japan"], ["MY", "Malaysia"],
       ["NZ", "New Zealand"], ["SG", "Singapore"], ["KR", "South Korea"], ["TW", "Taiwan"], ["TH", "Thailand"]]],
-    ["Europe", [["AT", "Austria"], ["BE", "Belgium"], ["CZ", "Czech Republic"], ["DK", "Denmark"], ["FI", "Finland"], ["FR", "France"],
+    [t("Europe"), [["AT", "Austria"], ["BE", "Belgium"], ["CZ", "Czech Republic"], ["DK", "Denmark"], ["FI", "Finland"], ["FR", "France"],
       ["DE", "Germany"], ["IE", "Ireland"], ["IT", "Italy"], ["NL", "Netherlands"], ["NO", "Norway"], ["PL", "Poland"], ["PT", "Portugal"],
       ["ES", "Spain"], ["SE", "Sweden"], ["CH", "Switzerland"], ["GB", "United Kingdom"]]],
-    ["Middle East", [["SA", "Saudi Arabia"], ["AE", "United Arab Emirates"]]],
+    [t("Middle East"), [["SA", "Saudi Arabia"], ["AE", "United Arab Emirates"]]],
   ];
+  // Countries in the page's language (the list's English names otherwise), in its alphabetical order.
+  const regionNames = (() => {
+    if (HomeswiftI18n.language === "en") return null;
+    try { return new Intl.DisplayNames([HomeswiftI18n.locale], { type: "region" }); } catch { return null; }
+  })();
+  if (regionNames) {
+    for (const group of countries) {
+      group[1] = group[1].map(([code, label]) => [code, regionNames.of(code) || label])
+        .sort((a, b) => a[1].localeCompare(b[1], HomeswiftI18n.locale));
+    }
+  }
 
   const state = {
     step: 1,
@@ -77,72 +95,72 @@ extension DysonPureCoolPlugin {
   // MARK: The steps
 
   const wizard = $("#wizard");
-  const stepNames = ["Account", "Devices", "Options"];
+  const stepNames = [t("Account"), t("Devices"), t("Options")];
   const progress = el("ol", { class: "steps" }, stepNames.map((label, i) => el("li", { "data-n": String(i + 1), text: label })));
 
   // Step 0: the devices already set up.
   const existingList = el("div", { class: "devices" });
-  const resyncButton = el("button", { text: "Re-sync from Dyson Cloud", title: "Sign in again to add devices or refresh their credentials", onclick: () => {
+  const resyncButton = el("button", { text: t("Re-sync from Dyson Cloud"), title: t("Sign in again to add devices or refresh their credentials"), onclick: () => {
     state.isResync = true;
     go(1);
     setTimeout(() => email.focus(), 50);
   } });
   const stepExisting = el("div", { class: "step" },
-    el("div", { class: "section-head" }, el("h2", { text: "Your Dyson devices" }),
-      el("div", { class: "actions", style: "margin:0" }, resyncButton, el("button", { text: "Edit options", onclick: () => go(3) }))),
+    el("div", { class: "section-head" }, el("h2", { text: t("Your Dyson devices") }),
+      el("div", { class: "actions", style: "margin:0" }, resyncButton, el("button", { text: t("Edit options"), onclick: () => go(3) }))),
     existingList);
 
   // Step 1: the Dyson account.
-  const email = el("input", { type: "email", placeholder: "your@email.com", autocomplete: "email", id: "email" });
-  const password = el("input", { type: "password", placeholder: "Your Dyson password", autocomplete: "current-password", id: "password" });
-  const showPassword = el("button", { type: "button", class: "link", text: "Show", "aria-label": "Toggle password visibility", onclick: () => {
+  const email = el("input", { type: "email", placeholder: t("your@email.com"), autocomplete: "email", id: "email" });
+  const password = el("input", { type: "password", placeholder: t("Your Dyson password"), autocomplete: "current-password", id: "password" });
+  const showPassword = el("button", { type: "button", class: "link", text: t("Show"), "aria-label": t("Toggle password visibility"), onclick: () => {
     const hidden = password.type === "password";
     password.type = hidden ? "text" : "password";
-    showPassword.textContent = hidden ? "Hide" : "Show";
+    showPassword.textContent = hidden ? t("Hide") : t("Show");
   } });
   const country = el("select", { id: "country" }, countries.map(([group, list]) =>
     el("optgroup", { label: group }, list.map(([code, label]) => el("option", { value: code, text: label })))));
   country.value = "US";
   const loginProblem = el("div", {});
-  const resyncHint = el("p", { class: "hint hidden", text: "Re-enter your credentials to re-sync devices from Dyson Cloud." });
-  const cancelResync = el("button", { class: "hidden", text: "Cancel", onclick: () => { state.isResync = false; go(0); } });
-  const connectButton = el("button", { class: "primary", text: "Connect Account", onclick: (event) => act(event.currentTarget, connect) });
-  const assistantHint = el("p", { class: "hint hidden" }, "Tip: add a ", el("strong", { text: "HomeswiftAiKit" }),
-    " block to config.json to get the Assistant, which explains sign-in and device connection errors here.");
+  const resyncHint = el("p", { class: "hint hidden", text: t("Re-enter your credentials to re-sync devices from Dyson Cloud.") });
+  const cancelResync = el("button", { class: "hidden", text: t("Cancel"), onclick: () => { state.isResync = false; go(0); } });
+  const connectButton = el("button", { class: "primary", text: t("Connect Account"), onclick: (event) => act(event.currentTarget, connect) });
+  const assistantHint = el("p", { class: "hint hidden" }, ...around(t("Tip: add a {block} block to config.json to get the Assistant, which explains sign-in and device connection errors here."),
+    "block", el("strong", { text: "HomeswiftAiKit" })));
   const stepAccount = el("div", { class: "step" },
-    el("h2", { text: "Connect your Dyson account" }),
-    el("p", { class: "muted", text: "Enter your Dyson account credentials to discover your devices. The password is not saved: it is only used to fetch each device's local credentials." }),
+    el("h2", { text: t("Connect your Dyson account") }),
+    el("p", { class: "muted", text: t("Enter your Dyson account credentials to discover your devices. The password is not saved: it is only used to fetch each device's local credentials.") }),
     resyncHint,
     el("div", { class: "form" },
-      el("div", { class: "wide field" }, el("label", { class: "field-title", htmlFor: "email", text: "Email address" }), email),
-      el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: "password", text: "Password" }), el("div", { class: "with-button" }, password, showPassword)),
-      el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: "country", text: "Country" }), country)),
+      el("div", { class: "wide field" }, el("label", { class: "field-title", htmlFor: "email", text: t("Email address") }), email),
+      el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: "password", text: t("Password") }), el("div", { class: "with-button" }, password, showPassword)),
+      el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: "country", text: t("Country") }), country)),
     loginProblem,
     el("div", { class: "actions" }, cancelResync, connectButton),
     assistantHint);
 
   // Step 1b: the emailed code.
-  const code = el("input", { type: "text", class: "code-input", placeholder: "000000", maxlength: 6, inputmode: "numeric", autocomplete: "one-time-code", "aria-label": "Verification code" });
+  const code = el("input", { type: "text", class: "code-input", placeholder: "000000", maxlength: 6, inputmode: "numeric", autocomplete: "one-time-code", "aria-label": t("Verification code") });
   const codeProblem = el("div", {});
-  const verifyButton = el("button", { class: "primary", text: "Verify", onclick: (event) => act(event.currentTarget, verify) });
+  const verifyButton = el("button", { class: "primary", text: t("Verify"), onclick: (event) => act(event.currentTarget, verify) });
   const stepCode = el("div", { class: "step" },
-    el("h2", { text: "Verify your identity" }),
-    el("p", { class: "muted", text: "We've sent a verification code to your email. Enter it below." }),
-    el("p", { class: "hint", text: "Check your inbox for an email from Dyson with your verification code." }),
-    el("div", { class: "field" }, el("label", { class: "field-title", text: "Verification code" }), code),
+    el("h2", { text: t("Verify your identity") }),
+    el("p", { class: "muted", text: t("We've sent a verification code to your email. Enter it below.") }),
+    el("p", { class: "hint", text: t("Check your inbox for an email from Dyson with your verification code.") }),
+    el("div", { class: "field" }, el("label", { class: "field-title", text: t("Verification code") }), code),
     codeProblem,
-    el("div", { class: "actions" }, el("button", { text: "Back", onclick: () => go(1) }), verifyButton));
+    el("div", { class: "actions" }, el("button", { text: t("Back"), onclick: () => go(1) }), verifyButton));
 
   // Step 2: the account's devices.
   const deviceList = el("div", { class: "devices" });
   const stepDevices = el("div", { class: "step" },
-    el("h2", { text: "Select your devices" }),
-    el("p", { class: "muted", text: "Choose which devices to add to HomeKit. You can customize the name for each device." }),
+    el("h2", { text: t("Select your devices") }),
+    el("p", { class: "muted", text: t("Choose which devices to add to HomeKit. You can customize the name for each device.") }),
     deviceList,
     el("div", { class: "actions" },
-      el("button", { text: "Back", onclick: () => go(state.existingConfig ? 0 : 1) }),
-      el("button", { class: "primary", text: "Continue", onclick: () => {
-        if (state.selected.size === 0) return toast("Please select at least one device", "error");
+      el("button", { text: t("Back"), onclick: () => go(state.existingConfig ? 0 : 1) }),
+      el("button", { class: "primary", text: t("Continue"), onclick: () => {
+        if (state.selected.size === 0) return toast(t("Please select at least one device"), "error");
         go(3);
       } })));
 
@@ -152,35 +170,35 @@ extension DysonPureCoolPlugin {
     return { input, row: el("div", { class: "toggle-row" }, el("label", { class: "switch" }, input, el("span", {})), el("label", { htmlFor: id, text: label })) };
   };
   const options = {
-    temperature: option("opt-temperature", "Temperature sensor"),
-    humidity: option("opt-humidity", "Humidity sensor"),
-    airQuality: option("opt-air-quality", "Air quality sensor"),
-    nightMode: option("opt-night-mode", "Night mode switch"),
-    jetFocus: option("opt-jet-focus", "Jet focus switch (diffuse/focused)"),
-    autoMode: option("opt-auto-mode", "Auto mode switch"),
-    filterStatus: option("opt-filter-status", "Filter status indicator", false),
+    temperature: option("opt-temperature", t("Temperature sensor")),
+    humidity: option("opt-humidity", t("Humidity sensor")),
+    airQuality: option("opt-air-quality", t("Air quality sensor")),
+    nightMode: option("opt-night-mode", t("Night mode switch")),
+    jetFocus: option("opt-jet-focus", t("Jet focus switch (diffuse/focused)")),
+    autoMode: option("opt-auto-mode", t("Auto mode switch")),
+    filterStatus: option("opt-filter-status", t("Filter status indicator"), false),
   };
   const polling = el("input", { type: "number", class: "polling", value: 60, min: 10, max: 300, id: "opt-polling" });
-  const saveButton = el("button", { class: "primary", text: "Save", onclick: (event) => act(event.currentTarget, saveFromWizard) });
+  const saveButton = el("button", { class: "primary", text: t("Save"), onclick: (event) => act(event.currentTarget, saveFromWizard) });
   const stepOptions = el("div", { class: "step options" },
-    el("h2", { text: "Configure options" }),
-    el("p", { class: "muted", text: "Customize how your devices appear in HomeKit." }),
-    el("h3", { text: "Sensor options" }), options.temperature.row, options.humidity.row, options.airQuality.row,
-    el("h3", { text: "Additional controls" }), options.nightMode.row, options.jetFocus.row, options.autoMode.row, options.filterStatus.row,
-    el("h3", { text: "Advanced" }),
-    el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: "opt-polling", text: "Polling interval (seconds)" }), polling,
-      el("p", { class: "help", text: "How often to check device status (10-300 seconds)" })),
+    el("h2", { text: t("Configure options") }),
+    el("p", { class: "muted", text: t("Customize how your devices appear in HomeKit.") }),
+    el("h3", { text: t("Sensor options") }), options.temperature.row, options.humidity.row, options.airQuality.row,
+    el("h3", { text: t("Additional controls") }), options.nightMode.row, options.jetFocus.row, options.autoMode.row, options.filterStatus.row,
+    el("h3", { text: t("Advanced") }),
+    el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: "opt-polling", text: t("Polling interval (seconds)") }), polling,
+      el("p", { class: "help", text: t("How often to check device status (10-300 seconds)") })),
     el("div", { class: "actions" },
-      el("button", { text: "Back", onclick: () => go(state.existingConfig && !state.authToken ? 0 : 2) }), saveButton));
+      el("button", { text: t("Back"), onclick: () => go(state.existingConfig && !state.authToken ? 0 : 2) }), saveButton));
 
   // Done.
   const doneText = el("p", { class: "muted center" });
-  const restartButton = el("button", { class: "primary hidden", text: "Restart Homeswift", onclick: (event) => act(event.currentTarget, restart) });
+  const restartButton = el("button", { class: "primary hidden", text: t("Restart Homeswift"), onclick: (event) => act(event.currentTarget, restart) });
   const stepDone = el("div", { class: "step center" },
     el("div", { class: "done-icon", text: "✓" }),
-    el("h2", { text: "Configuration complete!" }),
+    el("h2", { text: t("Configuration complete!") }),
     doneText,
-    el("div", { class: "actions", style: "justify-content:center" }, restartButton, el("button", { text: "Close", onclick: () => { location.href = home; } })));
+    el("div", { class: "actions", style: "justify-content:center" }, restartButton, el("button", { text: t("Close"), onclick: () => { location.href = home; } })));
 
   const bodies = { 0: stepExisting, 1: stepAccount, "1b": stepCode, 2: stepDevices, 3: stepOptions, success: stepDone };
   wizard.replaceChildren(progress, ...Object.values(bodies), statusLine);
@@ -217,15 +235,15 @@ extension DysonPureCoolPlugin {
     const live = running.get(device.serial);
     const card = el("div", { class: `card device${selectable && !removable ? " selectable" : ""}${selectable && !removable && selected ? " selected" : ""}`, "data-serial": device.serial });
 
-    const nameInput = el("input", { type: "text", value: device.name || "", placeholder: typeName || "Dyson Device", "aria-label": "Name",
+    const nameInput = el("input", { type: "text", value: device.name || "", placeholder: typeName || t("Dyson Device"), "aria-label": t("Name"),
       onclick: (event) => event.stopPropagation(),
       oninput: () => { device.name = nameInput.value.trim(); if (removable) debouncedSave(); } });
     const badges = el("div", { class: "badges" },
       device.version ? el("span", { class: "badge", text: device.version }) : null,
-      device.newVersionAvailable ? el("span", { class: "badge update", text: "Update available" }) : null);
+      device.newVersionAvailable ? el("span", { class: "badge update", text: t("Update available") }) : null);
 
     const settings = el("div", { class: "settings hidden", onclick: (event) => event.stopPropagation() });
-    const gear = el("button", { class: "link", text: "Settings", title: "Device settings", onclick: (event) => {
+    const gear = el("button", { class: "link", text: t("Settings"), title: t("Device settings"), onclick: (event) => {
       event.stopPropagation();
       settings.classList.toggle("hidden");
     } });
@@ -233,15 +251,15 @@ extension DysonPureCoolPlugin {
     let status = null;
     let action;
     if (removable) {
-      status = live ? el("span", { class: `pill status ${live.connected ? "on" : live.retrying ? "away" : "standby"}`, text: live.connected ? "Connected" : live.retrying ? "Not responding" : "Connecting" }) : null;
-      action = el("button", { class: "link danger", text: "Remove", title: "Remove device", onclick: () => {
+      status = live ? el("span", { class: `pill status ${live.connected ? "on" : live.retrying ? "away" : "standby"}`, text: liveText(live) }) : null;
+      action = el("button", { class: "link danger", text: t("Remove"), title: t("Remove device"), onclick: () => {
         state.devices = state.devices.filter((d) => d.serial !== device.serial);
         state.selected.delete(device.serial);
         renderExisting();
         autoSave();
       } });
     } else {
-      action = el("input", { type: "checkbox", checked: selected, "aria-label": "Add to HomeKit", onclick: (event) => { event.stopPropagation(); toggle(); } });
+      action = el("input", { type: "checkbox", checked: selected, "aria-label": t("Add to HomeKit"), onclick: (event) => { event.stopPropagation(); toggle(); } });
     }
     const toggle = () => {
       if (state.selected.has(device.serial)) state.selected.delete(device.serial); else state.selected.add(device.serial);
@@ -265,31 +283,31 @@ extension DysonPureCoolPlugin {
     monitoring.addEventListener("change", () => setMonitoring(device, monitoring, problemSlot, removable));
     settings.append(
       el("div", { class: "toggle-row" }, el("label", { class: "switch" }, monitoring, el("span", {})),
-        el("label", { htmlFor: monitoring.id }, "Continuous monitoring", el("small", { text: "Keep sensors active when off (required for HomeKit control while off)" }))),
+        el("label", { htmlFor: monitoring.id }, t("Continuous monitoring"), el("small", { text: t("Keep sensors active when off (required for HomeKit control while off)") }))),
       el("div", { class: "row2" },
-        el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: temperatureOffset.id, text: "Temperature offset (°C)" }), temperatureOffset),
-        el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: humidityOffset.id, text: "Humidity offset (%)" }), humidityOffset)),
-      el("p", { class: "help", text: "Adjust if your device reads consistently high or low." }),
+        el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: temperatureOffset.id, text: t("Temperature offset (°C)") }), temperatureOffset),
+        el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: humidityOffset.id, text: t("Humidity offset (%)") }), humidityOffset)),
+      el("p", { class: "help", text: t("Adjust if your device reads consistently high or low.") }),
       el("div", { class: "toggle-row" }, el("label", { class: "switch" }, fahrenheit, el("span", {})),
-        el("label", { htmlFor: fahrenheit.id }, "Use Fahrenheit", el("small", { text: "Log temperatures in °F (the Home app follows your device's settings)" }))));
+        el("label", { htmlFor: fahrenheit.id }, t("Use Fahrenheit"), el("small", { text: t("Log temperatures in °F (the Home app follows your device's settings)") }))));
     if (device.hasHeating === true) {
       const heating = el("select", { id: id("h") },
-        [["thermostat", "Thermostat (Recommended)"], ["heater-cooler", "Heater Cooler"], ["both", "Both"]].map(([value, text]) =>
+        [["thermostat", t("Thermostat (Recommended)")], ["heater-cooler", t("Heater Cooler")], ["both", t("Both")]].map(([value, text]) =>
           el("option", { value, text, selected: (device.heatingServiceType || "thermostat") === value })));
       heating.addEventListener("change", () => { device.heatingServiceType = heating.value; if (removable) autoSave(); });
-      settings.append(el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: heating.id, text: "Heating service" }), heating,
+      settings.append(el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: heating.id, text: t("Heating service") }), heating,
         el("ul", { class: "heating-help" },
-          el("li", {}, el("strong", { text: "Thermostat" }), " — single tile with temperature control"),
-          el("li", {}, el("strong", { text: "Heater Cooler" }), " — a heater tile with the heating threshold"),
-          el("li", {}, el("strong", { text: "Both" }), " — show both tiles in HomeKit"))));
+          el("li", {}, el("strong", { text: t("Thermostat") }), " — ", t("single tile with temperature control")),
+          el("li", {}, el("strong", { text: t("Heater Cooler") }), " — ", t("a heater tile with the heating threshold")),
+          el("li", {}, el("strong", { text: t("Both") }), " — ", t("show both tiles in HomeKit")))));
     }
 
     const facts = removable && live && live.connected ? el("div", { class: "facts live" },
-      fact("Fan", live.on ? (live.autoMode ? "Auto" : `Speed ${live.fanSpeed > 0 ? live.fanSpeed : "—"}`) : "Off"),
-      live.temperature !== undefined ? fact("Temperature", homeswift.formatTemperature(live.temperature)) : null,
-      live.humidity !== undefined ? fact("Humidity", `${live.humidity} %`) : null,
+      fact(t("Fan"), live.on ? (live.autoMode ? t("Auto") : t("Speed {n}", { n: live.fanSpeed > 0 ? live.fanSpeed : "—" })) : t("Off")),
+      live.temperature !== undefined ? fact(t("Temperature"), homeswift.formatTemperature(live.temperature)) : null,
+      live.humidity !== undefined ? fact(t("Humidity"), `${live.humidity} %`) : null,
       live.pm25 !== undefined ? fact("PM2.5", String(live.pm25)) : null,
-      live.filterLife !== undefined ? fact("Filter", `${live.filterLife} %`) : null) : null;
+      live.filterLife !== undefined ? fact(t("Filter"), `${live.filterLife} %`) : null) : null;
 
     card.append(
       el("div", { class: "device-head" },
@@ -306,6 +324,9 @@ extension DysonPureCoolPlugin {
   }
 
   const fact = (label, value) => el("div", { class: "fact" }, el("span", { text: label }), el("b", { text: value }));
+
+  /// What a status pill says of a running device.
+  const liveText = (live) => (live.connected ? t("Connected") : live.retrying ? t("Not responding") : t("Connecting"));
 
   function fanIcon() {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -341,7 +362,7 @@ extension DysonPureCoolPlugin {
     try {
       const response = await request("set-continuous-monitoring", { method: "POST", body: { ...deviceRequest(device), enabled } });
       device.isContinuousMonitoringEnabled = enabled;
-      toast(`Continuous monitoring ${enabled ? "enabled" : "disabled"}`);
+      toast(enabled ? t("Continuous monitoring enabled") : t("Continuous monitoring disabled"));
       if (response.discoveredIp && response.discoveredIp !== device.ipAddress) {
         device.ipAddress = response.discoveredIp;
         if (saved) debouncedSave();
@@ -349,7 +370,7 @@ extension DysonPureCoolPlugin {
       if (saved) debouncedSave();
     } catch (e) {
       checkbox.checked = !enabled;
-      toast(e.message || "Failed to set continuous monitoring", "error");
+      toast(e.message || t("Failed to set continuous monitoring"), "error");
       if (assistantOn) slot.replaceChildren(el("p", { class: "device-problem", text: e.message }),
         explain({ error: scrub(e.message), context: context("Turning continuous monitoring on or off over the local network (MQTT on port 1883) failed."), device: assistantDevice(device) }));
     } finally {
@@ -362,7 +383,7 @@ extension DysonPureCoolPlugin {
   function renderExisting() {
     if (state.devices.length === 0) {
       existingList.replaceChildren(el("div", { class: "card empty center" },
-        el("p", { class: "muted" }, "No devices configured. Click ", el("strong", { text: "Re-sync from Dyson Cloud" }), " to add devices.")));
+        el("p", { class: "muted" }, ...around(t("No devices configured. Click {button} to add devices."), "button", el("strong", { text: t("Re-sync from Dyson Cloud") })))));
       return;
     }
     existingList.replaceChildren(...state.devices.map((d) => deviceCard(d, { selectable: true, removable: true, container: existingList })));
@@ -387,7 +408,7 @@ extension DysonPureCoolPlugin {
           const pill = card.querySelector(".pill.status");
           if (live && pill) {
             pill.className = `pill status ${live.connected ? "on" : live.retrying ? "away" : "standby"}`;
-            pill.textContent = live.connected ? "Connected" : live.retrying ? "Not responding" : "Connecting";
+            pill.textContent = liveText(live);
           }
         }
       }
@@ -464,9 +485,9 @@ extension DysonPureCoolPlugin {
     if (state.step !== 0) return;
     try {
       await saveConfig();
-      toast("Settings saved");
+      toast(t("Settings saved"));
     } catch (e) {
-      toast(`Failed to save: ${e.message || "Unknown error"}`, "error");
+      toast(t("Failed to save: {error}", { error: e.message || t("Unknown error") }), "error");
     }
   }
   let saveTimer = null;
@@ -480,22 +501,22 @@ extension DysonPureCoolPlugin {
     const pending = result.restartNeeded || [];
     restartButton.classList.toggle("hidden", pending.length === 0);
     doneText.textContent = pending.length
-      ? `Your Dyson devices are saved. Restart Homeswift to apply the rest (${pending.join("; ")}).`
-      : "Your Dyson devices are configured, and the plugin restarted with them. They show up in the Home app with the bridge.";
-    toast("Configuration saved!");
+      ? t("Your Dyson devices are saved. Restart Homeswift to apply the rest ({changes}).", { changes: pending.join("; ") })
+      : t("Your Dyson devices are configured, and the plugin restarted with them. They show up in the Home app with the bridge.");
+    toast(t("Configuration saved!"));
     go("success");
   }
 
   async function restart() {
     await api("/api/restart", { method: "POST" });
-    toast("Restarting…");
+    toast(t("Restarting…"));
   }
 
   // MARK: The Dyson account
 
   async function connect() {
     const address = email.value.trim();
-    if (!address || !password.value) return showLoginProblem("Please enter your email and password");
+    if (!address || !password.value) return showLoginProblem(t("Please enter your email and password"));
     loginProblem.replaceChildren();
     try {
       const response = await request("authenticate", { method: "POST", body: { email: address, password: password.value, countryCode: country.value } });
@@ -507,7 +528,7 @@ extension DysonPureCoolPlugin {
         await fetchDevices();
       }
     } catch (e) {
-      showLoginProblem(e.message || "Authentication failed");
+      showLoginProblem(e.message || t("Authentication failed"));
     }
   }
 
@@ -518,16 +539,16 @@ extension DysonPureCoolPlugin {
   async function verify() {
     if (state.submitting) return;
     const value = code.value.trim();
-    if (!value || value.length < 6) return codeProblem.replaceChildren(el("p", { class: "status-line error", text: "Please enter the 6-digit verification code" }));
+    if (!value || value.length < 6) return codeProblem.replaceChildren(el("p", { class: "status-line error", text: t("Please enter the 6-digit verification code") }));
     state.submitting = true;
     codeProblem.replaceChildren();
     try {
       const response = await request("verify-otp", { method: "POST", body: { otpCode: value } });
       state.authToken = response.token;
-      toast("Verification successful!");
+      toast(t("Verification successful!"));
       await fetchDevices();
     } catch (e) {
-      codeProblem.replaceChildren(problem(e.message || "Verification failed",
+      codeProblem.replaceChildren(problem(e.message || t("Verification failed"),
         "Verifying the 6-digit code that Dyson emailed (POST /v3/userregistration/email/verify, together with the account password) failed."));
       code.value = "";
       code.focus();
@@ -542,14 +563,14 @@ extension DysonPureCoolPlugin {
       // The saved per-device settings of devices already set up carry over.
       state.devices = DysonConfigMerge.withSavedDeviceSettings(response.devices, state.existingConfig?.devices);
       state.isResync = false;
-      if (state.devices.length === 0) return toast("No compatible devices found", "error");
+      if (state.devices.length === 0) return toast(t("No compatible devices found"), "error");
       state.selected = new Set(state.devices.map((d) => d.serial));
       renderDeviceList();
       go(2);
-      toast(`Found ${state.devices.length} device(s)!`);
+      toast(tn("Found {n} device!", "Found {n} devices!", state.devices.length));
     } catch (e) {
       go(1);
-      showLoginProblem(e.message || "Failed to fetch devices",
+      showLoginProblem(e.message || t("Failed to fetch devices"),
         "Signing in worked, but reading the device list and local credentials from the Dyson cloud (GET /v2/provisioningservice/manifest) failed.");
     }
   }
@@ -613,6 +634,393 @@ extension DysonPureCoolPlugin {
 
   init();
 })();
+
+"""#),
+        "i18n.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
+// The Dyson Pure Cool page's strings and the errors its plugin answers, in French, Spanish and Portuguese.
+HomeswiftI18n.add({
+  "fr": {
+    "Connect your Dyson devices to HomeKit.": "Connectez vos appareils Dyson à HomeKit.",
+    "Americas": "Amériques",
+    "Asia Pacific": "Asie-Pacifique",
+    "Europe": "Europe",
+    "Middle East": "Moyen-Orient",
+    "Account": "Compte",
+    "Devices": "Appareils",
+    "Options": "Options",
+    "Re-sync from Dyson Cloud": "Resynchroniser depuis Dyson Cloud",
+    "Sign in again to add devices or refresh their credentials": "Reconnectez-vous pour ajouter des appareils ou renouveler leurs identifiants",
+    "Your Dyson devices": "Vos appareils Dyson",
+    "Edit options": "Modifier les options",
+    "your@email.com": "vous@exemple.com",
+    "Your Dyson password": "Votre mot de passe Dyson",
+    "Show": "Afficher",
+    "Hide": "Masquer",
+    "Toggle password visibility": "Afficher ou masquer le mot de passe",
+    "Re-enter your credentials to re-sync devices from Dyson Cloud.": "Saisissez à nouveau vos identifiants pour resynchroniser les appareils depuis Dyson Cloud.",
+    "Cancel": "Annuler",
+    "Connect Account": "Connecter le compte",
+    "Tip: add a {block} block to config.json to get the Assistant, which explains sign-in and device connection errors here.": "Astuce : ajoutez un bloc {block} à config.json pour activer l'Assistant, qui explique ici les erreurs de connexion au compte et aux appareils.",
+    "Connect your Dyson account": "Connectez votre compte Dyson",
+    "Enter your Dyson account credentials to discover your devices. The password is not saved: it is only used to fetch each device's local credentials.": "Saisissez les identifiants de votre compte Dyson pour découvrir vos appareils. Le mot de passe n'est pas enregistré : il sert seulement à récupérer les identifiants locaux de chaque appareil.",
+    "Email address": "Adresse e-mail",
+    "Password": "Mot de passe",
+    "Country": "Pays",
+    "Verification code": "Code de vérification",
+    "Verify": "Vérifier",
+    "Verify your identity": "Vérifiez votre identité",
+    "We've sent a verification code to your email. Enter it below.": "Nous avons envoyé un code de vérification à votre adresse e-mail. Saisissez-le ci-dessous.",
+    "Check your inbox for an email from Dyson with your verification code.": "Cherchez dans votre boîte de réception un e-mail de Dyson contenant votre code de vérification.",
+    "Back": "Retour",
+    "Select your devices": "Sélectionnez vos appareils",
+    "Choose which devices to add to HomeKit. You can customize the name for each device.": "Choisissez les appareils à ajouter à HomeKit. Vous pouvez personnaliser le nom de chacun.",
+    "Continue": "Continuer",
+    "Please select at least one device": "Sélectionnez au moins un appareil",
+    "Temperature sensor": "Capteur de température",
+    "Humidity sensor": "Capteur d'humidité",
+    "Air quality sensor": "Capteur de qualité de l'air",
+    "Night mode switch": "Interrupteur du mode nuit",
+    "Jet focus switch (diffuse/focused)": "Interrupteur Jet Focus (diffus/concentré)",
+    "Auto mode switch": "Interrupteur du mode auto",
+    "Filter status indicator": "Indicateur d'état du filtre",
+    "Save": "Enregistrer",
+    "Configure options": "Configurer les options",
+    "Customize how your devices appear in HomeKit.": "Personnalisez la façon dont vos appareils apparaissent dans HomeKit.",
+    "Sensor options": "Options des capteurs",
+    "Additional controls": "Commandes supplémentaires",
+    "Advanced": "Avancé",
+    "Polling interval (seconds)": "Intervalle d'interrogation (secondes)",
+    "How often to check device status (10-300 seconds)": "Fréquence de vérification de l'état des appareils (10 à 300 secondes)",
+    "Restart Homeswift": "Redémarrer Homeswift",
+    "Configuration complete!": "Configuration terminée !",
+    "Close": "Fermer",
+    "Dyson Device": "Appareil Dyson",
+    "Name": "Nom",
+    "Update available": "Mise à jour disponible",
+    "Settings": "Réglages",
+    "Device settings": "Réglages de l'appareil",
+    "Remove": "Supprimer",
+    "Remove device": "Supprimer l'appareil",
+    "Add to HomeKit": "Ajouter à HomeKit",
+    "Continuous monitoring": "Surveillance continue",
+    "Keep sensors active when off (required for HomeKit control while off)": "Garde les capteurs actifs à l'arrêt (nécessaire pour le contrôle par HomeKit à l'arrêt)",
+    "Temperature offset (°C)": "Décalage de température (°C)",
+    "Humidity offset (%)": "Décalage d'humidité (%)",
+    "Adjust if your device reads consistently high or low.": "À ajuster si votre appareil indique toujours trop ou trop peu.",
+    "Use Fahrenheit": "Utiliser les degrés Fahrenheit",
+    "Log temperatures in °F (the Home app follows your device's settings)": "Journalise les températures en °F (l'app Maison suit les réglages de votre appareil)",
+    "Thermostat (Recommended)": "Thermostat (recommandé)",
+    "Heater Cooler": "Climatiseur",
+    "Both": "Les deux",
+    "Heating service": "Service de chauffage",
+    "Thermostat": "Thermostat",
+    "single tile with temperature control": "une seule vignette avec le réglage de la température",
+    "a heater tile with the heating threshold": "une vignette de chauffage avec le seuil de chauffe",
+    "show both tiles in HomeKit": "affiche les deux vignettes dans HomeKit",
+    "Fan": "Ventilateur",
+    "Auto": "Auto",
+    "Speed {n}": "Vitesse {n}",
+    "Off": "Éteint",
+    "Temperature": "Température",
+    "Humidity": "Humidité",
+    "Filter": "Filtre",
+    "Connected": "Connecté",
+    "Not responding": "Ne répond pas",
+    "Connecting": "Connexion…",
+    "Continuous monitoring enabled": "Surveillance continue activée",
+    "Continuous monitoring disabled": "Surveillance continue désactivée",
+    "Failed to set continuous monitoring": "Impossible de régler la surveillance continue",
+    "No devices configured. Click {button} to add devices.": "Aucun appareil configuré. Cliquez sur {button} pour en ajouter.",
+    "Settings saved": "Réglages enregistrés",
+    "Failed to save: {error}": "Échec de l'enregistrement : {error}",
+    "Unknown error": "Erreur inconnue",
+    "Your Dyson devices are saved. Restart Homeswift to apply the rest ({changes}).": "Vos appareils Dyson sont enregistrés. Redémarrez Homeswift pour appliquer le reste ({changes}).",
+    "Your Dyson devices are configured, and the plugin restarted with them. They show up in the Home app with the bridge.": "Vos appareils Dyson sont configurés et le plugin a redémarré avec eux. Ils apparaissent dans l'app Maison avec le pont.",
+    "Configuration saved!": "Configuration enregistrée !",
+    "Restarting…": "Redémarrage…",
+    "Please enter your email and password": "Saisissez votre adresse e-mail et votre mot de passe",
+    "Authentication failed": "Échec de l'authentification",
+    "Please enter the 6-digit verification code": "Saisissez le code de vérification à 6 chiffres",
+    "Verification successful!": "Vérification réussie !",
+    "Verification failed": "Échec de la vérification",
+    "No compatible devices found": "Aucun appareil compatible trouvé",
+    "Failed to fetch devices": "Impossible de récupérer les appareils",
+    "Found {n} device!": "{n} appareil trouvé !",
+    "Found {n} devices!": "{n} appareils trouvés !",
+    "No pending authentication": "Aucune authentification en cours",
+    "Invalid verification code": "Code de vérification non valide",
+    "Token is required": "Le jeton est requis",
+    "Missing device info (serial, productType, localCredentials)": "Informations sur l'appareil manquantes (serial, productType, localCredentials)",
+    "Device {0} not found on network": "Appareil {0} introuvable sur le réseau",
+    "Failed to get device state: {0}": "Impossible de lire l'état de l'appareil : {0}",
+    "Failed to set continuous monitoring: {0}": "Impossible de régler la surveillance continue : {0}",
+    "Account not active or not found": "Compte inactif ou introuvable",
+    "Unexpected response from Dyson": "Réponse inattendue de Dyson",
+    "Session expired": "Session expirée",
+    "Network error: {0}": "Erreur réseau : {0}",
+    "Request timed out": "La requête a expiré",
+    "Invalid response from Dyson API": "Réponse non valide de l'API Dyson",
+    "A valid email address is required": "Une adresse e-mail valide est requise",
+    "Password is required": "Le mot de passe est requis",
+    "Verification code must be 6 digits": "Le code de vérification doit comporter 6 chiffres",
+    "Country code must be a 2-letter ISO code": "Le code pays doit être un code ISO à 2 lettres",
+    "ipAddress must be a valid IPv4 address": "ipAddress doit être une adresse IPv4 valide"
+  },
+  "es": {
+    "Connect your Dyson devices to HomeKit.": "Conecta tus dispositivos Dyson a HomeKit.",
+    "Americas": "América",
+    "Asia Pacific": "Asia-Pacífico",
+    "Europe": "Europa",
+    "Middle East": "Oriente Próximo",
+    "Account": "Cuenta",
+    "Devices": "Dispositivos",
+    "Options": "Opciones",
+    "Re-sync from Dyson Cloud": "Volver a sincronizar desde Dyson Cloud",
+    "Sign in again to add devices or refresh their credentials": "Vuelve a iniciar sesión para añadir dispositivos o renovar sus credenciales",
+    "Your Dyson devices": "Tus dispositivos Dyson",
+    "Edit options": "Editar opciones",
+    "your@email.com": "tu@email.com",
+    "Your Dyson password": "Tu contraseña de Dyson",
+    "Show": "Mostrar",
+    "Hide": "Ocultar",
+    "Toggle password visibility": "Mostrar u ocultar la contraseña",
+    "Re-enter your credentials to re-sync devices from Dyson Cloud.": "Vuelve a introducir tus credenciales para sincronizar de nuevo los dispositivos desde Dyson Cloud.",
+    "Cancel": "Cancelar",
+    "Connect Account": "Conectar cuenta",
+    "Tip: add a {block} block to config.json to get the Assistant, which explains sign-in and device connection errors here.": "Consejo: añade un bloque {block} a config.json para tener el Asistente, que explica aquí los errores de inicio de sesión y de conexión con los dispositivos.",
+    "Connect your Dyson account": "Conecta tu cuenta de Dyson",
+    "Enter your Dyson account credentials to discover your devices. The password is not saved: it is only used to fetch each device's local credentials.": "Introduce las credenciales de tu cuenta de Dyson para descubrir tus dispositivos. La contraseña no se guarda: solo se usa para obtener las credenciales locales de cada dispositivo.",
+    "Email address": "Correo electrónico",
+    "Password": "Contraseña",
+    "Country": "País",
+    "Verification code": "Código de verificación",
+    "Verify": "Verificar",
+    "Verify your identity": "Verifica tu identidad",
+    "We've sent a verification code to your email. Enter it below.": "Hemos enviado un código de verificación a tu correo. Introdúcelo a continuación.",
+    "Check your inbox for an email from Dyson with your verification code.": "Busca en tu bandeja de entrada un correo de Dyson con tu código de verificación.",
+    "Back": "Atrás",
+    "Select your devices": "Selecciona tus dispositivos",
+    "Choose which devices to add to HomeKit. You can customize the name for each device.": "Elige qué dispositivos añadir a HomeKit. Puedes personalizar el nombre de cada uno.",
+    "Continue": "Continuar",
+    "Please select at least one device": "Selecciona al menos un dispositivo",
+    "Temperature sensor": "Sensor de temperatura",
+    "Humidity sensor": "Sensor de humedad",
+    "Air quality sensor": "Sensor de calidad del aire",
+    "Night mode switch": "Interruptor del modo noche",
+    "Jet focus switch (diffuse/focused)": "Interruptor Jet Focus (difuso/concentrado)",
+    "Auto mode switch": "Interruptor del modo automático",
+    "Filter status indicator": "Indicador del estado del filtro",
+    "Save": "Guardar",
+    "Configure options": "Configurar opciones",
+    "Customize how your devices appear in HomeKit.": "Personaliza cómo aparecen tus dispositivos en HomeKit.",
+    "Sensor options": "Opciones de sensores",
+    "Additional controls": "Controles adicionales",
+    "Advanced": "Avanzado",
+    "Polling interval (seconds)": "Intervalo de consulta (segundos)",
+    "How often to check device status (10-300 seconds)": "Cada cuánto se comprueba el estado de los dispositivos (10-300 segundos)",
+    "Restart Homeswift": "Reiniciar Homeswift",
+    "Configuration complete!": "¡Configuración completada!",
+    "Close": "Cerrar",
+    "Dyson Device": "Dispositivo Dyson",
+    "Name": "Nombre",
+    "Update available": "Actualización disponible",
+    "Settings": "Ajustes",
+    "Device settings": "Ajustes del dispositivo",
+    "Remove": "Eliminar",
+    "Remove device": "Eliminar dispositivo",
+    "Add to HomeKit": "Añadir a HomeKit",
+    "Continuous monitoring": "Monitorización continua",
+    "Keep sensors active when off (required for HomeKit control while off)": "Mantiene los sensores activos con el aparato apagado (necesario para controlarlo desde HomeKit apagado)",
+    "Temperature offset (°C)": "Corrección de temperatura (°C)",
+    "Humidity offset (%)": "Corrección de humedad (%)",
+    "Adjust if your device reads consistently high or low.": "Ajústalo si tu dispositivo marca siempre de más o de menos.",
+    "Use Fahrenheit": "Usar Fahrenheit",
+    "Log temperatures in °F (the Home app follows your device's settings)": "Registra las temperaturas en °F (la app Casa sigue los ajustes de tu dispositivo)",
+    "Thermostat (Recommended)": "Termostato (recomendado)",
+    "Heater Cooler": "Climatizador",
+    "Both": "Ambos",
+    "Heating service": "Servicio de calefacción",
+    "Thermostat": "Termostato",
+    "single tile with temperature control": "un solo mosaico con control de temperatura",
+    "a heater tile with the heating threshold": "un mosaico de calefactor con el umbral de calefacción",
+    "show both tiles in HomeKit": "muestra ambos mosaicos en HomeKit",
+    "Fan": "Ventilador",
+    "Auto": "Auto",
+    "Speed {n}": "Velocidad {n}",
+    "Off": "Apagado",
+    "Temperature": "Temperatura",
+    "Humidity": "Humedad",
+    "Filter": "Filtro",
+    "Connected": "Conectado",
+    "Not responding": "No responde",
+    "Connecting": "Conectando",
+    "Continuous monitoring enabled": "Monitorización continua activada",
+    "Continuous monitoring disabled": "Monitorización continua desactivada",
+    "Failed to set continuous monitoring": "No se ha podido ajustar la monitorización continua",
+    "No devices configured. Click {button} to add devices.": "No hay dispositivos configurados. Haz clic en {button} para añadirlos.",
+    "Settings saved": "Ajustes guardados",
+    "Failed to save: {error}": "No se ha podido guardar: {error}",
+    "Unknown error": "Error desconocido",
+    "Your Dyson devices are saved. Restart Homeswift to apply the rest ({changes}).": "Tus dispositivos Dyson se han guardado. Reinicia Homeswift para aplicar el resto ({changes}).",
+    "Your Dyson devices are configured, and the plugin restarted with them. They show up in the Home app with the bridge.": "Tus dispositivos Dyson están configurados y el plugin se ha reiniciado con ellos. Aparecen en la app Casa con el puente.",
+    "Configuration saved!": "¡Configuración guardada!",
+    "Restarting…": "Reiniciando…",
+    "Please enter your email and password": "Introduce tu correo y tu contraseña",
+    "Authentication failed": "Error de autenticación",
+    "Please enter the 6-digit verification code": "Introduce el código de verificación de 6 dígitos",
+    "Verification successful!": "¡Verificación correcta!",
+    "Verification failed": "Error de verificación",
+    "No compatible devices found": "No se han encontrado dispositivos compatibles",
+    "Failed to fetch devices": "No se han podido obtener los dispositivos",
+    "Found {n} device!": "¡{n} dispositivo encontrado!",
+    "Found {n} devices!": "¡{n} dispositivos encontrados!",
+    "No pending authentication": "No hay ninguna autenticación pendiente",
+    "Invalid verification code": "Código de verificación no válido",
+    "Token is required": "El token es obligatorio",
+    "Missing device info (serial, productType, localCredentials)": "Falta información del dispositivo (serial, productType, localCredentials)",
+    "Device {0} not found on network": "No se ha encontrado el dispositivo {0} en la red",
+    "Failed to get device state: {0}": "No se ha podido obtener el estado del dispositivo: {0}",
+    "Failed to set continuous monitoring: {0}": "No se ha podido ajustar la monitorización continua: {0}",
+    "Account not active or not found": "Cuenta inactiva o no encontrada",
+    "Unexpected response from Dyson": "Respuesta inesperada de Dyson",
+    "Session expired": "La sesión ha caducado",
+    "Network error: {0}": "Error de red: {0}",
+    "Request timed out": "Se ha agotado el tiempo de espera de la solicitud",
+    "Invalid response from Dyson API": "Respuesta no válida de la API de Dyson",
+    "A valid email address is required": "Se necesita un correo electrónico válido",
+    "Password is required": "La contraseña es obligatoria",
+    "Verification code must be 6 digits": "El código de verificación debe tener 6 dígitos",
+    "Country code must be a 2-letter ISO code": "El código de país debe ser un código ISO de 2 letras",
+    "ipAddress must be a valid IPv4 address": "ipAddress debe ser una dirección IPv4 válida"
+  },
+  "pt": {
+    "Connect your Dyson devices to HomeKit.": "Ligue os dispositivos Dyson ao HomeKit.",
+    "Americas": "Américas",
+    "Asia Pacific": "Ásia-Pacífico",
+    "Europe": "Europa",
+    "Middle East": "Médio Oriente",
+    "Account": "Conta",
+    "Devices": "Dispositivos",
+    "Options": "Opções",
+    "Re-sync from Dyson Cloud": "Ressincronizar a partir do Dyson Cloud",
+    "Sign in again to add devices or refresh their credentials": "Inicie sessão novamente para adicionar dispositivos ou renovar as credenciais",
+    "Your Dyson devices": "Os seus dispositivos Dyson",
+    "Edit options": "Editar opções",
+    "your@email.com": "nome@email.com",
+    "Your Dyson password": "Palavra-passe Dyson",
+    "Show": "Mostrar",
+    "Hide": "Ocultar",
+    "Toggle password visibility": "Mostrar ou ocultar a palavra-passe",
+    "Re-enter your credentials to re-sync devices from Dyson Cloud.": "Introduza novamente as credenciais para ressincronizar os dispositivos a partir do Dyson Cloud.",
+    "Cancel": "Cancelar",
+    "Connect Account": "Ligar conta",
+    "Tip: add a {block} block to config.json to get the Assistant, which explains sign-in and device connection errors here.": "Sugestão: adicione um bloco {block} ao config.json para ter o Assistente, que explica aqui os erros de início de sessão e de ligação aos dispositivos.",
+    "Connect your Dyson account": "Ligue a conta Dyson",
+    "Enter your Dyson account credentials to discover your devices. The password is not saved: it is only used to fetch each device's local credentials.": "Introduza as credenciais da conta Dyson para descobrir os dispositivos. A palavra-passe não é guardada: serve apenas para obter as credenciais locais de cada dispositivo.",
+    "Email address": "Endereço de e-mail",
+    "Password": "Palavra-passe",
+    "Country": "País",
+    "Verification code": "Código de verificação",
+    "Verify": "Verificar",
+    "Verify your identity": "Confirme a sua identidade",
+    "We've sent a verification code to your email. Enter it below.": "Foi enviado um código de verificação para o seu e-mail. Introduza-o abaixo.",
+    "Check your inbox for an email from Dyson with your verification code.": "Procure na caixa de entrada um e-mail da Dyson com o código de verificação.",
+    "Back": "Voltar",
+    "Select your devices": "Selecione os dispositivos",
+    "Choose which devices to add to HomeKit. You can customize the name for each device.": "Escolha os dispositivos a adicionar ao HomeKit. É possível personalizar o nome de cada um.",
+    "Continue": "Continuar",
+    "Please select at least one device": "Selecione pelo menos um dispositivo",
+    "Temperature sensor": "Sensor de temperatura",
+    "Humidity sensor": "Sensor de humidade",
+    "Air quality sensor": "Sensor de qualidade do ar",
+    "Night mode switch": "Interruptor do modo noturno",
+    "Jet focus switch (diffuse/focused)": "Interruptor Jet Focus (difuso/concentrado)",
+    "Auto mode switch": "Interruptor do modo automático",
+    "Filter status indicator": "Indicador do estado do filtro",
+    "Save": "Guardar",
+    "Configure options": "Configurar opções",
+    "Customize how your devices appear in HomeKit.": "Personalize a forma como os dispositivos aparecem no HomeKit.",
+    "Sensor options": "Opções dos sensores",
+    "Additional controls": "Controlos adicionais",
+    "Advanced": "Avançado",
+    "Polling interval (seconds)": "Intervalo de consulta (segundos)",
+    "How often to check device status (10-300 seconds)": "Frequência de verificação do estado dos dispositivos (10-300 segundos)",
+    "Restart Homeswift": "Reiniciar o Homeswift",
+    "Configuration complete!": "Configuração concluída!",
+    "Close": "Fechar",
+    "Dyson Device": "Dispositivo Dyson",
+    "Name": "Nome",
+    "Update available": "Atualização disponível",
+    "Settings": "Definições",
+    "Device settings": "Definições do dispositivo",
+    "Remove": "Remover",
+    "Remove device": "Remover dispositivo",
+    "Add to HomeKit": "Adicionar ao HomeKit",
+    "Continuous monitoring": "Monitorização contínua",
+    "Keep sensors active when off (required for HomeKit control while off)": "Mantém os sensores ativos com o aparelho desligado (necessário para o controlo pelo HomeKit quando desligado)",
+    "Temperature offset (°C)": "Correção de temperatura (°C)",
+    "Humidity offset (%)": "Correção de humidade (%)",
+    "Adjust if your device reads consistently high or low.": "Ajuste se o dispositivo indicar valores sempre acima ou abaixo do real.",
+    "Use Fahrenheit": "Usar Fahrenheit",
+    "Log temperatures in °F (the Home app follows your device's settings)": "Regista as temperaturas em °F (a app Casa segue as definições do dispositivo)",
+    "Thermostat (Recommended)": "Termóstato (recomendado)",
+    "Heater Cooler": "Climatizador",
+    "Both": "Ambos",
+    "Heating service": "Serviço de aquecimento",
+    "Thermostat": "Termóstato",
+    "single tile with temperature control": "um único mosaico com controlo da temperatura",
+    "a heater tile with the heating threshold": "um mosaico de aquecedor com o limiar de aquecimento",
+    "show both tiles in HomeKit": "mostra os dois mosaicos no HomeKit",
+    "Fan": "Ventoinha",
+    "Auto": "Auto",
+    "Speed {n}": "Velocidade {n}",
+    "Off": "Desligado",
+    "Temperature": "Temperatura",
+    "Humidity": "Humidade",
+    "Filter": "Filtro",
+    "Connected": "Ligado",
+    "Not responding": "Não responde",
+    "Connecting": "A ligar",
+    "Continuous monitoring enabled": "Monitorização contínua ativada",
+    "Continuous monitoring disabled": "Monitorização contínua desativada",
+    "Failed to set continuous monitoring": "Não foi possível definir a monitorização contínua",
+    "No devices configured. Click {button} to add devices.": "Nenhum dispositivo configurado. Clique em {button} para adicionar dispositivos.",
+    "Settings saved": "Definições guardadas",
+    "Failed to save: {error}": "Não foi possível guardar: {error}",
+    "Unknown error": "Erro desconhecido",
+    "Your Dyson devices are saved. Restart Homeswift to apply the rest ({changes}).": "Os dispositivos Dyson foram guardados. Reinicie o Homeswift para aplicar o resto ({changes}).",
+    "Your Dyson devices are configured, and the plugin restarted with them. They show up in the Home app with the bridge.": "Os dispositivos Dyson estão configurados e o plugin reiniciou com eles. Aparecem na app Casa com a ponte.",
+    "Configuration saved!": "Configuração guardada!",
+    "Restarting…": "A reiniciar…",
+    "Please enter your email and password": "Introduza o e-mail e a palavra-passe",
+    "Authentication failed": "Falha na autenticação",
+    "Please enter the 6-digit verification code": "Introduza o código de verificação de 6 dígitos",
+    "Verification successful!": "Verificação concluída!",
+    "Verification failed": "Falha na verificação",
+    "No compatible devices found": "Nenhum dispositivo compatível encontrado",
+    "Failed to fetch devices": "Não foi possível obter os dispositivos",
+    "Found {n} device!": "{n} dispositivo encontrado!",
+    "Found {n} devices!": "{n} dispositivos encontrados!",
+    "No pending authentication": "Nenhuma autenticação pendente",
+    "Invalid verification code": "Código de verificação inválido",
+    "Token is required": "O token é obrigatório",
+    "Missing device info (serial, productType, localCredentials)": "Faltam informações do dispositivo (serial, productType, localCredentials)",
+    "Device {0} not found on network": "Dispositivo {0} não encontrado na rede",
+    "Failed to get device state: {0}": "Não foi possível obter o estado do dispositivo: {0}",
+    "Failed to set continuous monitoring: {0}": "Não foi possível definir a monitorização contínua: {0}",
+    "Account not active or not found": "Conta inativa ou não encontrada",
+    "Unexpected response from Dyson": "Resposta inesperada da Dyson",
+    "Session expired": "A sessão expirou",
+    "Network error: {0}": "Erro de rede: {0}",
+    "Request timed out": "O pedido expirou",
+    "Invalid response from Dyson API": "Resposta inválida da API da Dyson",
+    "A valid email address is required": "É necessário um endereço de e-mail válido",
+    "Password is required": "A palavra-passe é obrigatória",
+    "Verification code must be 6 digits": "O código de verificação tem de ter 6 dígitos",
+    "Country code must be a 2-letter ISO code": "O código do país tem de ser um código ISO de 2 letras",
+    "ipAddress must be a valid IPv4 address": "ipAddress tem de ser um endereço IPv4 válido"
+  }
+});
 
 """#),
         "index.html": WebFile(contentType: "text/html; charset=utf-8", body: #"""
@@ -700,13 +1108,14 @@ extension DysonPureCoolPlugin {
     <span class="tile large dyson" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" opacity="0.35"/><circle cx="12" cy="12" r="6" opacity="0.6"/><circle cx="12" cy="12" r="3"/></svg></span>
     <div class="who">
       <h1>Dyson Pure Cool</h1>
-      <p class="muted">Connect your Dyson devices to HomeKit.</p>
+      <p class="muted" data-i18n>Connect your Dyson devices to HomeKit.</p>
     </div>
   </div>
   <div id="wizard" class="card"></div>
 </main>
 <script src="/common.js"></script>
 <script src="/plugin.js"></script>
+<script src="i18n.js"></script>
 <script src="merge.js"></script>
 <script src="app.js"></script>
 </body>

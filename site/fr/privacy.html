@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<!-- GitHub Pages sends no security headers: the policy rides in the page. Its own files only, nothing inline. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; base-uri 'none'; form-action 'none'; upgrade-insecure-requests">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Confidentialité de Homeswift</title>
+<link rel="canonical" href="https://homeswift.dev/fr/privacy.html">
+<link rel="alternate" hreflang="en" href="https://homeswift.dev/privacy.html">
+<link rel="alternate" hreflang="fr" href="https://homeswift.dev/fr/privacy.html">
+<link rel="alternate" hreflang="es" href="https://homeswift.dev/es/privacy.html">
+<link rel="alternate" hreflang="pt" href="https://homeswift.dev/pt/privacy.html">
+<link rel="alternate" hreflang="x-default" href="https://homeswift.dev/privacy.html">
+<link rel="stylesheet" href="../site.css">
+</head>
+<body>
+<svg class="sprite" width="0" height="0" aria-hidden="true">
+  <defs>
+    <linearGradient id="hs-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFA01C"/><stop offset="1" stop-color="#F0442E"/></linearGradient>
+    <symbol id="logo" viewBox="0 0 1024 1024">
+      <rect width="1024" height="1024" rx="228" fill="url(#hs-bg)"/>
+      <path d="M165 420.3 L512 160 L859 420.3 M227 373.8 V763 Q227 787 251 787 H773 Q797 787 797 763 V373.8" fill="none" stroke="#fff" stroke-width="64" stroke-linecap="round" stroke-linejoin="round"/>
+      <path fill="#fff" transform="translate(512 522) scale(8) translate(-28.38 -28.5)" d="m47.06 36.66-.004-.004c.066-.224.134-.446.191-.675 2.465-9.821-3.55-21.432-13.731-27.546 4.461 6.048 6.434 13.374 4.681 19.78-.156.571-.344 1.12-.552 1.653-.225-.148-.51-.316-.89-.527 0 0-10.127-6.252-21.103-17.312-.288-.29 5.852 8.777 12.822 16.14-3.284-1.843-12.434-8.5-18.227-13.802.712 1.187 1.558 2.33 2.489 3.43C17.573 23.932 23.882 31.5 31.44 37.314c-5.31 3.25-12.814 3.502-20.285.003a30.646 30.646 0 0 1-5.193-3.098c3.162 5.058 8.033 9.423 13.96 11.97 7.07 3.039 14.1 2.833 19.336.05l-.004.007c.024-.016.055-.032.08-.047.214-.116.428-.234.636-.358 2.516-1.306 7.485-2.63 10.152 2.559.654 1.27 2.041-5.46-3.061-11.74z"/>
+    </symbol>
+    <symbol id="i-bulb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1 2V16h5.2v-.2c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></symbol>
+    <symbol id="i-thermo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 14.8V5a2 2 0 1 0-4 0v9.8a4 4 0 1 0 4 0z"/></symbol>
+    <symbol id="i-blind" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 8h16M4 12h16M12 12v4"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="3" width="12" height="18" rx="3"/><path d="M10.5 9v2M13.5 9v2"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+    <symbol id="i-unlock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.7-1.5"/></symbol>
+    <symbol id="i-gh" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.4-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.6 2.4 1.1 3 .9.1-.7.4-1.1.6-1.4-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.8 1a9.6 9.6 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.9v2.8c0 .3.2.6.7.5A10 10 0 0 0 12 2z"/></symbol>
+  </defs>
+</svg>
+
+<header class="nav band">
+  <div class="wrap nav-bar">
+    <a class="brand" href="/fr/" aria-label="Accueil Homeswift"><svg aria-hidden="true"><use href="#logo"/></svg>Homeswift</a>
+    <nav class="nav-links" aria-label="Sections"><a href="/fr/">Accueil</a><a href="https://github.com/mp-consulting/homeswift/tree/main/docs">Docs</a></nav>
+    <a class="btn btn-plain" href="https://github.com/mp-consulting/homeswift"><svg aria-hidden="true"><use href="#i-gh"/></svg>GitHub</a>
+  </div>
+</header>
+
+<main>
+  <section class="band">
+    <div class="wrap prose">
+      <p class="eyebrow">Confidentialité</p>
+      <h1 class="prose-title">Ce que ce site sait de vous</h1>
+      <p class="lede">Rien qu'il collecte lui-même. homeswift.dev, c'est une page statique et celle-ci : pas de cookies, pas de
+        statistiques, pas de formulaires, pas de comptes, et rien de chargé depuis un autre site. Votre navigateur récupère
+        chaque fichier depuis homeswift.dev uniquement, ce que sa politique de sécurité impose.</p>
+
+      <h2>Qui l'héberge</h2>
+      <p>Le site est servi par GitHub Pages. Pour délivrer les pages et protéger le service, GitHub reçoit ce que reçoit
+        tout serveur web : votre adresse IP, la page demandée, l'heure et la description de votre navigateur, et peut les
+        conserver dans ses journaux. Le traitement de ces données par GitHub est décrit dans le
+        <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub General Privacy Statement</a>
+        et dans <a href="https://docs.github.com/en/pages/getting-started-with-github-pages/about-github-pages#data-collection">About GitHub Pages: data collection</a>
+        (en anglais).</p>
+      <p>Les serveurs de noms du domaine sont ceux de Cloudflare. Ils répondent quand on cherche homeswift.dev, comme le
+        ferait un annuaire, et ne voient pas les pages que vous lisez.</p>
+
+      <h2>Liens vers d'autres sites</h2>
+      <p>La documentation, le code source et les versions sont sur GitHub. Un lien vers eux vous emmène chez GitHub, dont la
+        déclaration de confidentialité s'applique alors.</p>
+
+      <h2>Le logiciel lui-même</h2>
+      <p>Homeswift tourne sur votre propre machine et n'envoie rien à ce site ni à ses auteurs. Il contacte les appareils
+        et les services que vous configurez ; deux fois par jour, il demande à GitHub si une nouvelle version est sortie, une
+        requête qui ne contient que son numéro de version (<em>Rechercher les mises à jour</em>, dans les réglages de l'interface web,
+        la désactive) ; et l'Assistant, si vous l'activez, ne contacte que le fournisseur d'IA de votre choix, après avoir
+        masqué ce qui est sensible dans ce qu'il envoie. Le README de chaque plugin indique à quel cloud il parle.</p>
+
+      <h2>Questions</h2>
+      <p>Ouvrez un ticket sur <a href="https://github.com/mp-consulting/homeswift/issues">github.com/mp-consulting/homeswift</a>.</p>
+      <p class="small">Dernière mise à jour : 24 octobre 2026.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="band">
+  <div class="wrap">
+    <a class="brand" href="#top"><svg aria-hidden="true"><use href="#logo"/></svg>homeswift.dev</a>
+    <nav aria-label="Pied de page">
+      <a href="https://github.com/mp-consulting/homeswift">GitHub</a>
+      <a href="https://github.com/mp-consulting/homeswift/tree/main/docs">Docs</a>
+      <a href="https://github.com/mp-consulting/homeswift/blob/main/CHANGELOG.md">Nouveautés</a>
+      <a href="https://github.com/mp-consulting/homeswift/blob/main/CONTRIBUTING.md">Contribuer</a>
+      <a href="https://github.com/mp-consulting/homeswift/blob/main/LICENSE">Licence MIT</a>
+      <a href="/fr/privacy.html">Confidentialité</a>
+    </nav>
+    <nav class="langs" aria-label="Langue">
+      <ul>
+        <li><a href="/privacy.html" hreflang="en" lang="en" title="English">EN</a></li>
+        <li><a href="/fr/privacy.html" hreflang="fr" lang="fr" title="Français" aria-current="page">FR</a></li>
+        <li><a href="/es/privacy.html" hreflang="es" lang="es" title="Español">ES</a></li>
+        <li><a href="/pt/privacy.html" hreflang="pt" lang="pt" title="Português">PT</a></li>
+      </ul>
+    </nav>
+    <p class="small">HomeKit, Swift et le logo Swift sont des marques d'Apple Inc. Homeswift est un projet indépendant, ni conçu ni approuvé par Apple.</p>
+  </div>
+</footer>
+</body>
+</html>

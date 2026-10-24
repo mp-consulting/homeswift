@@ -3,14 +3,18 @@
   "use strict";
 
   const { $, el, tile, sparkle, menuButton, copyText, markdown, jsonEditor, jsonView, fact, setPaused, slug, withSlugs } = HomeswiftCommon;
+  const { t, tn } = HomeswiftI18n;
 
   const show = (main, ...nodes) => main.replaceChildren(...nodes.flat().filter(Boolean));
+  /// A translated sentence with elements in it: each `{name}` of `text` is the node `nodes[name]`.
+  const withNodes = (text, nodes) => text.split(/(\{\w+\})/).filter(Boolean).map((part) => (/^\{\w+\}$/.test(part) && nodes[part.slice(1, -1)]) || part);
 
   /// `problems`: what a save changed that its plugin's schema refuses, each with its path (`ConfigSchemaError`).
   class ApiError extends Error { constructor(status, message, problems) { super(message); this.status = status; this.problems = problems; } }
 
   async function api(path, { method = "GET", body, raw = false } = {}) {
-    const options = { method, credentials: "same-origin", headers: {} };
+    // The Assistant answers in the page's language.
+    const options = { method, credentials: "same-origin", headers: { "Accept-Language": HomeswiftI18n.locale } };
     if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = typeof body === "string" ? body : JSON.stringify(body); }
     const response = await fetch(path, options);
     if (response.status === 401 && !path.startsWith("/api/auth/")) { showAuth(); throw new ApiError(401, "signed out"); }
@@ -18,7 +22,7 @@
     if (!response.ok) {
       let message = text, problems;
       try { ({ error: message = text, problems } = JSON.parse(text)); } catch {}
-      throw new ApiError(response.status, message || `HTTP ${response.status}`, problems);
+      throw new ApiError(response.status, HomeswiftI18n.message(message || `HTTP ${response.status}`), problems);
     }
     return raw ? text : (text ? JSON.parse(text) : null);
   }
@@ -40,9 +44,9 @@
     window.HomeswiftChat?.signedOut();
     const setup = auth && auth.setupNeeded;
     $("#auth-text").textContent = setup
-      ? "Create the administrator account for this bridge. The set-up code is in the bridge's output, next to the web UI address."
-      : "Sign in to manage the bridge.";
-    $("#auth-submit").textContent = setup ? "Create account" : "Sign in";
+      ? t("Create the administrator account for this bridge. The set-up code is in the bridge's output, next to the web UI address.")
+      : t("Sign in to manage the bridge.");
+    $("#auth-submit").textContent = setup ? t("Create account") : t("Sign in");
     $("input[name=password]", $("#auth-form")).autocomplete = setup ? "new-password" : "current-password";
     $("#auth-setup-code").classList.toggle("hidden", !setup);
     $("input[name=setupCode]", $("#auth-form")).required = !!setup;
@@ -78,11 +82,11 @@
     const label = submit.textContent;
     submit.disabled = true;
     submit.classList.add("busy");
-    submit.textContent = auth && auth.setupNeeded ? "Creating the account…" : "Signing in…";
+    submit.textContent = auth && auth.setupNeeded ? t("Creating the account…") : t("Signing in…");
     const body = { username: form.username.value, password: form.password.value };
     try {
       if (auth && auth.setupNeeded) {
-        if (setupGauge && !(await setupGauge.acceptable())) throw new Error("The password is not strong enough yet: the gauge says what is missing.");
+        if (setupGauge && !(await setupGauge.acceptable())) throw new Error(t("The password is not strong enough yet: the gauge says what is missing."));
         body.setupCode = form.setupCode.value;
       }
       if (!$("#auth-otp").classList.contains("hidden")) body.otp = form.otp.value;
@@ -119,30 +123,52 @@
     event.stopPropagation();
     const form = auth.mode === "form";
     HomeswiftCommon.menu($("#user"), [
-      form ? { heading: shownName(), detail: `${auth.username}${isAdmin() ? " · Administrator" : ""}` } : { heading: "No sign-in", detail: "Anyone who opens this web UI uses it" },
-      { label: form ? "Your account" : "Account", icon: "user", href: "/account" },
-      { label: "Appearance", icon: "sliders", href: "/appearance" },
-      form && isAdmin() ? { label: "Users and tokens", icon: "users", href: "/users" } : null,
+      form ? { heading: shownName(), detail: isAdmin() ? t("{username} · Administrator", { username: auth.username }) : auth.username } : { heading: t("No sign-in"), detail: t("Anyone who opens this web UI uses it") },
+      { label: form ? t("Your account") : t("Account"), icon: "user", href: "/account" },
+      { label: t("Appearance"), icon: "sliders", href: "/appearance" },
+      form && isAdmin() ? { label: t("Users and tokens"), icon: "users", href: "/users" } : null,
       // A phone's tab bar has no room for Settings: it is here, as the header holds it on a wider window.
-      isAdmin() && matchMedia("(max-width: 640px)").matches ? { label: "Settings", icon: "gear", href: "/settings" } : null,
+      isAdmin() && matchMedia("(max-width: 640px)").matches ? { label: t("Settings"), icon: "gear", href: "/settings" } : null,
+      { label: t("Language"), icon: flag(HomeswiftI18n.language), onSelect: () => setTimeout(languageMenu) },
       form ? { separator: true } : null,
-      form ? { label: "Sign out", icon: "logout", onSelect: signOut } : null,
+      form ? { label: t("Sign out"), icon: "logout", onSelect: signOut } : null,
     ], { keyboard: event.detail === 0 });
   });
+
+  const flag = (code) => el("span", { class: "menu-flag", "aria-hidden": "true", text: code ? HomeswiftI18n.flags[code] : "🌐" });
+
+  /// The language, from the account menu: Automatic (the browser's) or one of the four, each in its own name. Saved
+  /// with the user's preferences, which opens the page again in it.
+  function languageMenu() {
+    const current = HomeswiftCommon.preferences().language || "auto";
+    const choose = async (code) => {
+      if (code === current) return;
+      try { HomeswiftCommon.applyPreferences(await api("/api/preferences", { method: "PUT", body: { language: code } })); } catch (e) { alert(e.message); }
+    };
+    HomeswiftCommon.menu($("#user"), [
+      { label: t("Automatic"), icon: flag(null), checked: current === "auto", onSelect: () => choose("auto") },
+      ...HomeswiftI18n.languages.map((code) => ({ label: HomeswiftI18n.names[code], icon: flag(code), checked: current === code, onSelect: () => choose(code) })),
+    ]);
+  }
+
+  // The sign-in page's flags: the language before anyone signs in.
+  $("#auth-form").append(el("div", { class: "auth-languages", role: "group", "aria-label": t("Language") },
+    HomeswiftI18n.languages.map((code) => el("button", { type: "button", text: HomeswiftI18n.flags[code], title: HomeswiftI18n.names[code], "aria-label": HomeswiftI18n.names[code],
+      "aria-pressed": String(code === HomeswiftI18n.language), onclick: () => HomeswiftI18n.choose(code) }))));
 
   /// What a save did: applied at once, homeswift restarting by itself (the bridge block), or, when it
   /// cannot, what still waits for a restart (which also shows the banner).
   function savedText(result) {
-    if (result.restarting) { waitForRestart(); return "Saved. Homeswift restarts by itself to apply the bridge settings…"; }
+    if (result.restarting) { waitForRestart(); return t("Saved. Homeswift restarts by itself to apply the bridge settings…"); }
     const pending = result.restartNeeded || [];
     $("#banner").classList.toggle("hidden", pending.length === 0);
-    return pending.length ? `Saved. Restart homeswift to apply the rest: ${pending.join("; ")}.` : "Saved and applied.";
+    return pending.length ? t("Saved. Restart homeswift to apply the rest: {pending}.", { pending: pending.map((item) => HomeswiftI18n.message(item)).join("; ") }) : t("Saved and applied.");
   }
 
   // ---- Restart -------------------------------------------------------------
 
   async function restartBridge(event) {
-    if (!confirm("Restart homeswift now? Every connection drops for a few seconds.")) return;
+    if (!confirm(t("Restart homeswift now? Every connection drops for a few seconds."))) return;
     const button = event.target;
     button.disabled = true;
     try {
@@ -160,7 +186,7 @@
     closeEvents();
     const banner = $("#banner");
     banner.classList.remove("hidden");
-    banner.replaceChildren("Restarting homeswift…");
+    banner.replaceChildren(t("Restarting homeswift…"));
     const started = Date.now();
     // Back when a status answers from a process younger than this restart; the login survives it.
     const poll = async () => {
@@ -172,7 +198,7 @@
         } else if (response.status === 401) { location.reload(); return; }
       } catch {}
       if (Date.now() - started < 90000) setTimeout(poll, 1000);
-      else banner.replaceChildren("homeswift did not come back; check its log.");
+      else banner.replaceChildren(t("homeswift did not come back; check its log."));
     };
     setTimeout(poll, 1500);
   }
@@ -243,7 +269,7 @@
   }
   /// Something loading: a turning ring, read as "Loading"; it shows after a moment, so a quick load does not flash it.
   function spinner() {
-    return el("span", { class: "spinner", role: "status", "aria-label": "Loading" });
+    return el("span", { class: "spinner", role: "status", "aria-label": t("Loading") });
   }
   /// Shows the view at `path` without loading the page again; `replace` keeps it out of the history.
   function navigate(path, { replace = false } = {}) {
@@ -312,28 +338,28 @@
     ]);
     $("#banner").classList.toggle("hidden", !status.restartNeeded || !isAdmin());
     const waiting = status.bridges.filter((bridge) => !bridge.paired);
-    const [health, healthKind] = status.restartNeeded ? ["Running; some changes need a restart", "away"]
-      : waiting.length ? [`Running; ${waiting.length === 1 ? "one server waits" : `${waiting.length} servers wait`} to be added in the Home app`, "away"]
-      : ["Running, and everything is in the Home app", "on"];
+    const [health, healthKind] = status.restartNeeded ? [t("Running; some changes need a restart"), "away"]
+      : waiting.length ? [tn("Running; one server waits to be added in the Home app", "Running; {n} servers wait to be added in the Home app", waiting.length), "away"]
+      : [t("Running, and everything is in the Home app"), "on"];
     const plugins = new Set(status.bridges.filter((bridge) => !bridge.external).flatMap((bridge) => bridge.platforms));
     const main0 = status.bridges.find((bridge) => !bridge.childBridge && !bridge.external);
 
     const bridges = status.bridges.map((bridge, index) => {
       const kind = bridge.external ? "accessory" : bridge.childBridge ? "child" : "bridge";
       const tone = { accessory: "blue", child: "violet", bridge: "orange" }[kind];
-      const role = bridge.external ? `Accessory of its own, from ${bridge.platforms.join(", ") || "a plugin"}` : bridge.childBridge ? "Child bridge" : "Main bridge";
+      const role = bridge.external ? (bridge.platforms.length ? t("Accessory of its own, from {plugins}", { plugins: bridge.platforms.join(", ") }) : t("Accessory of its own, from a plugin")) : bridge.childBridge ? t("Child bridge") : t("Main bridge");
       return el("div", { class: "card server" },
         el("div", { class: "server-head" },
           tile(kind, tone),
           el("div", { class: "who" }, el("strong", { text: bridge.name }), el("div", { class: "muted", text: role })),
-          el("span", { class: `pill status ${bridge.paired ? "on" : "away"}`, text: bridge.paired ? `Paired · ${bridge.controllers}` : "Not paired", title: bridge.paired ? `${bridge.controllers} Home app controller(s)` : "" })),
+          el("span", { class: `pill status ${bridge.paired ? "on" : "away"}`, text: bridge.paired ? t("Paired · {count}", { count: bridge.controllers }) : t("Not paired"), title: bridge.paired ? tn("{n} Home app controller", "{n} Home app controllers", bridge.controllers) : "" })),
         el("div", { class: "facts lead" },
-          fact("Device ID", bridge.deviceId, { class: "mono" }), fact("Port", bridge.port ?? "?"), fact("Accessories", bridge.accessories)),
+          fact(t("Device ID"), bridge.deviceId, { class: "mono" }), fact(t("Port"), bridge.port ?? "?"), fact(t("Accessories"), bridge.accessories)),
         !bridge.external && bridge.platforms.length ? el("div", { class: "chips" }, bridge.platforms.map((name) => el("span", { class: "chip", text: name }))) : null,
         bridge.setupCode ? el("div", { class: "setup" },
-          el("img", { class: "qr", src: `/api/qr/${index}.svg`, alt: "Pairing QR code", width: 148, height: 148 }),
+          el("img", { class: "qr", src: `/api/qr/${index}.svg`, alt: t("Pairing QR code"), width: 148, height: 148 }),
           el("div", {},
-            el("p", { text: "In the Home app: Add Accessory, then scan this code, or choose More options and type it." }),
+            el("p", { text: t("In the Home app: Add Accessory, then scan this code, or choose More options and type it.") }),
             el("div", { class: "code", text: bridge.setupCode }))) : null);
     });
 
@@ -345,32 +371,32 @@
         el("div", { class: "who" },
           el("h1", { text: "Homeswift" }),
           el("p", { class: `health ${healthKind}`, text: health }),
-          el("p", { class: "muted", text: `Version ${status.version} · ${status.system.hostname}` }))),
+          el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }))),
       updateCard(status.update),
       // Each figure with its glyph; on a phone the four share one row, "Home app controllers" shortened.
       el("div", { class: "stats" },
-        el("a", { class: "stat", href: "/accessories" }, HomeswiftCommon.icon("bulb"), el("b", { text: status.bridges.reduce((sum, bridge) => sum + bridge.accessories, 0) }), el("span", { text: "Accessories" })),
-        el(isAdmin() ? "a" : "div", { class: "stat", href: isAdmin() ? "/plugins" : null }, HomeswiftCommon.icon("plugin"), el("b", { text: plugins.size }), el("span", { text: plugins.size === 1 ? "Plugin" : "Plugins" })),
-        el("div", { class: "stat", title: "Home app controllers" }, HomeswiftCommon.icon("users"), el("b", { text: main0 ? main0.controllers : 0 }),
-          el("span", { class: "long", text: "Home app controllers" }), el("span", { class: "short", "aria-hidden": "true", text: "Controllers" })),
-        el("div", { class: "stat" }, HomeswiftCommon.icon("history"), el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: "Up" })))],
+        el("a", { class: "stat", href: "/accessories" }, HomeswiftCommon.icon("bulb"), el("b", { text: status.bridges.reduce((sum, bridge) => sum + bridge.accessories, 0) }), el("span", { text: t("Accessories") })),
+        el(isAdmin() ? "a" : "div", { class: "stat", href: isAdmin() ? "/plugins" : null }, HomeswiftCommon.icon("plugin"), el("b", { text: plugins.size }), el("span", { text: plugins.size === 1 ? t("Plugin") : t("Plugins") })),
+        el("div", { class: "stat", title: t("Home app controllers") }, HomeswiftCommon.icon("users"), el("b", { text: main0 ? main0.controllers : 0 }),
+          el("span", { class: "long", text: t("Home app controllers") }), el("span", { class: "short", "aria-hidden": "true", text: t("Controllers") })),
+        el("div", { class: "stat" }, HomeswiftCommon.icon("history"), el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: t("Up [uptime]") })))],
       quick: () => window.HomeswiftHome?.quickSection(accessories),
       digest: () => status.assistant ? digestWidget() : null,
       activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
-      bridges: () => [el("h2", { text: status.bridges.length === 1 ? "Bridge" : "Bridges and accessories" }),
+      bridges: () => [el("h2", { text: status.bridges.length === 1 ? t("Bridge") : t("Bridges and accessories") }),
       el("div", { class: "servers" }, ...bridges)],
-      system: () => [el("h2", { text: "System" }),
+      system: () => [el("h2", { text: t("System") }),
       el("div", { class: "card server" },
         el("div", { class: "server-head" }, tile("system", "grey"),
           el("div", { class: "who" }, el("strong", { text: status.system.hostname }), el("div", { class: "muted", text: `${status.system.platform} ${status.system.os}` }))),
         el("div", { class: "facts" },
-          fact("CPUs", status.system.cpus),
-          fact("Assistant", status.assistant ? `${status.assistant.provider} · ${status.assistant.model}` : "Off"),
-          fact("Machine up", formatDuration(status.system.systemUptimeSeconds ?? 0))),
-        el("div", { class: "fact wide" }, el("span", { text: "Configuration" }), el("b", { class: "mono", text: status.configPath, title: status.configPath })),
+          fact(t("CPUs"), status.system.cpus),
+          fact(t("Assistant"), status.assistant ? `${status.assistant.provider} · ${status.assistant.model}` : t("Off [setting]")),
+          fact(t("Machine up"), formatDuration(status.system.systemUptimeSeconds ?? 0))),
+        el("div", { class: "fact wide" }, el("span", { text: t("Configuration") }), el("b", { class: "mono", text: status.configPath, title: status.configPath })),
         // Changes apply without one; this is for a plugin that misbehaves.
-        isAdmin() ? el("div", { class: "actions" }, el("button", { class: "link", text: "Restart homeswift…", onclick: restartBridge }),
-          el("a", { class: "link", href: "/settings", text: "Settings, pairings and backups" }), el("a", { class: "link", href: "/notifications", text: "Notifications" })) : null)],
+        isAdmin() ? el("div", { class: "actions" }, el("button", { class: "link", text: t("Restart homeswift…"), onclick: restartBridge }),
+          el("a", { class: "link", href: "/settings", text: t("Settings, pairings and backups") }), el("a", { class: "link", href: "/notifications", text: t("Notifications") })) : null)],
     };
     const layout = dashboardLayout();
     show(main,
@@ -379,7 +405,7 @@
         return nodes.length ? el("section", { class: "dash-widget", "data-widget": id }, nodes) : null;
       }),
       el("div", { class: "actions page-foot" },
-        el("button", { class: "link", onclick: () => customiseDashboard(main, { assistant: Boolean(status.assistant), scroll: true }) }, HomeswiftCommon.icon("sliders"), " Customise this page…")));
+        el("button", { class: "link", onclick: () => customiseDashboard(main, { assistant: Boolean(status.assistant), scroll: true }) }, HomeswiftCommon.icon("sliders"), " ", t("Customise this page…"))));
     // Open while the user changes it: the page is drawn again under it after each change.
     if (customising) customiseDashboard(main, { assistant: Boolean(status.assistant) });
   };
@@ -387,8 +413,8 @@
   // ---- The Status page's widgets: which show, in which order ----------------------------------------------
   // Each user's own, kept on the server with their other preferences (/api/preferences, `dashboard`).
 
-  const dashboardWidgets = [["overview", "Overview", "Health, accessories, plugins, uptime"], ["quick", "Quick controls", "Favourite accessories and scenes"], ["digest", "Daily digest", "The Assistant's summary of the day"],
-    ["activity", "Activity", "Memory, CPU and response times"], ["bridges", "Bridges", "Pairing codes and what each bridge runs"], ["system", "System", "The machine, and Restart"]];
+  const dashboardWidgets = [["overview", t("Overview"), t("Health, accessories, plugins, uptime")], ["quick", t("Quick controls"), t("Favourite accessories and scenes")], ["digest", t("Daily digest"), t("The Assistant's summary of the day")],
+    ["activity", t("Activity"), t("Memory, CPU and response times")], ["bridges", t("Bridges"), t("Pairing codes and what each bridge runs")], ["system", t("System"), t("The machine, and Restart")]];
 
   /// The widgets in the user's order (new ones last), and those hidden.
   function dashboardLayout() {
@@ -418,22 +444,22 @@
     const draw = () => list.replaceChildren(...layout.order.map((id, index) => {
       const [, name, note] = dashboardWidgets.find(([known]) => known === id);
       const shown = !layout.hidden.includes(id);
-      const toggle = el("input", { type: "checkbox", checked: shown, "aria-label": `Show ${name}`, onchange: () =>
+      const toggle = el("input", { type: "checkbox", checked: shown, "aria-label": t("Show {name}", { name }), onchange: () =>
         save({ order: layout.order, hidden: shown ? [...layout.hidden, id] : layout.hidden.filter((one) => one !== id) }) });
       const move = (by) => () => { const order = [...layout.order]; order.splice(index + by, 0, order.splice(index, 1)[0]); save({ ...layout, order }); };
       return el("div", { class: "customise-row" },
         el("label", { class: "switch" }, toggle, el("span")),
-        el("div", { class: "who" }, el("strong", { text: name }), el("div", { class: "muted", text: id === "digest" && !assistant ? "Needs the Assistant (a HomeswiftAiKit block)" : note })),
-        el("button", { type: "button", class: "icon-button", "aria-label": `Move ${name} up`, disabled: index === 0, onclick: move(-1) }, HomeswiftCommon.icon("up")),
-        el("button", { type: "button", class: "icon-button", "aria-label": `Move ${name} down`, disabled: index === layout.order.length - 1, onclick: move(1) }, HomeswiftCommon.icon("down")));
+        el("div", { class: "who" }, el("strong", { text: name }), el("div", { class: "muted", text: id === "digest" && !assistant ? t("Needs the Assistant (a HomeswiftAiKit block)") : note })),
+        el("button", { type: "button", class: "icon-button", "aria-label": t("Move {name} up", { name }), disabled: index === 0, onclick: move(-1) }, HomeswiftCommon.icon("up")),
+        el("button", { type: "button", class: "icon-button", "aria-label": t("Move {name} down", { name }), disabled: index === layout.order.length - 1, onclick: move(1) }, HomeswiftCommon.icon("down")));
     }));
     draw();
-    const panel = el("div", { class: "card customise", role: "region", "aria-label": "Customise the Status page" },
-      el("div", { class: "section-head" }, el("h2", { text: "Customise this page" }), el("span", { class: "muted", text: "Saved for you, on every browser" })),
+    const panel = el("div", { class: "card customise", role: "region", "aria-label": t("Customise the Status page") },
+      el("div", { class: "section-head" }, el("h2", { text: t("Customise this page") }), el("span", { class: "muted", text: t("Saved for you, on every browser") })),
       list,
       el("div", { class: "actions" },
-        el("button", { class: "link", text: "Back to the usual layout", onclick: () => save({ order: dashboardWidgets.map(([id]) => id), hidden: [] }) }),
-        el("button", { class: "primary", text: "Done", onclick: () => { panel.remove(); customising = false; } })));
+        el("button", { class: "link", text: t("Back to the usual layout"), onclick: () => save({ order: dashboardWidgets.map(([id]) => id), hidden: [] }) }),
+        el("button", { class: "primary", text: t("Done"), onclick: () => { panel.remove(); customising = false; } })));
     main.prepend(panel);
     if (scroll) panel.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   }
@@ -466,33 +492,34 @@
     const card = el("div", { class: "card digest-card" },
       el("div", { class: "server-head" },
         el("span", { class: "tile tone-ai", "aria-hidden": "true" }, sparkle()),
-        el("div", { class: "who" }, el("strong", { text: "Daily digest" }), el("div", { class: "muted", text: "What needs attention today, from the log and the accessories" }))),
+        el("div", { class: "who" }, el("strong", { text: t("Daily digest") }), el("div", { class: "muted", text: t("What needs attention today, from the log and the accessories") }))),
       body,
       // Writing one costs the provider's quota: an administrator's (any user reads today's).
-      el("div", { class: "card-foot" }, note, isAdmin() ? menuButton("Digest actions", () => [{ label: "Write it again", icon: sparkle(), onSelect: () => write() }]) : null));
+      el("div", { class: "card-foot" }, note, isAdmin() ? menuButton(t("Digest actions"), () => [{ label: t("Write it again"), icon: sparkle(), onSelect: () => write() }]) : null));
     let controller = null;
 
     const shown = (digest) => {
       body.replaceChildren(HomeswiftCommon.markdown(digest.text));
-      note.textContent = `Written ${new Date(digest.generatedAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}${digest.model ? ` by ${digest.model}` : ""}`;
+      const when = new Date(digest.generatedAt).toLocaleString(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" });
+      note.textContent = digest.model ? t("Written {when} by {model}", { when, model: digest.model }) : t("Written {when}", { when });
     };
     const offer = () => body.replaceChildren(...[
-      el("p", { class: "muted", text: isAdmin() ? "No digest yet today. The Assistant reads the day's warnings and errors and the accessories, and says what needs attention."
-        : "No digest yet today: an administrator has the Assistant write it." }),
-      isAdmin() ? el("button", { class: "ai-button", onclick: () => write() }, sparkle(), el("span", { text: "Write today's digest" })) : null].filter(Boolean));
+      el("p", { class: "muted", text: isAdmin() ? t("No digest yet today. The Assistant reads the day's warnings and errors and the accessories, and says what needs attention.")
+        : t("No digest yet today: an administrator has the Assistant write it.") }),
+      isAdmin() ? el("button", { class: "ai-button", onclick: () => write() }, sparkle(), el("span", { text: t("Write today's digest") })) : null].filter(Boolean));
 
     async function write() {
       controller?.abort();
       controller = new AbortController();
       const own = controller;
-      const live = el("div", {}, el("p", { class: "ai-thinking", text: "Reading the day…" }));
-      body.replaceChildren(live, el("button", { class: "link", text: "Stop", onclick: () => own.abort() }));
+      const live = el("div", {}, el("p", { class: "ai-thinking", text: t("Reading the day…") }));
+      body.replaceChildren(live, el("button", { class: "link", text: t("Stop"), onclick: () => own.abort() }));
       card.classList.add("writing");
       note.textContent = "";
       try {
         shown(await HomeswiftCommon.assistantRequest("/api/assistant/digest", {}, { signal: own.signal, onChunk: streamInto(live) }));
       } catch (e) {
-        if (own.signal.aborted) offer(); else body.replaceChildren(el("p", { class: "error", text: e.message }), el("button", { class: "link", text: "Try again", onclick: () => write() }));
+        if (own.signal.aborted) offer(); else body.replaceChildren(el("p", { class: "error", text: e.message }), el("button", { class: "link", text: t("Try again"), onclick: () => write() }));
       } finally {
         card.classList.remove("writing");
         if (controller === own) controller = null;
@@ -507,12 +534,12 @@
   /// download on a NAS or the command to run, and its notes.
   function updateCard(update) {
     if (!update?.available) return null;
-    const published = update.publishedAt ? ` · released ${new Date(update.publishedAt).toLocaleDateString()}` : "";
+    const released = update.publishedAt ? new Date(update.publishedAt).toLocaleDateString(HomeswiftI18n.locale) : null;
     let command = null;
     if (update.command) {
-      const copy = el("button", { type: "button", text: "Copy", onclick: async () => {
-        try { await copyText(update.command); copy.textContent = "Copied"; } catch { copy.textContent = "Not copied"; }
-        setTimeout(() => { copy.textContent = "Copy"; }, 1800);
+      const copy = el("button", { type: "button", text: t("Copy"), onclick: async () => {
+        try { await copyText(update.command); copy.textContent = t("Copied"); } catch { copy.textContent = t("Not copied"); }
+        setTimeout(() => { copy.textContent = t("Copy"); }, 1800);
       } });
       command = el("div", { class: "update-command" }, el("code", { text: update.command }), copy);
     }
@@ -520,14 +547,14 @@
       el("div", { class: "server-head" },
         tile("update", "green"),
         el("div", { class: "who" },
-          el("strong", { text: `Homeswift ${update.latest} is available` }),
-          el("div", { class: "muted", text: `This is ${update.current}${published}` }))),
-      el("p", { text: update.how }),
+          el("strong", { text: t("Homeswift {version} is available", { version: update.latest }) }),
+          el("div", { class: "muted", text: released ? t("This is {version} · released {date}", { version: update.current, date: released }) : t("This is {version}", { version: update.current }) }))),
+      el("p", { text: HomeswiftI18n.message(update.how) }),
       command,
       el("div", { class: "actions" },
-        update.download ? el("a", { class: "button primary", href: update.download.url, rel: "noopener", title: update.download.name, text: "Download the package" }) : null,
-        el("a", { class: "button", href: update.url, target: "_blank", rel: "noopener", text: "On GitHub" })),
-      update.notes ? el("details", { class: "more-options" }, el("summary", { text: "What's new" }), markdown(update.notes)) : null);
+        update.download ? el("a", { class: "button primary", href: update.download.url, rel: "noopener", title: update.download.name, text: t("Download the package") }) : null,
+        el("a", { class: "button", href: update.url, target: "_blank", rel: "noopener", text: t("On GitHub") })),
+      update.notes ? el("details", { class: "more-options" }, el("summary", { text: t("What's new") }), markdown(update.notes)) : null);
   }
 
   /// The Status page's charts: the process's memory and CPU, and how long the Home app's requests and the plugins'
@@ -537,18 +564,18 @@
     const params = new URLSearchParams(location.search);
     const range = rangeFilter(params, { changed: () => load() });
     const sources = sourceFilter(accessories, bridges, initialSource(accessories, bridges, params.get("accessory"), params.get("bridge")), {
-      label: "Whose requests", everything: "All servers", changed: () => load() });
+      label: t("Whose requests"), everything: t("All servers"), changed: () => load() });
     const byID = new Map(accessories.map((accessory) => [accessory.id, accessory]));
     const durations = (key) => [
-      { label: "Average", tone: 1, value: (point) => point[key]?.average ?? null },
-      { label: "Longest", tone: 2, value: (point) => point[key]?.longest ?? null },
+      { label: t("Average"), tone: 1, value: (point) => point[key]?.average ?? null },
+      { label: t("Longest"), tone: 2, value: (point) => point[key]?.longest ?? null },
     ];
     const charts = [
-      { title: "Memory", note: "The homeswift process, at its highest in each point", series: [{ label: "Memory", tone: 1, value: (point) => point.memory }], format: formatBytes,
+      { id: "memory", title: t("Memory"), note: t("The homeswift process, at its highest in each point"), series: [{ label: t("Memory"), tone: 1, value: (point) => point.memory }], format: formatBytes,
         unit: (max) => 1024 ** (max >= 1024 ** 3 ? 3 : 2) },
-      { title: "CPU", note: "The homeswift process; 100% is one core busy", series: [{ label: "CPU", tone: 1, value: (point) => point.cpu }], format: formatPercent },
-      { title: "Home app requests", note: "How long the bridge takes to answer reads and writes", series: durations("requests"), format: formatMilliseconds, key: "requests" },
-      { title: "Plugin device calls", note: "How long plugins take to reach their devices or clouds", series: durations("handlers"), format: formatMilliseconds, key: "handlers" },
+      { id: "cpu", title: t("CPU"), note: t("The homeswift process; 100% is one core busy"), series: [{ label: t("CPU"), tone: 1, value: (point) => point.cpu }], format: formatPercent },
+      { title: t("Home app requests"), note: t("How long the bridge takes to answer reads and writes"), series: durations("requests"), format: formatMilliseconds, key: "requests" },
+      { title: t("Plugin device calls"), note: t("How long plugins take to reach their devices or clouds"), series: durations("handlers"), format: formatMilliseconds, key: "handlers" },
     ].map((chart) => {
       const figure = el("b", { class: "chart-figure" });
       const detail = el("div", { class: "muted chart-detail" });
@@ -558,10 +585,10 @@
         body, detail);
       return { ...chart, card, figure, detail, body, view: null };
     });
-    const table = el("details", { class: "more chart-table" }, el("summary", { text: "Show as a table" }));
+    const table = el("details", { class: "more chart-table" }, el("summary", { text: t("Show as a table") }));
     table.addEventListener("toggle", () => { if (table.open) fillTable(); });
     const section = el("section", { class: "activity" },
-      el("h2", { text: "Activity" }),
+      el("h2", { text: t("Activity") }),
       el("div", { class: "filter-bar" }, range.picker, sources.picker, range.customRow),
       el("div", { class: "chart-grid" }, charts.map((chart) => chart.card)),
       table);
@@ -614,33 +641,33 @@
     function describe(chart, points, latest, live) {
       if (!chart.key) {
         const values = points.map(chart.series[0].value).filter((value) => value != null);
-        const now = chart.title === "Memory" ? latest.memory : latest.cpu;
+        const now = chart.id === "memory" ? latest.memory : latest.cpu;
         chart.figure.textContent = live && now != null ? chart.format(now) : values.length ? chart.format(values.at(-1)) : "–";
-        chart.detail.textContent = values.length ? `Highest ${chart.format(Math.max(...values))} · lowest ${chart.format(Math.min(...values))}` : "";
+        chart.detail.textContent = values.length ? t("Highest {highest} · lowest {lowest}", { highest: chart.format(Math.max(...values)), lowest: chart.format(Math.min(...values)) }) : "";
         return;
       }
       const calls = points.map((point) => point[chart.key]).filter(Boolean);
       const count = calls.reduce((sum, one) => sum + one.count, 0);
       const average = count ? calls.reduce((sum, one) => sum + one.average * one.count, 0) / count : null;
       chart.figure.textContent = average == null ? "–" : chart.format(average);
-      chart.detail.textContent = count ? `Average of ${count.toLocaleString()} ${count === 1 ? "call" : "calls"} · longest ${chart.format(Math.max(...calls.map((one) => one.longest)))}` : "No calls in this range";
+      chart.detail.textContent = count ? tn("Average of {n} call · longest {longest}", "Average of {n} calls · longest {longest}", count, { longest: chart.format(Math.max(...calls.map((one) => one.longest))) }) : t("No calls in this range");
     }
 
     /// The charts' points, newest first, under two header rows: the process (memory, CPU), then the Home app's
     /// requests and the plugins' device calls, each its average, longest and count; a rule between the groups.
     function fillTable() {
       if (!shown) return;
-      const time = new Intl.DateTimeFormat([], { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+      const time = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
       const cell = (value, format, start = false) => el("td", { class: [value == null ? "empty" : "", start ? "group-start" : ""].join(" ").trim(), text: value == null ? "–" : format(value) });
-      const calls = (one) => [cell(one?.average, formatMilliseconds, true), cell(one?.longest, formatMilliseconds), cell(one?.count, (n) => n.toLocaleString())];
+      const calls = (one) => [cell(one?.average, formatMilliseconds, true), cell(one?.longest, formatMilliseconds), cell(one?.count, (n) => n.toLocaleString(HomeswiftI18n.locale))];
       const group = (text, span, start = true) => el("th", { scope: "colgroup", colSpan: span, class: start ? "group-start" : "", text });
       const column = (text, start = false) => el("th", { scope: "col", class: start ? "group-start" : "", text });
       table.replaceChildren(table.firstChild, el("div", { class: "table-scroll" }, el("table", {},
         el("thead", {},
           el("tr", { class: "groups" },
-            el("th", { scope: "col", rowSpan: 2, class: "time", text: "Time" }),
-            group("homeswift", 2, false), group("Home app requests", 3), group("Plugin device calls", 3)),
-          el("tr", {}, column("Memory"), column("CPU"), column("Average", true), column("Longest"), column("Count"), column("Average", true), column("Longest"), column("Count"))),
+            el("th", { scope: "col", rowSpan: 2, class: "time", text: t("Time") }),
+            group("homeswift", 2, false), group(t("Home app requests"), 3), group(t("Plugin device calls"), 3)),
+          el("tr", {}, column(t("Memory")), column(t("CPU")), column(t("Average"), true), column(t("Longest")), column(t("Count")), column(t("Average"), true), column(t("Longest")), column(t("Count")))),
         el("tbody", {}, [...shown.points].reverse().map((point) => el("tr", {},
           el("th", { scope: "row", class: "time", text: time.format(point.time) }), cell(point.memory, formatBytes), cell(point.cpu, formatPercent),
           calls(point.requests), calls(point.handlers)))))));
@@ -664,7 +691,7 @@
 
   function formatDuration(seconds) {
     const d = Math.floor(seconds / 86400), h = Math.floor(seconds % 86400 / 3600), m = Math.floor(seconds % 3600 / 60);
-    return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
+    return d ? t("{d}d {h}h", { d, h }) : h ? t("{h}h {m}m", { h, m }) : t("{m}m", { m });
   }
 
   // ---- Accessories ---------------------------------------------------------
@@ -672,27 +699,27 @@
   // else the kind's own; in the order chosen, on one wall or a wall per plugin. The bridge keeps the layout
   // (/api/layout), the same for every user: a widget's menu sets its size, Edit sets sizes and order.
 
-  const sizeNames = { small: "Small", medium: "Medium", large: "Large" };
+  const sizeNames = { small: t("Small"), medium: t("Medium"), large: t("Large") };
   // A kind of widget as the menu names it: "Medium for every light".
   const kindNames = {
-    climate: "air conditioner and thermostat", "air-purifier": "air purifier", fan: "fan", light: "light", cover: "shutter", toggle: "switch",
-    "switch-group": "group of switches", television: "television", "garage-door": "gate", lock: "lock", "security-system": "alarm", valve: "valve",
-    sensor: "sensor", camera: "camera", inspector: "other accessory",
+    climate: t("air conditioner and thermostat"), "air-purifier": t("air purifier"), fan: t("fan"), light: t("light"), cover: t("shutter"), toggle: t("switch"),
+    "switch-group": t("group of switches"), television: t("television"), "garage-door": t("gate"), lock: t("lock [kind]"), "security-system": t("alarm"), valve: t("valve"),
+    sensor: t("sensor"), camera: t("camera"), inspector: t("other accessory"),
   };
 
   /// What the menu of an accessory's widget offers, after its sizes.
   function accessoryActions(accessory) {
     return [
-      { label: "Identify", icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) },
-      isAdmin() ? { label: "Show its log", icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
-      window.HomeswiftChat?.available() ? { label: "Ask the Assistant", icon: sparkle(), onSelect: () => HomeswiftChat.ask(`About ${accessory.name}: `) } : null,
-      accessory.platform && isAdmin() ? { label: "Plugin settings", icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
+      { label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) },
+      isAdmin() ? { label: t("Show its log"), icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
+      window.HomeswiftChat?.available() ? { label: t("Ask the Assistant"), icon: sparkle(), onSelect: () => HomeswiftChat.ask(t("About {name}: ", { name: accessory.name })) } : null,
+      accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
       // A paused plugin's accessories do nothing until it runs again.
-      accessory.paused && isAdmin() ? { label: `Resume ${accessory.platformName}`, icon: "play", onSelect: async () => {
+      accessory.paused && isAdmin() ? { label: t("Resume {name}", { name: accessory.platformName }), icon: "play", onSelect: async () => {
         try { await setPaused(accessory.platform, accessory.platformName, false); route(); } catch (e) { alert(e.message); }
       } } : null,
       ...(isAdmin() ? window.HomeswiftHome?.layoutActions(accessory) ?? [] : []),
-      accessory.history ? { label: "History", icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
+      accessory.history ? { label: t("History"), icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
     ];
   }
 
@@ -732,7 +759,7 @@
           note.classList.add("hidden");
         } catch (e) {
           if (e.status === 401) return;
-          note.textContent = `The layout was not kept: ${e.message}`;
+          note.textContent = t("The layout was not kept: {error}", { error: e.message });
           note.classList.remove("hidden");
         }
       }, 300);
@@ -743,7 +770,7 @@
       const size = sizeOf(accessory), kind = kindOf(accessory);
       return [
         ...HomeswiftWidgets.sizes.map((one) => ({ label: sizeNames[one], checked: one === size, onSelect: () => resize(accessory, one) })),
-        { label: `${sizeNames[size]} for every ${kindNames[kind] ?? "accessory like it"}`, icon: "edit", onSelect: () => resizeKind(kind, size) },
+        { label: kindNames[kind] ? t("{size} for every {kind}", { size: sizeNames[size], kind: kindNames[kind] }) : t("{size} for every accessory like it", { size: sizeNames[size] }), icon: "edit", onSelect: () => resizeKind(kind, size) },
         { separator: true },
         ...accessoryActions(accessory),
       ];
@@ -787,10 +814,10 @@
     /// In Edit: the sizes and the arrows over the widget, and the widget dragged into place.
     function editable(node, accessory) {
       const size = sizeOf(accessory);
-      node.append(el("div", { class: "edit-bar", role: "group", "aria-label": `Size and place of ${accessory.name}` },
-        el("button", { type: "button", "aria-label": "Move earlier", title: "Move earlier", text: "‹", "data-step": "-1", onclick: () => step(accessory, -1) }),
-        HomeswiftWidgets.sizes.map((one) => el("button", { type: "button", text: one[0].toUpperCase(), title: sizeNames[one], "aria-label": sizeNames[one], "aria-pressed": String(one === size), onclick: () => resize(accessory, one) })),
-        el("button", { type: "button", "aria-label": "Move later", title: "Move later", text: "›", "data-step": "1", onclick: () => step(accessory, 1) })));
+      node.append(el("div", { class: "edit-bar", role: "group", "aria-label": t("Size and place of {name}", { name: accessory.name }) },
+        el("button", { type: "button", "aria-label": t("Move earlier"), title: t("Move earlier"), text: "‹", "data-step": "-1", onclick: () => step(accessory, -1) }),
+        HomeswiftWidgets.sizes.map((one) => el("button", { type: "button", text: sizeNames[one][0].toUpperCase(), title: sizeNames[one], "aria-label": sizeNames[one], "aria-pressed": String(one === size), onclick: () => resize(accessory, one) })),
+        el("button", { type: "button", "aria-label": t("Move later"), title: t("Move later"), text: "›", "data-step": "1", onclick: () => step(accessory, 1) })));
       node.addEventListener("pointerdown", (event) => drag(event, node));
     }
 
@@ -891,7 +918,7 @@
     }
 
     const content = el("div", { class: "accessory-walls" });
-    const none = el("p", { class: "muted hidden", text: "No accessory matches." });
+    const none = el("p", { class: "muted hidden", text: t("No accessory matches.") });
     function render() {
       nodes.clear();
       // By plugin or by room: a section each (by plugin in the order of their names, those of no plugin last; by room
@@ -900,12 +927,12 @@
         : layout.grouping === "room" && rooms.length ? HomeswiftHome.groupByRoom(accessories, rooms) : null;
       const groups = sections ? sections.map(([name, group]) => [name, ordered.filter((accessory) => group.includes(accessory))]) : [["", ordered]];
       content.replaceChildren(...groups.map(([name, group]) => el("section", { class: "accessory-section" },
-        name ? el("div", { class: "section-head" }, el("h2", { text: name }), el("span", { class: "muted", text: `${group.length} ${group.length === 1 ? "accessory" : "accessories"}` })) : null,
+        name ? el("div", { class: "section-head" }, el("h2", { text: name }), el("span", { class: "muted", text: tn("{n} accessory", "{n} accessories", group.length) })) : null,
         el("div", { class: `wall${editing ? " editing" : ""}` }, group.map(widget)))));
       filter();
     }
 
-    const search = el("input", { type: "search", class: "search", placeholder: "Search accessories", "aria-label": "Search accessories" });
+    const search = el("input", { type: "search", class: "search", placeholder: t("Search accessories"), "aria-label": t("Search accessories") });
     function filter() {
       const text = search.value.trim().toLowerCase();
       let shown = 0;
@@ -923,17 +950,17 @@
     }
     search.addEventListener("input", filter);
     // Each with its glyph; a phone shows the glyphs alone.
-    const groupings = [["none", "One wall", "grid"], ...(rooms.length ? [["room", "By room", "room"]] : []), ["plugin", "By plugin", "plugin"]];
-    const grouping = el("div", { class: "group with-icons", role: "group", "aria-label": "Group the accessories" }, groupings.map(([value, text, glyph]) =>
+    const groupings = [["none", t("One wall"), "grid"], ...(rooms.length ? [["room", t("By room"), "room"]] : []), ["plugin", t("By plugin"), "plugin"]];
+    const grouping = el("div", { class: "group with-icons", role: "group", "aria-label": t("Group the accessories") }, groupings.map(([value, text, glyph]) =>
       el("button", { type: "button", title: text, "aria-label": text, class: layout.grouping === value ? "on" : "", "aria-pressed": String(layout.grouping === value), onclick: (event) => {
         layout.grouping = value;
         for (const button of grouping.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
         save();
         render();
       } }, HomeswiftCommon.icon(glyph), el("span", { text }))));
-    const edit = el("button", { type: "button", text: "Edit", "aria-pressed": "false", title: "Sizes and order of the widgets", onclick: () => {
+    const edit = el("button", { type: "button", text: t("Edit"), "aria-pressed": "false", title: t("Sizes and order of the widgets"), onclick: () => {
       editing = !editing;
-      edit.textContent = editing ? "Done" : "Edit";
+      edit.textContent = editing ? t("Done") : t("Edit");
       edit.classList.toggle("primary", editing);
       edit.setAttribute("aria-pressed", String(editing));
       render();
@@ -943,23 +970,24 @@
       const next = new URLSearchParams(location.search);
       if (event.target.checked) next.set("hidden", "1"); else next.delete("hidden");
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
-    } }), el("span", { text: `Show hidden (${hiddenCount})` })) : null;
+    } }), el("span", { text: t("Show hidden ({count})", { count: hiddenCount }) })) : null;
     const suggest = isAdmin() && window.HomeswiftChat?.available() && all.length
-      ? el("button", { class: "ai-button icon-on-phone", title: "Suggest rooms", "aria-label": "Suggest rooms", onclick: () => HomeswiftHome.suggestRooms(content, all) }, sparkle(), el("span", { text: "Suggest rooms" })) : null;
+      ? el("button", { class: "ai-button icon-on-phone", title: t("Suggest rooms"), "aria-label": t("Suggest rooms"), onclick: () => HomeswiftHome.suggestRooms(content, all) }, sparkle(), el("span", { text: t("Suggest rooms") })) : null;
 
     render();
     show(main,
-      pageHead("Accessories", accessories.length ? `${accessories.length} on ${servers} ${servers === 1 ? "server" : "servers"}, as the Home app sees them. Changes here reach your devices.` : "",
+      pageHead(t("Accessories"), accessories.length ? (servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
+        : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers })) : "",
         ...(accessories.length ? [search, grouping, edit] : []), hiddenToggle, suggest),
       note,
-      accessories.length ? [content, none] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? "Every accessory is hidden." : "No accessories yet. Plugins add them once they reach their devices." })));
+      accessories.length ? [content, none] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") })));
   };
 
   /// Accessories by plugin: [name, accessories] pairs by the plugin's name, each list by name; those of no
   /// plugin last, as "Other accessories".
   function groupByPlugin(accessories) {
     const groups = Map.groupBy([...accessories].sort((a, b) => a.name.localeCompare(b.name)), (accessory) => accessory.platformName ?? "");
-    return [...groups].sort(([a], [b]) => !a - !b || a.localeCompare(b)).map(([name, list]) => [name || "Other accessories", list]);
+    return [...groups].sort(([a], [b]) => !a - !b || a.localeCompare(b)).map(([name, list]) => [name || t("Other accessories"), list]);
   }
 
   function applyAccessoryEvent(event) {
@@ -986,32 +1014,32 @@
         el("div", { class: "server-head" },
           tile(block.system ? "gear" : "plugin", block.system ? "grey" : "orange"),
           el("div", { class: "who" }, el("a", { class: "card-title", href: opens }, el("strong", { text: block.name })),
-            el("div", { class: "muted", text: [kindName, block.childBridge ? "child bridge" : null].filter(Boolean).join(" · ") })),
+            el("div", { class: "muted", text: [kindName, block.childBridge ? t("child bridge") : null].filter(Boolean).join(" · ") })),
           el("span", { class: `pill status ${kind}`, text: state })),
         // Its accessories and the bridge they are on, a glyph each, on one line.
         instance ? el("div", { class: "meta" },
-          el("span", { title: "Accessories" }, HomeswiftCommon.icon("bulb"), `${instance.accessories} ${instance.accessories === 1 ? "accessory" : "accessories"}`),
-          el("span", { title: `On the bridge ${instance.bridge}` }, HomeswiftCommon.icon(block.childBridge ? "child" : "bridge"), instance.bridge)) : null,
+          el("span", { title: t("Accessories") }, HomeswiftCommon.icon("bulb"), tn("{n} accessory", "{n} accessories", instance.accessories)),
+          el("span", { title: t("On the bridge {name}", { name: instance.bridge }) }, HomeswiftCommon.icon(block.childBridge ? "child" : "bridge"), instance.bridge)) : null,
         el("div", { class: "card-foot" },
-          el("span", { class: "muted", text: instance?.paused ? "No calls to its devices; they show No Response in the Home app."
-            : instance ? "" : block.system ? "A block of the runtime itself." : plugin ? "It did not start: the log says why." : "No plugin compiled into this homeswift provides this platform." }),
-          menuButton(`Actions for ${block.name}`, () => blockActions(block, plugin, instance))));
+          el("span", { class: "muted", text: instance?.paused ? t("No calls to its devices; they show No Response in the Home app.")
+            : instance ? "" : block.system ? t("A block of the runtime itself.") : plugin ? t("It did not start: the log says why.") : t("No plugin compiled into this homeswift provides this platform.") }),
+          menuButton(t("Actions for {name}", { name: block.name }), () => blockActions(block, plugin, instance))));
     };
 
     /// What the menu of a plugin's card offers: its page, the block as a form or as JSON (Expert), pause or
     /// resume, and removal.
     function blockActions(block, plugin, instance) {
-      if (block.system) return [{ label: "Settings", icon: "gear", href: settingsLink(block) }, { label: "Edit as JSON", icon: "code", href: expertLink(block, "json") }];
+      if (block.system) return [{ label: t("Settings"), icon: "gear", href: settingsLink(block) }, { label: t("Edit as JSON"), icon: "code", href: expertLink(block, "json") }];
       const toggle = async (paused) => {
         try { await setPaused(block.platform, block.name, paused); route(); } catch (e) { alert(e.message); }
       };
       return [
-        plugin && plugin.hasPages && instance && !instance.paused ? { label: "Open its page", icon: "open", href: pluginPage(block) } : null,
-        { label: "Edit settings (Expert)", icon: "edit", href: expertLink(block) },
-        { label: "Edit as JSON (Expert)", icon: "code", href: expertLink(block, "json") },
-        instance && !instance.paused ? { label: "Pause", icon: "pause", onSelect: () => toggle(true) } : null,
-        instance?.paused ? { label: "Resume", icon: "play", onSelect: () => toggle(false) } : null,
-        { label: "Remove", icon: "trash", danger: true, onSelect: () => removeBlock(block) },
+        plugin && plugin.hasPages && instance && !instance.paused ? { label: t("Open its page"), icon: "open", href: pluginPage(block) } : null,
+        { label: t("Edit settings (Expert)"), icon: "edit", href: expertLink(block) },
+        { label: t("Edit as JSON (Expert)"), icon: "code", href: expertLink(block, "json") },
+        instance && !instance.paused ? { label: t("Pause"), icon: "pause", onSelect: () => toggle(true) } : null,
+        instance?.paused ? { label: t("Resume"), icon: "play", onSelect: () => toggle(false) } : null,
+        { label: t("Remove"), icon: "trash", danger: true, onSelect: () => removeBlock(block) },
       ];
     }
 
@@ -1020,12 +1048,12 @@
       return el("div", { class: "card server catalog" },
         el("div", { class: "server-head" }, tile("plugin", "orange"),
           el("div", { class: "who" }, el("strong", { text: plugin.name }), el("div", { class: "muted", text: plugin.platform })),
-          used ? el("span", { class: "pill status standby", text: "In use" }) : null),
+          used ? el("span", { class: "pill status standby", text: t("In use [used]") }) : null),
         el("div", { class: "actions" }, plugin.hasPages
           // A plugin with its own page sets itself up there (pairing a TV, finding lights), as Homebridge's
           // custom UIs do: Add writes an empty block and opens the page.
-          ? el("button", { class: used ? "" : "primary", text: used ? "Add another" : "Add", onclick: (event) => addWithPage(plugin, event.currentTarget) })
-          : el("a", { class: `button ${used ? "" : "primary"}`, href: `/plugins/add/${encodeURIComponent(plugin.platform)}`, text: used ? "Add another" : "Add" })));
+          ? el("button", { class: used ? "" : "primary", text: used ? t("Add another") : t("Add"), onclick: (event) => addWithPage(plugin, event.currentTarget) })
+          : el("a", { class: `button ${used ? "" : "primary"}`, href: `/plugins/add/${encodeURIComponent(plugin.platform)}`, text: used ? t("Add another") : t("Add") })));
     }));
 
     async function addWithPage(plugin, button) {
@@ -1041,20 +1069,20 @@
     }
 
     show(main,
-      pageHead("Plugins", "The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept."),
-      plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: `No plugin provides ${plugins.unknownPlatforms.join(", ")}: those blocks are ignored.` })) : null,
-      plugins.blocks.length ? el("div", { class: "grid" }, plugins.blocks.map(blockCard)) : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("plugin")), el("p", { class: "muted", text: "No plugin yet. Add one below." })),
-      el("div", { class: "section-head" }, el("h2", { text: "Add a plugin" }), el("span", { class: "muted", text: "compiled into this homeswift" })),
+      pageHead(t("Plugins"), t("The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.")),
+      plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: t("No plugin provides {platforms}: those blocks are ignored.", { platforms: plugins.unknownPlatforms.join(", ") }) })) : null,
+      plugins.blocks.length ? el("div", { class: "grid" }, plugins.blocks.map(blockCard)) : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("plugin")), el("p", { class: "muted", text: t("No plugin yet. Add one below.") })),
+      el("div", { class: "section-head" }, el("h2", { text: t("Add a plugin") }), el("span", { class: "muted", text: t("compiled into this homeswift") })),
       catalog);
   };
 
   /// A block's state pill: its label and tone.
-  const blockState = (block, plugin, instance) => block.system ? ["Built in", "standby"] : instance?.paused ? ["Paused", "paused"]
-    : instance ? ["Running", "on"] : plugin ? ["Not running", "away"] : ["No plugin", "away"];
+  const blockState = (block, plugin, instance) => block.system ? [t("Built in"), "standby"] : instance?.paused ? [t("Paused"), "paused"]
+    : instance ? [t("Running"), "on"] : plugin ? [t("Not running"), "away"] : [t("No plugin"), "away"];
 
   /// Takes a block out of config.json, after asking: its accessories leave the Home app.
   async function removeBlock(block, after = () => route()) {
-    if (!confirm(`Remove "${block.name}" from config.json? Its accessories leave the Home app.`)) return;
+    if (!confirm(t("Remove \"{name}\" from config.json? Its accessories leave the Home app.", { name: block.name }))) return;
     try { await api(`/api/config/platforms/${block.index}`, { method: "DELETE" }); leaveGuard = null; after(); } catch (e) { alert(e.message); }
   }
 
@@ -1066,7 +1094,7 @@
 
   /// Where a page sits, each level a way back; the last is the page itself.
   function breadcrumb(...levels) {
-    return el("nav", { class: "breadcrumb", "aria-label": "Breadcrumb" }, el("ol", {}, levels.map(([text, href], i) =>
+    return el("nav", { class: "breadcrumb", "aria-label": t("Breadcrumb") }, el("ol", {}, levels.map(([text, href], i) =>
       i === levels.length - 1 ? el("li", { "aria-current": "page" }, el("span", { text })) : el("li", {}, el("a", { href, text })))));
   }
 
@@ -1080,14 +1108,14 @@
     const [plugins, config] = await Promise.all([api("/api/plugins"), api("/api/config", { raw: true }).then(JSON.parse)]);
     const found = isNew ? null : plugins.blocks.find((b) => b.slug === first);
     if (!isNew && !found) {
-      show(main, breadcrumb(["Plugins", "/plugins"], ["Settings"]),
-        el("div", { class: "card empty" }, el("p", { class: "muted", text: `No plugin at /plugins/${first} in config.json.` })));
+      show(main, breadcrumb([t("Plugins"), "/plugins"], [t("Settings")]),
+        el("div", { class: "card empty" }, el("p", { class: "muted", text: t("No plugin at /plugins/{slug} in config.json.", { slug: first }) })));
       return;
     }
     const platform = isNew ? second : found.platform;
     const plugin = plugins.plugins.find((p) => p.platform === platform);
     const view = isNew ? null : second === "expert" ? (third === "json" ? "json" : "form") : null;
-    if (isNew && !plugin) throw new Error(`No plugin provides ${platform}.`);
+    if (isNew && !plugin) throw new Error(t("No plugin provides {platform}.", { platform }));
     const block = found ?? { index: plugins.blocks.length, platform, name: uniqueName(plugin.name, plugins.blocks), system: false };
     const instance = plugins.platforms.find((p) => p.platform === block.platform && p.name === block.name);
     const hasPage = Boolean(!isNew && plugin && plugin.hasPages && instance);
@@ -1104,7 +1132,7 @@
     let getValue;
     let body;
     let useSuggestion = null;
-    const textarea = el("textarea", { class: "short", value: JSON.stringify(current, null, 2), spellcheck: false, "aria-label": "The block as JSON" });
+    const textarea = el("textarea", { class: "short", value: JSON.stringify(current, null, 2), spellcheck: false, "aria-label": t("The block as JSON") });
     const editor = jsonEditor(textarea);
     const fromJSON = () => { const value = JSON.parse(textarea.value); delete value.platform; return value; };
     if (schema) {
@@ -1113,10 +1141,10 @@
       let mode = view === "json" ? "json" : "form";
       let form = buildForm(schema, current);
       const formView = el("div", { class: mode === "form" ? "" : "hidden" }, form.element);
-      const jsonView = el("div", { class: mode === "json" ? "" : "hidden" }, el("p", { class: "muted", text: "The block as config.json keeps it." }), editor);
+      const jsonView = el("div", { class: mode === "json" ? "" : "hidden" }, el("p", { class: "muted", text: t("The block as config.json keeps it.") }), editor);
       const switchError = el("p", { class: "error" });
-      const tabs = el("div", { class: "group view-switch", role: "tablist", "aria-label": "Edit as" },
-        [["form", "Form"], ["json", "JSON"]].map(([value, text]) => el("button", { type: "button", role: "tab", text, class: value === mode ? "on" : "", "aria-selected": String(value === mode), onclick: () => {
+      const tabs = el("div", { class: "group view-switch", role: "tablist", "aria-label": t("Edit as") },
+        [["form", t("Form")], ["json", "JSON"]].map(([value, text]) => el("button", { type: "button", role: "tab", text, "data-mode": value, class: value === mode ? "on" : "", "aria-selected": String(value === mode), onclick: () => {
           if (value === mode) return;
           switchError.textContent = "";
           try {
@@ -1127,11 +1155,11 @@
               form = buildForm(schema, { platform, ...fromJSON() });
               formView.replaceChildren(form.element);
             }
-          } catch (e) { switchError.textContent = `The JSON is not valid: ${e.message}`; return; }
+          } catch (e) { switchError.textContent = t("The JSON is not valid: {error}", { error: e.message }); return; }
           mode = value;
           formView.classList.toggle("hidden", mode !== "form");
           jsonView.classList.toggle("hidden", mode !== "json");
-          for (const tab of tabs.children) { tab.classList.toggle("on", tab.textContent.toLowerCase() === mode); tab.setAttribute("aria-selected", String(tab.textContent.toLowerCase() === mode)); }
+          for (const tab of tabs.children) { tab.classList.toggle("on", tab.dataset.mode === mode); tab.setAttribute("aria-selected", String(tab.dataset.mode === mode)); }
         } })));
       body = el("div", { class: "card form-card" }, tabs, switchError, formView, jsonView);
       getValue = () => (mode === "form" ? form.getValue() : fromJSON());
@@ -1143,7 +1171,7 @@
         body.dispatchEvent(new Event("input", { bubbles: true }));
       };
     } else {
-      body = el("div", { class: "card form-card" }, el("p", { class: "muted", text: "This block has no settings form; edit it as JSON." }), editor);
+      body = el("div", { class: "card form-card" }, el("p", { class: "muted", text: t("This block has no settings form; edit it as JSON.") }), editor);
       getValue = fromJSON;
     }
 
@@ -1155,9 +1183,9 @@
     let saved = isNew ? null : snapshot();
     const dirty = () => snapshot() !== saved;
     const message = el("span", { class: "muted" });
-    const save = el("button", { class: "primary", text: isNew ? "Add" : "Save" });
-    const force = el("button", { class: "hidden", text: isNew ? "Add anyway" : "Save anyway", title: "Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list" });
-    const revert = el("button", { text: isNew ? "Cancel" : "Revert" });
+    const save = el("button", { class: "primary", text: isNew ? t("Add") : t("Save") });
+    const force = el("button", { class: "hidden", text: isNew ? t("Add anyway") : t("Save anyway"), title: t("Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list") });
+    const revert = el("button", { text: isNew ? t("Cancel") : t("Revert") });
     // The JSON on screen is checked as it is typed: a syntax error marks its line, and Save waits for it.
     const jsonShown = () => textarea.isConnected && !textarea.closest(".hidden");
     const update = () => {
@@ -1174,7 +1202,7 @@
       revert.disabled = !isNew && !changed;
       if (!message.classList.contains("error") && !message.classList.contains("ok")) {
         message.className = changed ? "dirty" : "muted";
-        message.textContent = isNew ? "A new block: Add writes it to config.json." : changed ? "Unsaved changes" : "Saved";
+        message.textContent = isNew ? t("A new block: Add writes it to config.json.") : changed ? t("Unsaved changes") : t("Saved");
       }
     };
     body.addEventListener("input", () => { message.className = ""; force.classList.add("hidden"); update(); });
@@ -1185,7 +1213,7 @@
       save.disabled = true;
       force.classList.add("hidden");
       message.className = "muted";
-      message.textContent = "Saving…";
+      message.textContent = t("Saving…");
       try {
         const value = getValue();
         value.platform = platform;
@@ -1198,7 +1226,7 @@
         const port = platform === "HomeswiftUI" ? Number(value.port || 8581) : null;
         const scheme = value.https === true ? "https:" : "http:";
         if (port && (String(port) !== (location.port || (location.protocol === "https:" ? "443" : "80")) || scheme !== location.protocol)) {
-          message.textContent = scheme !== location.protocol ? `Saved. The web UI moves to ${scheme.slice(0, -1).toUpperCase()}…` : `Saved. The web UI moves to port ${port}…`;
+          message.textContent = scheme !== location.protocol ? t("Saved. The web UI moves to {scheme}…", { scheme: scheme.slice(0, -1).toUpperCase() }) : t("Saved. The web UI moves to port {port}…", { port: String(port) });
           setTimeout(() => { location.href = `${scheme}//${location.hostname}:${port}${location.pathname}`; }, 1500);
           return;
         }
@@ -1213,7 +1241,7 @@
         // Inside the block: the paths start at the file's platforms. The JSON on screen marks their lines.
         const paths = e.problems.map((problem) => problem.path.slice(2));
         const places = jsonShown() ? editor.markPaths(paths) : [];
-        message.replaceChildren(el("span", { text: "The plugin's schema refuses this:" }), problemList(e.problems.map((problem, i) => ({ ...places[i], text: problem.text })), jsonShown() ? editor : null));
+        message.replaceChildren(el("span", { text: t("The plugin's schema refuses this:") }), problemList(e.problems.map((problem, i) => ({ ...places[i], text: HomeswiftI18n.message(problem.text) })), jsonShown() ? editor : null));
         force.classList.remove("hidden");
       }
     };
@@ -1221,27 +1249,27 @@
     force.addEventListener("click", () => doSave(true));
     revert.addEventListener("click", () => { if (isNew) { navigate("/plugins"); return; } leaveGuard = null; route(); });
 
-    const [state, kind] = isNew ? ["New", "standby"] : blockState(block, plugin, instance);
+    const [state, kind] = isNew ? [t("New"), "standby"] : blockState(block, plugin, instance);
     const remove = !isNew && !block.system ? el("div", { class: "card danger-zone" },
-      el("div", {}, el("strong", { text: "Remove this plugin" }),
-        el("p", { class: "muted", text: "Takes the block out of config.json. Its accessories leave the Home app, with their rooms, scenes and automations." })),
-      el("button", { class: "danger", text: "Remove", onclick: () => removeBlock(block, () => navigate("/plugins")) })) : null;
+      el("div", {}, el("strong", { text: t("Remove this plugin") }),
+        el("p", { class: "muted", text: t("Takes the block out of config.json. Its accessories leave the Home app, with their rooms, scenes and automations.") })),
+      el("button", { class: "danger", text: t("Remove"), onclick: () => removeBlock(block, () => navigate("/plugins")) })) : null;
 
-    leaveGuard = () => !dirty() || isNew || confirm("Leave without saving your changes?");
+    leaveGuard = () => !dirty() || isNew || confirm(t("Leave without saving your changes?"));
     leaveGuard.quiet = () => isNew || !dirty();
     show(main,
-      breadcrumb(["Plugins", "/plugins"], [block.name, isNew ? "/plugins" : settingsLink(block)], [isNew ? "Add" : hasPage ? "Expert" : "Settings"]),
+      breadcrumb([t("Plugins"), "/plugins"], [block.name, isNew ? "/plugins" : settingsLink(block)], [isNew ? t("Add") : hasPage ? t("Expert") : t("Settings")]),
       el("div", { class: "page-head settings-head" },
         tile(block.system ? "gear" : "plugin", block.system ? "grey" : "orange"),
         el("div", { class: "who" },
-          el("h1", { text: isNew ? `Add ${plugin.name}` : block.name }),
+          el("h1", { text: isNew ? t("Add {name}", { name: plugin.name }) : block.name }),
           el("p", { class: "muted", text: [...new Set([plugin ? plugin.name : platform, platform])].filter((part) => part !== block.name).concat(
-            instance ? [`${instance.accessories} ${instance.accessories === 1 ? "accessory" : "accessories"} on ${instance.bridge}`] : []).join(" · ") })),
+            instance ? [tn("{n} accessory on {bridge}", "{n} accessories on {bridge}", instance.accessories, { bridge: instance.bridge })] : []).join(" · ") })),
         el("div", { class: "tools" }, el("span", { class: `pill status ${kind}`, text: state }))),
       // A plugin with its own page does the everyday work there (pairing, devices); this is the raw block.
       hasPage ? el("div", { class: "card page-note" },
-        el("p", {}, el("strong", { text: "Expert. " }), `Every setting of the block, as config.json keeps it, including what ${plugin.name}'s page does not show. A save reloads the plugin.`),
-        el("a", { class: "button", href: pluginPage(block), text: "Back to its page" })) : null,
+        el("p", {}, el("strong", { text: t("Expert.") }), " ", t("Every setting of the block, as config.json keeps it, including what {plugin}'s page does not show. A save reloads the plugin.", { plugin: plugin.name })),
+        el("a", { class: "button", href: pluginPage(block), text: t("Back to its page") })) : null,
       platform === "HomeswiftAiKit" && useSuggestion && !isNew ? assistantSettings({
         formValue: () => { try { return { ...getValue(), platform }; } catch { return { ...current, platform }; } },
         useValue: useSuggestion, save, dirty }) : null,
@@ -1263,32 +1291,32 @@
       save = null;
     }
     const result = el("p", { class: "muted test-result", role: "status" });
-    const test = el("button", { text: "Test connection", onclick: async () => {
+    const test = el("button", { text: t("Test connection"), onclick: async () => {
       test.disabled = true;
       result.className = "muted test-result";
-      result.textContent = "Asking the provider…";
+      result.textContent = t("Asking the provider…");
       try {
         const answer = await api("/api/assistant/test", { method: "POST", body: { block: formValue() } });
         result.className = `test-result ${answer.ok ? "ok" : "error"}`;
-        result.textContent = answer.ok ? `It works: ${answer.provider} · ${answer.model} answered in ${answer.latencyMs} ms.` : answer.message || "It did not answer.";
+        result.textContent = answer.ok ? t("It works: {provider} · {model} answered in {ms} ms.", { provider: answer.provider, model: answer.model, ms: answer.latencyMs }) : HomeswiftI18n.message(answer.message) || t("It did not answer.");
         loadUsage();
       } catch (e) { result.className = "test-result error"; result.textContent = e.message; }
       test.disabled = false;
     } });
 
-    const usage = el("div", { class: "usage" }, el("p", { class: "muted", text: "Loading…" }));
+    const usage = el("div", { class: "usage" }, el("p", { class: "muted", text: t("Loading…") }));
     const money = (usd) => usd == null ? "–" : usd > 0 && usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`;
-    const tokens = (summary) => (summary.inputTokens + summary.outputTokens).toLocaleString();
+    const tokens = (summary) => (summary.inputTokens + summary.outputTokens).toLocaleString(HomeswiftI18n.locale);
     const meter = (label, used, limit, format) => {
       const share = Math.min(1, limit ? used / limit : 0);
       return el("div", { class: `budget-meter${share >= 1 ? " over" : share >= 0.8 ? " near" : ""}` },
-        el("div", { class: "budget-label" }, el("span", { text: label }), el("b", { text: `${format(used)} of ${format(limit)}` })),
+        el("div", { class: "budget-label" }, el("span", { text: label }), el("b", { text: t("{used} of {limit}", { used: format(used), limit: format(limit) }) })),
         el("div", { class: "gauge-track", role: "meter", "aria-label": label, "aria-valuemin": "0", "aria-valuemax": String(limit), "aria-valuenow": String(used) },
           el("div", { class: "gauge-fill", style: `width:${share * 100}%` })));
     };
     const table = (title, rows) => rows.length ? el("div", { class: "table-scroll" }, el("table", {},
-      el("thead", {}, el("tr", {}, [title, "Requests", "Tokens", "Cost"].map((text) => el("th", { text })))),
-      el("tbody", {}, rows.map(([name, summary]) => el("tr", {}, el("td", { text: name }), el("td", { text: summary.requests.toLocaleString() }),
+      el("thead", {}, el("tr", {}, [title, t("Requests"), t("Tokens"), t("Cost")].map((text) => el("th", { text })))),
+      el("tbody", {}, rows.map(([name, summary]) => el("tr", {}, el("td", { text: name }), el("td", { text: summary.requests.toLocaleString(HomeswiftI18n.locale) }),
         el("td", { text: tokens(summary) }), el("td", { text: money(summary.costUsd) })))))) : null;
     async function loadUsage() {
       let answer;
@@ -1296,41 +1324,41 @@
       const report = answer.usage;
       const budget = report.budget || {};
       const meters = [
-        budget.dailyTokens ? meter("Tokens today", report.today.inputTokens + report.today.outputTokens, budget.dailyTokens, (n) => n.toLocaleString()) : null,
-        budget.dailyUsd ? meter("Spent today", report.today.costUsd ?? 0, budget.dailyUsd, money) : null,
-        budget.monthlyTokens ? meter("Tokens this month", report.thisMonth.inputTokens + report.thisMonth.outputTokens, budget.monthlyTokens, (n) => n.toLocaleString()) : null,
-        budget.monthlyUsd ? meter("Spent this month", report.thisMonth.costUsd ?? 0, budget.monthlyUsd, money) : null,
+        budget.dailyTokens ? meter(t("Tokens today"), report.today.inputTokens + report.today.outputTokens, budget.dailyTokens, (n) => n.toLocaleString(HomeswiftI18n.locale)) : null,
+        budget.dailyUsd ? meter(t("Spent today"), report.today.costUsd ?? 0, budget.dailyUsd, money) : null,
+        budget.monthlyTokens ? meter(t("Tokens this month"), report.thisMonth.inputTokens + report.thisMonth.outputTokens, budget.monthlyTokens, (n) => n.toLocaleString(HomeswiftI18n.locale)) : null,
+        budget.monthlyUsd ? meter(t("Spent this month"), report.thisMonth.costUsd ?? 0, budget.monthlyUsd, money) : null,
       ].filter(Boolean);
       const byModel = Object.entries(report.monthByModel || {}).sort(([, a], [, b]) => b.requests - a.requests);
       const byUser = Object.entries(report.byUser?.thisMonth || {}).sort(([, a], [, b]) => b.requests - a.requests);
       usage.replaceChildren(...[
         el("div", { class: "stats" },
-          el("div", { class: "stat" }, el("b", { text: report.today.requests.toLocaleString() }), el("span", { text: "Requests today" })),
-          el("div", { class: "stat" }, el("b", { text: money(report.today.costUsd) }), el("span", { text: "Cost today" })),
-          el("div", { class: "stat" }, el("b", { text: report.thisMonth.requests.toLocaleString() }), el("span", { text: "Requests this month" })),
-          el("div", { class: "stat" }, el("b", { text: money(report.thisMonth.costUsd) }), el("span", { text: "Cost this month" }))),
-        report.exceeded ? el("p", { class: "error", text: report.exceeded }) : null,
-        meters.length ? el("div", { class: "budget-meters" }, meters) : el("p", { class: "muted", text: "No budget: requests are not limited." }),
-        byModel.length || byUser.length ? el("details", { class: "more" }, el("summary", { text: "This month by model and by user" }),
-          table("Model", byModel), table("User", byUser)) : null,
-        el("p", { class: "muted", text: "Costs come from the token counts at today's prices; only Claude models are priced." })].filter(Boolean));
+          el("div", { class: "stat" }, el("b", { text: report.today.requests.toLocaleString(HomeswiftI18n.locale) }), el("span", { text: t("Requests today") })),
+          el("div", { class: "stat" }, el("b", { text: money(report.today.costUsd) }), el("span", { text: t("Cost today") })),
+          el("div", { class: "stat" }, el("b", { text: report.thisMonth.requests.toLocaleString(HomeswiftI18n.locale) }), el("span", { text: t("Requests this month") })),
+          el("div", { class: "stat" }, el("b", { text: money(report.thisMonth.costUsd) }), el("span", { text: t("Cost this month") }))),
+        report.exceeded ? el("p", { class: "error", text: HomeswiftI18n.message(report.exceeded) }) : null,
+        meters.length ? el("div", { class: "budget-meters" }, meters) : el("p", { class: "muted", text: t("No budget: requests are not limited.") }),
+        byModel.length || byUser.length ? el("details", { class: "more" }, el("summary", { text: t("This month by model and by user") }),
+          table(t("Model"), byModel), table(t("User"), byUser)) : null,
+        el("p", { class: "muted", text: t("Costs come from the token counts at today's prices; only Claude models are priced.") })].filter(Boolean));
     }
 
     // The budget's four limits, written into the form and saved with it; empty is no limit.
-    const limits = [["dailyTokens", "Tokens per day", 1], ["dailyUsd", "USD per day", 0.01], ["monthlyTokens", "Tokens per month", 1], ["monthlyUsd", "USD per month", 0.01]];
-    const inputs = Object.fromEntries(limits.map(([key, , step]) => [key, el("input", { type: "number", min: 0, step, inputMode: "decimal", placeholder: "No limit" })]));
+    const limits = [["dailyTokens", t("Tokens per day"), 1], ["dailyUsd", t("USD per day"), 0.01], ["monthlyTokens", t("Tokens per month"), 1], ["monthlyUsd", t("USD per month"), 0.01]];
+    const inputs = Object.fromEntries(limits.map(([key, , step]) => [key, el("input", { type: "number", min: 0, step, inputMode: "decimal", placeholder: t("No limit") })]));
     const budgetMessage = el("span", { class: "muted" });
     const editor = el("details", { class: "more budget-editor" },
-      el("summary", { text: "Edit the budgets" }),
+      el("summary", { text: t("Edit the budgets") }),
       el("div", { class: "fields" }, limits.map(([key, label]) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), inputs[key]))),
-      el("div", { class: "actions" }, budgetMessage, el("button", { class: "primary", text: "Save the budgets", onclick: () => {
-        if (dirty() && !confirm("The form below has other unsaved changes: save them with the budgets?")) return;
+      el("div", { class: "actions" }, budgetMessage, el("button", { class: "primary", text: t("Save the budgets"), onclick: () => {
+        if (dirty() && !confirm(t("The form below has other unsaved changes: save them with the budgets?"))) return;
         const budget = {};
         for (const [key] of limits) if (inputs[key].value !== "" && Number(inputs[key].value) > 0) budget[key] = Number(inputs[key].value);
         const value = formValue();
         if (Object.keys(budget).length) value.budget = budget; else delete value.budget;
         budgetMessage.className = "muted";
-        budgetMessage.textContent = "Saving…";
+        budgetMessage.textContent = t("Saving…");
         if (save) {
           useValue(value);
           save.click();
@@ -1352,7 +1380,7 @@
     return el("div", { class: "card assistant-settings" },
       el("div", { class: "server-head" },
         el("span", { class: "tile tone-ai", "aria-hidden": "true" }, sparkle()),
-        el("div", { class: "who" }, el("strong", { text: "The Assistant" }), el("div", { class: "muted", text: save ? "Check the settings below before saving them, and see what it costs." : "Whether its provider answers, and what it costs." })),
+        el("div", { class: "who" }, el("strong", { text: t("The Assistant") }), el("div", { class: "muted", text: save ? t("Check the settings below before saving them, and see what it costs.") : t("Whether its provider answers, and what it costs.") })),
         test),
       result, usage, editor);
   }
@@ -1362,16 +1390,16 @@
   async function assistantPage(main, subnav) {
     const plugins = await api("/api/plugins");
     const entry = plugins.blocks.find((one) => one.platform === "HomeswiftAiKit");
-    const head = pageHead("Settings", "The Assistant: whether its provider answers, what it costs, and its budgets.");
+    const head = pageHead(t("Settings"), t("The Assistant: whether its provider answers, what it costs, and its budgets."));
     if (!entry) {
       show(main, head, subnav, el("div", { class: "card empty" },
-        el("p", { class: "muted", text: "The Assistant is off: config.json has no HomeswiftAiKit block. Add one on the Config page, { \"platform\": \"HomeswiftAiKit\", \"provider\": \"anthropic\", \"apiKey\": \"…\" }, or choose apple on a Mac with Apple Intelligence." }),
-        el("a", { class: "button primary", href: "/config", text: "Open Config" })));
+        el("p", { class: "muted", text: t("The Assistant is off: config.json has no HomeswiftAiKit block. Add one on the Config page, {example}, or choose apple on a Mac with Apple Intelligence.", { example: "{ \"platform\": \"HomeswiftAiKit\", \"provider\": \"anthropic\", \"apiKey\": \"…\" }" }) }),
+        el("a", { class: "button primary", href: "/config", text: t("Open Config") })));
       return;
     }
     const block = await api(`/api/config/block/${encodeURIComponent(entry.platform)}/${encodeURIComponent(entry.name)}`);
     show(main, head, subnav, assistantSettings({ block }),
-      el("div", { class: "actions" }, el("a", { class: "link", href: settingsLink(entry), text: "All the Assistant's settings: provider, model, key, MCP server" })));
+      el("div", { class: "actions" }, el("a", { class: "link", href: settingsLink(entry), text: t("All the Assistant's settings: provider, model, key, MCP server") })));
   }
 
   /// Describe your setup: the Assistant writes the block from the plugin's config.schema.json and a sentence
@@ -1380,13 +1408,13 @@
   function describeSetup({ platform, pluginName, current, use }) {
     const card = el("details", { class: "card describe-setup hidden" });
     api("/api/assistant").then((state) => { if (state && state.enabled) card.classList.remove("hidden"); }).catch(() => {});
-    const request = el("textarea", { class: "short", rows: 3, placeholder: `What should ${pluginName} do? For example: "add my second light at 192.168.1.40, and poll every 5 seconds".`, "aria-label": "Your setup, in your words" });
-    const ask = el("button", { class: "primary", text: "Suggest" });
+    const request = el("textarea", { class: "short", rows: 3, placeholder: t("What should {plugin} do? For example: \"add my second light at 192.168.1.40, and poll every 5 seconds\".", { plugin: pluginName }), "aria-label": t("Your setup, in your words") });
+    const ask = el("button", { class: "primary", text: t("Suggest") });
     const result = el("div", { class: "describe-result" });
     ask.addEventListener("click", async () => {
       if (!request.value.trim()) { request.focus(); return; }
       ask.disabled = true;
-      result.replaceChildren(el("p", { class: "muted", text: "The Assistant is writing the block…" }));
+      result.replaceChildren(el("p", { class: "muted", text: t("The Assistant is writing the block…") }));
       try {
         const before = current();
         const reply = await api("/api/assistant/config", { method: "POST", body: { platform, request: request.value, current: before } });
@@ -1397,16 +1425,16 @@
         result.replaceChildren(...[
           reply.explanation ? el("div", { class: "markdown" }, HomeswiftCommon.markdown(reply.explanation)) : null,
           changed ? el("pre", { class: "diff" }, lines.map((line) => el("span", { class: `diff-${line.kind}`, text: `${line.kind === "add" ? "+ " : line.kind === "remove" ? "- " : "  "}${line.text}\n` })))
-            : el("p", { class: "muted", text: "No change to the block." }),
+            : el("p", { class: "muted", text: t("No change to the block.") }),
           changed ? el("div", { class: "actions" },
-            el("button", { class: "primary", text: "Use it", onclick: () => { use(after); result.replaceChildren(el("p", { class: "ok", text: "In the form: review it, then Save." })); } }),
-            el("button", { text: "Discard", onclick: () => result.replaceChildren() })) : null,
-          el("p", { class: "muted", text: `Written by ${reply.model}. Passwords and tokens never reach it; check addresses and names before saving.` })].filter(Boolean));
+            el("button", { class: "primary", text: t("Use it"), onclick: () => { use(after); result.replaceChildren(el("p", { class: "ok", text: t("In the form: review it, then Save.") })); } }),
+            el("button", { text: t("Discard"), onclick: () => result.replaceChildren() })) : null,
+          el("p", { class: "muted", text: t("Written by {model}. Passwords and tokens never reach it; check addresses and names before saving.", { model: reply.model }) })].filter(Boolean));
       } catch (e) {
         result.replaceChildren(el("p", { class: "error", text: e.message }));
       } finally { ask.disabled = false; }
     });
-    card.append(el("summary", {}, sparkle(), el("strong", { text: " Describe your setup" }), el("span", { class: "muted describe-note", text: "the Assistant writes the settings" })),
+    card.append(el("summary", {}, sparkle(), el("strong", { text: ` ${t("Describe your setup")}` }), el("span", { class: "muted describe-note", text: t("the Assistant writes the settings") })),
       el("div", { class: "describe-body" }, request, el("div", { class: "actions" }, ask), result));
     return card;
   }
@@ -1421,18 +1449,18 @@
   /// file next to config.json, owner-only, and the field gets its path.
   function dropZone(key, input, accept = "") {
     const picker = el("input", { type: "file", accept, class: "hidden" });
-    const zone = el("div", { class: "drop-zone", role: "button", tabIndex: 0, "aria-label": `Drop or choose the file for ${key}` },
-      "Drop the file here, or ", el("strong", { text: "choose it" }), picker);
+    const zone = el("div", { class: "drop-zone", role: "button", tabIndex: 0, "aria-label": t("Drop or choose the file for {key}", { key }) },
+      t("Drop the file here, or "), el("strong", { text: t("choose it [file]") }), picker);
     const take = async (file) => {
       if (!file) return;
       zone.classList.remove("ok", "error");
       try {
-        if (file.size > 256 * 1024) throw new Error("That file is too large for a certificate or a key.");
+        if (file.size > 256 * 1024) throw new Error(t("That file is too large for a certificate or a key."));
         const { path } = await api("/api/files", { method: "POST", body: { field: key, name: file.name, content: await file.text() } });
         input.value = path;
         input.dispatchEvent(new Event("input", { bubbles: true }));
         zone.classList.add("ok");
-        zone.replaceChildren(`${file.name} saved`, picker);
+        zone.replaceChildren(t("{name} saved", { name: file.name }), picker);
       } catch (e) {
         zone.classList.add("error");
         zone.replaceChildren(e.message, picker);
@@ -1597,22 +1625,24 @@
     /// A cron expression (`x-schema-form.type: "schedule"`, the scheduled restart) as a time and the days it runs on,
     /// which it writes as `M H * * d,d`; an expression that says more than that stays as it is, under Custom.
     const scheduleField = (wrap, current) => {
-      const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      // The week from Sunday (1 January 2023 was one), in the page's language.
+      const weekday = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short" });
+      const names = [0, 1, 2, 3, 4, 5, 6].map((day) => weekday.format(new Date(2023, 0, 1 + day)));
       const text = typeof current === "string" ? current.trim() : "";
       const simple = /^(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+(\*|[0-7](?:,[0-7])*)$/.exec(text);
       const fits = simple && Number(simple[1]) < 60 && Number(simple[2]) < 24;
-      const mode = el("select", { "aria-label": "Repeat" },
-        el("option", { value: "never", text: "Never" }), el("option", { value: "time", text: "At a time" }), el("option", { value: "custom", text: "Custom (cron)" }));
+      const mode = el("select", { "aria-label": t("Repeat") },
+        el("option", { value: "never", text: t("Never") }), el("option", { value: "time", text: t("At a time") }), el("option", { value: "custom", text: t("Custom (cron)") }));
       mode.value = !text ? "never" : fits ? "time" : "custom";
       const pad = (n) => String(n).padStart(2, "0");
-      const time = el("input", { type: "time", value: fits ? `${pad(simple[2])}:${pad(simple[1])}` : "04:00", "aria-label": "Time" });
+      const time = el("input", { type: "time", value: fits ? `${pad(simple[2])}:${pad(simple[1])}` : "04:00", "aria-label": t("Time") });
       const chosen = new Set(fits && simple[3] !== "*" ? simple[3].split(",").map((day) => Number(day) % 7) : []);
-      const days = el("span", { class: "days", role: "group", "aria-label": "Days (none: every day)" }, names.map((name, day) => {
+      const days = el("span", { class: "days", role: "group", "aria-label": t("Days (none: every day)") }, names.map((name, day) => {
         const box = el("input", { type: "checkbox", checked: chosen.has(day), "aria-label": name });
         box.addEventListener("change", () => { if (box.checked) chosen.add(day); else chosen.delete(day); });
         return el("label", { class: "day" }, box, el("span", { text: name.slice(0, 2) }));
       }));
-      const custom = el("input", { type: "text", value: text, placeholder: "0 4 * * 1", "aria-label": "Cron expression" });
+      const custom = el("input", { type: "text", value: text, placeholder: "0 4 * * 1", "aria-label": t("Cron expression") });
       const timed = el("span", { class: "group-inline" }, time, days);
       const fromTime = () => {
         const [hour, minute] = (time.value || "04:00").split(":").map(Number);
@@ -1637,7 +1667,7 @@
     const makeField = (key, property, current, required, index) => {
       const title = property.title || key;
       const help = property.description ? el("div", { class: "help", text: property.description }) : null;
-      const wrap = (control) => el("label", { class: "field" }, el("span", { class: "field-title" }, title, required ? el("span", { class: "muted", text: " · required" }) : null), control, help);
+      const wrap = (control) => el("label", { class: "field" }, el("span", { class: "field-title" }, title, required ? el("span", { class: "muted", text: ` · ${t("required")}` }) : null), control, help);
       const type = property.type;
       if (property["x-schema-form"]?.type === "schedule") return scheduleField(wrap, current);
       const options = property.oneOf && property.oneOf.every((o) => Array.isArray(o.enum)) ? property.oneOf.map((o) => ({ value: o.enum[0], title: o.title ?? String(o.enum[0]) })) : property.enum ? property.enum.map((v) => ({ value: v, title: String(v) })) : null;
@@ -1682,7 +1712,7 @@
               detail.textContent = [value.ip || value.host, value.mac].filter(Boolean).join(" · ");
             };
             const row = el("details", { class: "entry", open: itemValue === undefined },
-              el("summary", {}, name, detail, el("button", { class: "link danger", text: "Remove", onclick: (event) => {
+              el("summary", {}, name, detail, el("button", { class: "link danger", text: t("Remove"), onclick: (event) => {
                 event.preventDefault();
                 row.remove();
                 rows.splice(rows.indexOf(entry), 1);
@@ -1697,7 +1727,7 @@
             return;
           }
           const row = el("div", { class: "item" });
-          const remove = el("button", { class: "link danger", text: "Remove", onclick: () => { row.remove(); rows.splice(rows.indexOf(entry), 1); } });
+          const remove = el("button", { class: "link danger", text: t("Remove"), onclick: () => { row.remove(); rows.splice(rows.indexOf(entry), 1); } });
           {
             const f = field("", items, itemValue, false);
             row.append(el("div", { class: "item-head" }, f.element, remove));
@@ -1708,7 +1738,7 @@
         };
         for (const item of Array.isArray(current) ? current : []) addRow(item);
         const element = el("fieldset", {}, el("legend", { text: title }), help, list,
-          el("button", { text: `Add ${title.replace(/s$/, "").toLowerCase()}`, onclick: () => addRow(undefined) }));
+          el("button", { text: t("Add {item}", { item: title.replace(/s$/, "").toLowerCase() }), onclick: () => addRow(undefined) }));
         return { element, get: () => { const v = rows.map((r) => r.get()).filter((x) => x !== undefined); return v.length ? v : undefined; } };
       }
       const input = el("input", { type: property["x-schema-form"] && property["x-schema-form"].type === "password" ? "password" : "text", value: current ?? "", placeholder: property.placeholder ?? property.default ?? "", required });
@@ -1722,7 +1752,7 @@
       const shown = [], more = [];
       for (const { element, required, value } of entries) (required || isSet(value) ? shown : more).push(element);
       if (!more.length) return shown;
-      return [...shown, el("details", { class: "more-options" }, el("summary", { text: `More options (${more.length})` }), el("div", { class: "fields" }, more))];
+      return [...shown, el("details", { class: "more-options" }, el("summary", { text: t("More options ({count})", { count: more.length }) }), el("div", { class: "fields" }, more))];
     }
 
     function buildObject(objectSchema, current, index) {
@@ -1762,7 +1792,7 @@
         const inner = item.items.map(layoutItem).flat().filter(Boolean);
         if (!inner.length) return null;
         const node = item.type === "fieldset" || item.title
-          ? el("details", { class: "group-box", open: !item.expandable || item.expanded !== false }, el("summary", { text: item.title || "More" }), el("div", { class: "fields" }, ...inner))
+          ? el("details", { class: "group-box", open: !item.expandable || item.expanded !== false }, el("summary", { text: item.title || t("More") }), el("div", { class: "fields" }, ...inner))
           : el("div", { class: "fields" }, ...inner);
         watch(node, item.condition);
         return node;
@@ -1807,10 +1837,10 @@
   // "moyen à fort" bar, 12 characters and 85 bits. The numbers here only draw the gauge.
 
   const passwordPolicy = { minimumLength: 12, minimumBits: 85, scaleBits: 128 };
-  const strengthLabels = { strongToVeryStrong: "Strong to very strong", mediumToStrong: "Medium to strong", lowToMedium: "Low to medium", veryWeak: "Very weak" };
+  const strengthLabels = { strongToVeryStrong: t("Strong to very strong"), mediumToStrong: t("Medium to strong"), lowToMedium: t("Low to medium"), veryWeak: t("Very weak") };
 
   /// The ANSSI's bands, from the bits where each starts: the scale under the gauge.
-  const strengthBands = [[0, "Weak"], [65, "Low"], [85, "Medium"], [100, "Strong"]];
+  const strengthBands = [[0, t("Weak")], [65, t("Low [strength]")], [85, t("Medium")], [100, t("Strong")]];
 
   /// A live gauge under a password field: the ANSSI's bands along 0 to 128 bits as one gradient, lit up to the
   /// password's entropy, the 85-bit bar marked, and the two rules ticking as they are met. `username()` gives the
@@ -1821,13 +1851,13 @@
     const fill = el("div", { class: "strength-fill" });
     const label = el("strong", { class: "strength-level" });
     const bits = el("span", { class: "strength-bits" });
-    const ruleLength = el("li", { text: `At least ${passwordPolicy.minimumLength} characters` });
-    const ruleBits = el("li", { text: `At least ${passwordPolicy.minimumBits} bits of entropy (ANSSI: medium to strong)` });
+    const ruleLength = el("li", { text: t("At least {n} characters", { n: passwordPolicy.minimumLength }) });
+    const ruleBits = el("li", { text: t("At least {n} bits of entropy (ANSSI: medium to strong)", { n: passwordPolicy.minimumBits }) });
     const hint = el("p", { class: "help strength-hint" });
-    const track = el("div", { class: "strength-track", role: "meter", "aria-label": "Password strength", "aria-valuemin": "0", "aria-valuemax": String(passwordPolicy.scaleBits) },
+    const track = el("div", { class: "strength-track", role: "meter", "aria-label": t("Password strength"), "aria-valuemin": "0", "aria-valuemax": String(passwordPolicy.scaleBits) },
       fill,
       ...strengthBands.slice(1).map(([at]) => el("span", { class: "strength-tick", style: `left:${percent(at)}` })),
-      el("span", { class: "strength-mark", title: `Required: ${passwordPolicy.minimumBits} bits`, style: `left:${percent(passwordPolicy.minimumBits)}` }));
+      el("span", { class: "strength-mark", title: t("Required: {n} bits", { n: passwordPolicy.minimumBits }), style: `left:${percent(passwordPolicy.minimumBits)}` }));
     const scale = el("div", { class: "strength-scale", "aria-hidden": "true" },
       ...strengthBands.map(([at, text], index) => el("span", { text, style: `left:${percent(at)};width:${percent((strengthBands[index + 1]?.[0] ?? passwordPolicy.scaleBits) - at)}` })));
     const gauge = el("div", { class: "strength" }, el("div", { class: "strength-head" }, label, bits), track, scale, el("ul", { class: "strength-rules" }, ruleLength, ruleBits), hint);
@@ -1844,13 +1874,14 @@
       gauge.dataset.level = s ? s.level : "";
       fill.style.setProperty("--lit", percent(s?.bits ?? 0));
       track.setAttribute("aria-valuenow", String(s?.bits ?? 0));
-      track.setAttribute("aria-valuetext", s ? `${strengthLabels[s.level]}, ${s.bits} bits` : "empty");
-      label.textContent = s ? strengthLabels[s.level] : "Strength";
-      bits.textContent = s ? `${s.bits} bits` : `${passwordPolicy.minimumBits} bits needed`;
+      track.setAttribute("aria-valuetext", s ? t("{level}, {bits} bits", { level: strengthLabels[s.level], bits: s.bits }) : t("empty"));
+      label.textContent = s ? strengthLabels[s.level] : t("Strength");
+      bits.textContent = s ? t("{bits} bits", { bits: s.bits }) : t("{bits} bits needed", { bits: passwordPolicy.minimumBits });
       ruleLength.classList.toggle("met", Boolean(s?.lengthMet));
       ruleBits.classList.toggle("met", Boolean(s?.bitsMet));
-      hint.textContent = !s || s.bitsMet ? "" : s.reason ? `${s.reason[0].toUpperCase()}${s.reason.slice(1)}.`
-        : "Length helps most: a phrase of several random words is strong and easy to remember.";
+      const reason = s?.reason ? HomeswiftI18n.message(s.reason) : null;
+      hint.textContent = !s || s.bitsMet ? "" : reason ? `${reason[0].toUpperCase()}${reason.slice(1)}.`
+        : t("Length helps most: a phrase of several random words is strong and easy to remember.");
     };
     let timer = null;
     const update = () => {
@@ -1874,8 +1905,8 @@
   views.account = async (main) => {
     const [state, apps] = await Promise.all([api("/api/auth/state"), api("/api/account/apps").catch(() => null)]);
     if (state.mode !== "form") {
-      show(main, pageHead("Account", "This web UI has no sign-in: its HomeswiftUI block says auth none, so there is no password to change."),
-        el("div", { class: "card" }, el("p", { class: "muted", text: "Plugins › HomeswiftUI › Settings turns sign-in on." })), appearanceLink());
+      show(main, pageHead(t("Account"), t("This web UI has no sign-in: its HomeswiftUI block says auth none, so there is no password to change.")),
+        el("div", { class: "card" }, el("p", { class: "muted", text: t("Plugins › HomeswiftUI › Settings turns sign-in on.") })), appearanceLink());
       return;
     }
     const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);
@@ -1884,47 +1915,48 @@
     const again = el("input", { type: "password", autocomplete: "new-password", required: true, minLength: passwordPolicy.minimumLength });
     const gauge = strengthGauge(next, () => state.username || "");
     const message = el("p", { class: "status-line muted", role: "status" });
-    const submit = el("button", { class: "primary", type: "submit", text: "Change password" });
+    const submit = el("button", { class: "primary", type: "submit", text: t("Change password") });
     const fail = (text) => { message.className = "status-line error"; message.textContent = text; };
     const days = state.sessionDays ?? 7;
     const form = el("form", { class: "card account-form", onsubmit: async (event) => {
       event.preventDefault();
-      if (!(await gauge.acceptable())) { next.focus(); return fail("The new password is not strong enough yet: the gauge says what is missing."); }
-      if (next.value !== again.value) { again.focus(); return fail("The two new passwords are not the same."); }
-      if (next.value === current.value) return fail("The new password is the current one.");
+      if (!(await gauge.acceptable())) { next.focus(); return fail(t("The new password is not strong enough yet: the gauge says what is missing.")); }
+      if (next.value !== again.value) { again.focus(); return fail(t("The two new passwords are not the same.")); }
+      if (next.value === current.value) return fail(t("The new password is the current one."));
       submit.disabled = true;
       try {
         await api("/api/account/password", { method: "POST", body: { current: current.value, new: next.value } });
         form.reset();
         gauge.refresh();
         message.className = "status-line ok";
-        message.textContent = `Password changed. Other browsers signed in as ${state.username} are signed out; this one stays.`;
+        message.textContent = t("Password changed. Other browsers signed in as {username} are signed out; this one stays.", { username: state.username });
       } catch (e) { fail(e.message); current.focus(); }
       submit.disabled = false;
     } },
-      el("h2", { text: "Change your password" }),
-      el("p", { class: "muted account-lead", text: "A phrase of several random words is long, strong and easy to remember." }),
+      el("h2", { text: t("Change your password") }),
+      el("p", { class: "muted account-lead", text: t("A phrase of several random words is long, strong and easy to remember.") }),
       // The fields on one side, the new password's entropy beside them as it is typed.
       el("div", { class: "account-password" },
         el("div", { class: "account-fields" },
-          field("Current password", current),
-          field("New password", next),
-          field("New password again", again),
+          field(t("Current password"), current),
+          field(t("New password"), next),
+          field(t("New password again"), again),
           el("div", { class: "actions" }, submit), message),
-        el("aside", { class: "strength-panel", "aria-label": "Strength of the new password" },
-          el("span", { class: "field-title", text: "Entropy of the new password" }), gauge)));
+        el("aside", { class: "strength-panel", "aria-label": t("Strength of the new password") },
+          el("span", { class: "field-title", text: t("Entropy of the new password") }), gauge)));
     // Who is signed in, with the one thing to do about it.
     const profile = el("section", { class: "card account-profile" },
       el("span", { class: "account-avatar", "aria-hidden": "true", text: (state.username || "?").slice(0, 1).toUpperCase() }),
       el("div", { class: "account-who" },
         el("h2", { text: state.username }),
-        el("p", { class: "muted", text: `Signed in on this browser. Logins last ${days} day${days === 1 ? "" : "s"} without activity; changing the password, or turning two-factor authentication on or off, signs the others out.` })),
-      el("button", { text: "Sign out", onclick: signOut }));
-    show(main, pageHead("Account", `Your sign-in to this bridge's web UI${state.admin ? ", as an administrator" : ""}.`),
+        el("p", { class: "muted", text: tn("Signed in on this browser. Logins last {n} day without activity; changing the password, or turning two-factor authentication on or off, signs the others out.",
+          "Signed in on this browser. Logins last {n} days without activity; changing the password, or turning two-factor authentication on or off, signs the others out.", days) })),
+      el("button", { text: t("Sign out"), onclick: signOut }));
+    show(main, pageHead(t("Account"), state.admin ? t("Your sign-in to this bridge's web UI, as an administrator.") : t("Your sign-in to this bridge's web UI.")),
       el("div", { class: "account" }, profile, form, twoFactorCard(state), connectedAppsCard(apps),
-        state.admin ? el("div", { class: "card" }, el("h2", { text: "Users and API tokens" }),
-          el("p", { class: "muted", text: "Add people who may use this web UI, choose who administers it, and make tokens for scripts." }),
-          el("a", { class: "button", href: "/users", text: "Open Users" })) : null),
+        state.admin ? el("div", { class: "card" }, el("h2", { text: t("Users and API tokens") }),
+          el("p", { class: "muted", text: t("Add people who may use this web UI, choose who administers it, and make tokens for scripts.") }),
+          el("a", { class: "button", href: "/users", text: t("Open Users") })) : null),
       appearanceLink());
   };
 
@@ -1932,25 +1964,25 @@
   /// it may do and when it last came; its ⋯ menu disconnects it. With the MCP server on, the address to give them.
   function connectedAppsCard(apps) {
     if (!apps || (!apps.mcp && !apps.apps.length)) return null;
-    const when = (iso) => iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "Never";
-    const scopes = { read: "Read", control: "Control", admin: "Admin" };
+    const when = (iso) => iso ? new Date(iso).toLocaleString(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" }) : t("Never");
+    const scopes = { read: t("Read"), control: t("Control"), admin: t("Admin") };
     const rows = apps.apps.map((app) => el("div", { class: "server-head connected-app" },
       tile("key", app.scope === "admin" ? "orange" : "teal"),
       el("div", { class: "who" }, el("strong", { text: app.client }),
-        el("div", { class: "muted", text: `${app.redirect ? `${app.redirect} · ` : ""}last used ${when(app.lastUsed)}` })),
+        el("div", { class: "muted", text: app.redirect ? t("{address} · last used {when}", { address: app.redirect, when: when(app.lastUsed) }) : t("Last used {when}", { when: when(app.lastUsed) }) })),
       el("span", { class: app.scope === "admin" ? "pill status admin" : "pill status standby", text: scopes[app.scope] || app.scope }),
-      menuButton(`Actions for ${app.client}`, () => [
-        { label: "Disconnect", icon: "trash", danger: true, onSelect: async () => {
-          if (!confirm(`Disconnect ${app.client}? It is refused at once and must sign in again.`)) return;
+      menuButton(t("Actions for {name}", { name: app.client }), () => [
+        { label: t("Disconnect"), icon: "trash", danger: true, onSelect: async () => {
+          if (!confirm(t("Disconnect {name}? It is refused at once and must sign in again.", { name: app.client }))) return;
           try { await api(`/api/account/apps/${encodeURIComponent(app.id)}`, { method: "DELETE" }); route(); } catch (e) { alert(e.message); }
         } },
       ])));
     return el("div", { class: "card account-form" },
-      el("h2", { text: "Connected apps" }),
+      el("h2", { text: t("Connected apps") }),
       el("p", { class: "muted" }, apps.mcp
-        ? ["Apps you allowed to use the bridge through its MCP server. To add one in claude.ai or the Claude apps, make a custom connector with ", el("code", { class: "mono", text: apps.mcp }), "."]
-        : "Apps you allowed to use the bridge through its MCP server, which is off now."),
-      ...(rows.length ? rows : [el("p", { class: "muted", text: "None yet." })]));
+        ? withNodes(t("Apps you allowed to use the bridge through its MCP server. To add one in claude.ai or the Claude apps, make a custom connector with {address}."), { address: el("code", { class: "mono", text: apps.mcp }) })
+        : t("Apps you allowed to use the bridge through its MCP server, which is off now.")),
+      ...(rows.length ? rows : [el("p", { class: "muted", text: t("None yet.") })]));
   }
 
   /// Two-factor authentication (TOTP, RFC 6238): on, it can be turned off with the password; off, setting it up
@@ -1963,20 +1995,20 @@
     const reload = () => route();
     if (state.twoFactor) {
       const password = el("input", { type: "password", autocomplete: "current-password", required: true });
-      const submit = el("button", { type: "submit", text: "Turn off" });
-      card.append(el("h2", {}, "Two-factor authentication ", el("span", { class: "pill status on", text: "On" })),
-        el("p", { class: "muted", text: "Signing in asks for the code your authenticator app shows, after the password." }),
+      const submit = el("button", { type: "submit", text: t("Turn off [setting]") });
+      card.append(el("h2", {}, t("Two-factor authentication"), " ", el("span", { class: "pill status on", text: t("On [setting]") })),
+        el("p", { class: "muted", text: t("Signing in asks for the code your authenticator app shows, after the password.") }),
         el("form", { onsubmit: async (event) => {
           event.preventDefault();
           submit.disabled = true;
           try { await api("/api/account/otp/disable", { method: "POST", body: { password: password.value } }); reload(); }
           catch (e) { say(e.message); password.focus(); submit.disabled = false; }
-        } }, field("Password, to turn it off", password), el("div", { class: "actions" }, submit)), message);
+        } }, field(t("Password, to turn it off"), password), el("div", { class: "actions" }, submit)), message);
       return card;
     }
-    const start = el("button", { class: "primary", text: "Set up" });
-    card.append(el("h2", {}, "Two-factor authentication ", el("span", { class: "pill status standby", text: "Off" })),
-      el("p", { class: "muted", text: "Ask for a code from an authenticator app (Passwords on iPhone and Mac, Google Authenticator, 1Password…) after the password, so a password alone no longer signs in." }),
+    const start = el("button", { class: "primary", text: t("Set up") });
+    card.append(el("h2", {}, t("Two-factor authentication"), " ", el("span", { class: "pill status standby", text: t("Off [setting]") })),
+      el("p", { class: "muted", text: t("Ask for a code from an authenticator app (Passwords on iPhone and Mac, Google Authenticator, 1Password…) after the password, so a password alone no longer signs in.") }),
       el("div", { class: "actions" }, start), message);
     start.addEventListener("click", async () => {
       start.disabled = true;
@@ -1984,21 +2016,21 @@
       try { setup = await api("/api/account/otp/setup", { method: "POST", body: {} }); }
       catch (e) { say(e.message); start.disabled = false; return; }
       const code = el("input", { inputMode: "numeric", autocomplete: "one-time-code", required: true, maxLength: 9, placeholder: "123 456", spellcheck: false });
-      const confirmButton = el("button", { class: "primary", type: "submit", text: "Turn on" });
+      const confirmButton = el("button", { class: "primary", type: "submit", text: t("Turn on") });
       const secret = el("code", { class: "mono secret", text: setup.secret.replace(/(.{4})/g, "$1 ").trim() });
       start.closest(".actions").replaceWith(
         el("div", { class: "setup" },
-          setup.qr ? el("img", { class: "qr", src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(setup.qr)}`, alt: "QR code for an authenticator app", width: 148, height: 148 }) : null,
+          setup.qr ? el("img", { class: "qr", src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(setup.qr)}`, alt: t("QR code for an authenticator app"), width: 148, height: 148 }) : null,
           el("div", {},
-            el("p", { text: "Scan this code with your authenticator app, or open the link on this device; or type the key by hand." }),
+            el("p", { text: t("Scan this code with your authenticator app, or open the link on this device; or type the key by hand.") }),
             el("p", {}, secret, " ", copyButton(setup.secret, secret),
-              " · ", el("a", { href: setup.uri, text: "Open in the app" })))),
+              " · ", el("a", { href: setup.uri, text: t("Open in the app") })))),
         el("form", { onsubmit: async (event) => {
           event.preventDefault();
           confirmButton.disabled = true;
           try { await api("/api/account/otp/activate", { method: "POST", body: { code: code.value } }); reload(); }
           catch (e) { say(e.message); code.select(); confirmButton.disabled = false; }
-        } }, field("The code the app shows now", code), el("div", { class: "actions" }, confirmButton)));
+        } }, field(t("The code the app shows now"), code), el("div", { class: "actions" }, confirmButton)));
       code.focus();
     });
     return card;
@@ -2059,21 +2091,21 @@
   /// A Copy button for `text` that says it worked ("Copied", for two seconds), or, when the browser refuses,
   /// selects `field` so it can be copied by hand.
   function copyButton(text, field) {
-    const button = el("button", { type: "button", class: "link", text: "Copy" });
+    const button = el("button", { type: "button", class: "link", text: t("Copy") });
     let timer = null;
     button.addEventListener("click", async () => {
       clearTimeout(timer);
       try {
         await copyText(text);
-        button.textContent = "✓ Copied";
+        button.textContent = `✓ ${t("Copied")}`;
       } catch {
         const range = document.createRange();
         range.selectNodeContents(field);
         getSelection().removeAllRanges();
         getSelection().addRange(range);
-        button.textContent = "Selected: press ⌘C or Ctrl+C";
+        button.textContent = t("Selected: press ⌘C or Ctrl+C");
       }
-      timer = setTimeout(() => { button.textContent = "Copy"; }, 2000);
+      timer = setTimeout(() => { button.textContent = t("Copy"); }, 2000);
     });
     return button;
   }
@@ -2090,40 +2122,40 @@
 
   views.users = async (main) => {
     if (auth.mode !== "form") {
-      show(main, pageHead("Users", "This web UI has no sign-in: its HomeswiftUI block says auth none, so there are no users."));
+      show(main, pageHead(t("Users"), t("This web UI has no sign-in: its HomeswiftUI block says auth none, so there are no users.")));
       return;
     }
     const [users, tokens] = await Promise.all([api("/api/users"), api("/api/tokens")]);
     const admins = users.filter((user) => user.admin).length;
     // A card's facts are a third of its width: the day alone ("24 Oct 2026"), the time in the tooltip.
-    const when = (iso) => iso ? new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "Never";
-    const whenFull = (iso) => iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "full", timeStyle: "short" }) : "Never";
+    const when = (iso) => iso ? new Date(iso).toLocaleDateString(HomeswiftI18n.locale, { day: "numeric", month: "short", year: "numeric" }) : t("Never");
+    const whenFull = (iso) => iso ? new Date(iso).toLocaleString(HomeswiftI18n.locale, { dateStyle: "full", timeStyle: "short" }) : t("Never");
     const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);
     // A choice as a switch, as the rest of the UI's on and off.
     const checkbox = (label, checked, help) => {
       const input = el("input", { type: "checkbox", checked });
       return [el("label", { class: "toggle" }, el("span", { class: "switch" }, input, el("span")), el("span", { class: "field-title", text: label })), help ? el("p", { class: "help", text: help }) : null, input];
     };
-    const roleHelp = "An administrator changes settings, plugins and users; anyone else sees the bridge and controls accessories.";
+    const roleHelp = t("An administrator changes settings, plugins and users; anyone else sees the bridge and controls accessories.");
 
     /// The form that adds a user, or changes one (`user`): name, role, and a password (a new one, for a user).
     function userForm(user, done) {
       const username = el("input", { autocomplete: "off", autocapitalize: "none", required: true, maxLength: 64, spellcheck: false, value: user?.username ?? "" });
       username.setAttribute("autocorrect", "off");
-      const name = el("input", { autocomplete: "off", maxLength: 64, value: user && user.name !== user.username ? user.name : "", placeholder: user ? `${user.username} (the username)` : "The username" });
+      const name = el("input", { autocomplete: "off", maxLength: 64, value: user && user.name !== user.username ? user.name : "", placeholder: user ? t("{username} (the username)", { username: user.username }) : t("The username") });
       const password = el("input", { type: "password", autocomplete: "new-password", required: !user });
       const gauge = strengthGauge(password, () => username.value);
       // The gauge once there is a password to judge (an empty field keeps theirs, and needs no meter): it unfolds,
       // easing the fields below down rather than pushing them.
       const gaugeBox = el("div", { class: "unfold", inert: true }, el("div", {}, gauge));
       password.addEventListener("input", () => { gaugeBox.classList.toggle("open", Boolean(password.value)); gaugeBox.inert = !password.value; });
-      const [roleLabel, roleNote, admin] = checkbox("Administrator", user ? user.admin : false, roleHelp);
-      if (user?.admin && admins < 2) { admin.disabled = true; roleNote.textContent = "The last administrator stays one: make another user an administrator first."; }
+      const [roleLabel, roleNote, admin] = checkbox(t("Administrator"), user ? user.admin : false, roleHelp);
+      if (user?.admin && admins < 2) { admin.disabled = true; roleNote.textContent = t("The last administrator stays one: make another user an administrator first."); }
       const message = el("p", { class: "status-line muted", role: "status" });
-      const submit = el("button", { class: "primary", type: "submit", text: user ? "Save" : "Add user" });
+      const submit = el("button", { class: "primary", type: "submit", text: user ? t("Save") : t("Add user") });
       const form = el("form", { class: "account-form", onsubmit: async (event) => {
         event.preventDefault();
-        if (password.value && !(await gauge.acceptable())) { message.className = "status-line error"; message.textContent = "The password is not strong enough yet: the gauge says what is missing."; return; }
+        if (password.value && !(await gauge.acceptable())) { message.className = "status-line error"; message.textContent = t("The password is not strong enough yet: the gauge says what is missing."); return; }
         submit.disabled = true;
         try {
           if (user) {
@@ -2136,13 +2168,13 @@
           done(`user:${(user?.username ?? username.value).trim().toLowerCase()}`);
         } catch (e) { message.className = "status-line error"; message.textContent = e.message; submit.disabled = false; }
       } },
-        el("h2", { id: "user-form-title", text: user ? `Edit ${user.name}` : "Add a user" }),
-        user ? null : field("Username", username, "What they sign in with: no spaces or colons."),
-        field("Name", name, "Shown in the web UI; the username when empty."),
-        el("label", { class: "field" }, el("span", { class: "field-title", text: user ? "New password" : "Password" }), password,
-          user ? el("span", { class: "help", text: "Leave empty to keep theirs. A new one signs them out everywhere." }) : null, gaugeBox),
+        el("h2", { id: "user-form-title", text: user ? t("Edit {name}", { name: user.name }) : t("Add a user") }),
+        user ? null : field(t("Username"), username, t("What they sign in with: no spaces or colons.")),
+        field(t("Name"), name, t("Shown in the web UI; the username when empty.")),
+        el("label", { class: "field" }, el("span", { class: "field-title", text: user ? t("New password") : t("Password") }), password,
+          user ? el("span", { class: "help", text: t("Leave empty to keep theirs. A new one signs them out everywhere.") }) : null, gaugeBox),
         roleLabel, roleNote,
-        message, el("div", { class: "actions" }, el("button", { type: "button", text: "Cancel", onclick: () => done() }), submit));
+        message, el("div", { class: "actions" }, el("button", { type: "button", text: t("Cancel"), onclick: () => done() }), submit));
       return form;
     }
 
@@ -2153,11 +2185,13 @@
 
     for (const user of users) {
       const lastAdmin = user.admin && admins < 2;
-      const actions = menuButton(`Actions for ${user.name}`, () => [
-        { label: "Edit", icon: "edit", onSelect: () => openForm(user, actions) },
-        user.you ? { label: "Your account", icon: "user", href: "/account" } : null,
-        lastAdmin ? null : { label: user.you ? "Remove your account" : "Remove", icon: "trash", danger: true, onSelect: async () => {
-          if (!confirm(`Remove ${user.name} (${user.username})? They are signed out at once.${user.you ? " That is you: this browser is signed out too." : ""}`)) return;
+      const actions = menuButton(t("Actions for {name}", { name: user.name }), () => [
+        { label: t("Edit"), icon: "edit", onSelect: () => openForm(user, actions) },
+        user.you ? { label: t("Your account"), icon: "user", href: "/account" } : null,
+        lastAdmin ? null : { label: user.you ? t("Remove your account") : t("Remove"), icon: "trash", danger: true, onSelect: async () => {
+          const names = { name: user.name, username: user.username };
+          if (!confirm(user.you ? t("Remove {name} ({username})? They are signed out at once. That is you: this browser is signed out too.", names)
+            : t("Remove {name} ({username})? They are signed out at once.", names))) return;
           try { await api(`/api/users/${encodeURIComponent(user.username)}`, { method: "DELETE" }); if (user.you) await loadAuth(); else route(); } catch (e) { alert(e.message); }
         } },
       ]);
@@ -2165,21 +2199,21 @@
         el("div", { class: "server-head" },
           tile(user.admin ? "key" : "user", user.admin ? "orange" : "blue"),
           el("div", { class: "who" }, el("strong", { text: user.name }),
-            el("div", { class: "muted" }, el("span", { class: "mono", text: user.username }), user.you ? " · you" : "")),
-          el("span", { class: user.admin ? "pill status admin" : "pill status standby", text: user.admin ? "Administrator" : "User" })),
+            el("div", { class: "muted" }, el("span", { class: "mono", text: user.username }), user.you ? ` · ${t("you")}` : "")),
+          el("span", { class: user.admin ? "pill status admin" : "pill status standby", text: user.admin ? t("Administrator") : t("User") })),
         el("div", { class: "facts two" },
-          fact("Two-factor", user.twoFactor ? "On" : "Off"),
-          fact("Added", when(user.created), { title: whenFull(user.created) })),
+          fact(t("Two-factor"), user.twoFactor ? t("On [setting]") : t("Off [setting]")),
+          fact(t("Added"), when(user.created), { title: whenFull(user.created) })),
         el("div", { class: "card-foot" },
-          user.you ? el("a", { href: "/account", text: "Your password and two-factor" })
-            : el("span", { class: "muted", text: lastAdmin ? "The last administrator" : "" }),
+          user.you ? el("a", { href: "/account", text: t("Your password and two-factor") })
+            : el("span", { class: "muted", text: lastAdmin ? t("The last administrator") : "" }),
           actions)));
     }
 
     show(main,
       el("div", { class: "page-head" },
-        el("div", { class: "who" }, titleWithAdd("h1", "Users", "Add user", (event) => openForm(null, event.currentTarget)),
-          el("p", { class: "muted", text: "Who may use this web UI. Administrators change settings, plugins and users; other users see the bridge and control accessories." }))),
+        el("div", { class: "who" }, titleWithAdd("h1", t("Users"), t("Add user"), (event) => openForm(null, event.currentTarget)),
+          el("p", { class: "muted", text: t("Who may use this web UI. Administrators change settings, plugins and users; other users see the bridge and control accessories.") }))),
       list,
       apiTokens(tokens, when, whenFull));
   };
@@ -2188,15 +2222,15 @@
   /// token does what an administrator does. Shown once, when made; the bridge keeps only a hash. Laid out as the
   /// users are: a button in the section's head opens the form at the head of the grid.
   function apiTokens(tokens, when, whenFull) {
-    const name = el("input", { required: true, maxLength: 64, placeholder: "Backup script", autocomplete: "off" });
-    const scope = el("select", {}, el("option", { value: "read", text: "Read" }), el("option", { value: "admin", text: "Admin" }));
+    const name = el("input", { required: true, maxLength: 64, placeholder: t("Backup script"), autocomplete: "off" });
+    const scope = el("select", {}, el("option", { value: "read", text: t("Read") }), el("option", { value: "admin", text: t("Admin") }));
     const scopeHelp = el("span", { class: "help" });
-    const describeScope = () => { scopeHelp.textContent = scope.value === "admin" ? "Everything an administrator does, except users and tokens." : "The status, accessories and metrics."; };
+    const describeScope = () => { scopeHelp.textContent = scope.value === "admin" ? t("Everything an administrator does, except users and tokens.") : t("The status, accessories and metrics."); };
     scope.addEventListener("change", describeScope);
     describeScope();
-    const expiry = el("select", {}, ...[["", "Never"], ["30", "In 30 days"], ["90", "In 90 days"], ["365", "In a year"]].map(([value, text]) => el("option", { value, text })));
+    const expiry = el("select", {}, ...[["", t("Never")], ["30", t("In 30 days")], ["90", t("In 90 days")], ["365", t("In a year")]].map(([value, text]) => el("option", { value, text })));
     const message = el("p", { class: "status-line muted", role: "status" });
-    const submit = el("button", { class: "primary", type: "submit", text: "Create token" });
+    const submit = el("button", { class: "primary", type: "submit", text: t("Create token") });
     const grid = el("div", { class: "grid" });
     let close = () => {};
     let made = null;   // the token made in the panel: the list is drawn again with it once the panel closes
@@ -2208,19 +2242,19 @@
         made = `token:${token.id}`;
         const secret = el("code", { class: "mono secret", text: token.token });
         form.replaceWith(el("div", { class: "account-form token-once" },
-          el("h2", { id: "token-form-title", text: `Token “${token.name}”` }),
-          el("p", { class: "help" }, "Copy it now: it is shown once. Send it as ", el("code", { text: "Authorization: Bearer <token>" }), "."),
+          el("h2", { id: "token-form-title", text: t("Token “{name}”", { name: token.name }) }),
+          el("p", { class: "help" }, withNodes(t("Copy it now: it is shown once. Send it as {header}."), { header: el("code", { text: "Authorization: Bearer <token>" }) })),
           el("p", {}, secret, " ", copyButton(token.token, secret)),
-          el("div", { class: "actions" }, el("button", { type: "button", class: "primary", text: "Done", onclick: () => close() }))));
+          el("div", { class: "actions" }, el("button", { type: "button", class: "primary", text: t("Done"), onclick: () => close() }))));
       } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
       submit.disabled = false;
     } },
-      el("h2", { id: "token-form-title", text: "Create an API token" }),
+      el("h2", { id: "token-form-title", text: t("Create an API token") }),
       el("div", { class: "fields" },
-        el("label", { class: "field" }, el("span", { class: "field-title", text: "Name" }), name, el("span", { class: "help", text: "What uses it, to know it again." })),
-        el("label", { class: "field" }, el("span", { class: "field-title", text: "Scope" }), scope, scopeHelp),
-        el("label", { class: "field" }, el("span", { class: "field-title", text: "Expires" }), expiry)),
-      message, el("div", { class: "actions" }, el("button", { type: "button", text: "Cancel", onclick: () => close() }), submit));
+        el("label", { class: "field" }, el("span", { class: "field-title", text: t("Name") }), name, el("span", { class: "help", text: t("What uses it, to know it again.") })),
+        el("label", { class: "field" }, el("span", { class: "field-title", text: t("Scope") }), scope, scopeHelp),
+        el("label", { class: "field" }, el("span", { class: "field-title", text: t("Expires") }), expiry)),
+      message, el("div", { class: "actions" }, el("button", { type: "button", text: t("Cancel"), onclick: () => close() }), submit));
     const openTokenForm = (event) => {
       const opener = event?.currentTarget;
       form.reset();
@@ -2237,47 +2271,47 @@
           tile("key", token.scope === "admin" ? "orange" : "teal"),
           el("div", { class: "who" }, el("strong", { text: token.name }),
             el("div", { class: "muted", title: whenFull(token.created), text: token.createdBy ? `${token.createdBy} · ${when(token.created)}` : when(token.created) })),
-          el("span", { class: token.scope === "admin" ? "pill status admin" : "pill status standby", text: token.scope === "admin" ? "Admin" : "Read" })),
+          el("span", { class: token.scope === "admin" ? "pill status admin" : "pill status standby", text: token.scope === "admin" ? t("Admin") : t("Read") })),
         el("div", { class: "facts two" },
-          fact("Last used", when(token.lastUsed), { title: whenFull(token.lastUsed) }),
-          fact("Expires", token.expires ? when(token.expires) : "Never", token.expires ? { title: whenFull(token.expires) } : {})),
+          fact(t("Last used"), when(token.lastUsed), { title: whenFull(token.lastUsed) }),
+          fact(t("Expires"), token.expires ? when(token.expires) : t("Never"), token.expires ? { title: whenFull(token.expires) } : {})),
         el("div", { class: "card-foot" },
-          el("span", { class: expired ? "pill status bad" : "muted", text: expired ? "Expired" : "" }),
-          menuButton(`Actions for the token ${token.name}`, () => [
-            { label: "Revoke", icon: "trash", danger: true, onSelect: async () => {
-              if (!confirm(`Revoke the token “${token.name}”? Scripts using it are refused at once.`)) return;
+          el("span", { class: expired ? "pill status bad" : "muted", text: expired ? t("Expired") : "" }),
+          menuButton(t("Actions for the token {name}", { name: token.name }), () => [
+            { label: t("Revoke"), icon: "trash", danger: true, onSelect: async () => {
+              if (!confirm(t("Revoke the token “{name}”? Scripts using it are refused at once.", { name: token.name }))) return;
               try { await api(`/api/tokens/${encodeURIComponent(token.id)}`, { method: "DELETE" }); route(); } catch (e) { alert(e.message); }
             } },
           ])));
     });
     grid.append(...(cards.length ? cards : [el("div", { class: "card empty" },
-      el("p", { class: "muted", text: "No tokens yet. One lets a script or another program read the bridge, or change it as an administrator would." }))]));
+      el("p", { class: "muted", text: t("No tokens yet. One lets a script or another program read the bridge, or change it as an administrator would.") }))]));
     return el("section", {},
       el("div", { class: "section-head" },
-        el("div", {}, titleWithAdd("h2", "API tokens", "Create token", openTokenForm),
-          el("span", { class: "muted" }, "For scripts: ", el("code", { text: "Authorization: Bearer <token>" }), " on ", el("code", { text: "/api/*" })))),
+        el("div", {}, titleWithAdd("h2", t("API tokens"), t("Create token"), openTokenForm),
+          el("span", { class: "muted" }, withNodes(t("For scripts: {header} on {path}"), { header: el("code", { text: "Authorization: Bearer <token>" }), path: el("code", { text: "/api/*" }) })))),
       grid);
   }
 
   const appearanceLink = () => el("a", { class: "card link-card", href: "/appearance" }, HomeswiftCommon.icon("sliders"),
-    el("div", { class: "who" }, el("strong", { text: "Appearance" }), el("div", { class: "muted", text: "Light or dark, the wallpaper, °C or °F" })));
+    el("div", { class: "who" }, el("strong", { text: t("Appearance") }), el("div", { class: "muted", text: t("Light or dark, the wallpaper, °C or °F, the language") })));
 
   // ---- Appearance ------------------------------------------------------------
   // /appearance: the theme (as the system, light or dark), a wallpaper (one of the UI's, or an image of your own)
   // and the temperature unit, as Glass UI offers them. Each user's own, saved on the bridge (/api/preferences) and
   // applied at once, on every page, plugins' included.
 
-  const wallpaperChoices = [["none", "None"], ["aurora", "Aurora"], ["sunset", "Sunset"], ["ocean", "Ocean"], ["forest", "Forest"], ["graphite", "Graphite"]];
+  const wallpaperChoices = [["none", t("None")], ["aurora", t("Aurora")], ["sunset", t("Sunset")], ["ocean", t("Ocean")], ["forest", t("Forest")], ["graphite", t("Graphite")]];
 
   views.appearance = async (main) => {
     let preferences = await HomeswiftCommon.loadPreferences();
     const message = el("p", { class: "status-line muted", role: "status" });
     const choose = async (change) => {
       message.className = "status-line muted";
-      message.textContent = "Saving…";
+      message.textContent = t("Saving…");
       try {
         preferences = HomeswiftCommon.applyPreferences(await api("/api/preferences", { method: "PUT", body: change }));
-        message.textContent = "Saved for your account, on every browser.";
+        message.textContent = t("Saved for your account, on every browser.");
         draw();
       } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
     };
@@ -2291,11 +2325,11 @@
       picker.value = "";
       if (!file) return;
       message.className = "status-line muted";
-      message.textContent = "Preparing the image…";
+      message.textContent = t("Preparing the image…");
       try {
         const data = await scaledImage(file);
         preferences = HomeswiftCommon.applyPreferences(await api("/api/preferences/wallpaper", { method: "PUT", body: { data } }));
-        message.textContent = "Your image is the wallpaper now.";
+        message.textContent = t("Your image is the wallpaper now.");
         draw();
       } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
     });
@@ -2303,39 +2337,44 @@
     function draw() {
       const own = preferences.wallpaper === "custom" || preferences.wallpaperVersion;
       body.replaceChildren(
-        el("div", { class: "card" }, el("h2", { text: "Theme" }),
-          el("p", { class: "muted", text: "Automatic follows the system's light or dark appearance." }),
-          segmented("Theme", preferences.theme, [["auto", "Automatic"], ["light", "Light"], ["dark", "Dark"]], "theme")),
-        el("div", { class: "card" }, el("h2", { text: "Wallpaper" }),
-          el("p", { class: "muted", text: "Behind the glass of every page." }),
-          el("div", { class: "wallpapers", role: "radiogroup", "aria-label": "Wallpaper" },
-            [...wallpaperChoices, ...(own ? [["custom", "Your image"]] : [])].map(([value, text]) =>
+        el("div", { class: "card" }, el("h2", { text: t("Theme") }),
+          el("p", { class: "muted", text: t("Automatic follows the system's light or dark appearance.") }),
+          segmented(t("Theme"), preferences.theme, [["auto", t("Automatic")], ["light", t("Light")], ["dark", t("Dark")]], "theme")),
+        el("div", { class: "card" }, el("h2", { text: t("Wallpaper") }),
+          el("p", { class: "muted", text: t("Behind the glass of every page.") }),
+          el("div", { class: "wallpapers", role: "radiogroup", "aria-label": t("Wallpaper") },
+            [...wallpaperChoices, ...(own ? [["custom", t("Your image")]] : [])].map(([value, text]) =>
               el("button", { type: "button", role: "radio", class: `wallpaper-choice${preferences.wallpaper === value ? " on" : ""}`, "aria-checked": String(preferences.wallpaper === value),
                 onclick: () => { if (preferences.wallpaper !== value) choose({ wallpaper: value }); } },
                 el("span", { class: "wallpaper-swatch", "data-swatch": value }), el("span", { text })))),
           el("div", { class: "actions" },
-            el("button", { text: own ? "Choose another image…" : "Use an image of your own…", onclick: () => picker.click() }),
-            own ? el("button", { class: "link danger", text: "Remove your image", onclick: async () => {
+            el("button", { text: own ? t("Choose another image…") : t("Use an image of your own…"), onclick: () => picker.click() }),
+            own ? el("button", { class: "link danger", text: t("Remove your image"), onclick: async () => {
               try { preferences = HomeswiftCommon.applyPreferences(await api("/api/preferences/wallpaper", { method: "DELETE" })); draw(); } catch (e) { alert(e.message); }
             } }) : null),
           picker),
-        el("div", { class: "card" }, el("h2", { text: "Temperatures" }),
-          el("p", { class: "muted", text: "How accessories and plugin pages show them. HomeKit and the Home app keep their own setting." }),
-          segmented("Temperature unit", preferences.temperatureUnit, [["c", "Celsius (°C)"], ["f", "Fahrenheit (°F)"]], "temperatureUnit")));
+        el("div", { class: "card" }, el("h2", { text: t("Temperatures") }),
+          el("p", { class: "muted", text: t("How accessories and plugin pages show them. HomeKit and the Home app keep their own setting.") }),
+          segmented(t("Temperature unit"), preferences.temperatureUnit, [["c", t("Celsius (°C)")], ["f", t("Fahrenheit (°F)")]], "temperatureUnit")),
+        el("div", { class: "card" }, el("h2", { text: t("Language") }),
+          el("p", { class: "muted", text: t("The pages' language and the one the Assistant answers in. Automatic follows the browser.") }),
+          // Each language in its own name, so whoever reads the page finds theirs.
+          segmented(t("Language"), preferences.language || "auto",
+            [["auto", t("Automatic")], ...HomeswiftI18n.languages.map((code) => [code, HomeswiftI18n.names[code]])], "language")));
     }
     draw();
-    show(main, pageHead("Appearance", "How the web UI looks for you, on every browser you sign in to."), body, message);
+    show(main, pageHead(t("Appearance"), t("How the web UI looks for you, on every browser you sign in to.")), body, message);
   };
 
   /// An image as base64 JPEG, at most 2560 pixels on its long side: a photo from a phone is several MB.
   async function scaledImage(file) {
-    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error("Choose a JPEG, PNG or WebP image.");
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error(t("Choose a JPEG, PNG or WebP image."));
     const bitmap = await createImageBitmap(file);
     const scale = Math.min(1, 2560 / Math.max(bitmap.width, bitmap.height));
     const canvas = el("canvas", { width: Math.round(bitmap.width * scale), height: Math.round(bitmap.height * scale) });
     canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
-    if (!blob) throw new Error("The image could not be read.");
+    if (!blob) throw new Error(t("The image could not be read."));
     const bytes = new Uint8Array(await blob.arrayBuffer());
     let binary = "";
     for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
@@ -2346,7 +2385,7 @@
 
   /// "Line 12", a link that puts the caret there: for a syntax error or a problem the editor placed.
   const lineLink = (place, editor) => place.line && editor
-    ? [el("button", { type: "button", class: "line-link", text: `Line ${place.line}`, onclick: () => editor.reveal(place.offset) })] : [];
+    ? [el("button", { type: "button", class: "line-link", text: t("Line {line}", { line: place.line }), onclick: () => editor.reveal(place.offset) })] : [];
 
   /// A save's schema problems, `{ text, line?, offset? }`, each with its line when the editor shows it.
   const problemList = (items, editor) => el("ul", { class: "schema-problems" }, items.map((item) => el("li", {}, ...lineLink(item, editor), item.text)));
@@ -2356,17 +2395,17 @@
     const textarea = el("textarea", { value: saved, spellcheck: false, "aria-label": "config.json" });
     const check = el("span", { class: "muted" });
     const message = el("p", { class: "status-line muted" });
-    const save = el("button", { class: "primary", text: "Save", disabled: true });
-    const force = el("button", { class: "hidden", text: "Save anyway", title: "Save what the plugins' schemas refuse: for a value a plugin accepts that its schema does not list" });
-    const revert = el("button", { text: "Revert", disabled: true });
-    const format = el("button", { class: "link", text: "Format" });
+    const save = el("button", { class: "primary", text: t("Save"), disabled: true });
+    const force = el("button", { class: "hidden", text: t("Save anyway"), title: t("Save what the plugins' schemas refuse: for a value a plugin accepts that its schema does not list") });
+    const revert = el("button", { text: t("Revert"), disabled: true });
+    const format = el("button", { class: "link", text: t("Format") });
     // Validity and the unsaved state follow every keystroke, so Save is only offered when it can work; a syntax
     // error marks its line.
     const update = () => {
       const dirty = textarea.value !== saved;
       const result = editor.check();
       const valid = "value" in result;
-      if (valid) { check.className = "ok"; check.textContent = dirty ? "Valid JSON · unsaved" : "Saved"; }
+      if (valid) { check.className = "ok"; check.textContent = dirty ? t("Valid JSON · unsaved") : t("Saved"); }
       else { check.className = "error"; check.replaceChildren(...lineLink(result, editor), result.message); }
       save.disabled = !dirty || !valid;
       revert.disabled = !dirty;
@@ -2378,7 +2417,8 @@
       try {
         const result = await api(`/api/config${anyway ? "?force=true" : ""}`, { method: "PUT", body: JSON.parse(textarea.value) });
         message.className = "status-line ok";
-        message.textContent = `Changed: ${result.changes.join(", ") || "nothing"}. ${savedText(result)}`;
+        message.textContent = result.changes.length ? t("Changed: {changes}. {result}", { changes: result.changes.map((change) => HomeswiftI18n.message(change)).join(", "), result: savedText(result) })
+          : t("Changed: nothing. {result}", { result: savedText(result) });
         saved = await api("/api/config", { raw: true });
         textarea.value = saved;
         editor.repaint();
@@ -2387,7 +2427,7 @@
         if (e.problems) {
           // Each problem on its line; the plugin may accept what its schema does not list, so saving anyway stays possible.
           const places = editor.markPaths(e.problems.map((problem) => problem.path));
-          message.replaceChildren(el("span", { text: "The plugins' schemas refuse this:" }), problemList(e.problems.map((problem, i) => ({ ...places[i], text: `${problem.platform}: ${problem.text}` })), editor));
+          message.replaceChildren(el("span", { text: t("The plugins' schemas refuse this:") }), problemList(e.problems.map((problem, i) => ({ ...places[i], text: t("{platform}: {problem}", { platform: problem.platform, problem: HomeswiftI18n.message(problem.text) }) })), editor));
           force.classList.remove("hidden");
           update();
           save.disabled = true;
@@ -2409,7 +2449,7 @@
     format.addEventListener("click", () => { try { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); update(); } catch {} });
     update();
     show(main,
-      pageHead("Configuration", "The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once."),
+      pageHead(t("Configuration"), t("The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once.")),
       el("div", { class: "card editor-card" },
         el("div", { class: "editor-bar" }, el("span", { class: "mono muted file-name", text: "config.json" }), check, el("span", { class: "spacer" }), format, revert, force, save),
         editor, message));
@@ -2420,17 +2460,17 @@
   const levelRank = { trace: 0, debug: 1, info: 2, notice: 3, warning: 4, error: 5, critical: 6 };
   // The server's caps: the latest lines (/api/logs) and a time range (UIServer.logLimit).
   const latestLines = 2000, rangeLines = 10000;
-  const timeFormat = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  const timeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
   /// A line with what filtering reads, worked out once: its date and its text in lower case, its payload included.
   const prepared = (line) => Object.assign(line, { date: new Date(line.time), haystack: `${line.label} ${line.text} ${line.details ?? ""}`.toLowerCase() });
   // All: every line; Info: info and above; Warnings: warnings only; Errors: errors only (critical ones too).
-  const levelChoices = [["trace", "All"], ["info", "Info"], ["warning", "Warnings"], ["error", "Errors"]];
+  const levelChoices = [["trace", t("All")], ["info", t("Info")], ["warning", t("Warnings")], ["error", t("Errors")]];
   const levelShown = (level, choice) => choice === "warning" ? level === "warning" : (levelRank[level] ?? 0) >= (levelRank[choice] ?? 0);
   let logState = null;
 
   // The Logs and Status pages' filters, in one row above what they scope.
-  const rangeChoices = [["latest", "Latest lines"], ["1h", "Last hour"], ["6h", "Last 6 hours"], ["24h", "Last 24 hours"],
-    ["today", "Today"], ["yesterday", "Yesterday"], ["7d", "Last 7 days"], ["custom", "Custom range…"]];
+  const rangeChoices = [["latest", t("Latest lines")], ["1h", t("Last hour")], ["6h", t("Last 6 hours")], ["24h", t("Last 24 hours")],
+    ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("Last 7 days")], ["custom", t("Custom range…")]];
 
   /// A time range menu whose first choice is the default (`latest`, the Logs page's latest lines, only when asked
   /// for), with the From and To of a custom range in `customRow`. `changed` runs on a choice.
@@ -2438,13 +2478,13 @@
     const choices = rangeChoices.filter(([value]) => latest || value !== "latest");
     const fallback = choices[0][0];
     const since = choices.some(([value]) => value === params.get("since")) ? params.get("since") : fallback;
-    const picker = el("select", { class: `popup ${since === fallback ? "" : "chosen"}`, "aria-label": "Time range" }, choices.map(([value, text]) => el("option", { value, text, selected: value === since })));
+    const picker = el("select", { class: `popup ${since === fallback ? "" : "chosen"}`, "aria-label": t("Time range") }, choices.map(([value, text]) => el("option", { value, text, selected: value === since })));
     const localInput = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    const fromInput = el("input", { type: "datetime-local", "aria-label": "From", value: params.get("from") ?? localInput(new Date(Date.now() - 3600000)) });
-    const toInput = el("input", { type: "datetime-local", "aria-label": "To", value: params.get("to") ?? localInput(new Date()) });
+    const fromInput = el("input", { type: "datetime-local", "aria-label": t("From"), value: params.get("from") ?? localInput(new Date(Date.now() - 3600000)) });
+    const toInput = el("input", { type: "datetime-local", "aria-label": t("To"), value: params.get("to") ?? localInput(new Date()) });
     const customRow = el("div", { class: `log-range ${since === "custom" ? "" : "hidden"}` },
-      el("label", {}, "From", fromInput), el("label", {}, "To", toInput),
-      el("button", { text: "Show", onclick: () => changed() }));
+      el("label", {}, t("From"), fromInput), el("label", {}, t("To"), toInput),
+      el("button", { text: t("Show"), onclick: () => changed() }));
     picker.addEventListener("change", () => {
       customRow.classList.toggle("hidden", picker.value !== "custom");
       picker.classList.toggle("chosen", picker.value !== fallback);
@@ -2485,8 +2525,8 @@
     const option = (value, text) => el("option", { value, text, selected: value === initial });
     const picker = el("select", { class: `popup ${initial ? "chosen" : ""}`, "aria-label": label },
       option("", everything),
-      bridges.length ? el("optgroup", { label: "Bridges" }, allBridges ? option("bridge:all", "Bridges only") : null,
-        bridges.map((bridge) => option(`bridge:${bridge.deviceId}`, bridge.external ? `${bridge.name} · its own server` : bridge.childBridge ? `${bridge.name} · child bridge` : bridge.name))) : null,
+      bridges.length ? el("optgroup", { label: t("Bridges") }, allBridges ? option("bridge:all", t("Bridges only")) : null,
+        bridges.map((bridge) => option(`bridge:${bridge.deviceId}`, bridge.external ? t("{name} · its own server", { name: bridge.name }) : bridge.childBridge ? t("{name} · child bridge", { name: bridge.name }) : bridge.name))) : null,
       groupByPlugin(accessories).map(([name, list]) => el("optgroup", { label: name },
         list.map((accessory) => option(`accessory:${accessory.id}`, accessory.name)))));
     picker.addEventListener("change", () => { picker.classList.toggle("chosen", Boolean(picker.value)); changed(); });
@@ -2519,7 +2559,7 @@
     ]);
     const params = new URLSearchParams(location.search);
     const output = el("div", { class: "log", role: "log", "aria-live": "off" });
-    const filter = el("input", { type: "search", class: "search", placeholder: "Filter text", "aria-label": "Filter the log" });
+    const filter = el("input", { type: "search", class: "search", placeholder: t("Filter text"), "aria-label": t("Filter the log") });
     const follow = el("input", { type: "checkbox", checked: true });
     const count = el("span", { class: "muted count" });
     // What the lines are about (sourceFilter): every line; the bridges' own lines (their servers': connections,
@@ -2542,7 +2582,7 @@
       return (line) => labels.has(line.label);
     };
     const sources = sourceFilter(accessories, bridges, initialSource(accessories, bridges, wanted, params.get("bridge")), {
-      label: "What the lines are about", everything: "All lines", allBridges: true, changed: () => { choose(); load(); } });
+      label: t("What the lines are about"), everything: t("All lines"), allBridges: true, changed: () => { choose(); load(); } });
     const source = sources.source;
     const choose = () => {
       const { kind, value } = source();
@@ -2554,7 +2594,7 @@
     const level = levelChoices.some(([value]) => value === params.get("level")) ? params.get("level") : "info";
     logState = { output, level, filter, follow, count, lines: [], accessory: null, bridge: null, live: true, cap: latestLines, capped: false };
     choose();
-    const levels = el("div", { class: "group", role: "group", "aria-label": "Levels shown" }, levelChoices.map(([level, text]) =>
+    const levels = el("div", { class: "group", role: "group", "aria-label": t("Levels shown") }, levelChoices.map(([level, text]) =>
       el("button", { text, class: level === logState.level ? "on" : "", "aria-pressed": String(level === logState.level), onclick: (event) => {
         logState.level = level;
         for (const button of levels.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
@@ -2563,8 +2603,9 @@
       } })));
     const render = () => {
       const shown = shownLines();
-      output.replaceChildren(...(shown.length ? shown.map(lineNode) : [el("p", { class: "muted empty-log", text: "No line matches." })]));
-      count.textContent = `${shown.length} of ${logState.lines.length} lines${logState.capped ? " (the latest of the range)" : ""}`;
+      output.replaceChildren(...(shown.length ? shown.map(lineNode) : [el("p", { class: "muted empty-log", text: t("No line matches.") })]));
+      count.textContent = logState.capped ? tn("{shown} of {n} line (the latest of the range)", "{shown} of {n} lines (the latest of the range)", logState.lines.length, { shown: shown.length })
+        : tn("{shown} of {n} line", "{shown} of {n} lines", logState.lines.length, { shown: shown.length });
       if (follow.checked) output.scrollTop = output.scrollHeight;
     };
     // Typing filters once it pauses: thousands of lines are not drawn again per key.
@@ -2614,8 +2655,8 @@
     // read them, after the latest lines moved on. Off, only the lines in memory have them. Shown when the bridge
     // keeps a log on disk.
     const saveDetails = el("input", { type: "checkbox" });
-    const saveToggle = el("label", { class: "toggle compact hidden save-payloads", title: "Keep each line's JSON payload in the log on disk, secrets masked, so you and the Assistant can read it later. Off: only the latest lines, in memory, have it." },
-      el("span", { class: "switch" }, saveDetails, el("span")), el("span", { text: "Save payloads" }));
+    const saveToggle = el("label", { class: "toggle compact hidden save-payloads", title: t("Keep each line's JSON payload in the log on disk, secrets masked, so you and the Assistant can read it later. Off: only the latest lines, in memory, have it.") },
+      el("span", { class: "switch" }, saveDetails, el("span")), el("span", { text: t("Save payloads") }));
     api("/api/logs/settings").then((settings) => {
       if (!settings.available) return;
       saveDetails.checked = settings.saveDetails;
@@ -2640,17 +2681,17 @@
       const level = line.level === "info" || line.level === "notice" ? "" : ` [${line.level.toUpperCase()}]`;
       return `${line.time} [${line.label}]${level} ${line.text}`;
     };
-    const copy = el("button", { text: "Copy", title: "Copy the lines shown", onclick: async () => {
+    const copy = el("button", { text: t("Copy"), title: t("Copy the lines shown"), onclick: async () => {
       const shown = shownLines();
       const text = shown.map(asText).join("\n");
       try {
         await copyText(text);
-        copy.textContent = `Copied ${shown.length} line${shown.length === 1 ? "" : "s"}`;
+        copy.textContent = tn("Copied {n} line", "Copied {n} lines", shown.length);
       } catch (e) {
-        copy.textContent = "Not copied";
+        copy.textContent = t("Not copied");
         copy.title = e.message;
       }
-      setTimeout(() => { copy.textContent = "Copy"; copy.title = "Copy the lines shown"; }, 1800);
+      setTimeout(() => { copy.textContent = t("Copy"); copy.title = t("Copy the lines shown"); }, 1800);
     } });
     // Log Doctor: the Assistant reads the lines shown and groups the issues, with causes and fixes.
     // The Logs page is an administrator's; its Assistant and file actions too.
@@ -2659,27 +2700,27 @@
       return [sources.picker.value && about ? `the lines about ${about.textContent}` : "", filter.value ? `lines matching "${filter.value}"` : ""].filter(Boolean).join(", ");
     });
     // Download: the range shown (everything kept for the latest lines); Empty: the log in memory and on disk.
-    const actions = menuButton("Log actions", () => {
+    const actions = menuButton(t("Log actions"), () => {
       const chosen = range.span();
       const query = new URLSearchParams();
       if (chosen) { query.set("from", chosen[0].toISOString()); if (chosen[1]) query.set("to", chosen[1].toISOString()); }
       // A phone keeps the toolbar short: Save payloads is here rather than beside Follow.
       const phone = matchMedia("(max-width: 640px)").matches && !saveToggle.classList.contains("hidden");
       return [
-        phone ? { label: "Save payloads", checked: saveDetails.checked, onSelect: () => { saveDetails.checked = !saveDetails.checked; saveDetails.dispatchEvent(new Event("change")); } } : null,
+        phone ? { label: t("Save payloads"), checked: saveDetails.checked, onSelect: () => { saveDetails.checked = !saveDetails.checked; saveDetails.dispatchEvent(new Event("change")); } } : null,
         phone ? { separator: true } : null,
-        { label: chosen ? "Download this range" : "Download the whole log", icon: "download", href: `/api/logs/download${query.size ? `?${query}` : ""}` },
-        { label: "Empty the log…", icon: "trash", danger: true, onSelect: async () => {
-          if (!confirm("Empty the log? Every line goes, in memory and the files kept on disk (up to a week). This cannot be undone.")) return;
+        { label: chosen ? t("Download this range") : t("Download the whole log"), icon: "download", href: `/api/logs/download${query.size ? `?${query}` : ""}` },
+        { label: t("Empty the log…"), icon: "trash", danger: true, onSelect: async () => {
+          if (!confirm(t("Empty the log? Every line goes, in memory and the files kept on disk (up to a week). This cannot be undone."))) return;
           try { await api("/api/logs/truncate", { method: "POST", body: {} }); await load(); } catch (e) { alert(e.message); }
         } },
       ];
     });
     show(main,
-      pageHead("Logs", "This homeswift's log, live, and up to a week back."),
+      pageHead(t("Logs"), t("This homeswift's log, live, and up to a week back.")),
       el("div", { class: "card log-card" },
         el("div", { class: "editor-bar" }, levels, range.picker, sources.picker, filter, el("span", { class: "spacer" }), count, doctor.button, copy,
-          el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: "Follow" })),
+          el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
           saveToggle, actions,
           range.customRow),
         output),
@@ -2690,20 +2731,20 @@
   /// Log Doctor (Glass UI's): a Diagnose button and the card the diagnosis streams into. `lines()` gives the
   /// lines to read, `focus()` what they were picked by. Hidden while the Assistant is off.
   function logDoctor(lines, focus) {
-    const button = el("button", { class: "ai-button icon-on-phone hidden", "aria-label": "Diagnose", title: "The Assistant reads the lines shown and groups the issues, with causes and fixes" }, sparkle(), el("span", { text: "Diagnose" }));
-    const card = el("div", { class: "ai-card log-doctor hidden", role: "region", "aria-label": "Log Doctor", "aria-live": "polite" });
+    const button = el("button", { class: "ai-button icon-on-phone hidden", "aria-label": t("Diagnose"), title: t("The Assistant reads the lines shown and groups the issues, with causes and fixes") }, sparkle(), el("span", { text: t("Diagnose") }));
+    const card = el("div", { class: "ai-card log-doctor hidden", role: "region", "aria-label": t("Log Doctor"), "aria-live": "polite" });
     api("/api/assistant").then((state) => { if (state?.enabled) button.classList.remove("hidden"); }).catch(() => {});
     let controller = null;
     button.addEventListener("click", async () => {
       const picked = lines();
-      if (!picked.length) { alert("No line is shown: widen the range or the filters first."); return; }
+      if (!picked.length) { alert(t("No line is shown: widen the range or the filters first.")); return; }
       controller?.abort();
       const own = controller = new AbortController();
       let closed = false;
-      const live = el("div", { class: "ai-live" }, el("p", { class: "ai-thinking", text: `Reading ${picked.length.toLocaleString()} ${picked.length === 1 ? "line" : "lines"}…` }));
-      const stop = el("button", { class: "link", text: "Stop", onclick: () => own.abort() });
-      const close = el("button", { class: "ai-close", title: "Close", "aria-label": "Close the diagnosis", text: "×", onclick: () => { closed = true; own.abort(); card.classList.add("hidden"); } });
-      const head = el("div", { class: "ai-head" }, sparkle(), el("span", { class: "ai-label", text: "Log Doctor" }), el("span", { class: "spacer" }), close);
+      const live = el("div", { class: "ai-live" }, el("p", { class: "ai-thinking", text: tn("Reading {n} line…", "Reading {n} lines…", picked.length) }));
+      const stop = el("button", { class: "link", text: t("Stop"), onclick: () => own.abort() });
+      const close = el("button", { class: "ai-close", title: t("Close"), "aria-label": t("Close the diagnosis"), text: "×", onclick: () => { closed = true; own.abort(); card.classList.add("hidden"); } });
+      const head = el("div", { class: "ai-head" }, sparkle(), el("span", { class: "ai-label", text: t("Log Doctor") }), el("span", { class: "spacer" }), close);
       card.className = "ai-card log-doctor thinking";
       card.replaceChildren(el("div", { class: "ai-inner" }, head, live, stop));
       card.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
@@ -2713,11 +2754,11 @@
           signal: own.signal, onChunk: streamInto(live) });
         card.className = "ai-card log-doctor answered";
         live.replaceChildren(HomeswiftCommon.markdown(reply.text));
-        stop.replaceWith(el("p", { class: "muted ai-note", text: `${reply.model} read ${reply.lines.toLocaleString()} ${reply.lines === 1 ? "line" : "lines"}. Secrets and addresses were masked first; check its advice before acting on it.` }));
+        stop.replaceWith(el("p", { class: "muted ai-note", text: tn("{model} read {n} line. Secrets and addresses were masked first; check its advice before acting on it.", "{model} read {n} lines. Secrets and addresses were masked first; check its advice before acting on it.", reply.lines, { model: reply.model }) }));
       } catch (e) {
         card.className = `ai-card log-doctor failed${closed ? " hidden" : ""}`;
         stop.remove();
-        live.replaceChildren(el("p", { class: own.signal.aborted ? "muted" : "error", text: own.signal.aborted ? "Stopped." : e.message }));
+        live.replaceChildren(el("p", { class: own.signal.aborted ? "muted" : "error", text: own.signal.aborted ? t("Stopped.") : e.message }));
       } finally {
         button.disabled = false;
         if (controller === own) controller = null;
@@ -2742,10 +2783,10 @@
       el("span", { class: "label", text: line.label, title: line.label }),
       text);
     if (!line.details) return node;
-    const toggle = el("button", { type: "button", class: "log-details-toggle", text: "JSON", title: "Show the payload" });
+    const toggle = el("button", { type: "button", class: "log-details-toggle", text: "JSON", title: t("Show the payload") });
     const show = () => {
       toggle.setAttribute("aria-expanded", String(Boolean(line.open)));
-      toggle.title = line.open ? "Hide the payload" : "Show the payload";
+      toggle.title = line.open ? t("Hide the payload") : t("Show the payload");
       $(".log-details", node)?.remove();
       if (line.open) node.append(detailsNode(line));
     };
@@ -2775,7 +2816,7 @@
     output.append(lineNode(line));
     while (output.childElementCount > logState.cap) output.firstElementChild.remove();   // the page stays the size of what it keeps
     if (logState.follow.checked && atBottom) output.scrollTop = output.scrollHeight;
-    logState.count.textContent = `${output.childElementCount} of ${logState.lines.length} lines`;
+    logState.count.textContent = tn("{shown} of {n} line", "{shown} of {n} lines", logState.lines.length, { shown: output.childElementCount });
   }
 
   // A hidden tab keeps no stream open; back in view, the live pages reload their values.

@@ -287,3 +287,8 @@ footer .small { max-width: 34rem; }
 .prose .lede { color: var(--ink); }
 .prose a { color: var(--accent-ink); }
 .prose-title { font-size: clamp(2rem, 4.6vw, 3rem); line-height: 1.05; letter-spacing: -0.03em; }
+
+/* Languages: EN · FR · ES · PT in the footer, the current one in ink. Each language is a static copy (fr/, es/, pt/). */
+footer .langs ul { display: flex; margin: 0; padding: 0; list-style: none; font-size: 0.8125rem; letter-spacing: 0.02em; }
+footer .langs li + li::before { content: "·"; content: "·" / ""; padding-inline: 7px; color: var(--faint); }
+footer .langs a[aria-current="page"] { color: var(--ink); font-weight: 600; }

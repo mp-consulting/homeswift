@@ -15,21 +15,21 @@
     <span class="tile large light" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></svg></span>
     <div class="who">
       <h1>Govee</h1>
-      <p class="muted">Your Govee account, the devices it brings to the Home app and how each one appears, scenes and music mode for lights, and the connections the plugin uses.</p>
+      <p class="muted" data-i18n>Your Govee account, the devices it brings to the Home app and how each one appears, scenes and music mode for lights, and the connections the plugin uses.</p>
     </div>
   </div>
 
   <div class="group tabs main-tabs" role="tablist">
-    <button role="tab" data-tab="devices" class="on" aria-selected="true" aria-controls="tab-devices">Devices</button>
-    <button role="tab" data-tab="settings" aria-selected="false" aria-controls="tab-settings">Settings</button>
-    <button role="tab" data-tab="tools" aria-selected="false" aria-controls="tab-tools">Tools</button>
+    <button role="tab" data-tab="devices" class="on" aria-selected="true" aria-controls="tab-devices" data-i18n>Devices</button>
+    <button role="tab" data-tab="settings" aria-selected="false" aria-controls="tab-settings" data-i18n>Settings</button>
+    <button role="tab" data-tab="tools" aria-selected="false" aria-controls="tab-tools" data-i18n>Tools</button>
   </div>
 
   <section id="tab-devices" class="tab-pane" role="tabpanel">
     <div class="card discover">
       <div class="discover-head">
-        <p class="muted">Discover all devices linked to your Govee account and add them to the lists below. Enter your credentials in the <strong>Settings</strong> tab first.</p>
-        <button id="discover" class="primary">Discover Devices</button>
+        <p id="discover-intro" class="muted">Discover all devices linked to your Govee account and add them to the lists below. Enter your credentials in the <strong>Settings</strong> tab first.</p>
+        <button id="discover" class="primary" data-i18n>Discover Devices</button>
       </div>
       <div id="discover-result"></div>
     </div>
@@ -39,29 +39,29 @@
 
   <section id="tab-settings" class="tab-pane hidden" role="tabpanel">
     <div class="card">
-      <h2>Account</h2>
+      <h2 data-i18n>Account</h2>
       <div class="fields">
-        <label class="field"><span class="field-title">Email</span>
-          <input type="email" id="username" placeholder="your-email@example.com" autocomplete="username">
-          <span class="help">The email address you use to log in to the Govee app. Required for cloud control and device discovery.</span></label>
-        <label class="field"><span class="field-title">Password</span>
-          <span class="password"><input type="password" id="password" autocomplete="current-password"><button type="button" id="toggle-password">Show</button></span>
-          <span class="help">Your Govee account password. Stored in config.json and used only to authenticate with Govee's servers.</span></label>
-        <label class="field"><span class="field-title">Verification Code</span>
-          <input type="text" id="code" placeholder="e.g. 1234" autocomplete="one-time-code" inputmode="numeric">
-          <span class="help">Only needed the first time, or when Govee flags a new device. If Test Connection reports that a code was emailed to you, paste it here and test again. Ignored once login succeeds.</span></label>
+        <label class="field"><span class="field-title" data-i18n>Email</span>
+          <input type="email" id="username" data-i18n placeholder="your-email@example.com" autocomplete="username">
+          <span class="help" data-i18n>The email address you use to log in to the Govee app. Required for cloud control and device discovery.</span></label>
+        <label class="field"><span class="field-title" data-i18n>Password</span>
+          <span class="password"><input type="password" id="password" autocomplete="current-password"><button type="button" id="toggle-password" data-i18n>Show</button></span>
+          <span class="help" data-i18n>Your Govee account password. Stored in config.json and used only to authenticate with Govee's servers.</span></label>
+        <label class="field"><span class="field-title" data-i18n>Verification Code</span>
+          <input type="text" id="code" data-i18n placeholder="e.g. 1234" autocomplete="one-time-code" inputmode="numeric">
+          <span class="help" data-i18n>Only needed the first time, or when Govee flags a new device. If Test Connection reports that a code was emailed to you, paste it here and test again. Ignored once login succeeds.</span></label>
       </div>
-      <div class="actions"><button id="test-login">Test Connection</button></div>
+      <div class="actions"><button id="test-login" data-i18n>Test Connection</button></div>
       <div id="login-result"></div>
     </div>
 
     <div class="card">
-      <h2>General</h2>
+      <h2 data-i18n>General</h2>
       <div id="general"></div>
     </div>
 
     <div class="card">
-      <h2>Connection</h2>
+      <h2 data-i18n>Connection</h2>
       <div class="connections">
         <div><h3>AWS IoT</h3><div id="connection-aws"></div></div>
         <div><h3>LAN</h3><div id="connection-lan"></div></div>
@@ -72,28 +72,29 @@
 
   <section id="tab-tools" class="tab-pane hidden" role="tabpanel">
     <div class="card">
-      <h2>Cache Management</h2>
-      <p class="muted">Clear the plugin's cache if device discovery misbehaves or data looks stale: the saved login and IoT certificate, the discovered devices, the devices' saved state. Restart Homeswift afterwards.</p>
-      <div class="actions"><button id="clear-cache" class="danger">Clear Cache</button><button id="restart" class="hidden">Restart Homeswift</button></div>
+      <h2 data-i18n>Cache Management</h2>
+      <p class="muted" data-i18n>Clear the plugin's cache if device discovery misbehaves or data looks stale: the saved login and IoT certificate, the discovered devices, the devices' saved state. Restart Homeswift afterwards.</p>
+      <div class="actions"><button id="clear-cache" class="danger" data-i18n>Clear Cache</button><button id="restart" class="hidden" data-i18n>Restart Homeswift</button></div>
       <div id="clear-result"></div>
     </div>
     <div class="card">
-      <h2>Documentation</h2>
-      <p>The options are described in the plugin's README; the connections are tried in this order:</p>
+      <h2 data-i18n>Documentation</h2>
+      <p data-i18n>The options are described in the plugin's README; the connections are tried in this order:</p>
       <ul class="docs">
-        <li><strong>LAN:</strong> local network control (faster, works without internet), for models with the LAN API turned on in the Govee app.</li>
-        <li><strong>AWS IoT:</strong> real-time control through Govee's cloud (requires credentials).</li>
-        <li><strong>BLE:</strong> Bluetooth control for nearby devices (requires a Bluetooth adapter).</li>
+        <li><strong>LAN:</strong> <span data-i18n>local network control (faster, works without internet), for models with the LAN API turned on in the Govee app.</span></li>
+        <li><strong>AWS IoT:</strong> <span data-i18n>real-time control through Govee's cloud (requires credentials).</span></li>
+        <li><strong>BLE:</strong> <span data-i18n>Bluetooth control for nearby devices (requires a Bluetooth adapter).</span></li>
       </ul>
     </div>
   </section>
 
   <div class="card save-card">
-    <div class="save-bar"><span id="save-state" class="muted">Changes are kept once you save.</span><button id="save" class="primary">Save Configuration</button></div>
+    <div class="save-bar"><span id="save-state" class="muted" data-i18n>Changes are kept once you save.</span><button id="save" class="primary" data-i18n>Save Configuration</button></div>
   </div>
 </main>
 <script src="/common.js"></script>
 <script src="/plugin.js"></script>
+<script src="i18n.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

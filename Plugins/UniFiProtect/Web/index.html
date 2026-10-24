@@ -15,31 +15,31 @@
     <span class="tile large accessory" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="3"/><path d="M16 10.5l5-3v9l-5-3z"/></svg></span>
     <div>
       <h1>UniFi Protect</h1>
-      <p class="muted">Manage your UniFi Protect cameras and devices in HomeKit.</p>
+      <p class="muted" data-i18n>Manage your UniFi Protect cameras and devices in HomeKit.</p>
     </div>
   </div>
 
   <!-- The controllers: the page opens here once one is configured. -->
   <section id="controllersScreen" class="screen hidden">
-    <div class="section-head"><h2>Configured controllers</h2></div>
-    <p id="noControllers" class="card muted hidden">No controllers configured yet. Add one to get started.</p>
+    <div class="section-head"><h2 data-i18n>Configured controllers</h2></div>
+    <p id="noControllers" class="card muted hidden" data-i18n>No controllers configured yet. Add one to get started.</p>
     <div id="controllersList" class="controllers"></div>
     <div class="actions row-actions">
-      <button id="addControllerBtn" class="primary">Add controller</button>
-      <button id="supportBtn">Support</button>
+      <button id="addControllerBtn" class="primary" data-i18n>Add controller</button>
+      <button id="supportBtn" data-i18n>Support</button>
     </div>
   </section>
 
   <!-- Discovery of UniFi consoles, or manual entry. -->
   <section id="discoveryScreen" class="screen hidden">
-    <div class="section-head"><h2>Discover your controller</h2></div>
+    <div class="section-head"><h2 data-i18n>Discover your controller</h2></div>
     <div class="card">
-      <p class="muted">Scan your network for UniFi Protect controllers, or enter the address manually.</p>
-      <p class="note">Make sure your UniFi console is powered on and connected to the same network.</p>
+      <p class="muted" data-i18n>Scan your network for UniFi Protect controllers, or enter the address manually.</p>
+      <p class="note" data-i18n>Make sure your UniFi console is powered on and connected to the same network.</p>
       <div class="actions row-actions">
-        <button id="discoverBtn" class="primary">Discover controllers</button>
-        <button id="manualEntryBtn">Manual entry</button>
-        <button id="cancelDiscoveryBtn" class="link hidden">Cancel</button>
+        <button id="discoverBtn" class="primary" data-i18n>Discover controllers</button>
+        <button id="manualEntryBtn" data-i18n>Manual entry</button>
+        <button id="cancelDiscoveryBtn" class="link hidden" data-i18n>Cancel</button>
       </div>
       <div id="deviceList" class="found"></div>
     </div>
@@ -47,101 +47,101 @@
 
   <!-- Add or edit a controller. -->
   <section id="setupScreen" class="screen hidden">
-    <div class="section-head"><h2 id="setupTitle">Add UniFi Protect controller</h2></div>
+    <div class="section-head"><h2 id="setupTitle" data-i18n>Add UniFi Protect controller</h2></div>
     <form id="setupForm" class="card" novalidate>
-      <p id="setupSubtitle" class="muted">Enter your UniFi Protect controller details and login credentials.</p>
+      <p id="setupSubtitle" class="muted" data-i18n>Enter your UniFi Protect controller details and login credentials.</p>
       <div class="fields">
-        <label class="field"><span class="field-title">Controller</span>
-          <input id="inputAddress" type="text" placeholder="Hostname or IP (e.g. unvr.local)" autocomplete="off" spellcheck="false" required>
-          <span class="help">The address of your UniFi Protect controller.</span></label>
-        <label class="field"><span class="field-title">Username</span>
-          <input id="inputUsername" type="text" autocomplete="username" placeholder="Local user account username" required></label>
-        <label class="field"><span class="field-title">Password</span>
-          <input id="inputPassword" type="password" autocomplete="current-password" placeholder="Local user account password" required></label>
+        <label class="field"><span class="field-title" data-i18n>Controller</span>
+          <input id="inputAddress" type="text" placeholder="Hostname or IP (e.g. unvr.local)" autocomplete="off" spellcheck="false" required data-i18n>
+          <span class="help" data-i18n>The address of your UniFi Protect controller.</span></label>
+        <label class="field"><span class="field-title" data-i18n>Username</span>
+          <input id="inputUsername" type="text" autocomplete="username" placeholder="Local user account username" required data-i18n></label>
+        <label class="field"><span class="field-title" data-i18n>Password</span>
+          <input id="inputPassword" type="password" autocomplete="current-password" placeholder="Local user account password" required data-i18n></label>
       </div>
       <label class="toggle">
         <span class="switch"><input id="inputVerifyTls" type="checkbox"><span></span></span>
-        <span><span class="field-title">Verify TLS</span>
-          <span class="help">Validate the controller's TLS certificate. Leave this off unless your controller uses a certificate signed by a trusted certificate
+        <span><span class="field-title" data-i18n>Verify TLS</span>
+          <span class="help" data-i18n>Validate the controller's TLS certificate. Leave this off unless your controller uses a certificate signed by a trusted certificate
           authority: UniFi controllers use self-signed certificates, which are pinned the first time instead.</span></span>
       </label>
       <div id="setupError" class="problem hidden"><p id="setupErrorText" class="error"></p><div id="setupAssistant"></div></div>
-      <p class="note"><strong>Local account required.</strong> Ubiquiti.com/UI.com accounts are not supported. Create one in the <em>Admins &amp; Users</em> tab of your UniFi console.</p>
+      <p class="note"><strong data-i18n>Local account required.</strong> <span data-i18n>Ubiquiti.com/UI.com accounts are not supported.</span> <span data-i18n>Create one in the</span> <em>Admins &amp; Users</em> <span data-i18n>tab of your UniFi console.</span></p>
       <div class="save-bar">
         <span class="muted"></span>
-        <button id="cancelSetupBtn" type="button">Cancel</button>
-        <button id="saveControllerBtn" class="primary" type="submit">Save controller</button>
+        <button id="cancelSetupBtn" type="button" data-i18n>Cancel</button>
+        <button id="saveControllerBtn" class="primary" type="submit" data-i18n>Save controller</button>
       </div>
     </form>
   </section>
 
   <!-- Feature options: scope on the side, options by category. -->
   <section id="featureOptionsScreen" class="screen hidden">
-    <div class="section-head"><h2>Feature options</h2><button id="backFromOptionsBtn" class="link">Back</button></div>
+    <div class="section-head"><h2 data-i18n>Feature options</h2><button id="backFromOptionsBtn" class="link" data-i18n>Back</button></div>
     <div class="options-layout">
       <aside class="scope-side">
         <div class="card compact-card">
-          <label class="field"><span class="field-title">Scope</span><select id="scopeSelect"></select></label>
+          <label class="field"><span class="field-title" data-i18n>Scope</span><select id="scopeSelect"></select></label>
         </div>
         <div class="card compact-card" id="scopeCascade">
-          <div class="scope-level" data-scope="global"><span class="scope-dot">G</span><span><b>Global</b><span class="scope-hint muted">All devices</span></span></div>
+          <div class="scope-level" data-scope="global"><span class="scope-dot">G</span><span><b data-i18n>Global</b><span class="scope-hint muted" data-i18n>All devices</span></span></div>
           <div class="scope-connector" aria-hidden="true"></div>
-          <div class="scope-level" data-scope="controller"><span class="scope-dot">C</span><span><b>Controller</b><span class="scope-hint muted">Overrides global</span></span></div>
+          <div class="scope-level" data-scope="controller"><span class="scope-dot">C</span><span><b data-i18n>Controller</b><span class="scope-hint muted" data-i18n>Overrides global</span></span></div>
           <div class="scope-connector" aria-hidden="true"></div>
-          <div class="scope-level" data-scope="device"><span class="scope-dot">D</span><span><b>Device</b><span class="scope-hint muted">Final value</span></span></div>
+          <div class="scope-level" data-scope="device"><span class="scope-dot">D</span><span><b data-i18n>Device</b><span class="scope-hint muted" data-i18n>Final value</span></span></div>
         </div>
         <div id="deviceInfoPanel" class="card compact-card hidden">
           <div id="infoPreview" class="info-preview hidden"></div>
           <div class="facts">
-            <div class="fact"><span>Model</span><b id="infoModel"></b></div>
+            <div class="fact"><span data-i18n>Model</span><b id="infoModel"></b></div>
             <div class="fact"><span>MAC</span><b id="infoMac" class="mono"></b></div>
             <div class="fact"><span>IP</span><b id="infoIp" class="mono"></b></div>
-            <div class="fact"><span>Status</span><b id="infoStatus"></b></div>
+            <div class="fact"><span data-i18n>Status</span><b id="infoStatus"></b></div>
           </div>
         </div>
         <div class="card compact-card legend">
-          <span class="muted">Legend</span>
-          <span><i class="bar global"></i> Set at global</span>
-          <span><i class="bar controller"></i> Set at controller</span>
-          <span><i class="bar device"></i> Set at device</span>
+          <span class="muted" data-i18n>Legend</span>
+          <span><i class="bar global"></i> <span data-i18n>Set at global</span></span>
+          <span><i class="bar controller"></i> <span data-i18n>Set at controller</span></span>
+          <span><i class="bar device"></i> <span data-i18n>Set at device</span></span>
         </div>
       </aside>
       <div class="options-main">
         <div class="toolbar">
-          <input id="optionsSearch" class="search" type="search" placeholder="Search options…">
-          <label class="toggle compact"><span class="switch"><input id="modifiedOnlyToggle" type="checkbox"><span></span></span><span>Modified <span id="modifiedSummary"></span></span></label>
+          <input id="optionsSearch" class="search" type="search" placeholder="Search options…" data-i18n>
+          <label class="toggle compact"><span class="switch"><input id="modifiedOnlyToggle" type="checkbox"><span></span></span><span><span data-i18n>Modified</span> <span id="modifiedSummary"></span></span></label>
         </div>
-        <p id="optionsLoading" class="muted">Loading options…</p>
+        <p id="optionsLoading" class="muted" data-i18n>Loading options…</p>
         <div id="infoAssistant" class="hidden"></div>
         <div id="thirdPartyOverridesPanel" class="card category hidden">
-          <button id="thirdPartyOverridesHeader" class="category-head" type="button"><span class="category-icon" style="--category-color: #0d6efd">◉</span><span class="category-title">Third-party camera URLs</span><span class="chevron">⌄</span></button>
+          <button id="thirdPartyOverridesHeader" class="category-head" type="button"><span class="category-icon" style="--category-color: #0d6efd">◉</span><span class="category-title" data-i18n>Third-party camera URLs</span><span class="chevron">⌄</span></button>
           <div id="thirdPartyOverridesBody" class="category-body">
-            <p class="muted">The Protect controller often does not relay this camera's stream. Enter the camera's IP and credentials to discover its URLs automatically, or paste the URLs below.</p>
+            <p class="muted" data-i18n>The Protect controller often does not relay this camera's stream. Enter the camera's IP and credentials to discover its URLs automatically, or paste the URLs below.</p>
             <div class="fields">
-              <label class="field"><span class="field-title">IP address</span><input id="thirdPartyOnvifHost" type="text" placeholder="e.g. 192.168.1.50" autocomplete="off" spellcheck="false"></label>
-              <label class="field"><span class="field-title">ONVIF port <span class="muted">(optional)</span></span><input id="thirdPartyOnvifPort" type="number" placeholder="auto" min="1" max="65535"></label>
-              <label class="field"><span class="field-title">Username</span><input id="thirdPartyOnvifUser" type="text" autocomplete="off" spellcheck="false"></label>
-              <label class="field"><span class="field-title">Password</span><input id="thirdPartyOnvifPass" type="password" autocomplete="off"></label>
-              <label class="field wide"><span class="field-title">Service path <span class="muted">(optional, /onvif/device_service by default)</span></span><input id="thirdPartyOnvifPath" type="text" placeholder="/onvif/device_service" autocomplete="off" spellcheck="false"></label>
+              <label class="field"><span class="field-title" data-i18n>IP address</span><input id="thirdPartyOnvifHost" type="text" placeholder="e.g. 192.168.1.50" autocomplete="off" spellcheck="false" data-i18n></label>
+              <label class="field"><span class="field-title" data-i18n>ONVIF port <span class="muted" data-i18n>(optional)</span></span><input id="thirdPartyOnvifPort" type="number" placeholder="auto" min="1" max="65535" data-i18n></label>
+              <label class="field"><span class="field-title" data-i18n>Username</span><input id="thirdPartyOnvifUser" type="text" autocomplete="off" spellcheck="false"></label>
+              <label class="field"><span class="field-title" data-i18n>Password</span><input id="thirdPartyOnvifPass" type="password" autocomplete="off"></label>
+              <label class="field wide"><span class="field-title" data-i18n>Service path <span class="muted" data-i18n>(optional, /onvif/device_service by default)</span></span><input id="thirdPartyOnvifPath" type="text" placeholder="/onvif/device_service" autocomplete="off" spellcheck="false"></label>
             </div>
-            <div class="row-actions"><span id="thirdPartyDiscoverStatus" class="status-line"></span><button id="thirdPartyDiscoverBtn" class="primary" type="button">Discover URLs</button></div>
+            <div class="row-actions"><span id="thirdPartyDiscoverStatus" class="status-line"></span><button id="thirdPartyDiscoverBtn" class="primary" type="button" data-i18n>Discover URLs</button></div>
             <div id="thirdPartyDiscoverAssistant"></div>
             <div id="thirdPartyProfileSelectorWrap" class="hidden profile-picker">
-              <label class="field"><span class="field-title">Stream profile</span><select id="thirdPartyProfileSelect"></select></label>
-              <div class="thumb"><img id="thirdPartyProfileThumb" alt="Stream preview" class="hidden"><span id="thirdPartyProfileThumbPlaceholder" class="muted">No preview</span></div>
-              <p class="help">Pick the camera stream HomeKit should use. Higher resolutions look better but cost more bandwidth and CPU.</p>
+              <label class="field"><span class="field-title" data-i18n>Stream profile</span><select id="thirdPartyProfileSelect"></select></label>
+              <div class="thumb"><img id="thirdPartyProfileThumb" alt="Stream preview" class="hidden" data-i18n><span id="thirdPartyProfileThumbPlaceholder" class="muted" data-i18n>No preview</span></div>
+              <p class="help" data-i18n>Pick the camera stream HomeKit should use. Higher resolutions look better but cost more bandwidth and CPU.</p>
             </div>
-            <label class="field"><span class="field-title">Direct RTSP / RTSPS URL</span><input id="thirdPartyRtspUrl" type="text" placeholder="rtsp://user:pass@host:port/path" autocomplete="off" spellcheck="false"></label>
-            <label class="field"><span class="field-title">Direct snapshot URL</span><input id="thirdPartySnapshotUrl" type="text" placeholder="http://host:port/snapshot" autocomplete="off" spellcheck="false"></label>
-            <p class="help">Leave both URL fields blank to remove the override.</p>
+            <label class="field"><span class="field-title" data-i18n>Direct RTSP / RTSPS URL</span><input id="thirdPartyRtspUrl" type="text" placeholder="rtsp://user:pass@host:port/path" autocomplete="off" spellcheck="false"></label>
+            <label class="field"><span class="field-title" data-i18n>Direct snapshot URL</span><input id="thirdPartySnapshotUrl" type="text" placeholder="http://host:port/snapshot" autocomplete="off" spellcheck="false"></label>
+            <p class="help" data-i18n>Leave both URL fields blank to remove the override.</p>
           </div>
         </div>
         <div id="optionsProblem" class="hidden"></div>
         <div id="optionsContainer"></div>
         <div id="unsavedChanges" class="card save-bar hidden">
-          <span class="dirty">You have unsaved changes. Saving applies them: the plugin restarts with them.</span>
-          <button id="discardOptionsBtn">Discard</button>
-          <button id="saveOptionsBtn" class="primary">Save</button>
+          <span class="dirty" data-i18n>You have unsaved changes. Saving applies them: the plugin restarts with them.</span>
+          <button id="discardOptionsBtn" data-i18n>Discard</button>
+          <button id="saveOptionsBtn" class="primary" data-i18n>Save</button>
         </div>
       </div>
     </div>
@@ -149,28 +149,29 @@
 
   <!-- Support. -->
   <section id="supportScreen" class="screen hidden">
-    <div class="section-head"><h2>Support</h2><button id="backFromSupportBtn" class="link">Back</button></div>
+    <div class="section-head"><h2 data-i18n>Support</h2><button id="backFromSupportBtn" class="link" data-i18n>Back</button></div>
     <div class="card support">
-      <h3>About this plugin</h3>
-      <p>The Homeswift port of <a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-protect">homebridge-unifi-protect</a>. Its documentation applies here: the options, feature options and MQTT topics are the same.</p>
-      <h3>Getting started</h3>
+      <h3 data-i18n>About this plugin</h3>
+      <p><span data-i18n>The Homeswift port of</span> <a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-protect">homebridge-unifi-protect</a>. <span data-i18n>Its documentation applies here: the options, feature options and MQTT topics are the same.</span></p>
+      <h3 data-i18n>Getting started</h3>
       <ul class="links">
-        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-protect/blob/main/docs/getting-started.md"><b>Getting started</b></a><span class="muted">Install, configure and connect to HomeKit.</span></li>
-        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-protect/blob/main/docs/feature-options.md"><b>Feature options</b></a><span class="muted">Options for a controller or a device.</span></li>
-        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-protect/blob/main/docs/mqtt.md"><b>MQTT</b></a><span class="muted">How to configure MQTT support.</span></li>
+        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-protect/blob/main/docs/getting-started.md"><b data-i18n>Getting started</b></a><span class="muted" data-i18n>Install, configure and connect to HomeKit.</span></li>
+        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-protect/blob/main/docs/feature-options.md"><b data-i18n>Feature options</b></a><span class="muted" data-i18n>Options for a controller or a device.</span></li>
+        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-protect/blob/main/docs/mqtt.md"><b>MQTT</b></a><span class="muted" data-i18n>How to configure MQTT support.</span></li>
       </ul>
-      <h3>How-to guides</h3>
+      <h3 data-i18n>How-to guides</h3>
       <ul class="links">
-        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-protect/blob/main/docs/doorbell.md"><b>Doorbells</b></a><span class="muted">Two-way audio, ring events and LCD messages.</span></li>
-        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-protect/blob/main/docs/homekit-secure-video.md"><b>HomeKit Secure Video</b></a><span class="muted">HKSV with Protect cameras.</span></li>
-        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-protect/blob/main/docs/liveviews.md"><b>Liveview scenes</b></a><span class="muted">Motion detection scenes and the security system.</span></li>
-        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-protect/blob/main/docs/troubleshooting.md"><b>Troubleshooting</b></a><span class="muted">Login, network and video problems.</span></li>
+        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-protect/blob/main/docs/doorbell.md"><b data-i18n>Doorbells</b></a><span class="muted" data-i18n>Two-way audio, ring events and LCD messages.</span></li>
+        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-protect/blob/main/docs/homekit-secure-video.md"><b>HomeKit Secure Video</b></a><span class="muted" data-i18n>HKSV with Protect cameras.</span></li>
+        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-protect/blob/main/docs/liveviews.md"><b data-i18n>Liveview scenes</b></a><span class="muted" data-i18n>Motion detection scenes and the security system.</span></li>
+        <li><a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-protect/blob/main/docs/troubleshooting.md"><b data-i18n>Troubleshooting</b></a><span class="muted" data-i18n>Login, network and video problems.</span></li>
       </ul>
     </div>
   </section>
 </main>
 <script src="/common.js"></script>
 <script src="/plugin.js"></script>
+<script src="i18n.js"></script>
 <script src="/camera.js"></script>
 <script src="options.js"></script>
 <script src="app.js"></script>

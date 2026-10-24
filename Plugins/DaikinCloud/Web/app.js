@@ -5,22 +5,29 @@
 (() => {
   "use strict";
   const { $, el, request, explain, breadcrumb, act, poll } = homeswift;
+  const { t, tn } = HomeswiftI18n;
+  /// Text from the plugin (a message in an answer), in the page's language when the catalog knows it.
+  const said = (text) => HomeswiftI18n.message(text);
 
-  const OPERATION_MODE_LABELS = { auto: "Auto", cooling: "Cooling", heating: "Heating", dry: "Dry", fanOnly: "Fan only" };
-  const numberFormat = new Intl.NumberFormat();
+  const OPERATION_MODE_LABELS = { auto: t("Auto"), cooling: t("Cooling"), heating: t("Heating"), dry: t("Dry"), fanOnly: t("Fan only") };
+  const numberFormat = new Intl.NumberFormat(HomeswiftI18n.locale);
   const formatNumber = (value) => (value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)) ? numberFormat.format(Number(value)) : String(value ?? ""));
-  const plural = (count, singular, pluralForm = `${singular}s`) => `${formatNumber(count)} ${count === 1 ? singular : pluralForm}`;
   const operationModeLabel = (mode) => (mode ? OPERATION_MODE_LABELS[mode] || String(mode).replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().replace(/^./, (c) => c.toUpperCase()) : "");
+  /// `text` with an element where its `{name}` placeholder is: a sentence keeps its words in the language's order.
+  const around = (text, name, element) => {
+    const [before, after = ""] = text.split(`{${name}}`);
+    return [before, element, after];
+  };
   const isValidPort = (port) => { const n = parseInt(port, 10); return !isNaN(n) && n >= 1 && n <= 65535; };
   const isValidNumber = (value, min, max) => { const n = parseInt(value, 10); return !isNaN(n) && n >= min && n <= max; };
   const isValidIPv4 = (ip) => !ip || /^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.){3}(25[0-5]|(2[0-4]|1\d|[1-9]|)\d)$/.test(ip);
   function formatTime(ms) {
     const days = Math.floor(ms / 86400000), hours = Math.floor((ms % 86400000) / 3600000);
     const minutes = Math.floor((ms % 3600000) / 60000), seconds = Math.floor((ms % 60000) / 1000);
-    if (days > 0) return `${days}d ${hours}h ${minutes}m`;
-    if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
-    if (minutes > 0) return `${minutes}m ${seconds}s`;
-    return `${seconds}s`;
+    if (days > 0) return t("{days}d {hours}h {minutes}m", { days, hours, minutes });
+    if (hours > 0) return t("{hours}h {minutes}m {seconds}s", { hours, minutes, seconds });
+    if (minutes > 0) return t("{minutes}m {seconds}s", { minutes, seconds });
+    return t("{seconds}s", { seconds });
   }
 
   // MARK: The Assistant: "Explain" next to an error. Nothing sent to it carries credentials or tokens; the server
@@ -95,22 +102,22 @@
       const badge = $("#status-badge");
       if (status.authenticated) {
         badge.className = `pill status ${status.isExpired ? "away" : ""}`;
-        badge.textContent = status.isExpired ? "Expired" : "Connected";
-        $("#auth-status").textContent = status.isExpired ? (status.canRefresh ? "Token expired (will auto-refresh)" : "Token expired") : "Authenticated and ready";
+        badge.textContent = status.isExpired ? t("Expired") : t("Connected");
+        $("#auth-status").textContent = status.isExpired ? (status.canRefresh ? t("Token expired (will auto-refresh)") : t("Token expired")) : t("Authenticated and ready");
         this.expiresAt = status.expiresAt ? new Date(status.expiresAt) : null;
         $("#expires-row").classList.toggle("hidden", !this.expiresAt);
-        $("#btn-authenticate").textContent = "Re-authenticate";
+        $("#btn-authenticate").textContent = t("Re-authenticate");
         $("#btn-revoke").classList.remove("hidden");
         $("#btn-test").disabled = false;
         this.startCountdown();
       } else {
         badge.className = "pill status away";
-        badge.textContent = "Not connected";
-        $("#auth-status").textContent = status.error || "Authentication required";
+        badge.textContent = t("Not connected");
+        $("#auth-status").textContent = status.error || t("Authentication required");
         this.expiresAt = null;
         $("#expires-row").classList.add("hidden");
         $("#token-expires").classList.add("hidden");
-        $("#btn-authenticate").textContent = "Authenticate";
+        $("#btn-authenticate").textContent = t("Authenticate");
         $("#btn-revoke").classList.add("hidden");
         $("#btn-test").disabled = true;
         this.stopCountdown();
@@ -129,14 +136,14 @@
       const header = $("#token-expires");
       header.classList.remove("hidden");
       if (left <= 0) {
-        header.textContent = "Token expired";
-        $("#auth-token-expires").textContent = "Expired";
+        header.textContent = t("Token expired");
+        $("#auth-token-expires").textContent = t("Expired");
         this.stopCountdown();
         this.load();
         return;
       }
       const text = formatTime(left);
-      header.textContent = `Expires in ${text}`;
+      header.textContent = t("Expires in {time}", { time: text });
       $("#auth-token-expires").textContent = text;
       const colour = left < 300000 ? "var(--error)" : left < 1800000 ? "var(--warn)" : "";
       header.style.color = colour;
@@ -151,17 +158,17 @@
       await act(button, async () => {
         const answer = await request("auth/test", { method: "POST", body: {} });
         result.className = `status-line ${answer.success ? "ok" : "error"}`;
-        result.textContent = answer.message;
+        result.textContent = said(answer.message);
         if (!answer.success) offerExplain($("#test-problem"), answer.message, "Test Connection on the plugin's page (reads the saved token and lists the gateway devices from the Daikin Onecta API) failed.");
       }, (message) => {
         result.className = "status-line error";
-        result.textContent = `Test failed: ${message}`;
+        result.textContent = t("Test failed: {error}", { error: message });
         offerExplain($("#test-problem"), result.textContent, "Test Connection on the plugin's page failed.");
       });
     },
 
     async revoke(button) {
-      if (!confirm("Revoke access? The plugin stops until you authenticate again.")) return;
+      if (!confirm(t("Revoke access? The plugin stops until you authenticate again."))) return;
       await act(button, async () => {
         await request("auth/revoke", { method: "POST", body: { clientId: block?.clientId, clientSecret: block?.clientSecret } });
         await this.load();
@@ -184,16 +191,16 @@
     render() {
       const mobile = this.current === "mobile_app";
       $("#authMode").value = this.current;
-      $("#auth-mode-hint").textContent = mobile ? "Use your Daikin Onecta account (same as mobile app)" : "Requires API credentials from the Daikin Developer Portal";
+      $("#auth-mode-hint").textContent = mobile ? t("Use your Daikin Onecta account (same as mobile app)") : t("Requires API credentials from the Daikin Developer Portal");
       $("#btn-authenticate").classList.toggle("hidden", mobile);
       $("#btn-authenticate-mobile").classList.toggle("hidden", !mobile);
-      $("#auth-mode-text").textContent = mobile ? "Mobile App" : "Developer Portal";
-      const daily = formatNumber(mobile ? 3000 : 200);
-      $("#rate-limit-display").textContent = `${daily} requests/day`;
-      $("#rate-limit-info").textContent = `The Daikin API limits you to ${daily} requests per day.`;
+      $("#auth-mode-text").textContent = mobile ? t("Mobile App") : "Developer Portal";
+      const daily = mobile ? 3000 : 200;
+      $("#rate-limit-display").textContent = t("{n} requests/day", { n: daily });
+      $("#rate-limit-info").textContent = t("The Daikin API limits you to {n} requests per day.", { n: daily });
       $("#websocket-setting-row").classList.toggle("hidden", !mobile);
-      $("#updateIntervalInMinutes").placeholder = mobile ? "5 (recommended)" : "15 (recommended)";
-      $("#forceUpdateDelay").placeholder = mobile ? "10 (recommended)" : "60 (recommended)";
+      $("#updateIntervalInMinutes").placeholder = t("{n} (recommended)", { n: mobile ? 5 : 15 });
+      $("#forceUpdateDelay").placeholder = t("{n} (recommended)", { n: mobile ? 10 : 60 });
     },
 
     /// A new method saves at once, with its recommended polling (as the Homebridge page does).
@@ -208,7 +215,7 @@
         devices.load();
         auth.load();
       } catch (e) {
-        alert(`Could not save the authentication method: ${e.message}`);
+        alert(t("Could not save the authentication method: {error}", { error: e.message }));
       }
     },
   };
@@ -224,12 +231,12 @@
       offerExplain($("#mobile-auth-problem"), null);
       $("#daikinEmail").value = block?.daikinEmail || "";
       $("#daikinPassword").value = block?.daikinPassword || "";
-      breadcrumb("Mobile App credentials", () => this.hide());
+      breadcrumb(t("Mobile App credentials"), () => this.hide());
     },
     hide() {
       $("#mobile-auth-form").classList.add("hidden");
       $("#auth-status-card").classList.remove("hidden");
-      breadcrumb("Authentication", () => switchTab("devices"));
+      breadcrumb(t("Authentication"), () => switchTab("devices"));
     },
     async test(button) {
       const email = $("#daikinEmail").value.trim();
@@ -238,16 +245,16 @@
       offerExplain($("#mobile-auth-problem"), null);
       if (!email || !password) {
         result.className = "status-line error";
-        result.textContent = "Please enter email and password";
+        result.textContent = t("Please enter email and password");
         return;
       }
       await act(button, async () => {
         result.className = "status-line muted";
-        result.textContent = "Logging in to Daikin…";
+        result.textContent = t("Logging in to Daikin…");
         const answer = await request("auth/mobile-test", { method: "POST", body: { email, password } });
         if (!answer.success) {
           result.className = "status-line error";
-          result.textContent = answer.message || "Authentication failed";
+          result.textContent = said(answer.message) || t("Authentication failed");
           offerExplain($("#mobile-auth-problem"), result.textContent, "Mobile App login (Onecta account, Gigya login at id.daikin.eu, then OIDC token exchange) from the plugin's page failed.");
           return;
         }
@@ -258,11 +265,12 @@
         const limit = formatNumber(answer.rateLimit?.limitDay ?? 3000);
         const quota = remaining !== undefined && remaining !== null ? `${formatNumber(remaining)}/${limit}` : limit;
         result.className = "status-line ok";
-        result.textContent = `Success! Found ${plural(Number(answer.deviceCount) || 0, "device")}. Rate limit: ${quota}/day. The plugin reloads with the credentials.`;
+        result.textContent = tn("Success! Found {n} device. Rate limit: {quota}/day. The plugin reloads with the credentials.",
+          "Success! Found {n} devices. Rate limit: {quota}/day. The plugin reloads with the credentials.", Number(answer.deviceCount) || 0, { quota });
         setTimeout(() => { this.hide(); auth.load(); devices.load(); }, 2000);
       }, (message) => {
         result.className = "status-line error";
-        result.textContent = `Failed: ${message}`;
+        result.textContent = t("Failed: {error}", { error: message });
         offerExplain($("#mobile-auth-problem"), result.textContent, "Mobile App login from the plugin's page failed.");
       });
     },
@@ -282,7 +290,7 @@
     async show() {
       $("#wizard").classList.remove("hidden");
       $("#auth-status-card").classList.add("hidden");
-      breadcrumb("Developer Portal login", () => this.hide());
+      breadcrumb(t("Developer Portal login"), () => this.hide());
       for (const key of ["clientId", "clientSecret", "callbackServerExternalAddress"]) $(`#${key}`).value = block?.[key] || "";
       $("#callbackServerPort").value = block?.callbackServerPort || 8582;
       this.go(1);
@@ -291,7 +299,7 @@
         try {
           const { primaryIp } = await request("server/info");
           if (primaryIp && !$("#callbackServerExternalAddress").value) $("#callbackServerExternalAddress").value = primaryIp;
-          $("#callbackServerExternalAddress").placeholder = primaryIp || "e.g. 192.168.1.100";
+          $("#callbackServerExternalAddress").placeholder = primaryIp || t("e.g. 192.168.1.100");
           this.preview();
         } catch { /* typed by hand */ }
       }
@@ -303,7 +311,7 @@
       $("#wizard").classList.add("hidden");
       $("#auth-status-card").classList.remove("hidden");
       $("#callback-server-status").classList.add("hidden");
-      breadcrumb("Authentication", () => switchTab("devices"));
+      breadcrumb(t("Authentication"), () => switchTab("devices"));
     },
 
     go(step) {
@@ -327,7 +335,7 @@
 
     preview() {
       const { callbackServerExternalAddress: address, callbackServerPort: port } = this.form();
-      $("#redirect-preview").textContent = `https://${address || "<address>"}:${port || "8582"}`;
+      $("#redirect-preview").textContent = `https://${address || t("<address>")}:${port || "8582"}`;
     },
 
     async proceed(button) {
@@ -337,14 +345,14 @@
       const port = $("#callbackServerPort");
       if (!isValidPort(config.callbackServerPort)) {
         port.classList.add("invalid");
-        errors.textContent = "Port must be between 1 and 65535";
+        errors.textContent = t("Port must be between 1 and 65535");
         return;
       }
       port.classList.remove("invalid");
       await act(button, async () => {
         const validation = await request("config/validate", { method: "POST", body: config });
         if (!validation.valid) {
-          errors.replaceChildren(...validation.errors.map((e) => el("div", { text: e })));
+          errors.replaceChildren(...validation.errors.map((e) => el("div", { text: said(e) })));
           return;
         }
         errors.replaceChildren();
@@ -355,7 +363,7 @@
         $("#callback-server-status").classList.toggle("hidden", !result.callbackServerRunning);
         $("#manual-callback").open = !result.callbackServerRunning;
         $("#wizard-auth-problem").replaceChildren(result.callbackServerRunning ? "" :
-          el("p", { class: "status-line error", text: `${result.message}${result.callbackServerError ? ` (${result.callbackServerError})` : ""}` }));
+          el("p", { class: "status-line error", text: `${said(result.message)}${result.callbackServerError ? ` (${said(result.callbackServerError)})` : ""}` }));
         this.startPolling();
         this.go(2);
       }, (message) => {
@@ -374,8 +382,8 @@
           const result = await request("auth/poll");
           if (!result.pending) {
             this.stopPolling();
-            if (result.success) await this.succeeded(result.message || "Authentication successful!");
-            else this.failed(`Authentication failed: ${result.error || "Unknown error"}`);
+            if (result.success) await this.succeeded(said(result.message) || t("Authentication successful!"));
+            else this.failed(t("Authentication failed: {error}", { error: said(result.error) || t("Unknown error") }));
             return;
           }
         } catch { /* try again */ }
@@ -388,13 +396,13 @@
     async submitCallback(button) {
       const url = $("#callbackUrl").value.trim();
       offerExplain($("#wizard-auth-problem"), null);
-      if (!url) return this.failed("Please paste the callback URL");
-      if (!url.includes("code=")) return this.failed("Invalid URL - must contain code parameter");
+      if (!url) return this.failed(t("Please paste the callback URL"));
+      if (!url.includes("code=")) return this.failed(t("Invalid URL - must contain code parameter"));
       await act(button, async () => {
         const result = await request("auth/callback", { method: "POST", body: { callbackUrl: url } });
-        if (result.success) await this.succeeded(result.message);
-        else this.failed(`Authentication failed: ${result.message || "Unknown error"}`);
-      }, (message) => this.failed(`Authentication failed: ${message}`));
+        if (result.success) await this.succeeded(said(result.message));
+        else this.failed(t("Authentication failed: {error}", { error: said(result.message) || t("Unknown error") }));
+      }, (message) => this.failed(t("Authentication failed: {error}", { error: message })));
     },
 
     failed(message) {
@@ -416,7 +424,7 @@
           callbackServerExternalAddress: config.callbackServerExternalAddress, callbackServerPort: parseInt(config.callbackServerPort, 10) || 8582,
         });
       } catch (e) {
-        $("#success-message").textContent = `${message} The settings could not be saved: ${e.message}`;
+        $("#success-message").textContent = t("{message} The settings could not be saved: {error}", { message, error: e.message });
       }
       authMode.current = "developer_portal";
       authMode.render();
@@ -463,35 +471,36 @@
       if (!session) { line.classList.add("hidden"); return; }
       line.classList.remove("hidden");
       if (!session.running) {
-        line.textContent = "The plugin is not connected to Daikin yet: authenticate on the Authentication tab.";
+        line.textContent = t("The plugin is not connected to Daikin yet: authenticate on the Authentication tab.");
         return;
       }
-      const parts = [`${plural(session.devices ?? 0, "unit")} in HomeKit`];
-      if (session.mode === "mobile_app") parts.push(session.webSocket ? "real-time updates over the WebSocket" : "no WebSocket");
-      if (session.pollMinutes) parts.push(`polling every ${plural(session.pollMinutes, "minute")}`);
+      const parts = [tn("{n} unit in HomeKit", "{n} units in HomeKit", session.devices ?? 0)];
+      if (session.mode === "mobile_app") parts.push(session.webSocket ? t("real-time updates over the WebSocket") : t("no WebSocket"));
+      if (session.pollMinutes) parts.push(tn("polling every {n} minute", "polling every {n} minutes", session.pollMinutes));
       line.textContent = parts.join(" · ");
     },
 
     async load({ refresh = false } = {}) {
       const list = $("#devices-list");
       offerExplain($("#devices-problem"), null);
-      list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: "Loading devices…" })));
+      list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("Loading devices…") })));
       let result;
       try {
         result = await deviceList.fetch({ refresh });
       } catch (e) {
-        list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "error", text: `Failed to load: ${e.message}` })));
+        list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "error", text: t("Failed to load: {error}", { error: e.message }) })));
         offerExplain($("#devices-problem"), `Failed to load: ${e.message}`, "Loading the device list (GET /v1/gateway-devices on the Daikin Onecta API) on the plugin's page failed.");
         return;
       }
-      $("#devices-fetched").textContent = result.fetchedAt ? `${result.cached ? "As of" : "Fetched"} ${new Date(result.fetchedAt).toLocaleTimeString()}` : "";
+      const fetchedAt = result.fetchedAt ? new Date(result.fetchedAt).toLocaleTimeString(HomeswiftI18n.locale) : "";
+      $("#devices-fetched").textContent = fetchedAt ? (result.cached ? t("As of {time}", { time: fetchedAt }) : t("Fetched {time}", { time: fetchedAt })) : "";
       if (!result.success) {
         if (result.message?.includes("Not authenticated")) {
           list.replaceChildren(el("div", { class: "card empty" },
-            el("p", { text: "Please authenticate first." }),
-            el("p", { class: "muted" }, "Go to the ", el("button", { class: "link", text: "Authentication", onclick: () => switchTab("auth") }), " tab to connect.")));
+            el("p", { text: t("Please authenticate first.") }),
+            el("p", { class: "muted" }, ...around(t("Go to the {tab} tab to connect."), "tab", el("button", { class: "link", text: t("Authentication"), onclick: () => switchTab("auth") })))));
         } else {
-          list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "error", text: result.message })));
+          list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "error", text: said(result.message) })));
           offerExplain($("#devices-problem"), result.message, "Loading the device list (GET /v1/gateway-devices on the Daikin Onecta API) on the plugin's page failed.");
         }
         return;
@@ -501,8 +510,8 @@
       settings.renderDevices();
       if (!result.devices.length) {
         list.replaceChildren(el("div", { class: "card empty" },
-          el("p", { text: "No devices found" }),
-          el("p", { class: "muted", text: "Make sure you're authenticated and your Daikin devices are set up in the Onecta app." })));
+          el("p", { text: t("No devices found") }),
+          el("p", { class: "muted", text: t("Make sure you're authenticated and your Daikin devices are set up in the Onecta app.") })));
         return;
       }
       list.replaceChildren(...result.devices.map((device) => this.card(device)));
@@ -521,14 +530,14 @@
       const problem = this.problem(device);
       return el("div", { class: `card unit ${hidden ? "is-hidden" : ""}` },
         el("div", { class: "server-head" },
-          el("span", { class: `power ${on ? "on" : ""}`, text: on ? "ON" : "OFF" }),
+          el("span", { class: `power ${on ? "on" : ""}`, text: on ? t("ON") : t("OFF") }),
           el("div", { class: "who" }, el("strong", { text: device.name }), el("div", { class: "muted mono", text: device.id })),
-          el("span", { class: `pill status ${device.online ? "" : "away"}`, text: device.online ? "Online" : "Offline" })),
-        device.features?.length ? el("div", { class: "chips" }, device.features.map((f) => el("span", { class: "chip", text: f }))) : null,
+          el("span", { class: `pill status ${device.online ? "" : "away"}`, text: device.online ? t("Online") : t("Offline") })),
+        device.features?.length ? el("div", { class: "chips" }, device.features.map((f) => el("span", { class: "chip", text: said(f) }))) : null,
         el("div", { class: "facts" },
-          fact("Room", device.roomTemp), fact("Outdoor", device.outdoorTemp),
-          fact("Mode", operationModeLabel(device.operationMode)), fact("Model", device.model)),
-        hidden ? el("p", { class: "muted note", text: "Hidden from HomeKit. Settings › Devices shows it again." }) : null,
+          fact(t("Room"), device.roomTemp), fact(t("Outdoor"), device.outdoorTemp),
+          fact(t("Mode"), operationModeLabel(device.operationMode)), fact(t("Model"), device.model)),
+        hidden ? el("p", { class: "muted note", text: t("Hidden from HomeKit. Settings › Devices shows it again.") }) : null,
         problem ? explain({
           error: problem,
           context: assistantContext("The user is looking at the device list of the Daikin Cloud plugin's page."),
@@ -541,18 +550,18 @@
   // MARK: Settings: a draft of the block's settings; Save writes it and the plugin reloads.
 
   const FEATURES = [
-    ["showPowerfulMode", "Powerful Mode", "Boost heating/cooling performance"],
-    ["showEconoMode", "Econo Mode", "Energy-saving operation"],
-    ["showStreamerMode", "Streamer Mode", "Air purification"],
-    ["showOutdoorSilentMode", "Outdoor Silent Mode", "Reduce outdoor unit noise"],
-    ["showIndoorSilentMode", "Indoor Silent Mode", "Quiet fan operation"],
-    ["showAutoFanMode", "Auto Fan Mode", "Automatic fan speed (switch)"],
-    ["showOscillationSwitch", "Oscillation Switch", "Swing as a separate switch (stays visible when grouped into a single tile)"],
-    ["showSeparateFanControl", "Separate Fan Tile", "Fan speed + oscillation as a standalone Fan tile (stays visible when grouped into a single tile)"],
-    ["showDryMode", "Dry Mode", "Dehumidification"],
-    ["showFanOnlyMode", "Fan Only Mode", "Fan without heating/cooling"],
-    ["showHolidayMode", "Holiday Mode", "Holiday / away mode as a switch"],
-    ["showFirmwareUpdateSwitch", "Firmware Update", "Install staged gateway firmware updates from HomeKit. Never enabled implicitly — the unit is unavailable while it updates"],
+    ["showPowerfulMode", t("Powerful Mode"), t("Boost heating/cooling performance")],
+    ["showEconoMode", t("Econo Mode"), t("Energy-saving operation")],
+    ["showStreamerMode", t("Streamer Mode"), t("Air purification")],
+    ["showOutdoorSilentMode", t("Outdoor Silent Mode"), t("Reduce outdoor unit noise")],
+    ["showIndoorSilentMode", t("Indoor Silent Mode"), t("Quiet fan operation")],
+    ["showAutoFanMode", t("Auto Fan Mode"), t("Automatic fan speed (switch)")],
+    ["showOscillationSwitch", t("Oscillation Switch"), t("Swing as a separate switch (stays visible when grouped into a single tile)")],
+    ["showSeparateFanControl", t("Separate Fan Tile"), t("Fan speed + oscillation as a standalone Fan tile (stays visible when grouped into a single tile)")],
+    ["showDryMode", t("Dry Mode"), t("Dehumidification")],
+    ["showFanOnlyMode", t("Fan Only Mode"), t("Fan without heating/cooling")],
+    ["showHolidayMode", t("Holiday Mode"), t("Holiday / away mode as a switch")],
+    ["showFirmwareUpdateSwitch", t("Firmware Update"), t("Install staged gateway firmware updates from HomeKit. Never enabled implicitly — the unit is unavailable while it updates")],
   ];
   // Switches that follow the legacy "Show Extra Features" flag when their own key is not set.
   const FEATURE_KEYS = ["showPowerfulMode", "showEconoMode", "showStreamerMode", "showOutdoorSilentMode", "showIndoorSilentMode", "showAutoFanMode",
@@ -622,17 +631,17 @@
       const box = $("#device-toggles");
       if (!this.draft) return;
       if (!this.devices.length) {
-        box.replaceChildren(el("p", { class: "muted", text: "No devices found. Authenticate first to see your devices." }));
+        box.replaceChildren(el("p", { class: "muted", text: t("No devices found. Authenticate first to see your devices.") }));
         return;
       }
       box.replaceChildren(...this.devices.map((device) => {
         const visible = !this.draft.excludedDevicesByDeviceId.includes(device.id);
-        const state = el("span", { class: `state ${visible ? "" : "off"}`, text: visible ? "Visible" : "Hidden" });
+        const state = el("span", { class: `state ${visible ? "" : "off"}`, text: visible ? t("Visible") : t("Hidden") });
         const row = this.toggle(device.name, null, visible, (on) => {
           const ids = this.draft.excludedDevicesByDeviceId.filter((id) => id !== device.id);
           if (!on) ids.push(device.id);
           this.draft.excludedDevicesByDeviceId = ids;
-          state.textContent = on ? "Visible" : "Hidden";
+          state.textContent = on ? t("Visible") : t("Hidden");
           state.className = `state ${on ? "" : "off"}`;
           this.changed();
         }, state);
@@ -660,8 +669,8 @@
       const dirty = this.dirty();
       $("#btn-settings-save").disabled = !dirty;
       $("#btn-settings-discard").disabled = !dirty;
-      if (dirty) this.status("dirty", "Unsaved changes");
-      else if ($("#settings-status").className !== "ok") this.status("muted", "Saving applies at once: the plugin reloads with the new settings.");
+      if (dirty) this.status("dirty", t("Unsaved changes"));
+      else if ($("#settings-status").className !== "ok") this.status("muted", t("Saving applies at once: the plugin reloads with the new settings."));
     },
 
     status(kind, text) {
@@ -671,7 +680,7 @@
     },
 
     async save(button) {
-      if (!this.valid()) { this.status("error", "Check the highlighted fields."); return; }
+      if (!this.valid()) { this.status("error", t("Check the highlighted fields.")); return; }
       const draft = this.draft;
       const changes = {
         updateIntervalInMinutes: parseInt(draft.updateIntervalInMinutes, 10) || 15,
@@ -683,15 +692,15 @@
       };
       for (const key of [...FEATURE_KEYS, ...STANDALONE_KEYS]) changes[key] = draft[key];
       await act(button, async () => {
-        this.status("muted", "Saving…");
+        this.status("muted", t("Saving…"));
         const result = await saveBlock(changes);
         this.saved = JSON.stringify(this.draft);
         const pending = result.restartNeeded || [];
-        this.status("ok", pending.length ? `Saved. Restart Homeswift to apply the rest (${pending.join("; ")}).` : "Saved. The plugin reloaded with the new settings.");
+        this.status("ok", pending.length ? t("Saved. Restart Homeswift to apply the rest ({changes}).", { changes: pending.join("; ") }) : t("Saved. The plugin reloaded with the new settings."));
         this.changed();
         devices.load();
         setTimeout(() => auth.load(), 1500);
-      }, (message) => this.status("error", `Failed: ${message}`));
+      }, (message) => this.status("error", t("Failed: {error}", { error: message })));
     },
   };
   for (const [id, key] of [["updateIntervalInMinutes", "updateIntervalInMinutes"], ["forceUpdateDelay", "forceUpdateDelay"], ["oidcCallbackServerBindAddr", "oidcCallbackServerBindAddr"]]) {
@@ -714,30 +723,30 @@
 
   // MARK: Help: the quota the plugin recorded on its last call (no API call).
 
-  const MODE_LABELS = { developer_portal: "Developer Portal", mobile_app: "Mobile App" };
+  const MODE_LABELS = { developer_portal: "Developer Portal", mobile_app: t("Mobile App") };
   async function checkRateLimit(button) {
     const display = $("#rate-limit-display");
     const updated = $("#rate-limit-updated");
-    display.textContent = "Checking…";
+    display.textContent = t("Checking…");
     updated.classList.add("hidden");
     await act(button, async () => {
       const result = await request("rate-limit");
-      if (!result.success || !result.rateLimit) { display.textContent = result.message || "No info"; return; }
+      if (!result.success || !result.rateLimit) { display.textContent = said(result.message) || t("No info"); return; }
       const { limitDay, remainingDay, limitMinute, remainingMinute } = result.rateLimit;
-      let text = remainingDay !== undefined ? `${formatNumber(remainingDay)}/${formatNumber(limitDay)} daily` : "";
+      let text = remainingDay !== undefined ? t("{remaining}/{limit} daily", { remaining: formatNumber(remainingDay), limit: formatNumber(limitDay) }) : "";
       if (remainingMinute !== undefined) {
-        const perMinute = `${formatNumber(remainingMinute)}/${formatNumber(limitMinute)}/min`;
+        const perMinute = t("{remaining}/{limit}/min", { remaining: formatNumber(remainingMinute), limit: formatNumber(limitMinute) });
         text += text ? `, ${perMinute}` : perMinute;
       }
-      display.textContent = text || "No rate limit headers in the last response";
+      display.textContent = text || t("No rate limit headers in the last response");
       if (result.updatedAt) {
-        const parts = [`as of ${new Date(result.updatedAt).toLocaleString()}`];
-        if (typeof result.ageMs === "number") parts.push(`(${formatTime(result.ageMs)} ago)`);
-        if (result.mode && result.mode !== authMode.current) parts.push(`— recorded in ${MODE_LABELS[result.mode] || result.mode} mode`);
+        const parts = [t("as of {time}", { time: new Date(result.updatedAt).toLocaleString(HomeswiftI18n.locale) })];
+        if (typeof result.ageMs === "number") parts.push(t("({time} ago)", { time: formatTime(result.ageMs) }));
+        if (result.mode && result.mode !== authMode.current) parts.push(t("— recorded in {mode} mode", { mode: MODE_LABELS[result.mode] || result.mode }));
         updated.textContent = parts.join(" ");
         updated.classList.remove("hidden");
       }
-    }, (message) => { display.textContent = `Error: ${message}`; });
+    }, (message) => { display.textContent = t("Error: {error}", { error: message }); });
   }
   $("#btn-rate-limit").addEventListener("click", (event) => checkRateLimit(event.currentTarget));
 

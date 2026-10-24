@@ -9,30 +9,31 @@
 <title>Connect to Homeswift</title>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css">
+<script src="/i18n.js"></script>
 </head>
 <body>
 <div class="auth">
   <div class="card authorize">
     <img src="/icon.svg" class="logo large" alt="">
-    <h1 id="title">Connect to Homeswift</h1>
-    <p id="lead" class="muted">Checking the request…</p>
+    <h1 id="title" data-i18n>Connect to Homeswift</h1>
+    <p id="lead" class="muted" data-i18n>Checking the request…</p>
     <form id="login" class="hidden">
-      <label>Username <input name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required></label>
-      <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
-      <label id="login-otp" class="hidden">Code from your authenticator app <input name="otp" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" placeholder="123 456" maxlength="9"></label>
+      <label data-i18n>Username <input name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required></label>
+      <label data-i18n>Password <input name="password" type="password" autocomplete="current-password" required></label>
+      <label id="login-otp" class="hidden" data-i18n>Code from your authenticator app <input name="otp" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" placeholder="123 456" maxlength="9"></label>
       <p class="error" id="login-error" role="alert"></p>
-      <button type="submit" class="primary" id="login-submit">Sign in</button>
+      <button type="submit" class="primary" id="login-submit" data-i18n>Sign in</button>
     </form>
     <form id="consent" class="hidden">
-      <fieldset class="scopes" id="scopes"><legend class="muted">It may</legend></fieldset>
-      <p class="muted hidden" id="read-only">The MCP server is read-only (readOnly in the HomeswiftAiKit block): whatever you choose, the app can only read.</p>
+      <fieldset class="scopes" id="scopes"><legend class="muted" data-i18n>It may</legend></fieldset>
+      <p class="muted hidden" id="read-only" data-i18n>The MCP server is read-only (readOnly in the HomeswiftAiKit block): whatever you choose, the app can only read.</p>
       <p class="muted" id="destination"></p>
       <p class="error" id="consent-error" role="alert"></p>
       <div class="actions">
-        <button type="button" id="deny">Deny</button>
-        <button type="submit" class="primary" id="allow">Allow</button>
+        <button type="button" id="deny" data-i18n>Deny</button>
+        <button type="submit" class="primary" id="allow" data-i18n>Allow</button>
       </div>
-      <button type="button" class="link switch-user" id="switch-user">Not you? Sign in as someone else</button>
+      <button type="button" class="link switch-user" id="switch-user" data-i18n>Not you? Sign in as someone else</button>
     </form>
   </div>
 </div>

@@ -4,6 +4,8 @@
 
 Homeswift is an independent project, not made or endorsed by Apple. Without MFi certification, the Home app shows its accessories as uncertified when they are added.
 
+The site is also in French (https://homeswift.dev/fr/), Spanish (https://homeswift.dev/es/) and Portuguese (https://homeswift.dev/pt/).
+
 ## Docs
 
 - [README](https://github.com/mp-consulting/homeswift/blob/main/README.md): what the library does, installing it, a first accessory in Swift

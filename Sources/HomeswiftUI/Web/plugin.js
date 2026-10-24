@@ -11,6 +11,7 @@
   const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
 
   const { $, el, icon, tile, fact, markdown, sparkle, api, assistantRequest, formatTemperature, temperature } = HomeswiftCommon;
+  const { t } = HomeswiftI18n;
 
   /// This plugin instance's own routes (its handleWebRequest).
   const request = (path, options) => api(prefix + String(path).replace(/^\//, ""), options);
@@ -30,12 +31,12 @@
     const box = el("div", { class: "explain" });
     assistant().then((state) => {
       if (!state.enabled) return;
-      const button = el("button", { class: "ai-button", title: `Ask the Assistant (${state.provider})` }, sparkle(), el("span", { text: "Explain" }));
-      const card = el("div", { class: "ai-card hidden", role: "region", "aria-label": "The Assistant's explanation", "aria-live": "polite" });
+      const button = el("button", { class: "ai-button", title: t("Ask the Assistant ({provider})", { provider: state.provider }) }, sparkle(), el("span", { text: t("Explain") }));
+      const card = el("div", { class: "ai-card hidden", role: "region", "aria-label": t("The Assistant's explanation"), "aria-live": "polite" });
       const show = (entry) => {
         card.classList.remove("hidden", "thinking", "answered", "failed");
         button.classList.add("hidden");
-        const close = el("button", { class: "ai-close", title: "Close", "aria-label": "Close the explanation", text: "×", onclick: () => {
+        const close = el("button", { class: "ai-close", title: t("Close"), "aria-label": t("Close the explanation"), text: "×", onclick: () => {
           card.classList.add("hidden");
           button.classList.remove("hidden");
         } });
@@ -43,27 +44,27 @@
         if (entry.pending) {
           card.classList.add("thinking");
           // The answer as it is written, once it starts.
-          const live = el("div", { class: "ai-live" }, entry.text ? markdown(entry.text) : el("p", { class: "ai-thinking", text: "Thinking about it…" }));
+          const live = el("div", { class: "ai-live" }, entry.text ? markdown(entry.text) : el("p", { class: "ai-thinking", text: t("Thinking about it…") }));
           entry.draw = () => { if (live.isConnected) live.replaceChildren(markdown(entry.text)); };
-          card.replaceChildren(el("div", { class: "ai-inner" }, head("Assistant"), live));
+          card.replaceChildren(el("div", { class: "ai-inner" }, head(t("Assistant")), live));
           entry.pending.finally(() => { if (document.body.contains(card) && !card.classList.contains("hidden")) show(explanations.get(error)); });
           return;
         }
         if (entry.failed) {
           card.classList.add("failed");
-          card.replaceChildren(el("div", { class: "ai-inner" }, head("Assistant"),
+          card.replaceChildren(el("div", { class: "ai-inner" }, head(t("Assistant")),
             el("p", { class: "error", text: entry.failed }),
-            el("button", { class: "link", text: "Try again", onclick: () => { explanations.delete(error); explainNow(); } })));
+            el("button", { class: "link", text: t("Try again"), onclick: () => { explanations.delete(error); explainNow(); } })));
           return;
         }
         card.classList.add("answered");
         const body = markdown(entry.text);
         body.classList.add("ai-body");
-        const more = el("button", { class: "link ai-more", text: "Show more", onclick: () => {
+        const more = el("button", { class: "link ai-more", text: t("Show more"), onclick: () => {
           body.classList.toggle("clamped");
-          more.textContent = body.classList.contains("clamped") ? "Show more" : "Show less";
+          more.textContent = body.classList.contains("clamped") ? t("Show more") : t("Show less");
         } });
-        card.replaceChildren(el("div", { class: "ai-inner" }, head(`Assistant · ${entry.model || state.model}`), body, more));
+        card.replaceChildren(el("div", { class: "ai-inner" }, head(t("Assistant · {model}", { model: entry.model || state.model })), body, more));
         // Long answers open on their first lines, with the rest a click away.
         requestAnimationFrame(() => {
           body.classList.add("clamped");
@@ -106,18 +107,18 @@
     let auth = { mode: "none" };
     const avatar = el("span", { class: "user-avatar", "aria-hidden": "true" }, HomeswiftCommon.icon("user"));
     const userName = el("span", { class: "user-name" });
-    const user = el("button", { id: "user", type: "button", class: "user-button", "aria-haspopup": "menu", "aria-expanded": "false", "aria-label": "Account menu" }, avatar, userName);
+    const user = el("button", { id: "user", type: "button", class: "user-button", "aria-haspopup": "menu", "aria-expanded": "false", "aria-label": t("Account menu") }, avatar, userName);
     const shownName = () => (auth.mode === "form" ? (auth.name && auth.name !== auth.username ? auth.name : auth.username || "") : "");
     user.addEventListener("click", (event) => {
       event.stopPropagation();
       const form = auth.mode === "form";
       HomeswiftCommon.menu(user, [
-        form ? { heading: shownName(), detail: `${auth.username}${auth.admin ? " · Administrator" : ""}` } : { heading: "No sign-in", detail: "Anyone who opens this web UI uses it" },
-        { label: form ? "Your account" : "Account", icon: "user", href: "/account" },
-        { label: "Appearance", icon: "sliders", href: "/appearance" },
-        form && auth.admin ? { label: "Users and tokens", icon: "users", href: "/users" } : null,
+        form ? { heading: shownName(), detail: auth.admin ? t("{username} · Administrator", { username: auth.username }) : auth.username } : { heading: t("No sign-in"), detail: t("Anyone who opens this web UI uses it") },
+        { label: form ? t("Your account") : t("Account"), icon: "user", href: "/account" },
+        { label: t("Appearance"), icon: "sliders", href: "/appearance" },
+        form && auth.admin ? { label: t("Users and tokens"), icon: "users", href: "/users" } : null,
         form ? { separator: true } : null,
-        form ? { label: "Sign out", icon: "logout", onSelect: async () => {
+        form ? { label: t("Sign out"), icon: "logout", onSelect: async () => {
           try { await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }); } catch {}
           location.href = "/";
         } } : null,
@@ -125,7 +126,7 @@
     });
     header.replaceChildren(
       el("a", { class: "brand", href: "/", "aria-label": "Homeswift", title: "Homeswift" }, el("img", { src: "/icon.svg", class: "logo", alt: "" })),
-      el("nav", { "aria-label": "Sections" }, sections.map(([path, text]) => el("a", { href: path, text, class: path === "/plugins" ? "active" : "" }))),
+      el("nav", { "aria-label": t("Sections") }, sections.map(([path, text]) => el("a", { href: path, text, class: path === "/plugins" ? "active" : "" }))),
       el("span", { class: "spacer" }), user);
     // On a phone the sections sit in a tab bar at the bottom, as on the UI's own pages; the page also extends
     // under the notch and the home indicator, which the layout pads around.
@@ -173,7 +174,7 @@
   function breadcrumb(text, close) {
     opened = text ? { text, close } : null;
     const crumb = (content, current) => el("li", current ? { "aria-current": "page" } : {}, content);
-    const levels = [crumb(el("a", { href: "/plugins", text: "Plugins" }))];
+    const levels = [crumb(el("a", { href: "/plugins", text: t("Plugins") }))];
     const pageLevel = name !== pageTitle ? `${pageTitle} · ${name}` : pageTitle;
     levels.push(opened
       ? crumb(el("a", { href: "#", text: pageLevel, onclick: (event) => { event.preventDefault(); opened?.close?.(); } }))
@@ -186,30 +187,30 @@
     // Pause, at the right of the breadcrumb: the plugin stops calling its devices (an app sharing the account
     // keeps its session) until Resume, which a banner offers while it is paused.
     const toggle = el("button", { type: "button", class: "link pause-toggle hidden" });
-    main.prepend(el("nav", { class: "breadcrumb", "aria-label": "Breadcrumb" }, trail, toggle));
+    main.prepend(el("nav", { class: "breadcrumb", "aria-label": t("Breadcrumb") }, trail, toggle));
     breadcrumb(null);
     api("/api/plugins").then(({ platforms }) => {
       const instance = platforms.find((p) => p.platform === platform && p.name === name);
       if (!instance) return;
       const set = (paused) => act(toggle, () => HomeswiftCommon.setPaused(platform, name, paused).then(() => location.reload()));
-      toggle.replaceChildren(icon(instance.paused ? "play" : "pause"), el("span", { text: instance.paused ? "Resume" : "Pause" }));
-      toggle.title = instance.paused ? "Run the plugin again" : "Stop the plugin's calls to its devices for now";
+      toggle.replaceChildren(icon(instance.paused ? "play" : "pause"), el("span", { text: instance.paused ? t("Resume") : t("Pause") }));
+      toggle.title = instance.paused ? t("Run the plugin again") : t("Stop the plugin's calls to its devices for now");
       toggle.onclick = () => set(!instance.paused);
       toggle.classList.remove("hidden");
       if (instance.paused) {
         main.querySelector(".breadcrumb").after(el("div", { class: "card page-note paused-note" },
-          el("p", {}, el("strong", { text: "Paused. " }), "The plugin makes no calls to its devices, and they show No Response in the Home app. This page needs it running."),
-          el("button", { class: "primary", text: "Resume", onclick: (event) => act(event.currentTarget, () => HomeswiftCommon.setPaused(platform, name, false).then(() => location.reload())) })));
+          el("p", {}, el("strong", { text: t("Paused.") }), " ", t("The plugin makes no calls to its devices, and they show No Response in the Home app. This page needs it running.")),
+          el("button", { class: "primary", text: t("Resume"), onclick: (event) => act(event.currentTarget, () => HomeswiftCommon.setPaused(platform, name, false).then(() => location.reload())) })));
       }
     }).catch(() => {});
     // Expert, last on the page once the page's own script has laid it out: the whole block as config.json
     // keeps it, as a form or as JSON, for what the page itself does not set.
     const expert = (mode) => `${address}/expert${mode === "json" ? "/json" : ""}`;
     const section = el("section", { class: "expert", "aria-labelledby": "expert-title" },
-      el("div", { class: "section-head" }, el("h2", { id: "expert-title", text: "Expert" })),
+      el("div", { class: "section-head" }, el("h2", { id: "expert-title", text: t("Expert") })),
       el("div", { class: "card page-note" },
-        el("p", { class: "muted", text: "Every setting of this plugin's block, as config.json keeps it, including what this page does not show." }),
-        el("div", { class: "expert-links" }, el("a", { class: "button", href: expert("form"), text: "Form" }), el("a", { class: "button", href: expert("json"), text: "JSON" }))));
+        el("p", { class: "muted", text: t("Every setting of this plugin's block, as config.json keeps it, including what this page does not show.") }),
+        el("div", { class: "expert-links" }, el("a", { class: "button", href: expert("form"), text: t("Form") }), el("a", { class: "button", href: expert("json"), text: "JSON" }))));
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => main.append(section));
     else main.append(section);
   }
@@ -255,7 +256,7 @@
   function updateDevice(mac, change) {
     return updateDevices((devices) => {
       const index = devices.findIndex((device) => sameMAC(device.mac, mac));
-      if (index < 0) throw new Error("This device is not in the configuration.");
+      if (index < 0) throw new Error(t("This device is not in the configuration."));
       const replacement = change(devices[index]);
       if (replacement === null) devices.splice(index, 1);
       else if (replacement) devices[index] = replacement;

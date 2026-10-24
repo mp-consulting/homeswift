@@ -1154,6 +1154,12 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .auth h1 { margin-top: 6px; }
 .auth button { width: 100%; margin-top: 10px; }
 .auth p.error:empty { display: none; }
+/* The sign-in page's language flags, quiet under the button; the page's own is lit. */
+.auth .auth-languages { display: flex; justify-content: center; gap: 4px; margin-top: 14px; }
+.auth .auth-languages button { width: auto; margin: 0; padding: 4px 8px; min-height: 0; font-size: 1.25rem; line-height: 1; background: none; border-color: transparent; box-shadow: none; opacity: 0.5; transition: opacity var(--fast, 150ms) ease; }
+.auth .auth-languages button:hover, .auth .auth-languages button[aria-pressed="true"] { opacity: 1; }
+.auth .auth-languages button[aria-pressed="true"] { background: var(--material-thin); border-color: var(--line); }
+.menu-flag { width: 18px; flex: none; text-align: center; font-size: 1rem; line-height: 1; }
 /* The OAuth sign-in page (authorize.html): one choice per scope, each saying what it allows; Deny and Allow side by side. */
 .auth .scopes { display: grid; gap: 8px; margin: 14px 0 8px; padding: 0; border: 0; background: none; }
 .auth .scopes legend { padding: 0; margin-bottom: 2px; }

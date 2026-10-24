@@ -5,16 +5,34 @@
 (() => {
   "use strict";
   const { $, el, request, name, explain, assistant, home, api, readBlock, updateBlock, poll } = homeswift;
+  const { t, tn } = HomeswiftI18n;
+
+  /// `text` with an element where its `{name}` placeholder is: a sentence keeps its words in the language's order.
+  const around = (text, name, element) => {
+    const [before, after = ""] = text.split(`{${name}}`);
+    return [before, element, after];
+  };
 
   const countries = [
-    ["Americas", [["CA", "Canada"], ["US", "United States"]]],
-    ["Asia Pacific", [["AU", "Australia"], ["CN", "China"], ["HK", "Hong Kong"], ["IN", "India"], ["JP", "Japan"], ["MY", "Malaysia"],
+    [t("Americas"), [["CA", "Canada"], ["US", "United States"]]],
+    [t("Asia Pacific"), [["AU", "Australia"], ["CN", "China"], ["HK", "Hong Kong"], ["IN", "India"], ["JP", "Japan"], ["MY", "Malaysia"],
       ["NZ", "New Zealand"], ["SG", "Singapore"], ["KR", "South Korea"], ["TW", "Taiwan"], ["TH", "Thailand"]]],
-    ["Europe", [["AT", "Austria"], ["BE", "Belgium"], ["CZ", "Czech Republic"], ["DK", "Denmark"], ["FI", "Finland"], ["FR", "France"],
+    [t("Europe"), [["AT", "Austria"], ["BE", "Belgium"], ["CZ", "Czech Republic"], ["DK", "Denmark"], ["FI", "Finland"], ["FR", "France"],
       ["DE", "Germany"], ["IE", "Ireland"], ["IT", "Italy"], ["NL", "Netherlands"], ["NO", "Norway"], ["PL", "Poland"], ["PT", "Portugal"],
       ["ES", "Spain"], ["SE", "Sweden"], ["CH", "Switzerland"], ["GB", "United Kingdom"]]],
-    ["Middle East", [["SA", "Saudi Arabia"], ["AE", "United Arab Emirates"]]],
+    [t("Middle East"), [["SA", "Saudi Arabia"], ["AE", "United Arab Emirates"]]],
   ];
+  // Countries in the page's language (the list's English names otherwise), in its alphabetical order.
+  const regionNames = (() => {
+    if (HomeswiftI18n.language === "en") return null;
+    try { return new Intl.DisplayNames([HomeswiftI18n.locale], { type: "region" }); } catch { return null; }
+  })();
+  if (regionNames) {
+    for (const group of countries) {
+      group[1] = group[1].map(([code, label]) => [code, regionNames.of(code) || label])
+        .sort((a, b) => a[1].localeCompare(b[1], HomeswiftI18n.locale));
+    }
+  }
 
   const state = {
     step: 1,
@@ -68,72 +86,72 @@
   // MARK: The steps
 
   const wizard = $("#wizard");
-  const stepNames = ["Account", "Devices", "Options"];
+  const stepNames = [t("Account"), t("Devices"), t("Options")];
   const progress = el("ol", { class: "steps" }, stepNames.map((label, i) => el("li", { "data-n": String(i + 1), text: label })));
 
   // Step 0: the devices already set up.
   const existingList = el("div", { class: "devices" });
-  const resyncButton = el("button", { text: "Re-sync from Dyson Cloud", title: "Sign in again to add devices or refresh their credentials", onclick: () => {
+  const resyncButton = el("button", { text: t("Re-sync from Dyson Cloud"), title: t("Sign in again to add devices or refresh their credentials"), onclick: () => {
     state.isResync = true;
     go(1);
     setTimeout(() => email.focus(), 50);
   } });
   const stepExisting = el("div", { class: "step" },
-    el("div", { class: "section-head" }, el("h2", { text: "Your Dyson devices" }),
-      el("div", { class: "actions", style: "margin:0" }, resyncButton, el("button", { text: "Edit options", onclick: () => go(3) }))),
+    el("div", { class: "section-head" }, el("h2", { text: t("Your Dyson devices") }),
+      el("div", { class: "actions", style: "margin:0" }, resyncButton, el("button", { text: t("Edit options"), onclick: () => go(3) }))),
     existingList);
 
   // Step 1: the Dyson account.
-  const email = el("input", { type: "email", placeholder: "your@email.com", autocomplete: "email", id: "email" });
-  const password = el("input", { type: "password", placeholder: "Your Dyson password", autocomplete: "current-password", id: "password" });
-  const showPassword = el("button", { type: "button", class: "link", text: "Show", "aria-label": "Toggle password visibility", onclick: () => {
+  const email = el("input", { type: "email", placeholder: t("your@email.com"), autocomplete: "email", id: "email" });
+  const password = el("input", { type: "password", placeholder: t("Your Dyson password"), autocomplete: "current-password", id: "password" });
+  const showPassword = el("button", { type: "button", class: "link", text: t("Show"), "aria-label": t("Toggle password visibility"), onclick: () => {
     const hidden = password.type === "password";
     password.type = hidden ? "text" : "password";
-    showPassword.textContent = hidden ? "Hide" : "Show";
+    showPassword.textContent = hidden ? t("Hide") : t("Show");
   } });
   const country = el("select", { id: "country" }, countries.map(([group, list]) =>
     el("optgroup", { label: group }, list.map(([code, label]) => el("option", { value: code, text: label })))));
   country.value = "US";
   const loginProblem = el("div", {});
-  const resyncHint = el("p", { class: "hint hidden", text: "Re-enter your credentials to re-sync devices from Dyson Cloud." });
-  const cancelResync = el("button", { class: "hidden", text: "Cancel", onclick: () => { state.isResync = false; go(0); } });
-  const connectButton = el("button", { class: "primary", text: "Connect Account", onclick: (event) => act(event.currentTarget, connect) });
-  const assistantHint = el("p", { class: "hint hidden" }, "Tip: add a ", el("strong", { text: "HomeswiftAiKit" }),
-    " block to config.json to get the Assistant, which explains sign-in and device connection errors here.");
+  const resyncHint = el("p", { class: "hint hidden", text: t("Re-enter your credentials to re-sync devices from Dyson Cloud.") });
+  const cancelResync = el("button", { class: "hidden", text: t("Cancel"), onclick: () => { state.isResync = false; go(0); } });
+  const connectButton = el("button", { class: "primary", text: t("Connect Account"), onclick: (event) => act(event.currentTarget, connect) });
+  const assistantHint = el("p", { class: "hint hidden" }, ...around(t("Tip: add a {block} block to config.json to get the Assistant, which explains sign-in and device connection errors here."),
+    "block", el("strong", { text: "HomeswiftAiKit" })));
   const stepAccount = el("div", { class: "step" },
-    el("h2", { text: "Connect your Dyson account" }),
-    el("p", { class: "muted", text: "Enter your Dyson account credentials to discover your devices. The password is not saved: it is only used to fetch each device's local credentials." }),
+    el("h2", { text: t("Connect your Dyson account") }),
+    el("p", { class: "muted", text: t("Enter your Dyson account credentials to discover your devices. The password is not saved: it is only used to fetch each device's local credentials.") }),
     resyncHint,
     el("div", { class: "form" },
-      el("div", { class: "wide field" }, el("label", { class: "field-title", htmlFor: "email", text: "Email address" }), email),
-      el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: "password", text: "Password" }), el("div", { class: "with-button" }, password, showPassword)),
-      el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: "country", text: "Country" }), country)),
+      el("div", { class: "wide field" }, el("label", { class: "field-title", htmlFor: "email", text: t("Email address") }), email),
+      el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: "password", text: t("Password") }), el("div", { class: "with-button" }, password, showPassword)),
+      el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: "country", text: t("Country") }), country)),
     loginProblem,
     el("div", { class: "actions" }, cancelResync, connectButton),
     assistantHint);
 
   // Step 1b: the emailed code.
-  const code = el("input", { type: "text", class: "code-input", placeholder: "000000", maxlength: 6, inputmode: "numeric", autocomplete: "one-time-code", "aria-label": "Verification code" });
+  const code = el("input", { type: "text", class: "code-input", placeholder: "000000", maxlength: 6, inputmode: "numeric", autocomplete: "one-time-code", "aria-label": t("Verification code") });
   const codeProblem = el("div", {});
-  const verifyButton = el("button", { class: "primary", text: "Verify", onclick: (event) => act(event.currentTarget, verify) });
+  const verifyButton = el("button", { class: "primary", text: t("Verify"), onclick: (event) => act(event.currentTarget, verify) });
   const stepCode = el("div", { class: "step" },
-    el("h2", { text: "Verify your identity" }),
-    el("p", { class: "muted", text: "We've sent a verification code to your email. Enter it below." }),
-    el("p", { class: "hint", text: "Check your inbox for an email from Dyson with your verification code." }),
-    el("div", { class: "field" }, el("label", { class: "field-title", text: "Verification code" }), code),
+    el("h2", { text: t("Verify your identity") }),
+    el("p", { class: "muted", text: t("We've sent a verification code to your email. Enter it below.") }),
+    el("p", { class: "hint", text: t("Check your inbox for an email from Dyson with your verification code.") }),
+    el("div", { class: "field" }, el("label", { class: "field-title", text: t("Verification code") }), code),
     codeProblem,
-    el("div", { class: "actions" }, el("button", { text: "Back", onclick: () => go(1) }), verifyButton));
+    el("div", { class: "actions" }, el("button", { text: t("Back"), onclick: () => go(1) }), verifyButton));
 
   // Step 2: the account's devices.
   const deviceList = el("div", { class: "devices" });
   const stepDevices = el("div", { class: "step" },
-    el("h2", { text: "Select your devices" }),
-    el("p", { class: "muted", text: "Choose which devices to add to HomeKit. You can customize the name for each device." }),
+    el("h2", { text: t("Select your devices") }),
+    el("p", { class: "muted", text: t("Choose which devices to add to HomeKit. You can customize the name for each device.") }),
     deviceList,
     el("div", { class: "actions" },
-      el("button", { text: "Back", onclick: () => go(state.existingConfig ? 0 : 1) }),
-      el("button", { class: "primary", text: "Continue", onclick: () => {
-        if (state.selected.size === 0) return toast("Please select at least one device", "error");
+      el("button", { text: t("Back"), onclick: () => go(state.existingConfig ? 0 : 1) }),
+      el("button", { class: "primary", text: t("Continue"), onclick: () => {
+        if (state.selected.size === 0) return toast(t("Please select at least one device"), "error");
         go(3);
       } })));
 
@@ -143,35 +161,35 @@
     return { input, row: el("div", { class: "toggle-row" }, el("label", { class: "switch" }, input, el("span", {})), el("label", { htmlFor: id, text: label })) };
   };
   const options = {
-    temperature: option("opt-temperature", "Temperature sensor"),
-    humidity: option("opt-humidity", "Humidity sensor"),
-    airQuality: option("opt-air-quality", "Air quality sensor"),
-    nightMode: option("opt-night-mode", "Night mode switch"),
-    jetFocus: option("opt-jet-focus", "Jet focus switch (diffuse/focused)"),
-    autoMode: option("opt-auto-mode", "Auto mode switch"),
-    filterStatus: option("opt-filter-status", "Filter status indicator", false),
+    temperature: option("opt-temperature", t("Temperature sensor")),
+    humidity: option("opt-humidity", t("Humidity sensor")),
+    airQuality: option("opt-air-quality", t("Air quality sensor")),
+    nightMode: option("opt-night-mode", t("Night mode switch")),
+    jetFocus: option("opt-jet-focus", t("Jet focus switch (diffuse/focused)")),
+    autoMode: option("opt-auto-mode", t("Auto mode switch")),
+    filterStatus: option("opt-filter-status", t("Filter status indicator"), false),
   };
   const polling = el("input", { type: "number", class: "polling", value: 60, min: 10, max: 300, id: "opt-polling" });
-  const saveButton = el("button", { class: "primary", text: "Save", onclick: (event) => act(event.currentTarget, saveFromWizard) });
+  const saveButton = el("button", { class: "primary", text: t("Save"), onclick: (event) => act(event.currentTarget, saveFromWizard) });
   const stepOptions = el("div", { class: "step options" },
-    el("h2", { text: "Configure options" }),
-    el("p", { class: "muted", text: "Customize how your devices appear in HomeKit." }),
-    el("h3", { text: "Sensor options" }), options.temperature.row, options.humidity.row, options.airQuality.row,
-    el("h3", { text: "Additional controls" }), options.nightMode.row, options.jetFocus.row, options.autoMode.row, options.filterStatus.row,
-    el("h3", { text: "Advanced" }),
-    el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: "opt-polling", text: "Polling interval (seconds)" }), polling,
-      el("p", { class: "help", text: "How often to check device status (10-300 seconds)" })),
+    el("h2", { text: t("Configure options") }),
+    el("p", { class: "muted", text: t("Customize how your devices appear in HomeKit.") }),
+    el("h3", { text: t("Sensor options") }), options.temperature.row, options.humidity.row, options.airQuality.row,
+    el("h3", { text: t("Additional controls") }), options.nightMode.row, options.jetFocus.row, options.autoMode.row, options.filterStatus.row,
+    el("h3", { text: t("Advanced") }),
+    el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: "opt-polling", text: t("Polling interval (seconds)") }), polling,
+      el("p", { class: "help", text: t("How often to check device status (10-300 seconds)") })),
     el("div", { class: "actions" },
-      el("button", { text: "Back", onclick: () => go(state.existingConfig && !state.authToken ? 0 : 2) }), saveButton));
+      el("button", { text: t("Back"), onclick: () => go(state.existingConfig && !state.authToken ? 0 : 2) }), saveButton));
 
   // Done.
   const doneText = el("p", { class: "muted center" });
-  const restartButton = el("button", { class: "primary hidden", text: "Restart Homeswift", onclick: (event) => act(event.currentTarget, restart) });
+  const restartButton = el("button", { class: "primary hidden", text: t("Restart Homeswift"), onclick: (event) => act(event.currentTarget, restart) });
   const stepDone = el("div", { class: "step center" },
     el("div", { class: "done-icon", text: "✓" }),
-    el("h2", { text: "Configuration complete!" }),
+    el("h2", { text: t("Configuration complete!") }),
     doneText,
-    el("div", { class: "actions", style: "justify-content:center" }, restartButton, el("button", { text: "Close", onclick: () => { location.href = home; } })));
+    el("div", { class: "actions", style: "justify-content:center" }, restartButton, el("button", { text: t("Close"), onclick: () => { location.href = home; } })));
 
   const bodies = { 0: stepExisting, 1: stepAccount, "1b": stepCode, 2: stepDevices, 3: stepOptions, success: stepDone };
   wizard.replaceChildren(progress, ...Object.values(bodies), statusLine);
@@ -208,15 +226,15 @@
     const live = running.get(device.serial);
     const card = el("div", { class: `card device${selectable && !removable ? " selectable" : ""}${selectable && !removable && selected ? " selected" : ""}`, "data-serial": device.serial });
 
-    const nameInput = el("input", { type: "text", value: device.name || "", placeholder: typeName || "Dyson Device", "aria-label": "Name",
+    const nameInput = el("input", { type: "text", value: device.name || "", placeholder: typeName || t("Dyson Device"), "aria-label": t("Name"),
       onclick: (event) => event.stopPropagation(),
       oninput: () => { device.name = nameInput.value.trim(); if (removable) debouncedSave(); } });
     const badges = el("div", { class: "badges" },
       device.version ? el("span", { class: "badge", text: device.version }) : null,
-      device.newVersionAvailable ? el("span", { class: "badge update", text: "Update available" }) : null);
+      device.newVersionAvailable ? el("span", { class: "badge update", text: t("Update available") }) : null);
 
     const settings = el("div", { class: "settings hidden", onclick: (event) => event.stopPropagation() });
-    const gear = el("button", { class: "link", text: "Settings", title: "Device settings", onclick: (event) => {
+    const gear = el("button", { class: "link", text: t("Settings"), title: t("Device settings"), onclick: (event) => {
       event.stopPropagation();
       settings.classList.toggle("hidden");
     } });
@@ -224,15 +242,15 @@
     let status = null;
     let action;
     if (removable) {
-      status = live ? el("span", { class: `pill status ${live.connected ? "on" : live.retrying ? "away" : "standby"}`, text: live.connected ? "Connected" : live.retrying ? "Not responding" : "Connecting" }) : null;
-      action = el("button", { class: "link danger", text: "Remove", title: "Remove device", onclick: () => {
+      status = live ? el("span", { class: `pill status ${live.connected ? "on" : live.retrying ? "away" : "standby"}`, text: liveText(live) }) : null;
+      action = el("button", { class: "link danger", text: t("Remove"), title: t("Remove device"), onclick: () => {
         state.devices = state.devices.filter((d) => d.serial !== device.serial);
         state.selected.delete(device.serial);
         renderExisting();
         autoSave();
       } });
     } else {
-      action = el("input", { type: "checkbox", checked: selected, "aria-label": "Add to HomeKit", onclick: (event) => { event.stopPropagation(); toggle(); } });
+      action = el("input", { type: "checkbox", checked: selected, "aria-label": t("Add to HomeKit"), onclick: (event) => { event.stopPropagation(); toggle(); } });
     }
     const toggle = () => {
       if (state.selected.has(device.serial)) state.selected.delete(device.serial); else state.selected.add(device.serial);
@@ -256,31 +274,31 @@
     monitoring.addEventListener("change", () => setMonitoring(device, monitoring, problemSlot, removable));
     settings.append(
       el("div", { class: "toggle-row" }, el("label", { class: "switch" }, monitoring, el("span", {})),
-        el("label", { htmlFor: monitoring.id }, "Continuous monitoring", el("small", { text: "Keep sensors active when off (required for HomeKit control while off)" }))),
+        el("label", { htmlFor: monitoring.id }, t("Continuous monitoring"), el("small", { text: t("Keep sensors active when off (required for HomeKit control while off)") }))),
       el("div", { class: "row2" },
-        el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: temperatureOffset.id, text: "Temperature offset (°C)" }), temperatureOffset),
-        el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: humidityOffset.id, text: "Humidity offset (%)" }), humidityOffset)),
-      el("p", { class: "help", text: "Adjust if your device reads consistently high or low." }),
+        el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: temperatureOffset.id, text: t("Temperature offset (°C)") }), temperatureOffset),
+        el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: humidityOffset.id, text: t("Humidity offset (%)") }), humidityOffset)),
+      el("p", { class: "help", text: t("Adjust if your device reads consistently high or low.") }),
       el("div", { class: "toggle-row" }, el("label", { class: "switch" }, fahrenheit, el("span", {})),
-        el("label", { htmlFor: fahrenheit.id }, "Use Fahrenheit", el("small", { text: "Log temperatures in °F (the Home app follows your device's settings)" }))));
+        el("label", { htmlFor: fahrenheit.id }, t("Use Fahrenheit"), el("small", { text: t("Log temperatures in °F (the Home app follows your device's settings)") }))));
     if (device.hasHeating === true) {
       const heating = el("select", { id: id("h") },
-        [["thermostat", "Thermostat (Recommended)"], ["heater-cooler", "Heater Cooler"], ["both", "Both"]].map(([value, text]) =>
+        [["thermostat", t("Thermostat (Recommended)")], ["heater-cooler", t("Heater Cooler")], ["both", t("Both")]].map(([value, text]) =>
           el("option", { value, text, selected: (device.heatingServiceType || "thermostat") === value })));
       heating.addEventListener("change", () => { device.heatingServiceType = heating.value; if (removable) autoSave(); });
-      settings.append(el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: heating.id, text: "Heating service" }), heating,
+      settings.append(el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: heating.id, text: t("Heating service") }), heating,
         el("ul", { class: "heating-help" },
-          el("li", {}, el("strong", { text: "Thermostat" }), " — single tile with temperature control"),
-          el("li", {}, el("strong", { text: "Heater Cooler" }), " — a heater tile with the heating threshold"),
-          el("li", {}, el("strong", { text: "Both" }), " — show both tiles in HomeKit"))));
+          el("li", {}, el("strong", { text: t("Thermostat") }), " — ", t("single tile with temperature control")),
+          el("li", {}, el("strong", { text: t("Heater Cooler") }), " — ", t("a heater tile with the heating threshold")),
+          el("li", {}, el("strong", { text: t("Both") }), " — ", t("show both tiles in HomeKit")))));
     }
 
     const facts = removable && live && live.connected ? el("div", { class: "facts live" },
-      fact("Fan", live.on ? (live.autoMode ? "Auto" : `Speed ${live.fanSpeed > 0 ? live.fanSpeed : "—"}`) : "Off"),
-      live.temperature !== undefined ? fact("Temperature", homeswift.formatTemperature(live.temperature)) : null,
-      live.humidity !== undefined ? fact("Humidity", `${live.humidity} %`) : null,
+      fact(t("Fan"), live.on ? (live.autoMode ? t("Auto") : t("Speed {n}", { n: live.fanSpeed > 0 ? live.fanSpeed : "—" })) : t("Off")),
+      live.temperature !== undefined ? fact(t("Temperature"), homeswift.formatTemperature(live.temperature)) : null,
+      live.humidity !== undefined ? fact(t("Humidity"), `${live.humidity} %`) : null,
       live.pm25 !== undefined ? fact("PM2.5", String(live.pm25)) : null,
-      live.filterLife !== undefined ? fact("Filter", `${live.filterLife} %`) : null) : null;
+      live.filterLife !== undefined ? fact(t("Filter"), `${live.filterLife} %`) : null) : null;
 
     card.append(
       el("div", { class: "device-head" },
@@ -297,6 +315,9 @@
   }
 
   const fact = (label, value) => el("div", { class: "fact" }, el("span", { text: label }), el("b", { text: value }));
+
+  /// What a status pill says of a running device.
+  const liveText = (live) => (live.connected ? t("Connected") : live.retrying ? t("Not responding") : t("Connecting"));
 
   function fanIcon() {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -332,7 +353,7 @@
     try {
       const response = await request("set-continuous-monitoring", { method: "POST", body: { ...deviceRequest(device), enabled } });
       device.isContinuousMonitoringEnabled = enabled;
-      toast(`Continuous monitoring ${enabled ? "enabled" : "disabled"}`);
+      toast(enabled ? t("Continuous monitoring enabled") : t("Continuous monitoring disabled"));
       if (response.discoveredIp && response.discoveredIp !== device.ipAddress) {
         device.ipAddress = response.discoveredIp;
         if (saved) debouncedSave();
@@ -340,7 +361,7 @@
       if (saved) debouncedSave();
     } catch (e) {
       checkbox.checked = !enabled;
-      toast(e.message || "Failed to set continuous monitoring", "error");
+      toast(e.message || t("Failed to set continuous monitoring"), "error");
       if (assistantOn) slot.replaceChildren(el("p", { class: "device-problem", text: e.message }),
         explain({ error: scrub(e.message), context: context("Turning continuous monitoring on or off over the local network (MQTT on port 1883) failed."), device: assistantDevice(device) }));
     } finally {
@@ -353,7 +374,7 @@
   function renderExisting() {
     if (state.devices.length === 0) {
       existingList.replaceChildren(el("div", { class: "card empty center" },
-        el("p", { class: "muted" }, "No devices configured. Click ", el("strong", { text: "Re-sync from Dyson Cloud" }), " to add devices.")));
+        el("p", { class: "muted" }, ...around(t("No devices configured. Click {button} to add devices."), "button", el("strong", { text: t("Re-sync from Dyson Cloud") })))));
       return;
     }
     existingList.replaceChildren(...state.devices.map((d) => deviceCard(d, { selectable: true, removable: true, container: existingList })));
@@ -378,7 +399,7 @@
           const pill = card.querySelector(".pill.status");
           if (live && pill) {
             pill.className = `pill status ${live.connected ? "on" : live.retrying ? "away" : "standby"}`;
-            pill.textContent = live.connected ? "Connected" : live.retrying ? "Not responding" : "Connecting";
+            pill.textContent = liveText(live);
           }
         }
       }
@@ -455,9 +476,9 @@
     if (state.step !== 0) return;
     try {
       await saveConfig();
-      toast("Settings saved");
+      toast(t("Settings saved"));
     } catch (e) {
-      toast(`Failed to save: ${e.message || "Unknown error"}`, "error");
+      toast(t("Failed to save: {error}", { error: e.message || t("Unknown error") }), "error");
     }
   }
   let saveTimer = null;
@@ -471,22 +492,22 @@
     const pending = result.restartNeeded || [];
     restartButton.classList.toggle("hidden", pending.length === 0);
     doneText.textContent = pending.length
-      ? `Your Dyson devices are saved. Restart Homeswift to apply the rest (${pending.join("; ")}).`
-      : "Your Dyson devices are configured, and the plugin restarted with them. They show up in the Home app with the bridge.";
-    toast("Configuration saved!");
+      ? t("Your Dyson devices are saved. Restart Homeswift to apply the rest ({changes}).", { changes: pending.join("; ") })
+      : t("Your Dyson devices are configured, and the plugin restarted with them. They show up in the Home app with the bridge.");
+    toast(t("Configuration saved!"));
     go("success");
   }
 
   async function restart() {
     await api("/api/restart", { method: "POST" });
-    toast("Restarting…");
+    toast(t("Restarting…"));
   }
 
   // MARK: The Dyson account
 
   async function connect() {
     const address = email.value.trim();
-    if (!address || !password.value) return showLoginProblem("Please enter your email and password");
+    if (!address || !password.value) return showLoginProblem(t("Please enter your email and password"));
     loginProblem.replaceChildren();
     try {
       const response = await request("authenticate", { method: "POST", body: { email: address, password: password.value, countryCode: country.value } });
@@ -498,7 +519,7 @@
         await fetchDevices();
       }
     } catch (e) {
-      showLoginProblem(e.message || "Authentication failed");
+      showLoginProblem(e.message || t("Authentication failed"));
     }
   }
 
@@ -509,16 +530,16 @@
   async function verify() {
     if (state.submitting) return;
     const value = code.value.trim();
-    if (!value || value.length < 6) return codeProblem.replaceChildren(el("p", { class: "status-line error", text: "Please enter the 6-digit verification code" }));
+    if (!value || value.length < 6) return codeProblem.replaceChildren(el("p", { class: "status-line error", text: t("Please enter the 6-digit verification code") }));
     state.submitting = true;
     codeProblem.replaceChildren();
     try {
       const response = await request("verify-otp", { method: "POST", body: { otpCode: value } });
       state.authToken = response.token;
-      toast("Verification successful!");
+      toast(t("Verification successful!"));
       await fetchDevices();
     } catch (e) {
-      codeProblem.replaceChildren(problem(e.message || "Verification failed",
+      codeProblem.replaceChildren(problem(e.message || t("Verification failed"),
         "Verifying the 6-digit code that Dyson emailed (POST /v3/userregistration/email/verify, together with the account password) failed."));
       code.value = "";
       code.focus();
@@ -533,14 +554,14 @@
       // The saved per-device settings of devices already set up carry over.
       state.devices = DysonConfigMerge.withSavedDeviceSettings(response.devices, state.existingConfig?.devices);
       state.isResync = false;
-      if (state.devices.length === 0) return toast("No compatible devices found", "error");
+      if (state.devices.length === 0) return toast(t("No compatible devices found"), "error");
       state.selected = new Set(state.devices.map((d) => d.serial));
       renderDeviceList();
       go(2);
-      toast(`Found ${state.devices.length} device(s)!`);
+      toast(tn("Found {n} device!", "Found {n} devices!", state.devices.length));
     } catch (e) {
       go(1);
-      showLoginProblem(e.message || "Failed to fetch devices",
+      showLoginProblem(e.message || t("Failed to fetch devices"),
         "Signing in worked, but reading the device list and local credentials from the Dyson cloud (GET /v2/provisioningservice/manifest) failed.");
     }
   }

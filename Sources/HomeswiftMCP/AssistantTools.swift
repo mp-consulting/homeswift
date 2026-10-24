@@ -56,26 +56,28 @@ extension HomeswiftCatalog {
             accessories: .array(located().map { Self.accessoryJSON($0, detailed: false) }))
     }
 
-    /// Today's digest when one was written today by the Assistant's current provider and model: `text`,
-    /// `generatedAt`, `date`, `model`, `cached`. nil otherwise.
-    public func cachedDigest(now: Date = Date()) -> JSONValue? {
+    /// Today's digest when one was written today by the Assistant's current provider and model, in `language` (a BCP 47
+    /// tag; nil for the Assistant's own choice): `text`, `generatedAt`, `date`, `model`, `cached`. nil otherwise.
+    public func cachedDigest(language: String? = nil, now: Date = Date()) -> JSONValue? {
         guard let assistant = host.assistant, let data = try? Data(contentsOf: digestURL), let kept = try? JSONValue(data: data),
               kept["date"]?.stringValue == DailyDigestInput.today(now), kept["provider"]?.stringValue == assistant.providerName,
-              kept["model"]?.stringValue == assistant.model, kept["text"]?.stringValue != nil else { return nil }
+              kept["model"]?.stringValue == assistant.model, kept["text"]?.stringValue != nil,
+              kept["language"]?.stringValue == Prompts.answerLanguage(language).flatMap({ _ in Self.primaryLanguage(language) }) else { return nil }
         var object = kept.objectValue ?? [:]
         object["cached"] = true
         return .object(object)
     }
 
     /// Writes today's digest (`AssistantService.dailyDigest`) and keeps it for the day, owner-only. `onChunk`
-    /// streams the text. Throws when the Assistant is off, over budget, or the provider fails.
-    public func writeDigest(user: String?, onChunk: (@Sendable (String) -> Void)? = nil) async throws -> JSONValue {
-        guard let assistant = host.assistant?.forUser(user) else { throw CatalogError("The Assistant is off: add a HomeswiftAiKit block") }
+    /// streams the text, in `language` (a BCP 47 tag). Throws when the Assistant is off, over budget, or the provider fails.
+    public func writeDigest(user: String?, language: String? = nil, onChunk: (@Sendable (String) -> Void)? = nil) async throws -> JSONValue {
+        guard let assistant = host.assistant?.forUser(user).speaking(language) else { throw CatalogError("The Assistant is off: add a HomeswiftAiKit block") }
         let input = digestInput()
         let reply = try await assistant.dailyDigest(input, onChunk: onChunk)
         let kept: JSONValue = [
             "date": .string(input.date ?? DailyDigestInput.today()), "provider": .string(assistant.providerName), "model": .string(assistant.model),
             "text": .string(reply.text), "generatedAt": .string(Timestamp.iso8601(Date())),
+            "language": Prompts.answerLanguage(language).flatMap { _ in Self.primaryLanguage(language) }.map(JSONValue.string) ?? .null,
         ]
         do {
             try OwnerOnlyFile.write(kept.encoded(pretty: true), to: digestURL)
@@ -85,6 +87,11 @@ extension HomeswiftCatalog {
         var object = kept.objectValue ?? [:]
         object["cached"] = false
         return .object(object)
+    }
+
+    /// "fr" for "fr-FR".
+    static func primaryLanguage(_ tag: String?) -> String? {
+        tag?.lowercased().split(separator: "-").first.map(String.init)
     }
 
     // MARK: The log

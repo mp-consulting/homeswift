@@ -15,36 +15,40 @@ enum WebAssets {
   "use strict";
 
   const { $, el, tile, fact, menuButton, withSlugs, jsonDiff } = HomeswiftCommon;
+  const { t, tn, locale } = HomeswiftI18n;
   const app = () => window.HomeswiftApp;
   const api = (...args) => app().api(...args);
 
-  const pages = [["", "Bridge", "bridge"], ["child-bridges", "Child bridges", "child"], ["backups", "Backups", "archive"], ["audit", "Audit log", "shield"], ["assistant", "Assistant", "sparkle"]];
+  const pages = [["", t("Bridge"), "bridge"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
 
-  const dateTime = new Intl.DateTimeFormat([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
-  const fullDate = new Intl.DateTimeFormat([], { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  const dateTime = new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+  const fullDate = new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
   const when = (iso) => (iso ? dateTime.format(new Date(iso)) : "–");
-  const size = (bytes) => bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : bytes >= 1024 ? `${Math.round(bytes / 1024)} KB` : `${bytes} B`;
+  const tenths = new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const size = (bytes) => bytes >= 1048576 ? `${tenths.format(bytes / 1048576)} MB` : bytes >= 1024 ? `${Math.round(bytes / 1024).toLocaleString(locale)} KB` : `${bytes.toLocaleString(locale)} B`;
 
   /// The pages of Settings as a row of links, a glyph each, the current one lit (a phone puts the glyph over the name,
   /// the five across).
   function subnav(current) {
-    return el("nav", { class: "group subnav", "aria-label": "Settings pages" }, pages.map(([path, text, glyph]) =>
+    return el("nav", { class: "group subnav", "aria-label": t("Settings pages") }, pages.map(([path, text, glyph]) =>
       el("a", { href: `/settings${path ? `/${path}` : ""}`, class: path === current ? "on" : "", "aria-current": path === current ? "page" : null },
         glyph === "sparkle" ? HomeswiftCommon.sparkle() : HomeswiftCommon.icon(glyph), el("span", { text }))));
   }
 
   /// A modal question for what cannot be undone: `typed`, when given, must be typed before the button works.
   /// Resolves true when confirmed.
-  function confirmAction({ title, text, confirmLabel = "Continue", typed = null, danger = true }) {
+  function confirmAction({ title, text, confirmLabel = t("Continue"), typed = null, danger = true }) {
     return new Promise((resolve) => {
-      const input = typed ? el("input", { type: "text", autocomplete: "off", spellcheck: false, "aria-label": `Type ${typed} to confirm` }) : null;
+      const input = typed ? el("input", { type: "text", autocomplete: "off", spellcheck: false, "aria-label": t("Type {text} to confirm", { text: typed }) }) : null;
       const ok = el("button", { class: danger ? "danger" : "primary", text: confirmLabel, disabled: Boolean(typed), value: "ok" });
-      const cancel = el("button", { text: "Cancel", value: "cancel", type: "button" });
+      const cancel = el("button", { text: t("Cancel"), value: "cancel", type: "button" });
+      // The sentence around the word to type, in the page's language: the word goes where {text} stands.
+      const [typeBefore, typeAfter = ""] = t("Type {text} to confirm").split("{text}");
       const dialog = el("dialog", { class: "admin-dialog card", "aria-labelledby": "confirm-title" },
         el("form", { method: "dialog" },
           el("h2", { id: "confirm-title", text: title }),
           ...[text].flat().filter(Boolean).map((paragraph) => el("p", { text: paragraph })),
-          input ? el("label", { class: "field" }, el("span", { class: "field-title" }, "Type ", el("strong", { class: "mono", text: typed }), " to confirm"), input) : null,
+          input ? el("label", { class: "field" }, el("span", { class: "field-title" }, typeBefore, el("strong", { class: "mono", text: typed }), typeAfter), input) : null,
           el("div", { class: "actions" }, cancel, ok)));
       input?.addEventListener("input", () => { ok.disabled = input.value.trim() !== typed; });
       cancel.addEventListener("click", () => dialog.close("cancel"));
@@ -65,7 +69,7 @@ enum WebAssets {
 
   async function view(main, [page = ""] = []) {
     const draw = { "": bridgePage, "child-bridges": childBridgesPage, backups: backupsPage, audit: auditPage, assistant: (main) => app().assistantPage(main, subnav("assistant")) }[page];
-    if (!draw) { app().show(main, app().pageHead("Settings", "No such page."), subnav(null)); return; }
+    if (!draw) { app().show(main, app().pageHead(t("Settings"), t("No such page.")), subnav(null)); return; }
     await draw(main);
   }
 
@@ -77,11 +81,11 @@ enum WebAssets {
     const bridge = settings.bridge || {};
     const uiBlock = plugins?.blocks.find((block) => block.platform === "HomeswiftUI");
     app().show(main,
-      app().pageHead("Settings", "The bridge, its pairings and cached accessories, child bridges, backups and the audit log."),
+      app().pageHead(t("Settings"), t("The bridge, its pairings and cached accessories, child bridges, backups and the audit log.")),
       subnav(""),
       bridgeForm(settings, bridge, pairings.bridges.find((one) => one.kind === "main")),
       networkCard(settings),
-      sectionHead("HomeKit pairings", "Who the Home app knows each server by"),
+      sectionHead(t("HomeKit pairings"), t("Who the Home app knows each server by")),
       el("div", { class: "grid" }, pairings.bridges.map(pairingCard)),
       cachesSection(caches),
       schedulesCard(uiBlock));
@@ -92,15 +96,15 @@ enum WebAssets {
     const input = (key, attrs = {}) => el("input", { type: "text", value: bridge[key] ?? "", name: key, ...attrs });
     const fields = {
       name: input("name", { required: true }),
-      port: input("port", { type: "number", min: 1, max: 65535, placeholder: settings.listeningPort ? `Automatic (now ${settings.listeningPort})` : "Automatic" }),
+      port: input("port", { type: "number", min: 1, max: 65535, placeholder: settings.listeningPort ? t("Automatic (now {port})", { port: String(settings.listeningPort) }) : t("Automatic [port]") }),
       pin: input("pin", { class: "mono", placeholder: "031-45-154", pattern: "\\d{3}-\\d{2}-\\d{3}", autocomplete: "off", spellcheck: false }),
       manufacturer: input("manufacturer", { placeholder: "Homeswift" }),
       model: input("model", { placeholder: "Homeswift" }),
-      firmwareRevision: input("firmwareRevision", { placeholder: "The homeswift version" }),
+      firmwareRevision: input("firmwareRevision", { placeholder: t("The homeswift version") }),
     };
     const field = (title, control, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: title }), control, help ? el("span", { class: "help", text: help }) : null);
     const message = el("p", { class: "status-line muted", role: "status" });
-    const save = el("button", { class: "primary", type: "submit", text: "Save and restart" });
+    const save = el("button", { class: "primary", type: "submit", text: t("Save and restart") });
     const read = () => Object.fromEntries(Object.entries(fields).map(([key, control]) => {
       const value = control.value.trim();
       return [key, value === "" ? null : key === "port" ? Number(value) : value];
@@ -109,10 +113,10 @@ enum WebAssets {
     const form = el("form", { class: "card form-card", onsubmit: async (event) => {
       event.preventDefault();
       const next = read();
-      if (JSON.stringify(next) === initial) { message.className = "status-line muted"; message.textContent = "Nothing changed."; return; }
-      if (!(await confirmAction({ title: "Restart homeswift with these settings?", danger: false, confirmLabel: "Save and restart",
-        text: ["The bridge block is the bridge's HomeKit identity: homeswift restarts to apply it, and every connection drops for a few seconds.",
-          next.pin !== (bridge.pin ?? null) ? "A new setup code applies to new pairings only: the Home app keeps the bridge." : ""] }))) return;
+      if (JSON.stringify(next) === initial) { message.className = "status-line muted"; message.textContent = t("Nothing changed."); return; }
+      if (!(await confirmAction({ title: t("Restart homeswift with these settings?"), danger: false, confirmLabel: t("Save and restart"),
+        text: [t("The bridge block is the bridge's HomeKit identity: homeswift restarts to apply it, and every connection drops for a few seconds."),
+          next.pin !== (bridge.pin ?? null) ? t("A new setup code applies to new pairings only: the Home app keeps the bridge.") : ""] }))) return;
       await busy(save, async () => {
         const result = await api("/api/settings/bridge", { method: "PUT", body: { settings: next } });
         message.className = "status-line ok";
@@ -120,15 +124,15 @@ enum WebAssets {
       }, (e) => { message.className = "status-line error"; message.textContent = e.message; });
     } },
       el("div", { class: "server-head" }, tile("bridge", "orange"),
-        el("div", { class: "who" }, el("strong", { text: "Bridge" }), el("div", { class: "muted", text: "config.json's bridge block" }))),
-      el("div", { class: "facts lead" }, fact("Device ID", settings.deviceId, { class: "mono" }), fact("Listening on port", settings.listeningPort ?? "?"),
-        fact("Home app", main?.paired ? `Paired · ${main.controllers}` : "Not paired")),
+        el("div", { class: "who" }, el("strong", { text: t("Bridge") }), el("div", { class: "muted", text: t("config.json's bridge block") }))),
+      el("div", { class: "facts lead" }, fact(t("Device ID"), settings.deviceId, { class: "mono" }), fact(t("Listening on port"), settings.listeningPort ?? "?"),
+        fact(t("Home app"), main?.paired ? t("Paired · {count}", { count: main.controllers }) : t("Not paired"))),
       el("div", { class: "fields" },
-        field("Name", fields.name, "What the Home app calls the bridge when it is added."),
-        field("Port", fields.port, "The HomeKit server's port; empty picks a free one and keeps it."),
-        field("Setup code", fields.pin, "The code the Home app asks for, as XXX-XX-XXX. It is never logged."),
-        field("Manufacturer", fields.manufacturer), field("Model", fields.model), field("Firmware revision", fields.firmwareRevision)),
-      el("p", { class: "help", text: "The device ID stays: a new one is a new bridge to the Home app. To pair again from scratch, reset the bridge's pairings below." }),
+        field(t("Name"), fields.name, t("What the Home app calls the bridge when it is added.")),
+        field(t("Port"), fields.port, t("The HomeKit server's port; empty picks a free one and keeps it.")),
+        field(t("Setup code"), fields.pin, t("The code the Home app asks for, as XXX-XX-XXX. It is never logged.")),
+        field(t("Manufacturer"), fields.manufacturer), field(t("Model"), fields.model), field(t("Firmware revision"), fields.firmwareRevision)),
+      el("p", { class: "help", text: t("The device ID stays: a new one is a new bridge to the Home app. To pair again from scratch, reset the bridge's pairings below.") }),
       el("div", { class: "actions" }, save), message);
     return form;
   }
@@ -138,32 +142,32 @@ enum WebAssets {
   function networkCard(settings) {
     return el("div", { class: "card server" },
       el("div", { class: "server-head" }, tile("system", "grey"),
-        el("div", { class: "who" }, el("strong", { text: "Network" }), el("div", { class: "muted", text: "Where the Home app finds the bridge" }))),
-      el("div", { class: "facts" }, fact("Advertised with", settings.advertiser), fact("Interfaces", "Every one"), fact("Port", settings.listeningPort ?? "?")),
+        el("div", { class: "who" }, el("strong", { text: t("Network") }), el("div", { class: "muted", text: t("Where the Home app finds the bridge") }))),
+      el("div", { class: "facts" }, fact(t("Advertised with"), settings.advertiser), fact(t("Interfaces"), t("Every one")), fact(t("Port"), settings.listeningPort ?? "?")),
       settings.addresses?.length ? el("div", { class: "chips" }, settings.addresses.map((address) => el("span", { class: "chip mono", text: address }))) : null,
-      el("p", { class: "muted note", text: "Homeswift listens and advertises on every interface, with the system's mDNS: there is no interface or mDNS backend to choose, as Homebridge's bind and advertiser settings do." }));
+      el("p", { class: "muted note", text: t("Homeswift listens and advertises on every interface, with the system's mDNS: there is no interface or mDNS backend to choose, as Homebridge's bind and advertiser settings do.") }));
   }
 
   /// A server's pairing state, and a menu to forget its controllers.
   function pairingCard(bridge) {
-    const kind = { main: ["bridge", "orange", "Main bridge"], child: ["child", "violet", "Child bridge"], external: ["accessory", "blue", "Accessory of its own"] }[bridge.kind] ?? ["bridge", "grey", bridge.kind];
+    const kind = { main: ["bridge", "orange", t("Main bridge")], child: ["child", "violet", t("Child bridge")], external: ["accessory", "blue", t("Accessory of its own")] }[bridge.kind] ?? ["bridge", "grey", bridge.kind];
     return el("div", { class: "card server" },
       el("div", { class: "server-head" }, tile(kind[0], kind[1]),
         el("div", { class: "who" }, el("strong", { text: bridge.name }), el("div", { class: "muted", text: kind[2] })),
-        el("span", { class: `pill status ${bridge.paired ? "on" : "away"}`, text: bridge.paired ? `Paired · ${bridge.controllers}` : "Not paired" })),
-      el("div", { class: "facts" }, fact("Device ID", bridge.deviceId, { class: "mono" }), fact("Controllers", bridge.controllers), fact("Admins", bridge.admins)),
+        el("span", { class: `pill status ${bridge.paired ? "on" : "away"}`, text: bridge.paired ? t("Paired · {count}", { count: bridge.controllers }) : t("Not paired") })),
+      el("div", { class: "facts" }, fact(t("Device ID"), bridge.deviceId, { class: "mono" }), fact(t("Controllers"), bridge.controllers), fact(t("Admins"), bridge.admins)),
       el("div", { class: "card-foot" },
-        el("span", { class: "muted", text: bridge.paired ? "In the Home app" : "Waiting to be added (setup code on the Status page)" }),
-        menuButton(`Actions for ${bridge.name}`, () => [
-          { label: "Reset pairings…", icon: "key", danger: true, onSelect: () => resetPairings(bridge) },
+        el("span", { class: "muted", text: bridge.paired ? t("In the Home app") : t("Waiting to be added (setup code on the Status page)") }),
+        menuButton(t("Actions for {name}", { name: bridge.name }), () => [
+          { label: t("Reset pairings…"), icon: "key", danger: true, onSelect: () => resetPairings(bridge) },
         ])));
   }
 
   async function resetPairings(bridge) {
     const ok = await confirmAction({
-      title: `Reset the pairings of ${bridge.name}?`, confirmLabel: "Reset pairings", typed: bridge.name,
-      text: ["Every Home app controller paired with it is forgotten and disconnected. The Home app loses it with its accessories, their rooms, scenes and automations.",
-        "Add it again afterwards with its setup code, as a new bridge."],
+      title: t("Reset the pairings of {name}?", { name: bridge.name }), confirmLabel: t("Reset pairings"), typed: bridge.name,
+      text: [t("Every Home app controller paired with it is forgotten and disconnected. The Home app loses it with its accessories, their rooms, scenes and automations."),
+        t("Add it again afterwards with its setup code, as a new bridge.")],
     });
     if (!ok) return;
     await busy(null, async () => { await api("/api/pairings/reset", { method: "POST", body: { bridge: bridge.deviceId, confirm: true } }); app().route(); });
@@ -175,23 +179,23 @@ enum WebAssets {
     const row = (cached) => el("div", { class: "row" },
       el("div", { class: "who" }, el("strong", { text: cached.name }),
         el("div", { class: "muted", text: [cached.instance ?? cached.platform ?? cached.cacheFile, cached.bridge, cached.manufacturer, cached.model].filter(Boolean).join(" · ") })),
-      cached.orphaned ? el("span", { class: "pill status away", text: "No block", title: "Its block is no longer in config.json" })
-        : cached.restoredOnly ? el("span", { class: "pill status away", text: "Stale", title: "Back from the cache, not added again by its plugin" }) : el("span", { class: "pill status on", text: "Current" }),
-      menuButton(`Actions for ${cached.name}`, () => [
-        { label: "Remove from the cache…", icon: "trash", danger: true, onSelect: () => removeCached(cached) },
+      cached.orphaned ? el("span", { class: "pill status away", text: t("No block"), title: t("Its block is no longer in config.json") })
+        : cached.restoredOnly ? el("span", { class: "pill status away", text: t("Stale"), title: t("Back from the cache, not added again by its plugin") }) : el("span", { class: "pill status on", text: t("Current") }),
+      menuButton(t("Actions for {name}", { name: cached.name }), () => [
+        { label: t("Remove from the cache…"), icon: "trash", danger: true, onSelect: () => removeCached(cached) },
       ]));
-    const reset = menuButton("Actions for every cache", () => [
-      { label: "Reset every cache…", icon: "trash", danger: true, onSelect: resetCaches },
+    const reset = menuButton(t("Actions for every cache"), () => [
+      { label: t("Reset every cache…"), icon: "trash", danger: true, onSelect: resetCaches },
     ]);
     return el("section", {},
-      sectionHead("Cached accessories", `${list.length} in ${new Set(list.map((c) => c.cacheFile)).size} cache file(s)`, reset),
-      list.length ? el("div", { class: "card rows" }, list.map(row)) : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("accessory")), el("p", { class: "muted", text: "No cached accessory." })));
+      sectionHead(t("Cached accessories"), tn("{count} in {n} cache file", "{count} in {n} cache files", new Set(list.map((c) => c.cacheFile)).size, { count: list.length }), reset),
+      list.length ? el("div", { class: "card rows" }, list.map(row)) : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("accessory")), el("p", { class: "muted", text: t("No cached accessory.") })));
   }
 
   async function removeCached(cached) {
     const ok = await confirmAction({
-      title: `Remove ${cached.name} from the cache?`, confirmLabel: "Remove",
-      text: "It leaves HomeKit now. A plugin that still has the device adds it again, under the same ids, so rooms and automations come back with it.",
+      title: t("Remove {name} from the cache?", { name: cached.name }), confirmLabel: t("Remove"),
+      text: t("It leaves HomeKit now. A plugin that still has the device adds it again, under the same ids, so rooms and automations come back with it."),
     });
     if (!ok) return;
     await busy(null, async () => { await api("/api/cached-accessories/remove", { method: "POST", body: { id: cached.id, cacheFile: cached.cacheFile } }); app().route(); });
@@ -199,9 +203,9 @@ enum WebAssets {
 
   async function resetCaches() {
     const ok = await confirmAction({
-      title: "Reset every accessory cache?", confirmLabel: "Reset the caches", typed: "RESET",
-      text: ["Every plugin's accessories leave HomeKit, and the plugins start again on empty caches, adding the devices they reach.",
-        "Their ids stay, so rooms and automations come back with the devices; accessories of devices that are gone do not."],
+      title: t("Reset every accessory cache?"), confirmLabel: t("Reset the caches"), typed: "RESET",
+      text: [t("Every plugin's accessories leave HomeKit, and the plugins start again on empty caches, adding the devices they reach."),
+        t("Their ids stay, so rooms and automations come back with the devices; accessories of devices that are gone do not.")],
     });
     if (!ok) return;
     await busy(null, async () => { await api("/api/cached-accessories/reset", { method: "POST", body: { confirm: true } }); app().route(); });
@@ -210,10 +214,10 @@ enum WebAssets {
   /// The schedules and the reverse proxy: settings of the web UI's own block, edited in its form.
   function schedulesCard(uiBlock) {
     return el("section", {},
-      sectionHead("Schedules and proxy", "In the web UI's settings"),
+      sectionHead(t("Schedules and proxy"), t("In the web UI's settings")),
       el("div", { class: "card page-note" },
-        el("p", { text: "A scheduled restart (a cron expression), the daily backup (its folder and how long it is kept) and the reverse proxies trusted for X-Forwarded-For and X-Forwarded-Proto are settings of the HomeswiftUI block." }),
-        uiBlock ? el("a", { class: "button", href: `/plugins/${uiBlock.slug}`, text: "Open its settings" }) : null));
+        el("p", { text: t("A scheduled restart (a cron expression), the daily backup (its folder and how long it is kept) and the reverse proxies trusted for X-Forwarded-For and X-Forwarded-Proto are settings of the HomeswiftUI block.") }),
+        uiBlock ? el("a", { class: "button", href: `/plugins/${uiBlock.slug}`, text: t("Open its settings") }) : null));
   }
 
   // ---- Child bridges -------------------------------------------------------------------------------------
@@ -226,35 +230,35 @@ enum WebAssets {
       const failures = Object.entries(bridge.failedPlugins ?? {});
       return el("div", { class: "card server" },
         el("div", { class: "server-head" }, tile("child", "violet"),
-          el("div", { class: "who" }, el("strong", { text: bridge.name }), el("div", { class: "muted", text: bridge.plugins.join(", ") || "No plugin" })),
-          el("span", { class: `pill status ${tone[bridge.status] ?? "standby"}`, text: bridge.status === "stopped" && bridge.stoppedManually ? "Stopped by hand" : { ok: "Running", degraded: "Degraded", stopped: "Stopped" }[bridge.status] ?? bridge.status })),
-        el("div", { class: "facts lead" }, fact("Device ID", bridge.id, { class: "mono" }), fact("Port", bridge.port ?? "–"), fact("Accessories", bridge.accessories)),
-        el("div", { class: "facts" }, fact("Up", bridge.uptimeSeconds == null ? "–" : app().formatDuration(bridge.uptimeSeconds)), fact("Restarts", bridge.restarts),
-          fact("Pairing", bridge.paired ? `Paired · ${bridge.controllers}` : "Not paired")),
+          el("div", { class: "who" }, el("strong", { text: bridge.name }), el("div", { class: "muted", text: bridge.plugins.join(", ") || t("No plugin") })),
+          el("span", { class: `pill status ${tone[bridge.status] ?? "standby"}`, text: bridge.status === "stopped" && bridge.stoppedManually ? t("Stopped by hand") : { ok: t("Running"), degraded: t("Degraded"), stopped: t("Stopped [bridge]") }[bridge.status] ?? bridge.status })),
+        el("div", { class: "facts lead" }, fact(t("Device ID"), bridge.id, { class: "mono" }), fact(t("Port"), bridge.port ?? "–"), fact(t("Accessories"), bridge.accessories)),
+        el("div", { class: "facts" }, fact(t("Up [uptime]"), bridge.uptimeSeconds == null ? "–" : app().formatDuration(bridge.uptimeSeconds)), fact(t("Restarts"), bridge.restarts),
+          fact(t("Pairing"), bridge.paired ? t("Paired · {count}", { count: bridge.controllers }) : t("Not paired"))),
         bridge.instances.length ? el("div", { class: "chips" }, bridge.instances.map((name) => el("span", { class: "chip", text: name }))) : null,
-        failures.length ? el("div", { class: "notice-list" }, failures.map(([plugin, reason]) => el("p", { class: "error", text: `${plugin} did not start: ${reason}` }))) : null,
+        failures.length ? el("div", { class: "notice-list" }, failures.map(([plugin, reason]) => el("p", { class: "error", text: t("{plugin} did not start: {reason}", { plugin, reason: HomeswiftI18n.message(reason) }) }))) : null,
         bridge.setupCode ? el("div", { class: "setup" },
-          el("img", { class: "qr", src: `/api/qr/${bridge.qrIndex}.svg`, alt: "Pairing QR code", width: 148, height: 148 }),
-          el("div", {}, el("p", { text: "In the Home app: Add Accessory, then scan this code, or choose More options and type it." }), el("div", { class: "code", text: bridge.setupCode }))) : null,
+          el("img", { class: "qr", src: `/api/qr/${bridge.qrIndex}.svg`, alt: t("Pairing QR code"), width: 148, height: 148 }),
+          el("div", {}, el("p", { text: t("In the Home app: Add Accessory, then scan this code, or choose More options and type it.") }), el("div", { class: "code", text: bridge.setupCode }))) : null,
         el("div", { class: "card-foot" },
-          el("span", { class: "muted", text: bridge.running ? "Runs inside homeswift" : "Its accessories show No Response" }),
-          menuButton(`Actions for ${bridge.name}`, () => [
-            { label: "Restart", icon: "restore", onSelect: () => control(bridge, "restart") },
-            bridge.running ? { label: "Stop", icon: "pause", onSelect: () => control(bridge, "stop") } : { label: "Start", icon: "play", onSelect: () => control(bridge, "start") },
-            { label: "Show its log", icon: "logs", href: `/logs?bridge=${encodeURIComponent(slugs.get(bridge.id) ?? "all")}` },
-            { label: "Reset pairings…", icon: "key", danger: true, onSelect: () => resetPairings({ name: bridge.name, deviceId: bridge.id }) },
+          el("span", { class: "muted", text: bridge.running ? t("Runs inside homeswift") : t("Its accessories show No Response") }),
+          menuButton(t("Actions for {name}", { name: bridge.name }), () => [
+            { label: t("Restart"), icon: "restore", onSelect: () => control(bridge, "restart") },
+            bridge.running ? { label: t("Stop"), icon: "pause", onSelect: () => control(bridge, "stop") } : { label: t("Start"), icon: "play", onSelect: () => control(bridge, "start") },
+            { label: t("Show its log"), icon: "logs", href: `/logs?bridge=${encodeURIComponent(slugs.get(bridge.id) ?? "all")}` },
+            { label: t("Reset pairings…"), icon: "key", danger: true, onSelect: () => resetPairings({ name: bridge.name, deviceId: bridge.id }) },
           ])));
     };
     app().show(main,
-      app().pageHead("Child bridges", "Plugins on HomeKit bridges of their own (a block with _bridge), inside this process: one can restart without the others."),
+      app().pageHead(t("Child bridges"), t("Plugins on HomeKit bridges of their own (a block with _bridge), inside this process: one can restart without the others.")),
       subnav("child-bridges"),
       childBridges.length ? el("div", { class: "servers" }, childBridges.map(card))
-        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("child")), el("p", { class: "muted", text: "No child bridge. Give a plugin's block a \"_bridge\" object (its Expert JSON) to run it on a bridge of its own." })));
+        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("child")), el("p", { class: "muted", text: t("No child bridge. Give a plugin's block a \"_bridge\" object (its Expert JSON) to run it on a bridge of its own.") })));
   }
 
   async function control(bridge, action) {
-    if (action !== "start" && !(await confirmAction({ title: `${action === "stop" ? "Stop" : "Restart"} ${bridge.name}?`, confirmLabel: action === "stop" ? "Stop" : "Restart", danger: action === "stop",
-      text: action === "stop" ? "Its plugins stop and its accessories show No Response until it starts again, or homeswift restarts." : "Its accessories are unavailable for a moment; pairings stay." }))) return;
+    if (action !== "start" && !(await confirmAction({ title: action === "stop" ? t("Stop {name}?", { name: bridge.name }) : t("Restart {name}?", { name: bridge.name }), confirmLabel: action === "stop" ? t("Stop") : t("Restart"), danger: action === "stop",
+      text: action === "stop" ? t("Its plugins stop and its accessories show No Response until it starts again, or homeswift restarts.") : t("Its accessories are unavailable for a moment; pairings stay.") }))) return;
     await busy(null, async () => { await api(`/api/child-bridges/${encodeURIComponent(bridge.id)}/${action}`, { method: "POST" }); app().route(); });
   }
 
@@ -264,46 +268,48 @@ enum WebAssets {
     const [backups, configBackups] = await Promise.all([api("/api/backups"), api("/api/config/backups")]);
     const message = el("p", { class: "status-line muted", role: "status" });
     const report = (e) => { message.className = "status-line error"; message.textContent = e.message; };
-    const now = el("button", { text: "Back up now", onclick: (event) => busy(event.currentTarget, async () => {
+    const now = el("button", { text: t("Back up now"), onclick: (event) => busy(event.currentTarget, async () => {
       const result = await api("/api/backups", { method: "POST" });
       message.className = "status-line ok";
-      message.textContent = `Kept ${result.backup.fileName} (${size(result.backup.bytes)}).`;
+      message.textContent = t("Kept {file} ({size}).", { file: result.backup.fileName, size: size(result.backup.bytes) });
       setTimeout(() => app().route(), 1200);
     }, report) });
     const instance = el("div", { class: "card server" },
       el("div", { class: "server-head" }, tile("archive", "green"),
-        el("div", { class: "who" }, el("strong", { text: "Back up this bridge" }),
-          el("div", { class: "muted", text: "config.json, each bridge's HomeKit identity and pairings, accessory caches, plugin files, the web UI's users" }))),
+        el("div", { class: "who" }, el("strong", { text: t("Back up this bridge") }),
+          el("div", { class: "muted", text: t("config.json, each bridge's HomeKit identity and pairings, accessory caches, plugin files, the web UI's users") }))),
       el("div", { class: "facts" },
-        fact("Daily backup", backups.scheduled ? (backups.nextBackup ? `Next ${when(backups.nextBackup)}` : "On") : "Off"),
-        fact("Kept", `${backups.retentionDays} days`),
-        fact("Scheduled restart", backups.restartCron ? `${backups.restartCron}${backups.nextRestart ? ` · next ${when(backups.nextRestart)}` : ""}` : "None")),
-      el("div", { class: "fact wide" }, el("span", { text: "Folder" }), el("b", { class: "mono", text: backups.folder, title: backups.folder })),
+        fact(t("Daily backup"), backups.scheduled ? (backups.nextBackup ? t("Next {date}", { date: when(backups.nextBackup) }) : t("On [setting]")) : t("Off [setting]")),
+        fact(t("Kept"), tn("{n} day", "{n} days", backups.retentionDays)),
+        fact(t("Scheduled restart"), backups.restartCron ? (backups.nextRestart ? t("{cron} · next {date}", { cron: backups.restartCron, date: when(backups.nextRestart) }) : backups.restartCron) : t("None"))),
+      el("div", { class: "fact wide" }, el("span", { text: t("Folder") }), el("b", { class: "mono", text: backups.folder, title: backups.folder })),
       el("div", { class: "actions" },
-        el("a", { class: "button primary", href: "/api/backups/download", download: "", text: "Download a backup" }), now),
+        el("a", { class: "button primary", href: "/api/backups/download", download: "", text: t("Download a backup") }), now),
       message);
     app().show(main,
-      app().pageHead("Backups", "The whole instance, to move it or start over, and each saved config.json."),
+      app().pageHead(t("Backups"), t("The whole instance, to move it or start over, and each saved config.json.")),
       subnav("backups"),
       instance,
       restoreCard(backups),
-      sectionHead("Kept backups", backups.backups.length ? `${backups.backups.length}, newest first` : ""),
+      sectionHead(t("Kept backups"), backups.backups.length ? t("{n}, newest first", { n: backups.backups.length }) : ""),
       backups.backups.length ? el("div", { class: "card rows" }, backups.backups.map(backupRow))
-        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("archive")), el("p", { class: "muted", text: "None yet: the daily backup and Back up now keep them here." })),
-      sectionHead("config.json backups", `The file before each of its last ${configBackups.kept} saves`),
+        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("archive")), el("p", { class: "muted", text: t("None yet: the daily backup and Back up now keep them here.") })),
+      sectionHead(t("config.json backups"), tn("The file before its last save", "The file before each of its last {n} saves", configBackups.kept)),
       configBackups.backups.length ? el("div", { class: "card rows" }, configBackups.backups.map(configBackupRow))
-        : el("div", { class: "card empty" }, el("p", { class: "muted", text: "None yet: each save of config.json keeps the file it replaces." })));
+        : el("div", { class: "card empty" }, el("p", { class: "muted", text: t("None yet: each save of config.json keeps the file it replaces.") })));
   }
 
   /// A file to restore, dropped or chosen: checked by the bridge, staged, and applied as homeswift restarts.
   function restoreCard(backups) {
     const picker = el("input", { type: "file", accept: ".tar,application/x-tar", class: "hidden" });
-    const zone = el("div", { class: "drop-zone", role: "button", tabIndex: 0, "aria-label": "Drop or choose a backup to restore" },
-      "Drop a backup (.tar) here, or ", el("strong", { text: "choose it" }), picker);
+    // The sentence around the link, in the page's language: the link goes where {choose} stands.
+    const [dropBefore, dropAfter = ""] = t("Drop a backup (.tar) here, or {choose}").split("{choose}");
+    const zone = el("div", { class: "drop-zone", role: "button", tabIndex: 0, "aria-label": t("Drop or choose a backup to restore") },
+      dropBefore, el("strong", { text: t("choose it") }), dropAfter, picker);
     const result = el("div", {});
     const take = async (file) => {
       if (!file) return;
-      if (file.size > backups.maxRestoreBytes) { zone.replaceChildren(`${file.name} is larger than ${size(backups.maxRestoreBytes)}.`, picker); return; }
+      if (file.size > backups.maxRestoreBytes) { zone.replaceChildren(t("{file} is larger than {size}.", { file: file.name, size: size(backups.maxRestoreBytes) }), picker); return; }
       await restoreArchive(file.name, () => fetch("/api/backups/restore", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-tar" }, body: file }), result);
     };
     zone.addEventListener("click", (event) => { if (event.target !== picker) picker.click(); });
@@ -313,27 +319,30 @@ enum WebAssets {
     zone.addEventListener("dragleave", () => zone.classList.remove("over"));
     zone.addEventListener("drop", (event) => { event.preventDefault(); zone.classList.remove("over"); take(event.dataTransfer.files[0]); });
     return el("div", { class: "card" },
-      el("h2", { text: "Restore a backup" }),
-      el("p", { class: "muted", text: "A backup made by Download a backup or kept below replaces this bridge's files as homeswift restarts: its pairings, accessories and plugin settings come back; this machine's bridge and web UI ports stay. Files it does not have stay as they are." }),
-      backups.pendingRestore ? el("p", { class: "ok", text: "A restore is staged: it applies when homeswift next starts." }) : null,
+      el("h2", { text: t("Restore a backup") }),
+      el("p", { class: "muted", text: t("A backup made by Download a backup or kept below replaces this bridge's files as homeswift restarts: its pairings, accessories and plugin settings come back; this machine's bridge and web UI ports stay. Files it does not have stay as they are.") }),
+      backups.pendingRestore ? el("p", { class: "ok", text: t("A restore is staged: it applies when homeswift next starts.") }) : null,
       zone, result);
   }
 
   /// Asks, sends the archive (`send` answers the fetch's Response), and waits for the restart.
   async function restoreArchive(name, send, result) {
     const ok = await confirmAction({
-      title: `Restore ${name}?`, confirmLabel: "Restore and restart", typed: "RESTORE",
-      text: ["homeswift restarts on the backup's files: config.json, the bridges' HomeKit identities and pairings, accessory caches, plugin files and the web UI's users. What changed since it was made is lost.",
-        "Run one homeswift per backup: two bridges with the same identity make the Home app drop them."],
+      title: t("Restore {name}?", { name }), confirmLabel: t("Restore and restart"), typed: "RESTORE",
+      text: [t("homeswift restarts on the backup's files: config.json, the bridges' HomeKit identities and pairings, accessory caches, plugin files and the web UI's users. What changed since it was made is lost."),
+        t("Run one homeswift per backup: two bridges with the same identity make the Home app drop them.")],
     });
     if (!ok) return;
-    result.replaceChildren(el("p", { class: "muted", text: "Checking the backup…" }));
+    result.replaceChildren(el("p", { class: "muted", text: t("Checking the backup…") }));
     try {
       const response = await send();
       const answer = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(answer.error || `HTTP ${response.status}`);
-      result.replaceChildren(el("p", { class: "ok", text: `${answer.files} files from ${answer.created ? fullDate.format(new Date(answer.created)) : "the backup"} are staged. ${answer.note}` }),
-        answer.skipped?.length ? el("p", { class: "muted", text: `Left out: ${answer.skipped.join(", ")}.` }) : null);
+      if (!response.ok) throw new Error(HomeswiftI18n.message(answer.error || `HTTP ${response.status}`));
+      const staged = answer.created
+        ? tn("{n} file from {date} is staged.", "{n} files from {date} are staged.", answer.files, { date: fullDate.format(new Date(answer.created)) })
+        : tn("{n} file from the backup is staged.", "{n} files from the backup are staged.", answer.files);
+      result.replaceChildren(el("p", { class: "ok", text: `${staged} ${HomeswiftI18n.message(answer.note)}` }),
+        answer.skipped?.length ? el("p", { class: "muted", text: t("Left out: {files}.", { files: answer.skipped.join(", ") }) }) : null);
       if (answer.restarting) app().waitForRestart();
     } catch (e) {
       result.replaceChildren(el("p", { class: "error", text: e.message }));
@@ -346,12 +355,12 @@ enum WebAssets {
       el("div", { class: "row" },
         el("div", { class: "who" }, el("strong", { text: fullDate.format(new Date(backup.date)) }), el("div", { class: "muted mono", text: backup.fileName })),
         el("span", { class: "muted", text: size(backup.bytes) }),
-        menuButton(`Actions for the backup of ${when(backup.date)}`, () => [
-          { label: "Download", icon: "download", href: `/api/backups/${encodeURIComponent(backup.id)}/download` },
-          { label: "Restore…", icon: "restore", onSelect: () => restoreArchive(fullDate.format(new Date(backup.date)),
+        menuButton(t("Actions for the backup of {date}", { date: when(backup.date) }), () => [
+          { label: t("Download"), icon: "download", href: `/api/backups/${encodeURIComponent(backup.id)}/download` },
+          { label: t("Restore…"), icon: "restore", onSelect: () => restoreArchive(fullDate.format(new Date(backup.date)),
             () => fetch(`/api/backups/${encodeURIComponent(backup.id)}/restore`, { method: "POST", credentials: "same-origin" }), result) },
-          { label: "Delete…", icon: "trash", danger: true, onSelect: async () => {
-            if (!(await confirmAction({ title: "Delete this backup?", confirmLabel: "Delete", text: `${backup.fileName} is removed from the folder.` }))) return;
+          { label: t("Delete…"), icon: "trash", danger: true, onSelect: async () => {
+            if (!(await confirmAction({ title: t("Delete this backup?"), confirmLabel: t("Delete"), text: t("{file} is removed from the folder.", { file: backup.fileName }) }))) return;
             await busy(null, async () => { await api(`/api/backups/${encodeURIComponent(backup.id)}`, { method: "DELETE" }); app().route(); });
           } },
         ])),
@@ -364,60 +373,60 @@ enum WebAssets {
     const compare = async () => {
       if (!detail.classList.contains("hidden")) { detail.classList.add("hidden"); return; }
       detail.classList.remove("hidden");
-      detail.replaceChildren(el("p", { class: "muted", text: "Comparing…" }));
+      detail.replaceChildren(el("p", { class: "muted", text: t("Comparing…") }));
       try {
         const [then, now] = await Promise.all([
           api(`/api/config/backups/${encodeURIComponent(backup.name)}`, { raw: true }), api("/api/config", { raw: true })]);
-        detail.replaceChildren(diffView(jsonDiff(JSON.parse(then), JSON.parse(now)), "this backup", "config.json now"));
+        detail.replaceChildren(diffView(jsonDiff(JSON.parse(then), JSON.parse(now)), t("this backup"), t("config.json now")));
       } catch (e) { detail.replaceChildren(el("p", { class: "error", text: e.message })); }
     };
     const restore = async () => {
-      if (!(await confirmAction({ title: "Restore this config.json?", confirmLabel: "Restore", text: "It replaces config.json (which is kept as a backup first) and applies at once, as a save does: plugins reload, and the bridge block restarts homeswift." }))) return;
+      if (!(await confirmAction({ title: t("Restore this config.json?"), confirmLabel: t("Restore"), text: t("It replaces config.json (which is kept as a backup first) and applies at once, as a save does: plugins reload, and the bridge block restarts homeswift.") }))) return;
       await busy(null, async () => {
         const result = await api(`/api/config/backups/${encodeURIComponent(backup.name)}/restore`, { method: "POST" });
         detail.classList.remove("hidden");
-        detail.replaceChildren(el("p", { class: "ok", text: `Changed: ${result.changes.join(", ") || "nothing"}. ${app().savedText(result)}` }));
+        detail.replaceChildren(el("p", { class: "ok", text: `${result.changes.length ? t("Changed: {changes}.", { changes: result.changes.join(", ") }) : t("Nothing changed.")} ${app().savedText(result)}` }));
       });
     };
     return el("div", { class: "row-block" },
       el("div", { class: "row" },
         el("div", { class: "who" }, el("strong", { text: backup.date ? fullDate.format(new Date(backup.date)) : backup.name }), el("div", { class: "muted mono", text: backup.name })),
-        el("button", { class: "link", text: "Compare", onclick: compare }),
-        menuButton(`Actions for ${backup.name}`, () => [
-          { label: "Compare with config.json", icon: "code", onSelect: compare },
-          { label: "Restore…", icon: "restore", danger: true, onSelect: restore },
+        el("button", { class: "link", text: t("Compare"), onclick: compare }),
+        menuButton(t("Actions for {name}", { name: backup.name }), () => [
+          { label: t("Compare with config.json"), icon: "code", onSelect: compare },
+          { label: t("Restore…"), icon: "restore", danger: true, onSelect: restore },
         ])),
       detail);
   }
 
   /// A diff of `jsonDiff` lines: the changes with three lines around them, the rest folded.
   function diffView(lines, before, after) {
-    if (!lines.some((line) => line.kind !== "same")) return el("p", { class: "muted", text: "The same as config.json now." });
+    if (!lines.some((line) => line.kind !== "same")) return el("p", { class: "muted", text: t("The same as config.json now.") });
     const keep = new Set();
     lines.forEach((line, index) => { if (line.kind !== "same") for (let k = index - 3; k <= index + 3; k++) keep.add(k); });
     const nodes = [];
     let folded = 0;
     lines.forEach((line, index) => {
       if (!keep.has(index)) { folded++; return; }
-      if (folded) { nodes.push(el("span", { class: "diff-fold", text: `  … ${folded} unchanged line${folded === 1 ? "" : "s"}\n` })); folded = 0; }
+      if (folded) { nodes.push(el("span", { class: "diff-fold", text: `  … ${tn("{n} unchanged line", "{n} unchanged lines", folded)}\n` })); folded = 0; }
       nodes.push(el("span", { class: `diff-${line.kind}`, text: `${line.kind === "add" ? "+ " : line.kind === "remove" ? "- " : "  "}${line.text}\n` }));
     });
-    if (folded) nodes.push(el("span", { class: "diff-fold", text: `  … ${folded} unchanged line${folded === 1 ? "" : "s"}\n` }));
+    if (folded) nodes.push(el("span", { class: "diff-fold", text: `  … ${tn("{n} unchanged line", "{n} unchanged lines", folded)}\n` }));
     return el("div", {}, el("p", { class: "muted", text: `− ${before}   + ${after}` }), el("pre", { class: "diff" }, nodes));
   }
 
   // ---- Audit log -----------------------------------------------------------------------------------------
 
-  const outcomes = [["", "Every outcome"], ["ok", "Done"], ["failed", "Failed"], ["notConfirmed", "Not confirmed"]];
-  const spans = [["24h", "Last 24 hours"], ["7d", "Last 7 days"], ["30d", "Last 30 days"], ["", "Everything kept"]];
+  const outcomes = [["", t("Every outcome")], ["ok", t("Done [outcome]")], ["failed", t("Failed")], ["notConfirmed", t("Not confirmed")]];
+  const spans = [["24h", t("Last 24 hours")], ["7d", t("Last 7 days")], ["30d", t("Last 30 days")], ["", t("Everything kept")]];
 
   async function auditPage(main) {
     const params = new URLSearchParams(location.search);
-    const tool = el("input", { type: "search", class: "search", placeholder: "Tool or route", value: params.get("tool") ?? "", "aria-label": "Filter by tool" });
-    const client = el("input", { type: "search", class: "search", placeholder: "Client or user", value: params.get("client") ?? "", "aria-label": "Filter by client" });
+    const tool = el("input", { type: "search", class: "search", placeholder: t("Tool or route"), value: params.get("tool") ?? "", "aria-label": t("Filter by tool") });
+    const client = el("input", { type: "search", class: "search", placeholder: t("Client or user"), value: params.get("client") ?? "", "aria-label": t("Filter by client") });
     const select = (choices, value, label) => el("select", { class: "popup", "aria-label": label }, choices.map(([v, text]) => el("option", { value: v, text, selected: v === value })));
-    const outcome = select(outcomes, params.get("outcome") ?? "", "Outcome");
-    const since = select(spans, params.has("since") ? params.get("since") : "7d", "Time range");
+    const outcome = select(outcomes, params.get("outcome") ?? "", t("Outcome"));
+    const since = select(spans, params.has("since") ? params.get("since") : "7d", t("Time range"));
     const count = el("span", { class: "muted count" });
     const body = el("div", {});
     let loads = 0;   // the answer drawn is the last request's, however they arrive
@@ -430,26 +439,26 @@ enum WebAssets {
       query.set("since", since.value);
       window.history.replaceState(null, "", `/settings/audit?${query}`);
       if (!since.value) query.delete("since");
-      count.textContent = "Loading…";
+      count.textContent = t("Loading…");
       let found;
       try { found = await api(`/api/audit?${query}`); } catch (e) { if (own === loads) count.textContent = e.message; return; }
       if (own !== loads) return;
       if (!found.enabled) {
         count.textContent = "";
-        body.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: "The audit log is off: the HomeswiftAiKit block's mcp.http says auditLog: false." })));
+        body.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("The audit log is off: the HomeswiftAiKit block's mcp.http says auditLog: false.") })));
         return;
       }
-      count.textContent = `${found.entries.length} of ${found.total}`;
+      count.textContent = t("{shown} of {total}", { shown: found.entries.length, total: found.total });
       body.replaceChildren(found.entries.length ? el("div", { class: "card" }, el("div", { class: "table-scroll" }, el("table", { class: "data-table" },
-        el("thead", {}, el("tr", {}, ["Time", "Who", "What", "Outcome", "Details"].map((text) => el("th", { text })))),
+        el("thead", {}, el("tr", {}, [t("Time"), t("Who"), t("What"), t("Outcome"), t("Details")].map((text) => el("th", { text })))),
         el("tbody", {}, found.entries.map(auditRow)))), el("p", { class: "muted note", text: found.path }))
-        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("shield")), el("p", { class: "muted", text: "Nothing in this range matches." })));
+        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("shield")), el("p", { class: "muted", text: t("Nothing in this range matches.") })));
     }
     let typing = null;
     for (const input of [tool, client]) input.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(load, 250); });
     for (const choice of [outcome, since]) choice.addEventListener("change", load);
     app().show(main,
-      app().pageHead("Audit log", "Every change made through the MCP server, the Assistant's chat and this web UI, with who made it."),
+      app().pageHead(t("Audit log"), t("Every change made through the MCP server, the Assistant's chat and this web UI, with who made it.")),
       subnav("audit"),
       el("div", { class: "filter-bar" }, since, outcome, tool, client, el("span", { class: "spacer" }), count),
       body);
@@ -457,12 +466,12 @@ enum WebAssets {
   }
 
   function auditRow(entry) {
-    const [text, kind] = entry.notConfirmed ? ["Not confirmed", "away"] : entry.ok ? ["Done", "on"] : ["Failed", "away"];
+    const [text, kind] = entry.notConfirmed ? [t("Not confirmed"), "away"] : entry.ok ? [t("Done [outcome]"), "on"] : [t("Failed"), "away"];
     const args = entry.args && Object.keys(entry.args).length ? JSON.stringify(entry.args) : "";
     return el("tr", {},
       el("td", { text: entry.ts ? dateTime.format(new Date(entry.ts)) : "–", title: entry.ts ?? "" }),
       el("td", {}, el("strong", { text: entry.principal ?? "?" }), el("div", { class: "muted", text: `${entry.client ?? "?"} · ${entry.scope ?? ""}` })),
-      el("td", { class: "mono", text: `${entry.tool}${entry.dryRun ? " (dry run)" : ""}` }),
+      el("td", { class: "mono", text: entry.dryRun ? t("{tool} (dry run)", { tool: entry.tool }) : entry.tool }),
       el("td", {}, el("span", { class: `pill status ${kind}`, text })),
       el("td", { class: "audit-details" }, entry.error ? el("div", { class: "error", text: entry.error }) : null, args ? el("code", { text: args, title: args }) : null));
   }
@@ -471,26 +480,26 @@ enum WebAssets {
 
   const historyUnits = { celsius: "°C", percentage: "%", W: "W", lux: "lx", hPa: "hPa", ppm: "ppm", "µg/m³": "µg/m³" };
   const historyLabels = {
-    CurrentTemperature: "Temperature", TargetTemperature: "Target temperature", CurrentRelativeHumidity: "Humidity", AirPressure: "Air pressure",
-    AirQuality: "Air quality", VOCDensity: "VOC density", CurrentConsumption: "Power", CurrentAmbientLightLevel: "Light level", On: "On",
-    ContactSensorState: "Contact", MotionDetected: "Motion", ValvePosition: "Valve position", WaterAmount: "Water",
+    CurrentTemperature: t("Temperature"), TargetTemperature: t("Target temperature"), CurrentRelativeHumidity: t("Humidity"), AirPressure: t("Air pressure"),
+    AirQuality: t("Air quality"), VOCDensity: t("VOC density"), CurrentConsumption: t("Power [watts]"), CurrentAmbientLightLevel: t("Light level"), On: t("On"),
+    ContactSensorState: t("Contact"), MotionDetected: t("Motion"), ValvePosition: t("Valve position"), WaterAmount: t("Water"),
   };
 
   /// A sheet with the accessory's recorded values (its Eve history) as charts, over a day, a week or four weeks.
   function showHistory(accessory) {
-    const ranges = [[24, "24 hours"], [168, "7 days"], [672, "4 weeks"]];
+    const ranges = [[24, t("24 hours")], [168, t("7 days")], [672, t("4 weeks")]];
     let hours = 24;
     const charts = el("div", { class: "chart-grid" });
     const note = el("p", { class: "muted" });
-    const group = el("div", { class: "group", role: "group", "aria-label": "Time range" }, ranges.map(([value, text]) =>
+    const group = el("div", { class: "group", role: "group", "aria-label": t("Time range") }, ranges.map(([value, text]) =>
       el("button", { type: "button", text, class: value === hours ? "on" : "", "aria-pressed": String(value === hours), onclick: (event) => {
         hours = value;
         for (const button of group.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
         load();
       } })));
-    const close = el("button", { type: "button", text: "Done", class: "primary" });
+    const close = el("button", { type: "button", text: t("Done"), class: "primary" });
     const dialog = el("dialog", { class: "admin-dialog card wide", "aria-labelledby": "history-title" },
-      el("div", { class: "page-head" }, el("div", { class: "who" }, el("h2", { id: "history-title", text: accessory.name }), el("p", { class: "muted", text: "Recorded values, as Eve shows them" })),
+      el("div", { class: "page-head" }, el("div", { class: "who" }, el("h2", { id: "history-title", text: accessory.name }), el("p", { class: "muted", text: t("Recorded values, as Eve shows them") })),
         el("div", { class: "tools" }, group)),
       charts, note, el("div", { class: "actions" }, close));
     close.addEventListener("click", () => dialog.close());
@@ -508,7 +517,7 @@ enum WebAssets {
       if (asked !== hours) return;
       charts.classList.remove("loading");
       note.className = "muted";
-      note.textContent = found.note ?? "Ten-minute averages, kept four weeks; each point here averages those in its span.";
+      note.textContent = found.note != null ? HomeswiftI18n.message(found.note) : t("Ten-minute averages, kept four weeks; each point here averages those in its span.");
       const from = new Date(found.from).getTime(), to = new Date(found.to).getTime();
       charts.replaceChildren(...found.series.map((series) => {
         const unit = historyUnits[series.unit] ?? series.unit ?? "";
@@ -519,8 +528,8 @@ enum WebAssets {
         const body = el("div", { class: "chart-body" });
         const card = el("div", { class: "card chart-card" },
           el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: historyLabels[series.type] ?? series.type }),
-            el("div", { class: "muted", text: `Lowest ${format(series.min.value)} · highest ${format(series.max.value)} · average ${format(series.avg)}` })),
-          el("b", { class: "chart-figure", text: format(series.last.value), title: `Last, ${when(series.last.at)}` })),
+            el("div", { class: "muted", text: t("Lowest {min} · highest {max} · average {average}", { min: format(series.min.value), max: format(series.max.value), average: format(series.avg) }) })),
+          el("b", { class: "chart-figure", text: format(series.last.value), title: t("Last, {date}", { date: when(series.last.at) }) })),
           body);
         HomeswiftChart.lineChart(body, { title: historyLabels[series.type] ?? series.type, series: [{ label: historyLabels[series.type] ?? series.type, tone: 1, value: (point) => point.value }],
           format, points, from, to, step });
@@ -540,14 +549,18 @@ enum WebAssets {
   "use strict";
 
   const { $, el, tile, sparkle, menuButton, copyText, markdown, jsonEditor, jsonView, fact, setPaused, slug, withSlugs } = HomeswiftCommon;
+  const { t, tn } = HomeswiftI18n;
 
   const show = (main, ...nodes) => main.replaceChildren(...nodes.flat().filter(Boolean));
+  /// A translated sentence with elements in it: each `{name}` of `text` is the node `nodes[name]`.
+  const withNodes = (text, nodes) => text.split(/(\{\w+\})/).filter(Boolean).map((part) => (/^\{\w+\}$/.test(part) && nodes[part.slice(1, -1)]) || part);
 
   /// `problems`: what a save changed that its plugin's schema refuses, each with its path (`ConfigSchemaError`).
   class ApiError extends Error { constructor(status, message, problems) { super(message); this.status = status; this.problems = problems; } }
 
   async function api(path, { method = "GET", body, raw = false } = {}) {
-    const options = { method, credentials: "same-origin", headers: {} };
+    // The Assistant answers in the page's language.
+    const options = { method, credentials: "same-origin", headers: { "Accept-Language": HomeswiftI18n.locale } };
     if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = typeof body === "string" ? body : JSON.stringify(body); }
     const response = await fetch(path, options);
     if (response.status === 401 && !path.startsWith("/api/auth/")) { showAuth(); throw new ApiError(401, "signed out"); }
@@ -555,7 +568,7 @@ enum WebAssets {
     if (!response.ok) {
       let message = text, problems;
       try { ({ error: message = text, problems } = JSON.parse(text)); } catch {}
-      throw new ApiError(response.status, message || `HTTP ${response.status}`, problems);
+      throw new ApiError(response.status, HomeswiftI18n.message(message || `HTTP ${response.status}`), problems);
     }
     return raw ? text : (text ? JSON.parse(text) : null);
   }
@@ -577,9 +590,9 @@ enum WebAssets {
     window.HomeswiftChat?.signedOut();
     const setup = auth && auth.setupNeeded;
     $("#auth-text").textContent = setup
-      ? "Create the administrator account for this bridge. The set-up code is in the bridge's output, next to the web UI address."
-      : "Sign in to manage the bridge.";
-    $("#auth-submit").textContent = setup ? "Create account" : "Sign in";
+      ? t("Create the administrator account for this bridge. The set-up code is in the bridge's output, next to the web UI address.")
+      : t("Sign in to manage the bridge.");
+    $("#auth-submit").textContent = setup ? t("Create account") : t("Sign in");
     $("input[name=password]", $("#auth-form")).autocomplete = setup ? "new-password" : "current-password";
     $("#auth-setup-code").classList.toggle("hidden", !setup);
     $("input[name=setupCode]", $("#auth-form")).required = !!setup;
@@ -615,11 +628,11 @@ enum WebAssets {
     const label = submit.textContent;
     submit.disabled = true;
     submit.classList.add("busy");
-    submit.textContent = auth && auth.setupNeeded ? "Creating the account…" : "Signing in…";
+    submit.textContent = auth && auth.setupNeeded ? t("Creating the account…") : t("Signing in…");
     const body = { username: form.username.value, password: form.password.value };
     try {
       if (auth && auth.setupNeeded) {
-        if (setupGauge && !(await setupGauge.acceptable())) throw new Error("The password is not strong enough yet: the gauge says what is missing.");
+        if (setupGauge && !(await setupGauge.acceptable())) throw new Error(t("The password is not strong enough yet: the gauge says what is missing."));
         body.setupCode = form.setupCode.value;
       }
       if (!$("#auth-otp").classList.contains("hidden")) body.otp = form.otp.value;
@@ -656,30 +669,52 @@ enum WebAssets {
     event.stopPropagation();
     const form = auth.mode === "form";
     HomeswiftCommon.menu($("#user"), [
-      form ? { heading: shownName(), detail: `${auth.username}${isAdmin() ? " · Administrator" : ""}` } : { heading: "No sign-in", detail: "Anyone who opens this web UI uses it" },
-      { label: form ? "Your account" : "Account", icon: "user", href: "/account" },
-      { label: "Appearance", icon: "sliders", href: "/appearance" },
-      form && isAdmin() ? { label: "Users and tokens", icon: "users", href: "/users" } : null,
+      form ? { heading: shownName(), detail: isAdmin() ? t("{username} · Administrator", { username: auth.username }) : auth.username } : { heading: t("No sign-in"), detail: t("Anyone who opens this web UI uses it") },
+      { label: form ? t("Your account") : t("Account"), icon: "user", href: "/account" },
+      { label: t("Appearance"), icon: "sliders", href: "/appearance" },
+      form && isAdmin() ? { label: t("Users and tokens"), icon: "users", href: "/users" } : null,
       // A phone's tab bar has no room for Settings: it is here, as the header holds it on a wider window.
-      isAdmin() && matchMedia("(max-width: 640px)").matches ? { label: "Settings", icon: "gear", href: "/settings" } : null,
+      isAdmin() && matchMedia("(max-width: 640px)").matches ? { label: t("Settings"), icon: "gear", href: "/settings" } : null,
+      { label: t("Language"), icon: flag(HomeswiftI18n.language), onSelect: () => setTimeout(languageMenu) },
       form ? { separator: true } : null,
-      form ? { label: "Sign out", icon: "logout", onSelect: signOut } : null,
+      form ? { label: t("Sign out"), icon: "logout", onSelect: signOut } : null,
     ], { keyboard: event.detail === 0 });
   });
+
+  const flag = (code) => el("span", { class: "menu-flag", "aria-hidden": "true", text: code ? HomeswiftI18n.flags[code] : "🌐" });
+
+  /// The language, from the account menu: Automatic (the browser's) or one of the four, each in its own name. Saved
+  /// with the user's preferences, which opens the page again in it.
+  function languageMenu() {
+    const current = HomeswiftCommon.preferences().language || "auto";
+    const choose = async (code) => {
+      if (code === current) return;
+      try { HomeswiftCommon.applyPreferences(await api("/api/preferences", { method: "PUT", body: { language: code } })); } catch (e) { alert(e.message); }
+    };
+    HomeswiftCommon.menu($("#user"), [
+      { label: t("Automatic"), icon: flag(null), checked: current === "auto", onSelect: () => choose("auto") },
+      ...HomeswiftI18n.languages.map((code) => ({ label: HomeswiftI18n.names[code], icon: flag(code), checked: current === code, onSelect: () => choose(code) })),
+    ]);
+  }
+
+  // The sign-in page's flags: the language before anyone signs in.
+  $("#auth-form").append(el("div", { class: "auth-languages", role: "group", "aria-label": t("Language") },
+    HomeswiftI18n.languages.map((code) => el("button", { type: "button", text: HomeswiftI18n.flags[code], title: HomeswiftI18n.names[code], "aria-label": HomeswiftI18n.names[code],
+      "aria-pressed": String(code === HomeswiftI18n.language), onclick: () => HomeswiftI18n.choose(code) }))));
 
   /// What a save did: applied at once, homeswift restarting by itself (the bridge block), or, when it
   /// cannot, what still waits for a restart (which also shows the banner).
   function savedText(result) {
-    if (result.restarting) { waitForRestart(); return "Saved. Homeswift restarts by itself to apply the bridge settings…"; }
+    if (result.restarting) { waitForRestart(); return t("Saved. Homeswift restarts by itself to apply the bridge settings…"); }
     const pending = result.restartNeeded || [];
     $("#banner").classList.toggle("hidden", pending.length === 0);
-    return pending.length ? `Saved. Restart homeswift to apply the rest: ${pending.join("; ")}.` : "Saved and applied.";
+    return pending.length ? t("Saved. Restart homeswift to apply the rest: {pending}.", { pending: pending.map((item) => HomeswiftI18n.message(item)).join("; ") }) : t("Saved and applied.");
   }
 
   // ---- Restart -------------------------------------------------------------
 
   async function restartBridge(event) {
-    if (!confirm("Restart homeswift now? Every connection drops for a few seconds.")) return;
+    if (!confirm(t("Restart homeswift now? Every connection drops for a few seconds."))) return;
     const button = event.target;
     button.disabled = true;
     try {
@@ -697,7 +732,7 @@ enum WebAssets {
     closeEvents();
     const banner = $("#banner");
     banner.classList.remove("hidden");
-    banner.replaceChildren("Restarting homeswift…");
+    banner.replaceChildren(t("Restarting homeswift…"));
     const started = Date.now();
     // Back when a status answers from a process younger than this restart; the login survives it.
     const poll = async () => {
@@ -709,7 +744,7 @@ enum WebAssets {
         } else if (response.status === 401) { location.reload(); return; }
       } catch {}
       if (Date.now() - started < 90000) setTimeout(poll, 1000);
-      else banner.replaceChildren("homeswift did not come back; check its log.");
+      else banner.replaceChildren(t("homeswift did not come back; check its log."));
     };
     setTimeout(poll, 1500);
   }
@@ -780,7 +815,7 @@ enum WebAssets {
   }
   /// Something loading: a turning ring, read as "Loading"; it shows after a moment, so a quick load does not flash it.
   function spinner() {
-    return el("span", { class: "spinner", role: "status", "aria-label": "Loading" });
+    return el("span", { class: "spinner", role: "status", "aria-label": t("Loading") });
   }
   /// Shows the view at `path` without loading the page again; `replace` keeps it out of the history.
   function navigate(path, { replace = false } = {}) {
@@ -849,28 +884,28 @@ enum WebAssets {
     ]);
     $("#banner").classList.toggle("hidden", !status.restartNeeded || !isAdmin());
     const waiting = status.bridges.filter((bridge) => !bridge.paired);
-    const [health, healthKind] = status.restartNeeded ? ["Running; some changes need a restart", "away"]
-      : waiting.length ? [`Running; ${waiting.length === 1 ? "one server waits" : `${waiting.length} servers wait`} to be added in the Home app`, "away"]
-      : ["Running, and everything is in the Home app", "on"];
+    const [health, healthKind] = status.restartNeeded ? [t("Running; some changes need a restart"), "away"]
+      : waiting.length ? [tn("Running; one server waits to be added in the Home app", "Running; {n} servers wait to be added in the Home app", waiting.length), "away"]
+      : [t("Running, and everything is in the Home app"), "on"];
     const plugins = new Set(status.bridges.filter((bridge) => !bridge.external).flatMap((bridge) => bridge.platforms));
     const main0 = status.bridges.find((bridge) => !bridge.childBridge && !bridge.external);
 
     const bridges = status.bridges.map((bridge, index) => {
       const kind = bridge.external ? "accessory" : bridge.childBridge ? "child" : "bridge";
       const tone = { accessory: "blue", child: "violet", bridge: "orange" }[kind];
-      const role = bridge.external ? `Accessory of its own, from ${bridge.platforms.join(", ") || "a plugin"}` : bridge.childBridge ? "Child bridge" : "Main bridge";
+      const role = bridge.external ? (bridge.platforms.length ? t("Accessory of its own, from {plugins}", { plugins: bridge.platforms.join(", ") }) : t("Accessory of its own, from a plugin")) : bridge.childBridge ? t("Child bridge") : t("Main bridge");
       return el("div", { class: "card server" },
         el("div", { class: "server-head" },
           tile(kind, tone),
           el("div", { class: "who" }, el("strong", { text: bridge.name }), el("div", { class: "muted", text: role })),
-          el("span", { class: `pill status ${bridge.paired ? "on" : "away"}`, text: bridge.paired ? `Paired · ${bridge.controllers}` : "Not paired", title: bridge.paired ? `${bridge.controllers} Home app controller(s)` : "" })),
+          el("span", { class: `pill status ${bridge.paired ? "on" : "away"}`, text: bridge.paired ? t("Paired · {count}", { count: bridge.controllers }) : t("Not paired"), title: bridge.paired ? tn("{n} Home app controller", "{n} Home app controllers", bridge.controllers) : "" })),
         el("div", { class: "facts lead" },
-          fact("Device ID", bridge.deviceId, { class: "mono" }), fact("Port", bridge.port ?? "?"), fact("Accessories", bridge.accessories)),
+          fact(t("Device ID"), bridge.deviceId, { class: "mono" }), fact(t("Port"), bridge.port ?? "?"), fact(t("Accessories"), bridge.accessories)),
         !bridge.external && bridge.platforms.length ? el("div", { class: "chips" }, bridge.platforms.map((name) => el("span", { class: "chip", text: name }))) : null,
         bridge.setupCode ? el("div", { class: "setup" },
-          el("img", { class: "qr", src: `/api/qr/${index}.svg`, alt: "Pairing QR code", width: 148, height: 148 }),
+          el("img", { class: "qr", src: `/api/qr/${index}.svg`, alt: t("Pairing QR code"), width: 148, height: 148 }),
           el("div", {},
-            el("p", { text: "In the Home app: Add Accessory, then scan this code, or choose More options and type it." }),
+            el("p", { text: t("In the Home app: Add Accessory, then scan this code, or choose More options and type it.") }),
             el("div", { class: "code", text: bridge.setupCode }))) : null);
     });
 
@@ -882,32 +917,32 @@ enum WebAssets {
         el("div", { class: "who" },
           el("h1", { text: "Homeswift" }),
           el("p", { class: `health ${healthKind}`, text: health }),
-          el("p", { class: "muted", text: `Version ${status.version} · ${status.system.hostname}` }))),
+          el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }))),
       updateCard(status.update),
       // Each figure with its glyph; on a phone the four share one row, "Home app controllers" shortened.
       el("div", { class: "stats" },
-        el("a", { class: "stat", href: "/accessories" }, HomeswiftCommon.icon("bulb"), el("b", { text: status.bridges.reduce((sum, bridge) => sum + bridge.accessories, 0) }), el("span", { text: "Accessories" })),
-        el(isAdmin() ? "a" : "div", { class: "stat", href: isAdmin() ? "/plugins" : null }, HomeswiftCommon.icon("plugin"), el("b", { text: plugins.size }), el("span", { text: plugins.size === 1 ? "Plugin" : "Plugins" })),
-        el("div", { class: "stat", title: "Home app controllers" }, HomeswiftCommon.icon("users"), el("b", { text: main0 ? main0.controllers : 0 }),
-          el("span", { class: "long", text: "Home app controllers" }), el("span", { class: "short", "aria-hidden": "true", text: "Controllers" })),
-        el("div", { class: "stat" }, HomeswiftCommon.icon("history"), el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: "Up" })))],
+        el("a", { class: "stat", href: "/accessories" }, HomeswiftCommon.icon("bulb"), el("b", { text: status.bridges.reduce((sum, bridge) => sum + bridge.accessories, 0) }), el("span", { text: t("Accessories") })),
+        el(isAdmin() ? "a" : "div", { class: "stat", href: isAdmin() ? "/plugins" : null }, HomeswiftCommon.icon("plugin"), el("b", { text: plugins.size }), el("span", { text: plugins.size === 1 ? t("Plugin") : t("Plugins") })),
+        el("div", { class: "stat", title: t("Home app controllers") }, HomeswiftCommon.icon("users"), el("b", { text: main0 ? main0.controllers : 0 }),
+          el("span", { class: "long", text: t("Home app controllers") }), el("span", { class: "short", "aria-hidden": "true", text: t("Controllers") })),
+        el("div", { class: "stat" }, HomeswiftCommon.icon("history"), el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: t("Up [uptime]") })))],
       quick: () => window.HomeswiftHome?.quickSection(accessories),
       digest: () => status.assistant ? digestWidget() : null,
       activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
-      bridges: () => [el("h2", { text: status.bridges.length === 1 ? "Bridge" : "Bridges and accessories" }),
+      bridges: () => [el("h2", { text: status.bridges.length === 1 ? t("Bridge") : t("Bridges and accessories") }),
       el("div", { class: "servers" }, ...bridges)],
-      system: () => [el("h2", { text: "System" }),
+      system: () => [el("h2", { text: t("System") }),
       el("div", { class: "card server" },
         el("div", { class: "server-head" }, tile("system", "grey"),
           el("div", { class: "who" }, el("strong", { text: status.system.hostname }), el("div", { class: "muted", text: `${status.system.platform} ${status.system.os}` }))),
         el("div", { class: "facts" },
-          fact("CPUs", status.system.cpus),
-          fact("Assistant", status.assistant ? `${status.assistant.provider} · ${status.assistant.model}` : "Off"),
-          fact("Machine up", formatDuration(status.system.systemUptimeSeconds ?? 0))),
-        el("div", { class: "fact wide" }, el("span", { text: "Configuration" }), el("b", { class: "mono", text: status.configPath, title: status.configPath })),
+          fact(t("CPUs"), status.system.cpus),
+          fact(t("Assistant"), status.assistant ? `${status.assistant.provider} · ${status.assistant.model}` : t("Off [setting]")),
+          fact(t("Machine up"), formatDuration(status.system.systemUptimeSeconds ?? 0))),
+        el("div", { class: "fact wide" }, el("span", { text: t("Configuration") }), el("b", { class: "mono", text: status.configPath, title: status.configPath })),
         // Changes apply without one; this is for a plugin that misbehaves.
-        isAdmin() ? el("div", { class: "actions" }, el("button", { class: "link", text: "Restart homeswift…", onclick: restartBridge }),
-          el("a", { class: "link", href: "/settings", text: "Settings, pairings and backups" }), el("a", { class: "link", href: "/notifications", text: "Notifications" })) : null)],
+        isAdmin() ? el("div", { class: "actions" }, el("button", { class: "link", text: t("Restart homeswift…"), onclick: restartBridge }),
+          el("a", { class: "link", href: "/settings", text: t("Settings, pairings and backups") }), el("a", { class: "link", href: "/notifications", text: t("Notifications") })) : null)],
     };
     const layout = dashboardLayout();
     show(main,
@@ -916,7 +951,7 @@ enum WebAssets {
         return nodes.length ? el("section", { class: "dash-widget", "data-widget": id }, nodes) : null;
       }),
       el("div", { class: "actions page-foot" },
-        el("button", { class: "link", onclick: () => customiseDashboard(main, { assistant: Boolean(status.assistant), scroll: true }) }, HomeswiftCommon.icon("sliders"), " Customise this page…")));
+        el("button", { class: "link", onclick: () => customiseDashboard(main, { assistant: Boolean(status.assistant), scroll: true }) }, HomeswiftCommon.icon("sliders"), " ", t("Customise this page…"))));
     // Open while the user changes it: the page is drawn again under it after each change.
     if (customising) customiseDashboard(main, { assistant: Boolean(status.assistant) });
   };
@@ -924,8 +959,8 @@ enum WebAssets {
   // ---- The Status page's widgets: which show, in which order ----------------------------------------------
   // Each user's own, kept on the server with their other preferences (/api/preferences, `dashboard`).
 
-  const dashboardWidgets = [["overview", "Overview", "Health, accessories, plugins, uptime"], ["quick", "Quick controls", "Favourite accessories and scenes"], ["digest", "Daily digest", "The Assistant's summary of the day"],
-    ["activity", "Activity", "Memory, CPU and response times"], ["bridges", "Bridges", "Pairing codes and what each bridge runs"], ["system", "System", "The machine, and Restart"]];
+  const dashboardWidgets = [["overview", t("Overview"), t("Health, accessories, plugins, uptime")], ["quick", t("Quick controls"), t("Favourite accessories and scenes")], ["digest", t("Daily digest"), t("The Assistant's summary of the day")],
+    ["activity", t("Activity"), t("Memory, CPU and response times")], ["bridges", t("Bridges"), t("Pairing codes and what each bridge runs")], ["system", t("System"), t("The machine, and Restart")]];
 
   /// The widgets in the user's order (new ones last), and those hidden.
   function dashboardLayout() {
@@ -955,22 +990,22 @@ enum WebAssets {
     const draw = () => list.replaceChildren(...layout.order.map((id, index) => {
       const [, name, note] = dashboardWidgets.find(([known]) => known === id);
       const shown = !layout.hidden.includes(id);
-      const toggle = el("input", { type: "checkbox", checked: shown, "aria-label": `Show ${name}`, onchange: () =>
+      const toggle = el("input", { type: "checkbox", checked: shown, "aria-label": t("Show {name}", { name }), onchange: () =>
         save({ order: layout.order, hidden: shown ? [...layout.hidden, id] : layout.hidden.filter((one) => one !== id) }) });
       const move = (by) => () => { const order = [...layout.order]; order.splice(index + by, 0, order.splice(index, 1)[0]); save({ ...layout, order }); };
       return el("div", { class: "customise-row" },
         el("label", { class: "switch" }, toggle, el("span")),
-        el("div", { class: "who" }, el("strong", { text: name }), el("div", { class: "muted", text: id === "digest" && !assistant ? "Needs the Assistant (a HomeswiftAiKit block)" : note })),
-        el("button", { type: "button", class: "icon-button", "aria-label": `Move ${name} up`, disabled: index === 0, onclick: move(-1) }, HomeswiftCommon.icon("up")),
-        el("button", { type: "button", class: "icon-button", "aria-label": `Move ${name} down`, disabled: index === layout.order.length - 1, onclick: move(1) }, HomeswiftCommon.icon("down")));
+        el("div", { class: "who" }, el("strong", { text: name }), el("div", { class: "muted", text: id === "digest" && !assistant ? t("Needs the Assistant (a HomeswiftAiKit block)") : note })),
+        el("button", { type: "button", class: "icon-button", "aria-label": t("Move {name} up", { name }), disabled: index === 0, onclick: move(-1) }, HomeswiftCommon.icon("up")),
+        el("button", { type: "button", class: "icon-button", "aria-label": t("Move {name} down", { name }), disabled: index === layout.order.length - 1, onclick: move(1) }, HomeswiftCommon.icon("down")));
     }));
     draw();
-    const panel = el("div", { class: "card customise", role: "region", "aria-label": "Customise the Status page" },
-      el("div", { class: "section-head" }, el("h2", { text: "Customise this page" }), el("span", { class: "muted", text: "Saved for you, on every browser" })),
+    const panel = el("div", { class: "card customise", role: "region", "aria-label": t("Customise the Status page") },
+      el("div", { class: "section-head" }, el("h2", { text: t("Customise this page") }), el("span", { class: "muted", text: t("Saved for you, on every browser") })),
       list,
       el("div", { class: "actions" },
-        el("button", { class: "link", text: "Back to the usual layout", onclick: () => save({ order: dashboardWidgets.map(([id]) => id), hidden: [] }) }),
-        el("button", { class: "primary", text: "Done", onclick: () => { panel.remove(); customising = false; } })));
+        el("button", { class: "link", text: t("Back to the usual layout"), onclick: () => save({ order: dashboardWidgets.map(([id]) => id), hidden: [] }) }),
+        el("button", { class: "primary", text: t("Done"), onclick: () => { panel.remove(); customising = false; } })));
     main.prepend(panel);
     if (scroll) panel.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   }
@@ -1003,33 +1038,34 @@ enum WebAssets {
     const card = el("div", { class: "card digest-card" },
       el("div", { class: "server-head" },
         el("span", { class: "tile tone-ai", "aria-hidden": "true" }, sparkle()),
-        el("div", { class: "who" }, el("strong", { text: "Daily digest" }), el("div", { class: "muted", text: "What needs attention today, from the log and the accessories" }))),
+        el("div", { class: "who" }, el("strong", { text: t("Daily digest") }), el("div", { class: "muted", text: t("What needs attention today, from the log and the accessories") }))),
       body,
       // Writing one costs the provider's quota: an administrator's (any user reads today's).
-      el("div", { class: "card-foot" }, note, isAdmin() ? menuButton("Digest actions", () => [{ label: "Write it again", icon: sparkle(), onSelect: () => write() }]) : null));
+      el("div", { class: "card-foot" }, note, isAdmin() ? menuButton(t("Digest actions"), () => [{ label: t("Write it again"), icon: sparkle(), onSelect: () => write() }]) : null));
     let controller = null;
 
     const shown = (digest) => {
       body.replaceChildren(HomeswiftCommon.markdown(digest.text));
-      note.textContent = `Written ${new Date(digest.generatedAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}${digest.model ? ` by ${digest.model}` : ""}`;
+      const when = new Date(digest.generatedAt).toLocaleString(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" });
+      note.textContent = digest.model ? t("Written {when} by {model}", { when, model: digest.model }) : t("Written {when}", { when });
     };
     const offer = () => body.replaceChildren(...[
-      el("p", { class: "muted", text: isAdmin() ? "No digest yet today. The Assistant reads the day's warnings and errors and the accessories, and says what needs attention."
-        : "No digest yet today: an administrator has the Assistant write it." }),
-      isAdmin() ? el("button", { class: "ai-button", onclick: () => write() }, sparkle(), el("span", { text: "Write today's digest" })) : null].filter(Boolean));
+      el("p", { class: "muted", text: isAdmin() ? t("No digest yet today. The Assistant reads the day's warnings and errors and the accessories, and says what needs attention.")
+        : t("No digest yet today: an administrator has the Assistant write it.") }),
+      isAdmin() ? el("button", { class: "ai-button", onclick: () => write() }, sparkle(), el("span", { text: t("Write today's digest") })) : null].filter(Boolean));
 
     async function write() {
       controller?.abort();
       controller = new AbortController();
       const own = controller;
-      const live = el("div", {}, el("p", { class: "ai-thinking", text: "Reading the day…" }));
-      body.replaceChildren(live, el("button", { class: "link", text: "Stop", onclick: () => own.abort() }));
+      const live = el("div", {}, el("p", { class: "ai-thinking", text: t("Reading the day…") }));
+      body.replaceChildren(live, el("button", { class: "link", text: t("Stop"), onclick: () => own.abort() }));
       card.classList.add("writing");
       note.textContent = "";
       try {
         shown(await HomeswiftCommon.assistantRequest("/api/assistant/digest", {}, { signal: own.signal, onChunk: streamInto(live) }));
       } catch (e) {
-        if (own.signal.aborted) offer(); else body.replaceChildren(el("p", { class: "error", text: e.message }), el("button", { class: "link", text: "Try again", onclick: () => write() }));
+        if (own.signal.aborted) offer(); else body.replaceChildren(el("p", { class: "error", text: e.message }), el("button", { class: "link", text: t("Try again"), onclick: () => write() }));
       } finally {
         card.classList.remove("writing");
         if (controller === own) controller = null;
@@ -1044,12 +1080,12 @@ enum WebAssets {
   /// download on a NAS or the command to run, and its notes.
   function updateCard(update) {
     if (!update?.available) return null;
-    const published = update.publishedAt ? ` · released ${new Date(update.publishedAt).toLocaleDateString()}` : "";
+    const released = update.publishedAt ? new Date(update.publishedAt).toLocaleDateString(HomeswiftI18n.locale) : null;
     let command = null;
     if (update.command) {
-      const copy = el("button", { type: "button", text: "Copy", onclick: async () => {
-        try { await copyText(update.command); copy.textContent = "Copied"; } catch { copy.textContent = "Not copied"; }
-        setTimeout(() => { copy.textContent = "Copy"; }, 1800);
+      const copy = el("button", { type: "button", text: t("Copy"), onclick: async () => {
+        try { await copyText(update.command); copy.textContent = t("Copied"); } catch { copy.textContent = t("Not copied"); }
+        setTimeout(() => { copy.textContent = t("Copy"); }, 1800);
       } });
       command = el("div", { class: "update-command" }, el("code", { text: update.command }), copy);
     }
@@ -1057,14 +1093,14 @@ enum WebAssets {
       el("div", { class: "server-head" },
         tile("update", "green"),
         el("div", { class: "who" },
-          el("strong", { text: `Homeswift ${update.latest} is available` }),
-          el("div", { class: "muted", text: `This is ${update.current}${published}` }))),
-      el("p", { text: update.how }),
+          el("strong", { text: t("Homeswift {version} is available", { version: update.latest }) }),
+          el("div", { class: "muted", text: released ? t("This is {version} · released {date}", { version: update.current, date: released }) : t("This is {version}", { version: update.current }) }))),
+      el("p", { text: HomeswiftI18n.message(update.how) }),
       command,
       el("div", { class: "actions" },
-        update.download ? el("a", { class: "button primary", href: update.download.url, rel: "noopener", title: update.download.name, text: "Download the package" }) : null,
-        el("a", { class: "button", href: update.url, target: "_blank", rel: "noopener", text: "On GitHub" })),
-      update.notes ? el("details", { class: "more-options" }, el("summary", { text: "What's new" }), markdown(update.notes)) : null);
+        update.download ? el("a", { class: "button primary", href: update.download.url, rel: "noopener", title: update.download.name, text: t("Download the package") }) : null,
+        el("a", { class: "button", href: update.url, target: "_blank", rel: "noopener", text: t("On GitHub") })),
+      update.notes ? el("details", { class: "more-options" }, el("summary", { text: t("What's new") }), markdown(update.notes)) : null);
   }
 
   /// The Status page's charts: the process's memory and CPU, and how long the Home app's requests and the plugins'
@@ -1074,18 +1110,18 @@ enum WebAssets {
     const params = new URLSearchParams(location.search);
     const range = rangeFilter(params, { changed: () => load() });
     const sources = sourceFilter(accessories, bridges, initialSource(accessories, bridges, params.get("accessory"), params.get("bridge")), {
-      label: "Whose requests", everything: "All servers", changed: () => load() });
+      label: t("Whose requests"), everything: t("All servers"), changed: () => load() });
     const byID = new Map(accessories.map((accessory) => [accessory.id, accessory]));
     const durations = (key) => [
-      { label: "Average", tone: 1, value: (point) => point[key]?.average ?? null },
-      { label: "Longest", tone: 2, value: (point) => point[key]?.longest ?? null },
+      { label: t("Average"), tone: 1, value: (point) => point[key]?.average ?? null },
+      { label: t("Longest"), tone: 2, value: (point) => point[key]?.longest ?? null },
     ];
     const charts = [
-      { title: "Memory", note: "The homeswift process, at its highest in each point", series: [{ label: "Memory", tone: 1, value: (point) => point.memory }], format: formatBytes,
+      { id: "memory", title: t("Memory"), note: t("The homeswift process, at its highest in each point"), series: [{ label: t("Memory"), tone: 1, value: (point) => point.memory }], format: formatBytes,
         unit: (max) => 1024 ** (max >= 1024 ** 3 ? 3 : 2) },
-      { title: "CPU", note: "The homeswift process; 100% is one core busy", series: [{ label: "CPU", tone: 1, value: (point) => point.cpu }], format: formatPercent },
-      { title: "Home app requests", note: "How long the bridge takes to answer reads and writes", series: durations("requests"), format: formatMilliseconds, key: "requests" },
-      { title: "Plugin device calls", note: "How long plugins take to reach their devices or clouds", series: durations("handlers"), format: formatMilliseconds, key: "handlers" },
+      { id: "cpu", title: t("CPU"), note: t("The homeswift process; 100% is one core busy"), series: [{ label: t("CPU"), tone: 1, value: (point) => point.cpu }], format: formatPercent },
+      { title: t("Home app requests"), note: t("How long the bridge takes to answer reads and writes"), series: durations("requests"), format: formatMilliseconds, key: "requests" },
+      { title: t("Plugin device calls"), note: t("How long plugins take to reach their devices or clouds"), series: durations("handlers"), format: formatMilliseconds, key: "handlers" },
     ].map((chart) => {
       const figure = el("b", { class: "chart-figure" });
       const detail = el("div", { class: "muted chart-detail" });
@@ -1095,10 +1131,10 @@ enum WebAssets {
         body, detail);
       return { ...chart, card, figure, detail, body, view: null };
     });
-    const table = el("details", { class: "more chart-table" }, el("summary", { text: "Show as a table" }));
+    const table = el("details", { class: "more chart-table" }, el("summary", { text: t("Show as a table") }));
     table.addEventListener("toggle", () => { if (table.open) fillTable(); });
     const section = el("section", { class: "activity" },
-      el("h2", { text: "Activity" }),
+      el("h2", { text: t("Activity") }),
       el("div", { class: "filter-bar" }, range.picker, sources.picker, range.customRow),
       el("div", { class: "chart-grid" }, charts.map((chart) => chart.card)),
       table);
@@ -1151,33 +1187,33 @@ enum WebAssets {
     function describe(chart, points, latest, live) {
       if (!chart.key) {
         const values = points.map(chart.series[0].value).filter((value) => value != null);
-        const now = chart.title === "Memory" ? latest.memory : latest.cpu;
+        const now = chart.id === "memory" ? latest.memory : latest.cpu;
         chart.figure.textContent = live && now != null ? chart.format(now) : values.length ? chart.format(values.at(-1)) : "–";
-        chart.detail.textContent = values.length ? `Highest ${chart.format(Math.max(...values))} · lowest ${chart.format(Math.min(...values))}` : "";
+        chart.detail.textContent = values.length ? t("Highest {highest} · lowest {lowest}", { highest: chart.format(Math.max(...values)), lowest: chart.format(Math.min(...values)) }) : "";
         return;
       }
       const calls = points.map((point) => point[chart.key]).filter(Boolean);
       const count = calls.reduce((sum, one) => sum + one.count, 0);
       const average = count ? calls.reduce((sum, one) => sum + one.average * one.count, 0) / count : null;
       chart.figure.textContent = average == null ? "–" : chart.format(average);
-      chart.detail.textContent = count ? `Average of ${count.toLocaleString()} ${count === 1 ? "call" : "calls"} · longest ${chart.format(Math.max(...calls.map((one) => one.longest)))}` : "No calls in this range";
+      chart.detail.textContent = count ? tn("Average of {n} call · longest {longest}", "Average of {n} calls · longest {longest}", count, { longest: chart.format(Math.max(...calls.map((one) => one.longest))) }) : t("No calls in this range");
     }
 
     /// The charts' points, newest first, under two header rows: the process (memory, CPU), then the Home app's
     /// requests and the plugins' device calls, each its average, longest and count; a rule between the groups.
     function fillTable() {
       if (!shown) return;
-      const time = new Intl.DateTimeFormat([], { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+      const time = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
       const cell = (value, format, start = false) => el("td", { class: [value == null ? "empty" : "", start ? "group-start" : ""].join(" ").trim(), text: value == null ? "–" : format(value) });
-      const calls = (one) => [cell(one?.average, formatMilliseconds, true), cell(one?.longest, formatMilliseconds), cell(one?.count, (n) => n.toLocaleString())];
+      const calls = (one) => [cell(one?.average, formatMilliseconds, true), cell(one?.longest, formatMilliseconds), cell(one?.count, (n) => n.toLocaleString(HomeswiftI18n.locale))];
       const group = (text, span, start = true) => el("th", { scope: "colgroup", colSpan: span, class: start ? "group-start" : "", text });
       const column = (text, start = false) => el("th", { scope: "col", class: start ? "group-start" : "", text });
       table.replaceChildren(table.firstChild, el("div", { class: "table-scroll" }, el("table", {},
         el("thead", {},
           el("tr", { class: "groups" },
-            el("th", { scope: "col", rowSpan: 2, class: "time", text: "Time" }),
-            group("homeswift", 2, false), group("Home app requests", 3), group("Plugin device calls", 3)),
-          el("tr", {}, column("Memory"), column("CPU"), column("Average", true), column("Longest"), column("Count"), column("Average", true), column("Longest"), column("Count"))),
+            el("th", { scope: "col", rowSpan: 2, class: "time", text: t("Time") }),
+            group("homeswift", 2, false), group(t("Home app requests"), 3), group(t("Plugin device calls"), 3)),
+          el("tr", {}, column(t("Memory")), column(t("CPU")), column(t("Average"), true), column(t("Longest")), column(t("Count")), column(t("Average"), true), column(t("Longest")), column(t("Count")))),
         el("tbody", {}, [...shown.points].reverse().map((point) => el("tr", {},
           el("th", { scope: "row", class: "time", text: time.format(point.time) }), cell(point.memory, formatBytes), cell(point.cpu, formatPercent),
           calls(point.requests), calls(point.handlers)))))));
@@ -1201,7 +1237,7 @@ enum WebAssets {
 
   function formatDuration(seconds) {
     const d = Math.floor(seconds / 86400), h = Math.floor(seconds % 86400 / 3600), m = Math.floor(seconds % 3600 / 60);
-    return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
+    return d ? t("{d}d {h}h", { d, h }) : h ? t("{h}h {m}m", { h, m }) : t("{m}m", { m });
   }
 
   // ---- Accessories ---------------------------------------------------------
@@ -1209,27 +1245,27 @@ enum WebAssets {
   // else the kind's own; in the order chosen, on one wall or a wall per plugin. The bridge keeps the layout
   // (/api/layout), the same for every user: a widget's menu sets its size, Edit sets sizes and order.
 
-  const sizeNames = { small: "Small", medium: "Medium", large: "Large" };
+  const sizeNames = { small: t("Small"), medium: t("Medium"), large: t("Large") };
   // A kind of widget as the menu names it: "Medium for every light".
   const kindNames = {
-    climate: "air conditioner and thermostat", "air-purifier": "air purifier", fan: "fan", light: "light", cover: "shutter", toggle: "switch",
-    "switch-group": "group of switches", television: "television", "garage-door": "gate", lock: "lock", "security-system": "alarm", valve: "valve",
-    sensor: "sensor", camera: "camera", inspector: "other accessory",
+    climate: t("air conditioner and thermostat"), "air-purifier": t("air purifier"), fan: t("fan"), light: t("light"), cover: t("shutter"), toggle: t("switch"),
+    "switch-group": t("group of switches"), television: t("television"), "garage-door": t("gate"), lock: t("lock [kind]"), "security-system": t("alarm"), valve: t("valve"),
+    sensor: t("sensor"), camera: t("camera"), inspector: t("other accessory"),
   };
 
   /// What the menu of an accessory's widget offers, after its sizes.
   function accessoryActions(accessory) {
     return [
-      { label: "Identify", icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) },
-      isAdmin() ? { label: "Show its log", icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
-      window.HomeswiftChat?.available() ? { label: "Ask the Assistant", icon: sparkle(), onSelect: () => HomeswiftChat.ask(`About ${accessory.name}: `) } : null,
-      accessory.platform && isAdmin() ? { label: "Plugin settings", icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
+      { label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) },
+      isAdmin() ? { label: t("Show its log"), icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
+      window.HomeswiftChat?.available() ? { label: t("Ask the Assistant"), icon: sparkle(), onSelect: () => HomeswiftChat.ask(t("About {name}: ", { name: accessory.name })) } : null,
+      accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
       // A paused plugin's accessories do nothing until it runs again.
-      accessory.paused && isAdmin() ? { label: `Resume ${accessory.platformName}`, icon: "play", onSelect: async () => {
+      accessory.paused && isAdmin() ? { label: t("Resume {name}", { name: accessory.platformName }), icon: "play", onSelect: async () => {
         try { await setPaused(accessory.platform, accessory.platformName, false); route(); } catch (e) { alert(e.message); }
       } } : null,
       ...(isAdmin() ? window.HomeswiftHome?.layoutActions(accessory) ?? [] : []),
-      accessory.history ? { label: "History", icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
+      accessory.history ? { label: t("History"), icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
     ];
   }
 
@@ -1269,7 +1305,7 @@ enum WebAssets {
           note.classList.add("hidden");
         } catch (e) {
           if (e.status === 401) return;
-          note.textContent = `The layout was not kept: ${e.message}`;
+          note.textContent = t("The layout was not kept: {error}", { error: e.message });
           note.classList.remove("hidden");
         }
       }, 300);
@@ -1280,7 +1316,7 @@ enum WebAssets {
       const size = sizeOf(accessory), kind = kindOf(accessory);
       return [
         ...HomeswiftWidgets.sizes.map((one) => ({ label: sizeNames[one], checked: one === size, onSelect: () => resize(accessory, one) })),
-        { label: `${sizeNames[size]} for every ${kindNames[kind] ?? "accessory like it"}`, icon: "edit", onSelect: () => resizeKind(kind, size) },
+        { label: kindNames[kind] ? t("{size} for every {kind}", { size: sizeNames[size], kind: kindNames[kind] }) : t("{size} for every accessory like it", { size: sizeNames[size] }), icon: "edit", onSelect: () => resizeKind(kind, size) },
         { separator: true },
         ...accessoryActions(accessory),
       ];
@@ -1324,10 +1360,10 @@ enum WebAssets {
     /// In Edit: the sizes and the arrows over the widget, and the widget dragged into place.
     function editable(node, accessory) {
       const size = sizeOf(accessory);
-      node.append(el("div", { class: "edit-bar", role: "group", "aria-label": `Size and place of ${accessory.name}` },
-        el("button", { type: "button", "aria-label": "Move earlier", title: "Move earlier", text: "‹", "data-step": "-1", onclick: () => step(accessory, -1) }),
-        HomeswiftWidgets.sizes.map((one) => el("button", { type: "button", text: one[0].toUpperCase(), title: sizeNames[one], "aria-label": sizeNames[one], "aria-pressed": String(one === size), onclick: () => resize(accessory, one) })),
-        el("button", { type: "button", "aria-label": "Move later", title: "Move later", text: "›", "data-step": "1", onclick: () => step(accessory, 1) })));
+      node.append(el("div", { class: "edit-bar", role: "group", "aria-label": t("Size and place of {name}", { name: accessory.name }) },
+        el("button", { type: "button", "aria-label": t("Move earlier"), title: t("Move earlier"), text: "‹", "data-step": "-1", onclick: () => step(accessory, -1) }),
+        HomeswiftWidgets.sizes.map((one) => el("button", { type: "button", text: sizeNames[one][0].toUpperCase(), title: sizeNames[one], "aria-label": sizeNames[one], "aria-pressed": String(one === size), onclick: () => resize(accessory, one) })),
+        el("button", { type: "button", "aria-label": t("Move later"), title: t("Move later"), text: "›", "data-step": "1", onclick: () => step(accessory, 1) })));
       node.addEventListener("pointerdown", (event) => drag(event, node));
     }
 
@@ -1428,7 +1464,7 @@ enum WebAssets {
     }
 
     const content = el("div", { class: "accessory-walls" });
-    const none = el("p", { class: "muted hidden", text: "No accessory matches." });
+    const none = el("p", { class: "muted hidden", text: t("No accessory matches.") });
     function render() {
       nodes.clear();
       // By plugin or by room: a section each (by plugin in the order of their names, those of no plugin last; by room
@@ -1437,12 +1473,12 @@ enum WebAssets {
         : layout.grouping === "room" && rooms.length ? HomeswiftHome.groupByRoom(accessories, rooms) : null;
       const groups = sections ? sections.map(([name, group]) => [name, ordered.filter((accessory) => group.includes(accessory))]) : [["", ordered]];
       content.replaceChildren(...groups.map(([name, group]) => el("section", { class: "accessory-section" },
-        name ? el("div", { class: "section-head" }, el("h2", { text: name }), el("span", { class: "muted", text: `${group.length} ${group.length === 1 ? "accessory" : "accessories"}` })) : null,
+        name ? el("div", { class: "section-head" }, el("h2", { text: name }), el("span", { class: "muted", text: tn("{n} accessory", "{n} accessories", group.length) })) : null,
         el("div", { class: `wall${editing ? " editing" : ""}` }, group.map(widget)))));
       filter();
     }
 
-    const search = el("input", { type: "search", class: "search", placeholder: "Search accessories", "aria-label": "Search accessories" });
+    const search = el("input", { type: "search", class: "search", placeholder: t("Search accessories"), "aria-label": t("Search accessories") });
     function filter() {
       const text = search.value.trim().toLowerCase();
       let shown = 0;
@@ -1460,17 +1496,17 @@ enum WebAssets {
     }
     search.addEventListener("input", filter);
     // Each with its glyph; a phone shows the glyphs alone.
-    const groupings = [["none", "One wall", "grid"], ...(rooms.length ? [["room", "By room", "room"]] : []), ["plugin", "By plugin", "plugin"]];
-    const grouping = el("div", { class: "group with-icons", role: "group", "aria-label": "Group the accessories" }, groupings.map(([value, text, glyph]) =>
+    const groupings = [["none", t("One wall"), "grid"], ...(rooms.length ? [["room", t("By room"), "room"]] : []), ["plugin", t("By plugin"), "plugin"]];
+    const grouping = el("div", { class: "group with-icons", role: "group", "aria-label": t("Group the accessories") }, groupings.map(([value, text, glyph]) =>
       el("button", { type: "button", title: text, "aria-label": text, class: layout.grouping === value ? "on" : "", "aria-pressed": String(layout.grouping === value), onclick: (event) => {
         layout.grouping = value;
         for (const button of grouping.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
         save();
         render();
       } }, HomeswiftCommon.icon(glyph), el("span", { text }))));
-    const edit = el("button", { type: "button", text: "Edit", "aria-pressed": "false", title: "Sizes and order of the widgets", onclick: () => {
+    const edit = el("button", { type: "button", text: t("Edit"), "aria-pressed": "false", title: t("Sizes and order of the widgets"), onclick: () => {
       editing = !editing;
-      edit.textContent = editing ? "Done" : "Edit";
+      edit.textContent = editing ? t("Done") : t("Edit");
       edit.classList.toggle("primary", editing);
       edit.setAttribute("aria-pressed", String(editing));
       render();
@@ -1480,23 +1516,24 @@ enum WebAssets {
       const next = new URLSearchParams(location.search);
       if (event.target.checked) next.set("hidden", "1"); else next.delete("hidden");
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
-    } }), el("span", { text: `Show hidden (${hiddenCount})` })) : null;
+    } }), el("span", { text: t("Show hidden ({count})", { count: hiddenCount }) })) : null;
     const suggest = isAdmin() && window.HomeswiftChat?.available() && all.length
-      ? el("button", { class: "ai-button icon-on-phone", title: "Suggest rooms", "aria-label": "Suggest rooms", onclick: () => HomeswiftHome.suggestRooms(content, all) }, sparkle(), el("span", { text: "Suggest rooms" })) : null;
+      ? el("button", { class: "ai-button icon-on-phone", title: t("Suggest rooms"), "aria-label": t("Suggest rooms"), onclick: () => HomeswiftHome.suggestRooms(content, all) }, sparkle(), el("span", { text: t("Suggest rooms") })) : null;
 
     render();
     show(main,
-      pageHead("Accessories", accessories.length ? `${accessories.length} on ${servers} ${servers === 1 ? "server" : "servers"}, as the Home app sees them. Changes here reach your devices.` : "",
+      pageHead(t("Accessories"), accessories.length ? (servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
+        : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers })) : "",
         ...(accessories.length ? [search, grouping, edit] : []), hiddenToggle, suggest),
       note,
-      accessories.length ? [content, none] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? "Every accessory is hidden." : "No accessories yet. Plugins add them once they reach their devices." })));
+      accessories.length ? [content, none] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") })));
   };
 
   /// Accessories by plugin: [name, accessories] pairs by the plugin's name, each list by name; those of no
   /// plugin last, as "Other accessories".
   function groupByPlugin(accessories) {
     const groups = Map.groupBy([...accessories].sort((a, b) => a.name.localeCompare(b.name)), (accessory) => accessory.platformName ?? "");
-    return [...groups].sort(([a], [b]) => !a - !b || a.localeCompare(b)).map(([name, list]) => [name || "Other accessories", list]);
+    return [...groups].sort(([a], [b]) => !a - !b || a.localeCompare(b)).map(([name, list]) => [name || t("Other accessories"), list]);
   }
 
   function applyAccessoryEvent(event) {
@@ -1523,32 +1560,32 @@ enum WebAssets {
         el("div", { class: "server-head" },
           tile(block.system ? "gear" : "plugin", block.system ? "grey" : "orange"),
           el("div", { class: "who" }, el("a", { class: "card-title", href: opens }, el("strong", { text: block.name })),
-            el("div", { class: "muted", text: [kindName, block.childBridge ? "child bridge" : null].filter(Boolean).join(" · ") })),
+            el("div", { class: "muted", text: [kindName, block.childBridge ? t("child bridge") : null].filter(Boolean).join(" · ") })),
           el("span", { class: `pill status ${kind}`, text: state })),
         // Its accessories and the bridge they are on, a glyph each, on one line.
         instance ? el("div", { class: "meta" },
-          el("span", { title: "Accessories" }, HomeswiftCommon.icon("bulb"), `${instance.accessories} ${instance.accessories === 1 ? "accessory" : "accessories"}`),
-          el("span", { title: `On the bridge ${instance.bridge}` }, HomeswiftCommon.icon(block.childBridge ? "child" : "bridge"), instance.bridge)) : null,
+          el("span", { title: t("Accessories") }, HomeswiftCommon.icon("bulb"), tn("{n} accessory", "{n} accessories", instance.accessories)),
+          el("span", { title: t("On the bridge {name}", { name: instance.bridge }) }, HomeswiftCommon.icon(block.childBridge ? "child" : "bridge"), instance.bridge)) : null,
         el("div", { class: "card-foot" },
-          el("span", { class: "muted", text: instance?.paused ? "No calls to its devices; they show No Response in the Home app."
-            : instance ? "" : block.system ? "A block of the runtime itself." : plugin ? "It did not start: the log says why." : "No plugin compiled into this homeswift provides this platform." }),
-          menuButton(`Actions for ${block.name}`, () => blockActions(block, plugin, instance))));
+          el("span", { class: "muted", text: instance?.paused ? t("No calls to its devices; they show No Response in the Home app.")
+            : instance ? "" : block.system ? t("A block of the runtime itself.") : plugin ? t("It did not start: the log says why.") : t("No plugin compiled into this homeswift provides this platform.") }),
+          menuButton(t("Actions for {name}", { name: block.name }), () => blockActions(block, plugin, instance))));
     };
 
     /// What the menu of a plugin's card offers: its page, the block as a form or as JSON (Expert), pause or
     /// resume, and removal.
     function blockActions(block, plugin, instance) {
-      if (block.system) return [{ label: "Settings", icon: "gear", href: settingsLink(block) }, { label: "Edit as JSON", icon: "code", href: expertLink(block, "json") }];
+      if (block.system) return [{ label: t("Settings"), icon: "gear", href: settingsLink(block) }, { label: t("Edit as JSON"), icon: "code", href: expertLink(block, "json") }];
       const toggle = async (paused) => {
         try { await setPaused(block.platform, block.name, paused); route(); } catch (e) { alert(e.message); }
       };
       return [
-        plugin && plugin.hasPages && instance && !instance.paused ? { label: "Open its page", icon: "open", href: pluginPage(block) } : null,
-        { label: "Edit settings (Expert)", icon: "edit", href: expertLink(block) },
-        { label: "Edit as JSON (Expert)", icon: "code", href: expertLink(block, "json") },
-        instance && !instance.paused ? { label: "Pause", icon: "pause", onSelect: () => toggle(true) } : null,
-        instance?.paused ? { label: "Resume", icon: "play", onSelect: () => toggle(false) } : null,
-        { label: "Remove", icon: "trash", danger: true, onSelect: () => removeBlock(block) },
+        plugin && plugin.hasPages && instance && !instance.paused ? { label: t("Open its page"), icon: "open", href: pluginPage(block) } : null,
+        { label: t("Edit settings (Expert)"), icon: "edit", href: expertLink(block) },
+        { label: t("Edit as JSON (Expert)"), icon: "code", href: expertLink(block, "json") },
+        instance && !instance.paused ? { label: t("Pause"), icon: "pause", onSelect: () => toggle(true) } : null,
+        instance?.paused ? { label: t("Resume"), icon: "play", onSelect: () => toggle(false) } : null,
+        { label: t("Remove"), icon: "trash", danger: true, onSelect: () => removeBlock(block) },
       ];
     }
 
@@ -1557,12 +1594,12 @@ enum WebAssets {
       return el("div", { class: "card server catalog" },
         el("div", { class: "server-head" }, tile("plugin", "orange"),
           el("div", { class: "who" }, el("strong", { text: plugin.name }), el("div", { class: "muted", text: plugin.platform })),
-          used ? el("span", { class: "pill status standby", text: "In use" }) : null),
+          used ? el("span", { class: "pill status standby", text: t("In use [used]") }) : null),
         el("div", { class: "actions" }, plugin.hasPages
           // A plugin with its own page sets itself up there (pairing a TV, finding lights), as Homebridge's
           // custom UIs do: Add writes an empty block and opens the page.
-          ? el("button", { class: used ? "" : "primary", text: used ? "Add another" : "Add", onclick: (event) => addWithPage(plugin, event.currentTarget) })
-          : el("a", { class: `button ${used ? "" : "primary"}`, href: `/plugins/add/${encodeURIComponent(plugin.platform)}`, text: used ? "Add another" : "Add" })));
+          ? el("button", { class: used ? "" : "primary", text: used ? t("Add another") : t("Add"), onclick: (event) => addWithPage(plugin, event.currentTarget) })
+          : el("a", { class: `button ${used ? "" : "primary"}`, href: `/plugins/add/${encodeURIComponent(plugin.platform)}`, text: used ? t("Add another") : t("Add") })));
     }));
 
     async function addWithPage(plugin, button) {
@@ -1578,20 +1615,20 @@ enum WebAssets {
     }
 
     show(main,
-      pageHead("Plugins", "The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept."),
-      plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: `No plugin provides ${plugins.unknownPlatforms.join(", ")}: those blocks are ignored.` })) : null,
-      plugins.blocks.length ? el("div", { class: "grid" }, plugins.blocks.map(blockCard)) : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("plugin")), el("p", { class: "muted", text: "No plugin yet. Add one below." })),
-      el("div", { class: "section-head" }, el("h2", { text: "Add a plugin" }), el("span", { class: "muted", text: "compiled into this homeswift" })),
+      pageHead(t("Plugins"), t("The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.")),
+      plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: t("No plugin provides {platforms}: those blocks are ignored.", { platforms: plugins.unknownPlatforms.join(", ") }) })) : null,
+      plugins.blocks.length ? el("div", { class: "grid" }, plugins.blocks.map(blockCard)) : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("plugin")), el("p", { class: "muted", text: t("No plugin yet. Add one below.") })),
+      el("div", { class: "section-head" }, el("h2", { text: t("Add a plugin") }), el("span", { class: "muted", text: t("compiled into this homeswift") })),
       catalog);
   };
 
   /// A block's state pill: its label and tone.
-  const blockState = (block, plugin, instance) => block.system ? ["Built in", "standby"] : instance?.paused ? ["Paused", "paused"]
-    : instance ? ["Running", "on"] : plugin ? ["Not running", "away"] : ["No plugin", "away"];
+  const blockState = (block, plugin, instance) => block.system ? [t("Built in"), "standby"] : instance?.paused ? [t("Paused"), "paused"]
+    : instance ? [t("Running"), "on"] : plugin ? [t("Not running"), "away"] : [t("No plugin"), "away"];
 
   /// Takes a block out of config.json, after asking: its accessories leave the Home app.
   async function removeBlock(block, after = () => route()) {
-    if (!confirm(`Remove "${block.name}" from config.json? Its accessories leave the Home app.`)) return;
+    if (!confirm(t("Remove \"{name}\" from config.json? Its accessories leave the Home app.", { name: block.name }))) return;
     try { await api(`/api/config/platforms/${block.index}`, { method: "DELETE" }); leaveGuard = null; after(); } catch (e) { alert(e.message); }
   }
 
@@ -1603,7 +1640,7 @@ enum WebAssets {
 
   /// Where a page sits, each level a way back; the last is the page itself.
   function breadcrumb(...levels) {
-    return el("nav", { class: "breadcrumb", "aria-label": "Breadcrumb" }, el("ol", {}, levels.map(([text, href], i) =>
+    return el("nav", { class: "breadcrumb", "aria-label": t("Breadcrumb") }, el("ol", {}, levels.map(([text, href], i) =>
       i === levels.length - 1 ? el("li", { "aria-current": "page" }, el("span", { text })) : el("li", {}, el("a", { href, text })))));
   }
 
@@ -1617,14 +1654,14 @@ enum WebAssets {
     const [plugins, config] = await Promise.all([api("/api/plugins"), api("/api/config", { raw: true }).then(JSON.parse)]);
     const found = isNew ? null : plugins.blocks.find((b) => b.slug === first);
     if (!isNew && !found) {
-      show(main, breadcrumb(["Plugins", "/plugins"], ["Settings"]),
-        el("div", { class: "card empty" }, el("p", { class: "muted", text: `No plugin at /plugins/${first} in config.json.` })));
+      show(main, breadcrumb([t("Plugins"), "/plugins"], [t("Settings")]),
+        el("div", { class: "card empty" }, el("p", { class: "muted", text: t("No plugin at /plugins/{slug} in config.json.", { slug: first }) })));
       return;
     }
     const platform = isNew ? second : found.platform;
     const plugin = plugins.plugins.find((p) => p.platform === platform);
     const view = isNew ? null : second === "expert" ? (third === "json" ? "json" : "form") : null;
-    if (isNew && !plugin) throw new Error(`No plugin provides ${platform}.`);
+    if (isNew && !plugin) throw new Error(t("No plugin provides {platform}.", { platform }));
     const block = found ?? { index: plugins.blocks.length, platform, name: uniqueName(plugin.name, plugins.blocks), system: false };
     const instance = plugins.platforms.find((p) => p.platform === block.platform && p.name === block.name);
     const hasPage = Boolean(!isNew && plugin && plugin.hasPages && instance);
@@ -1641,7 +1678,7 @@ enum WebAssets {
     let getValue;
     let body;
     let useSuggestion = null;
-    const textarea = el("textarea", { class: "short", value: JSON.stringify(current, null, 2), spellcheck: false, "aria-label": "The block as JSON" });
+    const textarea = el("textarea", { class: "short", value: JSON.stringify(current, null, 2), spellcheck: false, "aria-label": t("The block as JSON") });
     const editor = jsonEditor(textarea);
     const fromJSON = () => { const value = JSON.parse(textarea.value); delete value.platform; return value; };
     if (schema) {
@@ -1650,10 +1687,10 @@ enum WebAssets {
       let mode = view === "json" ? "json" : "form";
       let form = buildForm(schema, current);
       const formView = el("div", { class: mode === "form" ? "" : "hidden" }, form.element);
-      const jsonView = el("div", { class: mode === "json" ? "" : "hidden" }, el("p", { class: "muted", text: "The block as config.json keeps it." }), editor);
+      const jsonView = el("div", { class: mode === "json" ? "" : "hidden" }, el("p", { class: "muted", text: t("The block as config.json keeps it.") }), editor);
       const switchError = el("p", { class: "error" });
-      const tabs = el("div", { class: "group view-switch", role: "tablist", "aria-label": "Edit as" },
-        [["form", "Form"], ["json", "JSON"]].map(([value, text]) => el("button", { type: "button", role: "tab", text, class: value === mode ? "on" : "", "aria-selected": String(value === mode), onclick: () => {
+      const tabs = el("div", { class: "group view-switch", role: "tablist", "aria-label": t("Edit as") },
+        [["form", t("Form")], ["json", "JSON"]].map(([value, text]) => el("button", { type: "button", role: "tab", text, "data-mode": value, class: value === mode ? "on" : "", "aria-selected": String(value === mode), onclick: () => {
           if (value === mode) return;
           switchError.textContent = "";
           try {
@@ -1664,11 +1701,11 @@ enum WebAssets {
               form = buildForm(schema, { platform, ...fromJSON() });
               formView.replaceChildren(form.element);
             }
-          } catch (e) { switchError.textContent = `The JSON is not valid: ${e.message}`; return; }
+          } catch (e) { switchError.textContent = t("The JSON is not valid: {error}", { error: e.message }); return; }
           mode = value;
           formView.classList.toggle("hidden", mode !== "form");
           jsonView.classList.toggle("hidden", mode !== "json");
-          for (const tab of tabs.children) { tab.classList.toggle("on", tab.textContent.toLowerCase() === mode); tab.setAttribute("aria-selected", String(tab.textContent.toLowerCase() === mode)); }
+          for (const tab of tabs.children) { tab.classList.toggle("on", tab.dataset.mode === mode); tab.setAttribute("aria-selected", String(tab.dataset.mode === mode)); }
         } })));
       body = el("div", { class: "card form-card" }, tabs, switchError, formView, jsonView);
       getValue = () => (mode === "form" ? form.getValue() : fromJSON());
@@ -1680,7 +1717,7 @@ enum WebAssets {
         body.dispatchEvent(new Event("input", { bubbles: true }));
       };
     } else {
-      body = el("div", { class: "card form-card" }, el("p", { class: "muted", text: "This block has no settings form; edit it as JSON." }), editor);
+      body = el("div", { class: "card form-card" }, el("p", { class: "muted", text: t("This block has no settings form; edit it as JSON.") }), editor);
       getValue = fromJSON;
     }
 
@@ -1692,9 +1729,9 @@ enum WebAssets {
     let saved = isNew ? null : snapshot();
     const dirty = () => snapshot() !== saved;
     const message = el("span", { class: "muted" });
-    const save = el("button", { class: "primary", text: isNew ? "Add" : "Save" });
-    const force = el("button", { class: "hidden", text: isNew ? "Add anyway" : "Save anyway", title: "Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list" });
-    const revert = el("button", { text: isNew ? "Cancel" : "Revert" });
+    const save = el("button", { class: "primary", text: isNew ? t("Add") : t("Save") });
+    const force = el("button", { class: "hidden", text: isNew ? t("Add anyway") : t("Save anyway"), title: t("Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list") });
+    const revert = el("button", { text: isNew ? t("Cancel") : t("Revert") });
     // The JSON on screen is checked as it is typed: a syntax error marks its line, and Save waits for it.
     const jsonShown = () => textarea.isConnected && !textarea.closest(".hidden");
     const update = () => {
@@ -1711,7 +1748,7 @@ enum WebAssets {
       revert.disabled = !isNew && !changed;
       if (!message.classList.contains("error") && !message.classList.contains("ok")) {
         message.className = changed ? "dirty" : "muted";
-        message.textContent = isNew ? "A new block: Add writes it to config.json." : changed ? "Unsaved changes" : "Saved";
+        message.textContent = isNew ? t("A new block: Add writes it to config.json.") : changed ? t("Unsaved changes") : t("Saved");
       }
     };
     body.addEventListener("input", () => { message.className = ""; force.classList.add("hidden"); update(); });
@@ -1722,7 +1759,7 @@ enum WebAssets {
       save.disabled = true;
       force.classList.add("hidden");
       message.className = "muted";
-      message.textContent = "Saving…";
+      message.textContent = t("Saving…");
       try {
         const value = getValue();
         value.platform = platform;
@@ -1735,7 +1772,7 @@ enum WebAssets {
         const port = platform === "HomeswiftUI" ? Number(value.port || 8581) : null;
         const scheme = value.https === true ? "https:" : "http:";
         if (port && (String(port) !== (location.port || (location.protocol === "https:" ? "443" : "80")) || scheme !== location.protocol)) {
-          message.textContent = scheme !== location.protocol ? `Saved. The web UI moves to ${scheme.slice(0, -1).toUpperCase()}…` : `Saved. The web UI moves to port ${port}…`;
+          message.textContent = scheme !== location.protocol ? t("Saved. The web UI moves to {scheme}…", { scheme: scheme.slice(0, -1).toUpperCase() }) : t("Saved. The web UI moves to port {port}…", { port: String(port) });
           setTimeout(() => { location.href = `${scheme}//${location.hostname}:${port}${location.pathname}`; }, 1500);
           return;
         }
@@ -1750,7 +1787,7 @@ enum WebAssets {
         // Inside the block: the paths start at the file's platforms. The JSON on screen marks their lines.
         const paths = e.problems.map((problem) => problem.path.slice(2));
         const places = jsonShown() ? editor.markPaths(paths) : [];
-        message.replaceChildren(el("span", { text: "The plugin's schema refuses this:" }), problemList(e.problems.map((problem, i) => ({ ...places[i], text: problem.text })), jsonShown() ? editor : null));
+        message.replaceChildren(el("span", { text: t("The plugin's schema refuses this:") }), problemList(e.problems.map((problem, i) => ({ ...places[i], text: HomeswiftI18n.message(problem.text) })), jsonShown() ? editor : null));
         force.classList.remove("hidden");
       }
     };
@@ -1758,27 +1795,27 @@ enum WebAssets {
     force.addEventListener("click", () => doSave(true));
     revert.addEventListener("click", () => { if (isNew) { navigate("/plugins"); return; } leaveGuard = null; route(); });
 
-    const [state, kind] = isNew ? ["New", "standby"] : blockState(block, plugin, instance);
+    const [state, kind] = isNew ? [t("New"), "standby"] : blockState(block, plugin, instance);
     const remove = !isNew && !block.system ? el("div", { class: "card danger-zone" },
-      el("div", {}, el("strong", { text: "Remove this plugin" }),
-        el("p", { class: "muted", text: "Takes the block out of config.json. Its accessories leave the Home app, with their rooms, scenes and automations." })),
-      el("button", { class: "danger", text: "Remove", onclick: () => removeBlock(block, () => navigate("/plugins")) })) : null;
+      el("div", {}, el("strong", { text: t("Remove this plugin") }),
+        el("p", { class: "muted", text: t("Takes the block out of config.json. Its accessories leave the Home app, with their rooms, scenes and automations.") })),
+      el("button", { class: "danger", text: t("Remove"), onclick: () => removeBlock(block, () => navigate("/plugins")) })) : null;
 
-    leaveGuard = () => !dirty() || isNew || confirm("Leave without saving your changes?");
+    leaveGuard = () => !dirty() || isNew || confirm(t("Leave without saving your changes?"));
     leaveGuard.quiet = () => isNew || !dirty();
     show(main,
-      breadcrumb(["Plugins", "/plugins"], [block.name, isNew ? "/plugins" : settingsLink(block)], [isNew ? "Add" : hasPage ? "Expert" : "Settings"]),
+      breadcrumb([t("Plugins"), "/plugins"], [block.name, isNew ? "/plugins" : settingsLink(block)], [isNew ? t("Add") : hasPage ? t("Expert") : t("Settings")]),
       el("div", { class: "page-head settings-head" },
         tile(block.system ? "gear" : "plugin", block.system ? "grey" : "orange"),
         el("div", { class: "who" },
-          el("h1", { text: isNew ? `Add ${plugin.name}` : block.name }),
+          el("h1", { text: isNew ? t("Add {name}", { name: plugin.name }) : block.name }),
           el("p", { class: "muted", text: [...new Set([plugin ? plugin.name : platform, platform])].filter((part) => part !== block.name).concat(
-            instance ? [`${instance.accessories} ${instance.accessories === 1 ? "accessory" : "accessories"} on ${instance.bridge}`] : []).join(" · ") })),
+            instance ? [tn("{n} accessory on {bridge}", "{n} accessories on {bridge}", instance.accessories, { bridge: instance.bridge })] : []).join(" · ") })),
         el("div", { class: "tools" }, el("span", { class: `pill status ${kind}`, text: state }))),
       // A plugin with its own page does the everyday work there (pairing, devices); this is the raw block.
       hasPage ? el("div", { class: "card page-note" },
-        el("p", {}, el("strong", { text: "Expert. " }), `Every setting of the block, as config.json keeps it, including what ${plugin.name}'s page does not show. A save reloads the plugin.`),
-        el("a", { class: "button", href: pluginPage(block), text: "Back to its page" })) : null,
+        el("p", {}, el("strong", { text: t("Expert.") }), " ", t("Every setting of the block, as config.json keeps it, including what {plugin}'s page does not show. A save reloads the plugin.", { plugin: plugin.name })),
+        el("a", { class: "button", href: pluginPage(block), text: t("Back to its page") })) : null,
       platform === "HomeswiftAiKit" && useSuggestion && !isNew ? assistantSettings({
         formValue: () => { try { return { ...getValue(), platform }; } catch { return { ...current, platform }; } },
         useValue: useSuggestion, save, dirty }) : null,
@@ -1800,32 +1837,32 @@ enum WebAssets {
       save = null;
     }
     const result = el("p", { class: "muted test-result", role: "status" });
-    const test = el("button", { text: "Test connection", onclick: async () => {
+    const test = el("button", { text: t("Test connection"), onclick: async () => {
       test.disabled = true;
       result.className = "muted test-result";
-      result.textContent = "Asking the provider…";
+      result.textContent = t("Asking the provider…");
       try {
         const answer = await api("/api/assistant/test", { method: "POST", body: { block: formValue() } });
         result.className = `test-result ${answer.ok ? "ok" : "error"}`;
-        result.textContent = answer.ok ? `It works: ${answer.provider} · ${answer.model} answered in ${answer.latencyMs} ms.` : answer.message || "It did not answer.";
+        result.textContent = answer.ok ? t("It works: {provider} · {model} answered in {ms} ms.", { provider: answer.provider, model: answer.model, ms: answer.latencyMs }) : HomeswiftI18n.message(answer.message) || t("It did not answer.");
         loadUsage();
       } catch (e) { result.className = "test-result error"; result.textContent = e.message; }
       test.disabled = false;
     } });
 
-    const usage = el("div", { class: "usage" }, el("p", { class: "muted", text: "Loading…" }));
+    const usage = el("div", { class: "usage" }, el("p", { class: "muted", text: t("Loading…") }));
     const money = (usd) => usd == null ? "–" : usd > 0 && usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`;
-    const tokens = (summary) => (summary.inputTokens + summary.outputTokens).toLocaleString();
+    const tokens = (summary) => (summary.inputTokens + summary.outputTokens).toLocaleString(HomeswiftI18n.locale);
     const meter = (label, used, limit, format) => {
       const share = Math.min(1, limit ? used / limit : 0);
       return el("div", { class: `budget-meter${share >= 1 ? " over" : share >= 0.8 ? " near" : ""}` },
-        el("div", { class: "budget-label" }, el("span", { text: label }), el("b", { text: `${format(used)} of ${format(limit)}` })),
+        el("div", { class: "budget-label" }, el("span", { text: label }), el("b", { text: t("{used} of {limit}", { used: format(used), limit: format(limit) }) })),
         el("div", { class: "gauge-track", role: "meter", "aria-label": label, "aria-valuemin": "0", "aria-valuemax": String(limit), "aria-valuenow": String(used) },
           el("div", { class: "gauge-fill", style: `width:${share * 100}%` })));
     };
     const table = (title, rows) => rows.length ? el("div", { class: "table-scroll" }, el("table", {},
-      el("thead", {}, el("tr", {}, [title, "Requests", "Tokens", "Cost"].map((text) => el("th", { text })))),
-      el("tbody", {}, rows.map(([name, summary]) => el("tr", {}, el("td", { text: name }), el("td", { text: summary.requests.toLocaleString() }),
+      el("thead", {}, el("tr", {}, [title, t("Requests"), t("Tokens"), t("Cost")].map((text) => el("th", { text })))),
+      el("tbody", {}, rows.map(([name, summary]) => el("tr", {}, el("td", { text: name }), el("td", { text: summary.requests.toLocaleString(HomeswiftI18n.locale) }),
         el("td", { text: tokens(summary) }), el("td", { text: money(summary.costUsd) })))))) : null;
     async function loadUsage() {
       let answer;
@@ -1833,41 +1870,41 @@ enum WebAssets {
       const report = answer.usage;
       const budget = report.budget || {};
       const meters = [
-        budget.dailyTokens ? meter("Tokens today", report.today.inputTokens + report.today.outputTokens, budget.dailyTokens, (n) => n.toLocaleString()) : null,
-        budget.dailyUsd ? meter("Spent today", report.today.costUsd ?? 0, budget.dailyUsd, money) : null,
-        budget.monthlyTokens ? meter("Tokens this month", report.thisMonth.inputTokens + report.thisMonth.outputTokens, budget.monthlyTokens, (n) => n.toLocaleString()) : null,
-        budget.monthlyUsd ? meter("Spent this month", report.thisMonth.costUsd ?? 0, budget.monthlyUsd, money) : null,
+        budget.dailyTokens ? meter(t("Tokens today"), report.today.inputTokens + report.today.outputTokens, budget.dailyTokens, (n) => n.toLocaleString(HomeswiftI18n.locale)) : null,
+        budget.dailyUsd ? meter(t("Spent today"), report.today.costUsd ?? 0, budget.dailyUsd, money) : null,
+        budget.monthlyTokens ? meter(t("Tokens this month"), report.thisMonth.inputTokens + report.thisMonth.outputTokens, budget.monthlyTokens, (n) => n.toLocaleString(HomeswiftI18n.locale)) : null,
+        budget.monthlyUsd ? meter(t("Spent this month"), report.thisMonth.costUsd ?? 0, budget.monthlyUsd, money) : null,
       ].filter(Boolean);
       const byModel = Object.entries(report.monthByModel || {}).sort(([, a], [, b]) => b.requests - a.requests);
       const byUser = Object.entries(report.byUser?.thisMonth || {}).sort(([, a], [, b]) => b.requests - a.requests);
       usage.replaceChildren(...[
         el("div", { class: "stats" },
-          el("div", { class: "stat" }, el("b", { text: report.today.requests.toLocaleString() }), el("span", { text: "Requests today" })),
-          el("div", { class: "stat" }, el("b", { text: money(report.today.costUsd) }), el("span", { text: "Cost today" })),
-          el("div", { class: "stat" }, el("b", { text: report.thisMonth.requests.toLocaleString() }), el("span", { text: "Requests this month" })),
-          el("div", { class: "stat" }, el("b", { text: money(report.thisMonth.costUsd) }), el("span", { text: "Cost this month" }))),
-        report.exceeded ? el("p", { class: "error", text: report.exceeded }) : null,
-        meters.length ? el("div", { class: "budget-meters" }, meters) : el("p", { class: "muted", text: "No budget: requests are not limited." }),
-        byModel.length || byUser.length ? el("details", { class: "more" }, el("summary", { text: "This month by model and by user" }),
-          table("Model", byModel), table("User", byUser)) : null,
-        el("p", { class: "muted", text: "Costs come from the token counts at today's prices; only Claude models are priced." })].filter(Boolean));
+          el("div", { class: "stat" }, el("b", { text: report.today.requests.toLocaleString(HomeswiftI18n.locale) }), el("span", { text: t("Requests today") })),
+          el("div", { class: "stat" }, el("b", { text: money(report.today.costUsd) }), el("span", { text: t("Cost today") })),
+          el("div", { class: "stat" }, el("b", { text: report.thisMonth.requests.toLocaleString(HomeswiftI18n.locale) }), el("span", { text: t("Requests this month") })),
+          el("div", { class: "stat" }, el("b", { text: money(report.thisMonth.costUsd) }), el("span", { text: t("Cost this month") }))),
+        report.exceeded ? el("p", { class: "error", text: HomeswiftI18n.message(report.exceeded) }) : null,
+        meters.length ? el("div", { class: "budget-meters" }, meters) : el("p", { class: "muted", text: t("No budget: requests are not limited.") }),
+        byModel.length || byUser.length ? el("details", { class: "more" }, el("summary", { text: t("This month by model and by user") }),
+          table(t("Model"), byModel), table(t("User"), byUser)) : null,
+        el("p", { class: "muted", text: t("Costs come from the token counts at today's prices; only Claude models are priced.") })].filter(Boolean));
     }
 
     // The budget's four limits, written into the form and saved with it; empty is no limit.
-    const limits = [["dailyTokens", "Tokens per day", 1], ["dailyUsd", "USD per day", 0.01], ["monthlyTokens", "Tokens per month", 1], ["monthlyUsd", "USD per month", 0.01]];
-    const inputs = Object.fromEntries(limits.map(([key, , step]) => [key, el("input", { type: "number", min: 0, step, inputMode: "decimal", placeholder: "No limit" })]));
+    const limits = [["dailyTokens", t("Tokens per day"), 1], ["dailyUsd", t("USD per day"), 0.01], ["monthlyTokens", t("Tokens per month"), 1], ["monthlyUsd", t("USD per month"), 0.01]];
+    const inputs = Object.fromEntries(limits.map(([key, , step]) => [key, el("input", { type: "number", min: 0, step, inputMode: "decimal", placeholder: t("No limit") })]));
     const budgetMessage = el("span", { class: "muted" });
     const editor = el("details", { class: "more budget-editor" },
-      el("summary", { text: "Edit the budgets" }),
+      el("summary", { text: t("Edit the budgets") }),
       el("div", { class: "fields" }, limits.map(([key, label]) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), inputs[key]))),
-      el("div", { class: "actions" }, budgetMessage, el("button", { class: "primary", text: "Save the budgets", onclick: () => {
-        if (dirty() && !confirm("The form below has other unsaved changes: save them with the budgets?")) return;
+      el("div", { class: "actions" }, budgetMessage, el("button", { class: "primary", text: t("Save the budgets"), onclick: () => {
+        if (dirty() && !confirm(t("The form below has other unsaved changes: save them with the budgets?"))) return;
         const budget = {};
         for (const [key] of limits) if (inputs[key].value !== "" && Number(inputs[key].value) > 0) budget[key] = Number(inputs[key].value);
         const value = formValue();
         if (Object.keys(budget).length) value.budget = budget; else delete value.budget;
         budgetMessage.className = "muted";
-        budgetMessage.textContent = "Saving…";
+        budgetMessage.textContent = t("Saving…");
         if (save) {
           useValue(value);
           save.click();
@@ -1889,7 +1926,7 @@ enum WebAssets {
     return el("div", { class: "card assistant-settings" },
       el("div", { class: "server-head" },
         el("span", { class: "tile tone-ai", "aria-hidden": "true" }, sparkle()),
-        el("div", { class: "who" }, el("strong", { text: "The Assistant" }), el("div", { class: "muted", text: save ? "Check the settings below before saving them, and see what it costs." : "Whether its provider answers, and what it costs." })),
+        el("div", { class: "who" }, el("strong", { text: t("The Assistant") }), el("div", { class: "muted", text: save ? t("Check the settings below before saving them, and see what it costs.") : t("Whether its provider answers, and what it costs.") })),
         test),
       result, usage, editor);
   }
@@ -1899,16 +1936,16 @@ enum WebAssets {
   async function assistantPage(main, subnav) {
     const plugins = await api("/api/plugins");
     const entry = plugins.blocks.find((one) => one.platform === "HomeswiftAiKit");
-    const head = pageHead("Settings", "The Assistant: whether its provider answers, what it costs, and its budgets.");
+    const head = pageHead(t("Settings"), t("The Assistant: whether its provider answers, what it costs, and its budgets."));
     if (!entry) {
       show(main, head, subnav, el("div", { class: "card empty" },
-        el("p", { class: "muted", text: "The Assistant is off: config.json has no HomeswiftAiKit block. Add one on the Config page, { \"platform\": \"HomeswiftAiKit\", \"provider\": \"anthropic\", \"apiKey\": \"…\" }, or choose apple on a Mac with Apple Intelligence." }),
-        el("a", { class: "button primary", href: "/config", text: "Open Config" })));
+        el("p", { class: "muted", text: t("The Assistant is off: config.json has no HomeswiftAiKit block. Add one on the Config page, {example}, or choose apple on a Mac with Apple Intelligence.", { example: "{ \"platform\": \"HomeswiftAiKit\", \"provider\": \"anthropic\", \"apiKey\": \"…\" }" }) }),
+        el("a", { class: "button primary", href: "/config", text: t("Open Config") })));
       return;
     }
     const block = await api(`/api/config/block/${encodeURIComponent(entry.platform)}/${encodeURIComponent(entry.name)}`);
     show(main, head, subnav, assistantSettings({ block }),
-      el("div", { class: "actions" }, el("a", { class: "link", href: settingsLink(entry), text: "All the Assistant's settings: provider, model, key, MCP server" })));
+      el("div", { class: "actions" }, el("a", { class: "link", href: settingsLink(entry), text: t("All the Assistant's settings: provider, model, key, MCP server") })));
   }
 
   /// Describe your setup: the Assistant writes the block from the plugin's config.schema.json and a sentence
@@ -1917,13 +1954,13 @@ enum WebAssets {
   function describeSetup({ platform, pluginName, current, use }) {
     const card = el("details", { class: "card describe-setup hidden" });
     api("/api/assistant").then((state) => { if (state && state.enabled) card.classList.remove("hidden"); }).catch(() => {});
-    const request = el("textarea", { class: "short", rows: 3, placeholder: `What should ${pluginName} do? For example: "add my second light at 192.168.1.40, and poll every 5 seconds".`, "aria-label": "Your setup, in your words" });
-    const ask = el("button", { class: "primary", text: "Suggest" });
+    const request = el("textarea", { class: "short", rows: 3, placeholder: t("What should {plugin} do? For example: \"add my second light at 192.168.1.40, and poll every 5 seconds\".", { plugin: pluginName }), "aria-label": t("Your setup, in your words") });
+    const ask = el("button", { class: "primary", text: t("Suggest") });
     const result = el("div", { class: "describe-result" });
     ask.addEventListener("click", async () => {
       if (!request.value.trim()) { request.focus(); return; }
       ask.disabled = true;
-      result.replaceChildren(el("p", { class: "muted", text: "The Assistant is writing the block…" }));
+      result.replaceChildren(el("p", { class: "muted", text: t("The Assistant is writing the block…") }));
       try {
         const before = current();
         const reply = await api("/api/assistant/config", { method: "POST", body: { platform, request: request.value, current: before } });
@@ -1934,16 +1971,16 @@ enum WebAssets {
         result.replaceChildren(...[
           reply.explanation ? el("div", { class: "markdown" }, HomeswiftCommon.markdown(reply.explanation)) : null,
           changed ? el("pre", { class: "diff" }, lines.map((line) => el("span", { class: `diff-${line.kind}`, text: `${line.kind === "add" ? "+ " : line.kind === "remove" ? "- " : "  "}${line.text}\n` })))
-            : el("p", { class: "muted", text: "No change to the block." }),
+            : el("p", { class: "muted", text: t("No change to the block.") }),
           changed ? el("div", { class: "actions" },
-            el("button", { class: "primary", text: "Use it", onclick: () => { use(after); result.replaceChildren(el("p", { class: "ok", text: "In the form: review it, then Save." })); } }),
-            el("button", { text: "Discard", onclick: () => result.replaceChildren() })) : null,
-          el("p", { class: "muted", text: `Written by ${reply.model}. Passwords and tokens never reach it; check addresses and names before saving.` })].filter(Boolean));
+            el("button", { class: "primary", text: t("Use it"), onclick: () => { use(after); result.replaceChildren(el("p", { class: "ok", text: t("In the form: review it, then Save.") })); } }),
+            el("button", { text: t("Discard"), onclick: () => result.replaceChildren() })) : null,
+          el("p", { class: "muted", text: t("Written by {model}. Passwords and tokens never reach it; check addresses and names before saving.", { model: reply.model }) })].filter(Boolean));
       } catch (e) {
         result.replaceChildren(el("p", { class: "error", text: e.message }));
       } finally { ask.disabled = false; }
     });
-    card.append(el("summary", {}, sparkle(), el("strong", { text: " Describe your setup" }), el("span", { class: "muted describe-note", text: "the Assistant writes the settings" })),
+    card.append(el("summary", {}, sparkle(), el("strong", { text: ` ${t("Describe your setup")}` }), el("span", { class: "muted describe-note", text: t("the Assistant writes the settings") })),
       el("div", { class: "describe-body" }, request, el("div", { class: "actions" }, ask), result));
     return card;
   }
@@ -1958,18 +1995,18 @@ enum WebAssets {
   /// file next to config.json, owner-only, and the field gets its path.
   function dropZone(key, input, accept = "") {
     const picker = el("input", { type: "file", accept, class: "hidden" });
-    const zone = el("div", { class: "drop-zone", role: "button", tabIndex: 0, "aria-label": `Drop or choose the file for ${key}` },
-      "Drop the file here, or ", el("strong", { text: "choose it" }), picker);
+    const zone = el("div", { class: "drop-zone", role: "button", tabIndex: 0, "aria-label": t("Drop or choose the file for {key}", { key }) },
+      t("Drop the file here, or "), el("strong", { text: t("choose it [file]") }), picker);
     const take = async (file) => {
       if (!file) return;
       zone.classList.remove("ok", "error");
       try {
-        if (file.size > 256 * 1024) throw new Error("That file is too large for a certificate or a key.");
+        if (file.size > 256 * 1024) throw new Error(t("That file is too large for a certificate or a key."));
         const { path } = await api("/api/files", { method: "POST", body: { field: key, name: file.name, content: await file.text() } });
         input.value = path;
         input.dispatchEvent(new Event("input", { bubbles: true }));
         zone.classList.add("ok");
-        zone.replaceChildren(`${file.name} saved`, picker);
+        zone.replaceChildren(t("{name} saved", { name: file.name }), picker);
       } catch (e) {
         zone.classList.add("error");
         zone.replaceChildren(e.message, picker);
@@ -2134,22 +2171,24 @@ enum WebAssets {
     /// A cron expression (`x-schema-form.type: "schedule"`, the scheduled restart) as a time and the days it runs on,
     /// which it writes as `M H * * d,d`; an expression that says more than that stays as it is, under Custom.
     const scheduleField = (wrap, current) => {
-      const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      // The week from Sunday (1 January 2023 was one), in the page's language.
+      const weekday = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short" });
+      const names = [0, 1, 2, 3, 4, 5, 6].map((day) => weekday.format(new Date(2023, 0, 1 + day)));
       const text = typeof current === "string" ? current.trim() : "";
       const simple = /^(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+(\*|[0-7](?:,[0-7])*)$/.exec(text);
       const fits = simple && Number(simple[1]) < 60 && Number(simple[2]) < 24;
-      const mode = el("select", { "aria-label": "Repeat" },
-        el("option", { value: "never", text: "Never" }), el("option", { value: "time", text: "At a time" }), el("option", { value: "custom", text: "Custom (cron)" }));
+      const mode = el("select", { "aria-label": t("Repeat") },
+        el("option", { value: "never", text: t("Never") }), el("option", { value: "time", text: t("At a time") }), el("option", { value: "custom", text: t("Custom (cron)") }));
       mode.value = !text ? "never" : fits ? "time" : "custom";
       const pad = (n) => String(n).padStart(2, "0");
-      const time = el("input", { type: "time", value: fits ? `${pad(simple[2])}:${pad(simple[1])}` : "04:00", "aria-label": "Time" });
+      const time = el("input", { type: "time", value: fits ? `${pad(simple[2])}:${pad(simple[1])}` : "04:00", "aria-label": t("Time") });
       const chosen = new Set(fits && simple[3] !== "*" ? simple[3].split(",").map((day) => Number(day) % 7) : []);
-      const days = el("span", { class: "days", role: "group", "aria-label": "Days (none: every day)" }, names.map((name, day) => {
+      const days = el("span", { class: "days", role: "group", "aria-label": t("Days (none: every day)") }, names.map((name, day) => {
         const box = el("input", { type: "checkbox", checked: chosen.has(day), "aria-label": name });
         box.addEventListener("change", () => { if (box.checked) chosen.add(day); else chosen.delete(day); });
         return el("label", { class: "day" }, box, el("span", { text: name.slice(0, 2) }));
       }));
-      const custom = el("input", { type: "text", value: text, placeholder: "0 4 * * 1", "aria-label": "Cron expression" });
+      const custom = el("input", { type: "text", value: text, placeholder: "0 4 * * 1", "aria-label": t("Cron expression") });
       const timed = el("span", { class: "group-inline" }, time, days);
       const fromTime = () => {
         const [hour, minute] = (time.value || "04:00").split(":").map(Number);
@@ -2174,7 +2213,7 @@ enum WebAssets {
     const makeField = (key, property, current, required, index) => {
       const title = property.title || key;
       const help = property.description ? el("div", { class: "help", text: property.description }) : null;
-      const wrap = (control) => el("label", { class: "field" }, el("span", { class: "field-title" }, title, required ? el("span", { class: "muted", text: " · required" }) : null), control, help);
+      const wrap = (control) => el("label", { class: "field" }, el("span", { class: "field-title" }, title, required ? el("span", { class: "muted", text: ` · ${t("required")}` }) : null), control, help);
       const type = property.type;
       if (property["x-schema-form"]?.type === "schedule") return scheduleField(wrap, current);
       const options = property.oneOf && property.oneOf.every((o) => Array.isArray(o.enum)) ? property.oneOf.map((o) => ({ value: o.enum[0], title: o.title ?? String(o.enum[0]) })) : property.enum ? property.enum.map((v) => ({ value: v, title: String(v) })) : null;
@@ -2219,7 +2258,7 @@ enum WebAssets {
               detail.textContent = [value.ip || value.host, value.mac].filter(Boolean).join(" · ");
             };
             const row = el("details", { class: "entry", open: itemValue === undefined },
-              el("summary", {}, name, detail, el("button", { class: "link danger", text: "Remove", onclick: (event) => {
+              el("summary", {}, name, detail, el("button", { class: "link danger", text: t("Remove"), onclick: (event) => {
                 event.preventDefault();
                 row.remove();
                 rows.splice(rows.indexOf(entry), 1);
@@ -2234,7 +2273,7 @@ enum WebAssets {
             return;
           }
           const row = el("div", { class: "item" });
-          const remove = el("button", { class: "link danger", text: "Remove", onclick: () => { row.remove(); rows.splice(rows.indexOf(entry), 1); } });
+          const remove = el("button", { class: "link danger", text: t("Remove"), onclick: () => { row.remove(); rows.splice(rows.indexOf(entry), 1); } });
           {
             const f = field("", items, itemValue, false);
             row.append(el("div", { class: "item-head" }, f.element, remove));
@@ -2245,7 +2284,7 @@ enum WebAssets {
         };
         for (const item of Array.isArray(current) ? current : []) addRow(item);
         const element = el("fieldset", {}, el("legend", { text: title }), help, list,
-          el("button", { text: `Add ${title.replace(/s$/, "").toLowerCase()}`, onclick: () => addRow(undefined) }));
+          el("button", { text: t("Add {item}", { item: title.replace(/s$/, "").toLowerCase() }), onclick: () => addRow(undefined) }));
         return { element, get: () => { const v = rows.map((r) => r.get()).filter((x) => x !== undefined); return v.length ? v : undefined; } };
       }
       const input = el("input", { type: property["x-schema-form"] && property["x-schema-form"].type === "password" ? "password" : "text", value: current ?? "", placeholder: property.placeholder ?? property.default ?? "", required });
@@ -2259,7 +2298,7 @@ enum WebAssets {
       const shown = [], more = [];
       for (const { element, required, value } of entries) (required || isSet(value) ? shown : more).push(element);
       if (!more.length) return shown;
-      return [...shown, el("details", { class: "more-options" }, el("summary", { text: `More options (${more.length})` }), el("div", { class: "fields" }, more))];
+      return [...shown, el("details", { class: "more-options" }, el("summary", { text: t("More options ({count})", { count: more.length }) }), el("div", { class: "fields" }, more))];
     }
 
     function buildObject(objectSchema, current, index) {
@@ -2299,7 +2338,7 @@ enum WebAssets {
         const inner = item.items.map(layoutItem).flat().filter(Boolean);
         if (!inner.length) return null;
         const node = item.type === "fieldset" || item.title
-          ? el("details", { class: "group-box", open: !item.expandable || item.expanded !== false }, el("summary", { text: item.title || "More" }), el("div", { class: "fields" }, ...inner))
+          ? el("details", { class: "group-box", open: !item.expandable || item.expanded !== false }, el("summary", { text: item.title || t("More") }), el("div", { class: "fields" }, ...inner))
           : el("div", { class: "fields" }, ...inner);
         watch(node, item.condition);
         return node;
@@ -2344,10 +2383,10 @@ enum WebAssets {
   // "moyen à fort" bar, 12 characters and 85 bits. The numbers here only draw the gauge.
 
   const passwordPolicy = { minimumLength: 12, minimumBits: 85, scaleBits: 128 };
-  const strengthLabels = { strongToVeryStrong: "Strong to very strong", mediumToStrong: "Medium to strong", lowToMedium: "Low to medium", veryWeak: "Very weak" };
+  const strengthLabels = { strongToVeryStrong: t("Strong to very strong"), mediumToStrong: t("Medium to strong"), lowToMedium: t("Low to medium"), veryWeak: t("Very weak") };
 
   /// The ANSSI's bands, from the bits where each starts: the scale under the gauge.
-  const strengthBands = [[0, "Weak"], [65, "Low"], [85, "Medium"], [100, "Strong"]];
+  const strengthBands = [[0, t("Weak")], [65, t("Low [strength]")], [85, t("Medium")], [100, t("Strong")]];
 
   /// A live gauge under a password field: the ANSSI's bands along 0 to 128 bits as one gradient, lit up to the
   /// password's entropy, the 85-bit bar marked, and the two rules ticking as they are met. `username()` gives the
@@ -2358,13 +2397,13 @@ enum WebAssets {
     const fill = el("div", { class: "strength-fill" });
     const label = el("strong", { class: "strength-level" });
     const bits = el("span", { class: "strength-bits" });
-    const ruleLength = el("li", { text: `At least ${passwordPolicy.minimumLength} characters` });
-    const ruleBits = el("li", { text: `At least ${passwordPolicy.minimumBits} bits of entropy (ANSSI: medium to strong)` });
+    const ruleLength = el("li", { text: t("At least {n} characters", { n: passwordPolicy.minimumLength }) });
+    const ruleBits = el("li", { text: t("At least {n} bits of entropy (ANSSI: medium to strong)", { n: passwordPolicy.minimumBits }) });
     const hint = el("p", { class: "help strength-hint" });
-    const track = el("div", { class: "strength-track", role: "meter", "aria-label": "Password strength", "aria-valuemin": "0", "aria-valuemax": String(passwordPolicy.scaleBits) },
+    const track = el("div", { class: "strength-track", role: "meter", "aria-label": t("Password strength"), "aria-valuemin": "0", "aria-valuemax": String(passwordPolicy.scaleBits) },
       fill,
       ...strengthBands.slice(1).map(([at]) => el("span", { class: "strength-tick", style: `left:${percent(at)}` })),
-      el("span", { class: "strength-mark", title: `Required: ${passwordPolicy.minimumBits} bits`, style: `left:${percent(passwordPolicy.minimumBits)}` }));
+      el("span", { class: "strength-mark", title: t("Required: {n} bits", { n: passwordPolicy.minimumBits }), style: `left:${percent(passwordPolicy.minimumBits)}` }));
     const scale = el("div", { class: "strength-scale", "aria-hidden": "true" },
       ...strengthBands.map(([at, text], index) => el("span", { text, style: `left:${percent(at)};width:${percent((strengthBands[index + 1]?.[0] ?? passwordPolicy.scaleBits) - at)}` })));
     const gauge = el("div", { class: "strength" }, el("div", { class: "strength-head" }, label, bits), track, scale, el("ul", { class: "strength-rules" }, ruleLength, ruleBits), hint);
@@ -2381,13 +2420,14 @@ enum WebAssets {
       gauge.dataset.level = s ? s.level : "";
       fill.style.setProperty("--lit", percent(s?.bits ?? 0));
       track.setAttribute("aria-valuenow", String(s?.bits ?? 0));
-      track.setAttribute("aria-valuetext", s ? `${strengthLabels[s.level]}, ${s.bits} bits` : "empty");
-      label.textContent = s ? strengthLabels[s.level] : "Strength";
-      bits.textContent = s ? `${s.bits} bits` : `${passwordPolicy.minimumBits} bits needed`;
+      track.setAttribute("aria-valuetext", s ? t("{level}, {bits} bits", { level: strengthLabels[s.level], bits: s.bits }) : t("empty"));
+      label.textContent = s ? strengthLabels[s.level] : t("Strength");
+      bits.textContent = s ? t("{bits} bits", { bits: s.bits }) : t("{bits} bits needed", { bits: passwordPolicy.minimumBits });
       ruleLength.classList.toggle("met", Boolean(s?.lengthMet));
       ruleBits.classList.toggle("met", Boolean(s?.bitsMet));
-      hint.textContent = !s || s.bitsMet ? "" : s.reason ? `${s.reason[0].toUpperCase()}${s.reason.slice(1)}.`
-        : "Length helps most: a phrase of several random words is strong and easy to remember.";
+      const reason = s?.reason ? HomeswiftI18n.message(s.reason) : null;
+      hint.textContent = !s || s.bitsMet ? "" : reason ? `${reason[0].toUpperCase()}${reason.slice(1)}.`
+        : t("Length helps most: a phrase of several random words is strong and easy to remember.");
     };
     let timer = null;
     const update = () => {
@@ -2411,8 +2451,8 @@ enum WebAssets {
   views.account = async (main) => {
     const [state, apps] = await Promise.all([api("/api/auth/state"), api("/api/account/apps").catch(() => null)]);
     if (state.mode !== "form") {
-      show(main, pageHead("Account", "This web UI has no sign-in: its HomeswiftUI block says auth none, so there is no password to change."),
-        el("div", { class: "card" }, el("p", { class: "muted", text: "Plugins › HomeswiftUI › Settings turns sign-in on." })), appearanceLink());
+      show(main, pageHead(t("Account"), t("This web UI has no sign-in: its HomeswiftUI block says auth none, so there is no password to change.")),
+        el("div", { class: "card" }, el("p", { class: "muted", text: t("Plugins › HomeswiftUI › Settings turns sign-in on.") })), appearanceLink());
       return;
     }
     const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);
@@ -2421,47 +2461,48 @@ enum WebAssets {
     const again = el("input", { type: "password", autocomplete: "new-password", required: true, minLength: passwordPolicy.minimumLength });
     const gauge = strengthGauge(next, () => state.username || "");
     const message = el("p", { class: "status-line muted", role: "status" });
-    const submit = el("button", { class: "primary", type: "submit", text: "Change password" });
+    const submit = el("button", { class: "primary", type: "submit", text: t("Change password") });
     const fail = (text) => { message.className = "status-line error"; message.textContent = text; };
     const days = state.sessionDays ?? 7;
     const form = el("form", { class: "card account-form", onsubmit: async (event) => {
       event.preventDefault();
-      if (!(await gauge.acceptable())) { next.focus(); return fail("The new password is not strong enough yet: the gauge says what is missing."); }
-      if (next.value !== again.value) { again.focus(); return fail("The two new passwords are not the same."); }
-      if (next.value === current.value) return fail("The new password is the current one.");
+      if (!(await gauge.acceptable())) { next.focus(); return fail(t("The new password is not strong enough yet: the gauge says what is missing.")); }
+      if (next.value !== again.value) { again.focus(); return fail(t("The two new passwords are not the same.")); }
+      if (next.value === current.value) return fail(t("The new password is the current one."));
       submit.disabled = true;
       try {
         await api("/api/account/password", { method: "POST", body: { current: current.value, new: next.value } });
         form.reset();
         gauge.refresh();
         message.className = "status-line ok";
-        message.textContent = `Password changed. Other browsers signed in as ${state.username} are signed out; this one stays.`;
+        message.textContent = t("Password changed. Other browsers signed in as {username} are signed out; this one stays.", { username: state.username });
       } catch (e) { fail(e.message); current.focus(); }
       submit.disabled = false;
     } },
-      el("h2", { text: "Change your password" }),
-      el("p", { class: "muted account-lead", text: "A phrase of several random words is long, strong and easy to remember." }),
+      el("h2", { text: t("Change your password") }),
+      el("p", { class: "muted account-lead", text: t("A phrase of several random words is long, strong and easy to remember.") }),
       // The fields on one side, the new password's entropy beside them as it is typed.
       el("div", { class: "account-password" },
         el("div", { class: "account-fields" },
-          field("Current password", current),
-          field("New password", next),
-          field("New password again", again),
+          field(t("Current password"), current),
+          field(t("New password"), next),
+          field(t("New password again"), again),
           el("div", { class: "actions" }, submit), message),
-        el("aside", { class: "strength-panel", "aria-label": "Strength of the new password" },
-          el("span", { class: "field-title", text: "Entropy of the new password" }), gauge)));
+        el("aside", { class: "strength-panel", "aria-label": t("Strength of the new password") },
+          el("span", { class: "field-title", text: t("Entropy of the new password") }), gauge)));
     // Who is signed in, with the one thing to do about it.
     const profile = el("section", { class: "card account-profile" },
       el("span", { class: "account-avatar", "aria-hidden": "true", text: (state.username || "?").slice(0, 1).toUpperCase() }),
       el("div", { class: "account-who" },
         el("h2", { text: state.username }),
-        el("p", { class: "muted", text: `Signed in on this browser. Logins last ${days} day${days === 1 ? "" : "s"} without activity; changing the password, or turning two-factor authentication on or off, signs the others out.` })),
-      el("button", { text: "Sign out", onclick: signOut }));
-    show(main, pageHead("Account", `Your sign-in to this bridge's web UI${state.admin ? ", as an administrator" : ""}.`),
+        el("p", { class: "muted", text: tn("Signed in on this browser. Logins last {n} day without activity; changing the password, or turning two-factor authentication on or off, signs the others out.",
+          "Signed in on this browser. Logins last {n} days without activity; changing the password, or turning two-factor authentication on or off, signs the others out.", days) })),
+      el("button", { text: t("Sign out"), onclick: signOut }));
+    show(main, pageHead(t("Account"), state.admin ? t("Your sign-in to this bridge's web UI, as an administrator.") : t("Your sign-in to this bridge's web UI.")),
       el("div", { class: "account" }, profile, form, twoFactorCard(state), connectedAppsCard(apps),
-        state.admin ? el("div", { class: "card" }, el("h2", { text: "Users and API tokens" }),
-          el("p", { class: "muted", text: "Add people who may use this web UI, choose who administers it, and make tokens for scripts." }),
-          el("a", { class: "button", href: "/users", text: "Open Users" })) : null),
+        state.admin ? el("div", { class: "card" }, el("h2", { text: t("Users and API tokens") }),
+          el("p", { class: "muted", text: t("Add people who may use this web UI, choose who administers it, and make tokens for scripts.") }),
+          el("a", { class: "button", href: "/users", text: t("Open Users") })) : null),
       appearanceLink());
   };
 
@@ -2469,25 +2510,25 @@ enum WebAssets {
   /// it may do and when it last came; its ⋯ menu disconnects it. With the MCP server on, the address to give them.
   function connectedAppsCard(apps) {
     if (!apps || (!apps.mcp && !apps.apps.length)) return null;
-    const when = (iso) => iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "Never";
-    const scopes = { read: "Read", control: "Control", admin: "Admin" };
+    const when = (iso) => iso ? new Date(iso).toLocaleString(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" }) : t("Never");
+    const scopes = { read: t("Read"), control: t("Control"), admin: t("Admin") };
     const rows = apps.apps.map((app) => el("div", { class: "server-head connected-app" },
       tile("key", app.scope === "admin" ? "orange" : "teal"),
       el("div", { class: "who" }, el("strong", { text: app.client }),
-        el("div", { class: "muted", text: `${app.redirect ? `${app.redirect} · ` : ""}last used ${when(app.lastUsed)}` })),
+        el("div", { class: "muted", text: app.redirect ? t("{address} · last used {when}", { address: app.redirect, when: when(app.lastUsed) }) : t("Last used {when}", { when: when(app.lastUsed) }) })),
       el("span", { class: app.scope === "admin" ? "pill status admin" : "pill status standby", text: scopes[app.scope] || app.scope }),
-      menuButton(`Actions for ${app.client}`, () => [
-        { label: "Disconnect", icon: "trash", danger: true, onSelect: async () => {
-          if (!confirm(`Disconnect ${app.client}? It is refused at once and must sign in again.`)) return;
+      menuButton(t("Actions for {name}", { name: app.client }), () => [
+        { label: t("Disconnect"), icon: "trash", danger: true, onSelect: async () => {
+          if (!confirm(t("Disconnect {name}? It is refused at once and must sign in again.", { name: app.client }))) return;
           try { await api(`/api/account/apps/${encodeURIComponent(app.id)}`, { method: "DELETE" }); route(); } catch (e) { alert(e.message); }
         } },
       ])));
     return el("div", { class: "card account-form" },
-      el("h2", { text: "Connected apps" }),
+      el("h2", { text: t("Connected apps") }),
       el("p", { class: "muted" }, apps.mcp
-        ? ["Apps you allowed to use the bridge through its MCP server. To add one in claude.ai or the Claude apps, make a custom connector with ", el("code", { class: "mono", text: apps.mcp }), "."]
-        : "Apps you allowed to use the bridge through its MCP server, which is off now."),
-      ...(rows.length ? rows : [el("p", { class: "muted", text: "None yet." })]));
+        ? withNodes(t("Apps you allowed to use the bridge through its MCP server. To add one in claude.ai or the Claude apps, make a custom connector with {address}."), { address: el("code", { class: "mono", text: apps.mcp }) })
+        : t("Apps you allowed to use the bridge through its MCP server, which is off now.")),
+      ...(rows.length ? rows : [el("p", { class: "muted", text: t("None yet.") })]));
   }
 
   /// Two-factor authentication (TOTP, RFC 6238): on, it can be turned off with the password; off, setting it up
@@ -2500,20 +2541,20 @@ enum WebAssets {
     const reload = () => route();
     if (state.twoFactor) {
       const password = el("input", { type: "password", autocomplete: "current-password", required: true });
-      const submit = el("button", { type: "submit", text: "Turn off" });
-      card.append(el("h2", {}, "Two-factor authentication ", el("span", { class: "pill status on", text: "On" })),
-        el("p", { class: "muted", text: "Signing in asks for the code your authenticator app shows, after the password." }),
+      const submit = el("button", { type: "submit", text: t("Turn off [setting]") });
+      card.append(el("h2", {}, t("Two-factor authentication"), " ", el("span", { class: "pill status on", text: t("On [setting]") })),
+        el("p", { class: "muted", text: t("Signing in asks for the code your authenticator app shows, after the password.") }),
         el("form", { onsubmit: async (event) => {
           event.preventDefault();
           submit.disabled = true;
           try { await api("/api/account/otp/disable", { method: "POST", body: { password: password.value } }); reload(); }
           catch (e) { say(e.message); password.focus(); submit.disabled = false; }
-        } }, field("Password, to turn it off", password), el("div", { class: "actions" }, submit)), message);
+        } }, field(t("Password, to turn it off"), password), el("div", { class: "actions" }, submit)), message);
       return card;
     }
-    const start = el("button", { class: "primary", text: "Set up" });
-    card.append(el("h2", {}, "Two-factor authentication ", el("span", { class: "pill status standby", text: "Off" })),
-      el("p", { class: "muted", text: "Ask for a code from an authenticator app (Passwords on iPhone and Mac, Google Authenticator, 1Password…) after the password, so a password alone no longer signs in." }),
+    const start = el("button", { class: "primary", text: t("Set up") });
+    card.append(el("h2", {}, t("Two-factor authentication"), " ", el("span", { class: "pill status standby", text: t("Off [setting]") })),
+      el("p", { class: "muted", text: t("Ask for a code from an authenticator app (Passwords on iPhone and Mac, Google Authenticator, 1Password…) after the password, so a password alone no longer signs in.") }),
       el("div", { class: "actions" }, start), message);
     start.addEventListener("click", async () => {
       start.disabled = true;
@@ -2521,21 +2562,21 @@ enum WebAssets {
       try { setup = await api("/api/account/otp/setup", { method: "POST", body: {} }); }
       catch (e) { say(e.message); start.disabled = false; return; }
       const code = el("input", { inputMode: "numeric", autocomplete: "one-time-code", required: true, maxLength: 9, placeholder: "123 456", spellcheck: false });
-      const confirmButton = el("button", { class: "primary", type: "submit", text: "Turn on" });
+      const confirmButton = el("button", { class: "primary", type: "submit", text: t("Turn on") });
       const secret = el("code", { class: "mono secret", text: setup.secret.replace(/(.{4})/g, "$1 ").trim() });
       start.closest(".actions").replaceWith(
         el("div", { class: "setup" },
-          setup.qr ? el("img", { class: "qr", src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(setup.qr)}`, alt: "QR code for an authenticator app", width: 148, height: 148 }) : null,
+          setup.qr ? el("img", { class: "qr", src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(setup.qr)}`, alt: t("QR code for an authenticator app"), width: 148, height: 148 }) : null,
           el("div", {},
-            el("p", { text: "Scan this code with your authenticator app, or open the link on this device; or type the key by hand." }),
+            el("p", { text: t("Scan this code with your authenticator app, or open the link on this device; or type the key by hand.") }),
             el("p", {}, secret, " ", copyButton(setup.secret, secret),
-              " · ", el("a", { href: setup.uri, text: "Open in the app" })))),
+              " · ", el("a", { href: setup.uri, text: t("Open in the app") })))),
         el("form", { onsubmit: async (event) => {
           event.preventDefault();
           confirmButton.disabled = true;
           try { await api("/api/account/otp/activate", { method: "POST", body: { code: code.value } }); reload(); }
           catch (e) { say(e.message); code.select(); confirmButton.disabled = false; }
-        } }, field("The code the app shows now", code), el("div", { class: "actions" }, confirmButton)));
+        } }, field(t("The code the app shows now"), code), el("div", { class: "actions" }, confirmButton)));
       code.focus();
     });
     return card;
@@ -2596,21 +2637,21 @@ enum WebAssets {
   /// A Copy button for `text` that says it worked ("Copied", for two seconds), or, when the browser refuses,
   /// selects `field` so it can be copied by hand.
   function copyButton(text, field) {
-    const button = el("button", { type: "button", class: "link", text: "Copy" });
+    const button = el("button", { type: "button", class: "link", text: t("Copy") });
     let timer = null;
     button.addEventListener("click", async () => {
       clearTimeout(timer);
       try {
         await copyText(text);
-        button.textContent = "✓ Copied";
+        button.textContent = `✓ ${t("Copied")}`;
       } catch {
         const range = document.createRange();
         range.selectNodeContents(field);
         getSelection().removeAllRanges();
         getSelection().addRange(range);
-        button.textContent = "Selected: press ⌘C or Ctrl+C";
+        button.textContent = t("Selected: press ⌘C or Ctrl+C");
       }
-      timer = setTimeout(() => { button.textContent = "Copy"; }, 2000);
+      timer = setTimeout(() => { button.textContent = t("Copy"); }, 2000);
     });
     return button;
   }
@@ -2627,40 +2668,40 @@ enum WebAssets {
 
   views.users = async (main) => {
     if (auth.mode !== "form") {
-      show(main, pageHead("Users", "This web UI has no sign-in: its HomeswiftUI block says auth none, so there are no users."));
+      show(main, pageHead(t("Users"), t("This web UI has no sign-in: its HomeswiftUI block says auth none, so there are no users.")));
       return;
     }
     const [users, tokens] = await Promise.all([api("/api/users"), api("/api/tokens")]);
     const admins = users.filter((user) => user.admin).length;
     // A card's facts are a third of its width: the day alone ("24 Oct 2026"), the time in the tooltip.
-    const when = (iso) => iso ? new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "Never";
-    const whenFull = (iso) => iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "full", timeStyle: "short" }) : "Never";
+    const when = (iso) => iso ? new Date(iso).toLocaleDateString(HomeswiftI18n.locale, { day: "numeric", month: "short", year: "numeric" }) : t("Never");
+    const whenFull = (iso) => iso ? new Date(iso).toLocaleString(HomeswiftI18n.locale, { dateStyle: "full", timeStyle: "short" }) : t("Never");
     const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);
     // A choice as a switch, as the rest of the UI's on and off.
     const checkbox = (label, checked, help) => {
       const input = el("input", { type: "checkbox", checked });
       return [el("label", { class: "toggle" }, el("span", { class: "switch" }, input, el("span")), el("span", { class: "field-title", text: label })), help ? el("p", { class: "help", text: help }) : null, input];
     };
-    const roleHelp = "An administrator changes settings, plugins and users; anyone else sees the bridge and controls accessories.";
+    const roleHelp = t("An administrator changes settings, plugins and users; anyone else sees the bridge and controls accessories.");
 
     /// The form that adds a user, or changes one (`user`): name, role, and a password (a new one, for a user).
     function userForm(user, done) {
       const username = el("input", { autocomplete: "off", autocapitalize: "none", required: true, maxLength: 64, spellcheck: false, value: user?.username ?? "" });
       username.setAttribute("autocorrect", "off");
-      const name = el("input", { autocomplete: "off", maxLength: 64, value: user && user.name !== user.username ? user.name : "", placeholder: user ? `${user.username} (the username)` : "The username" });
+      const name = el("input", { autocomplete: "off", maxLength: 64, value: user && user.name !== user.username ? user.name : "", placeholder: user ? t("{username} (the username)", { username: user.username }) : t("The username") });
       const password = el("input", { type: "password", autocomplete: "new-password", required: !user });
       const gauge = strengthGauge(password, () => username.value);
       // The gauge once there is a password to judge (an empty field keeps theirs, and needs no meter): it unfolds,
       // easing the fields below down rather than pushing them.
       const gaugeBox = el("div", { class: "unfold", inert: true }, el("div", {}, gauge));
       password.addEventListener("input", () => { gaugeBox.classList.toggle("open", Boolean(password.value)); gaugeBox.inert = !password.value; });
-      const [roleLabel, roleNote, admin] = checkbox("Administrator", user ? user.admin : false, roleHelp);
-      if (user?.admin && admins < 2) { admin.disabled = true; roleNote.textContent = "The last administrator stays one: make another user an administrator first."; }
+      const [roleLabel, roleNote, admin] = checkbox(t("Administrator"), user ? user.admin : false, roleHelp);
+      if (user?.admin && admins < 2) { admin.disabled = true; roleNote.textContent = t("The last administrator stays one: make another user an administrator first."); }
       const message = el("p", { class: "status-line muted", role: "status" });
-      const submit = el("button", { class: "primary", type: "submit", text: user ? "Save" : "Add user" });
+      const submit = el("button", { class: "primary", type: "submit", text: user ? t("Save") : t("Add user") });
       const form = el("form", { class: "account-form", onsubmit: async (event) => {
         event.preventDefault();
-        if (password.value && !(await gauge.acceptable())) { message.className = "status-line error"; message.textContent = "The password is not strong enough yet: the gauge says what is missing."; return; }
+        if (password.value && !(await gauge.acceptable())) { message.className = "status-line error"; message.textContent = t("The password is not strong enough yet: the gauge says what is missing."); return; }
         submit.disabled = true;
         try {
           if (user) {
@@ -2673,13 +2714,13 @@ enum WebAssets {
           done(`user:${(user?.username ?? username.value).trim().toLowerCase()}`);
         } catch (e) { message.className = "status-line error"; message.textContent = e.message; submit.disabled = false; }
       } },
-        el("h2", { id: "user-form-title", text: user ? `Edit ${user.name}` : "Add a user" }),
-        user ? null : field("Username", username, "What they sign in with: no spaces or colons."),
-        field("Name", name, "Shown in the web UI; the username when empty."),
-        el("label", { class: "field" }, el("span", { class: "field-title", text: user ? "New password" : "Password" }), password,
-          user ? el("span", { class: "help", text: "Leave empty to keep theirs. A new one signs them out everywhere." }) : null, gaugeBox),
+        el("h2", { id: "user-form-title", text: user ? t("Edit {name}", { name: user.name }) : t("Add a user") }),
+        user ? null : field(t("Username"), username, t("What they sign in with: no spaces or colons.")),
+        field(t("Name"), name, t("Shown in the web UI; the username when empty.")),
+        el("label", { class: "field" }, el("span", { class: "field-title", text: user ? t("New password") : t("Password") }), password,
+          user ? el("span", { class: "help", text: t("Leave empty to keep theirs. A new one signs them out everywhere.") }) : null, gaugeBox),
         roleLabel, roleNote,
-        message, el("div", { class: "actions" }, el("button", { type: "button", text: "Cancel", onclick: () => done() }), submit));
+        message, el("div", { class: "actions" }, el("button", { type: "button", text: t("Cancel"), onclick: () => done() }), submit));
       return form;
     }
 
@@ -2690,11 +2731,13 @@ enum WebAssets {
 
     for (const user of users) {
       const lastAdmin = user.admin && admins < 2;
-      const actions = menuButton(`Actions for ${user.name}`, () => [
-        { label: "Edit", icon: "edit", onSelect: () => openForm(user, actions) },
-        user.you ? { label: "Your account", icon: "user", href: "/account" } : null,
-        lastAdmin ? null : { label: user.you ? "Remove your account" : "Remove", icon: "trash", danger: true, onSelect: async () => {
-          if (!confirm(`Remove ${user.name} (${user.username})? They are signed out at once.${user.you ? " That is you: this browser is signed out too." : ""}`)) return;
+      const actions = menuButton(t("Actions for {name}", { name: user.name }), () => [
+        { label: t("Edit"), icon: "edit", onSelect: () => openForm(user, actions) },
+        user.you ? { label: t("Your account"), icon: "user", href: "/account" } : null,
+        lastAdmin ? null : { label: user.you ? t("Remove your account") : t("Remove"), icon: "trash", danger: true, onSelect: async () => {
+          const names = { name: user.name, username: user.username };
+          if (!confirm(user.you ? t("Remove {name} ({username})? They are signed out at once. That is you: this browser is signed out too.", names)
+            : t("Remove {name} ({username})? They are signed out at once.", names))) return;
           try { await api(`/api/users/${encodeURIComponent(user.username)}`, { method: "DELETE" }); if (user.you) await loadAuth(); else route(); } catch (e) { alert(e.message); }
         } },
       ]);
@@ -2702,21 +2745,21 @@ enum WebAssets {
         el("div", { class: "server-head" },
           tile(user.admin ? "key" : "user", user.admin ? "orange" : "blue"),
           el("div", { class: "who" }, el("strong", { text: user.name }),
-            el("div", { class: "muted" }, el("span", { class: "mono", text: user.username }), user.you ? " · you" : "")),
-          el("span", { class: user.admin ? "pill status admin" : "pill status standby", text: user.admin ? "Administrator" : "User" })),
+            el("div", { class: "muted" }, el("span", { class: "mono", text: user.username }), user.you ? ` · ${t("you")}` : "")),
+          el("span", { class: user.admin ? "pill status admin" : "pill status standby", text: user.admin ? t("Administrator") : t("User") })),
         el("div", { class: "facts two" },
-          fact("Two-factor", user.twoFactor ? "On" : "Off"),
-          fact("Added", when(user.created), { title: whenFull(user.created) })),
+          fact(t("Two-factor"), user.twoFactor ? t("On [setting]") : t("Off [setting]")),
+          fact(t("Added"), when(user.created), { title: whenFull(user.created) })),
         el("div", { class: "card-foot" },
-          user.you ? el("a", { href: "/account", text: "Your password and two-factor" })
-            : el("span", { class: "muted", text: lastAdmin ? "The last administrator" : "" }),
+          user.you ? el("a", { href: "/account", text: t("Your password and two-factor") })
+            : el("span", { class: "muted", text: lastAdmin ? t("The last administrator") : "" }),
           actions)));
     }
 
     show(main,
       el("div", { class: "page-head" },
-        el("div", { class: "who" }, titleWithAdd("h1", "Users", "Add user", (event) => openForm(null, event.currentTarget)),
-          el("p", { class: "muted", text: "Who may use this web UI. Administrators change settings, plugins and users; other users see the bridge and control accessories." }))),
+        el("div", { class: "who" }, titleWithAdd("h1", t("Users"), t("Add user"), (event) => openForm(null, event.currentTarget)),
+          el("p", { class: "muted", text: t("Who may use this web UI. Administrators change settings, plugins and users; other users see the bridge and control accessories.") }))),
       list,
       apiTokens(tokens, when, whenFull));
   };
@@ -2725,15 +2768,15 @@ enum WebAssets {
   /// token does what an administrator does. Shown once, when made; the bridge keeps only a hash. Laid out as the
   /// users are: a button in the section's head opens the form at the head of the grid.
   function apiTokens(tokens, when, whenFull) {
-    const name = el("input", { required: true, maxLength: 64, placeholder: "Backup script", autocomplete: "off" });
-    const scope = el("select", {}, el("option", { value: "read", text: "Read" }), el("option", { value: "admin", text: "Admin" }));
+    const name = el("input", { required: true, maxLength: 64, placeholder: t("Backup script"), autocomplete: "off" });
+    const scope = el("select", {}, el("option", { value: "read", text: t("Read") }), el("option", { value: "admin", text: t("Admin") }));
     const scopeHelp = el("span", { class: "help" });
-    const describeScope = () => { scopeHelp.textContent = scope.value === "admin" ? "Everything an administrator does, except users and tokens." : "The status, accessories and metrics."; };
+    const describeScope = () => { scopeHelp.textContent = scope.value === "admin" ? t("Everything an administrator does, except users and tokens.") : t("The status, accessories and metrics."); };
     scope.addEventListener("change", describeScope);
     describeScope();
-    const expiry = el("select", {}, ...[["", "Never"], ["30", "In 30 days"], ["90", "In 90 days"], ["365", "In a year"]].map(([value, text]) => el("option", { value, text })));
+    const expiry = el("select", {}, ...[["", t("Never")], ["30", t("In 30 days")], ["90", t("In 90 days")], ["365", t("In a year")]].map(([value, text]) => el("option", { value, text })));
     const message = el("p", { class: "status-line muted", role: "status" });
-    const submit = el("button", { class: "primary", type: "submit", text: "Create token" });
+    const submit = el("button", { class: "primary", type: "submit", text: t("Create token") });
     const grid = el("div", { class: "grid" });
     let close = () => {};
     let made = null;   // the token made in the panel: the list is drawn again with it once the panel closes
@@ -2745,19 +2788,19 @@ enum WebAssets {
         made = `token:${token.id}`;
         const secret = el("code", { class: "mono secret", text: token.token });
         form.replaceWith(el("div", { class: "account-form token-once" },
-          el("h2", { id: "token-form-title", text: `Token “${token.name}”` }),
-          el("p", { class: "help" }, "Copy it now: it is shown once. Send it as ", el("code", { text: "Authorization: Bearer <token>" }), "."),
+          el("h2", { id: "token-form-title", text: t("Token “{name}”", { name: token.name }) }),
+          el("p", { class: "help" }, withNodes(t("Copy it now: it is shown once. Send it as {header}."), { header: el("code", { text: "Authorization: Bearer <token>" }) })),
           el("p", {}, secret, " ", copyButton(token.token, secret)),
-          el("div", { class: "actions" }, el("button", { type: "button", class: "primary", text: "Done", onclick: () => close() }))));
+          el("div", { class: "actions" }, el("button", { type: "button", class: "primary", text: t("Done"), onclick: () => close() }))));
       } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
       submit.disabled = false;
     } },
-      el("h2", { id: "token-form-title", text: "Create an API token" }),
+      el("h2", { id: "token-form-title", text: t("Create an API token") }),
       el("div", { class: "fields" },
-        el("label", { class: "field" }, el("span", { class: "field-title", text: "Name" }), name, el("span", { class: "help", text: "What uses it, to know it again." })),
-        el("label", { class: "field" }, el("span", { class: "field-title", text: "Scope" }), scope, scopeHelp),
-        el("label", { class: "field" }, el("span", { class: "field-title", text: "Expires" }), expiry)),
-      message, el("div", { class: "actions" }, el("button", { type: "button", text: "Cancel", onclick: () => close() }), submit));
+        el("label", { class: "field" }, el("span", { class: "field-title", text: t("Name") }), name, el("span", { class: "help", text: t("What uses it, to know it again.") })),
+        el("label", { class: "field" }, el("span", { class: "field-title", text: t("Scope") }), scope, scopeHelp),
+        el("label", { class: "field" }, el("span", { class: "field-title", text: t("Expires") }), expiry)),
+      message, el("div", { class: "actions" }, el("button", { type: "button", text: t("Cancel"), onclick: () => close() }), submit));
     const openTokenForm = (event) => {
       const opener = event?.currentTarget;
       form.reset();
@@ -2774,47 +2817,47 @@ enum WebAssets {
           tile("key", token.scope === "admin" ? "orange" : "teal"),
           el("div", { class: "who" }, el("strong", { text: token.name }),
             el("div", { class: "muted", title: whenFull(token.created), text: token.createdBy ? `${token.createdBy} · ${when(token.created)}` : when(token.created) })),
-          el("span", { class: token.scope === "admin" ? "pill status admin" : "pill status standby", text: token.scope === "admin" ? "Admin" : "Read" })),
+          el("span", { class: token.scope === "admin" ? "pill status admin" : "pill status standby", text: token.scope === "admin" ? t("Admin") : t("Read") })),
         el("div", { class: "facts two" },
-          fact("Last used", when(token.lastUsed), { title: whenFull(token.lastUsed) }),
-          fact("Expires", token.expires ? when(token.expires) : "Never", token.expires ? { title: whenFull(token.expires) } : {})),
+          fact(t("Last used"), when(token.lastUsed), { title: whenFull(token.lastUsed) }),
+          fact(t("Expires"), token.expires ? when(token.expires) : t("Never"), token.expires ? { title: whenFull(token.expires) } : {})),
         el("div", { class: "card-foot" },
-          el("span", { class: expired ? "pill status bad" : "muted", text: expired ? "Expired" : "" }),
-          menuButton(`Actions for the token ${token.name}`, () => [
-            { label: "Revoke", icon: "trash", danger: true, onSelect: async () => {
-              if (!confirm(`Revoke the token “${token.name}”? Scripts using it are refused at once.`)) return;
+          el("span", { class: expired ? "pill status bad" : "muted", text: expired ? t("Expired") : "" }),
+          menuButton(t("Actions for the token {name}", { name: token.name }), () => [
+            { label: t("Revoke"), icon: "trash", danger: true, onSelect: async () => {
+              if (!confirm(t("Revoke the token “{name}”? Scripts using it are refused at once.", { name: token.name }))) return;
               try { await api(`/api/tokens/${encodeURIComponent(token.id)}`, { method: "DELETE" }); route(); } catch (e) { alert(e.message); }
             } },
           ])));
     });
     grid.append(...(cards.length ? cards : [el("div", { class: "card empty" },
-      el("p", { class: "muted", text: "No tokens yet. One lets a script or another program read the bridge, or change it as an administrator would." }))]));
+      el("p", { class: "muted", text: t("No tokens yet. One lets a script or another program read the bridge, or change it as an administrator would.") }))]));
     return el("section", {},
       el("div", { class: "section-head" },
-        el("div", {}, titleWithAdd("h2", "API tokens", "Create token", openTokenForm),
-          el("span", { class: "muted" }, "For scripts: ", el("code", { text: "Authorization: Bearer <token>" }), " on ", el("code", { text: "/api/*" })))),
+        el("div", {}, titleWithAdd("h2", t("API tokens"), t("Create token"), openTokenForm),
+          el("span", { class: "muted" }, withNodes(t("For scripts: {header} on {path}"), { header: el("code", { text: "Authorization: Bearer <token>" }), path: el("code", { text: "/api/*" }) })))),
       grid);
   }
 
   const appearanceLink = () => el("a", { class: "card link-card", href: "/appearance" }, HomeswiftCommon.icon("sliders"),
-    el("div", { class: "who" }, el("strong", { text: "Appearance" }), el("div", { class: "muted", text: "Light or dark, the wallpaper, °C or °F" })));
+    el("div", { class: "who" }, el("strong", { text: t("Appearance") }), el("div", { class: "muted", text: t("Light or dark, the wallpaper, °C or °F, the language") })));
 
   // ---- Appearance ------------------------------------------------------------
   // /appearance: the theme (as the system, light or dark), a wallpaper (one of the UI's, or an image of your own)
   // and the temperature unit, as Glass UI offers them. Each user's own, saved on the bridge (/api/preferences) and
   // applied at once, on every page, plugins' included.
 
-  const wallpaperChoices = [["none", "None"], ["aurora", "Aurora"], ["sunset", "Sunset"], ["ocean", "Ocean"], ["forest", "Forest"], ["graphite", "Graphite"]];
+  const wallpaperChoices = [["none", t("None")], ["aurora", t("Aurora")], ["sunset", t("Sunset")], ["ocean", t("Ocean")], ["forest", t("Forest")], ["graphite", t("Graphite")]];
 
   views.appearance = async (main) => {
     let preferences = await HomeswiftCommon.loadPreferences();
     const message = el("p", { class: "status-line muted", role: "status" });
     const choose = async (change) => {
       message.className = "status-line muted";
-      message.textContent = "Saving…";
+      message.textContent = t("Saving…");
       try {
         preferences = HomeswiftCommon.applyPreferences(await api("/api/preferences", { method: "PUT", body: change }));
-        message.textContent = "Saved for your account, on every browser.";
+        message.textContent = t("Saved for your account, on every browser.");
         draw();
       } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
     };
@@ -2828,11 +2871,11 @@ enum WebAssets {
       picker.value = "";
       if (!file) return;
       message.className = "status-line muted";
-      message.textContent = "Preparing the image…";
+      message.textContent = t("Preparing the image…");
       try {
         const data = await scaledImage(file);
         preferences = HomeswiftCommon.applyPreferences(await api("/api/preferences/wallpaper", { method: "PUT", body: { data } }));
-        message.textContent = "Your image is the wallpaper now.";
+        message.textContent = t("Your image is the wallpaper now.");
         draw();
       } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
     });
@@ -2840,39 +2883,44 @@ enum WebAssets {
     function draw() {
       const own = preferences.wallpaper === "custom" || preferences.wallpaperVersion;
       body.replaceChildren(
-        el("div", { class: "card" }, el("h2", { text: "Theme" }),
-          el("p", { class: "muted", text: "Automatic follows the system's light or dark appearance." }),
-          segmented("Theme", preferences.theme, [["auto", "Automatic"], ["light", "Light"], ["dark", "Dark"]], "theme")),
-        el("div", { class: "card" }, el("h2", { text: "Wallpaper" }),
-          el("p", { class: "muted", text: "Behind the glass of every page." }),
-          el("div", { class: "wallpapers", role: "radiogroup", "aria-label": "Wallpaper" },
-            [...wallpaperChoices, ...(own ? [["custom", "Your image"]] : [])].map(([value, text]) =>
+        el("div", { class: "card" }, el("h2", { text: t("Theme") }),
+          el("p", { class: "muted", text: t("Automatic follows the system's light or dark appearance.") }),
+          segmented(t("Theme"), preferences.theme, [["auto", t("Automatic")], ["light", t("Light")], ["dark", t("Dark")]], "theme")),
+        el("div", { class: "card" }, el("h2", { text: t("Wallpaper") }),
+          el("p", { class: "muted", text: t("Behind the glass of every page.") }),
+          el("div", { class: "wallpapers", role: "radiogroup", "aria-label": t("Wallpaper") },
+            [...wallpaperChoices, ...(own ? [["custom", t("Your image")]] : [])].map(([value, text]) =>
               el("button", { type: "button", role: "radio", class: `wallpaper-choice${preferences.wallpaper === value ? " on" : ""}`, "aria-checked": String(preferences.wallpaper === value),
                 onclick: () => { if (preferences.wallpaper !== value) choose({ wallpaper: value }); } },
                 el("span", { class: "wallpaper-swatch", "data-swatch": value }), el("span", { text })))),
           el("div", { class: "actions" },
-            el("button", { text: own ? "Choose another image…" : "Use an image of your own…", onclick: () => picker.click() }),
-            own ? el("button", { class: "link danger", text: "Remove your image", onclick: async () => {
+            el("button", { text: own ? t("Choose another image…") : t("Use an image of your own…"), onclick: () => picker.click() }),
+            own ? el("button", { class: "link danger", text: t("Remove your image"), onclick: async () => {
               try { preferences = HomeswiftCommon.applyPreferences(await api("/api/preferences/wallpaper", { method: "DELETE" })); draw(); } catch (e) { alert(e.message); }
             } }) : null),
           picker),
-        el("div", { class: "card" }, el("h2", { text: "Temperatures" }),
-          el("p", { class: "muted", text: "How accessories and plugin pages show them. HomeKit and the Home app keep their own setting." }),
-          segmented("Temperature unit", preferences.temperatureUnit, [["c", "Celsius (°C)"], ["f", "Fahrenheit (°F)"]], "temperatureUnit")));
+        el("div", { class: "card" }, el("h2", { text: t("Temperatures") }),
+          el("p", { class: "muted", text: t("How accessories and plugin pages show them. HomeKit and the Home app keep their own setting.") }),
+          segmented(t("Temperature unit"), preferences.temperatureUnit, [["c", t("Celsius (°C)")], ["f", t("Fahrenheit (°F)")]], "temperatureUnit")),
+        el("div", { class: "card" }, el("h2", { text: t("Language") }),
+          el("p", { class: "muted", text: t("The pages' language and the one the Assistant answers in. Automatic follows the browser.") }),
+          // Each language in its own name, so whoever reads the page finds theirs.
+          segmented(t("Language"), preferences.language || "auto",
+            [["auto", t("Automatic")], ...HomeswiftI18n.languages.map((code) => [code, HomeswiftI18n.names[code]])], "language")));
     }
     draw();
-    show(main, pageHead("Appearance", "How the web UI looks for you, on every browser you sign in to."), body, message);
+    show(main, pageHead(t("Appearance"), t("How the web UI looks for you, on every browser you sign in to.")), body, message);
   };
 
   /// An image as base64 JPEG, at most 2560 pixels on its long side: a photo from a phone is several MB.
   async function scaledImage(file) {
-    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error("Choose a JPEG, PNG or WebP image.");
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error(t("Choose a JPEG, PNG or WebP image."));
     const bitmap = await createImageBitmap(file);
     const scale = Math.min(1, 2560 / Math.max(bitmap.width, bitmap.height));
     const canvas = el("canvas", { width: Math.round(bitmap.width * scale), height: Math.round(bitmap.height * scale) });
     canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
-    if (!blob) throw new Error("The image could not be read.");
+    if (!blob) throw new Error(t("The image could not be read."));
     const bytes = new Uint8Array(await blob.arrayBuffer());
     let binary = "";
     for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
@@ -2883,7 +2931,7 @@ enum WebAssets {
 
   /// "Line 12", a link that puts the caret there: for a syntax error or a problem the editor placed.
   const lineLink = (place, editor) => place.line && editor
-    ? [el("button", { type: "button", class: "line-link", text: `Line ${place.line}`, onclick: () => editor.reveal(place.offset) })] : [];
+    ? [el("button", { type: "button", class: "line-link", text: t("Line {line}", { line: place.line }), onclick: () => editor.reveal(place.offset) })] : [];
 
   /// A save's schema problems, `{ text, line?, offset? }`, each with its line when the editor shows it.
   const problemList = (items, editor) => el("ul", { class: "schema-problems" }, items.map((item) => el("li", {}, ...lineLink(item, editor), item.text)));
@@ -2893,17 +2941,17 @@ enum WebAssets {
     const textarea = el("textarea", { value: saved, spellcheck: false, "aria-label": "config.json" });
     const check = el("span", { class: "muted" });
     const message = el("p", { class: "status-line muted" });
-    const save = el("button", { class: "primary", text: "Save", disabled: true });
-    const force = el("button", { class: "hidden", text: "Save anyway", title: "Save what the plugins' schemas refuse: for a value a plugin accepts that its schema does not list" });
-    const revert = el("button", { text: "Revert", disabled: true });
-    const format = el("button", { class: "link", text: "Format" });
+    const save = el("button", { class: "primary", text: t("Save"), disabled: true });
+    const force = el("button", { class: "hidden", text: t("Save anyway"), title: t("Save what the plugins' schemas refuse: for a value a plugin accepts that its schema does not list") });
+    const revert = el("button", { text: t("Revert"), disabled: true });
+    const format = el("button", { class: "link", text: t("Format") });
     // Validity and the unsaved state follow every keystroke, so Save is only offered when it can work; a syntax
     // error marks its line.
     const update = () => {
       const dirty = textarea.value !== saved;
       const result = editor.check();
       const valid = "value" in result;
-      if (valid) { check.className = "ok"; check.textContent = dirty ? "Valid JSON · unsaved" : "Saved"; }
+      if (valid) { check.className = "ok"; check.textContent = dirty ? t("Valid JSON · unsaved") : t("Saved"); }
       else { check.className = "error"; check.replaceChildren(...lineLink(result, editor), result.message); }
       save.disabled = !dirty || !valid;
       revert.disabled = !dirty;
@@ -2915,7 +2963,8 @@ enum WebAssets {
       try {
         const result = await api(`/api/config${anyway ? "?force=true" : ""}`, { method: "PUT", body: JSON.parse(textarea.value) });
         message.className = "status-line ok";
-        message.textContent = `Changed: ${result.changes.join(", ") || "nothing"}. ${savedText(result)}`;
+        message.textContent = result.changes.length ? t("Changed: {changes}. {result}", { changes: result.changes.map((change) => HomeswiftI18n.message(change)).join(", "), result: savedText(result) })
+          : t("Changed: nothing. {result}", { result: savedText(result) });
         saved = await api("/api/config", { raw: true });
         textarea.value = saved;
         editor.repaint();
@@ -2924,7 +2973,7 @@ enum WebAssets {
         if (e.problems) {
           // Each problem on its line; the plugin may accept what its schema does not list, so saving anyway stays possible.
           const places = editor.markPaths(e.problems.map((problem) => problem.path));
-          message.replaceChildren(el("span", { text: "The plugins' schemas refuse this:" }), problemList(e.problems.map((problem, i) => ({ ...places[i], text: `${problem.platform}: ${problem.text}` })), editor));
+          message.replaceChildren(el("span", { text: t("The plugins' schemas refuse this:") }), problemList(e.problems.map((problem, i) => ({ ...places[i], text: t("{platform}: {problem}", { platform: problem.platform, problem: HomeswiftI18n.message(problem.text) }) })), editor));
           force.classList.remove("hidden");
           update();
           save.disabled = true;
@@ -2946,7 +2995,7 @@ enum WebAssets {
     format.addEventListener("click", () => { try { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); update(); } catch {} });
     update();
     show(main,
-      pageHead("Configuration", "The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once."),
+      pageHead(t("Configuration"), t("The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once.")),
       el("div", { class: "card editor-card" },
         el("div", { class: "editor-bar" }, el("span", { class: "mono muted file-name", text: "config.json" }), check, el("span", { class: "spacer" }), format, revert, force, save),
         editor, message));
@@ -2957,17 +3006,17 @@ enum WebAssets {
   const levelRank = { trace: 0, debug: 1, info: 2, notice: 3, warning: 4, error: 5, critical: 6 };
   // The server's caps: the latest lines (/api/logs) and a time range (UIServer.logLimit).
   const latestLines = 2000, rangeLines = 10000;
-  const timeFormat = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  const timeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
   /// A line with what filtering reads, worked out once: its date and its text in lower case, its payload included.
   const prepared = (line) => Object.assign(line, { date: new Date(line.time), haystack: `${line.label} ${line.text} ${line.details ?? ""}`.toLowerCase() });
   // All: every line; Info: info and above; Warnings: warnings only; Errors: errors only (critical ones too).
-  const levelChoices = [["trace", "All"], ["info", "Info"], ["warning", "Warnings"], ["error", "Errors"]];
+  const levelChoices = [["trace", t("All")], ["info", t("Info")], ["warning", t("Warnings")], ["error", t("Errors")]];
   const levelShown = (level, choice) => choice === "warning" ? level === "warning" : (levelRank[level] ?? 0) >= (levelRank[choice] ?? 0);
   let logState = null;
 
   // The Logs and Status pages' filters, in one row above what they scope.
-  const rangeChoices = [["latest", "Latest lines"], ["1h", "Last hour"], ["6h", "Last 6 hours"], ["24h", "Last 24 hours"],
-    ["today", "Today"], ["yesterday", "Yesterday"], ["7d", "Last 7 days"], ["custom", "Custom range…"]];
+  const rangeChoices = [["latest", t("Latest lines")], ["1h", t("Last hour")], ["6h", t("Last 6 hours")], ["24h", t("Last 24 hours")],
+    ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("Last 7 days")], ["custom", t("Custom range…")]];
 
   /// A time range menu whose first choice is the default (`latest`, the Logs page's latest lines, only when asked
   /// for), with the From and To of a custom range in `customRow`. `changed` runs on a choice.
@@ -2975,13 +3024,13 @@ enum WebAssets {
     const choices = rangeChoices.filter(([value]) => latest || value !== "latest");
     const fallback = choices[0][0];
     const since = choices.some(([value]) => value === params.get("since")) ? params.get("since") : fallback;
-    const picker = el("select", { class: `popup ${since === fallback ? "" : "chosen"}`, "aria-label": "Time range" }, choices.map(([value, text]) => el("option", { value, text, selected: value === since })));
+    const picker = el("select", { class: `popup ${since === fallback ? "" : "chosen"}`, "aria-label": t("Time range") }, choices.map(([value, text]) => el("option", { value, text, selected: value === since })));
     const localInput = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    const fromInput = el("input", { type: "datetime-local", "aria-label": "From", value: params.get("from") ?? localInput(new Date(Date.now() - 3600000)) });
-    const toInput = el("input", { type: "datetime-local", "aria-label": "To", value: params.get("to") ?? localInput(new Date()) });
+    const fromInput = el("input", { type: "datetime-local", "aria-label": t("From"), value: params.get("from") ?? localInput(new Date(Date.now() - 3600000)) });
+    const toInput = el("input", { type: "datetime-local", "aria-label": t("To"), value: params.get("to") ?? localInput(new Date()) });
     const customRow = el("div", { class: `log-range ${since === "custom" ? "" : "hidden"}` },
-      el("label", {}, "From", fromInput), el("label", {}, "To", toInput),
-      el("button", { text: "Show", onclick: () => changed() }));
+      el("label", {}, t("From"), fromInput), el("label", {}, t("To"), toInput),
+      el("button", { text: t("Show"), onclick: () => changed() }));
     picker.addEventListener("change", () => {
       customRow.classList.toggle("hidden", picker.value !== "custom");
       picker.classList.toggle("chosen", picker.value !== fallback);
@@ -3022,8 +3071,8 @@ enum WebAssets {
     const option = (value, text) => el("option", { value, text, selected: value === initial });
     const picker = el("select", { class: `popup ${initial ? "chosen" : ""}`, "aria-label": label },
       option("", everything),
-      bridges.length ? el("optgroup", { label: "Bridges" }, allBridges ? option("bridge:all", "Bridges only") : null,
-        bridges.map((bridge) => option(`bridge:${bridge.deviceId}`, bridge.external ? `${bridge.name} · its own server` : bridge.childBridge ? `${bridge.name} · child bridge` : bridge.name))) : null,
+      bridges.length ? el("optgroup", { label: t("Bridges") }, allBridges ? option("bridge:all", t("Bridges only")) : null,
+        bridges.map((bridge) => option(`bridge:${bridge.deviceId}`, bridge.external ? t("{name} · its own server", { name: bridge.name }) : bridge.childBridge ? t("{name} · child bridge", { name: bridge.name }) : bridge.name))) : null,
       groupByPlugin(accessories).map(([name, list]) => el("optgroup", { label: name },
         list.map((accessory) => option(`accessory:${accessory.id}`, accessory.name)))));
     picker.addEventListener("change", () => { picker.classList.toggle("chosen", Boolean(picker.value)); changed(); });
@@ -3056,7 +3105,7 @@ enum WebAssets {
     ]);
     const params = new URLSearchParams(location.search);
     const output = el("div", { class: "log", role: "log", "aria-live": "off" });
-    const filter = el("input", { type: "search", class: "search", placeholder: "Filter text", "aria-label": "Filter the log" });
+    const filter = el("input", { type: "search", class: "search", placeholder: t("Filter text"), "aria-label": t("Filter the log") });
     const follow = el("input", { type: "checkbox", checked: true });
     const count = el("span", { class: "muted count" });
     // What the lines are about (sourceFilter): every line; the bridges' own lines (their servers': connections,
@@ -3079,7 +3128,7 @@ enum WebAssets {
       return (line) => labels.has(line.label);
     };
     const sources = sourceFilter(accessories, bridges, initialSource(accessories, bridges, wanted, params.get("bridge")), {
-      label: "What the lines are about", everything: "All lines", allBridges: true, changed: () => { choose(); load(); } });
+      label: t("What the lines are about"), everything: t("All lines"), allBridges: true, changed: () => { choose(); load(); } });
     const source = sources.source;
     const choose = () => {
       const { kind, value } = source();
@@ -3091,7 +3140,7 @@ enum WebAssets {
     const level = levelChoices.some(([value]) => value === params.get("level")) ? params.get("level") : "info";
     logState = { output, level, filter, follow, count, lines: [], accessory: null, bridge: null, live: true, cap: latestLines, capped: false };
     choose();
-    const levels = el("div", { class: "group", role: "group", "aria-label": "Levels shown" }, levelChoices.map(([level, text]) =>
+    const levels = el("div", { class: "group", role: "group", "aria-label": t("Levels shown") }, levelChoices.map(([level, text]) =>
       el("button", { text, class: level === logState.level ? "on" : "", "aria-pressed": String(level === logState.level), onclick: (event) => {
         logState.level = level;
         for (const button of levels.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
@@ -3100,8 +3149,9 @@ enum WebAssets {
       } })));
     const render = () => {
       const shown = shownLines();
-      output.replaceChildren(...(shown.length ? shown.map(lineNode) : [el("p", { class: "muted empty-log", text: "No line matches." })]));
-      count.textContent = `${shown.length} of ${logState.lines.length} lines${logState.capped ? " (the latest of the range)" : ""}`;
+      output.replaceChildren(...(shown.length ? shown.map(lineNode) : [el("p", { class: "muted empty-log", text: t("No line matches.") })]));
+      count.textContent = logState.capped ? tn("{shown} of {n} line (the latest of the range)", "{shown} of {n} lines (the latest of the range)", logState.lines.length, { shown: shown.length })
+        : tn("{shown} of {n} line", "{shown} of {n} lines", logState.lines.length, { shown: shown.length });
       if (follow.checked) output.scrollTop = output.scrollHeight;
     };
     // Typing filters once it pauses: thousands of lines are not drawn again per key.
@@ -3151,8 +3201,8 @@ enum WebAssets {
     // read them, after the latest lines moved on. Off, only the lines in memory have them. Shown when the bridge
     // keeps a log on disk.
     const saveDetails = el("input", { type: "checkbox" });
-    const saveToggle = el("label", { class: "toggle compact hidden save-payloads", title: "Keep each line's JSON payload in the log on disk, secrets masked, so you and the Assistant can read it later. Off: only the latest lines, in memory, have it." },
-      el("span", { class: "switch" }, saveDetails, el("span")), el("span", { text: "Save payloads" }));
+    const saveToggle = el("label", { class: "toggle compact hidden save-payloads", title: t("Keep each line's JSON payload in the log on disk, secrets masked, so you and the Assistant can read it later. Off: only the latest lines, in memory, have it.") },
+      el("span", { class: "switch" }, saveDetails, el("span")), el("span", { text: t("Save payloads") }));
     api("/api/logs/settings").then((settings) => {
       if (!settings.available) return;
       saveDetails.checked = settings.saveDetails;
@@ -3177,17 +3227,17 @@ enum WebAssets {
       const level = line.level === "info" || line.level === "notice" ? "" : ` [${line.level.toUpperCase()}]`;
       return `${line.time} [${line.label}]${level} ${line.text}`;
     };
-    const copy = el("button", { text: "Copy", title: "Copy the lines shown", onclick: async () => {
+    const copy = el("button", { text: t("Copy"), title: t("Copy the lines shown"), onclick: async () => {
       const shown = shownLines();
       const text = shown.map(asText).join("\n");
       try {
         await copyText(text);
-        copy.textContent = `Copied ${shown.length} line${shown.length === 1 ? "" : "s"}`;
+        copy.textContent = tn("Copied {n} line", "Copied {n} lines", shown.length);
       } catch (e) {
-        copy.textContent = "Not copied";
+        copy.textContent = t("Not copied");
         copy.title = e.message;
       }
-      setTimeout(() => { copy.textContent = "Copy"; copy.title = "Copy the lines shown"; }, 1800);
+      setTimeout(() => { copy.textContent = t("Copy"); copy.title = t("Copy the lines shown"); }, 1800);
     } });
     // Log Doctor: the Assistant reads the lines shown and groups the issues, with causes and fixes.
     // The Logs page is an administrator's; its Assistant and file actions too.
@@ -3196,27 +3246,27 @@ enum WebAssets {
       return [sources.picker.value && about ? `the lines about ${about.textContent}` : "", filter.value ? `lines matching "${filter.value}"` : ""].filter(Boolean).join(", ");
     });
     // Download: the range shown (everything kept for the latest lines); Empty: the log in memory and on disk.
-    const actions = menuButton("Log actions", () => {
+    const actions = menuButton(t("Log actions"), () => {
       const chosen = range.span();
       const query = new URLSearchParams();
       if (chosen) { query.set("from", chosen[0].toISOString()); if (chosen[1]) query.set("to", chosen[1].toISOString()); }
       // A phone keeps the toolbar short: Save payloads is here rather than beside Follow.
       const phone = matchMedia("(max-width: 640px)").matches && !saveToggle.classList.contains("hidden");
       return [
-        phone ? { label: "Save payloads", checked: saveDetails.checked, onSelect: () => { saveDetails.checked = !saveDetails.checked; saveDetails.dispatchEvent(new Event("change")); } } : null,
+        phone ? { label: t("Save payloads"), checked: saveDetails.checked, onSelect: () => { saveDetails.checked = !saveDetails.checked; saveDetails.dispatchEvent(new Event("change")); } } : null,
         phone ? { separator: true } : null,
-        { label: chosen ? "Download this range" : "Download the whole log", icon: "download", href: `/api/logs/download${query.size ? `?${query}` : ""}` },
-        { label: "Empty the log…", icon: "trash", danger: true, onSelect: async () => {
-          if (!confirm("Empty the log? Every line goes, in memory and the files kept on disk (up to a week). This cannot be undone.")) return;
+        { label: chosen ? t("Download this range") : t("Download the whole log"), icon: "download", href: `/api/logs/download${query.size ? `?${query}` : ""}` },
+        { label: t("Empty the log…"), icon: "trash", danger: true, onSelect: async () => {
+          if (!confirm(t("Empty the log? Every line goes, in memory and the files kept on disk (up to a week). This cannot be undone."))) return;
           try { await api("/api/logs/truncate", { method: "POST", body: {} }); await load(); } catch (e) { alert(e.message); }
         } },
       ];
     });
     show(main,
-      pageHead("Logs", "This homeswift's log, live, and up to a week back."),
+      pageHead(t("Logs"), t("This homeswift's log, live, and up to a week back.")),
       el("div", { class: "card log-card" },
         el("div", { class: "editor-bar" }, levels, range.picker, sources.picker, filter, el("span", { class: "spacer" }), count, doctor.button, copy,
-          el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: "Follow" })),
+          el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
           saveToggle, actions,
           range.customRow),
         output),
@@ -3227,20 +3277,20 @@ enum WebAssets {
   /// Log Doctor (Glass UI's): a Diagnose button and the card the diagnosis streams into. `lines()` gives the
   /// lines to read, `focus()` what they were picked by. Hidden while the Assistant is off.
   function logDoctor(lines, focus) {
-    const button = el("button", { class: "ai-button icon-on-phone hidden", "aria-label": "Diagnose", title: "The Assistant reads the lines shown and groups the issues, with causes and fixes" }, sparkle(), el("span", { text: "Diagnose" }));
-    const card = el("div", { class: "ai-card log-doctor hidden", role: "region", "aria-label": "Log Doctor", "aria-live": "polite" });
+    const button = el("button", { class: "ai-button icon-on-phone hidden", "aria-label": t("Diagnose"), title: t("The Assistant reads the lines shown and groups the issues, with causes and fixes") }, sparkle(), el("span", { text: t("Diagnose") }));
+    const card = el("div", { class: "ai-card log-doctor hidden", role: "region", "aria-label": t("Log Doctor"), "aria-live": "polite" });
     api("/api/assistant").then((state) => { if (state?.enabled) button.classList.remove("hidden"); }).catch(() => {});
     let controller = null;
     button.addEventListener("click", async () => {
       const picked = lines();
-      if (!picked.length) { alert("No line is shown: widen the range or the filters first."); return; }
+      if (!picked.length) { alert(t("No line is shown: widen the range or the filters first.")); return; }
       controller?.abort();
       const own = controller = new AbortController();
       let closed = false;
-      const live = el("div", { class: "ai-live" }, el("p", { class: "ai-thinking", text: `Reading ${picked.length.toLocaleString()} ${picked.length === 1 ? "line" : "lines"}…` }));
-      const stop = el("button", { class: "link", text: "Stop", onclick: () => own.abort() });
-      const close = el("button", { class: "ai-close", title: "Close", "aria-label": "Close the diagnosis", text: "×", onclick: () => { closed = true; own.abort(); card.classList.add("hidden"); } });
-      const head = el("div", { class: "ai-head" }, sparkle(), el("span", { class: "ai-label", text: "Log Doctor" }), el("span", { class: "spacer" }), close);
+      const live = el("div", { class: "ai-live" }, el("p", { class: "ai-thinking", text: tn("Reading {n} line…", "Reading {n} lines…", picked.length) }));
+      const stop = el("button", { class: "link", text: t("Stop"), onclick: () => own.abort() });
+      const close = el("button", { class: "ai-close", title: t("Close"), "aria-label": t("Close the diagnosis"), text: "×", onclick: () => { closed = true; own.abort(); card.classList.add("hidden"); } });
+      const head = el("div", { class: "ai-head" }, sparkle(), el("span", { class: "ai-label", text: t("Log Doctor") }), el("span", { class: "spacer" }), close);
       card.className = "ai-card log-doctor thinking";
       card.replaceChildren(el("div", { class: "ai-inner" }, head, live, stop));
       card.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
@@ -3250,11 +3300,11 @@ enum WebAssets {
           signal: own.signal, onChunk: streamInto(live) });
         card.className = "ai-card log-doctor answered";
         live.replaceChildren(HomeswiftCommon.markdown(reply.text));
-        stop.replaceWith(el("p", { class: "muted ai-note", text: `${reply.model} read ${reply.lines.toLocaleString()} ${reply.lines === 1 ? "line" : "lines"}. Secrets and addresses were masked first; check its advice before acting on it.` }));
+        stop.replaceWith(el("p", { class: "muted ai-note", text: tn("{model} read {n} line. Secrets and addresses were masked first; check its advice before acting on it.", "{model} read {n} lines. Secrets and addresses were masked first; check its advice before acting on it.", reply.lines, { model: reply.model }) }));
       } catch (e) {
         card.className = `ai-card log-doctor failed${closed ? " hidden" : ""}`;
         stop.remove();
-        live.replaceChildren(el("p", { class: own.signal.aborted ? "muted" : "error", text: own.signal.aborted ? "Stopped." : e.message }));
+        live.replaceChildren(el("p", { class: own.signal.aborted ? "muted" : "error", text: own.signal.aborted ? t("Stopped.") : e.message }));
       } finally {
         button.disabled = false;
         if (controller === own) controller = null;
@@ -3279,10 +3329,10 @@ enum WebAssets {
       el("span", { class: "label", text: line.label, title: line.label }),
       text);
     if (!line.details) return node;
-    const toggle = el("button", { type: "button", class: "log-details-toggle", text: "JSON", title: "Show the payload" });
+    const toggle = el("button", { type: "button", class: "log-details-toggle", text: "JSON", title: t("Show the payload") });
     const show = () => {
       toggle.setAttribute("aria-expanded", String(Boolean(line.open)));
-      toggle.title = line.open ? "Hide the payload" : "Show the payload";
+      toggle.title = line.open ? t("Hide the payload") : t("Show the payload");
       $(".log-details", node)?.remove();
       if (line.open) node.append(detailsNode(line));
     };
@@ -3312,7 +3362,7 @@ enum WebAssets {
     output.append(lineNode(line));
     while (output.childElementCount > logState.cap) output.firstElementChild.remove();   // the page stays the size of what it keeps
     if (logState.follow.checked && atBottom) output.scrollTop = output.scrollHeight;
-    logState.count.textContent = `${output.childElementCount} of ${logState.lines.length} lines`;
+    logState.count.textContent = tn("{shown} of {n} line", "{shown} of {n} lines", logState.lines.length, { shown: output.childElementCount });
   }
 
   // A hidden tab keeps no stream open; back in view, the live pages reload their values.
@@ -3350,30 +3400,31 @@ enum WebAssets {
 <title>Connect to Homeswift</title>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css">
+<script src="/i18n.js"></script>
 </head>
 <body>
 <div class="auth">
   <div class="card authorize">
     <img src="/icon.svg" class="logo large" alt="">
-    <h1 id="title">Connect to Homeswift</h1>
-    <p id="lead" class="muted">Checking the request…</p>
+    <h1 id="title" data-i18n>Connect to Homeswift</h1>
+    <p id="lead" class="muted" data-i18n>Checking the request…</p>
     <form id="login" class="hidden">
-      <label>Username <input name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required></label>
-      <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
-      <label id="login-otp" class="hidden">Code from your authenticator app <input name="otp" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" placeholder="123 456" maxlength="9"></label>
+      <label data-i18n>Username <input name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required></label>
+      <label data-i18n>Password <input name="password" type="password" autocomplete="current-password" required></label>
+      <label id="login-otp" class="hidden" data-i18n>Code from your authenticator app <input name="otp" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" placeholder="123 456" maxlength="9"></label>
       <p class="error" id="login-error" role="alert"></p>
-      <button type="submit" class="primary" id="login-submit">Sign in</button>
+      <button type="submit" class="primary" id="login-submit" data-i18n>Sign in</button>
     </form>
     <form id="consent" class="hidden">
-      <fieldset class="scopes" id="scopes"><legend class="muted">It may</legend></fieldset>
-      <p class="muted hidden" id="read-only">The MCP server is read-only (readOnly in the HomeswiftAiKit block): whatever you choose, the app can only read.</p>
+      <fieldset class="scopes" id="scopes"><legend class="muted" data-i18n>It may</legend></fieldset>
+      <p class="muted hidden" id="read-only" data-i18n>The MCP server is read-only (readOnly in the HomeswiftAiKit block): whatever you choose, the app can only read.</p>
       <p class="muted" id="destination"></p>
       <p class="error" id="consent-error" role="alert"></p>
       <div class="actions">
-        <button type="button" id="deny">Deny</button>
-        <button type="submit" class="primary" id="allow">Allow</button>
+        <button type="button" id="deny" data-i18n>Deny</button>
+        <button type="submit" class="primary" id="allow" data-i18n>Allow</button>
       </div>
-      <button type="button" class="link switch-user" id="switch-user">Not you? Sign in as someone else</button>
+      <button type="button" class="link switch-user" id="switch-user" data-i18n>Not you? Sign in as someone else</button>
     </form>
   </div>
 </div>
@@ -3389,17 +3440,19 @@ enum WebAssets {
 // their web UI account (the same login, two-factor code and throttle as the UI's), see which app asks and where
 // approving sends them back, choose what it may do, and the bridge redirects to the app with a code or a refusal.
 (() => {
+  const { t } = HomeswiftI18n;
   const $ = (selector) => document.querySelector(selector);
+  document.title = t("Connect to Homeswift");
   const query = Object.fromEntries(new URLSearchParams(location.search));
 
   async function api(path, { method = "GET", body } = {}) {
-    const options = { method, credentials: "same-origin", headers: {} };
+    const options = { method, credentials: "same-origin", headers: { "Accept-Language": HomeswiftI18n.locale } };
     if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
     const response = await fetch(path, options);
     const text = await response.text();
     let json = null;
     try { json = text ? JSON.parse(text) : null; } catch { json = { error: text }; }
-    if (!response.ok) throw Object.assign(new Error((json && json.error) || `HTTP ${response.status}`), { status: response.status });
+    if (!response.ok) throw Object.assign(new Error(HomeswiftI18n.message((json && json.error) || `HTTP ${response.status}`)), { status: response.status });
     return json;
   }
 
@@ -3409,30 +3462,30 @@ enum WebAssets {
     $("#consent").classList.toggle("hidden", part !== "consent");
     if (lead !== undefined) $("#lead").textContent = lead;
   }
-  const stop = (message) => { $("#title").textContent = "Cannot connect"; show(null, message); };
+  const stop = (message) => { $("#title").textContent = t("Cannot connect"); show(null, message); };
 
   const scopes = {
-    read: ["Read", "See your accessories, rooms, scenes and the bridge's state. Changes nothing."],
-    control: ["Control", "Also turn accessories on and off and run scenes. Locks, garage doors and alarms still ask you first."],
-    admin: ["Administer", "Also change config.json, plugins and settings, and restart the bridge: everything this web UI can do."],
+    read: [t("Read"), t("See your accessories, rooms, scenes and the bridge's state. Changes nothing.")],
+    control: [t("Control"), t("Also turn accessories on and off and run scenes. Locks, garage doors and alarms still ask you first.")],
+    admin: [t("Administer"), t("Also change config.json, plugins and settings, and restart the bridge: everything this web UI can do.")],
   };
 
   async function start() {
     let state;
-    try { state = await api("/api/auth/state"); } catch (e) { stop(`The bridge did not answer: ${e.message}`); return; }
-    if (state.setupNeeded) { stop("This bridge has no account yet. Open its web UI and create the administrator first."); return; }
+    try { state = await api("/api/auth/state"); } catch (e) { stop(t("The bridge did not answer: {error}", { error: e.message })); return; }
+    if (state.setupNeeded) { stop(t("This bridge has no account yet. Open its web UI and create the administrator first.")); return; }
     if (!state.authenticated) {
-      show("login", "Sign in with your Homeswift account to connect an app.");
+      show("login", t("Sign in with your Homeswift account to connect an app."));
       $("#login").username.focus();
       return;
     }
     let request;
     try { request = await api(`/api/oauth/request?${new URLSearchParams(query)}`); } catch (e) { stop(e.message); return; }
     if (request.redirect) { location.replace(request.redirect); return; }
-    $("#title").textContent = `Connect ${request.client}`;
+    $("#title").textContent = t("Connect {client}", { client: request.client });
     show("consent", state.mode === "form"
-      ? `${request.client} asks to use your bridge as ${request.username}.`
-      : `${request.client} asks to use your bridge. This web UI has no sign-in, so it acts as its administrator.`);
+      ? t("{client} asks to use your bridge as {username}.", { client: request.client, username: request.username })
+      : t("{client} asks to use your bridge. This web UI has no sign-in, so it acts as its administrator.", { client: request.client }));
     const fieldset = $("#scopes");
     fieldset.querySelectorAll(".scope").forEach((node) => node.remove());
     for (const name of request.choices) {
@@ -3450,7 +3503,9 @@ enum WebAssets {
     $("#read-only").classList.toggle("hidden", !request.readOnly);
     const destination = document.createElement("strong");
     destination.textContent = request.destination;
-    $("#destination").replaceChildren("Allowing sends you back to ", destination, ". You can disconnect it from your account page at any time.");
+    // The sentence around the address, in the page's language: the address goes where {destination} stands.
+    const [before, after = ""] = t("Allowing sends you back to {destination}. You can disconnect it from your account page at any time.").split("{destination}");
+    $("#destination").replaceChildren(before, destination, after);
     $("#switch-user").classList.toggle("hidden", state.mode !== "form");
     // Nothing is focused and the answers wait a moment: the Enter that signed in, or a click meant for what was there
     // before, never approves an app the user has not seen.
@@ -3472,7 +3527,7 @@ enum WebAssets {
     const submit = $("#login-submit");
     $("#login-error").textContent = "";
     submit.disabled = true;
-    submit.textContent = "Signing in…";
+    submit.textContent = t("Signing in…");
     const body = { username: login.username.value, password: login.password.value };
     if (!$("#login-otp").classList.contains("hidden")) body.otp = login.otp.value;
     try {
@@ -3488,7 +3543,7 @@ enum WebAssets {
       }
     } finally {
       submit.disabled = false;
-      submit.textContent = "Sign in";
+      submit.textContent = t("Sign in");
     }
   });
 
@@ -3498,21 +3553,21 @@ enum WebAssets {
     buttons.forEach((button) => { button.disabled = true; });
     $("#consent-error").textContent = "";
     const chosen = $("#scopes input:checked");
-    if (approve) $("#allow").textContent = "Connecting…";
+    if (approve) $("#allow").textContent = t("Connecting…");
     try {
       const answer = await api("/api/oauth/decision", { method: "POST", body: { ...query, approve, scope_granted: chosen ? chosen.value : null } });
       location.assign(answer.redirect);
     } catch (e) {
       $("#consent-error").textContent = e.message;
       buttons.forEach((button) => { button.disabled = false; });
-      $("#allow").textContent = "Allow";
+      $("#allow").textContent = t("Allow");
     }
   }
   $("#consent").addEventListener("submit", (event) => { event.preventDefault(); decide(true); });
   $("#deny").addEventListener("click", () => decide(false));
   $("#switch-user").addEventListener("click", async () => {
     try { await api("/api/auth/logout", { method: "POST" }); } catch {}
-    $("#title").textContent = "Connect to Homeswift";
+    $("#title").textContent = t("Connect to Homeswift");
     await start();
   });
 
@@ -3531,6 +3586,7 @@ enum WebAssets {
   "use strict";
 
   const { el } = HomeswiftCommon;
+  const { t, tn } = HomeswiftI18n;
   const MediaSourceType = window.ManagedMediaSource || window.MediaSource;
   const SNAPSHOT_EVERY = 3000;
   // Behind the live edge by more than this, the video jumps forward; buffer older than KEEP seconds goes.
@@ -3554,10 +3610,10 @@ enum WebAssets {
   /// "just now", "4 min ago", "2 h ago", or the date.
   function ago(date) {
     const seconds = (Date.now() - date) / 1000;
-    if (seconds < 45) return "just now";
-    if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
-    if (seconds < 86400) return `${Math.round(seconds / 3600)} h ago`;
-    return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    if (seconds < 45) return t("just now");
+    if (seconds < 3600) return t("{minutes} min ago", { minutes: Math.round(seconds / 60) });
+    if (seconds < 86400) return t("{hours} h ago", { hours: Math.round(seconds / 3600) });
+    return date.toLocaleDateString(HomeswiftI18n.locale, { month: "short", day: "numeric" });
   }
 
   // Every view on the page, for the accessory events and the page's visibility.
@@ -3573,35 +3629,35 @@ enum WebAssets {
   /// A view of `camera` ({ id, name, doorbell, motion, recording, lastRing }): the element to place, and
   /// `motion(on)`, `ring(date)`, `recording(on)` to change what it shows.
   function view(camera) {
-    const video = el("video", { muted: true, playsInline: true, autoplay: true, disablePictureInPicture: true, "aria-label": `Live video of ${camera.name}` });
+    const video = el("video", { muted: true, playsInline: true, autoplay: true, disablePictureInPicture: true, "aria-label": t("Live video of {name}", { name: camera.name }) });
     // ManagedMediaSource plays only with AirPlay off (or an AirPlay alternative), and a muted video autoplays.
     video.disableRemotePlayback = true;
     video.muted = true;
     video.setAttribute("muted", "");
     video.setAttribute("playsinline", "");
-    const still = el("img", { class: "camera-still", alt: `Snapshot of ${camera.name}`, decoding: "async" });
-    const liveBadge = el("span", { class: "camera-badge live hidden", text: "Live" });
+    const still = el("img", { class: "camera-still", alt: t("Snapshot of {name}", { name: camera.name }), decoding: "async" });
+    const liveBadge = el("span", { class: "camera-badge live hidden", text: t("Live") });
     const stillBadge = el("span", { class: "camera-badge hidden" });
-    const motionBadge = el("span", { class: "camera-badge motion hidden", text: "Motion" });
+    const motionBadge = el("span", { class: "camera-badge motion hidden", text: t("Motion") });
     const ringBadge = el("span", { class: "camera-badge ring hidden" });
-    const recordingBadge = el("span", { class: "camera-badge recording hidden", text: "Recording", title: "HomeKit Secure Video records this camera's events" });
-    const message = el("div", { class: "camera-message", text: "Connecting…" });
-    const sound = button("muted", "Unmute", () => {
+    const recordingBadge = el("span", { class: "camera-badge recording hidden", text: t("Recording"), title: t("HomeKit Secure Video records this camera's events") });
+    const message = el("div", { class: "camera-message", text: t("Connecting…") });
+    const sound = button("muted", t("Unmute"), () => {
       video.muted = !video.muted;
       sound.replaceChildren(glyph(video.muted ? "muted" : "sound"));
-      sound.setAttribute("aria-label", video.muted ? "Unmute" : "Mute");
+      sound.setAttribute("aria-label", video.muted ? t("Unmute") : t("Mute"));
       sound.title = sound.getAttribute("aria-label");
       if (!video.muted) video.play().catch(() => {});
     });
     sound.classList.add("hidden");
-    const fullscreen = button("fullscreen", "Full screen", () => {
+    const fullscreen = button("fullscreen", t("Full screen"), () => {
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       else if (element.requestFullscreen) element.requestFullscreen().catch(() => {});
       else if (element.webkitRequestFullscreen) element.webkitRequestFullscreen();
       // An iPhone has full screen for videos only.
       else if (video.webkitEnterFullscreen && state.live) video.webkitEnterFullscreen();
     });
-    const refresh = button("refresh", "Refresh", () => { state.noLive = false; restart(); });
+    const refresh = button("refresh", t("Refresh"), () => { state.noLive = false; restart(); });
     const element = el("div", { class: "camera-view", "data-camera": camera.id },
       still, video, message,
       el("div", { class: "camera-top" },
@@ -3651,7 +3707,7 @@ enum WebAssets {
       still.src = next;
       if (stillURL) URL.revokeObjectURL(stillURL);
       stillURL = next;
-      stillBadge.textContent = new Date().toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" });
+      stillBadge.textContent = new Date().toLocaleTimeString(HomeswiftI18n.locale, { hour: "numeric", minute: "2-digit", second: "2-digit" });
     }
 
     async function snapshots(signal) {
@@ -3662,7 +3718,7 @@ enum WebAssets {
           await sleep(SNAPSHOT_EVERY, signal);
         } catch (error) {
           if (signal.aborted) return;
-          show("message", error.status === 409 ? "Turned off in the Home app" : error.status === 503 ? "Paused" : "No picture from the camera");
+          show("message", error.status === 409 ? t("Turned off in the Home app") : error.status === 503 ? t("Paused") : t("No picture from the camera"));
           // A camera that fails is asked less often.
           await sleep(SNAPSHOT_EVERY * 4, signal);
         }
@@ -3677,8 +3733,8 @@ enum WebAssets {
       if (!response.ok) {
         // No feed from this camera: snapshots, until Refresh. Busy or failing: snapshots, live again later.
         if (response.status === 404) state.noLive = true;
-        if (response.status === 409) { show("message", "Turned off in the Home app"); state.noLive = true; }
-        if (response.status === 503) { show("message", "Paused"); state.noLive = true; }
+        if (response.status === 409) { show("message", t("Turned off in the Home app")); state.noLive = true; }
+        if (response.status === 503) { show("message", t("Paused")); state.noLive = true; }
         response.body?.cancel().catch(() => {});
         return false;
       }
@@ -3686,7 +3742,7 @@ enum WebAssets {
       if (!MediaSourceType.isTypeSupported(type)) {
         state.noLive = true;
         response.body.cancel().catch(() => {});
-        show("message", still.src ? "" : "This browser cannot play this camera's video");
+        show("message", still.src ? "" : t("This browser cannot play this camera's video"));
         return false;
       }
       sound.classList.toggle("hidden", !/mp4a|opus|ac-3|ec-3/i.test(type));
@@ -3783,7 +3839,7 @@ enum WebAssets {
         state.live = false;
         video.removeAttribute("src");
         video.load();
-        if (wasLive) { show(still.src ? "still" : "message", still.src ? "" : "Reconnecting…"); await sleep(1500, signal); continue; }
+        if (wasLive) { show(still.src ? "still" : "message", still.src ? "" : t("Reconnecting…")); await sleep(1500, signal); continue; }
         if (state.noLive) continue;
         // Live failed: snapshots for a while, then live again.
         const pause = new AbortController();
@@ -3799,7 +3855,7 @@ enum WebAssets {
       if (state.running) return;
       state.running = true;
       state.abort = new AbortController();
-      show(still.src ? "still" : "message", still.src ? "" : "Connecting…");
+      show(still.src ? "still" : "message", still.src ? "" : t("Connecting…"));
       run(state.abort.signal);
     }
     function stop() {
@@ -3820,7 +3876,7 @@ enum WebAssets {
       element, camera,
       setVisible(visible) { state.visible = visible; update(); },
       update,
-      tick() { if (state.lastRing) ringBadge.textContent = `Rang ${ago(state.lastRing)}`; },
+      tick() { if (state.lastRing) ringBadge.textContent = t("Rang {when}", { when: ago(state.lastRing) }); },
       motion(on) { motionBadge.classList.toggle("hidden", !on); element.classList.toggle("motion", !!on); },
       recording(on) { recordingBadge.classList.toggle("hidden", !on); },
       ring(date = new Date()) {
@@ -3864,6 +3920,7 @@ enum WebAssets {
 (() => {
   "use strict";
 
+  const { t, tn } = HomeswiftI18n;
   const ns = "http://www.w3.org/2000/svg";
   const svg = (tag, attrs = {}) => {
     const node = document.createElementNS(ns, tag);
@@ -3903,7 +3960,7 @@ enum WebAssets {
       first.setTime(local.getTime());
     }
     const ticks = [];
-    for (let t = first.getTime(); t <= to; t += step) ticks.push(t);
+    for (let tick = first.getTime(); tick <= to; tick += step) ticks.push(tick);
     return ticks;
   }
   /// A tick's label: the day at midnight, else the time.
@@ -3912,9 +3969,9 @@ enum WebAssets {
     return date.getHours() === 0 && date.getMinutes() === 0 ? dayName.format(date) : hourMinute.format(date);
   };
 
-  const hourMinute = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit", hour12: false });
-  const dayName = new Intl.DateTimeFormat([], { weekday: "short", day: "numeric" });
-  const fullTime = new Intl.DateTimeFormat([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+  const hourMinute = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit", hour12: false });
+  const dayName = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
+  const fullTime = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
 
   /// A chart in `container`: `series` are `{ label, value(point), tone }` (tone 1 or 2, the palette's slots),
   /// `points` have `time` (a Date), `from` and `to` bound the x axis, `step` is the points' spacing in ms and
@@ -3949,7 +4006,7 @@ enum WebAssets {
       const x = (time) => pad.left + (time - from) / Math.max(to - from, 1) * plotWidth;
       const y = (value) => pad.top + plotHeight - value / top * plotHeight;
 
-      const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": `${title}, ${points.length ? "drawn over time" : "nothing recorded"}` });
+      const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": points.length ? t("{title}, drawn over time", { title }) : t("{title}, nothing recorded", { title }) });
       root.setAttribute("tabindex", "0");
       for (let i = 0; i <= 4; i++) {
         const value = top / 4 * i, at = y(value);
@@ -3994,7 +4051,7 @@ enum WebAssets {
       }
       if (!points.length) {
         const empty = svg("text", { x: pad.left + plotWidth / 2, y: pad.top + plotHeight / 2, class: "tick", "text-anchor": "middle" });
-        empty.textContent = "Nothing recorded in this range";
+        empty.textContent = t("Nothing recorded in this range");
         root.append(empty);
       }
       const cross = svg("line", { y1: pad.top, y2: pad.top + plotHeight, class: "crosshair hidden" });
@@ -4085,6 +4142,7 @@ enum WebAssets {
 (() => {
   "use strict";
   const { $, el, icon, markdown, sparkle, api, jsonView } = HomeswiftCommon;
+  const { t, tn } = HomeswiftI18n;
 
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   const phone = matchMedia("(max-width: 640px)");
@@ -4147,32 +4205,32 @@ enum WebAssets {
 
   function build() {
     const log = el("div", { class: "chat-log", "aria-live": "polite", "aria-relevant": "additions" });
-    const input = el("textarea", { rows: 1, placeholder: "Ask, or tell it what to set up…", "aria-label": "Message to the Assistant", maxLength: 4000 });
-    const mic = el("button", { type: "button", class: "chat-mic", "aria-label": "Dictate", title: "Dictate: tap, or hold while you speak" });
+    const input = el("textarea", { rows: 1, placeholder: t("Ask, or tell it what to set up…"), "aria-label": t("Message to the Assistant"), maxLength: 4000 });
+    const mic = el("button", { type: "button", class: "chat-mic", "aria-label": t("Dictate"), title: t("Dictate: tap, or hold while you speak") });
     mic.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>';
-    const send = el("button", { type: "submit", class: "chat-send", "aria-label": "Send" });
+    const send = el("button", { type: "submit", class: "chat-send", "aria-label": t("Send") });
     send.innerHTML = '<svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>'
       + '<svg class="stop-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>';
     const foot = el("p", { class: "chat-foot" });
     // The language spoken to the mic and in which answers are read out; this browser remembers it.
-    const languages = [["", "Browser's language"], ["en-US", "English (US)"], ["en-GB", "English (UK)"], ["fr-FR", "Français"], ["de-DE", "Deutsch"],
+    const languages = [["", t("Browser's language")], ["en-US", "English (US)"], ["en-GB", "English (UK)"], ["fr-FR", "Français"], ["de-DE", "Deutsch"],
       ["es-ES", "Español"], ["it-IT", "Italiano"], ["nl-NL", "Nederlands"], ["pt-PT", "Português"], ["pt-BR", "Português (Brasil)"],
       ["sv-SE", "Svenska"], ["da-DK", "Dansk"], ["nb-NO", "Norsk"], ["fi-FI", "Suomi"], ["pl-PL", "Polski"], ["ja-JP", "日本語"], ["zh-CN", "中文"]];
     let stored = "";
     try { stored = localStorage.getItem("homeswift.voiceLanguage") || ""; } catch {}
-    const languagePicker = el("select", { class: "popup", "aria-label": "Voice language" },
+    const languagePicker = el("select", { class: "popup", "aria-label": t("Voice language") },
       languages.map(([value, text]) => el("option", { value, text, selected: value === stored })));
     languagePicker.addEventListener("change", () => { try { localStorage.setItem("homeswift.voiceLanguage", languagePicker.value); } catch {} });
-    const voice = Recognition ? el("div", { class: "chat-voice" }, el("span", { text: "Voice" }), languagePicker) : null;
+    const voice = Recognition ? el("div", { class: "chat-voice" }, el("span", { text: t("Voice") }), languagePicker) : null;
     const form = el("form", { class: "chat-composer", onsubmit: (event) => { event.preventDefault(); running ? stop() : submit(); } },
       input, Recognition ? mic : null, send);
-    const close = el("button", { type: "button", class: "chat-icon", "aria-label": "Close", title: "Close (Esc)", text: "×", onclick: () => toggle(false) });
-    const fresh = el("button", { type: "button", class: "chat-icon", "aria-label": "New chat", title: "New chat", onclick: reset });
+    const close = el("button", { type: "button", class: "chat-icon", "aria-label": t("Close"), title: t("Close (Esc)"), text: "×", onclick: () => toggle(false) });
+    const fresh = el("button", { type: "button", class: "chat-icon", "aria-label": t("New chat"), title: t("New chat"), onclick: reset });
     fresh.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h8M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
-    const earlier = el("button", { type: "button", class: "chat-icon", "aria-label": "Earlier chats", title: "Earlier chats", "aria-expanded": "false", onclick: () => showHistory() }, icon("history"));
+    const earlier = el("button", { type: "button", class: "chat-icon", "aria-label": t("Earlier chats"), title: t("Earlier chats"), "aria-expanded": "false", onclick: () => showHistory() }, icon("history"));
     const head = el("div", { class: "chat-head" },
       el("span", { class: "chat-grabber", "aria-hidden": "true" }),
-      sparkle(), el("strong", { id: "chat-title", text: "Assistant" }), el("span", { class: "chat-model", text: info.model || "" }),
+      sparkle(), el("strong", { id: "chat-title", text: t("Assistant") }), el("span", { class: "chat-model", text: info.model || "" }),
       el("span", { class: "spacer" }), earlier, fresh, close);
     const sheet = el("section", { class: "chat", role: "dialog", "aria-labelledby": "chat-title", hidden: true },
       el("div", { class: "chat-glow", "aria-hidden": "true" }),
@@ -4376,7 +4434,7 @@ enum WebAssets {
         }
       }
     } catch (e) {
-      if (own === session) showError(`The connection dropped: ${e.message}`);
+      if (own === session) showError(t("The connection dropped: {error}", { error: e.message }));
     }
     if (own !== session) return;
     running = false;
@@ -4410,27 +4468,27 @@ enum WebAssets {
     if (historyOpen) { closeHistory(); return; }
     historyOpen = true;
     panel.earlier.setAttribute("aria-expanded", "true");
-    const list = el("div", { class: "chat-history", role: "region", "aria-label": "Earlier chats" }, el("p", { class: "muted", text: "Loading…" }));
+    const list = el("div", { class: "chat-history", role: "region", "aria-label": t("Earlier chats") }, el("p", { class: "muted", text: t("Loading…") }));
     panel.log.replaceChildren(list);
     let chats;
     try { chats = await api("/api/assistant/chats"); } catch (e) { list.replaceChildren(el("p", { class: "chat-error", text: e.message })); return; }
     if (!historyOpen) return;
-    const when = new Intl.DateTimeFormat([], { dateStyle: "medium", timeStyle: "short" });
+    const when = new Intl.DateTimeFormat(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" });
     const rows = chats.map((chat) => {
       const row = el("div", { class: `chat-history-row${chat.current ? " current" : ""}` },
         el("button", { type: "button", class: "chat-history-open", onclick: () => openChat(chat) },
           el("strong", { text: chat.title }),
-          el("span", { class: "muted", text: `${when.format(new Date(chat.updated))} · ${chat.messages} ${chat.messages === 1 ? "message" : "messages"}${chat.current ? " · open" : ""}` })),
-        el("button", { type: "button", class: "chat-icon", "aria-label": `Forget “${chat.title}”`, title: "Forget this chat", text: "×", onclick: async () => {
+          el("span", { class: "muted", text: [when.format(new Date(chat.updated)), tn("{n} message", "{n} messages", chat.messages), chat.current ? t("open [chat]") : null].filter(Boolean).join(" · ") })),
+        el("button", { type: "button", class: "chat-icon", "aria-label": t("Forget “{title}”", { title: chat.title }), title: t("Forget this chat"), text: "×", onclick: async () => {
           try { await api(`/api/assistant/chats/${encodeURIComponent(chat.id)}`, { method: "DELETE" }); } catch (e) { showError(e.message); return; }
           row.remove();
           if (chat.current) { setItems([], false); historyOpen = false; showHistory(); }
         } }));
       return row;
     });
-    list.replaceChildren(el("h2", { text: "Earlier chats" }),
-      rows.length ? el("div", { class: "chat-history-list" }, rows) : el("p", { class: "muted", text: "No chat yet. Each one you start is kept here, the last ten." }),
-      el("button", { type: "button", class: "link", text: "Back to the chat", onclick: closeHistory }));
+    list.replaceChildren(el("h2", { text: t("Earlier chats") }),
+      rows.length ? el("div", { class: "chat-history-list" }, rows) : el("p", { class: "muted", text: t("No chat yet. Each one you start is kept here, the last ten.") }),
+      el("button", { type: "button", class: "link", text: t("Back to the chat"), onclick: closeHistory }));
   }
 
   async function openChat(chat) {
@@ -4468,11 +4526,11 @@ enum WebAssets {
 
   /// Suggestions for an empty conversation.
   function welcome() {
-    const suggestions = ["Add a device for me", "What does my bridge run?", "Why is an accessory not responding?", "Turn off every light"];
+    const suggestions = [t("Add a device for me"), t("What does my bridge run?"), t("Why is an accessory not responding?"), t("Turn off every light")];
     return el("div", { class: "chat-welcome" },
       sparkle(),
-      el("h2", { text: "What can I do for you?" }),
-      el("p", { class: "muted", text: "I can look at your bridge, set up a device with its plugin, or change a setting. I ask before I change anything." }),
+      el("h2", { text: t("What can I do for you?") }),
+      el("p", { class: "muted", text: t("I can look at your bridge, set up a device with its plugin, or change a setting. I ask before I change anything.") }),
       el("div", { class: "chat-suggestions" }, suggestions.map((text) => el("button", { type: "button", text, onclick: () => submit(text) }))));
   }
 
@@ -4512,11 +4570,11 @@ enum WebAssets {
       return el("div", { class: `chat-step ${item.state}`, title: item.name },
         el("span", { class: "chat-step-mark", "aria-hidden": "true" }),
         el("span", {}, el("span", { class: "chat-step-title", text: item.title }), item.summary ? el("span", { class: "chat-step-summary", text: ` · ${item.summary}` }) : null),
-        el("span", { class: "visually-hidden", text: { running: " (running)", failed: " (failed)", declined: " (not allowed)" }[item.state] ?? " (done)" }));
+        el("span", { class: "visually-hidden", text: ` ${{ running: t("(running)"), failed: t("(failed)"), declined: t("(not allowed)") }[item.state] ?? t("(done)")}` }));
     case "confirm":
       return confirmCard(item);
     default:
-      return el("p", { class: "chat-error", role: "alert", text: item.text });
+      return el("p", { class: "chat-error", role: "alert", text: HomeswiftI18n.message(item.text) });
     }
   }
 
@@ -4529,28 +4587,28 @@ enum WebAssets {
     };
     const changes = changeList(item.preview);
     const details = el("details", {},
-      el("summary", { text: changes ? "The whole request" : item.preview !== undefined ? "What would change" : "Details" }),
+      el("summary", { text: changes ? t("The whole request") : item.preview !== undefined ? t("What would change") : t("Details") }),
       jsonView(changes ? item.arguments : item.preview ?? item.arguments));
     return el("div", { class: `chat-confirm ${item.state}` },
       el("div", { class: "chat-confirm-head" }, el("strong", { text: describe(item) }),
-        pending ? null : el("span", { class: `pill status ${item.state === "allowed" ? "on" : "standby"}`, text: item.state === "allowed" ? "Allowed" : "Not allowed" })),
-      el("p", { text: pending ? `${item.title}. Nothing changes until you allow it.` : item.title }),
+        pending ? null : el("span", { class: `pill status ${item.state === "allowed" ? "on" : "standby"}`, text: item.state === "allowed" ? t("Allowed") : t("Not allowed") })),
+      el("p", { text: pending ? t("{title}. Nothing changes until you allow it.", { title: item.title }) : item.title }),
       changes,
       details,
       pending ? el("div", { class: "chat-confirm-actions" },
-        el("button", { type: "button", text: "Don't allow", onclick: answer(false) }),
-        el("button", { type: "button", class: "primary", text: "Allow", onclick: answer(true) })) : null);
+        el("button", { type: "button", text: t("Don't allow"), onclick: answer(false) }),
+        el("button", { type: "button", class: "primary", text: t("Allow"), onclick: answer(true) })) : null);
   }
 
   /// What a config dry run would change, a line per setting with its new value; null for other previews.
   function changeList(preview) {
     if (!preview || !Array.isArray(preview.changes) || !preview.config) return null;
     const valueAt = (path) => path.match(/[^.[\]]+/g).reduce((value, key) => value?.[/^\d+$/.test(key) ? Number(key) : key], preview.config);
-    const shown = (value) => value === undefined ? "removed" : value === "__REDACTED__" ? "(secret, kept)" : JSON.stringify(value);
+    const shown = (value) => value === undefined ? t("removed") : value === "__REDACTED__" ? t("(secret, kept)") : JSON.stringify(value);
     const lines = preview.changes.slice(0, 8).map((path) => el("li", {},
       el("code", { text: path.replace(/^platforms\[\d+\]\./, "") }), " ", el("span", { text: `→ ${shown(valueAt(path))}`.slice(0, 120) })));
-    if (preview.changes.length > 8) lines.push(el("li", { class: "muted", text: `and ${preview.changes.length - 8} more` }));
-    return lines.length ? el("ul", { class: "chat-changes" }, lines) : el("p", { class: "muted", text: "Nothing would change." });
+    if (preview.changes.length > 8) lines.push(el("li", { class: "muted", text: tn("and {n} more", "and {n} more", preview.changes.length - 8) }));
+    return lines.length ? el("ul", { class: "chat-changes" }, lines) : el("p", { class: "muted", text: t("Nothing would change.") });
   }
 
   /// A change in a sentence, from the tool and its arguments.
@@ -4559,14 +4617,18 @@ enum WebAssets {
     const settings = Object.keys(args.settings || {});
     switch (tool) {
     case "put_list_entry":
-      return `Save “${entry.name || entry.mac || "this entry"}” in ${args.name || args.platform}?`;
+      return entry.name || entry.mac
+        ? t("Save “{entry}” in {block}?", { entry: entry.name || entry.mac, block: args.name || args.platform })
+        : t("Save this entry in {block}?", { block: args.name || args.platform });
     case "patch_config":
-      return `Change ${settings.length ? settings.join(", ") : "settings"} of ${args.name || args.platform}?`;
-    case "update_config": return "Replace the whole config.json? A backup is kept.";
-    case "restore_config": return `Restore config.json from ${args.backup}?`;
-    case "restart_bridge": return "Restart homeswift? Connections drop for a few seconds.";
-    case "set_security_accessory": return `Set ${args.characteristic} to ${JSON.stringify(args.value)} on ${args.id}?`;
-    default: return `Allow ${tool}?`;
+      return settings.length
+        ? t("Change {settings} of {block}?", { settings: settings.join(", "), block: args.name || args.platform })
+        : t("Change the settings of {block}?", { block: args.name || args.platform });
+    case "update_config": return t("Replace the whole config.json? A backup is kept.");
+    case "restore_config": return t("Restore config.json from {backup}?", { backup: args.backup });
+    case "restart_bridge": return t("Restart homeswift? Connections drop for a few seconds.");
+    case "set_security_accessory": return t("Set {characteristic} to {value} on {id}?", { characteristic: args.characteristic, value: JSON.stringify(args.value), id: args.id });
+    default: return t("Allow {tool}?", { tool });
     }
   }
 
@@ -4589,15 +4651,18 @@ enum WebAssets {
     sheet.classList.toggle("working", running);
     log.setAttribute("aria-busy", String(running));
     send.classList.toggle("stop", running);
-    send.setAttribute("aria-label", running ? "Stop" : "Send");
-    send.title = running ? "Stop" : "Send (Enter)";
+    send.setAttribute("aria-label", running ? t("Stop") : t("Send"));
+    send.title = running ? t("Stop") : t("Send (Enter)");
     const waiting = running && !items.some((item) => item.kind === "confirm" && item.state === "pending") && items[items.length - 1]?.kind !== "assistant";
     let thinking = log.querySelector(".chat-thinking");
-    if (waiting && !thinking) log.append(thinking = el("p", { class: "chat-thinking", text: "Thinking…" }));
+    if (waiting && !thinking) log.append(thinking = el("p", { class: "chat-thinking", text: t("Thinking…") }));
     if (waiting) log.append(thinking);   // stays last
     if (!waiting) thinking?.remove();
-    const cost = usage && usage.cost != null && usage.cost > 0 ? ` · $${usage.cost < 0.01 ? usage.cost.toFixed(4) : usage.cost.toFixed(2)} so far` : "";
-    foot.textContent = listening ? "Listening… tap the mic again when you are done." : voiceNote || `${info.provider || "Assistant"}${cost}. Changes always ask first.`;
+    const provider = info.provider || t("Assistant");
+    const cost = usage && usage.cost != null && usage.cost > 0
+      ? new Intl.NumberFormat(HomeswiftI18n.locale, { style: "currency", currency: "USD", minimumFractionDigits: usage.cost < 0.01 ? 4 : 2, maximumFractionDigits: usage.cost < 0.01 ? 4 : 2 }).format(usage.cost) : null;
+    foot.textContent = listening ? t("Listening… tap the mic again when you are done.") : voiceNote
+      || (cost ? t("{provider} · {cost} so far. Changes always ask first.", { provider, cost }) : t("{provider}. Changes always ask first.", { provider }));
   }
 
   // ---- Voice ------------------------------------------------------------------------------------------------
@@ -4610,7 +4675,7 @@ enum WebAssets {
     const { mic } = panel;
     if (!window.isSecureContext) {
       mic.classList.add("unavailable");
-      mic.title = "Voice needs HTTPS: turn on https in the HomeswiftUI settings, or open this page on localhost.";
+      mic.title = t("Voice needs HTTPS: turn on https in the HomeswiftUI settings, or open this page on localhost.");
     }
     let pressedAt = 0;
     mic.addEventListener("pointerdown", (event) => {
@@ -4630,7 +4695,7 @@ enum WebAssets {
 
   function startListening() {
     if (!window.isSecureContext) {
-      voiceNote = "Voice needs HTTPS here: turn on https in Plugins › HomeswiftUI › Settings (or open the page on localhost).";
+      voiceNote = t("Voice needs HTTPS here: turn on https in Plugins › HomeswiftUI › Settings (or open the page on localhost).");
       renderControls();
       return;
     }
@@ -4654,8 +4719,8 @@ enum WebAssets {
     };
     recognition.onerror = (event) => {
       voiceNote = event.error === "not-allowed" || event.error === "service-not-allowed"
-        ? "The browser did not allow the microphone for this page."
-        : event.error === "no-speech" ? "Nothing was heard. Tap the mic and speak." : `Voice stopped: ${event.error}.`;
+        ? t("The browser did not allow the microphone for this page.")
+        : event.error === "no-speech" ? t("Nothing was heard. Tap the mic and speak.") : t("Voice stopped: {error}.", { error: event.error });
     };
     recognition.onend = () => {
       const send = recognition?.sendWhenDone !== false;
@@ -4669,7 +4734,7 @@ enum WebAssets {
     try {
       recognition.start();
     } catch (e) {
-      voiceNote = `Voice did not start: ${e.message}`;
+      voiceNote = t("Voice did not start: {error}", { error: e.message });
       renderControls();
       return;
     }
@@ -4707,7 +4772,7 @@ enum WebAssets {
     if (!header || header.querySelector(".chat-open")) return;
     const shortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl+K";
     trigger = el("button", {
-      type: "button", class: "chat-open", "aria-expanded": "false", "aria-haspopup": "dialog", "aria-label": "Assistant", title: `Ask the Assistant (${shortcut})`,
+      type: "button", class: "chat-open", "aria-expanded": "false", "aria-haspopup": "dialog", "aria-label": t("Assistant"), title: t("Ask the Assistant ({shortcut})", { shortcut }),
       "aria-keyshortcuts": "Meta+K Control+K", onclick: () => toggle(),
     }, sparkle());
     header.insertBefore(trigger, header.querySelector("#user"));
@@ -4757,8 +4822,8 @@ enum WebAssets {
     renderControls();
   }
 
-  /// The language chosen for voice, else the browser's.
-  const voiceLanguage = () => panel?.languagePicker.value || navigator.language || "en-US";
+  /// The language chosen for voice, else the page's.
+  const voiceLanguage = () => panel?.languagePicker.value || HomeswiftI18n.locale || "en-US";
 
   window.HomeswiftChat = { mount, ask, signedOut, open: () => toggle(true), available: () => Boolean(info?.enabled) };
   // The UI's own page mounts it once signed in; a plugin page is signed in already.
@@ -4772,6 +4837,9 @@ enum WebAssets {
 // before the page's own script.
 (() => {
   "use strict";
+
+  // i18n.js is the first script of every page.
+  const { t } = HomeswiftI18n;
 
   const $ = (selector, root = document) => root.querySelector(selector);
   const el = (tag, attrs = {}, ...children) => {
@@ -5048,7 +5116,7 @@ enum WebAssets {
     // On a phone a card's menu is an action sheet over a dimmed page, at the bottom within the thumb's reach, as
     // iOS's; the header's (the account) still drops down from its button.
     const sheet = matchMedia("(max-width: 640px)").matches && !trigger.closest("header");
-    const list = el("div", { class: `menu${sheet ? " sheet-menu" : ""}`, role: "menu", tabIndex: -1, "aria-label": trigger.getAttribute("aria-label") || "Actions" }, nodes);
+    const list = el("div", { class: `menu${sheet ? " sheet-menu" : ""}`, role: "menu", tabIndex: -1, "aria-label": trigger.getAttribute("aria-label") || t("Actions") }, nodes);
     const scrim = sheet ? el("div", { class: "menu-scrim", "aria-hidden": "true" }) : null;
     // A sheet's grabber: a swipe down from it puts the sheet away, as the scrim's tap does.
     if (sheet) {
@@ -5159,7 +5227,8 @@ enum WebAssets {
   /// message and its `status`, and a signed-out visitor goes to the sign-in page. `stream: true` answers the Response itself,
   /// for a body read as it arrives.
   async function api(path, { method = "GET", body, stream = false } = {}) {
-    const options = { method, credentials: "same-origin", headers: {} };
+    // The Assistant answers in the page's language.
+    const options = { method, credentials: "same-origin", headers: { "Accept-Language": window.HomeswiftI18n?.locale || "en" } };
     if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
     const response = await fetch(path, options);
     if (response.status === 401) { location.href = "/"; throw new Error("signed out"); }
@@ -5167,7 +5236,7 @@ enum WebAssets {
     const text = await response.text();
     let json = null;
     try { json = text ? JSON.parse(text) : null; } catch { json = { error: text }; }
-    if (!response.ok) throw Object.assign(new Error((json && json.error) || `HTTP ${response.status}`), { status: response.status });
+    if (!response.ok) throw Object.assign(new Error(window.HomeswiftI18n?.message((json && json.error) || `HTTP ${response.status}`) ?? `HTTP ${response.status}`), { status: response.status });
     return json;
   }
 
@@ -5180,7 +5249,7 @@ enum WebAssets {
     field.select();
     const copied = document.execCommand("copy");
     field.remove();
-    if (!copied) throw new Error("The browser did not allow copying.");
+    if (!copied) throw new Error(t("The browser did not allow copying."));
   }
 
   // ---- JSON, coloured -----------------------------------------------------------------------------------
@@ -5219,18 +5288,18 @@ enum WebAssets {
     const string = () => {
       at++;
       for (;;) {
-        if (at >= text.length) fail("This string is not closed");
+        if (at >= text.length) fail(t("This string is not closed"));
         const character = text[at];
         if (character === '"') { at++; return; }
         if (character === "\\") {
           const next = text[at + 1];
           if (next === "u" && /^[0-9a-fA-F]{4}$/.test(text.slice(at + 2, at + 6))) at += 6;
           else if (next !== undefined && "\"\\/bfnrt".includes(next)) at += 2;
-          else fail("Not a valid escape in a string");
+          else fail(t("Not a valid escape in a string"));
           continue;
         }
-        if (character === "\n") fail("This string is not closed before the end of the line");
-        if (character < " ") fail("A control character in a string must be escaped");
+        if (character === "\n") fail(t("This string is not closed before the end of the line"));
+        if (character < " ") fail(t("A control character in a string must be escaped"));
         at++;
       }
     };
@@ -5239,7 +5308,9 @@ enum WebAssets {
       space();
       if (text[at] === ",") { at++; return false; }
       if (text[at] === closing) { at++; return true; }
-      fail(at >= text.length ? `The text ends before this ${closing === "}" ? "object" : "list"} is closed` : `A comma or a ${closing === "}" ? "closing brace" : "closing bracket"} is missing after this value`, end);
+      fail(at >= text.length
+        ? (closing === "}" ? t("The text ends before this object is closed") : t("The text ends before this list is closed"))
+        : (closing === "}" ? t("A comma or a closing brace is missing after this value") : t("A comma or a closing bracket is missing after this value")), end);
     };
     const value = (path) => {
       space();
@@ -5250,13 +5321,13 @@ enum WebAssets {
         if (text[at] === "}") { at++; return; }
         for (;;) {
           space();
-          if (text[at] !== '"') fail(text[at] === "}" ? "A comma before the closing brace" : at >= text.length ? "The text ends before this object is closed" : "Expected a key in double quotes");
+          if (text[at] !== '"') fail(text[at] === "}" ? t("A comma before the closing brace") : at >= text.length ? t("The text ends before this object is closed") : t("Expected a key in double quotes"));
           const start = at;
           string();
           const key = JSON.parse(text.slice(start, at));
           places.set(JSON.stringify([...path, key]), start);
           space();
-          if (text[at] !== ":") fail("A colon is missing after this key");
+          if (text[at] !== ":") fail(t("A colon is missing after this key"));
           at++;
           value([...path, key]);
           if (after(at, "}")) return;
@@ -5268,7 +5339,7 @@ enum WebAssets {
         if (text[at] === "]") { at++; return; }
         for (let index = 0; ; index++) {
           space();
-          if (text[at] === "]") fail("A comma before the closing bracket");
+          if (text[at] === "]") fail(t("A comma before the closing bracket"));
           places.set(JSON.stringify([...path, index]), at);
           value([...path, index]);
           if (after(at, "]")) return;
@@ -5279,12 +5350,12 @@ enum WebAssets {
       numberPattern.lastIndex = at;
       const number = numberPattern.exec(text);
       if (number && number[0] !== "-") { at += number[0].length; return; }
-      fail(at >= text.length ? "The text ends where a value should be" : character === "'" ? "Strings take double quotes" : "Not a valid value");
+      fail(at >= text.length ? t("The text ends where a value should be") : character === "'" ? t("Strings take double quotes") : t("Not a valid value"));
     };
     try {
       value([]);
       space();
-      if (at < text.length) fail("Something follows the end of the JSON");
+      if (at < text.length) fail(t("Something follows the end of the JSON"));
       return { places };
     } catch (error) {
       if (error instanceof Error) throw error;
@@ -5400,7 +5471,7 @@ enum WebAssets {
 
   // ---- The sections, and the tab bar a phone shows them in -----------------------------------------------
 
-  const sections = [["/status", "Status", "bridge"], ["/accessories", "Accessories", "bulb"], ["/scenes", "Scenes", "play"], ["/plugins", "Plugins", "plugin"], ["/config", "Config", "code"], ["/logs", "Logs", "logs"]];
+  const sections = [["/status", t("Status"), "bridge"], ["/accessories", t("Accessories"), "bulb"], ["/scenes", t("Scenes"), "play"], ["/plugins", t("Plugins"), "plugin"], ["/config", t("Config"), "code"], ["/logs", t("Logs"), "logs"]];
 
   /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
   /// a label each, the current one in the accent. `parent` is what hides it with the app (the sign-in screen has
@@ -5408,7 +5479,7 @@ enum WebAssets {
   function tabBar({ active, parent = document.body } = {}) {
     const existing = document.querySelector("nav.tabbar");
     if (existing) return existing;
-    const bar = el("nav", { class: "tabbar", "aria-label": "Sections" }, sections.map(([path, text, glyph]) =>
+    const bar = el("nav", { class: "tabbar", "aria-label": t("Sections") }, sections.map(([path, text, glyph]) =>
       el("a", { href: path, class: path === active ? "active" : "", "aria-current": path === active ? "page" : null }, icon(glyph), el("span", { text }))));
     parent.append(bar);
     return bar;
@@ -5452,7 +5523,7 @@ enum WebAssets {
     if (!onChunk) return api(path, { method: "POST", body });
     const requestId = `r${Date.now().toString(36)}-${++requests}`;
     const cancel = () => { api("/api/assistant/cancel", { method: "POST", body: { requestId } }).catch(() => {}); };
-    if (signal?.aborted) throw Object.assign(new Error("Stopped."), { name: "AbortError" });
+    if (signal?.aborted) throw Object.assign(new Error(t("Stopped.")), { name: "AbortError" });
     signal?.addEventListener("abort", cancel, { once: true });
     try {
       const response = await api(path, { method: "POST", body: { ...body, requestId }, stream: true });
@@ -5473,10 +5544,10 @@ enum WebAssets {
           const payload = JSON.parse(data);
           if (event === "chunk") onChunk(payload.text);
           else if (event === "done") return payload;
-          else if (event === "error") throw Object.assign(new Error(payload.error), { status: payload.status });
+          else if (event === "error") throw Object.assign(new Error(window.HomeswiftI18n?.message(payload.error) ?? payload.error), { status: payload.status });
         }
       }
-      throw new Error(signal?.aborted ? "Stopped." : "The connection dropped before the answer ended.");
+      throw new Error(signal?.aborted ? t("Stopped.") : t("The connection dropped before the answer ended."));
     } finally {
       signal?.removeEventListener("abort", cancel);
     }
@@ -5487,7 +5558,7 @@ enum WebAssets {
   // opens in them before the server answers. Storage may be missing (a private window): it then waits.
 
   const preferenceKey = "homeswift.preferences";
-  let preferences = { theme: "auto", wallpaper: "none", temperatureUnit: "c" };
+  let preferences = { theme: "auto", wallpaper: "none", temperatureUnit: "c", language: "auto" };
   try { Object.assign(preferences, JSON.parse(localStorage.getItem(preferenceKey) || "{}")); } catch {}
 
   /// Applies the user's choices to this page (and remembers them in this browser): `data-theme` and
@@ -5505,6 +5576,14 @@ enum WebAssets {
       meta.media = preferences.theme === "auto" ? meta.dataset.media : (meta.dataset.media.includes(preferences.theme) ? "all" : "not all");
     }
     if (next) { try { localStorage.setItem(preferenceKey, JSON.stringify(preferences)); } catch {} }
+    // Another language is another catalog, which i18n.js loads before the page's scripts: the page opens again in it.
+    // Only once this browser kept the choice, or the page would open again in the browser's language, and again.
+    const I18N = window.HomeswiftI18n;
+    if (next && I18N && I18N.resolve(preferences.language) !== I18N.language) {
+      let kept = null;
+      try { kept = JSON.parse(localStorage.getItem(preferenceKey) || "{}").language; } catch {}
+      if (kept === preferences.language) { location.reload(); return preferences; }
+    }
     document.dispatchEvent(new CustomEvent("homeswift:preferences", { detail: preferences }));
     return preferences;
   }
@@ -5512,7 +5591,14 @@ enum WebAssets {
 
   /// The user's choices from the server, applied; the ones this browser kept when it cannot be asked.
   async function loadPreferences() {
-    try { return applyPreferences(await api("/api/preferences")); } catch { return preferences; }
+    try {
+      let saved = await api("/api/preferences");
+      // A language chosen on the sign-in page, before the server could keep it: the account keeps it now.
+      let chosen = null;
+      try { chosen = localStorage.getItem("homeswift.language-chosen"); localStorage.removeItem("homeswift.language-chosen"); } catch {}
+      if (chosen && saved.language !== chosen) saved = await api("/api/preferences", { method: "PUT", body: { language: chosen } });
+      return applyPreferences(saved);
+    } catch { return preferences; }
   }
 
   /// A temperature HomeKit gives in °C, in the unit the user chose: `{ value, unit }`, the value rounded to a tenth.
@@ -5538,10 +5624,13 @@ enum WebAssets {
   "use strict";
 
   const { $, el, tile, sparkle, menuButton, fact } = HomeswiftCommon;
+  const { t, tn } = HomeswiftI18n;
   let app = null;
 
-  const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const operators = [["eq", "is"], ["neq", "is not"], ["gt", "is above"], ["gte", "is at least"], ["lt", "is below"], ["lte", "is at most"]];
+  const weekdays = [t("Sun"), t("Mon"), t("Tue"), t("Wed"), t("Thu"), t("Fri"), t("Sat")];
+  // The days picker's two-letter labels.
+  const dayLetters = [t("Su"), t("Mo"), t("Tu"), t("We"), t("Th"), t("Fr"), t("Sa")];
+  const operators = [["eq", t("is")], ["neq", t("is not")], ["gt", t("is above")], ["gte", t("is at least")], ["lt", t("is below")], ["lte", t("is at most")]];
   const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);
   const displayName = (accessory) => accessory.displayName || accessory.name;
   const statusLine = () => el("p", { class: "status-line muted", role: "status" });
@@ -5557,21 +5646,22 @@ enum WebAssets {
   function layoutActions(accessory) {
     const change = (fields) => changeLayout({ accessories: { [accessory.id]: fields } }).then(() => app.route()).catch((e) => alert(e.message));
     return [
-      { label: accessory.room ? `Room: ${accessory.room}…` : "Put in a room…", icon: "room", onSelect: () => chooseRoom(accessory, change) },
-      { label: "Name on these pages…", icon: "edit", onSelect: () => {
-        const name = prompt(`A name for ${accessory.name} on these pages (the Home app keeps its own). Empty goes back to ${accessory.name}.`, accessory.displayName || "");
+      { label: accessory.room ? t("Room: {room}…", { room: accessory.room }) : t("Put in a room…"), icon: "room", onSelect: () => chooseRoom(accessory, change) },
+      { label: t("Name on these pages…"), icon: "edit", onSelect: () => {
+        const name = prompt(t("A name for {name} on these pages (the Home app keeps its own). Empty goes back to {name}.", { name: accessory.name }), accessory.displayName || "");
         if (name !== null) change({ name: name.trim() || null });
       } },
-      { label: accessory.favourite ? "Remove from Quick Controls" : "Add to Quick Controls", icon: "star", onSelect: () => change({ favourite: !accessory.favourite }) },
-      { label: accessory.hidden ? "Show it again" : "Hide", icon: "eye", onSelect: () => change({ hidden: !accessory.hidden }) },
+      { label: accessory.favourite ? t("Remove from Quick Controls") : t("Add to Quick Controls"), icon: "star", onSelect: () => change({ favourite: !accessory.favourite }) },
+      { label: accessory.hidden ? t("Show it again") : t("Hide"), icon: "eye", onSelect: () => change({ hidden: !accessory.hidden }) },
     ];
   }
 
   async function chooseRoom(accessory, change) {
     let rooms = [];
     try { rooms = (await app.api("/api/rooms")).rooms.map((room) => room.name); } catch {}
-    const known = rooms.length ? ` Rooms: ${rooms.join(", ")}.` : "";
-    const room = prompt(`The room of ${displayName(accessory)}.${known} A new name adds the room; empty takes it out of its room.`, accessory.room || "");
+    const room = prompt(rooms.length
+      ? t("The room of {name}. Rooms: {rooms}. A new name adds the room; empty takes it out of its room.", { name: displayName(accessory), rooms: rooms.join(", ") })
+      : t("The room of {name}. A new name adds the room; empty takes it out of its room.", { name: displayName(accessory) }), accessory.room || "");
     if (room !== null) change({ room: room.trim() || null });
   }
 
@@ -5580,7 +5670,7 @@ enum WebAssets {
     const byName = (a, b) => displayName(a).localeCompare(displayName(b));
     const groups = rooms.map((room) => [room, accessories.filter((a) => a.room === room).sort(byName)]).filter(([, list]) => list.length);
     const rest = accessories.filter((a) => !a.room || !rooms.includes(a.room)).sort(byName);
-    return rest.length ? [...groups, [groups.length ? "No room" : "Accessories", rest]] : groups;
+    return rest.length ? [...groups, [groups.length ? t("No room") : t("Accessories"), rest]] : groups;
   }
 
   /// The Assistant's rooms and names, to review: each suggestion can be kept or left; Apply saves what is kept.
@@ -5588,14 +5678,14 @@ enum WebAssets {
   async function suggestRooms(host, accessories) {
     host.querySelector(".suggest")?.remove();
     const panel = el("div", { class: "card panel suggest" },
-      el("div", { class: "panel-head" }, el("div", {}, el("h2", {}, sparkle(), " Suggested rooms"), el("p", { class: "muted", text: "The Assistant is sorting your accessories into rooms…" }))));
+      el("div", { class: "panel-head" }, el("div", {}, el("h2", {}, sparkle(), " ", t("Suggested rooms")), el("p", { class: "muted", text: t("The Assistant is sorting your accessories into rooms…") }))));
     host.prepend(panel);
     panel.classList.add("ai-busy");
     let result;
     try {
       result = await app.api("/api/rooms/suggest", { method: "POST", body: {} });
     } catch (e) {
-      panel.replaceChildren(el("p", { class: "error", text: e.message }), el("div", { class: "actions" }, el("button", { text: "Close", onclick: () => panel.remove() })));
+      panel.replaceChildren(el("p", { class: "error", text: e.message }), el("div", { class: "actions" }, el("button", { text: t("Close"), onclick: () => panel.remove() })));
       return;
     } finally { panel.classList.remove("ai-busy"); }
     const byID = new Map(accessories.map((a) => [a.id, a]));
@@ -5609,13 +5699,13 @@ enum WebAssets {
       el("div", { class: "service-name", text: room.name }),
       room.accessories.map((id) => {
         const accessory = byID.get(id);
-        const moved = accessory?.room && accessory.room !== room.name ? `now in ${accessory.room}` : accessory?.room === room.name ? "already there" : null;
+        const moved = accessory?.room && accessory.room !== room.name ? t("now in {room}", { room: accessory.room }) : accessory?.room === room.name ? t("already there") : null;
         return check({ id, room: room.name }, accessory ? displayName(accessory) : id, moved);
       })));
     const renames = result.renames.map((rename) => check({ id: rename.id, name: rename.name }, `${rename.current} → ${rename.name}`, rename.reason));
     const orphans = result.orphans.map((orphan) => el("li", {}, el("strong", { text: orphan.name }), ` ${orphan.reason}`));
     const line = statusLine();
-    const apply = el("button", { class: "primary", text: "Apply what is ticked", onclick: async () => {
+    const apply = el("button", { class: "primary", text: t("Apply what is ticked"), onclick: async () => {
       const changes = {};
       for (const { input, data } of checks) {
         if (!input.checked) continue;
@@ -5626,12 +5716,12 @@ enum WebAssets {
     } });
     panel.replaceChildren(
       el("div", { class: "panel-head" },
-        el("div", {}, el("h2", {}, sparkle(), " Suggested rooms"),
-          el("p", { class: "muted", text: `From ${result.model}. Untick what you do not want; nothing changes until you apply. Names show on these pages only: the Home app keeps its own.` })),
-        el("button", { class: "link", text: "Dismiss", onclick: () => panel.remove() })),
-      rooms.length ? el("div", { class: "suggest-rooms" }, rooms) : el("p", { class: "muted", text: "No room to suggest." }),
-      renames.length ? el("div", {}, el("div", { class: "service-name", text: "Clearer names" }), renames) : null,
-      orphans.length ? el("div", {}, el("div", { class: "service-name", text: "Worth a look" }), el("ul", { class: "help" }, orphans)) : null,
+        el("div", {}, el("h2", {}, sparkle(), " ", t("Suggested rooms")),
+          el("p", { class: "muted", text: t("From {model}. Untick what you do not want; nothing changes until you apply. Names show on these pages only: the Home app keeps its own.", { model: result.model }) })),
+        el("button", { class: "link", text: t("Dismiss"), onclick: () => panel.remove() })),
+      rooms.length ? el("div", { class: "suggest-rooms" }, rooms) : el("p", { class: "muted", text: t("No room to suggest.") }),
+      renames.length ? el("div", {}, el("div", { class: "service-name", text: t("Clearer names") }), renames) : null,
+      orphans.length ? el("div", {}, el("div", { class: "service-name", text: t("Worth a look") }), el("ul", { class: "help" }, orphans)) : null,
       el("div", { class: "actions" }, apply), line);
   }
 
@@ -5648,13 +5738,13 @@ enum WebAssets {
       ]);
       const favourites = list.filter((a) => a.favourite && !a.hidden);
       if (!favourites.length && !scenes.length) {
-        if (standalone) section.append(el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("star")), el("p", { class: "muted", text: "Nothing here yet. On the Accessories page, a card's menu adds it to the Quick Controls; scenes you make show here too." })));
+        if (standalone) section.append(el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("star")), el("p", { class: "muted", text: t("Nothing here yet. On the Accessories page, a card's menu adds it to the Quick Controls; scenes you make show here too.") })));
         return;
       }
       const rooms = [...new Set(favourites.map((a) => a.room).filter(Boolean))];
       // `append` is the DOM's: it writes null and arrays as text, so the parts go in flat and without the empty ones.
       section.append(...[
-        standalone ? null : el("div", { class: "section-head" }, el("h2", { text: "Quick controls" }), el("a", { href: "/quick", class: "muted", text: "Open on its own" })),
+        standalone ? null : el("div", { class: "section-head" }, el("h2", { text: t("Quick controls") }), el("a", { href: "/quick", class: "muted", text: t("Open on its own") })),
         scenes.length ? el("div", { class: "quick-scenes" }, scenes.map((scene) => sceneButton(scene))) : null,
         groupByRoom(favourites, rooms).map(([room, members]) => [
           rooms.length ? el("div", { class: "service-name", text: room }) : null,
@@ -5667,7 +5757,7 @@ enum WebAssets {
   }
 
   function sceneButton(scene) {
-    const button = el("button", { class: "scene-run", title: `Run ${scene.name}` }, tile("play", scene.security ? "violet" : "orange"), el("span", { text: scene.name }));
+    const button = el("button", { class: "scene-run", title: t("Run {name}", { name: scene.name }) }, tile("play", scene.security ? "violet" : "orange"), el("span", { text: scene.name }));
     button.addEventListener("click", () => runScene(scene, button));
     return button;
   }
@@ -5677,7 +5767,7 @@ enum WebAssets {
     let confirmSecurity = false;
     if (scene.security) {
       const which = scene.actions.filter((a) => a.security).map((a) => `${a.name || a.id}: ${a.characteristic}`).join(", ");
-      if (!confirm(`${scene.name} changes a lock, a door or an alarm (${which}). Run it?`)) return;
+      if (!confirm(t("{scene} changes a lock, a door or an alarm ({which}). Run it?", { scene: scene.name, which }))) return;
       confirmSecurity = true;
     }
     button?.classList.add("busy");
@@ -5685,8 +5775,8 @@ enum WebAssets {
     try {
       const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/run`, { method: "POST", body: { confirmSecurity } });
       if (!result.ok) {
-        const failures = result.results.filter((r) => !r.ok).map((r) => `${r.name || r.id} ${r.characteristic}: ${r.error || r.skipped}`);
-        alert(`${scene.name} ran, but not everything worked:\n${failures.join("\n")}`);
+        const failures = result.results.filter((r) => !r.ok).map((r) => `${r.name || r.id} ${r.characteristic}: ${HomeswiftI18n.message(r.error || r.skipped)}`);
+        alert(t("{scene} ran, but not everything worked:\n{failures}", { scene: scene.name, failures: failures.join("\n") }));
       }
       return result;
     } catch (e) { alert(e.message); } finally {
@@ -5697,33 +5787,40 @@ enum WebAssets {
 
   // ---- Scenes ----------------------------------------------------------------------------------------
 
-  const timeFormat = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit" });
-  const dateTimeFormat = new Intl.DateTimeFormat([], { dateStyle: "medium", timeStyle: "short" });
+  const timeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit" });
+  const dateTimeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" });
 
   function describeDays(days) {
-    if (!days || !days.length || days.length === 7) return "every day";
+    if (!days || !days.length || days.length === 7) return t("every day");
     const key = [...days].sort().join();
-    if (key === "1,2,3,4,5") return "on weekdays";
-    if (key === "0,6") return "at weekends";
-    return `on ${days.map((d) => weekdays[d]).join(", ")}`;
+    if (key === "1,2,3,4,5") return t("on weekdays");
+    if (key === "0,6") return t("at weekends");
+    return t("on {days}", { days: days.map((d) => weekdays[d]).join(", ") });
   }
-  function describeOffset(minutes) {
-    if (!minutes) return "";
-    return `${Math.abs(minutes)} min ${minutes < 0 ? "before" : "after"} `;
+  /// "Sunset every day", "10 min before sunrise on weekdays".
+  function describeSun(event, minutes, days) {
+    const sunrise = event === "sunrise";
+    const vars = { minutes: Math.abs(minutes || 0), days };
+    if (!minutes) return sunrise ? t("Sunrise {days}", vars) : t("Sunset {days}", vars);
+    if (minutes < 0) return sunrise ? t("{minutes} min before sunrise {days}", vars) : t("{minutes} min before sunset {days}", vars);
+    return sunrise ? t("{minutes} min after sunrise {days}", vars) : t("{minutes} min after sunset {days}", vars);
   }
   function describeTrigger(trigger, names) {
-    const off = trigger.enabled === false ? " (off)" : "";
-    switch (trigger.type) {
-      case "time": return `At ${trigger.at} ${describeDays(trigger.days)}${off}`;
-      case "sun": return `${describeOffset(trigger.offsetMinutes)}${trigger.event} ${describeDays(trigger.days)}${off}`.replace(/^./, (c) => c.toUpperCase());
-      case "cron": return `Cron ${trigger.cron}${off}`;
-      case "characteristic": {
-        const who = names.get(trigger.id) || trigger.id;
-        const how = trigger.operator === "changes" ? "changes" : `${operators.find(([o]) => o === trigger.operator)?.[1] ?? trigger.operator} ${trigger.value}`;
-        return `When ${who} ${trigger.characteristic} ${how}${off}`;
+    const text = (() => {
+      switch (trigger.type) {
+        case "time": return t("At {time} {days}", { time: trigger.at, days: describeDays(trigger.days) });
+        case "sun": return describeSun(trigger.event, trigger.offsetMinutes, describeDays(trigger.days));
+        case "cron": return t("Cron {expression}", { expression: trigger.cron });
+        case "characteristic": {
+          const vars = { who: names.get(trigger.id) || trigger.id, characteristic: trigger.characteristic };
+          if (trigger.operator === "changes") return t("When {who} {characteristic} changes", vars);
+          const comparison = operators.find(([o]) => o === trigger.operator)?.[1] ?? trigger.operator;
+          return t("When {who} {characteristic} {comparison} {value}", { ...vars, comparison, value: String(trigger.value) });
+        }
+        default: return trigger.type;
       }
-      default: return trigger.type;
-    }
+    })();
+    return trigger.enabled === false ? t("{trigger} (off)", { trigger: text }) : text;
   }
 
   async function scenesView(main) {
@@ -5731,34 +5828,35 @@ enum WebAssets {
     const names = new Map(accessories.map((a) => [a.id, displayName(a)]));
     const card = (scene) => {
       const actions = scene.actions.slice(0, 4).map((action) => el("div", { class: "control" },
-        el("span", { text: `${action.name || action.id}${action.missing ? " (gone)" : ""}` }),
-        el("span", { class: "value", text: `${action.characteristic} → ${typeof action.value === "boolean" && !app.enumLabels[action.characteristic] ? (action.value ? "On" : "Off") : app.labelFor(action.characteristic, action.value)}` })));
-      const more = scene.actions.length > 4 ? el("p", { class: "muted note", text: `and ${scene.actions.length - 4} more` }) : null;
-      const last = scene.lastRun ? `Last run ${dateTimeFormat.format(new Date(scene.lastRun.at))} (${scene.lastRun.trigger})${scene.lastRun.ok ? "" : ", with errors"}` : "Never run";
-      const run = el("button", { class: "primary", text: "Run" });
+        el("span", { text: action.missing ? t("{name} (gone)", { name: action.name || action.id }) : action.name || action.id }),
+        el("span", { class: "value", text: `${action.characteristic} → ${typeof action.value === "boolean" && !app.enumLabels[action.characteristic] ? (action.value ? t("On") : t("Off")) : app.labelFor(action.characteristic, action.value)}` })));
+      const more = scene.actions.length > 4 ? el("p", { class: "muted note", text: tn("and {n} more", "and {n} more", scene.actions.length - 4) }) : null;
+      const lastVars = scene.lastRun ? { date: dateTimeFormat.format(new Date(scene.lastRun.at)), trigger: scene.lastRun.trigger } : null;
+      const last = scene.lastRun ? (scene.lastRun.ok ? t("Last run {date} ({trigger})", lastVars) : t("Last run {date} ({trigger}), with errors", lastVars)) : t("Never run");
+      const run = el("button", { class: "primary", text: t("Run") });
       run.addEventListener("click", async () => { await runScene(scene, run); });
       return el("div", { class: "card server scene-card" },
         el("div", { class: "server-head" }, tile("play", scene.security ? "violet" : "orange"),
           el("div", { class: "who" }, el("a", { class: "card-title", href: `/scenes/${encodeURIComponent(scene.id)}` }, el("strong", { text: scene.name })),
-            el("div", { class: "muted", text: scene.triggers.length ? scene.triggers.map((t) => describeTrigger(t, names)).join(" · ") : "Run by hand" })),
+            el("div", { class: "muted", text: scene.triggers.length ? scene.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · ") : t("Run by hand") })),
           run),
         el("div", { class: "controls" }, actions), more,
-        scene.security ? el("p", { class: "muted note", text: "It changes a lock, a door or an alarm: the page asks before running it, and automations leave those actions out." }) : null,
-        el("div", { class: "card-foot" }, el("span", { class: "muted", text: scene.lastSkipped && (!scene.lastRun || scene.lastSkipped.at > scene.lastRun.at) ? `Skipped ${dateTimeFormat.format(new Date(scene.lastSkipped.at))}: ${scene.lastSkipped.reason}` : last }),
-          menuButton(`Actions for ${scene.name}`, () => [
-            { label: "Run", icon: "play", onSelect: () => runScene(scene) },
-            { label: "Edit", icon: "edit", href: `/scenes/${encodeURIComponent(scene.id)}` },
-            { label: "Delete", icon: "trash", danger: true, onSelect: async () => {
-              if (!confirm(`Delete the scene ${scene.name}?`)) return;
+        scene.security ? el("p", { class: "muted note", text: t("It changes a lock, a door or an alarm: the page asks before running it, and automations leave those actions out.") }) : null,
+        el("div", { class: "card-foot" }, el("span", { class: "muted", text: scene.lastSkipped && (!scene.lastRun || scene.lastSkipped.at > scene.lastRun.at) ? t("Skipped {date}: {reason}", { date: dateTimeFormat.format(new Date(scene.lastSkipped.at)), reason: HomeswiftI18n.message(scene.lastSkipped.reason) }) : last }),
+          menuButton(t("Actions for {name}", { name: scene.name }), () => [
+            { label: t("Run"), icon: "play", onSelect: () => runScene(scene) },
+            { label: t("Edit"), icon: "edit", href: `/scenes/${encodeURIComponent(scene.id)}` },
+            { label: t("Delete"), icon: "trash", danger: true, onSelect: async () => {
+              if (!confirm(t("Delete the scene {name}?", { name: scene.name }))) return;
               try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.route(); } catch (e) { alert(e.message); }
             } },
           ])));
     };
     app.show(main,
-      app.pageHead("Scenes", "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them.",
-        el("a", { class: "button primary", href: "/scenes/new", text: "New scene" })),
+      app.pageHead(t("Scenes"), t("Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them."),
+        el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
       data.scenes.length ? el("div", { class: "grid" }, data.scenes.map(card))
-        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: "No scene yet. A scene sets several accessories at once, such as every light of a room for the evening." })),
+        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") })),
       locationCard(data));
   }
 
@@ -5766,28 +5864,28 @@ enum WebAssets {
   /// this device's position.
   function locationCard(data) {
     const location = data.location;
-    const lat = el("input", { type: "number", step: "any", min: -90, max: 90, value: location?.lat ?? "", "aria-label": "Latitude" });
-    const lon = el("input", { type: "number", step: "any", min: -180, max: 180, value: location?.lon ?? "", "aria-label": "Longitude" });
-    const name = el("input", { type: "text", value: location?.name ?? "", placeholder: "Home", maxLength: 64 });
+    const lat = el("input", { type: "number", step: "any", min: -90, max: 90, value: location?.lat ?? "", "aria-label": t("Latitude") });
+    const lon = el("input", { type: "number", step: "any", min: -180, max: 180, value: location?.lon ?? "", "aria-label": t("Longitude") });
+    const name = el("input", { type: "text", value: location?.name ?? "", placeholder: t("My home"), maxLength: 64 });
     const line = statusLine();
     const save = async (body) => {
       try { await app.api("/api/scenes/location", { method: "PUT", body }); app.route(); } catch (e) { say(line, e.message, "error"); }
     };
-    const here = el("button", { text: "Use this device's location", onclick: () => {
-      if (!navigator.geolocation) return say(line, "This browser cannot tell its location.", "error");
-      say(line, "Asking the browser…");
+    const here = el("button", { text: t("Use this device's location"), onclick: () => {
+      if (!navigator.geolocation) return say(line, t("This browser cannot tell its location."), "error");
+      say(line, t("Asking the browser…"));
       navigator.geolocation.getCurrentPosition(
-        (position) => { lat.value = position.coords.latitude.toFixed(4); lon.value = position.coords.longitude.toFixed(4); say(line, "Found: save to keep it."); },
-        (error) => say(line, error.message || "The browser did not give its location (it needs HTTPS away from localhost).", "error"));
+        (position) => { lat.value = position.coords.latitude.toFixed(4); lon.value = position.coords.longitude.toFixed(4); say(line, t("Found: save to keep it.")); },
+        (error) => say(line, error.message || t("The browser did not give its location (it needs HTTPS away from localhost)."), "error"));
     } });
-    const next = location ? `Next sunrise ${data.nextSunrise ? timeFormat.format(new Date(data.nextSunrise)) : "—"}, sunset ${data.nextSunset ? timeFormat.format(new Date(data.nextSunset)) : "—"}.` : "No location yet: sunrise and sunset triggers wait for one.";
-    return el("details", { class: "card location", open: !location && data.scenes.some((s) => s.triggers.some((t) => t.type === "sun")) },
-      el("summary", {}, el("strong", { text: "Location for sunrise and sunset" }), el("span", { class: "muted", text: ` · ${location ? (location.name || `${location.lat}, ${location.lon}`) : "not set"}` })),
+    const next = location ? t("Next sunrise {sunrise}, sunset {sunset}.", { sunrise: data.nextSunrise ? timeFormat.format(new Date(data.nextSunrise)) : "—", sunset: data.nextSunset ? timeFormat.format(new Date(data.nextSunset)) : "—" }) : t("No location yet: sunrise and sunset triggers wait for one.");
+    return el("details", { class: "card location", open: !location && data.scenes.some((s) => s.triggers.some((trigger) => trigger.type === "sun")) },
+      el("summary", {}, el("strong", { text: t("Location for sunrise and sunset") }), el("span", { class: "muted", text: ` · ${location ? (location.name || `${location.lat}, ${location.lon}`) : t("not set")}` })),
       el("p", { class: "muted", text: next }),
-      el("div", { class: "fields" }, field("Latitude", lat), field("Longitude", lon), field("Name", name, "Only for you to recognise it.")),
+      el("div", { class: "fields" }, field(t("Latitude"), lat), field(t("Longitude"), lon), field(t("Name"), name, t("Only for you to recognise it."))),
       el("div", { class: "actions" },
-        el("button", { class: "primary", text: "Save", onclick: () => save({ lat: Number(lat.value), lon: Number(lon.value), name: name.value }) }),
-        here, location ? el("button", { class: "link", text: "Forget it", onclick: () => save(null) }) : null),
+        el("button", { class: "primary", text: t("Save"), onclick: () => save({ lat: Number(lat.value), lon: Number(lon.value), name: name.value }) }),
+        here, location ? el("button", { class: "link", text: t("Forget it"), onclick: () => save(null) }) : null),
       line);
   }
 
@@ -5809,7 +5907,7 @@ enum WebAssets {
     const labels = app.enumLabels[characteristic?.type];
     let input;
     if (characteristic?.format === "bool") {
-      input = el("select", {}, el("option", { value: "true", text: "On" }), el("option", { value: "false", text: "Off" }));
+      input = el("select", {}, el("option", { value: "true", text: t("On") }), el("option", { value: "false", text: t("Off") }));
       input.value = String(value === true || value === 1);
       input.read = () => input.value === "true";
     } else if (characteristic && (characteristic.validValues || labels)) {
@@ -5825,15 +5923,15 @@ enum WebAssets {
       // An accessory that is gone keeps its value as it was saved.
       input.read = () => !characteristic && input.value === String(value ?? "") && value !== undefined ? value : input.value;
     }
-    input.setAttribute("aria-label", "Value");
+    input.setAttribute("aria-label", t("Value"));
     return input;
   }
 
   /// An accessory and one of its characteristics, with a value input after them when `withValue`.
   function characteristicPicker(accessories, pick, { id, characteristic, value, withValue = true, list = writable }) {
     const options = accessories.filter((a) => list(a).length);
-    const accessory = el("select", { "aria-label": "Accessory" }, options.map((a) => el("option", { value: a.id, text: displayName(a) })));
-    const kind = el("select", { "aria-label": "Characteristic" });
+    const accessory = el("select", { "aria-label": t("Accessory") }, options.map((a) => el("option", { value: a.id, text: displayName(a) })));
+    const kind = el("select", { "aria-label": t("Characteristic") });
     const holder = el("span", { class: "value-slot" });
     let current = null;
     const fill = (keepType, keepValue) => {
@@ -5848,7 +5946,7 @@ enum WebAssets {
       if (withValue) { holder.replaceChildren(pick.value = valueInput(current, keepValue ?? current?.value)); }
     };
     if (id && options.some((a) => a.id === id)) accessory.value = id;
-    else if (id) accessory.prepend(el("option", { value: id, text: `${id} (gone)`, selected: true }));
+    else if (id) accessory.prepend(el("option", { value: id, text: t("{name} (gone)", { name: id }), selected: true }));
     fill(characteristic, value);
     accessory.addEventListener("change", () => fill());
     kind.addEventListener("change", () => {
@@ -5867,14 +5965,14 @@ enum WebAssets {
   }
 
   const rowShell = (...children) => el("div", { class: "editor-row" }, ...children);
-  const removeButton = (row, list) => el("button", { class: "icon-button", type: "button", title: "Remove", "aria-label": "Remove", onclick: () => { list.delete(row); row.remove(); } }, HomeswiftCommon.icon("trash"));
+  const removeButton = (row, list) => el("button", { class: "icon-button", type: "button", title: t("Remove"), "aria-label": t("Remove"), onclick: () => { list.delete(row); row.remove(); } }, HomeswiftCommon.icon("trash"));
 
   function daysPicker(days) {
     const chosen = new Set(days && days.length ? days : [0, 1, 2, 3, 4, 5, 6]);
-    const node = el("span", { class: "days", role: "group", "aria-label": "Days" }, weekdays.map((name, day) => {
+    const node = el("span", { class: "days", role: "group", "aria-label": t("Days") }, weekdays.map((name, day) => {
       const box = el("input", { type: "checkbox", checked: chosen.has(day), "aria-label": name });
       box.addEventListener("change", () => { if (box.checked) chosen.add(day); else chosen.delete(day); });
-      return el("label", { class: "day" }, box, el("span", { text: name.slice(0, 2) }));
+      return el("label", { class: "day" }, box, el("span", { text: dayLetters[day] }));
     }));
     node.read = () => chosen.size === 7 || chosen.size === 0 ? undefined : [...chosen].sort();
     return node;
@@ -5882,9 +5980,9 @@ enum WebAssets {
 
   function timeOfDay(value) {
     const sun = ["sunrise", "sunset"].includes(value);
-    const kind = el("select", { "aria-label": "When" }, el("option", { value: "time", text: "At" }), el("option", { value: "sunrise", text: "Sunrise" }), el("option", { value: "sunset", text: "Sunset" }));
+    const kind = el("select", { "aria-label": t("When") }, el("option", { value: "time", text: t("At") }), el("option", { value: "sunrise", text: t("Sunrise") }), el("option", { value: "sunset", text: t("Sunset") }));
     kind.value = sun ? value : "time";
-    const time = el("input", { type: "time", value: sun ? "00:00" : value || "18:00", "aria-label": "Time" });
+    const time = el("input", { type: "time", value: sun ? "00:00" : value || "18:00", "aria-label": t("Time") });
     time.classList.toggle("hidden", sun);
     kind.addEventListener("change", () => time.classList.toggle("hidden", kind.value !== "time"));
     const node = el("span", { class: "group-inline" }, kind, time);
@@ -5896,10 +5994,10 @@ enum WebAssets {
     const isNew = id === "new";
     const [data, accessories] = await Promise.all([app.api("/api/scenes"), app.api("/api/accessories")]);
     const scene = isNew ? { name: "", actions: [], triggers: [], conditions: [] } : data.scenes.find((s) => s.id === id);
-    if (!scene) { app.show(main, el("p", { class: "error", text: "No such scene." })); return; }
+    if (!scene) { app.show(main, el("p", { class: "error", text: t("No such scene.") })); return; }
     const choices = accessories.filter((a) => !a.hidden || scene.actions.some((x) => x.id === a.id));
 
-    const name = el("input", { type: "text", value: scene.name, maxLength: 64, required: true, placeholder: "Evening" });
+    const name = el("input", { type: "text", value: scene.name, maxLength: 64, required: true, placeholder: t("Evening") });
     const actions = new Set(), triggers = new Set(), conditions = new Set();
     const actionList = el("div", { class: "editor-list" }), triggerList = el("div", { class: "editor-list" }), conditionList = el("div", { class: "editor-list" });
 
@@ -5912,37 +6010,37 @@ enum WebAssets {
       actionList.append(row);
     };
     const addTrigger = (trigger = { type: "time", at: "18:00" }) => {
-      const type = el("select", { "aria-label": "Trigger" },
-        el("option", { value: "time", text: "At a time" }), el("option", { value: "sun", text: "Sunrise or sunset" }),
-        el("option", { value: "characteristic", text: "When an accessory changes" }), el("option", { value: "cron", text: "Cron" }));
+      const type = el("select", { "aria-label": t("Trigger") },
+        el("option", { value: "time", text: t("At a time") }), el("option", { value: "sun", text: t("Sunrise or sunset") }),
+        el("option", { value: "characteristic", text: t("When an accessory changes") }), el("option", { value: "cron", text: t("Cron") }));
       type.value = trigger.type;
-      const enabled = el("input", { type: "checkbox", checked: trigger.enabled !== false, "aria-label": "On" });
+      const enabled = el("input", { type: "checkbox", checked: trigger.enabled !== false, "aria-label": t("On [setting]") });
       const body = el("span", { class: "group-inline grow" });
-      const row = rowShell(type, body, el("label", { class: "toggle compact" }, enabled, el("span", { text: "On" })));
-      const draw = (t) => {
-        if (t.type === "time") {
-          const at = el("input", { type: "time", value: t.at || "18:00", "aria-label": "Time" });
-          const days = daysPicker(t.days);
+      const row = rowShell(type, body, el("label", { class: "toggle compact" }, enabled, el("span", { text: t("On [setting]") })));
+      const draw = (shown) => {
+        if (shown.type === "time") {
+          const at = el("input", { type: "time", value: shown.at || "18:00", "aria-label": t("Time") });
+          const days = daysPicker(shown.days);
           body.replaceChildren(at, days);
           row.readBody = () => ({ at: at.value, days: days.read() });
-        } else if (t.type === "sun") {
-          const event = el("select", { "aria-label": "Event" }, el("option", { value: "sunrise", text: "Sunrise" }), el("option", { value: "sunset", text: "Sunset" }));
-          event.value = t.event || "sunset";
-          const offset = el("input", { type: "number", min: -720, max: 720, step: 1, value: t.offsetMinutes ?? 0, "aria-label": "Minutes after (negative: before)", title: "Minutes after; negative for before" });
-          const days = daysPicker(t.days);
+        } else if (shown.type === "sun") {
+          const event = el("select", { "aria-label": t("Event") }, el("option", { value: "sunrise", text: t("Sunrise") }), el("option", { value: "sunset", text: t("Sunset") }));
+          event.value = shown.event || "sunset";
+          const offset = el("input", { type: "number", min: -720, max: 720, step: 1, value: shown.offsetMinutes ?? 0, "aria-label": t("Minutes after (negative: before)"), title: t("Minutes after; negative for before") });
+          const days = daysPicker(shown.days);
           body.replaceChildren(event, offset, el("span", { class: "muted", text: "min" }), days);
           row.readBody = () => ({ event: event.value, offsetMinutes: Number(offset.value) || 0, days: days.read() });
-        } else if (t.type === "characteristic") {
+        } else if (shown.type === "characteristic") {
           const pick = {};
-          const operator = el("select", { "aria-label": "Condition" }, el("option", { value: "changes", text: "changes" }), operators.map(([value, text]) => el("option", { value, text })));
-          operator.value = t.operator || "changes";
-          const [accessory, kind, holder] = characteristicPicker(accessories, pick, { id: t.id, characteristic: t.characteristic, value: t.value, list: readable });
+          const operator = el("select", { "aria-label": t("Condition") }, el("option", { value: "changes", text: t("changes") }), operators.map(([value, text]) => el("option", { value, text })));
+          operator.value = shown.operator || "changes";
+          const [accessory, kind, holder] = characteristicPicker(accessories, pick, { id: shown.id, characteristic: shown.characteristic, value: shown.value, list: readable });
           holder.classList.toggle("hidden", operator.value === "changes");
           operator.addEventListener("change", () => holder.classList.toggle("hidden", operator.value === "changes"));
           body.replaceChildren(accessory, kind, operator, holder);
           row.readBody = () => ({ ...pick.read(), operator: operator.value, ...(operator.value === "changes" ? {} : { value: pick.value.read() }) });
         } else {
-          const cron = el("input", { type: "text", value: t.cron || "0 7 * * 1-5", placeholder: "0 7 * * 1-5", "aria-label": "Cron expression", class: "mono" });
+          const cron = el("input", { type: "text", value: shown.cron || "0 7 * * 1-5", placeholder: "0 7 * * 1-5", "aria-label": t("Cron expression"), class: "mono" });
           body.replaceChildren(cron);
           row.readBody = () => ({ cron: cron.value });
         }
@@ -5955,18 +6053,18 @@ enum WebAssets {
       triggerList.append(row);
     };
     const addCondition = (condition = { type: "time", after: "sunset", before: "23:00" }) => {
-      const type = el("select", { "aria-label": "Condition" }, el("option", { value: "time", text: "Between" }), el("option", { value: "characteristic", text: "Only if" }));
+      const type = el("select", { "aria-label": t("Condition") }, el("option", { value: "time", text: t("Between") }), el("option", { value: "characteristic", text: t("Only if") }));
       type.value = condition.type;
       const body = el("span", { class: "group-inline grow" });
       const row = rowShell(type, body);
       const draw = (c) => {
         if (c.type === "time") {
           const after = timeOfDay(c.after || "sunset"), before = timeOfDay(c.before || "23:00");
-          body.replaceChildren(after, el("span", { class: "muted", text: "and" }), before);
+          body.replaceChildren(after, el("span", { class: "muted", text: t("and") }), before);
           row.readBody = () => ({ after: after.read(), before: before.read() });
         } else {
           const pick = {};
-          const operator = el("select", { "aria-label": "Comparison" }, operators.map(([value, text]) => el("option", { value, text })));
+          const operator = el("select", { "aria-label": t("Comparison") }, operators.map(([value, text]) => el("option", { value, text })));
           operator.value = c.operator || "eq";
           const [accessory, kind, holder] = characteristicPicker(accessories, pick, { id: c.id, characteristic: c.characteristic, value: c.value, list: readable });
           body.replaceChildren(accessory, kind, operator, holder);
@@ -5986,7 +6084,7 @@ enum WebAssets {
     if (isNew && choices.length) addAction();
 
     // A whole accessory's current state at once, as save_scene captures it.
-    const capture = el("select", { "aria-label": "Add the current state of an accessory" }, el("option", { value: "", text: "Add an accessory as it is now…" }),
+    const capture = el("select", { "aria-label": t("Add the current state of an accessory") }, el("option", { value: "", text: t("Add an accessory as it is now…") }),
       choices.filter((a) => writable(a).length).map((a) => el("option", { value: a.id, text: displayName(a) })));
     capture.addEventListener("change", () => {
       const accessory = choices.find((a) => a.id === capture.value);
@@ -5996,7 +6094,7 @@ enum WebAssets {
     });
 
     const line = statusLine();
-    const save = el("button", { class: "primary", type: "submit", text: isNew ? "Create the scene" : "Save" });
+    const save = el("button", { class: "primary", type: "submit", text: isNew ? t("Create the scene") : t("Save") });
     const form = el("form", { class: "card scene-editor", onsubmit: async (event) => {
       event.preventDefault();
       const body = { name: name.value.trim(), actions: [...actions].map((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()) };
@@ -6004,8 +6102,8 @@ enum WebAssets {
       try {
         const saved = await app.api(isNew ? "/api/scenes" : `/api/scenes/${encodeURIComponent(scene.id)}`, { method: isNew ? "POST" : "PUT", body });
         const security = saved.actions.some((a) => a.security);
-        if (security && body.triggers.some((t) => t.enabled !== false)) {
-          say(line, "Saved. Its lock, door or alarm actions run only when you run it here: automations leave them out.", "ok");
+        if (security && body.triggers.some((trigger) => trigger.enabled !== false)) {
+          say(line, t("Saved. Its lock, door or alarm actions run only when you run it here: automations leave them out."), "ok");
           if (isNew) setTimeout(() => app.navigate(`/scenes/${encodeURIComponent(saved.id)}`, { replace: true }), 1500);
         } else {
           app.navigate("/scenes");
@@ -6013,31 +6111,31 @@ enum WebAssets {
       } catch (e) { say(line, e.message, "error"); }
       save.disabled = false;
     } },
-      field("Name", name),
-      el("h2", { text: "Actions" }), el("p", { class: "muted", text: "The values to set, in this order." }), actionList,
-      el("div", { class: "actions" }, el("button", { type: "button", text: "Add an action", onclick: () => addAction() }), capture),
-      el("h2", { text: "Triggers" }), el("p", { class: "muted", text: data.location ? `Run it automatically. Sunrise and sunset are for ${data.location.name || `${data.location.lat}, ${data.location.lon}`}.` : "Run it automatically. Sunrise and sunset need a location: set it on the Scenes page." }),
-      triggerList, el("div", { class: "actions" }, el("button", { type: "button", text: "Add a trigger", onclick: () => addTrigger() })),
-      el("h2", { text: "Conditions" }), el("p", { class: "muted", text: "An automatic run goes ahead only when all of these hold. Running it by hand ignores them." }),
-      conditionList, el("div", { class: "actions" }, el("button", { type: "button", text: "Add a condition", onclick: () => addCondition() })),
-      el("div", { class: "save-bar" }, save, el("a", { class: "button", href: "/scenes", text: "Cancel" }),
+      field(t("Name"), name),
+      el("h2", { text: t("Actions") }), el("p", { class: "muted", text: t("The values to set, in this order.") }), actionList,
+      el("div", { class: "actions" }, el("button", { type: "button", text: t("Add an action"), onclick: () => addAction() }), capture),
+      el("h2", { text: t("Triggers") }), el("p", { class: "muted", text: data.location ? t("Run it automatically. Sunrise and sunset are for {place}.", { place: data.location.name || `${data.location.lat}, ${data.location.lon}` }) : t("Run it automatically. Sunrise and sunset need a location: set it on the Scenes page.") }),
+      triggerList, el("div", { class: "actions" }, el("button", { type: "button", text: t("Add a trigger"), onclick: () => addTrigger() })),
+      el("h2", { text: t("Conditions") }), el("p", { class: "muted", text: t("An automatic run goes ahead only when all of these hold. Running it by hand ignores them.") }),
+      conditionList, el("div", { class: "actions" }, el("button", { type: "button", text: t("Add a condition"), onclick: () => addCondition() })),
+      el("div", { class: "save-bar" }, save, el("a", { class: "button", href: "/scenes", text: t("Cancel") }),
         isNew ? null : el("span", { class: "spacer" }),
-        isNew ? null : el("button", { type: "button", class: "danger", text: "Delete", onclick: async () => {
-          if (!confirm(`Delete the scene ${scene.name}?`)) return;
+        isNew ? null : el("button", { type: "button", class: "danger", text: t("Delete"), onclick: async () => {
+          if (!confirm(t("Delete the scene {name}?", { name: scene.name }))) return;
           try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.navigate("/scenes"); } catch (e) { say(line, e.message, "error"); }
         } })),
       line);
-    app.show(main, app.breadcrumb(["Scenes", "/scenes"], [isNew ? "New scene" : scene.name]), form);
+    app.show(main, app.breadcrumb([t("Scenes"), "/scenes"], [isNew ? t("New scene") : scene.name]), form);
   }
 
   // ---- Notifications ---------------------------------------------------------------------------------
 
   const channelInfo = {
-    webhook: ["Webhook", "A JSON POST to a URL of yours: event, title, message, instance, timestamp.", [["url", "URL", "https://…", true]]],
-    ntfy: ["ntfy", "A topic on ntfy.sh or your own ntfy server; the app shows it on a phone.", [["server", "Server", "https://ntfy.sh"], ["topic", "Topic", "homeswift-…"], ["token", "Access token", "for a protected topic", true]]],
-    pushover: ["Pushover", "Your user key and an application token from pushover.net.", [["userKey", "User key", "", true], ["appToken", "Application token", "", true]]],
-    telegram: ["Telegram", "A bot's token from @BotFather, and the chat it writes to.", [["botToken", "Bot token", "123456:ABC…", true], ["chatId", "Chat id", "-100… or @channel"]]],
-    browser: ["This browser and others", "Web Push to the browsers that turned it on below. It needs HTTPS (or localhost).", []],
+    webhook: [t("Webhook"), t("A JSON POST to a URL of yours: event, title, message, instance, timestamp."), [["url", t("URL"), "https://…", true]]],
+    ntfy: ["ntfy", t("A topic on ntfy.sh or your own ntfy server; the app shows it on a phone."), [["server", t("Server"), "https://ntfy.sh"], ["topic", t("Topic"), "homeswift-…"], ["token", t("Access token"), t("for a protected topic"), true]]],
+    pushover: ["Pushover", t("Your user key and an application token from pushover.net."), [["userKey", t("User key"), "", true], ["appToken", t("Application token"), "", true]]],
+    telegram: ["Telegram", t("A bot's token from @BotFather, and the chat it writes to."), [["botToken", t("Bot token"), "123456:ABC…", true], ["chatId", t("Chat id"), t("-100… or @channel")]]],
+    browser: [t("This browser and others"), t("Web Push to the browsers that turned it on below. It needs HTTPS (or localhost)."), []],
   };
 
   /// A short name for this browser: "Safari on macOS".
@@ -6061,16 +6159,16 @@ enum WebAssets {
     const line = statusLine();
     const inputs = {};
     const test = async (channel) => {
-      say(line, "Sending…");
+      say(line, t("Sending…"));
       try {
         const answer = await app.api("/api/notifications/test", { method: "POST", body: channel ? { channel } : {} });
         const failed = answer.results.filter((r) => !r.ok);
-        say(line, failed.length ? failed.map((r) => `${r.channel}: ${r.error}`).join("; ") : `Sent through ${answer.results.map((r) => r.channel).join(", ")}.`, failed.length ? "error" : "ok");
+        say(line, failed.length ? failed.map((r) => `${r.channel}: ${HomeswiftI18n.message(r.error)}`).join("; ") : t("Sent through {channels}.", { channels: answer.results.map((r) => r.channel).join(", ") }), failed.length ? "error" : "ok");
       } catch (e) { say(line, e.message, "error"); }
     };
     const cards = Object.entries(channelInfo).map(([channel, [title, help, fields]]) => {
       const values = settings.channels[channel];
-      const enabled = el("input", { type: "checkbox", checked: values.enabled, "aria-label": `${title} on` });
+      const enabled = el("input", { type: "checkbox", checked: values.enabled, "aria-label": t("{channel} on", { channel: title }) });
       inputs[channel] = { enabled };
       const rows = fields.map(([key, label, placeholder, secret]) => {
         const input = el("input", { type: secret ? "password" : "text", value: values[key] ?? "", placeholder, autocomplete: "off", spellcheck: false });
@@ -6083,17 +6181,17 @@ enum WebAssets {
           el("label", { class: "switch" }, enabled, el("span"))),
         el("p", { class: "muted note", text: help }),
         rows.length ? el("div", {}, rows) : browserPanel(settings),
-        el("div", { class: "card-foot" }, el("span", { class: "muted", text: values.enabled ? "On" : "Off" }),
-          menuButton(`Actions for ${title}`, () => [{ label: "Send a test", icon: "bell", onSelect: () => test(channel) }])));
+        el("div", { class: "card-foot" }, el("span", { class: "muted", text: values.enabled ? t("On [setting]") : t("Off [setting]") }),
+          menuButton(t("Actions for {name}", { name: title }), () => [{ label: t("Send a test"), icon: "bell", onSelect: () => test(channel) }])));
     });
     const events = settings.events.map((event) => {
       const box = el("input", { type: "checkbox", checked: event.enabled });
       box.dataset.event = event.name;
-      return el("label", { class: "toggle" }, box, el("span", {}, el("span", { text: event.label }),
-        event.name === "dailyDigest" && !settings.assistant ? el("span", { class: "help", text: "Needs the Assistant (a HomeswiftAiKit block)." }) : null));
+      return el("label", { class: "toggle" }, box, el("span", {}, el("span", { text: HomeswiftI18n.message(event.label) }),
+        event.name === "dailyDigest" && !settings.assistant ? el("span", { class: "help", text: t("Needs the Assistant (a HomeswiftAiKit block).") }) : null));
     });
-    const digestTime = el("input", { type: "time", value: settings.dailyDigestTime, "aria-label": "Daily digest time" });
-    const save = el("button", { class: "primary", text: "Save" });
+    const digestTime = el("input", { type: "time", value: settings.dailyDigestTime, "aria-label": t("Daily digest time") });
+    const save = el("button", { class: "primary", text: t("Save") });
     save.addEventListener("click", async () => {
       const channels = {};
       for (const [channel, fields] of Object.entries(inputs)) {
@@ -6102,16 +6200,16 @@ enum WebAssets {
       }
       const body = { channels, events: Object.fromEntries([...main.querySelectorAll("[data-event]")].map((box) => [box.dataset.event, box.checked])), dailyDigestTime: digestTime.value };
       save.disabled = true;
-      try { await app.api("/api/notifications", { method: "PUT", body }); say(line, "Saved.", "ok"); } catch (e) { say(line, e.message, "error"); }
+      try { await app.api("/api/notifications", { method: "PUT", body }); say(line, t("Saved."), "ok"); } catch (e) { say(line, e.message, "error"); }
       save.disabled = false;
     });
     app.show(main,
-      app.pageHead("Notifications", "What the bridge tells you when you are not looking: it started or stopped, a plugin reported an error, an accessory stopped responding, an automation failed."),
+      app.pageHead(t("Notifications"), t("What the bridge tells you when you are not looking: it started or stopped, a plugin reported an error, an accessory stopped responding, an automation failed.")),
       el("div", { class: "grid" }, cards),
-      el("div", { class: "card" }, el("h2", { text: "Events" }),
-        el("p", { class: "muted", text: "The same event about the same thing goes out once per 15 minutes at most, and 12 notifications an hour at most." }),
-        events, field("Daily digest at", digestTime)),
-      el("div", { class: "save-bar" }, save, el("button", { text: "Send a test to every channel that is on", onclick: () => test() })), line);
+      el("div", { class: "card" }, el("h2", { text: t("Events") }),
+        el("p", { class: "muted", text: t("The same event about the same thing goes out once per 15 minutes at most, and 12 notifications an hour at most.") }),
+        events, field(t("Daily digest at"), digestTime)),
+      el("div", { class: "save-bar" }, save, el("button", { text: t("Send a test to every channel that is on"), onclick: () => test() })), line);
   }
 
   /// This browser's subscription and the others'.
@@ -6120,17 +6218,17 @@ enum WebAssets {
     const line = statusLine();
     const others = el("div", {}, settings.subscriptions.map((sub) => el("div", { class: "control" },
       el("span", { text: `${sub.label}${sub.username ? ` · ${sub.username}` : ""}` }),
-      el("button", { class: "link", text: "Remove", onclick: async () => {
+      el("button", { class: "link", text: t("Remove"), onclick: async () => {
         try { await app.api(`/api/notifications/push/subscriptions/${encodeURIComponent(sub.id)}`, { method: "DELETE" }); app.route(); } catch (e) { say(line, e.message, "error"); }
       } }))));
     if (!pushSupported()) {
-      box.append(el("p", { class: "muted note", text: window.isSecureContext ? "This browser cannot receive push notifications." : "Open this page over HTTPS (the HomeswiftUI block's https) or on localhost to turn them on here." }), others);
+      box.append(el("p", { class: "muted note", text: window.isSecureContext ? t("This browser cannot receive push notifications.") : t("Open this page over HTTPS (the HomeswiftUI block's https) or on localhost to turn them on here.") }), others);
       return box;
     }
-    const toggle = el("button", { text: "Checking…", disabled: true });
+    const toggle = el("button", { text: t("Checking…"), disabled: true });
     const draw = (subscription) => {
       toggle.disabled = false;
-      toggle.textContent = subscription ? "Turn off on this browser" : "Turn on for this browser";
+      toggle.textContent = subscription ? t("Turn off on this browser") : t("Turn on for this browser");
       toggle.onclick = async () => {
         toggle.disabled = true;
         try {
@@ -6138,7 +6236,7 @@ enum WebAssets {
             await app.api("/api/notifications/push/unsubscribe", { method: "POST", body: { endpoint: subscription.endpoint } });
             await subscription.unsubscribe();
           } else {
-            if (await Notification.requestPermission() !== "granted") throw new Error("The browser's notifications are blocked for this site.");
+            if (await Notification.requestPermission() !== "granted") throw new Error(t("The browser's notifications are blocked for this site."));
             const registration = await navigator.serviceWorker.register("/sw.js");
             await navigator.serviceWorker.ready;
             const { publicKey } = await app.api("/api/notifications/push");
@@ -6150,13 +6248,13 @@ enum WebAssets {
       };
     };
     currentSubscription().then(draw).catch(() => draw(null));
-    const testHere = el("button", { class: "link", text: "Send a test here", onclick: async () => {
+    const testHere = el("button", { class: "link", text: t("Send a test here"), onclick: async () => {
       const subscription = await currentSubscription();
-      if (!subscription) return say(line, "This browser is not subscribed.", "error");
+      if (!subscription) return say(line, t("This browser is not subscribed."), "error");
       try {
         const answer = await app.api("/api/notifications/push/test", { method: "POST", body: { endpoint: subscription.endpoint } });
         const result = answer.results[0];
-        say(line, result.ok ? "Sent." : result.error, result.ok ? "ok" : "error");
+        say(line, result.ok ? t("Sent.") : HomeswiftI18n.message(result.error), result.ok ? "ok" : "error");
       } catch (e) { say(line, e.message, "error"); }
     } });
     box.append(el("div", { class: "actions" }, toggle, testHere), others, line);
@@ -6170,10 +6268,5419 @@ enum WebAssets {
       app = context;
       app.views.scenes = (main, [id]) => id ? sceneEditor(main, id) : scenesView(main);
       app.views.notifications = notificationsView;
-      app.views.quick = async (main) => app.show(main, app.pageHead("Quick controls", "Your favourite accessories and the scenes, at hand."), quickSection(null, { standalone: true }));
+      app.views.quick = async (main) => app.show(main, app.pageHead(t("Quick controls"), t("Your favourite accessories and the scenes, at hand.")), quickSection(null, { standalone: true }));
     },
     layoutActions, groupByRoom, suggestRooms, quickSection, displayName,
   };
+})();
+
+"""#),
+        "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
+// The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
+HomeswiftI18n.add("es", {
+  "-100… or @channel": "-100… o @canal",
+  "\"{0}\" is in several caches; pass cacheFile ({1})": "\"{0}\" está en varias cachés; indica cacheFile ({1})",
+  "(done)": "(hecho)",
+  "(failed)": "(error)",
+  "(not allowed)": "(no permitido)",
+  "(running)": "(en curso)",
+  "(secret, kept)": "(secreto, se mantiene)",
+  "{0} blocks have platform {1}; give the name": "{0} bloques tienen la plataforma {1}; indica el nombre",
+  "{0} cannot do that now": "{0} no puede hacer eso ahora",
+  "{0} did not answer: the device may be off or out of reach": "{0} no ha respondido: puede que el dispositivo esté apagado o fuera de alcance",
+  "{0} did not start: {1}": "{0} no se ha iniciado: {1}",
+  "{0} gave no live video: {1}": "{0} no ha enviado vídeo en directo: {1}",
+  "{0} gave no snapshot: {1}": "{0} no ha enviado ninguna imagen: {1}",
+  "{0} has {1} lights with Adaptive Lighting; name the service": "{0} tiene {1} luces con Iluminación adaptativa; indica el servicio",
+  "{0} has {1} services with {2}; name the service": "{0} tiene {1} servicios con {2}; indica el servicio",
+  "{0} has {1} viewers already": "{0} ya tiene {1} espectadores",
+  "{0} has no Adaptive Lighting": "{0} no tiene Iluminación adaptativa",
+  "{0} has no Adaptive Lighting on service {1}": "{0} no tiene Iluminación adaptativa en el servicio {1}",
+  "{0} has no characteristic {1}": "{0} no tiene la característica {1}",
+  "{0} has no characteristic {1} on service {2}": "{0} no tiene la característica {1} en el servicio {2}",
+  "{0} has no live feed; its card shows snapshots": "{0} no tiene vídeo en directo; su tarjeta muestra imágenes fijas",
+  "{0} is busy: try again in a moment": "{0} está ocupado: vuelve a intentarlo en un momento",
+  "{0} is not allowed here": "{0} no está permitido aquí",
+  "{0} is one of {1}": "{0} es uno de estos valores: {1}",
+  "{0} is paused: its plugin does not run": "{0} está en pausa: su plugin no se está ejecutando",
+  "{0} is paused: resume it on the Plugins page to control {1}": "{0} está en pausa: reanúdalo en la página Plugins para controlar {1}",
+  "{0} is required": "{0} es obligatorio",
+  "{0} is turned off in the Home app": "{0}: la cámara está desactivada en la app Casa",
+  "{0} matches none of the allowed shapes": "{0} no coincide con ninguna de las formas permitidas",
+  "{0} must be {1}": "{0} debe ser {1}",
+  "{0} must be <= {1}": "{0} debe ser <= {1}",
+  "{0} must be >= {1}": "{0} debe ser >= {1}",
+  "{0} must be array": "{0} debe ser una lista",
+  "{0} must be at least {1} characters": "{0} debe tener al menos {1} caracteres",
+  "{0} must be at most {1} characters": "{0} debe tener como máximo {1} caracteres",
+  "{0} must be boolean": "{0} debe ser un booleano",
+  "{0} must be integer": "{0} debe ser un número entero",
+  "{0} must be number": "{0} debe ser un número",
+  "{0} must be object": "{0} debe ser un objeto",
+  "{0} must be one of {1}": "{0} debe ser uno de estos valores: {1}",
+  "{0} must be string": "{0} debe ser una cadena",
+  "{0} must have at least {1} items": "{0} debe tener al menos {1} elementos",
+  "{0} must have at most {1} items": "{0} debe tener como máximo {1} elementos",
+  "{0} needs set_security_accessory": "{0} necesita set_security_accessory",
+  "{0} of {1} unlocks, opens or disarms: use set_security_accessory": "{0} de {1} desbloquea, abre o desarma: usa set_security_accessory",
+  "{0} of the accessory could not be read": "no se ha podido leer {0} del accesorio",
+  "{0} only reports this value": "{0} solo informa de este valor",
+  "{0} refused that value": "{0} ha rechazado ese valor",
+  "{0} refused the change ({1})": "{0} ha rechazado el cambio ({1})",
+  "{0} security action(s) not run": "{0} acción(es) de seguridad sin ejecutar",
+  "{0} took too long to answer": "{0} ha tardado demasiado en responder",
+  "{0}: cannot reach the provider: {1}": "{0}: no se puede contactar con el proveedor: {1}",
+  "{0}: no answer within {1} seconds": "{0}: sin respuesta en {1} segundos",
+  "{0}: the response is not JSON": "{0}: la respuesta no es JSON",
+  "{action} (press and hold)": "{action} (mantén pulsado)",
+  "{address} · last used {when}": "{address} · último uso: {when}",
+  "{bits} bits": "{bits} bits",
+  "{bits} bits needed": "{bits} bits necesarios",
+  "{channel} on": "{channel} activado",
+  "{client} asks to use your bridge as {username}.": "{client} pide usar tu puente como {username}.",
+  "{client} asks to use your bridge. This web UI has no sign-in, so it acts as its administrator.": "{client} pide usar tu puente. Esta interfaz web no tiene inicio de sesión, así que actúa como su administrador.",
+  "{count} in {n} cache file": "{count} en {n} archivo de caché",
+  "{count} in {n} cache files": "{count} en {n} archivos de caché",
+  "{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.": "{count} en {servers} servidores, tal como los ve la app Casa. Los cambios que hagas aquí llegan a tus dispositivos.",
+  "{count} on one server, as the Home app sees them. Changes here reach your devices.": "{count} en un servidor, tal como los ve la app Casa. Los cambios que hagas aquí llegan a tus dispositivos.",
+  "{cron} · next {date}": "{cron} · próximo: {date}",
+  "{d}d {h}h": "{d} d {h} h",
+  "{file} is larger than {size}.": "{file} ocupa más de {size}.",
+  "{file} is removed from the folder.": "{file} se elimina de la carpeta.",
+  "{h}h {m}m": "{h} h {m} min",
+  "{hours} h ago": "hace {hours} h",
+  "{label} {n} of {count}": "{label} {n} de {count}",
+  "{label}: {value}": "{label}: {value}",
+  "{level}, {bits} bits": "{level}, {bits} bits",
+  "{m}m": "{m} min",
+  "{minutes} min after sunrise {days}": "{minutes} min después del amanecer {days}",
+  "{minutes} min after sunset {days}": "{minutes} min después del atardecer {days}",
+  "{minutes} min ago": "hace {minutes} min",
+  "{minutes} min before sunrise {days}": "{minutes} min antes del amanecer {days}",
+  "{minutes} min before sunset {days}": "{minutes} min antes del atardecer {days}",
+  "{model} read {n} line. Secrets and addresses were masked first; check its advice before acting on it.": "{model} ha leído {n} línea. Antes se han ocultado los secretos y las direcciones; comprueba sus consejos antes de seguirlos.",
+  "{model} read {n} lines. Secrets and addresses were masked first; check its advice before acting on it.": "{model} ha leído {n} líneas. Antes se han ocultado los secretos y las direcciones; comprueba sus consejos antes de seguirlos.",
+  "{n} accessories": "{n} accesorios",
+  "{n} accessories on {bridge}": "{n} accesorios en {bridge}",
+  "{n} accessory": "{n} accesorio",
+  "{n} accessory on {bridge}": "{n} accesorio en {bridge}",
+  "{n} day": "{n} día",
+  "{n} days": "{n} días",
+  "{n} file from {date} is staged.": "Se ha preparado {n} archivo del {date}.",
+  "{n} file from the backup is staged.": "Se ha preparado {n} archivo de la copia.",
+  "{n} files from {date} are staged.": "Se han preparado {n} archivos del {date}.",
+  "{n} files from the backup are staged.": "Se han preparado {n} archivos de la copia.",
+  "{n} Home app controller": "{n} controlador de la app Casa",
+  "{n} Home app controllers": "{n} controladores de la app Casa",
+  "{n} message": "{n} mensaje",
+  "{n} messages": "{n} mensajes",
+  "{n} min": "{n} min",
+  "{n} of {total} on": "Encendidos: {n} de {total}",
+  "{n} unchanged line": "{n} línea sin cambios",
+  "{n} unchanged lines": "{n} líneas sin cambios",
+  "{n}, newest first": "{n}, las más recientes primero",
+  "{name} · child bridge": "{name} · puente secundario",
+  "{name} · its own server": "{name} · su propio servidor",
+  "{name} (gone)": "{name} (ya no está)",
+  "{name} in the Home app": "{name} en la app Casa",
+  "{name} saved": "{name} guardado",
+  "{name}: {action}": "{name}: {action}",
+  "{name}: {setting}": "{name}: {setting}",
+  "{name}: on": "{name}: encendido",
+  "{name}: power": "{name}: encendido",
+  "{names} and {n} more": "{names} y {n} más",
+  "{platform}: {problem}": "{platform}: {problem}",
+  "{plugin} did not start: {reason}": "{plugin} no se ha iniciado: {reason}",
+  "{plugin} is paused: resume it to control {name}": "{plugin} está en pausa: reanúdalo para controlar {name}",
+  "{provider} · {cost} so far. Changes always ask first.": "{provider} · {cost} hasta ahora. Siempre te pregunta antes de cambiar algo.",
+  "{provider}. Changes always ask first.": "{provider}. Siempre te pregunta antes de cambiar algo.",
+  "{remote}: arrows move, Enter selects, Backspace goes back": "{remote}: las flechas mueven, Intro selecciona, Retroceso vuelve atrás",
+  "{scene} changes a lock, a door or an alarm ({which}). Run it?": "{scene} cambia una cerradura, una puerta o una alarma ({which}). ¿Ejecutarla?",
+  "{scene} ran, but not everything worked:\n{failures}": "{scene} se ha ejecutado, pero no todo ha funcionado:\n{failures}",
+  "{shown} of {n} line": "{shown} de {n} línea",
+  "{shown} of {n} line (the latest of the range)": "{shown} de {n} línea (las más recientes del intervalo)",
+  "{shown} of {n} lines": "{shown} de {n} líneas",
+  "{shown} of {n} lines (the latest of the range)": "{shown} de {n} líneas (las más recientes del intervalo)",
+  "{shown} of {total}": "{shown} de {total}",
+  "{size} for every {kind}": "{size} para cada {kind}",
+  "{size} for every accessory like it": "{size} para cada accesorio del mismo tipo",
+  "{state} · {names} unlocked": "{state} · sin bloquear: {names}",
+  "{temperature} inside": "{temperature} dentro",
+  "{temperature} now": "{temperature} ahora",
+  "{time} left": "quedan {time}",
+  "{title}, drawn over time": "{title}, a lo largo del tiempo",
+  "{title}, nothing recorded": "{title}, nada registrado",
+  "{title}. Nothing changes until you allow it.": "{title}. Nada cambia hasta que lo permitas.",
+  "{tool} (dry run)": "{tool} (simulación)",
+  "{trigger} (off)": "{trigger} (desactivado)",
+  "{used} of {limit}": "{used} de {limit}",
+  "{username} · Administrator": "{username} · Administrador",
+  "{username} (the username)": "{username} (el nombre de usuario)",
+  "24 hours": "24 horas",
+  "4 weeks": "4 semanas",
+  "7 days": "7 días",
+  "A backup made by Download a backup or kept below replaces this bridge's files as homeswift restarts: its pairings, accessories and plugin settings come back; this machine's bridge and web UI ports stay. Files it does not have stay as they are.": "Una copia hecha con Descargar una copia de seguridad o guardada más abajo reemplaza los archivos de este puente al reiniciarse homeswift: vuelven sus emparejamientos, accesorios y ajustes de plugins; los puertos del puente y de la interfaz web de este equipo se mantienen. Los archivos que no contiene se quedan como están.",
+  "A block of the runtime itself.": "Un bloque del propio motor.",
+  "A bot's token from @BotFather, and the chat it writes to.": "El token de un bot de @BotFather y el chat en el que escribe.",
+  "A colon is missing after this key": "Faltan los dos puntos después de esta clave",
+  "A comma before the closing brace": "Una coma antes de la llave de cierre",
+  "A comma before the closing bracket": "Una coma antes del corchete de cierre",
+  "A comma or a closing brace is missing after this value": "Falta una coma o una llave de cierre después de este valor",
+  "A comma or a closing bracket is missing after this value": "Falta una coma o un corchete de cierre después de este valor",
+  "A control character in a string must be escaped": "Un carácter de control en una cadena debe escaparse",
+  "A display name must be 1 to {0} characters": "Un nombre visible debe tener de 1 a {0} caracteres",
+  "a field name is required": "se necesita un nombre de campo",
+  "A JSON POST to a URL of yours: event, title, message, instance, timestamp.": "Un POST JSON a una URL tuya: event, title, message, instance, timestamp.",
+  "A location needs lat (-90 to 90) and lon (-180 to 180)": "Una ubicación necesita lat (de -90 a 90) y lon (de -180 a 180)",
+  "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)": "una cerradura, puerta o alarma: la confirma una persona (set_security_accessory, o la interfaz web)",
+  "a lock, door or alarm: automations do not change them": "una cerradura, puerta o alarma: las automatizaciones no las cambian",
+  "a message is required": "se necesita un mensaje",
+  "A name for {name} on these pages (the Home app keeps its own). Empty goes back to {name}.": "Un nombre para {name} en estas páginas (la app Casa mantiene el suyo). Si lo dejas vacío, vuelve a ser {name}.",
+  "A new block: Add writes it to config.json.": "Un bloque nuevo: Añadir lo escribe en config.json.",
+  "A new setup code applies to new pairings only: the Home app keeps the bridge.": "Un nuevo código de configuración solo se aplica a los nuevos emparejamientos: la app Casa conserva el puente.",
+  "A phrase of several random words is long, strong and easy to remember.": "Una frase de varias palabras al azar es larga, segura y fácil de recordar.",
+  "a platform block needs a platform": "un bloque de plataforma necesita una plataforma",
+  "a prompt is required": "se necesita una pregunta",
+  "A restore is staged: it applies when homeswift next starts.": "Hay una restauración preparada: se aplicará la próxima vez que se inicie homeswift.",
+  "A room's name must be 1 to {0} characters": "El nombre de una habitación debe tener de 1 a {0} caracteres",
+  "A scene needs 1 to {0} actions": "Una escena necesita de 1 a {0} acciones",
+  "A scheduled restart (a cron expression), the daily backup (its folder and how long it is kept) and the reverse proxies trusted for X-Forwarded-For and X-Forwarded-Proto are settings of the HomeswiftUI block.": "Un reinicio programado (una expresión cron), la copia de seguridad diaria (su carpeta y cuánto tiempo se conserva) y los proxies inversos de confianza para X-Forwarded-For y X-Forwarded-Proto son ajustes del bloque HomeswiftUI.",
+  "a security control: use set_security_accessory, one at a time": "un control de seguridad: usa set_security_accessory, de uno en uno",
+  "a size is small, medium or large": "un tamaño es small, medium o large",
+  "a token expires after 1 to {0} days, or never": "un token caduca al cabo de entre 1 y {0} días, o nunca",
+  "A topic on ntfy.sh or your own ntfy server; the app shows it on a phone.": "Un tema en ntfy.sh o en tu propio servidor ntfy; la app lo muestra en el móvil.",
+  "a username and a password are required": "se necesitan un nombre de usuario y una contraseña",
+  "a widget id is a short word": "un identificador de widget es una palabra corta",
+  "Abnormal": "Anómalo",
+  "About {name}: ": "Sobre {name}: ",
+  "Access Code": "Código de acceso",
+  "Access Control": "Control de acceso",
+  "Access Control Level": "Nivel de control de acceso",
+  "Access token": "Token de acceso",
+  "Accessories": "Accesorios",
+  "Accessory": "Accesorio",
+  "Accessory Flags": "Indicadores del accesorio",
+  "accessory id \"{0}\" is already used by {1}": "el identificador de accesorio \"{0}\" ya lo usa {1}",
+  "Accessory Identifier": "Identificador del accesorio",
+  "Accessory Information": "Información del accesorio",
+  "Accessory Metrics": "Métricas del accesorio",
+  "Accessory of its own": "Accesorio independiente",
+  "Accessory of its own, from {plugins}": "Accesorio independiente, de {plugins}",
+  "Accessory of its own, from a plugin": "Accesorio independiente, de un plugin",
+  "Accessory Runtime Information": "Información de ejecución",
+  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them.": "Valores de accesorios que se aplican juntos, a mano o según un horario, al amanecer o al atardecer, o cuando cambia un accesorio. Homeswift los guarda; la app Casa no los ve.",
+  "Account": "Cuenta",
+  "Account menu": "Menú de la cuenta",
+  "Action {0} must be an object": "La acción {0} debe ser un objeto",
+  "Action {0}: {1} is missing": "Acción {0}: falta {1}",
+  "Action {0}: the value must be a boolean, a number or a short text": "Acción {0}: el valor debe ser un booleano, un número o un texto corto",
+  "Actions": "Acciones",
+  "Actions for {name}": "Acciones de {name}",
+  "Actions for every cache": "Acciones de todas las cachés",
+  "Actions for the backup of {date}": "Acciones de la copia del {date}",
+  "Actions for the token {name}": "Acciones del token {name}",
+  "Active": "Activo",
+  "Active Identifier": "Entrada activa",
+  "Activity": "Actividad",
+  "Activity Interval": "Intervalo de actividad",
+  "Adaptive": "Adaptativa",
+  "Adaptive Lighting": "Iluminación adaptativa",
+  "Adaptive Lighting: on": "Iluminación adaptativa: activada",
+  "Adaptive Lighting: resume the Home app's schedule": "Iluminación adaptativa: reanudar el horario de la app Casa",
+  "Adaptive Lighting: turn it on once in the Home app": "Iluminación adaptativa: actívala una vez en la app Casa",
+  "Add": "Añadir",
+  "Add {item}": "Añadir {item}",
+  "Add {name}": "Añadir {name}",
+  "Add a condition": "Añadir una condición",
+  "Add a device for me": "Añade un dispositivo por mí",
+  "Add a plugin": "Añadir un plugin",
+  "Add a trigger": "Añadir un activador",
+  "Add a user": "Añadir un usuario",
+  "Add an accessory as it is now…": "Añadir un accesorio tal como está…",
+  "Add an action": "Añadir una acción",
+  "Add another": "Añadir otro",
+  "Add anyway": "Añadir de todos modos",
+  "Add it again afterwards with its setup code, as a new bridge.": "Después, vuelve a añadirlo con su código de configuración, como un puente nuevo.",
+  "Add people who may use this web UI, choose who administers it, and make tokens for scripts.": "Añade a las personas que pueden usar esta interfaz web, elige quién la administra y crea tokens para scripts.",
+  "Add the current state of an accessory": "Añadir el estado actual de un accesorio",
+  "Add to Quick Controls": "Añadir a los controles rápidos",
+  "Add user": "Añadir usuario",
+  "Added": "Añadido",
+  "Admin": "Admin",
+  "Administer": "Administración",
+  "Administrator": "Administrador",
+  "Administrator Only Access": "Acceso solo para administradores",
+  "Admins": "Administradores",
+  "Advertised with": "Anunciado con",
+  "air conditioner and thermostat": "aire acondicionado y termostato",
+  "Air Particulate Density": "Densidad de partículas",
+  "Air Particulate Size": "Tamaño de partículas",
+  "Air pressure": "Presión atmosférica",
+  "air purifier": "purificador de aire",
+  "Air Purifier": "Purificador de aire",
+  "Air quality": "Calidad del aire",
+  "Air Quality": "Calidad del aire",
+  "Air Quality Sensor": "Sensor de calidad del aire",
+  "AirPlay Enable": "AirPlay activado",
+  "alarm": "alarma",
+  "Alarm": "Alarma",
+  "All": "Todo",
+  "All controls": "Todos los controles",
+  "All lines": "Todas las líneas",
+  "All off": "Todo apagado",
+  "All servers": "Todos los servidores",
+  "All the Assistant's settings: provider, model, key, MCP server": "Todos los ajustes del Asistente: proveedor, modelo, clave, servidor MCP",
+  "Allow": "Permitir",
+  "Allow {tool}?": "¿Permitir {tool}?",
+  "Allowed": "Permitido",
+  "Allowing sends you back to {destination}. You can disconnect it from your account page at any time.": "Al permitirlo, volverás a {destination}. Puedes desconectarla en cualquier momento desde la página de tu cuenta.",
+  "already there": "ya está ahí",
+  "Also change config.json, plugins and settings, and restart the bridge: everything this web UI can do.": "Además, cambiar config.json, los plugins y los ajustes, y reiniciar el puente: todo lo que puede hacer esta interfaz web.",
+  "Also turn accessories on and off and run scenes. Locks, garage doors and alarms still ask you first.": "Además, encender y apagar accesorios y ejecutar escenas. Las cerraduras, puertas de garaje y alarmas te siguen preguntando antes.",
+  "Amber": "Ámbar",
+  "An administrator changes settings, plugins and users; anyone else sees the bridge and controls accessories.": "Un administrador cambia ajustes, plugins y usuarios; el resto ve el puente y controla los accesorios.",
+  "an API token cannot manage accounts or tokens; sign in to the web UI": "un token de API no puede gestionar cuentas ni tokens; inicia sesión en la interfaz web",
+  "an API token names no account: sign in to connect an app": "un token de API no corresponde a ninguna cuenta: inicia sesión para conectar una app",
+  "An automatic run goes ahead only when all of these hold. Running it by hand ignores them.": "Una ejecución automática solo se lleva a cabo cuando se cumplen todas. Ejecutarla a mano las ignora.",
+  "an error to explain is required": "se necesita un error que explicar",
+  "and": "y",
+  "and {n} more": "y {n} más",
+  "another attempt from this address is under way; try again in a moment": "hay otro intento en curso desde esta dirección; vuelve a intentarlo en un momento",
+  "Anyone who opens this web UI uses it": "Cualquiera que abra esta interfaz web puede usarla",
+  "API tokens": "Tokens de API",
+  "Appearance": "Apariencia",
+  "apple: the input is too long for the on-device model (about 4,000 tokens); shorten it or use a cloud provider": "apple: el texto es demasiado largo para el modelo del dispositivo (unos 4000 tokens); acórtalo o usa un proveedor en la nube",
+  "apple: the on-device model does not support this language": "apple: el modelo del dispositivo no admite este idioma",
+  "apple: the on-device model is busy; try again": "apple: el modelo del dispositivo está ocupado; vuelve a intentarlo",
+  "apple: the on-device model is not ready; try again in a few minutes": "apple: el modelo del dispositivo no está listo; vuelve a intentarlo en unos minutos",
+  "Application token": "Token de aplicación",
+  "Applied; homeswift restarts by itself for the rest ({0}).": "Aplicado; homeswift se reinicia solo para el resto ({0}).",
+  "Applied.": "Aplicado.",
+  "Apply what is ticked": "Aplicar lo marcado",
+  "Apps you allowed to use the bridge through its MCP server, which is off now.": "Las apps a las que has permitido usar el puente a través de su servidor MCP, que ahora está desactivado.",
+  "Apps you allowed to use the bridge through its MCP server. To add one in claude.ai or the Claude apps, make a custom connector with {address}.": "Las apps a las que has permitido usar el puente a través de su servidor MCP. Para añadir una en claude.ai o en las apps de Claude, crea un conector personalizado con {address}.",
+  "Armed · {mode}": "Armado · {mode}",
+  "Ask for a code from an authenticator app (Passwords on iPhone and Mac, Google Authenticator, 1Password…) after the password, so a password alone no longer signs in.": "Pide un código de una app de autenticación (Contraseñas en iPhone y Mac, Google Authenticator, 1Password…) después de la contraseña, para que una contraseña sola ya no baste para iniciar sesión.",
+  "Ask the Assistant": "Preguntar al Asistente",
+  "Ask the Assistant ({provider})": "Preguntar al Asistente ({provider})",
+  "Ask the Assistant ({shortcut})": "Preguntar al Asistente ({shortcut})",
+  "Ask, or tell it what to set up…": "Pregunta, o dile qué configurar…",
+  "Asking the browser…": "Preguntando al navegador…",
+  "Asking the provider…": "Preguntando al proveedor…",
+  "Asset Update": "Actualización de recursos",
+  "Asset Update Readiness": "Actualización de recursos lista",
+  "Assistant": "Asistente",
+  "Assistant · {model}": "Asistente · {model}",
+  "At": "A las",
+  "At {time} {days}": "A las {time} {days}",
+  "At a time": "A una hora",
+  "At least {n} bits of entropy (ANSSI: medium to strong)": "Al menos {n} bits de entropía (ANSSI: de medio a fuerte)",
+  "At least {n} characters": "Al menos {n} caracteres",
+  "At most {0} conditions": "{0} condiciones como máximo",
+  "At most {0} rooms": "{0} habitaciones como máximo",
+  "At most {0} scenes": "{0} escenas como máximo",
+  "At most {0} triggers": "{0} activadores como máximo",
+  "At most 20 devices can receive browser notifications": "Como máximo 20 dispositivos pueden recibir notificaciones del navegador",
+  "At most 5 devices per user can receive browser notifications": "Como máximo 5 dispositivos por usuario pueden recibir notificaciones del navegador",
+  "at weekends": "los fines de semana",
+  "Audio Feedback": "Respuesta de audio",
+  "Audio Stream Management": "Gestión del flujo de audio",
+  "Audit log": "Registro de auditoría",
+  "Aurora": "Aurora",
+  "auto": "auto",
+  "Auto": "Auto",
+  "Automatic": "Automático",
+  "Automatic (now {port})": "Automático (ahora {port})",
+  "Automatic [port]": "Automático",
+  "Automatic follows the system's light or dark appearance.": "Automático sigue la apariencia clara u oscura del sistema.",
+  "Average": "Media",
+  "Average of {n} call · longest {longest}": "Media de {n} llamada · la más larga {longest}",
+  "Average of {n} calls · longest {longest}": "Media de {n} llamadas · la más larga {longest}",
+  "Away": "Fuera",
+  "Back": "Atrás",
+  "Back from the cache, not added again by its plugin": "Recuperado de la caché, pero su plugin no lo ha vuelto a añadir",
+  "Back to its page": "Volver a su página",
+  "Back to the chat": "Volver al chat",
+  "Back to the usual layout": "Volver a la disposición habitual",
+  "Back up now": "Hacer copia ahora",
+  "Back up this bridge": "Hacer una copia de seguridad de este puente",
+  "Backup script": "Script de copia de seguridad",
+  "Backups": "Copias de seguridad",
+  "bad index": "índice incorrecto",
+  "Battery": "Batería",
+  "Battery Level": "Nivel de batería",
+  "Behind the glass of every page.": "Detrás del cristal de cada página.",
+  "Between": "Entre",
+  "Blowing": "Ventilando",
+  "Blue": "Azul",
+  "Bot token": "Token del bot",
+  "Breadcrumb": "Ruta de navegación",
+  "Bridge": "Puente",
+  "Bridges": "Puentes",
+  "Bridges and accessories": "Puentes y accesorios",
+  "Bridges only": "Solo puentes",
+  "Brightness": "Brillo",
+  "Browser's language": "Idioma del navegador",
+  "Built in": "Integrado",
+  "By plugin": "Por plugin",
+  "By room": "Por habitación",
+  "Cached accessories": "Accesorios en caché",
+  "camera": "cámara",
+  "Camera": "Cámara",
+  "Camera Operating Mode": "Modo de funcionamiento de la cámara",
+  "Camera Operating Mode Indicator": "Indicador de funcionamiento de la cámara",
+  "Cancel": "Cancelar",
+  "Cannot connect": "No se puede conectar",
+  "cannot read {0}": "no se puede leer {0}",
+  "Cannot restore __REDACTED__ (no matching value in the current config) in {0}. Supply the real value, or keep the entry's identifying fields (platform, accessory, name) unchanged.": "No se puede restaurar __REDACTED__ (no hay ningún valor que coincida en la configuración actual) en {0}. Indica el valor real, o deja sin cambios los campos que identifican la entrada (platform, accessory, name).",
+  "Carbon Dioxide Detected": "Dióxido de carbono detectado",
+  "Carbon Dioxide Level": "Nivel de CO₂",
+  "Carbon Dioxide Peak Level": "Pico de CO₂",
+  "Carbon Dioxide Sensor": "Sensor de CO₂",
+  "Carbon Monoxide Detected": "Monóxido de carbono detectado",
+  "Carbon Monoxide Level": "Nivel de CO",
+  "Carbon Monoxide Peak Level": "Pico de CO",
+  "Carbon Monoxide Sensor": "Detector de CO",
+  "CCA Energy Detect Threshold": "Umbral de detección de energía CCA",
+  "CCA Signal Detect Threshold": "Umbral de detección de señal CCA",
+  "Celsius (°C)": "Celsius (°C)",
+  "Change {settings} of {block}?": "¿Cambiar {settings} de {block}?",
+  "Change password": "Cambiar contraseña",
+  "Change the settings of {block}?": "¿Cambiar los ajustes de {block}?",
+  "Change your password": "Cambia tu contraseña",
+  "Changed: {changes}.": "Cambios: {changes}.",
+  "Changed: {changes}. {result}": "Cambios: {changes}. {result}",
+  "Changed: nothing. {result}": "Sin cambios. {result}",
+  "changes": "cambia",
+  "Characteristic": "Característica",
+  "characteristic and value are required": "se necesitan characteristic y value",
+  "Charging": "Cargando",
+  "Charging State": "Estado de carga",
+  "Chat id": "ID del chat",
+  "Check the settings below before saving them, and see what it costs.": "Comprueba los ajustes de abajo antes de guardarlos y mira lo que cuesta.",
+  "Checking the backup…": "Comprobando la copia de seguridad…",
+  "Checking the request…": "Comprobando la solicitud…",
+  "Checking…": "Comprobando…",
+  "child bridge": "puente secundario",
+  "Child bridge": "Puente secundario",
+  "Child bridges": "Puentes secundarios",
+  "Child lock": "Bloqueo infantil",
+  "Choose a JPEG, PNG or WebP image.": "Elige una imagen JPEG, PNG o WebP.",
+  "Choose another image…": "Elegir otra imagen…",
+  "choose it": "elígela",
+  "choose it [file]": "elígelo",
+  "choose read, control or admin, up to what your account may do": "elige read, control o admin, hasta lo que tu cuenta pueda hacer",
+  "Clear [smoke]": "Sin humo",
+  "Clearer names": "Nombres más claros",
+  "Client or user": "Cliente o usuario",
+  "Clockwise": "Sentido horario",
+  "close": "cerrar",
+  "Close": "Cerrar",
+  "Close (Esc)": "Cerrar (Esc)",
+  "Close the diagnosis": "Cerrar el diagnóstico",
+  "Close the explanation": "Cerrar la explicación",
+  "Closed": "Cerrado",
+  "Closed and locked": "Cerrado y bloqueado",
+  "Closing": "Cerrando",
+  "Closing…": "Cerrando…",
+  "Cloud Relay": "Relé en la nube",
+  "Code from your authenticator app": "Código de tu app de autenticación",
+  "Color Temperature": "Temperatura de color",
+  "Colour": "Color",
+  "common words add little": "las palabras comunes aportan poco",
+  "Compare": "Comparar",
+  "Compare with config.json": "Comparar con config.json",
+  "Comparing…": "Comparando…",
+  "Comparison": "Comparación",
+  "compiled into this homeswift": "compilados en este homeswift",
+  "Condition": "Condición",
+  "Condition {0} must be an object": "La condición {0} debe ser un objeto",
+  "Condition {0}: {1} is missing": "Condición {0}: falta {1}",
+  "Condition {0}: a time must be HH:mm, sunrise or sunset": "Condición {0}: una hora debe ser HH:mm, sunrise o sunset",
+  "Condition {0}: invalid operator": "Condición {0}: operador no válido",
+  "Condition {0}: the type must be time or characteristic": "Condición {0}: el tipo debe ser time o characteristic",
+  "Condition {0}: the value must be a boolean, a number or a short text": "Condición {0}: el valor debe ser un booleano, un número o un texto corto",
+  "Condition {0}: the window is empty": "Condición {0}: la franja horaria está vacía",
+  "Conditions": "Condiciones",
+  "Config": "Configuración",
+  "config.json backups": "Copias de seguridad de config.json",
+  "config.json must be a JSON object": "config.json debe ser un objeto JSON",
+  "config.json now": "config.json actual",
+  "config.json, each bridge's HomeKit identity and pairings, accessory caches, plugin files, the web UI's users": "config.json, la identidad HomeKit y los emparejamientos de cada puente, las cachés de accesorios, los archivos de los plugins, los usuarios de la interfaz web",
+  "config.json: \"{0}\" is not a valid setup code (eight digits as XXX-XX-XXX, not trivial)": "config.json: \"{0}\" no es un código de configuración válido (ocho dígitos con el formato XXX-XX-XXX, no triviales)",
+  "config.json: \"{0}\" is not a valid username (six hex octets, XX:XX:XX:XX:XX:XX)": "config.json: \"{0}\" no es un username válido (seis octetos hexadecimales, XX:XX:XX:XX:XX:XX)",
+  "config.json: \"{0}\" must be {1}": "config.json: \"{0}\" debe ser {1}",
+  "config.json: \"{0}\" must be a platform name": "config.json: \"{0}\" debe ser un nombre de plataforma",
+  "config.json: \"{0}\" must be an array": "config.json: \"{0}\" debe ser una lista",
+  "config.json: \"{0}\" must be an array of names": "config.json: \"{0}\" debe ser una lista de nombres",
+  "config.json: \"{0}\" must be an object": "config.json: \"{0}\" debe ser un objeto",
+  "config.json: \"{0}\" must be true or false": "config.json: \"{0}\" debe ser true o false",
+  "config.json's bridge block": "El bloque bridge de config.json",
+  "Configuration": "Configuración",
+  "Configuration State": "Estado de la configuración",
+  "Connect {client}": "Conectar {client}",
+  "Connect to Homeswift": "Conectar con Homeswift",
+  "Connected apps": "Apps conectadas",
+  "Connecting…": "Conectando…",
+  "Contact": "Contacto",
+  "Contact Sensor": "Sensor de contacto",
+  "Contact Sensor State": "Estado del sensor de contacto",
+  "Continue": "Continuar",
+  "Control": "Control",
+  "Controllers": "Controladores",
+  "cool": "frío",
+  "Cool": "Frío",
+  "Cool to": "Enfriar a",
+  "Cooling": "Enfriando",
+  "Cooling Threshold Temperature": "Umbral de refrigeración",
+  "Cooling to {temperature}": "Enfriando a {temperature}",
+  "Copied": "Copiado",
+  "Copied {n} line": "{n} línea copiada",
+  "Copied {n} lines": "{n} líneas copiadas",
+  "Copy": "Copiar",
+  "Copy it now: it is shown once. Send it as {header}.": "Cópialo ahora: solo se muestra una vez. Envíalo como {header}.",
+  "Copy the lines shown": "Copiar las líneas mostradas",
+  "Cost": "Coste",
+  "Cost this month": "Coste este mes",
+  "Cost today": "Coste hoy",
+  "Costs come from the token counts at today's prices; only Claude models are priced.": "Los costes salen del número de tokens a los precios de hoy; solo los modelos Claude tienen precio.",
+  "could not change the cache: {0}": "no se ha podido cambiar la caché: {0}",
+  "Count": "Número",
+  "Counter-clockwise": "Sentido antihorario",
+  "CPU": "CPU",
+  "CPUs": "CPU",
+  "Create account": "Crear cuenta",
+  "Create an API token": "Crear un token de API",
+  "Create the administrator account for this bridge. The set-up code is in the bridge's output, next to the web UI address.": "Crea la cuenta de administrador de este puente. El código de configuración está en la salida del puente, junto a la dirección de la interfaz web.",
+  "Create the scene": "Crear la escena",
+  "Create token": "Crear token",
+  "Creating the account…": "Creando la cuenta…",
+  "Cron": "Cron",
+  "Cron {expression}": "Cron {expression}",
+  "Cron expression": "Expresión cron",
+  "cross-site request refused": "solicitud entre sitios rechazada",
+  "Current": "Vigente",
+  "Current Air Purifier State": "Estado del purificador",
+  "Current Ambient Light Level": "Luz ambiental",
+  "Current Door State": "Estado de la puerta",
+  "Current Fan State": "Estado del ventilador",
+  "Current Heater-Cooler State": "Estado de la climatización",
+  "Current Heating Cooling State": "Estado de la climatización",
+  "Current Horizontal Tilt Angle": "Inclinación horizontal actual",
+  "Current Humidifier-Dehumidifier State": "Estado del humidificador",
+  "Current password": "Contraseña actual",
+  "Current Position": "Posición actual",
+  "Current Relative Humidity": "Humedad relativa",
+  "Current Slat State": "Estado de las lamas",
+  "Current Temperature": "Temperatura actual",
+  "Current Tilt Angle": "Inclinación actual",
+  "Current Transport": "Transporte actual",
+  "Current Vertical Tilt Angle": "Inclinación vertical actual",
+  "Custom (cron)": "Personalizado (cron)",
+  "Custom range…": "Intervalo personalizado…",
+  "Customise the Status page": "Personalizar la página Estado",
+  "Customise this page": "Personalizar esta página",
+  "Customise this page…": "Personalizar esta página…",
+  "Cyan": "Cian",
+  "Daily backup": "Copia de seguridad diaria",
+  "Daily digest": "Resumen diario",
+  "Daily digest at": "Resumen diario a las",
+  "Daily digest time": "Hora del resumen diario",
+  "Dark": "Oscuro",
+  "Days": "Días",
+  "Days (none: every day)": "Días (ninguno: todos los días)",
+  "defaults are by kind of widget (climate, light…)": "los valores predeterminados van por tipo de widget (climate, light…)",
+  "Degraded": "Degradado",
+  "Delete": "Eliminar",
+  "Delete the scene {name}?": "¿Eliminar la escena {name}?",
+  "Delete this backup?": "¿Eliminar esta copia de seguridad?",
+  "Delete…": "Eliminar…",
+  "Deny": "Denegar",
+  "Describe your setup": "Describe tu instalación",
+  "Details": "Detalles",
+  "Device ID": "ID del dispositivo",
+  "Diagnose": "Diagnosticar",
+  "Diagnostics": "Diagnóstico",
+  "Dictate": "Dictar",
+  "Dictate: tap, or hold while you speak": "Dictar: toca, o mantén pulsado mientras hablas",
+  "Digest actions": "Acciones del resumen",
+  "Digital Zoom": "Zoom digital",
+  "Direction": "Dirección",
+  "Disabled": "Desactivado",
+  "Discard": "Descartar",
+  "Disconnect": "Desconectar",
+  "Disconnect {name}? It is refused at once and must sign in again.": "¿Desconectar {name}? Pierde el acceso al momento y tendrá que volver a iniciar sesión.",
+  "Dismiss": "Descartar",
+  "Don't allow": "No permitir",
+  "Done": "OK",
+  "Done [outcome]": "Hecho",
+  "Door": "Puerta",
+  "Doorbell": "Timbre",
+  "Double press": "Pulsación doble",
+  "Down": "Abajo",
+  "Download": "Descargar",
+  "Download a backup": "Descargar una copia de seguridad",
+  "Download the package": "Descargar el paquete",
+  "Download the whole log": "Descargar todo el registro",
+  "Download this range": "Descargar este intervalo",
+  "Drop a backup (.tar) here, or {choose}": "Suelta aquí una copia de seguridad (.tar) o {choose}",
+  "Drop or choose a backup to restore": "Suelta o elige una copia de seguridad para restaurar",
+  "Drop or choose the file for {key}": "Suelta o elige el archivo para {key}",
+  "Drop the file here, or ": "Suelta el archivo aquí, o ",
+  "Dry": "Seco",
+  "Duration": "Duración",
+  "each accessory change needs its id": "cada cambio de accesorio necesita su id",
+  "Earlier chats": "Chats anteriores",
+  "Edit": "Editar",
+  "Edit {name}": "Editar {name}",
+  "Edit as": "Editar como",
+  "Edit as JSON": "Editar como JSON",
+  "Edit as JSON (Expert)": "Editar como JSON (vista experta)",
+  "Edit settings (Expert)": "Editar ajustes (vista experta)",
+  "Edit the budgets": "Editar los presupuestos",
+  "empty": "vacía",
+  "Empty the log? Every line goes, in memory and the files kept on disk (up to a week). This cannot be undone.": "¿Vaciar el registro? Se borran todas las líneas, en memoria y en los archivos guardados en disco (hasta una semana). No se puede deshacer.",
+  "Empty the log…": "Vaciar el registro…",
+  "Enabled": "Activado",
+  "Entropy of the new password": "Entropía de la nueva contraseña",
+  "Errors": "Errores",
+  "Evening": "Noche",
+  "Event": "Evento",
+  "Event Retransmission Maximum": "Máximo de retransmisiones de eventos",
+  "Event Transmission Counters": "Contadores de transmisión de eventos",
+  "Events": "Eventos",
+  "Every accessory is hidden.": "Todos los accesorios están ocultos.",
+  "Every change made through the MCP server, the Assistant's chat and this web UI, with who made it.": "Cada cambio hecho a través del servidor MCP, el chat del Asistente y esta interfaz web, con quién lo hizo.",
+  "Every controller was removed and disconnected: add the bridge again in the Home app with its setup code.": "Se han eliminado y desconectado todos los controladores: vuelve a añadir el puente en la app Casa con su código de configuración.",
+  "every day": "todos los días",
+  "Every Home app controller paired with it is forgotten and disconnected. The Home app loses it with its accessories, their rooms, scenes and automations.": "Todos los controladores de la app Casa emparejados con él se olvidan y se desconectan. La app Casa lo pierde junto con sus accesorios, sus habitaciones, escenas y automatizaciones.",
+  "Every one": "Todas",
+  "Every outcome": "Todos los resultados",
+  "Every plugin's accessories leave HomeKit, and the plugins start again on empty caches, adding the devices they reach.": "Los accesorios de todos los plugins salen de HomeKit y los plugins vuelven a empezar con las cachés vacías, añadiendo los dispositivos a los que llegan.",
+  "Every setting of the block, as config.json keeps it, including what {plugin}'s page does not show. A save reloads the plugin.": "Todos los ajustes del bloque, tal como los guarda config.json, incluido lo que la página de {plugin} no muestra. Al guardar, el plugin se recarga.",
+  "Every setting of this plugin's block, as config.json keeps it, including what this page does not show.": "Todos los ajustes del bloque de este plugin, tal como los guarda config.json, incluido lo que esta página no muestra.",
+  "Every subscribed browser has unsubscribed": "Todos los navegadores suscritos han cancelado la suscripción",
+  "Everything an administrator does, except users and tokens.": "Todo lo que hace un administrador, salvo usuarios y tokens.",
+  "Everything kept": "Todo lo guardado",
+  "Excellent": "Excelente",
+  "Expected a key in double quotes": "Se esperaba una clave entre comillas dobles",
+  "Expected a scene": "Se esperaba una escena",
+  "Expert": "Vista experta",
+  "Expert.": "Vista experta.",
+  "Expired": "Caducado",
+  "Expires": "Caduca",
+  "Explain": "Explicar",
+  "Fahrenheit (°F)": "Fahrenheit (°F)",
+  "Failed": "Error",
+  "Fair": "Aceptable",
+  "fan": "ventilador",
+  "Fan": "Ventilador",
+  "Fanv 2": "Ventilador",
+  "Fanv2": "Ventilador",
+  "Faucet": "Grifo",
+  "Favourite accessories and scenes": "Accesorios y escenas favoritos",
+  "Filter": "Filtro",
+  "filter {percent} %": "filtro {percent} %",
+  "Filter by client": "Filtrar por cliente",
+  "Filter by tool": "Filtrar por herramienta",
+  "Filter Change Indication": "Cambio de filtro",
+  "Filter life": "Vida del filtro",
+  "Filter Life Level": "Vida del filtro",
+  "Filter Maintenance": "Mantenimiento del filtro",
+  "Filter text": "Filtrar texto",
+  "Filter the log": "Filtrar el registro",
+  "Firmware revision": "Versión del firmware",
+  "Firmware Revision": "Versión del firmware",
+  "Firmware Update": "Actualización del firmware",
+  "Folder": "Carpeta",
+  "Follow": "Seguir",
+  "for {time}": "durante {time}",
+  "for a protected topic": "para un tema protegido",
+  "For scripts: {header} on {path}": "Para scripts: {header} en {path}",
+  "Forest": "Bosque",
+  "Forget “{title}”": "Olvidar «{title}»",
+  "Forget it": "Olvidarla",
+  "Forget this chat": "Olvidar este chat",
+  "Form": "Formulario",
+  "Format": "Formatear",
+  "Found: save to keep it.": "Encontrada: guarda para conservarla.",
+  "Fr": "Vi",
+  "Fri": "Vie",
+  "From": "Desde",
+  "From {model}. Untick what you do not want; nothing changes until you apply. Names show on these pages only: the Home app keeps its own.": "De {model}. Desmarca lo que no quieras; nada cambia hasta que apliques. Los nombres solo se muestran en estas páginas: la app Casa mantiene los suyos.",
+  "from must be before to": "from debe ser anterior a to",
+  "Full screen": "Pantalla completa",
+  "Garage Door Opener": "Puerta de garaje",
+  "gate": "portón",
+  "GitHub answered HTTP {0}": "GitHub ha respondido HTTP {0}",
+  "GitHub's answer has no release": "La respuesta de GitHub no incluye ninguna versión",
+  "GitHub's latest release has an unexpected tag": "La última versión en GitHub tiene una etiqueta inesperada",
+  "Good": "Buena",
+  "Graphite": "Grafito",
+  "Green": "Verde",
+  "group of switches": "grupo de interruptores",
+  "Group the accessories": "Agrupar los accesorios",
+  "grouping is plugin, room or none": "grouping es plugin, room o none",
+  "Hardware Revision": "Versión del hardware",
+  "Health, accessories, plugins, uptime": "Salud, accesorios, plugins, tiempo activo",
+  "Heart Beat": "Latido",
+  "heat": "calor",
+  "Heat": "Calor",
+  "Heat to": "Calentar a",
+  "Heater Cooler": "Climatizador",
+  "Heating": "Calentando",
+  "Heating Threshold Temperature": "Umbral de calefacción",
+  "Heating to {temperature}": "Calentando a {temperature}",
+  "Hide": "Ocultar",
+  "Hide the payload": "Ocultar el contenido",
+  "Highest {highest} · lowest {lowest}": "Máximo {highest} · mínimo {lowest}",
+  "History": "Historial",
+  "Hold Position": "Mantener la posición",
+  "hold to open": "mantén para abrir",
+  "Hold to open": "Mantén para abrir",
+  "hold to turn off": "mantén para desactivar",
+  "Hold to turn off": "Mantén para desactivar",
+  "hold to turn on": "mantén para encender",
+  "Hold to turn on": "Mantén para encender",
+  "hold to unlock": "mantén para desbloquear",
+  "Hold to unlock": "Mantén para desbloquear",
+  "Home": "Inicio",
+  "Home [alarm]": "En casa",
+  "Home app": "App Casa",
+  "Home app controllers": "Controladores de la app Casa",
+  "Home app requests": "Solicitudes de la app Casa",
+  "HomeKit Camera Active": "Cámara HomeKit activa",
+  "HomeKit pairings": "Emparejamientos de HomeKit",
+  "HomeKit Secure Video records this camera's events": "HomeKit Secure Video graba los eventos de esta cámara",
+  "Homeswift {version} is available": "Homeswift {version} está disponible",
+  "homeswift did not come back; check its log.": "homeswift no ha vuelto; consulta su registro.",
+  "Homeswift listens and advertises on every interface, with the system's mDNS: there is no interface or mDNS backend to choose, as Homebridge's bind and advertiser settings do.": "Homeswift escucha y se anuncia en todas las interfaces, con el mDNS del sistema: no hay interfaz ni motor mDNS que elegir, como sí ocurre con los ajustes bind y advertiser de Homebridge.",
+  "homeswift restarts now and starts on the restored files.": "homeswift se reinicia ahora y arranca con los archivos restaurados.",
+  "homeswift restarts on the backup's files: config.json, the bridges' HomeKit identities and pairings, accessory caches, plugin files and the web UI's users. What changed since it was made is lost.": "homeswift se reinicia con los archivos de la copia: config.json, las identidades HomeKit y los emparejamientos de los puentes, las cachés de accesorios, los archivos de los plugins y los usuarios de la interfaz web. Lo que haya cambiado desde entonces se pierde.",
+  "HomeswiftAiKit: \"{0}\" must be {1}": "HomeswiftAiKit: \"{0}\" debe ser {1}",
+  "HomeswiftAiKit: \"{0}\" must be a non-negative integer": "HomeswiftAiKit: \"{0}\" debe ser un número entero no negativo",
+  "HomeswiftAiKit: \"{0}\" must be a positive integer": "HomeswiftAiKit: \"{0}\" debe ser un número entero positivo",
+  "HomeswiftAiKit: \"{0}\" must be a positive number": "HomeswiftAiKit: \"{0}\" debe ser un número positivo",
+  "HomeswiftAiKit: \"{0}\" must be a URL": "HomeswiftAiKit: \"{0}\" debe ser una URL",
+  "HomeswiftAiKit: \"{0}\" must be an object": "HomeswiftAiKit: \"{0}\" debe ser un objeto",
+  "HomeswiftAiKit: \"{0}\" must be one of {1}": "HomeswiftAiKit: \"{0}\" debe ser uno de estos valores: {1}",
+  "HomeswiftAiKit: \"{0}\" must be responses or chat": "HomeswiftAiKit: \"{0}\" debe ser responses o chat",
+  "HomeswiftAiKit: {0} needs an API key: set \"apiKey\" in the block": "HomeswiftAiKit: {0} necesita una clave de API: define \"apiKey\" en el bloque",
+  "HomeswiftAiKit: {0} needs an API key: set \"apiKey\" in the block or {1} in the environment": "HomeswiftAiKit: {0} necesita una clave de API: define \"apiKey\" en el bloque o {1} en el entorno",
+  "HomeswiftAiKit: Apple Intelligence is turned off in System Settings": "HomeswiftAiKit: Apple Intelligence está desactivado en Ajustes del Sistema",
+  "HomeswiftAiKit: Apple's on-device model is only available on macOS": "HomeswiftAiKit: el modelo del dispositivo de Apple solo está disponible en macOS",
+  "HomeswiftAiKit: Apple's on-device model needs macOS 26 or later": "HomeswiftAiKit: el modelo del dispositivo de Apple necesita macOS 26 o posterior",
+  "HomeswiftAiKit: the on-device model is still downloading; try again in a few minutes": "HomeswiftAiKit: el modelo del dispositivo aún se está descargando; vuelve a intentarlo en unos minutos",
+  "HomeswiftAiKit: the on-device model is unavailable": "HomeswiftAiKit: el modelo del dispositivo no está disponible",
+  "HomeswiftAiKit: this Mac does not support Apple Intelligence": "HomeswiftAiKit: este Mac no es compatible con Apple Intelligence",
+  "hours must be between 0 and 8760": "hours debe estar entre 0 y 8760",
+  "How accessories and plugin pages show them. HomeKit and the Home app keep their own setting.": "Cómo las muestran los accesorios y las páginas de los plugins. HomeKit y la app Casa mantienen su propio ajuste.",
+  "How long plugins take to reach their devices or clouds": "Lo que tardan los plugins en llegar a sus dispositivos o nubes",
+  "How long the bridge takes to answer reads and writes": "Lo que tarda el puente en responder a lecturas y escrituras",
+  "How the web UI looks for you, on every browser you sign in to.": "Cómo se ve la interfaz web para ti, en cada navegador en el que inicies sesión.",
+  "Hue": "Tono",
+  "Humidifier Dehumidifier": "Humidificador-deshumidificador",
+  "Humidity": "Humedad",
+  "Humidity Sensor": "Sensor de humedad",
+  "I can look at your bridge, set up a device with its plugin, or change a setting. I ask before I change anything.": "Puedo revisar tu puente, configurar un dispositivo con su plugin o cambiar un ajuste. Pregunto antes de cambiar nada.",
+  "id and allow are required": "se necesitan id y allow",
+  "id is required": "se necesita id",
+  "Identify": "Identificar",
+  "Idle": "En reposo",
+  "Idle · auto to {temperature}": "En reposo · auto a {temperature}",
+  "Idle · cool to {temperature}": "En reposo · enfriar a {temperature}",
+  "Idle · heat to {temperature}": "En reposo · calentar a {temperature}",
+  "Image Mirroring": "Imagen reflejada",
+  "Image Rotation": "Rotación de la imagen",
+  "In 30 days": "En 30 días",
+  "In 90 days": "En 90 días",
+  "In a year": "En un año",
+  "In the form: review it, then Save.": "En el formulario: revísalo y pulsa Guardar.",
+  "In the Home app": "En la app Casa",
+  "In the Home app: Add Accessory, then scan this code, or choose More options and type it.": "En la app Casa: toca Añadir accesorio y escanea este código, o elige Más opciones e introdúcelo.",
+  "In the web UI's settings": "En los ajustes de la interfaz web",
+  "In use": "En uso",
+  "In Use": "En uso",
+  "In use [used]": "En uso",
+  "Inactive": "Inactivo",
+  "Inferior": "Deficiente",
+  "Info": "Info",
+  "Input": "Entrada",
+  "Inside": "Interior",
+  "Inside · {humidity} %": "Interior · {humidity} %",
+  "Interfaces": "Interfaces",
+  "invalid configuration: \"{0}\" must be {1}": "configuración no válida: \"{0}\" debe ser {1}",
+  "invalid configuration: \"{0}\" must be {1}, not null": "configuración no válida: \"{0}\" debe ser {1}, no null",
+  "invalid configuration: {0}": "configuración no válida: {0}",
+  "invalid configuration: missing \"{0}\"": "configuración no válida: falta \"{0}\"",
+  "Invalid ntfy access token": "Token de acceso de ntfy no válido",
+  "Invalid push endpoint": "Endpoint push no válido",
+  "Invalid push endpoint or keys": "Endpoint o claves push no válidos",
+  "Invalid push subscription keys": "Claves de suscripción push no válidas",
+  "Invalid Pushover application token": "Token de aplicación de Pushover no válido",
+  "Invalid Pushover user key": "Clave de usuario de Pushover no válida",
+  "Invalid regular expression": "Expresión regular no válida",
+  "Invalid Telegram bot token": "Token de bot de Telegram no válido",
+  "Invalid Telegram chat id": "ID de chat de Telegram no válido",
+  "invalid URL": "URL no válida",
+  "Irrigation": "Riego",
+  "Irrigation System": "Sistema de riego",
+  "is": "es",
+  "is above": "es mayor que",
+  "is at least": "es al menos",
+  "is at most": "es como máximo",
+  "is below": "es menor que",
+  "is not": "no es",
+  "It changes a lock, a door or an alarm: the page asks before running it, and automations leave those actions out.": "Cambia una cerradura, una puerta o una alarma: la página pregunta antes de ejecutarla, y las automatizaciones omiten esas acciones.",
+  "It did not answer.": "No ha respondido.",
+  "It did not start: the log says why.": "No se ha iniciado: el registro dice por qué.",
+  "It leaves HomeKit now. A plugin that still has the device adds it again, under the same ids, so rooms and automations come back with it.": "Sale de HomeKit ahora mismo. Un plugin que todavía tenga el dispositivo lo vuelve a añadir con los mismos ids, así que las habitaciones y automatizaciones vuelven con él.",
+  "It may": "Podrá",
+  "It replaces config.json (which is kept as a backup first) and applies at once, as a save does: plugins reload, and the bridge block restarts homeswift.": "Reemplaza config.json (del que antes se guarda una copia) y se aplica al momento, como al guardar: los plugins se recargan y el bloque bridge reinicia homeswift.",
+  "It works: {provider} · {model} answered in {ms} ms.": "Funciona: {provider} · {model} ha respondido en {ms} ms.",
+  "Its accessories are unavailable for a moment; pairings stay.": "Sus accesorios no estarán disponibles durante un momento; los emparejamientos se mantienen.",
+  "Its accessories show No Response": "Sus accesorios muestran Sin respuesta",
+  "Its block is no longer in config.json": "Su bloque ya no está en config.json",
+  "Its plugin is paused: resume it to control {name}": "Su plugin está en pausa: reanúdalo para controlar {name}",
+  "Its plugins stop and its accessories show No Response until it starts again, or homeswift restarts.": "Sus plugins se detienen y sus accesorios muestran Sin respuesta hasta que vuelva a iniciarse o se reinicie homeswift.",
+  "Jammed": "Atascado",
+  "just now": "ahora mismo",
+  "Keep each line's JSON payload in the log on disk, secrets masked, so you and the Assistant can read it later. Off: only the latest lines, in memory, have it.": "Guardar el contenido JSON de cada línea en el registro en disco, con los secretos ocultos, para que tú y el Asistente podáis leerlo después. Desactivado: solo las últimas líneas, en memoria, lo tienen.",
+  "Keeping {low}–{high}": "Manteniendo {low}–{high}",
+  "Kept": "Conservación",
+  "Kept {file} ({size}).": "Se ha guardado {file} ({size}).",
+  "Kept backups": "Copias de seguridad guardadas",
+  "Language": "Idioma",
+  "Large": "Grande",
+  "Last 24 hours": "Últimas 24 horas",
+  "Last 30 days": "Últimos 30 días",
+  "Last 6 hours": "Últimas 6 horas",
+  "Last 7 days": "Últimos 7 días",
+  "Last hour": "Última hora",
+  "Last run {date} ({trigger})": "Última ejecución: {date} ({trigger})",
+  "Last run {date} ({trigger}), with errors": "Última ejecución: {date} ({trigger}), con errores",
+  "Last used": "Último uso",
+  "Last used {when}": "Último uso: {when}",
+  "Last, {date}": "Último valor, {date}",
+  "Latest lines": "Últimas líneas",
+  "Latitude": "Latitud",
+  "Leak": "Fuga",
+  "Leak Detected": "Fuga detectada",
+  "Leak Sensor": "Sensor de fugas",
+  "Leave empty to keep theirs. A new one signs them out everywhere.": "Déjalo vacío para mantener la suya. Una nueva cierra su sesión en todas partes.",
+  "Leave without saving your changes?": "¿Salir sin guardar los cambios?",
+  "Left": "Izquierda",
+  "Left out: {files}.": "Omitidos: {files}.",
+  "Length helps most: a phrase of several random words is strong and easy to remember.": "La longitud es lo que más ayuda: una frase de varias palabras al azar es segura y fácil de recordar.",
+  "Levels shown": "Niveles mostrados",
+  "light": "luz",
+  "Light": "Claro",
+  "Light level": "Nivel de luz",
+  "Light or dark, the wallpaper, °C or °F, the language": "Claro u oscuro, el fondo de pantalla, °C o °F, el idioma",
+  "Light Sensor": "Sensor de luz",
+  "Lightbulb": "Bombilla",
+  "Line {line}": "Línea {line}",
+  "Listening on port": "Escuchando en el puerto",
+  "Listening… tap the mic again when you are done.": "Escuchando… vuelve a tocar el micrófono cuando termines.",
+  "Live": "En directo",
+  "Live video of {name}": "Vídeo en directo de {name}",
+  "Loading": "Cargando",
+  "Loading…": "Cargando…",
+  "Location for sunrise and sunset": "Ubicación para el amanecer y el atardecer",
+  "lock": "bloquear",
+  "Lock": "Bloquear",
+  "lock [kind]": "cerradura",
+  "Lock Current State": "Estado de la cerradura",
+  "Lock Last Known Action": "Última acción de la cerradura",
+  "Lock Management": "Gestión de la cerradura",
+  "Lock Management Auto Security Timeout": "Tiempo de bloqueo automático",
+  "Lock Mechanism": "Cerradura",
+  "Lock Physical Controls": "Bloqueo infantil",
+  "Lock Target State": "Bloqueo",
+  "Locked": "Bloqueado",
+  "Log actions": "Acciones del registro",
+  "Log Doctor": "Doctor del registro",
+  "Logs": "Registros",
+  "Long press": "Pulsación larga",
+  "Longest": "Máximo",
+  "Longitude": "Longitud",
+  "Low": "Baja",
+  "Low [strength]": "Bajo",
+  "Low to medium": "De bajo a medio",
+  "Lower {setting}": "Bajar {setting}",
+  "Lowest {min} · highest {max} · average {average}": "Mínimo {min} · máximo {max} · media {average}",
+  "MAC Retransmission Maximum": "Máximo de retransmisiones MAC",
+  "Machine up": "Equipo activo",
+  "Main bridge": "Puente principal",
+  "make it stronger: {0} of {1} bits": "hazla más fuerte: {0} de {1} bits",
+  "make it stronger: {0} of {1} bits; common words add little": "hazla más fuerte: {0} de {1} bits; las palabras comunes aportan poco",
+  "make it stronger: {0} of {1} bits; repeated or sequential characters add nothing": "hazla más fuerte: {0} de {1} bits; los caracteres repetidos o seguidos no aportan nada",
+  "make it stronger: {0} of {1} bits; your username adds nothing": "hazla más fuerte: {0} de {1} bits; tu nombre de usuario no aporta nada",
+  "Managed Network Enable": "Red gestionada activada",
+  "Manual": "Manual",
+  "Manufacturer": "Fabricante",
+  "Matter Firmware Revision Number": "Versión del firmware Matter",
+  "Maximum Transmit Power": "Potencia de transmisión máxima",
+  "Media Access Control Level": "Nivel de control de acceso al medio",
+  "Medium": "Medio",
+  "Medium to strong": "De medio a fuerte",
+  "Memory": "Memoria",
+  "Memory, CPU and response times": "Memoria, CPU y tiempos de respuesta",
+  "Message to the Assistant": "Mensaje al Asistente",
+  "Metrics Buffer Full State": "Búfer de métricas lleno",
+  "Microphone": "Micrófono",
+  "Minutes after (negative: before)": "Minutos después (negativo: antes)",
+  "Minutes after; negative for before": "Minutos después; negativo para antes",
+  "Mo": "Lu",
+  "Mode": "Modo",
+  "Model": "Modelo",
+  "Mon": "Lun",
+  "More": "Más",
+  "More options ({count})": "Más opciones ({count})",
+  "Motion": "Movimiento",
+  "Motion Detected": "Movimiento detectado",
+  "Motion Sensor": "Sensor de movimiento",
+  "Move {name} down": "Bajar {name}",
+  "Move {name} up": "Subir {name}",
+  "Move earlier": "Mover antes",
+  "Move later": "Mover después",
+  "Multifunction Button": "Botón multifunción",
+  "Mute": "Silenciar",
+  "My home": "Mi casa",
+  "Name": "Nombre",
+  "Name on these pages…": "Nombre en estas páginas…",
+  "Needs the Assistant (a HomeswiftAiKit block)": "Necesita el Asistente (un bloque HomeswiftAiKit)",
+  "Needs the Assistant (a HomeswiftAiKit block).": "Necesita el Asistente (un bloque HomeswiftAiKit).",
+  "Network": "Red",
+  "Never": "Nunca",
+  "Never run": "Nunca ejecutada",
+  "New": "Nuevo",
+  "New chat": "Nuevo chat",
+  "New password": "Nueva contraseña",
+  "New password again": "Repite la nueva contraseña",
+  "New scene": "Nueva escena",
+  "Next {date}": "Próxima: {date}",
+  "Next sunrise {sunrise}, sunset {sunset}.": "Próximo amanecer: {sunrise}; atardecer: {sunset}.",
+  "NFCAccess": "Acceso NFC",
+  "Night": "Noche",
+  "Night Vision": "Visión nocturna",
+  "Nitrogen Dioxide Density": "Dióxido de nitrógeno",
+  "No accessories yet. Plugins add them once they reach their devices.": "Aún no hay accesorios. Los plugins los añaden en cuanto llegan a sus dispositivos.",
+  "no accessory {0}": "no hay ningún accesorio {0}",
+  "No accessory matches.": "Ningún accesorio coincide.",
+  "no accessory with id \"{0}\"": "no hay ningún accesorio con el identificador \"{0}\"",
+  "No accessory with id {0}": "No hay ningún accesorio con el identificador {0}",
+  "No accessory with that id": "No hay ningún accesorio con ese identificador",
+  "no action {0}: stop, start or restart": "no existe la acción {0}: stop, start o restart",
+  "no backup {0}": "no hay ninguna copia de seguridad {0}",
+  "No block": "Sin bloque",
+  "no block {0}": "no hay ningún bloque {0}",
+  "no block {0} of {1}": "no hay ningún bloque {0} de {1}",
+  "No block {0} of {1}": "No hay ningún bloque {0} de {1}",
+  "no bridge \"{0}\"": "no hay ningún puente \"{0}\"",
+  "No browser is subscribed": "No hay ningún navegador suscrito",
+  "No budget: requests are not limited.": "Sin presupuesto: las solicitudes no tienen límite.",
+  "no cached accessory \"{0}\"": "no hay ningún accesorio en caché \"{0}\"",
+  "No cached accessory.": "No hay ningún accesorio en caché.",
+  "No calls in this range": "No hay llamadas en este intervalo",
+  "No calls to its devices; they show No Response in the Home app.": "Sin llamadas a sus dispositivos; aparecen como Sin respuesta en la app Casa.",
+  "no camera {0}": "no hay ninguna cámara {0}",
+  "No change to the block.": "Ningún cambio en el bloque.",
+  "No channel is set up to send to": "No hay ningún canal configurado para enviar",
+  "No chat yet. Each one you start is kept here, the last ten.": "Aún no hay chats. Cada uno que empieces se guarda aquí, los diez últimos.",
+  "no child bridge \"{0}\"": "no hay ningún puente secundario \"{0}\"",
+  "No child bridge {0}; list_child_bridges lists them": "No hay ningún puente secundario {0}; list_child_bridges los enumera",
+  "No child bridge. Give a plugin's block a \"_bridge\" object (its Expert JSON) to run it on a bridge of its own.": "No hay ningún puente secundario. Añade al bloque de un plugin un objeto \"_bridge\" (en el JSON de su vista experta) para ejecutarlo en su propio puente.",
+  "No config backup {0}": "No hay ninguna copia de seguridad de la configuración {0}",
+  "No contact": "Sin contacto",
+  "No digest yet today: an administrator has the Assistant write it.": "Todavía no hay resumen hoy: un administrador puede pedirle al Asistente que lo escriba.",
+  "No digest yet today. The Assistant reads the day's warnings and errors and the accessories, and says what needs attention.": "Todavía no hay resumen hoy. El Asistente lee los avisos y errores del día y los accesorios, y te dice qué necesita atención.",
+  "No limit": "Sin límite",
+  "No line is shown: widen the range or the filters first.": "No se muestra ninguna línea: amplía antes el intervalo o los filtros.",
+  "No line matches.": "Ninguna línea coincide.",
+  "No location yet: sunrise and sunset triggers wait for one.": "Aún no hay ubicación: los activadores de amanecer y atardecer la esperan.",
+  "no login is needed": "no hace falta iniciar sesión",
+  "No motion": "Sin movimiento",
+  "No picture from the camera": "No hay imagen de la cámara",
+  "No plugin": "Ningún plugin",
+  "No plugin at /plugins/{slug} in config.json.": "No hay ningún plugin en /plugins/{slug} en config.json.",
+  "No plugin compiled into this homeswift provides this platform.": "Ningún plugin compilado en este homeswift ofrece esta plataforma.",
+  "No plugin provides {platform}.": "Ningún plugin ofrece {platform}.",
+  "No plugin provides {platforms}: those blocks are ignored.": "Ningún plugin ofrece {platforms}: esos bloques se ignoran.",
+  "No plugin yet. Add one below.": "Aún no hay plugins. Añade uno abajo.",
+  "No room": "Sin habitación",
+  "No room {0}": "No hay ninguna habitación {0}",
+  "No room to suggest.": "No hay habitaciones que sugerir.",
+  "no running instance \"{0}\" of {1}": "no hay ninguna instancia «{0}» de {1} en ejecución",
+  "No scene \"{0}\". Scenes: {1}.": "No hay ninguna escena «{0}». Escenas: {1}.",
+  "No scene \"{0}\". Scenes: none.": "No hay ninguna escena «{0}». Escenas: ninguna.",
+  "No scene {0}": "No hay ninguna escena {0}",
+  "No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.": "Aún no hay escenas. Una escena ajusta varios accesorios a la vez, como todas las luces de una habitación para la noche.",
+  "no schema for {0}": "no hay ningún esquema para {0}",
+  "No sign-in": "Sin inicio de sesión",
+  "no such accessory": "no existe ese accesorio",
+  "no such bridge": "no existe ese puente",
+  "no such connected app": "no existe esa app conectada",
+  "no such conversation": "no existe esa conversación",
+  "No such page.": "Esta página no existe.",
+  "No such scene.": "Esta escena no existe.",
+  "No tokens yet. One lets a script or another program read the bridge, or change it as an administrator would.": "Aún no hay tokens. Uno permite a un script u otro programa leer el puente, o cambiarlo como lo haría un administrador.",
+  "No values were recorded for this accessory in this period. Homeswift keeps the history of accessories whose plugin records an Eve history (temperature, humidity, air quality, power, contact and motion of plugs and sensors), ten-minute averages for four weeks.": "No se ha registrado ningún valor para este accesorio en este periodo. Homeswift guarda el historial de los accesorios cuyo plugin registra un historial Eve (temperatura, humedad, calidad del aire, potencia, contacto y movimiento de enchufes y sensores), en medias de diez minutos durante cuatro semanas.",
+  "no wallpaper of your own": "no tienes un fondo de pantalla propio",
+  "None": "Ninguno",
+  "None yet: each save of config.json keeps the file it replaces.": "Todavía no hay ninguna: cada vez que se guarda config.json se conserva el archivo que reemplaza.",
+  "None yet: the daily backup and Back up now keep them here.": "Todavía no hay ninguna: la copia diaria y Hacer copia ahora las guardan aquí.",
+  "None yet.": "Ninguna todavía.",
+  "Normal": "Normal",
+  "not a backup id: {0}": "no es un identificador de copia de seguridad: {0}",
+  "Not a bridge setting here: {0} (the device ID stays; reset_pairings starts the pairing over)": "No es un ajuste del puente aquí: {0} (el ID de dispositivo se mantiene; reset_pairings vuelve a empezar el emparejamiento)",
+  "not a homeswift backup: {0}": "no es una copia de seguridad de homeswift: {0}",
+  "not a homeswift backup: a header's checksum is wrong at byte {0}: not a tar archive, or a damaged one": "no es una copia de seguridad de homeswift: la suma de comprobación de una cabecera es incorrecta en el byte {0}: no es un archivo tar, o está dañado",
+  "not a homeswift backup: a header's number is not octal": "no es una copia de seguridad de homeswift: un número de una cabecera no es octal",
+  "not a homeswift backup: an entry runs past the end of the archive": "no es una copia de seguridad de homeswift: una entrada va más allá del final del archivo",
+  "not a homeswift backup: it has no info.json from homeswift (an archive made by Backups › Download)": "no es una copia de seguridad de homeswift: no tiene el info.json de homeswift (un archivo hecho con Copias de seguridad › Descargar)",
+  "not a homeswift backup: the archive holds a link or a special file ({0}): refused": "no es una copia de seguridad de homeswift: el archivo contiene un enlace o un archivo especial ({0}): rechazado",
+  "not a homeswift backup: the archive holds more than {0} entries": "no es una copia de seguridad de homeswift: el archivo contiene más de {0} entradas",
+  "not a homeswift backup: unsafe path in the archive: {0}": "no es una copia de seguridad de homeswift: ruta insegura en el archivo: {0}",
+  "Not a valid escape in a string": "Secuencia de escape no válida en una cadena",
+  "Not a valid value": "Valor no válido",
+  "Not allowed": "No permitido",
+  "Not chargeable": "No recargable",
+  "Not charging": "No se está cargando",
+  "Not confirmed": "No confirmado",
+  "Not copied": "No copiado",
+  "Not in use": "Sin usar",
+  "Not occupied": "Desocupado",
+  "Not paired": "Sin emparejar",
+  "Not running": "Detenido",
+  "not set": "sin definir",
+  "not valid JSON: {0} at byte {1}": "JSON no válido: {0} en el byte {1}",
+  "Not you? Sign in as someone else": "¿No eres tú? Inicia sesión con otra cuenta",
+  "Nothing changed.": "No ha cambiado nada.",
+  "Nothing here yet. On the Accessories page, a card's menu adds it to the Quick Controls; scenes you make show here too.": "Aún no hay nada. En la página Accesorios, el menú de una tarjeta añade el accesorio a los controles rápidos; las escenas que crees también aparecen aquí.",
+  "Nothing in this range matches.": "No hay coincidencias en este intervalo.",
+  "Nothing recorded in this range": "Nada registrado en este intervalo",
+  "nothing to capture": "nada que capturar",
+  "Nothing to save: {0}": "Nada que guardar: {0}",
+  "nothing waits for that answer": "nada espera esa respuesta",
+  "Nothing was heard. Tap the mic and speak.": "No se ha oído nada. Toca el micrófono y habla.",
+  "Nothing would change.": "No cambiaría nada.",
+  "Notifications": "Notificaciones",
+  "now in {room}": "ahora en {room}",
+  "Obstructed": "Obstruido",
+  "Obstruction Detected": "Obstrucción detectada",
+  "Occupancy Detected": "Presencia detectada",
+  "Occupancy Sensor": "Sensor de presencia",
+  "Occupied": "Ocupado",
+  "Ocean": "Océano",
+  "off": "apagado",
+  "Off": "Apagado",
+  "Off · {inside}": "Apagado · {inside}",
+  "Off · air {quality}": "Apagado · calidad del aire: {quality}",
+  "Off [alarm]": "Desactivado",
+  "Off [setting]": "Desactivado",
+  "OK": "OK",
+  "On": "Encendido",
+  "On · {brightness} %": "Encendido · {brightness} %",
+  "On · {input}": "Encendido · {input}",
+  "On · {speed} %": "Encendido · {speed} %",
+  "On · in use": "Encendido · en uso",
+  "on (true or false) is required": "se necesita on (true o false)",
+  "On [setting]": "Activado",
+  "on {days}": "los {days}",
+  "On GitHub": "En GitHub",
+  "On in the Home app": "Activada en la app Casa",
+  "On the bridge {name}": "En el puente {name}",
+  "on weekdays": "entre semana",
+  "One wall": "Un solo panel",
+  "only an administrator can do this": "solo un administrador puede hacer esto",
+  "only an administrator can empty the log": "solo un administrador puede vaciar el registro",
+  "Only for you to recognise it.": "Solo para que la reconozcas.",
+  "Only if": "Solo si",
+  "open": "abrir",
+  "Open": "Abierto",
+  "Open · {position} %": "Abierto · {position} %",
+  "Open [action]": "Abrir",
+  "open [chat]": "abierto",
+  "Open Config": "Abrir Configuración",
+  "Open in the app": "Abrir en la app",
+  "Open its page": "Abrir su página",
+  "Open its settings": "Abrir sus ajustes",
+  "Open on its own": "Abrir por separado",
+  "Open this page over HTTPS (the HomeswiftUI block's https) or on localhost to turn them on here.": "Abre esta página por HTTPS (el ajuste https del bloque HomeswiftUI) o en localhost para activarlas aquí.",
+  "Open Users": "Abrir Usuarios",
+  "Opening": "Abriendo",
+  "Opening…": "Abriendo…",
+  "Optical Zoom": "Zoom óptico",
+  "order lists accessory ids": "order enumera identificadores de accesorios",
+  "origin {0} does not match the host": "el origen {0} no coincide con el host",
+  "Other accessories": "Otros accesorios",
+  "other accessory": "otro accesorio",
+  "Outcome": "Resultado",
+  "Outlet": "Enchufe",
+  "Outlet In Use": "Enchufe en uso",
+  "outside {0}–{1}": "fuera de {0}–{1}",
+  "Overview": "Resumen",
+  "Ozone Density": "Ozono",
+  "Paired · {count}": "Emparejado · {count}",
+  "Pairing": "Emparejamiento",
+  "Pairing codes and what each bridge runs": "Códigos de emparejamiento y lo que ejecuta cada puente",
+  "Pairing Features": "Funciones de emparejamiento",
+  "Pairing QR code": "Código QR de emparejamiento",
+  "Password": "Contraseña",
+  "Password changed. Other browsers signed in as {username} are signed out; this one stays.": "Contraseña cambiada. Se ha cerrado la sesión de {username} en los demás navegadores; en este se mantiene.",
+  "Password strength": "Seguridad de la contraseña",
+  "Password, to turn it off": "Contraseña, para desactivarla",
+  "Pause": "Pausar",
+  "Paused": "En pausa",
+  "Paused · {plugin}": "En pausa · {plugin}",
+  "Paused · its plugin": "En pausa · su plugin",
+  "Paused.": "En pausa.",
+  "Pink": "Rosa",
+  "Play/Pause": "Reproducir/Pausa",
+  "Plugin": "Plugin",
+  "Plugin device calls": "Llamadas de plugins a dispositivos",
+  "Plugin settings": "Ajustes del plugin",
+  "Plugins": "Plugins",
+  "Plugins › HomeswiftUI › Settings turns sign-in on.": "Plugins › HomeswiftUI › Ajustes activa el inicio de sesión.",
+  "Plugins on HomeKit bridges of their own (a block with _bridge), inside this process: one can restart without the others.": "Plugins en sus propios puentes HomeKit (un bloque con _bridge), dentro de este proceso: cada uno puede reiniciarse sin los demás.",
+  "PM10 Density": "PM10",
+  "PM2.5 Density": "PM2,5",
+  "Poor": "Mala",
+  "Port": "Puerto",
+  "port must be a port number, or null for an automatic one": "port debe ser un número de puerto, o null para uno automático",
+  "Position": "Posición",
+  "Position State": "Movimiento",
+  "Power": "Encendido/apagado",
+  "Power [watts]": "Potencia",
+  "Power Management": "Gestión de energía",
+  "Preparing the image…": "Preparando la imagen…",
+  "Program Mode": "Modo de programa",
+  "Programmable Switch Event": "Evento del botón",
+  "Programmable Switch Output State": "Estado de salida del botón",
+  "Purifying": "Purificando",
+  "Purifying · {how}": "Purificando · {how}",
+  "Push payload too large ({0} bytes)": "Contenido push demasiado grande ({0} bytes)",
+  "Put in a room…": "Asignar a una habitación…",
+  "QR code for an authenticator app": "Código QR para una app de autenticación",
+  "Quick controls": "Controles rápidos",
+  "Raise {setting}": "Subir {setting}",
+  "Rang {when}": "Ha sonado {when}",
+  "Read": "Lectura",
+  "Reading {n} line…": "Leyendo {n} línea…",
+  "Reading {n} lines…": "Leyendo {n} líneas…",
+  "Reading the day…": "Leyendo el día…",
+  "Received Signal Strength Indication": "Intensidad de la señal recibida",
+  "Receiver Sensitivity": "Sensibilidad del receptor",
+  "Reconnecting…": "Reconectando…",
+  "Recorded values, as Eve shows them": "Valores registrados, como los muestra Eve",
+  "Recording": "Grabando",
+  "Recording Audio Active": "Grabación de audio",
+  "Red": "Rojo",
+  "Refresh": "Actualizar",
+  "Relative Humidity Dehumidifier Threshold": "Umbral de deshumidificación",
+  "Relative Humidity Humidifier Threshold": "Umbral de humidificación",
+  "Relay Enabled": "Relé activado",
+  "Relay State": "Estado del relé",
+  "Remaining Duration": "Duración restante",
+  "Remote": "Mando",
+  "Remote for {name}": "Mando de {name}",
+  "Remote Key": "Tecla del mando",
+  "Remove": "Eliminar",
+  "Remove \"{name}\" from config.json? Its accessories leave the Home app.": "¿Eliminar «{name}» de config.json? Sus accesorios salen de la app Casa.",
+  "Remove {name} ({username})? They are signed out at once.": "¿Eliminar a {name} ({username})? Su sesión se cierra al momento.",
+  "Remove {name} ({username})? They are signed out at once. That is you: this browser is signed out too.": "¿Eliminar a {name} ({username})? Su sesión se cierra al momento. Eres tú: también se cierra la sesión en este navegador.",
+  "Remove {name} from the cache?": "¿Quitar {name} de la caché?",
+  "Remove from Quick Controls": "Quitar de los controles rápidos",
+  "Remove from the cache…": "Quitar de la caché…",
+  "Remove this plugin": "Eliminar este plugin",
+  "Remove your account": "Eliminar tu cuenta",
+  "Remove your image": "Eliminar tu imagen",
+  "removed": "eliminado",
+  "Repeat": "Repetir",
+  "repeated or sequential characters add nothing": "los caracteres repetidos o seguidos no aportan nada",
+  "Replace [filter]": "Sustituir",
+  "Replace the whole config.json? A backup is kept.": "¿Reemplazar todo el config.json? Se guarda una copia de seguridad.",
+  "requestId is required": "se necesita requestId",
+  "Requests": "Solicitudes",
+  "Requests this month": "Solicitudes este mes",
+  "Requests today": "Solicitudes hoy",
+  "required": "obligatorio",
+  "Required: {n} bits": "Necesario: {n} bits",
+  "Reset every accessory cache?": "¿Restablecer todas las cachés de accesorios?",
+  "Reset every cache…": "Restablecer todas las cachés…",
+  "Reset Filter Indication": "Restablecer el filtro",
+  "Reset pairings": "Restablecer emparejamientos",
+  "Reset pairings…": "Restablecer emparejamientos…",
+  "Reset the caches": "Restablecer las cachés",
+  "Reset the pairings of {name}?": "¿Restablecer los emparejamientos de {name}?",
+  "resetting pairings needs confirm: true": "restablecer los emparejamientos requiere confirm: true",
+  "resetting the caches needs confirm: true": "restablecer las cachés requiere confirm: true",
+  "Restart": "Reiniciar",
+  "Restart {name}?": "¿Reiniciar {name}?",
+  "Restart homeswift now? Every connection drops for a few seconds.": "¿Reiniciar homeswift ahora? Todas las conexiones se cortan unos segundos.",
+  "Restart homeswift to apply the rest: {0}.": "Reinicia homeswift para aplicar el resto: {0}.",
+  "Restart homeswift to apply the restore: it is applied before anything else at the next start.": "Reinicia homeswift para aplicar la restauración: se aplica antes que nada en el próximo arranque.",
+  "Restart homeswift with these settings?": "¿Reiniciar homeswift con estos ajustes?",
+  "Restart homeswift? Connections drop for a few seconds.": "¿Reiniciar homeswift? Las conexiones se cortan unos segundos.",
+  "Restart homeswift…": "Reiniciar homeswift…",
+  "Restart now": "Reiniciar ahora",
+  "Restarting homeswift…": "Reiniciando homeswift…",
+  "Restarts": "Reinicios",
+  "Restore": "Restaurar",
+  "Restore {name}?": "¿Restaurar {name}?",
+  "Restore a backup": "Restaurar una copia de seguridad",
+  "Restore and restart": "Restaurar y reiniciar",
+  "Restore config.json from {backup}?": "¿Restaurar config.json desde {backup}?",
+  "Restore this config.json?": "¿Restaurar este config.json?",
+  "Restore…": "Restaurar…",
+  "Resume": "Reanudar",
+  "Resume {name}": "Reanudar {name}",
+  "Revert": "Revertir",
+  "Revoke": "Revocar",
+  "Revoke the token “{name}”? Scripts using it are refused at once.": "¿Revocar el token «{name}»? Los scripts que lo usen se rechazarán al momento.",
+  "Right": "Derecha",
+  "Room: {room}…": "Habitación: {room}…",
+  "rooms must be names": "rooms debe contener nombres",
+  "Rotation Direction": "Sentido de giro",
+  "Rotation Speed": "Velocidad de giro",
+  "Router Status": "Estado del router",
+  "run": "iniciar",
+  "Run": "Ejecutar",
+  "Run [valve]": "Iniciar",
+  "Run {name}": "Ejecutar {name}",
+  "Run {name} [valve]": "Iniciar {name}",
+  "Run by hand": "Se ejecuta a mano",
+  "Run it automatically. Sunrise and sunset are for {place}.": "Para ejecutarla automáticamente. El amanecer y el atardecer son los de {place}.",
+  "Run it automatically. Sunrise and sunset need a location: set it on the Scenes page.": "Para ejecutarla automáticamente. El amanecer y el atardecer necesitan una ubicación: defínela en la página Escenas.",
+  "Run one homeswift per backup: two bridges with the same identity make the Home app drop them.": "Ejecuta un solo homeswift por copia: dos puentes con la misma identidad hacen que la app Casa los pierda.",
+  "Run the plugin again": "Volver a ejecutar el plugin",
+  "Running": "En ejecución",
+  "Running · {time} left": "En marcha · quedan {time}",
+  "Running, and everything is in the Home app": "En marcha, y todo está en la app Casa",
+  "Running; {n} servers wait to be added in the Home app": "En marcha; {n} servidores esperan a que los añadas en la app Casa",
+  "Running; one server waits to be added in the Home app": "En marcha; un servidor espera a que lo añadas en la app Casa",
+  "Running; some changes need a restart": "En marcha; algunos cambios necesitan un reinicio",
+  "Runs inside homeswift": "Se ejecuta dentro de homeswift",
+  "Sa": "Sá",
+  "Sat": "Sáb",
+  "Saturation": "Saturación",
+  "Save": "Guardar",
+  "Save “{entry}” in {block}?": "¿Guardar «{entry}» en {block}?",
+  "Save and restart": "Guardar y reiniciar",
+  "Save anyway": "Guardar de todos modos",
+  "Save payloads": "Guardar contenidos",
+  "Save the budgets": "Guardar los presupuestos",
+  "Save this entry in {block}?": "¿Guardar esta entrada en {block}?",
+  "Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list": "Guardar lo que el esquema del plugin rechaza: para un valor que el plugin acepta pero que su esquema no incluye",
+  "Save what the plugins' schemas refuse: for a value a plugin accepts that its schema does not list": "Guardar lo que los esquemas de los plugins rechazan: para un valor que un plugin acepta pero que su esquema no incluye",
+  "Saved": "Guardado",
+  "Saved and applied.": "Guardado y aplicado.",
+  "Saved for you, on every browser": "Guardado para ti, en todos los navegadores",
+  "Saved for your account, on every browser.": "Guardado en tu cuenta, en todos los navegadores.",
+  "Saved.": "Guardado.",
+  "Saved. Homeswift restarts by itself to apply the bridge settings…": "Guardado. Homeswift se reinicia solo para aplicar los ajustes del puente…",
+  "Saved. Its lock, door or alarm actions run only when you run it here: automations leave them out.": "Guardada. Sus acciones de cerradura, puerta o alarma solo se ejecutan cuando la ejecutas aquí: las automatizaciones las omiten.",
+  "Saved. Restart homeswift to apply the rest: {pending}.": "Guardado. Reinicia homeswift para aplicar el resto: {pending}.",
+  "Saved. The web UI moves to {scheme}…": "Guardado. La interfaz web pasa a {scheme}…",
+  "Saved. The web UI moves to port {port}…": "Guardado. La interfaz web pasa al puerto {port}…",
+  "saveDetails (true or false) is required": "se necesita saveDetails (true o false)",
+  "Saving…": "Guardando…",
+  "say what the block should do": "di qué debe hacer el bloque",
+  "Scan this code with your authenticator app, or open the link on this device; or type the key by hand.": "Escanea este código con tu app de autenticación, o abre el enlace en este dispositivo; o escribe la clave a mano.",
+  "Scenes": "Escenas",
+  "Scheduled restart": "Reinicio programado",
+  "Schedules and proxy": "Programaciones y proxy",
+  "Scope": "Ámbito",
+  "Search accessories": "Buscar accesorios",
+  "Sections": "Secciones",
+  "Secured": "Bloqueado",
+  "Security System": "Sistema de seguridad",
+  "Security System Alarm Type": "Tipo de alarma",
+  "Security System Current State": "Estado del sistema de seguridad",
+  "Security System Target State": "Modo del sistema de seguridad",
+  "See your accessories, rooms, scenes and the bridge's state. Changes nothing.": "Ver tus accesorios, habitaciones, escenas y el estado del puente. No cambia nada.",
+  "Select [remote]": "Seleccionar",
+  "Selected Diagnostics Modes": "Modos de diagnóstico seleccionados",
+  "Selected: press ⌘C or Ctrl+C": "Seleccionado: pulsa ⌘C o Ctrl+C",
+  "Send": "Enviar",
+  "Send (Enter)": "Enviar (Intro)",
+  "Send a test": "Enviar una prueba",
+  "Send a test here": "Enviar una prueba aquí",
+  "Send a test to every channel that is on": "Enviar una prueba a cada canal activado",
+  "send JSON": "envía JSON",
+  "send the archive (Content-Type: application/x-tar)": "envía el archivo comprimido (Content-Type: application/x-tar)",
+  "send the choices as a JSON object": "envía las opciones como un objeto JSON",
+  "send the image as base64 in data": "envía la imagen en base64 en data",
+  "Sending…": "Enviando…",
+  "sensor": "sensor",
+  "Sent through {channels}.": "Enviada por {channels}.",
+  "Sent.": "Enviado.",
+  "Serial Number": "Número de serie",
+  "Server": "Servidor",
+  "Service Label": "Etiqueta de servicio",
+  "Service Label Index": "Índice de etiqueta",
+  "Service Label Namespace": "Espacio de nombres de etiqueta",
+  "Set {characteristic} to {value} on {id}?": "¿Ajustar {characteristic} a {value} en {id}?",
+  "Set {setting} of {name} to {value}?": "¿Ajustar {setting} de {name} a {value}?",
+  "Set Duration": "Duración programada",
+  "Set to": "Ajustar a",
+  "Set up": "Configurar",
+  "set up two-factor authentication first": "configura primero la autenticación de dos factores",
+  "Set-up code": "Código de configuración",
+  "Settings": "Ajustes",
+  "settings are required": "se necesita settings",
+  "Settings pages": "Páginas de ajustes",
+  "Settings, pairings and backups": "Ajustes, emparejamientos y copias de seguridad",
+  "Setup code": "Código de configuración",
+  "Show": "Mostrar",
+  "Show {name}": "Mostrar {name}",
+  "show all controls": "mostrar todos los controles",
+  "Show as a table": "Mostrar como tabla",
+  "Show hidden ({count})": "Mostrar ocultos ({count})",
+  "Show it again": "Volver a mostrarlo",
+  "Show its log": "Mostrar su registro",
+  "Show less": "Mostrar menos",
+  "Show more": "Mostrar más",
+  "Show the payload": "Mostrar el contenido",
+  "Shower head": "Alcachofa de ducha",
+  "Shown in the web UI; the username when empty.": "Se muestra en la interfaz web; el nombre de usuario si está vacío.",
+  "shutter": "persiana",
+  "Sign in": "Iniciar sesión",
+  "sign in first": "inicia sesión primero",
+  "Sign in to manage the bridge.": "Inicia sesión para gestionar el puente.",
+  "Sign in with your Homeswift account to connect an app.": "Inicia sesión con tu cuenta de Homeswift para conectar una app.",
+  "Sign out": "Cerrar sesión",
+  "Signal To Noise Ratio": "Relación señal/ruido",
+  "Signed in on this browser. Logins last {n} day without activity; changing the password, or turning two-factor authentication on or off, signs the others out.": "Sesión iniciada en este navegador. Las sesiones duran {n} día sin actividad; cambiar la contraseña, o activar o desactivar la autenticación de dos factores, cierra las demás.",
+  "Signed in on this browser. Logins last {n} days without activity; changing the password, or turning two-factor authentication on or off, signs the others out.": "Sesión iniciada en este navegador. Las sesiones duran {n} días sin actividad; cambiar la contraseña, o activar o desactivar la autenticación de dos factores, cierra las demás.",
+  "Signing in asks for the code your authenticator app shows, after the password.": "Al iniciar sesión se pide el código que muestra tu app de autenticación, después de la contraseña.",
+  "Signing in…": "Iniciando sesión…",
+  "since: an ISO time, or 1h, 24h, 7d": "since: una hora ISO, o 1h, 24h, 7d",
+  "Single press": "Pulsación simple",
+  "Siri": "Siri",
+  "Siri Enable": "Siri activado",
+  "Siri Endpoint": "Punto de acceso de Siri",
+  "Siri Engine Version": "Versión del motor de Siri",
+  "Siri Input Type": "Tipo de entrada de Siri",
+  "Siri Light On Use": "Luz de Siri al usarla",
+  "Siri Listening": "Siri escuchando",
+  "Siri Touch To Use": "Tocar para usar Siri",
+  "Size and place of {name}": "Tamaño y posición de {name}",
+  "Sizes and order of the widgets": "Tamaños y orden de los widgets",
+  "sizes are by accessory id": "los tamaños van por identificador de accesorio",
+  "Skipped {date}: {reason}": "Omitida el {date}: {reason}",
+  "Slat Type": "Tipo de lamas",
+  "Slats": "Lamas",
+  "Sleep Interval": "Intervalo de reposo",
+  "Small": "Pequeño",
+  "Smart Speaker": "Altavoz inteligente",
+  "Smoke": "Humo",
+  "Smoke Detected": "Humo detectado",
+  "Smoke Sensor": "Detector de humo",
+  "Snapshot of {name}": "Instantánea de {name}",
+  "Software Revision": "Versión del software",
+  "Some changes need a restart of homeswift.": "Algunos cambios requieren reiniciar homeswift.",
+  "Something follows the end of the JSON": "Hay algo después del final del JSON",
+  "Speaker": "Altavoz",
+  "Speed": "Velocidad",
+  "Spent this month": "Gastado este mes",
+  "Spent today": "Gastado hoy",
+  "Staged Firmware Version": "Firmware preparado",
+  "Stale": "Obsoleto",
+  "Start": "Iniciar",
+  "Starting…": "Iniciando…",
+  "Stateful Programmable Switch": "Interruptor programable",
+  "Stateless Programmable Switch": "Botón programable",
+  "Status": "Estado",
+  "Status Active": "En funcionamiento",
+  "Status Fault": "Fallo",
+  "Status Jammed": "Atascado",
+  "Status light": "Luz de estado",
+  "Status Low Battery": "Batería baja",
+  "Status Tampered": "Manipulado",
+  "stop": "detener",
+  "Stop": "Detener",
+  "Stop {name}": "Detener {name}",
+  "Stop {name}?": "¿Detener {name}?",
+  "Stop the plugin's calls to its devices for now": "Detener por ahora las llamadas del plugin a sus dispositivos",
+  "Stopped": "Detenido",
+  "Stopped [bridge]": "Detenido",
+  "Stopped by hand": "Detenido manualmente",
+  "Stopped.": "Detenido.",
+  "Strength": "Seguridad",
+  "Strength of the new password": "Seguridad de la nueva contraseña",
+  "Strings take double quotes": "Las cadenas van entre comillas dobles",
+  "Strong": "Fuerte",
+  "Strong to very strong": "De fuerte a muy fuerte",
+  "Su": "Do",
+  "Suggest": "Sugerir",
+  "Suggest rooms": "Sugerir habitaciones",
+  "Suggested rooms": "Habitaciones sugeridas",
+  "Sulphur Dioxide Density": "Dióxido de azufre",
+  "Sun": "Dom",
+  "Sunrise": "Amanecer",
+  "Sunrise {days}": "Amanecer {days}",
+  "Sunrise or sunset": "Amanecer o atardecer",
+  "Sunset": "Atardecer",
+  "Sunset {days}": "Atardecer {days}",
+  "Supported Asset Types": "Tipos de recursos compatibles",
+  "Supported Diagnostics Modes": "Modos de diagnóstico compatibles",
+  "Swing": "Oscilación",
+  "Swing Mode": "Oscilación",
+  "switch": "interruptor",
+  "Switch": "Interruptor",
+  "System": "Sistema",
+  "Takes the block out of config.json. Its accessories leave the Home app, with their rooms, scenes and automations.": "Quita el bloque de config.json. Sus accesorios salen de la app Casa, con sus habitaciones, escenas y automatizaciones.",
+  "Tap Management": "Gestión de toques",
+  "Tap Type": "Tipo de toque",
+  "Target Air Purifier State": "Modo del purificador",
+  "Target Control": "Mando",
+  "Target Control Management": "Gestión del mando",
+  "Target Door State": "Orden de la puerta",
+  "Target Fan State": "Modo del ventilador",
+  "Target Heater-Cooler State": "Modo de climatización",
+  "Target Heating Cooling State": "Modo de climatización",
+  "Target Horizontal Tilt Angle": "Inclinación horizontal",
+  "Target Humidifier-Dehumidifier State": "Modo del humidificador",
+  "Target Position": "Posición objetivo",
+  "Target Relative Humidity": "Humedad objetivo",
+  "Target temperature": "Temperatura objetivo",
+  "Target Temperature": "Temperatura objetivo",
+  "Target Tilt Angle": "Inclinación objetivo",
+  "Target Vertical Tilt Angle": "Inclinación vertical",
+  "television": "televisor",
+  "Television": "Televisor",
+  "Television Speaker": "Altavoz del televisor",
+  "Temperature": "Temperatura",
+  "Temperature Display Units": "Unidad de temperatura",
+  "Temperature Sensor": "Sensor de temperatura",
+  "Temperature unit": "Unidad de temperatura",
+  "Temperatures": "Temperaturas",
+  "Ten-minute averages, kept four weeks; each point here averages those in its span.": "Medias de diez minutos, guardadas cuatro semanas; cada punto aquí promedia las de su intervalo.",
+  "Test connection": "Probar la conexión",
+  "Th": "Ju",
+  "that code is not right: type the 6 digits your authenticator app shows now": "ese código no es correcto: escribe los 6 dígitos que muestra ahora tu app de autenticación",
+  "That file is too large for a certificate or a key.": "Ese archivo es demasiado grande para un certificado o una clave.",
+  "That is {0} actions; a scene holds at most {1}. Pass fewer accessories or limit characteristics.": "Son {0} acciones; una escena admite como máximo {1}. Pasa menos accesorios o limita las características.",
+  "that plugin has no config.schema.json": "ese plugin no tiene config.schema.json",
+  "that user already exists": "ese usuario ya existe",
+  "The {0} channel is on but not fully set up": "El canal {0} está activado pero no del todo configurado",
+  "the accessory is gone": "el accesorio ya no está",
+  "the Adaptive Lighting schedule of {0} does not cover this time of day; turn it on in the Home app": "la programación de Iluminación adaptativa de {0} no cubre esta hora del día; actívala en la app Casa",
+  "The address this app asked to return to is not one it registered.": "La dirección a la que esta app pidió volver no es una de las que registró.",
+  "The answer was cut off at its output limit. Raise the maximum answer length, or ask for less at once.": "La respuesta se ha cortado en su límite de salida. Aumenta la longitud máxima de respuesta, o pide menos cosas a la vez.",
+  "The answer was cut off at the {0}-token output limit. Raise the maximum answer length, or ask for less at once.": "La respuesta se ha cortado en el límite de salida de {0} tokens. Aumenta la longitud máxima de respuesta, o pide menos cosas a la vez.",
+  "The app did not say where to return to.": "La app no ha indicado adónde volver.",
+  "the archive is larger than 64 MB": "el archivo comprimido supera los 64 MB",
+  "The Assistant": "El Asistente",
+  "the Assistant did not answer: {0}": "el Asistente no ha respondido: {0}",
+  "The Assistant did not answer: {0}": "El Asistente no ha respondido: {0}",
+  "the Assistant did not answer: {0}: cannot reach the provider: {1}": "el Asistente no ha respondido: {0}: no se puede contactar con el proveedor: {1}",
+  "The Assistant did not answer: {0}: cannot reach the provider: {1}": "El Asistente no ha respondido: {0}: no se puede contactar con el proveedor: {1}",
+  "the Assistant did not answer: {0}: HTTP {1}: {2}": "el Asistente no ha respondido: {0}: HTTP {1}: {2}",
+  "The Assistant did not answer: {0}: HTTP {1}: {2}": "El Asistente no ha respondido: {0}: HTTP {1}: {2}",
+  "the Assistant did not answer: {0}: the response is not JSON": "el Asistente no ha respondido: {0}: la respuesta no es JSON",
+  "The Assistant did not answer: {0}: the response is not JSON": "El Asistente no ha respondido: {0}: la respuesta no es JSON",
+  "the Assistant did not answer: The answer was cut off at its output limit. Raise the maximum answer length, or ask for less at once.": "el Asistente no ha respondido: la respuesta se ha cortado en su límite de salida. Aumenta la longitud máxima de respuesta, o pide menos cosas a la vez.",
+  "the Assistant did not answer: The answer was cut off at the {0}-token output limit. Raise the maximum answer length, or ask for less at once.": "el Asistente no ha respondido: la respuesta se ha cortado en el límite de salida de {0} tokens. Aumenta la longitud máxima de respuesta, o pide menos cosas a la vez.",
+  "the Assistant did not answer: The daily AI budget is used up: {0} of {1} today. It resets at midnight.": "el Asistente no ha respondido: el presupuesto diario de IA se ha agotado: {0} de {1} hoy. Se restablece a medianoche.",
+  "The Assistant did not answer: The daily AI budget is used up: {0} of {1} today. It resets at midnight.": "El Asistente no ha respondido: el presupuesto diario de IA se ha agotado: {0} de {1} hoy. Se restablece a medianoche.",
+  "the Assistant did not answer: The daily AI budget is used up: {0} tokens of {1} tokens today. It resets at midnight.": "el Asistente no ha respondido: el presupuesto diario de IA se ha agotado: {0} tokens de {1} hoy. Se restablece a medianoche.",
+  "The Assistant did not answer: The daily AI budget is used up: {0} tokens of {1} tokens today. It resets at midnight.": "El Asistente no ha respondido: el presupuesto diario de IA se ha agotado: {0} tokens de {1} hoy. Se restablece a medianoche.",
+  "the Assistant did not answer: The model did not return valid JSON: {0}": "el Asistente no ha respondido: el modelo no ha devuelto un JSON válido: {0}",
+  "the Assistant did not answer: The monthly AI budget is used up: {0} of {1} this month. It resets on the 1st of next month.": "el Asistente no ha respondido: el presupuesto mensual de IA se ha agotado: {0} de {1} este mes. Se restablece el día 1 del mes que viene.",
+  "The Assistant did not answer: The monthly AI budget is used up: {0} of {1} this month. It resets on the 1st of next month.": "El Asistente no ha respondido: el presupuesto mensual de IA se ha agotado: {0} de {1} este mes. Se restablece el día 1 del mes que viene.",
+  "the Assistant did not answer: The monthly AI budget is used up: {0} tokens of {1} tokens this month. It resets on the 1st of next month.": "el Asistente no ha respondido: el presupuesto mensual de IA se ha agotado: {0} tokens de {1} este mes. Se restablece el día 1 del mes que viene.",
+  "The Assistant did not answer: The monthly AI budget is used up: {0} tokens of {1} tokens this month. It resets on the 1st of next month.": "El Asistente no ha respondido: el presupuesto mensual de IA se ha agotado: {0} tokens de {1} este mes. Se restablece el día 1 del mes que viene.",
+  "the Assistant is off: add a HomeswiftAiKit block": "el Asistente está desactivado: añade un bloque HomeswiftAiKit",
+  "The Assistant is off: add a HomeswiftAiKit block": "El Asistente está desactivado: añade un bloque HomeswiftAiKit",
+  "The Assistant is off: config.json has no HomeswiftAiKit block. Add one on the Config page, {example}, or choose apple on a Mac with Apple Intelligence.": "El Asistente está desactivado: config.json no tiene bloque HomeswiftAiKit. Añade uno en la página Configuración, {example}, o elige apple en un Mac con Apple Intelligence.",
+  "The Assistant is sorting your accessories into rooms…": "El Asistente está ordenando tus accesorios por habitaciones…",
+  "the Assistant is still answering; stop it first": "el Asistente aún está respondiendo; detenlo primero",
+  "The Assistant is writing the block…": "El Asistente está escribiendo el bloque…",
+  "The Assistant reads the lines shown and groups the issues, with causes and fixes": "El Asistente lee las líneas mostradas y agrupa los problemas, con causas y soluciones",
+  "The Assistant stopped after many steps without an answer. Ask again, or more precisely.": "El Asistente se ha detenido tras muchos pasos sin respuesta. Vuelve a preguntar, o con más precisión.",
+  "the Assistant writes the settings": "el Asistente escribe los ajustes",
+  "The Assistant: whether its provider answers, what it costs, and its budgets.": "El Asistente: si su proveedor responde, lo que cuesta y sus presupuestos.",
+  "The Assistant's explanation": "La explicación del Asistente",
+  "The Assistant's summary of the day": "El resumen del día del Asistente",
+  "The audit log is off: the HomeswiftAiKit block's mcp.http says auditLog: false.": "El registro de auditoría está desactivado: el mcp.http del bloque HomeswiftAiKit indica auditLog: false.",
+  "the backup folder {0} does not exist": "la carpeta de copias de seguridad {0} no existe",
+  "the backup folder {0} is not writable": "no se puede escribir en la carpeta de copias de seguridad {0}",
+  "the backup has no config.json": "la copia de seguridad no tiene config.json",
+  "the backup's config.json cannot run: {0}": "el config.json de la copia de seguridad no puede funcionar: {0}",
+  "The block as config.json keeps it.": "El bloque tal como lo guarda config.json.",
+  "The block as JSON": "El bloque en JSON",
+  "the block must keep its platform": "el bloque debe conservar su plataforma",
+  "The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.": "Los bloques de config.json. Al guardar se aplica al momento: el plugin se recarga y conserva sus accesorios.",
+  "The bridge block is the bridge's HomeKit identity: homeswift restarts to apply it, and every connection drops for a few seconds.": "El bloque bridge es la identidad HomeKit del puente: homeswift se reinicia para aplicarlo y todas las conexiones se cortan unos segundos.",
+  "The bridge did not answer: {error}": "El puente no ha respondido: {error}",
+  "The bridge needs a name": "El puente necesita un nombre",
+  "The bridge, its pairings and cached accessories, child bridges, backups and the audit log.": "El puente, sus emparejamientos y accesorios en caché, los puentes secundarios, las copias de seguridad y el registro de auditoría.",
+  "The browser did not allow copying.": "El navegador no ha permitido copiar.",
+  "The browser did not allow the microphone for this page.": "El navegador no ha permitido el micrófono en esta página.",
+  "The browser did not give its location (it needs HTTPS away from localhost).": "El navegador no ha dado su ubicación (necesita HTTPS fuera de localhost).",
+  "The browser's notifications are blocked for this site.": "Las notificaciones del navegador están bloqueadas para este sitio.",
+  "the change for {0} must be an object": "el cambio de {0} debe ser un objeto",
+  "the characteristic of the accessory could not be read": "no se ha podido leer la característica del accesorio",
+  "the code is required": "se necesita el código",
+  "The code the app shows now": "El código que muestra ahora la app",
+  "The code the Home app asks for, as XXX-XX-XXX. It is never logged.": "El código que pide la app Casa, con el formato XXX-XX-XXX. Nunca se registra.",
+  "the config must be a JSON object": "la configuración debe ser un objeto JSON",
+  "The connection dropped before the answer ended.": "La conexión se ha cortado antes de terminar la respuesta.",
+  "The connection dropped: {error}": "Se ha perdido la conexión: {error}",
+  "the current and the new password are required": "se necesitan la contraseña actual y la nueva",
+  "the current password is not right": "la contraseña actual no es correcta",
+  "The daily AI budget is used up: {0} of {1} today. It resets at midnight.": "El presupuesto diario de IA se ha agotado: {0} de {1} hoy. Se restablece a medianoche.",
+  "The daily AI budget is used up: {0} tokens of {1} tokens today. It resets at midnight.": "El presupuesto diario de IA se ha agotado: {0} tokens de {1} hoy. Se restablece a medianoche.",
+  "The device ID stays: a new one is a new bridge to the Home app. To pair again from scratch, reset the bridge's pairings below.": "El ID del dispositivo se mantiene: uno nuevo sería un puente nuevo para la app Casa. Para volver a emparejar desde cero, restablece los emparejamientos del puente más abajo.",
+  "The digest time must be HH:mm": "La hora del resumen debe tener el formato HH:mm",
+  "the endpoint is required": "se necesita el endpoint",
+  "The file before each of its last {n} saves": "El archivo antes de cada uno de sus {n} últimos guardados",
+  "The file before its last save": "El archivo antes de su último guardado",
+  "the file is missing or too large": "falta el archivo o es demasiado grande",
+  "the first user already exists; sign in": "el primer usuario ya existe; inicia sesión",
+  "The form below has other unsaved changes: save them with the budgets?": "El formulario de abajo tiene otros cambios sin guardar: ¿guardarlos con los presupuestos?",
+  "The HomeKit server's port; empty picks a free one and keeps it.": "El puerto del servidor HomeKit; si lo dejas vacío, se elige uno libre y se conserva.",
+  "The homeswift process, at its highest in each point": "El proceso de homeswift, en su máximo en cada punto",
+  "The homeswift process; 100% is one core busy": "El proceso de homeswift; 100 % es un núcleo ocupado",
+  "The homeswift version": "La versión de homeswift",
+  "The image could not be read.": "No se ha podido leer la imagen.",
+  "the image is too large: {0} MB at most": "la imagen es demasiado grande: {0} MB como máximo",
+  "The JSON is not valid: {error}": "El JSON no es válido: {error}",
+  "The last administrator": "El último administrador",
+  "The last administrator stays one: make another user an administrator first.": "El último administrador sigue siéndolo: haz antes administrador a otro usuario.",
+  "the layout must be a JSON object": "la disposición debe ser un objeto JSON",
+  "The layout was not kept: {error}": "No se ha guardado la disposición: {error}",
+  "The machine, and Restart": "El equipo y Reiniciar",
+  "the MCP server is off: turn on mcp.http in the HomeswiftAiKit block": "el servidor MCP está desactivado: activa mcp.http en el bloque HomeswiftAiKit",
+  "The MCP server is read-only (readOnly in the HomeswiftAiKit block): whatever you choose, the app can only read.": "El servidor MCP es de solo lectura (readOnly en el bloque HomeswiftAiKit): elijas lo que elijas, la app solo puede leer.",
+  "the message is too long: 4000 characters at most": "el mensaje es demasiado largo: 4000 caracteres como máximo",
+  "The model did not return valid JSON: {0}": "El modelo no ha devuelto un JSON válido: {0}",
+  "The monthly AI budget is used up: {0} of {1} this month. It resets on the 1st of next month.": "El presupuesto mensual de IA se ha agotado: {0} de {1} este mes. Se restablece el día 1 del mes que viene.",
+  "The monthly AI budget is used up: {0} tokens of {1} tokens this month. It resets on the 1st of next month.": "El presupuesto mensual de IA se ha agotado: {0} tokens de {1} este mes. Se restablece el día 1 del mes que viene.",
+  "the name must be 1 to 64 characters": "el nombre debe tener de 1 a 64 caracteres",
+  "The name must be 1 to 64 characters": "El nombre debe tener de 1 a 64 caracteres",
+  "The new password is not strong enough yet: the gauge says what is missing.": "La nueva contraseña aún no es lo bastante segura: el indicador te dice qué falta.",
+  "The new password is the current one.": "La nueva contraseña es la actual.",
+  "The ntfy server must be an http(s) URL": "El servidor ntfy debe ser una URL http(s)",
+  "The ntfy topic may only use letters, numbers, - and _ (up to 64)": "El tema de ntfy solo puede usar letras, números, - y _ (hasta 64)",
+  "The on-device model declined this request.": "El modelo del dispositivo ha rechazado esta solicitud.",
+  "The pages' language and the one the Assistant answers in. Automatic follows the browser.": "El idioma de las páginas y en el que responde el Asistente. Automático sigue al navegador.",
+  "The password is not strong enough yet: the gauge says what is missing.": "La contraseña aún no es lo bastante segura: el indicador te dice qué falta.",
+  "the password is required": "se necesita la contraseña",
+  "the password is too weak: {0}": "la contraseña es demasiado débil: {0}",
+  "the password is too weak: make it stronger: {0} of {1} bits": "la contraseña es demasiado débil: hazla más fuerte: {0} de {1} bits",
+  "the password is too weak: make it stronger: {0} of {1} bits; common words add little": "la contraseña es demasiado débil: hazla más fuerte: {0} de {1} bits; las palabras comunes aportan poco",
+  "the password is too weak: make it stronger: {0} of {1} bits; repeated or sequential characters add nothing": "la contraseña es demasiado débil: hazla más fuerte: {0} de {1} bits; los caracteres repetidos o seguidos no aportan nada",
+  "the password is too weak: make it stronger: {0} of {1} bits; your username adds nothing": "la contraseña es demasiado débil: hazla más fuerte: {0} de {1} bits; tu nombre de usuario no aporta nada",
+  "the password is too weak: use at least {0} characters; make it stronger: {1} of {2} bits": "la contraseña es demasiado débil: usa al menos {0} caracteres; hazla más fuerte: {1} de {2} bits",
+  "the password is too weak: use at least {0} characters; make it stronger: {1} of {2} bits; common words add little": "la contraseña es demasiado débil: usa al menos {0} caracteres; hazla más fuerte: {1} de {2} bits; las palabras comunes aportan poco",
+  "the password is too weak: use at least {0} characters; make it stronger: {1} of {2} bits; repeated or sequential characters add nothing": "la contraseña es demasiado débil: usa al menos {0} caracteres; hazla más fuerte: {1} de {2} bits; los caracteres repetidos o seguidos no aportan nada",
+  "the password is too weak: use at least {0} characters; make it stronger: {1} of {2} bits; your username adds nothing": "la contraseña es demasiado débil: usa al menos {0} caracteres; hazla más fuerte: {1} de {2} bits; tu nombre de usuario no aporta nada",
+  "the password is too weak: use at most {0} bytes": "la contraseña es demasiado débil: usa como máximo {0} bytes",
+  "The plugin makes no calls to its devices, and they show No Response in the Home app. This page needs it running.": "El plugin no hace llamadas a sus dispositivos, que muestran Sin respuesta en la app Casa. Esta página necesita que esté en ejecución.",
+  "The plugin's schema refuses this:": "El esquema del plugin rechaza esto:",
+  "The plugins started again on empty caches and add the devices they reach; aids and iids stay, so rooms and automations survive.": "Los plugins se han vuelto a iniciar con las cachés vacías y añaden los dispositivos a los que llegan; los aids e iids se mantienen, así que las habitaciones y las automatizaciones se conservan.",
+  "The plugins' schemas refuse this:": "Los esquemas de los plugins rechazan esto:",
+  "the preferences could not be saved: {0}": "no se han podido guardar las preferencias: {0}",
+  "the prompt is too long: 8000 characters at most": "la pregunta es demasiado larga: 8000 caracteres como máximo",
+  "The push endpoint is not a known browser push service": "El endpoint push no es un servicio push de navegador conocido",
+  "The push endpoint must be an https URL": "El endpoint push debe ser una URL https",
+  "the request is not one Homeswift can answer": "Homeswift no puede responder a esta solicitud",
+  "the request is too large": "la solicitud es demasiado grande",
+  "The room of {name}. A new name adds the room; empty takes it out of its room.": "La habitación de {name}. Un nombre nuevo añade la habitación; si lo dejas vacío, sale de su habitación.",
+  "The room of {name}. Rooms: {rooms}. A new name adds the room; empty takes it out of its room.": "La habitación de {name}. Habitaciones: {rooms}. Un nombre nuevo añade la habitación; si lo dejas vacío, sale de su habitación.",
+  "The same as config.json now.": "Igual que el config.json actual.",
+  "The same event about the same thing goes out once per 15 minutes at most, and 12 notifications an hour at most.": "El mismo evento sobre lo mismo se envía como máximo una vez cada 15 minutos, y 12 notificaciones por hora como máximo.",
+  "the scope is read or admin": "el ámbito es read o admin",
+  "the search took longer than {0} and was stopped; try a simpler pattern or plain text": "la búsqueda ha tardado más de {0} y se ha detenido; prueba un patrón más sencillo o texto sin formato",
+  "The settings do not match the plugin's schema: {0}": "Los ajustes no coinciden con el esquema del plugin: {0}",
+  "The settings do not match the plugin's schema: {0}; and {1} more": "Los ajustes no coinciden con el esquema del plugin: {0}; y {1} más",
+  "The status, accessories and metrics.": "El estado, los accesorios y las métricas.",
+  "The text ends before this list is closed": "El texto termina antes de que se cierre esta lista",
+  "The text ends before this object is closed": "El texto termina antes de que se cierre este objeto",
+  "The text ends where a value should be": "El texto termina donde debería haber un valor",
+  "the time window uses sunrise or sunset, but no location is set": "la franja horaria usa el amanecer o el atardecer, pero no hay ninguna ubicación definida",
+  "the token needs a name of 1 to 64 characters": "el token necesita un nombre de 1 a 64 caracteres",
+  "The two new passwords are not the same.": "Las dos contraseñas nuevas no coinciden.",
+  "the upload is larger than {0} MB": "el archivo subido supera los {0} MB",
+  "The username": "El nombre de usuario",
+  "the username must be 1 to 64 characters without spaces or colons": "el nombre de usuario debe tener de 1 a 64 caracteres, sin espacios ni dos puntos",
+  "The values to set, in this order.": "Los valores que se aplican, en este orden.",
+  "The webhook URL must be an http(s) URL": "La URL del webhook debe ser una URL http(s)",
+  "The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once.": "Todo el config.json. Al guardarlo se valida, se guarda una copia de seguridad del archivo anterior (las 20 últimas en backups/) y se aplica al momento.",
+  "The whole instance, to move it or start over, and each saved config.json.": "La instancia completa, para moverla o empezar de nuevo, y cada config.json guardado.",
+  "The whole request": "La solicitud completa",
+  "Their ids stay, so rooms and automations come back with the devices; accessories of devices that are gone do not.": "Sus ids se mantienen, así que las habitaciones y automatizaciones vuelven con los dispositivos; los accesorios de dispositivos que ya no están, no.",
+  "Theme": "Tema",
+  "there are no log lines to diagnose": "no hay líneas de registro que diagnosticar",
+  "there is already a block {0} of {1}": "ya hay un bloque {0} de {1}",
+  "There is already a room {0}": "Ya hay una habitación {0}",
+  "There is no HomeswiftAiKit block: choose a provider first.": "No hay ningún bloque HomeswiftAiKit: elige primero un proveedor.",
+  "there is no such token": "no existe ese token",
+  "there is no such user": "no existe ese usuario",
+  "Thermostat": "Termostato",
+  "Thinking about it…": "Pensando…",
+  "Thinking…": "Pensando…",
+  "this API token can only read": "este token de API solo puede leer",
+  "This app is not registered with Homeswift, or its registration expired. Connect again from the app.": "Esta app no está registrada en Homeswift, o su registro ha caducado. Vuelve a conectarla desde la app.",
+  "this backup": "esta copia",
+  "This block has no settings form; edit it as JSON.": "Este bloque no tiene formulario de ajustes; edítalo como JSON.",
+  "This bridge has no account yet. Open its web UI and create the administrator first.": "Este puente todavía no tiene ninguna cuenta. Abre su interfaz web y crea primero el administrador.",
+  "This browser and others": "Este navegador y otros",
+  "This browser cannot play this camera's video": "Este navegador no puede reproducir el vídeo de esta cámara",
+  "This browser cannot receive push notifications.": "Este navegador no puede recibir notificaciones push.",
+  "This browser cannot tell its location.": "Este navegador no puede indicar su ubicación.",
+  "This browser is not subscribed": "Este navegador no está suscrito",
+  "This browser is not subscribed.": "Este navegador no está suscrito.",
+  "This certificate cannot be read.": "No se puede leer este certificado.",
+  "This device is not in the configuration.": "Este dispositivo no está en la configuración.",
+  "this homeswift keeps no log on disk": "este homeswift no guarda ningún registro en disco",
+  "this homeswift records no metrics": "este homeswift no registra métricas",
+  "This homeswift's log, live, and up to a week back.": "El registro de este homeswift, en directo, y hasta una semana atrás.",
+  "This is {version}": "Esta es la {version}",
+  "This is {version} · released {date}": "Esta es la {version} · publicada el {date}",
+  "This is a certificate; drop the private key here.": "Es un certificado; suelta aquí la clave privada.",
+  "This is a private key; drop the certificate here.": "Es una clave privada; suelta aquí el certificado.",
+  "this is not a JPEG, PNG or WebP image": "no es una imagen JPEG, PNG o WebP",
+  "this is not a name the web UI answers to; add it to allowedHosts in the HomeswiftUI block": "la interfaz web no responde a este nombre; añádelo a allowedHosts en el bloque HomeswiftUI",
+  "This is not a PEM file: a certificate or a key starts with -----BEGIN.": "No es un archivo PEM: un certificado o una clave empieza por -----BEGIN.",
+  "this is the last administrator: make another user an administrator first": "es el último administrador: haz administrador a otro usuario primero",
+  "This month by model and by user": "Este mes por modelo y por usuario",
+  "This private key cannot be read (an encrypted key needs its passphrase removed).": "No se puede leer esta clave privada (a una clave cifrada hay que quitarle la frase de contraseña).",
+  "this process cannot restart itself; restart homeswift by hand": "este proceso no puede reiniciarse solo; reinicia homeswift a mano",
+  "This scene changes a lock, a door or an alarm: confirm to run it": "Esta escena cambia una cerradura, una puerta o una alarma: confirma para ejecutarla",
+  "This scene is already running": "Esta escena ya se está ejecutando",
+  "This string is not closed": "Esta cadena no está cerrada",
+  "This string is not closed before the end of the line": "Esta cadena no se cierra antes del final de la línea",
+  "this web UI has no accounts: its auth is none": "esta interfaz web no tiene cuentas: su auth es none",
+  "This web UI has no sign-in: its HomeswiftUI block says auth none, so there are no users.": "Esta interfaz web no tiene inicio de sesión: su bloque HomeswiftUI dice auth none, así que no hay usuarios.",
+  "This web UI has no sign-in: its HomeswiftUI block says auth none, so there is no password to change.": "Esta interfaz web no tiene inicio de sesión: su bloque HomeswiftUI dice auth none, así que no hay contraseña que cambiar.",
+  "Thread Node Capabilities": "Capacidades del nodo Thread",
+  "Thread OpenThread Version": "Versión de OpenThread",
+  "Thread Status": "Estado de Thread",
+  "Thread Transport": "Transporte Thread",
+  "Thu": "Jue",
+  "Tilt": "Inclinación",
+  "Time": "Hora",
+  "Time range": "Periodo",
+  "To": "Hasta",
+  "Today": "Hoy",
+  "Token “{name}”": "Token «{name}»",
+  "Tokens": "Tokens",
+  "Tokens per day": "Tokens al día",
+  "Tokens per month": "Tokens al mes",
+  "Tokens this month": "Tokens este mes",
+  "Tokens today": "Tokens hoy",
+  "too many accessories": "demasiados accesorios",
+  "Too many Assistant requests. Wait a minute and try again.": "Demasiadas solicitudes al Asistente. Espera un minuto y vuelve a intentarlo.",
+  "Too many test notifications: try again in a minute": "Demasiadas notificaciones de prueba: vuelve a intentarlo dentro de un minuto",
+  "too many widgets": "demasiados widgets",
+  "Tool or route": "Herramienta o ruta",
+  "Topic": "Tema",
+  "Transfer Transport Management": "Gestión de transferencias",
+  "Transmit Power": "Potencia de transmisión",
+  "Trigger": "Activador",
+  "Trigger {0} must be an object": "El activador {0} debe ser un objeto",
+  "Trigger {0}: {1} is missing": "Activador {0}: falta {1}",
+  "Trigger {0}: days are 0 (Sunday) to 6": "Activador {0}: los días van de 0 (domingo) a 6",
+  "Trigger {0}: invalid cron expression": "Activador {0}: expresión cron no válida",
+  "Trigger {0}: invalid operator": "Activador {0}: operador no válido",
+  "Trigger {0}: the event must be sunrise or sunset": "Activador {0}: el evento debe ser sunrise o sunset",
+  "Trigger {0}: the offset must be a whole number of minutes from -720 to 720": "Activador {0}: el desfase debe ser un número entero de minutos entre -720 y 720",
+  "Trigger {0}: the time must be HH:mm": "Activador {0}: la hora debe tener el formato HH:mm",
+  "Trigger {0}: the type must be time, cron, sun or characteristic": "Activador {0}: el tipo debe ser time, cron, sun o characteristic",
+  "Trigger {0}: the value must be a boolean, a number or a short text": "Activador {0}: el valor debe ser un booleano, un número o un texto corto",
+  "Triggers": "Activadores",
+  "Try again": "Reintentar",
+  "Tu": "Ma",
+  "Tue": "Mar",
+  "Tunnel": "Túnel",
+  "Tunnel Connection Timeout": "Tiempo de espera del túnel",
+  "Tunneled Accessory Advertising": "Anuncio del accesorio en túnel",
+  "Tunneled Accessory Connected": "Accesorio en túnel conectado",
+  "Tunneled Accessory State Number": "Número de estado del accesorio en túnel",
+  "turn Adaptive Lighting on once in the Home app (the light's settings): the bridge then keeps the schedule and can resume it": "activa una vez la Iluminación adaptativa en la app Casa (ajustes de la luz): el puente guarda entonces la programación y puede reanudarla",
+  "turn off": "apagar",
+  "Turn off": "Apagar",
+  "Turn off [setting]": "Desactivar",
+  "Turn off every light": "Apaga todas las luces",
+  "Turn off on this browser": "Desactivar en este navegador",
+  "turn on": "encender",
+  "Turn on": "Activar",
+  "Turn on for this browser": "Activar en este navegador",
+  "Turned off in the Home app": "Desactivada en la app Casa",
+  "Two-factor": "Dos factores",
+  "Two-factor authentication": "Autenticación de dos factores",
+  "two-factor authentication is already on; turn it off first": "la autenticación de dos factores ya está activada; desactívala primero",
+  "Type {text} to confirm": "Escribe {text} para confirmar",
+  "type the code from your authenticator app": "escribe el código de tu app de autenticación",
+  "Unknown": "Desconocido",
+  "unknown API route": "ruta de API desconocida",
+  "unknown auth action": "acción de autenticación desconocida",
+  "unknown camera route {0}": "ruta de cámara {0} desconocida",
+  "unknown preference {0}": "preferencia {0} desconocida",
+  "unknown route": "ruta desconocida",
+  "unknown subscription": "suscripción desconocida",
+  "Unlocked": "Desbloqueado",
+  "Unmute": "Activar sonido",
+  "Unsaved changes": "Cambios sin guardar",
+  "Unsecured": "Desbloqueado",
+  "Up": "Arriba",
+  "Up [uptime]": "Activo",
+  "URL": "URL",
+  "USD per day": "USD al día",
+  "USD per month": "USD al mes",
+  "Use an image of your own…": "Usar una imagen propia…",
+  "use at least {0} characters": "usa al menos {0} caracteres",
+  "use at most {0} bytes": "usa como máximo {0} bytes",
+  "Use it": "Usarlo",
+  "Use this device's location": "Usar la ubicación de este dispositivo",
+  "User": "Usuario",
+  "User key": "Clave de usuario",
+  "Username": "Nombre de usuario",
+  "username and password are required": "se necesitan el nombre de usuario y la contraseña",
+  "Users": "Usuarios",
+  "Users and API tokens": "Usuarios y tokens de API",
+  "Users and tokens": "Usuarios y tokens",
+  "Valid JSON · unsaved": "JSON válido · sin guardar",
+  "Value": "Valor",
+  "value must be a boolean, a number or a string": "value debe ser un booleano, un número o una cadena",
+  "valve": "válvula",
+  "Valve": "Válvula",
+  "Valve position": "Posición de la válvula",
+  "Valve Type": "Tipo de válvula",
+  "Version {version} · {host}": "Versión {version} · {host}",
+  "Very weak": "Muy débil",
+  "Video Analysis Active": "Análisis de vídeo",
+  "Violet": "Violeta",
+  "VOC": "COV",
+  "VOC density": "Densidad de COV",
+  "VOC Density": "COV",
+  "Voice": "Voz",
+  "Voice did not start: {error}": "La voz no se ha iniciado: {error}",
+  "Voice language": "Idioma de voz",
+  "Voice needs HTTPS here: turn on https in Plugins › HomeswiftUI › Settings (or open the page on localhost).": "La voz necesita HTTPS aquí: activa https en Plugins › HomeswiftUI › Ajustes (o abre la página en localhost).",
+  "Voice needs HTTPS: turn on https in the HomeswiftUI settings, or open this page on localhost.": "La voz necesita HTTPS: activa https en los ajustes de HomeswiftUI, o abre esta página en localhost.",
+  "Voice stopped: {error}.": "La voz se ha detenido: {error}.",
+  "Volume": "Volumen",
+  "Volume down": "Bajar volumen",
+  "Volume Selector": "Volumen",
+  "Volume up": "Subir volumen",
+  "Waiting to be added (setup code on the Status page)": "Esperando a que se añada (código de configuración en la página Estado)",
+  "Wallpaper": "Fondo de pantalla",
+  "Warm white": "Blanco cálido",
+  "Warnings": "Avisos",
+  "Water": "Agua",
+  "Water Level": "Nivel de agua",
+  "We": "Mi",
+  "Weak": "Débil",
+  "Web Push to the browsers that turned it on below. It needs HTTPS (or localhost).": "Web Push a los navegadores que lo han activado abajo. Necesita HTTPS (o localhost).",
+  "Webhook": "Webhook",
+  "Wed": "Mié",
+  "What": "Qué",
+  "What can I do for you?": "¿Qué puedo hacer por ti?",
+  "What does my bridge run?": "¿Qué ejecuta mi puente?",
+  "What needs attention today, from the log and the accessories": "Lo que necesita atención hoy, según el registro y los accesorios",
+  "What should {plugin} do? For example: \"add my second light at 192.168.1.40, and poll every 5 seconds\".": "¿Qué debe hacer {plugin}? Por ejemplo: «añade mi segunda luz en 192.168.1.40 y consúltala cada 5 segundos».",
+  "What the bridge tells you when you are not looking: it started or stopped, a plugin reported an error, an accessory stopped responding, an automation failed.": "Lo que el puente te cuenta cuando no estás mirando: se ha iniciado o detenido, un plugin ha informado de un error, un accesorio ha dejado de responder, una automatización ha fallado.",
+  "What the Home app calls the bridge when it is added.": "El nombre que la app Casa da al puente cuando se añade.",
+  "What the lines are about": "De qué tratan las líneas",
+  "What they sign in with: no spaces or colons.": "Lo que usa para iniciar sesión: sin espacios ni dos puntos.",
+  "What uses it, to know it again.": "Qué lo usa, para reconocerlo.",
+  "What would change": "Lo que cambiaría",
+  "What's new": "Novedades",
+  "When": "Cuándo",
+  "When {who} {characteristic} {comparison} {value}": "Cuando {characteristic} de {who} {comparison} {value}",
+  "When {who} {characteristic} changes": "Cuando {characteristic} de {who} cambia",
+  "When an accessory changes": "Cuando cambia un accesorio",
+  "Where the Home app finds the bridge": "Dónde encuentra la app Casa el puente",
+  "Whether its provider answers, and what it costs.": "Si su proveedor responde y lo que cuesta.",
+  "White": "Blanco",
+  "Who": "Quién",
+  "Who may use this web UI. Administrators change settings, plugins and users; other users see the bridge and control accessories.": "Quién puede usar esta interfaz web. Los administradores cambian ajustes, plugins y usuarios; los demás usuarios ven el puente y controlan los accesorios.",
+  "Who the Home app knows each server by": "Cómo conoce la app Casa a cada servidor",
+  "Whose requests": "Mostrar solicitudes de",
+  "Why is an accessory not responding?": "¿Por qué no responde un accesorio?",
+  "Wi Fi Router": "Router wifi",
+  "Wi Fi Satellite": "Satélite wifi",
+  "Wi Fi Transport": "Transporte wifi",
+  "Wi-Fi Capabilities": "Capacidades wifi",
+  "Wi-Fi Satellite Status": "Estado del satélite wifi",
+  "Window": "Ventana",
+  "Window Covering": "Persiana",
+  "Worth a look": "Merece un vistazo",
+  "Write it again": "Volver a escribirlo",
+  "Write today's digest": "Escribir el resumen de hoy",
+  "Written {when}": "Escrito el {when}",
+  "Written {when} by {model}": "Escrito el {when} por {model}",
+  "Written by {model}. Passwords and tokens never reach it; check addresses and names before saving.": "Escrito por {model}. Las contraseñas y los tokens nunca le llegan; comprueba direcciones y nombres antes de guardar.",
+  "wrong set-up code: it is in the bridge's output, next to the web UI address": "código de configuración incorrecto: aparece en la salida del puente, junto a la dirección de la interfaz web",
+  "wrong username or password": "nombre de usuario o contraseña incorrectos",
+  "Yesterday": "Ayer",
+  "you": "tú",
+  "Your account": "Tu cuenta",
+  "Your favourite accessories and the scenes, at hand.": "Tus accesorios favoritos y las escenas, a mano.",
+  "Your image": "Tu imagen",
+  "Your image is the wallpaper now.": "Tu imagen es ahora el fondo de pantalla.",
+  "Your password and two-factor": "Tu contraseña y la autenticación de dos factores",
+  "Your setup, in your words": "Tu instalación, con tus palabras",
+  "Your sign-in to this bridge's web UI, as an administrator.": "Tu inicio de sesión en la interfaz web de este puente, como administrador.",
+  "Your sign-in to this bridge's web UI.": "Tu inicio de sesión en la interfaz web de este puente.",
+  "Your user key and an application token from pushover.net.": "Tu clave de usuario y un token de aplicación de pushover.net.",
+  "your username adds nothing": "tu nombre de usuario no aporta nada"
+});
+
+"""#),
+        "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
+// The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
+HomeswiftI18n.add("fr", {
+  "-100… or @channel": "-100… ou @canal",
+  "\"{0}\" is in several caches; pass cacheFile ({1})": "« {0} » figure dans plusieurs caches ; indiquez cacheFile ({1})",
+  "(done)": "(terminé)",
+  "(failed)": "(échec)",
+  "(not allowed)": "(non autorisé)",
+  "(running)": "(en cours)",
+  "(secret, kept)": "(secret, conservé)",
+  "{0} blocks have platform {1}; give the name": "{0} blocs ont la plateforme {1} ; indiquez le nom",
+  "{0} cannot do that now": "{0} ne peut pas faire cela maintenant",
+  "{0} did not answer: the device may be off or out of reach": "{0} n'a pas répondu : l'appareil est peut-être éteint ou hors de portée",
+  "{0} did not start: {1}": "{0} n'a pas démarré : {1}",
+  "{0} gave no live video: {1}": "{0} n'a fourni aucune vidéo en direct : {1}",
+  "{0} gave no snapshot: {1}": "{0} n'a fourni aucune image : {1}",
+  "{0} has {1} lights with Adaptive Lighting; name the service": "{0} a {1} lampes avec l'Éclairage adaptatif ; précisez le service",
+  "{0} has {1} services with {2}; name the service": "{0} a {1} services avec {2} ; précisez le service",
+  "{0} has {1} viewers already": "{0} a déjà {1} spectateurs",
+  "{0} has no Adaptive Lighting": "{0} n'a pas d'Éclairage adaptatif",
+  "{0} has no Adaptive Lighting on service {1}": "{0} n'a pas d'Éclairage adaptatif sur le service {1}",
+  "{0} has no characteristic {1}": "{0} n'a pas de caractéristique {1}",
+  "{0} has no characteristic {1} on service {2}": "{0} n'a pas de caractéristique {1} sur le service {2}",
+  "{0} has no live feed; its card shows snapshots": "{0} n'a pas de flux en direct ; sa carte affiche des images fixes",
+  "{0} is busy: try again in a moment": "{0} est occupé : réessayez dans un instant",
+  "{0} is not allowed here": "{0} n'est pas autorisé ici",
+  "{0} is one of {1}": "{0} vaut l'une de ces valeurs : {1}",
+  "{0} is paused: its plugin does not run": "{0} est en pause : son plugin ne s'exécute pas",
+  "{0} is paused: resume it on the Plugins page to control {1}": "{0} est en pause : reprenez-le sur la page Plugins pour commander {1}",
+  "{0} is required": "{0} est requis",
+  "{0} is turned off in the Home app": "{0} : la caméra est désactivée dans l'app Maison",
+  "{0} matches none of the allowed shapes": "{0} ne correspond à aucune des formes autorisées",
+  "{0} must be {1}": "{0} doit être {1}",
+  "{0} must be <= {1}": "{0} doit être <= {1}",
+  "{0} must be >= {1}": "{0} doit être >= {1}",
+  "{0} must be array": "{0} doit être une liste",
+  "{0} must be at least {1} characters": "{0} doit compter au moins {1} caractères",
+  "{0} must be at most {1} characters": "{0} doit compter au plus {1} caractères",
+  "{0} must be boolean": "{0} doit être un booléen",
+  "{0} must be integer": "{0} doit être un entier",
+  "{0} must be number": "{0} doit être un nombre",
+  "{0} must be object": "{0} doit être un objet",
+  "{0} must be one of {1}": "{0} doit être l'une de ces valeurs : {1}",
+  "{0} must be string": "{0} doit être une chaîne",
+  "{0} must have at least {1} items": "{0} doit avoir au moins {1} éléments",
+  "{0} must have at most {1} items": "{0} doit avoir au plus {1} éléments",
+  "{0} needs set_security_accessory": "{0} nécessite set_security_accessory",
+  "{0} of {1} unlocks, opens or disarms: use set_security_accessory": "{0} de {1} déverrouille, ouvre ou désarme : utilisez set_security_accessory",
+  "{0} of the accessory could not be read": "{0} de l'accessoire n'a pas pu être lu",
+  "{0} only reports this value": "{0} ne fait que signaler cette valeur",
+  "{0} refused that value": "{0} a refusé cette valeur",
+  "{0} refused the change ({1})": "{0} a refusé la modification ({1})",
+  "{0} security action(s) not run": "{0} action(s) de sécurité non exécutée(s)",
+  "{0} took too long to answer": "{0} a mis trop de temps à répondre",
+  "{0}: cannot reach the provider: {1}": "{0} : impossible de joindre le fournisseur : {1}",
+  "{0}: no answer within {1} seconds": "{0} : aucune réponse en {1} secondes",
+  "{0}: the response is not JSON": "{0} : la réponse n'est pas du JSON",
+  "{action} (press and hold)": "{action} (maintenir appuyé)",
+  "{address} · last used {when}": "{address} · dernière utilisation le {when}",
+  "{bits} bits": "{bits} bits",
+  "{bits} bits needed": "{bits} bits requis",
+  "{channel} on": "{channel} activé",
+  "{client} asks to use your bridge as {username}.": "{client} demande à utiliser votre pont en tant que {username}.",
+  "{client} asks to use your bridge. This web UI has no sign-in, so it acts as its administrator.": "{client} demande à utiliser votre pont. Cette interface web ne demande pas de connexion : l'app agit donc en tant qu'administrateur.",
+  "{count} in {n} cache file": "{count} dans {n} fichier de cache",
+  "{count} in {n} cache files": "{count} dans {n} fichiers de cache",
+  "{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.": "{count} sur {servers} serveurs, tels que l'app Maison les voit. Les modifications faites ici s'appliquent à vos appareils.",
+  "{count} on one server, as the Home app sees them. Changes here reach your devices.": "{count} sur un serveur, tels que l'app Maison les voit. Les modifications faites ici s'appliquent à vos appareils.",
+  "{cron} · next {date}": "{cron} · prochain : {date}",
+  "{d}d {h}h": "{d} j {h} h",
+  "{file} is larger than {size}.": "{file} dépasse {size}.",
+  "{file} is removed from the folder.": "{file} est supprimé du dossier.",
+  "{h}h {m}m": "{h} h {m} min",
+  "{hours} h ago": "il y a {hours} h",
+  "{label} {n} of {count}": "{label} {n} sur {count}",
+  "{label}: {value}": "{label} : {value}",
+  "{level}, {bits} bits": "{level}, {bits} bits",
+  "{m}m": "{m} min",
+  "{minutes} min after sunrise {days}": "{minutes} min après le lever du soleil {days}",
+  "{minutes} min after sunset {days}": "{minutes} min après le coucher du soleil {days}",
+  "{minutes} min ago": "il y a {minutes} min",
+  "{minutes} min before sunrise {days}": "{minutes} min avant le lever du soleil {days}",
+  "{minutes} min before sunset {days}": "{minutes} min avant le coucher du soleil {days}",
+  "{model} read {n} line. Secrets and addresses were masked first; check its advice before acting on it.": "{model} a lu {n} ligne. Les secrets et les adresses ont d'abord été masqués ; vérifiez ses conseils avant de les suivre.",
+  "{model} read {n} lines. Secrets and addresses were masked first; check its advice before acting on it.": "{model} a lu {n} lignes. Les secrets et les adresses ont d'abord été masqués ; vérifiez ses conseils avant de les suivre.",
+  "{n} accessories": "{n} accessoires",
+  "{n} accessories on {bridge}": "{n} accessoires sur {bridge}",
+  "{n} accessory": "{n} accessoire",
+  "{n} accessory on {bridge}": "{n} accessoire sur {bridge}",
+  "{n} day": "{n} jour",
+  "{n} days": "{n} jours",
+  "{n} file from {date} is staged.": "{n} fichier du {date} est prêt.",
+  "{n} file from the backup is staged.": "{n} fichier de la sauvegarde est prêt.",
+  "{n} files from {date} are staged.": "{n} fichiers du {date} sont prêts.",
+  "{n} files from the backup are staged.": "{n} fichiers de la sauvegarde sont prêts.",
+  "{n} Home app controller": "{n} contrôleur de l'app Maison",
+  "{n} Home app controllers": "{n} contrôleurs de l'app Maison",
+  "{n} message": "{n} message",
+  "{n} messages": "{n} messages",
+  "{n} min": "{n} min",
+  "{n} of {total} on": "Allumés : {n} sur {total}",
+  "{n} unchanged line": "{n} ligne inchangée",
+  "{n} unchanged lines": "{n} lignes inchangées",
+  "{n}, newest first": "{n}, les plus récentes d'abord",
+  "{name} · child bridge": "{name} · pont enfant",
+  "{name} · its own server": "{name} · son propre serveur",
+  "{name} (gone)": "{name} (disparu)",
+  "{name} in the Home app": "{name} dans l'app Maison",
+  "{name} saved": "{name} enregistré",
+  "{name}: {action}": "{name} : {action}",
+  "{name}: {setting}": "{name} : {setting}",
+  "{name}: on": "{name} : allumé",
+  "{name}: power": "{name} : alimentation",
+  "{names} and {n} more": "{names} et {n} autres",
+  "{platform}: {problem}": "{platform} : {problem}",
+  "{plugin} did not start: {reason}": "{plugin} n'a pas démarré : {reason}",
+  "{plugin} is paused: resume it to control {name}": "{plugin} est en pause : reprenez-le pour commander {name}",
+  "{provider} · {cost} so far. Changes always ask first.": "{provider} · {cost} jusqu'ici. Toute modification vous est d'abord soumise.",
+  "{provider}. Changes always ask first.": "{provider}. Toute modification vous est d'abord soumise.",
+  "{remote}: arrows move, Enter selects, Backspace goes back": "{remote} : flèches pour naviguer, Entrée pour sélectionner, Retour arrière pour revenir",
+  "{scene} changes a lock, a door or an alarm ({which}). Run it?": "{scene} modifie une serrure, une porte ou une alarme ({which}). La lancer ?",
+  "{scene} ran, but not everything worked:\n{failures}": "{scene} a été lancée, mais tout n'a pas fonctionné :\n{failures}",
+  "{shown} of {n} line": "{shown} sur {n} ligne",
+  "{shown} of {n} line (the latest of the range)": "{shown} sur {n} ligne (les plus récentes de la période)",
+  "{shown} of {n} lines": "{shown} sur {n} lignes",
+  "{shown} of {n} lines (the latest of the range)": "{shown} sur {n} lignes (les plus récentes de la période)",
+  "{shown} of {total}": "{shown} sur {total}",
+  "{size} for every {kind}": "{size} pour chaque {kind}",
+  "{size} for every accessory like it": "{size} pour chaque accessoire du même type",
+  "{state} · {names} unlocked": "{state} · non verrouillé : {names}",
+  "{temperature} inside": "{temperature} à l'intérieur",
+  "{temperature} now": "{temperature} actuellement",
+  "{time} left": "reste {time}",
+  "{title}, drawn over time": "{title}, au fil du temps",
+  "{title}, nothing recorded": "{title}, rien d'enregistré",
+  "{title}. Nothing changes until you allow it.": "{title}. Rien ne change tant que vous ne l'autorisez pas.",
+  "{tool} (dry run)": "{tool} (simulation)",
+  "{trigger} (off)": "{trigger} (désactivé)",
+  "{used} of {limit}": "{used} sur {limit}",
+  "{username} · Administrator": "{username} · Administrateur",
+  "{username} (the username)": "{username} (le nom d'utilisateur)",
+  "24 hours": "24 heures",
+  "4 weeks": "4 semaines",
+  "7 days": "7 jours",
+  "A backup made by Download a backup or kept below replaces this bridge's files as homeswift restarts: its pairings, accessories and plugin settings come back; this machine's bridge and web UI ports stay. Files it does not have stay as they are.": "Une sauvegarde faite par Télécharger une sauvegarde ou conservée ci-dessous remplace les fichiers de ce pont au redémarrage de homeswift : ses jumelages, accessoires et réglages de plugins sont rétablis ; les ports du pont et de l'interface web de cette machine restent inchangés. Les fichiers qu'elle ne contient pas restent tels quels.",
+  "A block of the runtime itself.": "Un bloc du moteur lui-même.",
+  "A bot's token from @BotFather, and the chat it writes to.": "Le jeton d'un bot fourni par @BotFather, et la discussion où il écrit.",
+  "A colon is missing after this key": "Il manque deux-points après cette clé",
+  "A comma before the closing brace": "Une virgule avant l'accolade fermante",
+  "A comma before the closing bracket": "Une virgule avant le crochet fermant",
+  "A comma or a closing brace is missing after this value": "Il manque une virgule ou une accolade fermante après cette valeur",
+  "A comma or a closing bracket is missing after this value": "Il manque une virgule ou un crochet fermant après cette valeur",
+  "A control character in a string must be escaped": "Un caractère de contrôle dans une chaîne doit être échappé",
+  "A display name must be 1 to {0} characters": "Un nom d'affichage doit compter de 1 à {0} caractères",
+  "a field name is required": "un nom de champ est requis",
+  "A JSON POST to a URL of yours: event, title, message, instance, timestamp.": "Un POST JSON vers une URL de votre choix : event, title, message, instance, timestamp.",
+  "A location needs lat (-90 to 90) and lon (-180 to 180)": "Une position nécessite lat (-90 à 90) et lon (-180 à 180)",
+  "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)": "une serrure, une porte ou une alarme : une personne doit confirmer (set_security_accessory, ou l'interface web)",
+  "a lock, door or alarm: automations do not change them": "une serrure, une porte ou une alarme : les automatisations n'y touchent pas",
+  "a message is required": "un message est requis",
+  "A name for {name} on these pages (the Home app keeps its own). Empty goes back to {name}.": "Un nom pour {name} sur ces pages (l'app Maison garde le sien). Vide, il redevient {name}.",
+  "A new block: Add writes it to config.json.": "Un nouveau bloc : Ajouter l'écrit dans config.json.",
+  "A new setup code applies to new pairings only: the Home app keeps the bridge.": "Un nouveau code de configuration ne s'applique qu'aux nouveaux jumelages : l'app Maison garde le pont.",
+  "A phrase of several random words is long, strong and easy to remember.": "Une phrase de plusieurs mots aléatoires est longue, robuste et facile à retenir.",
+  "a platform block needs a platform": "un bloc de plateforme a besoin d'une plateforme",
+  "a prompt is required": "une question est requise",
+  "A restore is staged: it applies when homeswift next starts.": "Une restauration est prête : elle sera appliquée au prochain démarrage de homeswift.",
+  "A room's name must be 1 to {0} characters": "Le nom d'une pièce doit compter de 1 à {0} caractères",
+  "A scene needs 1 to {0} actions": "Une scène nécessite de 1 à {0} actions",
+  "A scheduled restart (a cron expression), the daily backup (its folder and how long it is kept) and the reverse proxies trusted for X-Forwarded-For and X-Forwarded-Proto are settings of the HomeswiftUI block.": "Un redémarrage planifié (une expression cron), la sauvegarde quotidienne (son dossier et sa durée de conservation) et les proxys inverses de confiance pour X-Forwarded-For et X-Forwarded-Proto sont des réglages du bloc HomeswiftUI.",
+  "a security control: use set_security_accessory, one at a time": "une commande de sécurité : utilisez set_security_accessory, une à la fois",
+  "a size is small, medium or large": "une taille vaut small, medium ou large",
+  "a token expires after 1 to {0} days, or never": "un jeton expire après 1 à {0} jours, ou jamais",
+  "A topic on ntfy.sh or your own ntfy server; the app shows it on a phone.": "Un sujet sur ntfy.sh ou votre propre serveur ntfy ; l'app l'affiche sur un téléphone.",
+  "a username and a password are required": "un nom d'utilisateur et un mot de passe sont requis",
+  "a widget id is a short word": "un identifiant de widget est un mot court",
+  "Abnormal": "Anormal",
+  "About {name}: ": "À propos de {name} : ",
+  "Access Code": "Code d'accès",
+  "Access Control": "Contrôle d'accès",
+  "Access Control Level": "Niveau de contrôle d'accès",
+  "Access token": "Jeton d'accès",
+  "Accessories": "Accessoires",
+  "Accessory": "Accessoire",
+  "Accessory Flags": "Indicateurs de l'accessoire",
+  "accessory id \"{0}\" is already used by {1}": "l'identifiant d'accessoire « {0} » est déjà utilisé par {1}",
+  "Accessory Identifier": "Identifiant de l'accessoire",
+  "Accessory Information": "Informations sur l'accessoire",
+  "Accessory Metrics": "Métriques de l'accessoire",
+  "Accessory of its own": "Accessoire autonome",
+  "Accessory of its own, from {plugins}": "Accessoire autonome, de {plugins}",
+  "Accessory of its own, from a plugin": "Accessoire autonome, d'un plugin",
+  "Accessory Runtime Information": "Informations d'exécution",
+  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them.": "Des valeurs d'accessoires réglées ensemble, à la main ou selon un horaire, au lever ou au coucher du soleil, ou quand un accessoire change. Homeswift les conserve ; l'app Maison ne les voit pas.",
+  "Account": "Compte",
+  "Account menu": "Menu du compte",
+  "Action {0} must be an object": "L'action {0} doit être un objet",
+  "Action {0}: {1} is missing": "Action {0} : il manque {1}",
+  "Action {0}: the value must be a boolean, a number or a short text": "Action {0} : la valeur doit être un booléen, un nombre ou un texte court",
+  "Actions": "Actions",
+  "Actions for {name}": "Actions pour {name}",
+  "Actions for every cache": "Actions pour tous les caches",
+  "Actions for the backup of {date}": "Actions pour la sauvegarde du {date}",
+  "Actions for the token {name}": "Actions pour le jeton {name}",
+  "Active": "Actif",
+  "Active Identifier": "Entrée active",
+  "Activity": "Activité",
+  "Activity Interval": "Intervalle d'activité",
+  "Adaptive": "Adaptatif",
+  "Adaptive Lighting": "Éclairage adaptatif",
+  "Adaptive Lighting: on": "Éclairage adaptatif : activé",
+  "Adaptive Lighting: resume the Home app's schedule": "Éclairage adaptatif : reprendre le programme de l'app Maison",
+  "Adaptive Lighting: turn it on once in the Home app": "Éclairage adaptatif : activez-le une fois dans l'app Maison",
+  "Add": "Ajouter",
+  "Add {item}": "Ajouter {item}",
+  "Add {name}": "Ajouter {name}",
+  "Add a condition": "Ajouter une condition",
+  "Add a device for me": "Ajoute un appareil pour moi",
+  "Add a plugin": "Ajouter un plugin",
+  "Add a trigger": "Ajouter un déclencheur",
+  "Add a user": "Ajouter un utilisateur",
+  "Add an accessory as it is now…": "Ajouter un accessoire dans son état actuel…",
+  "Add an action": "Ajouter une action",
+  "Add another": "En ajouter un autre",
+  "Add anyway": "Ajouter quand même",
+  "Add it again afterwards with its setup code, as a new bridge.": "Ajoutez-le ensuite à nouveau avec son code de configuration, comme un nouveau pont.",
+  "Add people who may use this web UI, choose who administers it, and make tokens for scripts.": "Ajoutez les personnes autorisées à utiliser cette interface web, choisissez qui l'administre, et créez des jetons pour les scripts.",
+  "Add the current state of an accessory": "Ajouter l'état actuel d'un accessoire",
+  "Add to Quick Controls": "Ajouter aux commandes rapides",
+  "Add user": "Ajouter un utilisateur",
+  "Added": "Ajouté",
+  "Admin": "Admin",
+  "Administer": "Administration",
+  "Administrator": "Administrateur",
+  "Administrator Only Access": "Accès réservé aux administrateurs",
+  "Admins": "Administrateurs",
+  "Advertised with": "Annoncé par",
+  "air conditioner and thermostat": "climatiseur et thermostat",
+  "Air Particulate Density": "Densité de particules",
+  "Air Particulate Size": "Taille des particules",
+  "Air pressure": "Pression atmosphérique",
+  "air purifier": "purificateur d'air",
+  "Air Purifier": "Purificateur d'air",
+  "Air quality": "Qualité de l'air",
+  "Air Quality": "Qualité de l'air",
+  "Air Quality Sensor": "Capteur de qualité de l'air",
+  "AirPlay Enable": "AirPlay activé",
+  "alarm": "alarme",
+  "Alarm": "Alarme",
+  "All": "Tout",
+  "All controls": "Toutes les commandes",
+  "All lines": "Toutes les lignes",
+  "All off": "Tout est éteint",
+  "All servers": "Tous les serveurs",
+  "All the Assistant's settings: provider, model, key, MCP server": "Tous les réglages de l'Assistant : fournisseur, modèle, clé, serveur MCP",
+  "Allow": "Autoriser",
+  "Allow {tool}?": "Autoriser {tool} ?",
+  "Allowed": "Autorisé",
+  "Allowing sends you back to {destination}. You can disconnect it from your account page at any time.": "Si vous autorisez, vous serez renvoyé vers {destination}. Vous pourrez déconnecter l'app à tout moment depuis la page de votre compte.",
+  "already there": "déjà dans cette pièce",
+  "Also change config.json, plugins and settings, and restart the bridge: everything this web UI can do.": "Modifier aussi config.json, les plugins et les réglages, et redémarrer le pont : tout ce que peut faire cette interface web.",
+  "Also turn accessories on and off and run scenes. Locks, garage doors and alarms still ask you first.": "Allumer et éteindre aussi les accessoires, et lancer des scènes. Les serrures, portes de garage et alarmes demandent toujours votre accord.",
+  "Amber": "Ambre",
+  "An administrator changes settings, plugins and users; anyone else sees the bridge and controls accessories.": "Un administrateur modifie les réglages, les plugins et les utilisateurs ; les autres voient le pont et commandent les accessoires.",
+  "an API token cannot manage accounts or tokens; sign in to the web UI": "un jeton d'API ne peut pas gérer les comptes ni les jetons ; connectez-vous à l'interface web",
+  "an API token names no account: sign in to connect an app": "un jeton d'API ne désigne aucun compte : connectez-vous pour connecter une app",
+  "An automatic run goes ahead only when all of these hold. Running it by hand ignores them.": "Une exécution automatique n'a lieu que si toutes ces conditions sont remplies. Un lancement manuel les ignore.",
+  "an error to explain is required": "une erreur à expliquer est requise",
+  "and": "et",
+  "and {n} more": "et {n} de plus",
+  "another attempt from this address is under way; try again in a moment": "une autre tentative depuis cette adresse est en cours ; réessayez dans un instant",
+  "Anyone who opens this web UI uses it": "Quiconque ouvre cette interface web peut l'utiliser",
+  "API tokens": "Jetons d'API",
+  "Appearance": "Apparence",
+  "apple: the input is too long for the on-device model (about 4,000 tokens); shorten it or use a cloud provider": "apple : le texte est trop long pour le modèle sur l'appareil (environ 4 000 tokens) ; raccourcissez-le ou utilisez un fournisseur dans le cloud",
+  "apple: the on-device model does not support this language": "apple : le modèle sur l'appareil ne prend pas en charge cette langue",
+  "apple: the on-device model is busy; try again": "apple : le modèle sur l'appareil est occupé ; réessayez",
+  "apple: the on-device model is not ready; try again in a few minutes": "apple : le modèle sur l'appareil n'est pas prêt ; réessayez dans quelques minutes",
+  "Application token": "Jeton d'application",
+  "Applied; homeswift restarts by itself for the rest ({0}).": "Appliqué ; homeswift redémarre de lui-même pour le reste ({0}).",
+  "Applied.": "Appliqué.",
+  "Apply what is ticked": "Appliquer ce qui est coché",
+  "Apps you allowed to use the bridge through its MCP server, which is off now.": "Les apps que vous avez autorisées à utiliser le pont via son serveur MCP, désactivé pour l'instant.",
+  "Apps you allowed to use the bridge through its MCP server. To add one in claude.ai or the Claude apps, make a custom connector with {address}.": "Les apps que vous avez autorisées à utiliser le pont via son serveur MCP. Pour en ajouter une dans claude.ai ou les apps Claude, créez un connecteur personnalisé avec {address}.",
+  "Armed · {mode}": "Armé · {mode}",
+  "Ask for a code from an authenticator app (Passwords on iPhone and Mac, Google Authenticator, 1Password…) after the password, so a password alone no longer signs in.": "Demander un code d'une app d'authentification (Mots de passe sur iPhone et Mac, Google Authenticator, 1Password…) après le mot de passe, pour qu'un mot de passe seul ne suffise plus à se connecter.",
+  "Ask the Assistant": "Demander à l'Assistant",
+  "Ask the Assistant ({provider})": "Demander à l'Assistant ({provider})",
+  "Ask the Assistant ({shortcut})": "Demander à l'Assistant ({shortcut})",
+  "Ask, or tell it what to set up…": "Posez une question, ou dites-lui quoi configurer…",
+  "Asking the browser…": "Interrogation du navigateur…",
+  "Asking the provider…": "Interrogation du fournisseur…",
+  "Asset Update": "Mise à jour des ressources",
+  "Asset Update Readiness": "Mise à jour des ressources prête",
+  "Assistant": "Assistant",
+  "Assistant · {model}": "Assistant · {model}",
+  "At": "À",
+  "At {time} {days}": "À {time} {days}",
+  "At a time": "À heure fixe",
+  "At least {n} bits of entropy (ANSSI: medium to strong)": "Au moins {n} bits d'entropie (ANSSI : moyen à fort)",
+  "At least {n} characters": "Au moins {n} caractères",
+  "At most {0} conditions": "{0} conditions au maximum",
+  "At most {0} rooms": "{0} pièces au maximum",
+  "At most {0} scenes": "{0} scènes au maximum",
+  "At most {0} triggers": "{0} déclencheurs au maximum",
+  "At most 20 devices can receive browser notifications": "20 appareils au maximum peuvent recevoir les notifications du navigateur",
+  "At most 5 devices per user can receive browser notifications": "5 appareils par utilisateur au maximum peuvent recevoir les notifications du navigateur",
+  "at weekends": "le week-end",
+  "Audio Feedback": "Retour audio",
+  "Audio Stream Management": "Gestion du flux audio",
+  "Audit log": "Journal d'audit",
+  "Aurora": "Aurore",
+  "auto": "auto",
+  "Auto": "Auto",
+  "Automatic": "Automatique",
+  "Automatic (now {port})": "Automatique (actuellement {port})",
+  "Automatic [port]": "Automatique",
+  "Automatic follows the system's light or dark appearance.": "Automatique suit l'apparence claire ou sombre du système.",
+  "Average": "Moyenne",
+  "Average of {n} call · longest {longest}": "Moyenne de {n} appel · le plus long : {longest}",
+  "Average of {n} calls · longest {longest}": "Moyenne de {n} appels · le plus long : {longest}",
+  "Away": "Absent",
+  "Back": "Retour",
+  "Back from the cache, not added again by its plugin": "Restauré depuis le cache, sans être ajouté de nouveau par son plugin",
+  "Back to its page": "Retour à sa page",
+  "Back to the chat": "Retour à la conversation",
+  "Back to the usual layout": "Revenir à la disposition habituelle",
+  "Back up now": "Sauvegarder maintenant",
+  "Back up this bridge": "Sauvegarder ce pont",
+  "Backup script": "Script de sauvegarde",
+  "Backups": "Sauvegardes",
+  "bad index": "index incorrect",
+  "Battery": "Batterie",
+  "Battery Level": "Niveau de batterie",
+  "Behind the glass of every page.": "Derrière le verre de chaque page.",
+  "Between": "Entre",
+  "Blowing": "Ventilation",
+  "Blue": "Bleu",
+  "Bot token": "Jeton du bot",
+  "Breadcrumb": "Fil d'Ariane",
+  "Bridge": "Pont",
+  "Bridges": "Ponts",
+  "Bridges and accessories": "Ponts et accessoires",
+  "Bridges only": "Ponts seulement",
+  "Brightness": "Luminosité",
+  "Browser's language": "Langue du navigateur",
+  "Built in": "Intégré",
+  "By plugin": "Par plugin",
+  "By room": "Par pièce",
+  "Cached accessories": "Accessoires en cache",
+  "camera": "caméra",
+  "Camera": "Caméra",
+  "Camera Operating Mode": "Mode de fonctionnement de la caméra",
+  "Camera Operating Mode Indicator": "Voyant de fonctionnement de la caméra",
+  "Cancel": "Annuler",
+  "Cannot connect": "Connexion impossible",
+  "cannot read {0}": "impossible de lire {0}",
+  "Cannot restore __REDACTED__ (no matching value in the current config) in {0}. Supply the real value, or keep the entry's identifying fields (platform, accessory, name) unchanged.": "Impossible de restaurer __REDACTED__ (aucune valeur correspondante dans la config actuelle) dans {0}. Indiquez la vraie valeur, ou laissez inchangés les champs qui identifient l'entrée (platform, accessory, name).",
+  "Carbon Dioxide Detected": "Dioxyde de carbone détecté",
+  "Carbon Dioxide Level": "Niveau de CO₂",
+  "Carbon Dioxide Peak Level": "Pic de CO₂",
+  "Carbon Dioxide Sensor": "Capteur de CO₂",
+  "Carbon Monoxide Detected": "Monoxyde de carbone détecté",
+  "Carbon Monoxide Level": "Niveau de CO",
+  "Carbon Monoxide Peak Level": "Pic de CO",
+  "Carbon Monoxide Sensor": "Détecteur de CO",
+  "CCA Energy Detect Threshold": "Seuil de détection d'énergie CCA",
+  "CCA Signal Detect Threshold": "Seuil de détection de signal CCA",
+  "Celsius (°C)": "Celsius (°C)",
+  "Change {settings} of {block}?": "Modifier {settings} de {block} ?",
+  "Change password": "Changer le mot de passe",
+  "Change the settings of {block}?": "Modifier les réglages de {block} ?",
+  "Change your password": "Changer votre mot de passe",
+  "Changed: {changes}.": "Modifié : {changes}.",
+  "Changed: {changes}. {result}": "Modifié : {changes}. {result}",
+  "Changed: nothing. {result}": "Rien n'a changé. {result}",
+  "changes": "change",
+  "Characteristic": "Caractéristique",
+  "characteristic and value are required": "characteristic et value sont requis",
+  "Charging": "En charge",
+  "Charging State": "État de charge",
+  "Chat id": "Identifiant de la discussion",
+  "Check the settings below before saving them, and see what it costs.": "Vérifiez les réglages ci-dessous avant de les enregistrer, et voyez ce qu'il coûte.",
+  "Checking the backup…": "Vérification de la sauvegarde…",
+  "Checking the request…": "Vérification de la demande…",
+  "Checking…": "Vérification…",
+  "child bridge": "pont enfant",
+  "Child bridge": "Pont enfant",
+  "Child bridges": "Ponts enfants",
+  "Child lock": "Sécurité enfants",
+  "Choose a JPEG, PNG or WebP image.": "Choisissez une image JPEG, PNG ou WebP.",
+  "Choose another image…": "Choisir une autre image…",
+  "choose it": "choisissez-la",
+  "choose it [file]": "choisissez-le",
+  "choose read, control or admin, up to what your account may do": "choisissez read, control ou admin, dans la limite de ce que votre compte peut faire",
+  "Clear [smoke]": "Aucune fumée",
+  "Clearer names": "Des noms plus clairs",
+  "Client or user": "Client ou utilisateur",
+  "Clockwise": "Sens horaire",
+  "close": "fermer",
+  "Close": "Fermer",
+  "Close (Esc)": "Fermer (Échap)",
+  "Close the diagnosis": "Fermer le diagnostic",
+  "Close the explanation": "Fermer l'explication",
+  "Closed": "Fermé",
+  "Closed and locked": "Fermé et verrouillé",
+  "Closing": "Fermeture",
+  "Closing…": "Fermeture…",
+  "Cloud Relay": "Relais cloud",
+  "Code from your authenticator app": "Code de votre app d'authentification",
+  "Color Temperature": "Température de couleur",
+  "Colour": "Couleur",
+  "common words add little": "les mots courants apportent peu",
+  "Compare": "Comparer",
+  "Compare with config.json": "Comparer avec config.json",
+  "Comparing…": "Comparaison…",
+  "Comparison": "Comparaison",
+  "compiled into this homeswift": "compilés dans ce homeswift",
+  "Condition": "Condition",
+  "Condition {0} must be an object": "La condition {0} doit être un objet",
+  "Condition {0}: {1} is missing": "Condition {0} : il manque {1}",
+  "Condition {0}: a time must be HH:mm, sunrise or sunset": "Condition {0} : une heure doit être au format HH:mm, ou sunrise ou sunset",
+  "Condition {0}: invalid operator": "Condition {0} : opérateur non valide",
+  "Condition {0}: the type must be time or characteristic": "Condition {0} : le type doit être time ou characteristic",
+  "Condition {0}: the value must be a boolean, a number or a short text": "Condition {0} : la valeur doit être un booléen, un nombre ou un texte court",
+  "Condition {0}: the window is empty": "Condition {0} : la plage horaire est vide",
+  "Conditions": "Conditions",
+  "Config": "Config",
+  "config.json backups": "Sauvegardes de config.json",
+  "config.json must be a JSON object": "config.json doit être un objet JSON",
+  "config.json now": "config.json actuel",
+  "config.json, each bridge's HomeKit identity and pairings, accessory caches, plugin files, the web UI's users": "config.json, l'identité HomeKit et les jumelages de chaque pont, les caches d'accessoires, les fichiers des plugins, les utilisateurs de l'interface web",
+  "config.json: \"{0}\" is not a valid setup code (eight digits as XXX-XX-XXX, not trivial)": "config.json : « {0} » n'est pas un code de configuration valide (huit chiffres au format XXX-XX-XXX, pas trop simples)",
+  "config.json: \"{0}\" is not a valid username (six hex octets, XX:XX:XX:XX:XX:XX)": "config.json : « {0} » n'est pas un username valide (six octets hexadécimaux, XX:XX:XX:XX:XX:XX)",
+  "config.json: \"{0}\" must be {1}": "config.json : « {0} » doit être {1}",
+  "config.json: \"{0}\" must be a platform name": "config.json : « {0} » doit être un nom de plateforme",
+  "config.json: \"{0}\" must be an array": "config.json : « {0} » doit être une liste",
+  "config.json: \"{0}\" must be an array of names": "config.json : « {0} » doit être une liste de noms",
+  "config.json: \"{0}\" must be an object": "config.json : « {0} » doit être un objet",
+  "config.json: \"{0}\" must be true or false": "config.json : « {0} » doit valoir true ou false",
+  "config.json's bridge block": "Le bloc bridge de config.json",
+  "Configuration": "Configuration",
+  "Configuration State": "État de la configuration",
+  "Connect {client}": "Connecter {client}",
+  "Connect to Homeswift": "Se connecter à Homeswift",
+  "Connected apps": "Apps connectées",
+  "Connecting…": "Connexion…",
+  "Contact": "Contact",
+  "Contact Sensor": "Capteur de contact",
+  "Contact Sensor State": "État du capteur de contact",
+  "Continue": "Continuer",
+  "Control": "Contrôle",
+  "Controllers": "Contrôleurs",
+  "cool": "froid",
+  "Cool": "Froid",
+  "Cool to": "Refroidir à",
+  "Cooling": "Refroidissement",
+  "Cooling Threshold Temperature": "Seuil de refroidissement",
+  "Cooling to {temperature}": "Refroidissement à {temperature}",
+  "Copied": "Copié",
+  "Copied {n} line": "{n} ligne copiée",
+  "Copied {n} lines": "{n} lignes copiées",
+  "Copy": "Copier",
+  "Copy it now: it is shown once. Send it as {header}.": "Copiez-le maintenant : il n'est affiché qu'une fois. Envoyez-le sous la forme {header}.",
+  "Copy the lines shown": "Copier les lignes affichées",
+  "Cost": "Coût",
+  "Cost this month": "Coût ce mois-ci",
+  "Cost today": "Coût aujourd'hui",
+  "Costs come from the token counts at today's prices; only Claude models are priced.": "Les coûts sont calculés à partir du nombre de tokens aux tarifs du jour ; seuls les modèles Claude ont un tarif.",
+  "could not change the cache: {0}": "impossible de modifier le cache : {0}",
+  "Count": "Nombre",
+  "Counter-clockwise": "Sens antihoraire",
+  "CPU": "Processeur",
+  "CPUs": "Processeurs",
+  "Create account": "Créer le compte",
+  "Create an API token": "Créer un jeton d'API",
+  "Create the administrator account for this bridge. The set-up code is in the bridge's output, next to the web UI address.": "Créez le compte administrateur de ce pont. Le code de configuration figure dans la sortie du pont, à côté de l'adresse de l'interface web.",
+  "Create the scene": "Créer la scène",
+  "Create token": "Créer un jeton",
+  "Creating the account…": "Création du compte…",
+  "Cron": "Cron",
+  "Cron {expression}": "Cron {expression}",
+  "Cron expression": "Expression cron",
+  "cross-site request refused": "requête intersite refusée",
+  "Current": "À jour",
+  "Current Air Purifier State": "État du purificateur",
+  "Current Ambient Light Level": "Luminosité ambiante",
+  "Current Door State": "État de la porte",
+  "Current Fan State": "État du ventilateur",
+  "Current Heater-Cooler State": "État de la climatisation",
+  "Current Heating Cooling State": "État du chauffage",
+  "Current Horizontal Tilt Angle": "Inclinaison horizontale actuelle",
+  "Current Humidifier-Dehumidifier State": "État de l'humidificateur",
+  "Current password": "Mot de passe actuel",
+  "Current Position": "Position actuelle",
+  "Current Relative Humidity": "Humidité relative",
+  "Current Slat State": "État des lamelles",
+  "Current Temperature": "Température actuelle",
+  "Current Tilt Angle": "Inclinaison actuelle",
+  "Current Transport": "Transport actuel",
+  "Current Vertical Tilt Angle": "Inclinaison verticale actuelle",
+  "Custom (cron)": "Personnalisé (cron)",
+  "Custom range…": "Période personnalisée…",
+  "Customise the Status page": "Personnaliser la page État",
+  "Customise this page": "Personnaliser cette page",
+  "Customise this page…": "Personnaliser cette page…",
+  "Cyan": "Cyan",
+  "Daily backup": "Sauvegarde quotidienne",
+  "Daily digest": "Résumé du jour",
+  "Daily digest at": "Résumé quotidien à",
+  "Daily digest time": "Heure du résumé quotidien",
+  "Dark": "Sombre",
+  "Days": "Jours",
+  "Days (none: every day)": "Jours (aucun : tous les jours)",
+  "defaults are by kind of widget (climate, light…)": "les valeurs par défaut dépendent du type de widget (climate, light…)",
+  "Degraded": "Dégradé",
+  "Delete": "Supprimer",
+  "Delete the scene {name}?": "Supprimer la scène {name} ?",
+  "Delete this backup?": "Supprimer cette sauvegarde ?",
+  "Delete…": "Supprimer…",
+  "Deny": "Refuser",
+  "Describe your setup": "Décrivez votre installation",
+  "Details": "Détails",
+  "Device ID": "Identifiant de l'appareil",
+  "Diagnose": "Diagnostiquer",
+  "Diagnostics": "Diagnostic",
+  "Dictate": "Dicter",
+  "Dictate: tap, or hold while you speak": "Dicter : touchez, ou maintenez pendant que vous parlez",
+  "Digest actions": "Actions du résumé",
+  "Digital Zoom": "Zoom numérique",
+  "Direction": "Sens",
+  "Disabled": "Désactivé",
+  "Discard": "Ignorer",
+  "Disconnect": "Déconnecter",
+  "Disconnect {name}? It is refused at once and must sign in again.": "Déconnecter {name} ? Ses requêtes sont refusées aussitôt, et il lui faudra se reconnecter.",
+  "Dismiss": "Ignorer",
+  "Don't allow": "Ne pas autoriser",
+  "Done": "OK",
+  "Done [outcome]": "Effectué",
+  "Door": "Porte",
+  "Doorbell": "Sonnette",
+  "Double press": "Double appui",
+  "Down": "Bas",
+  "Download": "Télécharger",
+  "Download a backup": "Télécharger une sauvegarde",
+  "Download the package": "Télécharger le paquet",
+  "Download the whole log": "Télécharger tout le journal",
+  "Download this range": "Télécharger cette période",
+  "Drop a backup (.tar) here, or {choose}": "Déposez une sauvegarde (.tar) ici, ou {choose}",
+  "Drop or choose a backup to restore": "Déposez ou choisissez une sauvegarde à restaurer",
+  "Drop or choose the file for {key}": "Déposez ou choisissez le fichier pour {key}",
+  "Drop the file here, or ": "Déposez le fichier ici, ou ",
+  "Dry": "Pas de fuite",
+  "Duration": "Durée",
+  "each accessory change needs its id": "chaque modification d'accessoire a besoin de son id",
+  "Earlier chats": "Conversations précédentes",
+  "Edit": "Modifier",
+  "Edit {name}": "Modifier {name}",
+  "Edit as": "Modifier en",
+  "Edit as JSON": "Modifier en JSON",
+  "Edit as JSON (Expert)": "Modifier en JSON (vue expert)",
+  "Edit settings (Expert)": "Modifier les réglages (vue expert)",
+  "Edit the budgets": "Modifier les budgets",
+  "empty": "vide",
+  "Empty the log? Every line goes, in memory and the files kept on disk (up to a week). This cannot be undone.": "Vider le journal ? Toutes les lignes disparaissent, en mémoire et dans les fichiers conservés sur disque (jusqu'à une semaine). C'est irréversible.",
+  "Empty the log…": "Vider le journal…",
+  "Enabled": "Activé",
+  "Entropy of the new password": "Entropie du nouveau mot de passe",
+  "Errors": "Erreurs",
+  "Evening": "Soirée",
+  "Event": "Événement",
+  "Event Retransmission Maximum": "Retransmissions d'événements max.",
+  "Event Transmission Counters": "Compteurs de transmission d'événements",
+  "Events": "Événements",
+  "Every accessory is hidden.": "Tous les accessoires sont masqués.",
+  "Every change made through the MCP server, the Assistant's chat and this web UI, with who made it.": "Chaque modification faite par le serveur MCP, la conversation avec l'Assistant et cette interface web, avec son auteur.",
+  "Every controller was removed and disconnected: add the bridge again in the Home app with its setup code.": "Tous les contrôleurs ont été supprimés et déconnectés : ajoutez de nouveau le pont dans l'app Maison avec son code de configuration.",
+  "every day": "tous les jours",
+  "Every Home app controller paired with it is forgotten and disconnected. The Home app loses it with its accessories, their rooms, scenes and automations.": "Tous les contrôleurs de l'app Maison jumelés avec lui sont oubliés et déconnectés. L'app Maison le perd avec ses accessoires, leurs pièces, scènes et automatisations.",
+  "Every one": "Toutes",
+  "Every outcome": "Tous les résultats",
+  "Every plugin's accessories leave HomeKit, and the plugins start again on empty caches, adding the devices they reach.": "Les accessoires de tous les plugins quittent HomeKit, et les plugins redémarrent avec des caches vides, en ajoutant les appareils qu'ils joignent.",
+  "Every setting of the block, as config.json keeps it, including what {plugin}'s page does not show. A save reloads the plugin.": "Tous les réglages du bloc, tels que config.json les conserve, y compris ce que la page de {plugin} n'affiche pas. Un enregistrement recharge le plugin.",
+  "Every setting of this plugin's block, as config.json keeps it, including what this page does not show.": "Tous les réglages du bloc de ce plugin, tels que config.json les garde, y compris ce que cette page n'affiche pas.",
+  "Every subscribed browser has unsubscribed": "Tous les navigateurs abonnés se sont désabonnés",
+  "Everything an administrator does, except users and tokens.": "Tout ce que fait un administrateur, sauf les utilisateurs et les jetons.",
+  "Everything kept": "Tout l'historique",
+  "Excellent": "Excellente",
+  "Expected a key in double quotes": "Une clé entre guillemets doubles est attendue",
+  "Expected a scene": "Une scène est attendue",
+  "Expert": "Vue expert",
+  "Expert.": "Vue expert.",
+  "Expired": "Expiré",
+  "Expires": "Expiration",
+  "Explain": "Expliquer",
+  "Fahrenheit (°F)": "Fahrenheit (°F)",
+  "Failed": "Échec",
+  "Fair": "Moyenne",
+  "fan": "ventilateur",
+  "Fan": "Ventilateur",
+  "Fanv 2": "Ventilateur",
+  "Fanv2": "Ventilateur",
+  "Faucet": "Robinet",
+  "Favourite accessories and scenes": "Accessoires et scènes favoris",
+  "Filter": "Filtre",
+  "filter {percent} %": "filtre {percent} %",
+  "Filter by client": "Filtrer par client",
+  "Filter by tool": "Filtrer par outil",
+  "Filter Change Indication": "Changement de filtre",
+  "Filter life": "Vie du filtre",
+  "Filter Life Level": "Vie du filtre",
+  "Filter Maintenance": "Entretien du filtre",
+  "Filter text": "Filtrer par texte",
+  "Filter the log": "Filtrer le journal",
+  "Firmware revision": "Version du firmware",
+  "Firmware Revision": "Version du firmware",
+  "Firmware Update": "Mise à jour du firmware",
+  "Folder": "Dossier",
+  "Follow": "Suivre",
+  "for {time}": "pendant {time}",
+  "for a protected topic": "pour un sujet protégé",
+  "For scripts: {header} on {path}": "Pour les scripts : {header} sur {path}",
+  "Forest": "Forêt",
+  "Forget “{title}”": "Oublier « {title} »",
+  "Forget it": "L'oublier",
+  "Forget this chat": "Oublier cette conversation",
+  "Form": "Formulaire",
+  "Format": "Mettre en forme",
+  "Found: save to keep it.": "Trouvée : enregistrez pour la garder.",
+  "Fr": "Ve",
+  "Fri": "Ven",
+  "From": "Du",
+  "From {model}. Untick what you do not want; nothing changes until you apply. Names show on these pages only: the Home app keeps its own.": "Par {model}. Décochez ce que vous ne voulez pas ; rien ne change tant que vous n'appliquez pas. Les noms ne s'affichent que sur ces pages : l'app Maison garde les siens.",
+  "from must be before to": "from doit précéder to",
+  "Full screen": "Plein écran",
+  "Garage Door Opener": "Porte de garage",
+  "gate": "portail",
+  "GitHub answered HTTP {0}": "GitHub a répondu HTTP {0}",
+  "GitHub's answer has no release": "La réponse de GitHub ne contient aucune version",
+  "GitHub's latest release has an unexpected tag": "La dernière version sur GitHub a un tag inattendu",
+  "Good": "Bonne",
+  "Graphite": "Graphite",
+  "Green": "Vert",
+  "group of switches": "groupe d'interrupteurs",
+  "Group the accessories": "Regrouper les accessoires",
+  "grouping is plugin, room or none": "grouping vaut plugin, room ou none",
+  "Hardware Revision": "Version du matériel",
+  "Health, accessories, plugins, uptime": "État de santé, accessoires, plugins, durée de fonctionnement",
+  "Heart Beat": "Pulsation",
+  "heat": "chaud",
+  "Heat": "Chaud",
+  "Heat to": "Chauffer à",
+  "Heater Cooler": "Climatiseur",
+  "Heating": "Chauffage",
+  "Heating Threshold Temperature": "Seuil de chauffage",
+  "Heating to {temperature}": "Chauffage à {temperature}",
+  "Hide": "Masquer",
+  "Hide the payload": "Masquer le contenu",
+  "Highest {highest} · lowest {lowest}": "Maximum {highest} · minimum {lowest}",
+  "History": "Historique",
+  "Hold Position": "Maintenir la position",
+  "hold to open": "maintenir pour ouvrir",
+  "Hold to open": "Maintenir pour ouvrir",
+  "hold to turn off": "maintenir pour désactiver",
+  "Hold to turn off": "Maintenir pour désactiver",
+  "hold to turn on": "maintenir pour allumer",
+  "Hold to turn on": "Maintenir pour allumer",
+  "hold to unlock": "maintenir pour déverrouiller",
+  "Hold to unlock": "Maintenir pour déverrouiller",
+  "Home": "Accueil",
+  "Home [alarm]": "Domicile",
+  "Home app": "App Maison",
+  "Home app controllers": "Contrôleurs de l'app Maison",
+  "Home app requests": "Requêtes de l'app Maison",
+  "HomeKit Camera Active": "Caméra HomeKit active",
+  "HomeKit pairings": "Jumelages HomeKit",
+  "HomeKit Secure Video records this camera's events": "HomeKit Secure Video enregistre les événements de cette caméra",
+  "Homeswift {version} is available": "Homeswift {version} est disponible",
+  "homeswift did not come back; check its log.": "homeswift n'a pas redémarré ; consultez son journal.",
+  "Homeswift listens and advertises on every interface, with the system's mDNS: there is no interface or mDNS backend to choose, as Homebridge's bind and advertiser settings do.": "Homeswift écoute et s'annonce sur toutes les interfaces, avec le mDNS du système : il n'y a ni interface ni moteur mDNS à choisir, contrairement aux réglages bind et advertiser de Homebridge.",
+  "homeswift restarts now and starts on the restored files.": "homeswift redémarre maintenant et repart sur les fichiers restaurés.",
+  "homeswift restarts on the backup's files: config.json, the bridges' HomeKit identities and pairings, accessory caches, plugin files and the web UI's users. What changed since it was made is lost.": "homeswift redémarre avec les fichiers de la sauvegarde : config.json, les identités HomeKit et les jumelages des ponts, les caches d'accessoires, les fichiers des plugins et les utilisateurs de l'interface web. Ce qui a changé depuis est perdu.",
+  "HomeswiftAiKit: \"{0}\" must be {1}": "HomeswiftAiKit : « {0} » doit être {1}",
+  "HomeswiftAiKit: \"{0}\" must be a non-negative integer": "HomeswiftAiKit : « {0} » doit être un entier positif ou nul",
+  "HomeswiftAiKit: \"{0}\" must be a positive integer": "HomeswiftAiKit : « {0} » doit être un entier positif",
+  "HomeswiftAiKit: \"{0}\" must be a positive number": "HomeswiftAiKit : « {0} » doit être un nombre positif",
+  "HomeswiftAiKit: \"{0}\" must be a URL": "HomeswiftAiKit : « {0} » doit être une URL",
+  "HomeswiftAiKit: \"{0}\" must be an object": "HomeswiftAiKit : « {0} » doit être un objet",
+  "HomeswiftAiKit: \"{0}\" must be one of {1}": "HomeswiftAiKit : « {0} » doit être l'une de ces valeurs : {1}",
+  "HomeswiftAiKit: \"{0}\" must be responses or chat": "HomeswiftAiKit : « {0} » doit valoir responses ou chat",
+  "HomeswiftAiKit: {0} needs an API key: set \"apiKey\" in the block": "HomeswiftAiKit : {0} a besoin d'une clé d'API : définissez « apiKey » dans le bloc",
+  "HomeswiftAiKit: {0} needs an API key: set \"apiKey\" in the block or {1} in the environment": "HomeswiftAiKit : {0} a besoin d'une clé d'API : définissez « apiKey » dans le bloc ou {1} dans l'environnement",
+  "HomeswiftAiKit: Apple Intelligence is turned off in System Settings": "HomeswiftAiKit : Apple Intelligence est désactivé dans Réglages Système",
+  "HomeswiftAiKit: Apple's on-device model is only available on macOS": "HomeswiftAiKit : le modèle sur l'appareil d'Apple n'est disponible que sur macOS",
+  "HomeswiftAiKit: Apple's on-device model needs macOS 26 or later": "HomeswiftAiKit : le modèle sur l'appareil d'Apple nécessite macOS 26 ou ultérieur",
+  "HomeswiftAiKit: the on-device model is still downloading; try again in a few minutes": "HomeswiftAiKit : le modèle sur l'appareil est encore en téléchargement ; réessayez dans quelques minutes",
+  "HomeswiftAiKit: the on-device model is unavailable": "HomeswiftAiKit : le modèle sur l'appareil n'est pas disponible",
+  "HomeswiftAiKit: this Mac does not support Apple Intelligence": "HomeswiftAiKit : ce Mac ne prend pas en charge Apple Intelligence",
+  "hours must be between 0 and 8760": "hours doit être compris entre 0 et 8760",
+  "How accessories and plugin pages show them. HomeKit and the Home app keep their own setting.": "Comment les accessoires et les pages des plugins les affichent. HomeKit et l'app Maison gardent leur propre réglage.",
+  "How long plugins take to reach their devices or clouds": "Le temps que mettent les plugins à joindre leurs appareils ou leurs clouds",
+  "How long the bridge takes to answer reads and writes": "Le temps que met le pont à répondre aux lectures et écritures",
+  "How the web UI looks for you, on every browser you sign in to.": "L'apparence de l'interface web pour vous, sur chaque navigateur où vous vous connectez.",
+  "Hue": "Teinte",
+  "Humidifier Dehumidifier": "Humidificateur-déshumidificateur",
+  "Humidity": "Humidité",
+  "Humidity Sensor": "Capteur d'humidité",
+  "I can look at your bridge, set up a device with its plugin, or change a setting. I ask before I change anything.": "Je peux examiner votre pont, configurer un appareil avec son plugin ou modifier un réglage. Je demande avant de changer quoi que ce soit.",
+  "id and allow are required": "id et allow sont requis",
+  "id is required": "id est requis",
+  "Identify": "Identifier",
+  "Idle": "Au repos",
+  "Idle · auto to {temperature}": "Au repos · auto à {temperature}",
+  "Idle · cool to {temperature}": "Au repos · refroidir à {temperature}",
+  "Idle · heat to {temperature}": "Au repos · chauffer à {temperature}",
+  "Image Mirroring": "Image en miroir",
+  "Image Rotation": "Rotation de l'image",
+  "In 30 days": "Dans 30 jours",
+  "In 90 days": "Dans 90 jours",
+  "In a year": "Dans un an",
+  "In the form: review it, then Save.": "Dans le formulaire : vérifiez-le, puis enregistrez.",
+  "In the Home app": "Dans l'app Maison",
+  "In the Home app: Add Accessory, then scan this code, or choose More options and type it.": "Dans l'app Maison : touchez Ajouter un accessoire, puis scannez ce code, ou choisissez Plus d'options et saisissez-le.",
+  "In the web UI's settings": "Dans les réglages de l'interface web",
+  "In use": "En service",
+  "In Use": "En service",
+  "In use [used]": "Utilisé",
+  "Inactive": "Inactif",
+  "Inferior": "Médiocre",
+  "Info": "Info",
+  "Input": "Entrée",
+  "Inside": "Intérieur",
+  "Inside · {humidity} %": "Intérieur · {humidity} %",
+  "Interfaces": "Interfaces",
+  "invalid configuration: \"{0}\" must be {1}": "configuration non valide : « {0} » doit être {1}",
+  "invalid configuration: \"{0}\" must be {1}, not null": "configuration non valide : « {0} » doit être {1}, pas null",
+  "invalid configuration: {0}": "configuration non valide : {0}",
+  "invalid configuration: missing \"{0}\"": "configuration non valide : « {0} » manquant",
+  "Invalid ntfy access token": "Jeton d'accès ntfy non valide",
+  "Invalid push endpoint": "Endpoint push non valide",
+  "Invalid push endpoint or keys": "Endpoint ou clés push non valides",
+  "Invalid push subscription keys": "Clés d'abonnement push non valides",
+  "Invalid Pushover application token": "Jeton d'application Pushover non valide",
+  "Invalid Pushover user key": "Clé utilisateur Pushover non valide",
+  "Invalid regular expression": "Expression régulière non valide",
+  "Invalid Telegram bot token": "Jeton de bot Telegram non valide",
+  "Invalid Telegram chat id": "Identifiant de discussion Telegram non valide",
+  "invalid URL": "URL non valide",
+  "Irrigation": "Irrigation",
+  "Irrigation System": "Système d'irrigation",
+  "is": "est",
+  "is above": "est supérieur à",
+  "is at least": "est au moins",
+  "is at most": "est au plus",
+  "is below": "est inférieur à",
+  "is not": "n'est pas",
+  "It changes a lock, a door or an alarm: the page asks before running it, and automations leave those actions out.": "Elle modifie une serrure, une porte ou une alarme : la page demande avant de la lancer, et les automatisations laissent ces actions de côté.",
+  "It did not answer.": "Il n'a pas répondu.",
+  "It did not start: the log says why.": "Il n'a pas démarré : le journal indique pourquoi.",
+  "It leaves HomeKit now. A plugin that still has the device adds it again, under the same ids, so rooms and automations come back with it.": "Il quitte HomeKit tout de suite. Un plugin qui a encore l'appareil l'ajoute à nouveau, avec les mêmes identifiants : pièces et automatisations reviennent avec lui.",
+  "It may": "Elle pourra",
+  "It replaces config.json (which is kept as a backup first) and applies at once, as a save does: plugins reload, and the bridge block restarts homeswift.": "Il remplace config.json (qui est d'abord conservé en sauvegarde) et s'applique tout de suite, comme un enregistrement : les plugins se rechargent, et le bloc bridge redémarre homeswift.",
+  "It works: {provider} · {model} answered in {ms} ms.": "Ça fonctionne : {provider} · {model} a répondu en {ms} ms.",
+  "Its accessories are unavailable for a moment; pairings stay.": "Ses accessoires sont indisponibles un instant ; les jumelages restent.",
+  "Its accessories show No Response": "Ses accessoires affichent Pas de réponse",
+  "Its block is no longer in config.json": "Son bloc n'est plus dans config.json",
+  "Its plugin is paused: resume it to control {name}": "Son plugin est en pause : reprenez-le pour commander {name}",
+  "Its plugins stop and its accessories show No Response until it starts again, or homeswift restarts.": "Ses plugins s'arrêtent et ses accessoires affichent Pas de réponse jusqu'à ce qu'il redémarre, ou que homeswift redémarre.",
+  "Jammed": "Bloqué",
+  "just now": "à l'instant",
+  "Keep each line's JSON payload in the log on disk, secrets masked, so you and the Assistant can read it later. Off: only the latest lines, in memory, have it.": "Conserver le contenu JSON de chaque ligne dans le journal sur disque, secrets masqués, pour que vous et l'Assistant puissiez le lire plus tard. Désactivé : seules les dernières lignes, en mémoire, l'ont.",
+  "Keeping {low}–{high}": "Maintien {low}–{high}",
+  "Kept": "Conservation",
+  "Kept {file} ({size}).": "{file} conservé ({size}).",
+  "Kept backups": "Sauvegardes conservées",
+  "Language": "Langue",
+  "Large": "Grand",
+  "Last 24 hours": "24 dernières heures",
+  "Last 30 days": "30 derniers jours",
+  "Last 6 hours": "6 dernières heures",
+  "Last 7 days": "7 derniers jours",
+  "Last hour": "Dernière heure",
+  "Last run {date} ({trigger})": "Dernière exécution le {date} ({trigger})",
+  "Last run {date} ({trigger}), with errors": "Dernière exécution le {date} ({trigger}), avec des erreurs",
+  "Last used": "Dernière utilisation",
+  "Last used {when}": "Dernière utilisation le {when}",
+  "Last, {date}": "Dernière valeur, {date}",
+  "Latest lines": "Dernières lignes",
+  "Latitude": "Latitude",
+  "Leak": "Fuite",
+  "Leak Detected": "Fuite détectée",
+  "Leak Sensor": "Détecteur de fuite",
+  "Leave empty to keep theirs. A new one signs them out everywhere.": "Laissez vide pour conserver le sien. Un nouveau mot de passe déconnecte la personne partout.",
+  "Leave without saving your changes?": "Quitter sans enregistrer vos modifications ?",
+  "Left": "Gauche",
+  "Left out: {files}.": "Laissés de côté : {files}.",
+  "Length helps most: a phrase of several random words is strong and easy to remember.": "La longueur compte le plus : une phrase de plusieurs mots aléatoires est robuste et facile à retenir.",
+  "Levels shown": "Niveaux affichés",
+  "light": "lampe",
+  "Light": "Clair",
+  "Light level": "Luminosité ambiante",
+  "Light or dark, the wallpaper, °C or °F, the language": "Clair ou sombre, le fond d'écran, °C ou °F, la langue",
+  "Light Sensor": "Capteur de lumière",
+  "Lightbulb": "Ampoule",
+  "Line {line}": "Ligne {line}",
+  "Listening on port": "Port d'écoute",
+  "Listening… tap the mic again when you are done.": "À l'écoute… touchez à nouveau le micro quand vous avez fini.",
+  "Live": "En direct",
+  "Live video of {name}": "Vidéo en direct de {name}",
+  "Loading": "Chargement",
+  "Loading…": "Chargement…",
+  "Location for sunrise and sunset": "Position pour le lever et le coucher du soleil",
+  "lock": "verrouiller",
+  "Lock": "Verrouiller",
+  "lock [kind]": "serrure",
+  "Lock Current State": "État de la serrure",
+  "Lock Last Known Action": "Dernière action de la serrure",
+  "Lock Management": "Gestion de la serrure",
+  "Lock Management Auto Security Timeout": "Délai de verrouillage automatique",
+  "Lock Mechanism": "Serrure",
+  "Lock Physical Controls": "Sécurité enfants",
+  "Lock Target State": "Verrouillage",
+  "Locked": "Verrouillé",
+  "Log actions": "Actions du journal",
+  "Log Doctor": "Diagnostic du journal",
+  "Logs": "Journaux",
+  "Long press": "Appui long",
+  "Longest": "Maximum",
+  "Longitude": "Longitude",
+  "Low": "Faible",
+  "Low [strength]": "Faible",
+  "Low to medium": "Faible à moyen",
+  "Lower {setting}": "Baisser ({setting})",
+  "Lowest {min} · highest {max} · average {average}": "Min. {min} · max. {max} · moyenne {average}",
+  "MAC Retransmission Maximum": "Retransmissions MAC max.",
+  "Machine up": "Machine en marche depuis",
+  "Main bridge": "Pont principal",
+  "make it stronger: {0} of {1} bits": "renforcez-le : {0} bits sur {1}",
+  "make it stronger: {0} of {1} bits; common words add little": "renforcez-le : {0} bits sur {1} ; les mots courants apportent peu",
+  "make it stronger: {0} of {1} bits; repeated or sequential characters add nothing": "renforcez-le : {0} bits sur {1} ; les caractères répétés ou consécutifs n'apportent rien",
+  "make it stronger: {0} of {1} bits; your username adds nothing": "renforcez-le : {0} bits sur {1} ; votre nom d'utilisateur n'apporte rien",
+  "Managed Network Enable": "Réseau géré activé",
+  "Manual": "Manuel",
+  "Manufacturer": "Fabricant",
+  "Matter Firmware Revision Number": "Version du firmware Matter",
+  "Maximum Transmit Power": "Puissance d'émission max.",
+  "Media Access Control Level": "Niveau de contrôle d'accès aux contenus",
+  "Medium": "Moyen",
+  "Medium to strong": "Moyen à fort",
+  "Memory": "Mémoire",
+  "Memory, CPU and response times": "Mémoire, processeur et temps de réponse",
+  "Message to the Assistant": "Message à l'Assistant",
+  "Metrics Buffer Full State": "Mémoire des métriques pleine",
+  "Microphone": "Microphone",
+  "Minutes after (negative: before)": "Minutes après (négatif : avant)",
+  "Minutes after; negative for before": "Minutes après ; négatif pour avant",
+  "Mo": "Lu",
+  "Mode": "Mode",
+  "Model": "Modèle",
+  "Mon": "Lun",
+  "More": "Plus",
+  "More options ({count})": "Plus d'options ({count})",
+  "Motion": "Mouvement",
+  "Motion Detected": "Mouvement détecté",
+  "Motion Sensor": "Détecteur de mouvement",
+  "Move {name} down": "Descendre {name}",
+  "Move {name} up": "Monter {name}",
+  "Move earlier": "Avancer",
+  "Move later": "Reculer",
+  "Multifunction Button": "Bouton multifonction",
+  "Mute": "Couper le son",
+  "My home": "Ma maison",
+  "Name": "Nom",
+  "Name on these pages…": "Nom sur ces pages…",
+  "Needs the Assistant (a HomeswiftAiKit block)": "Nécessite l'Assistant (un bloc HomeswiftAiKit)",
+  "Needs the Assistant (a HomeswiftAiKit block).": "Nécessite l'Assistant (un bloc HomeswiftAiKit).",
+  "Network": "Réseau",
+  "Never": "Jamais",
+  "Never run": "Jamais lancée",
+  "New": "Nouveau",
+  "New chat": "Nouvelle conversation",
+  "New password": "Nouveau mot de passe",
+  "New password again": "Confirmer le nouveau mot de passe",
+  "New scene": "Nouvelle scène",
+  "Next {date}": "Prochaine : {date}",
+  "Next sunrise {sunrise}, sunset {sunset}.": "Prochain lever du soleil : {sunrise}, coucher : {sunset}.",
+  "NFCAccess": "Accès NFC",
+  "Night": "Nuit",
+  "Night Vision": "Vision nocturne",
+  "Nitrogen Dioxide Density": "Dioxyde d'azote",
+  "No accessories yet. Plugins add them once they reach their devices.": "Aucun accessoire pour l'instant. Les plugins les ajoutent dès qu'ils joignent leurs appareils.",
+  "no accessory {0}": "aucun accessoire {0}",
+  "No accessory matches.": "Aucun accessoire ne correspond.",
+  "no accessory with id \"{0}\"": "aucun accessoire avec l'identifiant « {0} »",
+  "No accessory with id {0}": "Aucun accessoire avec l'identifiant {0}",
+  "No accessory with that id": "Aucun accessoire avec cet identifiant",
+  "no action {0}: stop, start or restart": "aucune action {0} : stop, start ou restart",
+  "no backup {0}": "aucune sauvegarde {0}",
+  "No block": "Sans bloc",
+  "no block {0}": "aucun bloc {0}",
+  "no block {0} of {1}": "aucun bloc {0} de {1}",
+  "No block {0} of {1}": "Aucun bloc {0} de {1}",
+  "no bridge \"{0}\"": "aucun pont « {0} »",
+  "No browser is subscribed": "Aucun navigateur n'est abonné",
+  "No budget: requests are not limited.": "Pas de budget : les requêtes ne sont pas limitées.",
+  "no cached accessory \"{0}\"": "aucun accessoire « {0} » en cache",
+  "No cached accessory.": "Aucun accessoire en cache.",
+  "No calls in this range": "Aucun appel sur cette période",
+  "No calls to its devices; they show No Response in the Home app.": "Aucun appel à ses appareils ; ils affichent Pas de réponse dans l'app Maison.",
+  "no camera {0}": "aucune caméra {0}",
+  "No change to the block.": "Aucune modification du bloc.",
+  "No channel is set up to send to": "Aucun canal n'est configuré pour l'envoi",
+  "No chat yet. Each one you start is kept here, the last ten.": "Aucune conversation pour l'instant. Les dix dernières que vous commencez sont conservées ici.",
+  "no child bridge \"{0}\"": "aucun pont enfant « {0} »",
+  "No child bridge {0}; list_child_bridges lists them": "Aucun pont enfant {0} ; list_child_bridges les liste",
+  "No child bridge. Give a plugin's block a \"_bridge\" object (its Expert JSON) to run it on a bridge of its own.": "Aucun pont enfant. Donnez au bloc d'un plugin un objet « _bridge » (dans son JSON expert) pour le faire tourner sur son propre pont.",
+  "No config backup {0}": "Aucune sauvegarde de config {0}",
+  "No contact": "Pas de contact",
+  "No digest yet today: an administrator has the Assistant write it.": "Pas encore de résumé aujourd'hui : un administrateur le fait rédiger par l'Assistant.",
+  "No digest yet today. The Assistant reads the day's warnings and errors and the accessories, and says what needs attention.": "Pas encore de résumé aujourd'hui. L'Assistant lit les avertissements et erreurs de la journée et les accessoires, et indique ce qui demande votre attention.",
+  "No limit": "Aucune limite",
+  "No line is shown: widen the range or the filters first.": "Aucune ligne n'est affichée : élargissez d'abord la période ou les filtres.",
+  "No line matches.": "Aucune ligne ne correspond.",
+  "No location yet: sunrise and sunset triggers wait for one.": "Pas encore de position : les déclencheurs au lever et au coucher du soleil l'attendent.",
+  "no login is needed": "aucune connexion n'est nécessaire",
+  "No motion": "Aucun mouvement",
+  "No picture from the camera": "Aucune image de la caméra",
+  "No plugin": "Aucun plugin",
+  "No plugin at /plugins/{slug} in config.json.": "Aucun plugin à /plugins/{slug} dans config.json.",
+  "No plugin compiled into this homeswift provides this platform.": "Aucun plugin compilé dans ce homeswift ne fournit cette plateforme.",
+  "No plugin provides {platform}.": "Aucun plugin ne fournit {platform}.",
+  "No plugin provides {platforms}: those blocks are ignored.": "Aucun plugin ne fournit {platforms} : ces blocs sont ignorés.",
+  "No plugin yet. Add one below.": "Aucun plugin pour l'instant. Ajoutez-en un ci-dessous.",
+  "No room": "Sans pièce",
+  "No room {0}": "Aucune pièce {0}",
+  "No room to suggest.": "Aucune pièce à suggérer.",
+  "no running instance \"{0}\" of {1}": "aucune instance « {0} » de {1} en cours d'exécution",
+  "No scene \"{0}\". Scenes: {1}.": "Aucune scène « {0} ». Scènes : {1}.",
+  "No scene \"{0}\". Scenes: none.": "Aucune scène « {0} ». Scènes : aucune.",
+  "No scene {0}": "Aucune scène {0}",
+  "No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.": "Aucune scène pour l'instant. Une scène règle plusieurs accessoires à la fois, comme toutes les lampes d'une pièce pour la soirée.",
+  "no schema for {0}": "aucun schéma pour {0}",
+  "No sign-in": "Sans connexion",
+  "no such accessory": "accessoire introuvable",
+  "no such bridge": "ce pont n'existe pas",
+  "no such connected app": "cette app connectée n'existe pas",
+  "no such conversation": "cette conversation n'existe pas",
+  "No such page.": "Cette page n'existe pas.",
+  "No such scene.": "Cette scène n'existe pas.",
+  "No tokens yet. One lets a script or another program read the bridge, or change it as an administrator would.": "Aucun jeton pour l'instant. Un jeton permet à un script ou à un autre programme de lire le pont, ou de le modifier comme le ferait un administrateur.",
+  "No values were recorded for this accessory in this period. Homeswift keeps the history of accessories whose plugin records an Eve history (temperature, humidity, air quality, power, contact and motion of plugs and sensors), ten-minute averages for four weeks.": "Aucune valeur n'a été enregistrée pour cet accessoire sur cette période. Homeswift garde l'historique des accessoires dont le plugin enregistre un historique Eve (température, humidité, qualité de l'air, puissance, contact et mouvement des prises et capteurs), en moyennes sur dix minutes pendant quatre semaines.",
+  "no wallpaper of your own": "aucun fond d'écran personnel",
+  "None": "Aucun",
+  "None yet: each save of config.json keeps the file it replaces.": "Aucune pour l'instant : chaque enregistrement de config.json conserve le fichier qu'il remplace.",
+  "None yet: the daily backup and Back up now keep them here.": "Aucune pour l'instant : la sauvegarde quotidienne et Sauvegarder maintenant les conservent ici.",
+  "None yet.": "Aucune pour l'instant.",
+  "Normal": "Normal",
+  "not a backup id: {0}": "pas un identifiant de sauvegarde : {0}",
+  "Not a bridge setting here: {0} (the device ID stays; reset_pairings starts the pairing over)": "Pas un réglage du pont ici : {0} (l'identifiant d'appareil reste ; reset_pairings recommence le jumelage)",
+  "not a homeswift backup: {0}": "pas une sauvegarde homeswift : {0}",
+  "not a homeswift backup: a header's checksum is wrong at byte {0}: not a tar archive, or a damaged one": "pas une sauvegarde homeswift : la somme de contrôle d'un en-tête est fausse à l'octet {0} : ce n'est pas une archive tar, ou elle est endommagée",
+  "not a homeswift backup: a header's number is not octal": "pas une sauvegarde homeswift : un nombre d'en-tête n'est pas en octal",
+  "not a homeswift backup: an entry runs past the end of the archive": "pas une sauvegarde homeswift : une entrée dépasse la fin de l'archive",
+  "not a homeswift backup: it has no info.json from homeswift (an archive made by Backups › Download)": "pas une sauvegarde homeswift : elle n'a pas d'info.json de homeswift (une archive faite par Sauvegardes › Télécharger)",
+  "not a homeswift backup: the archive holds a link or a special file ({0}): refused": "pas une sauvegarde homeswift : l'archive contient un lien ou un fichier spécial ({0}) : refusée",
+  "not a homeswift backup: the archive holds more than {0} entries": "pas une sauvegarde homeswift : l'archive contient plus de {0} entrées",
+  "not a homeswift backup: unsafe path in the archive: {0}": "pas une sauvegarde homeswift : chemin dangereux dans l'archive : {0}",
+  "Not a valid escape in a string": "Échappement non valide dans une chaîne",
+  "Not a valid value": "Valeur non valide",
+  "Not allowed": "Non autorisé",
+  "Not chargeable": "Non rechargeable",
+  "Not charging": "Pas en charge",
+  "Not confirmed": "Non confirmé",
+  "Not copied": "Non copié",
+  "Not in use": "Inutilisé",
+  "Not occupied": "Inoccupé",
+  "Not paired": "Non jumelé",
+  "Not running": "Arrêté",
+  "not set": "non définie",
+  "not valid JSON: {0} at byte {1}": "JSON non valide : {0} à l'octet {1}",
+  "Not you? Sign in as someone else": "Ce n'est pas vous ? Connectez-vous avec un autre compte",
+  "Nothing changed.": "Rien n'a changé.",
+  "Nothing here yet. On the Accessories page, a card's menu adds it to the Quick Controls; scenes you make show here too.": "Rien ici pour l'instant. Sur la page Accessoires, le menu d'une carte l'ajoute aux commandes rapides ; les scènes que vous créez s'affichent aussi ici.",
+  "Nothing in this range matches.": "Rien ne correspond sur cette période.",
+  "Nothing recorded in this range": "Rien d'enregistré sur cette période",
+  "nothing to capture": "rien à capturer",
+  "Nothing to save: {0}": "Rien à enregistrer : {0}",
+  "nothing waits for that answer": "rien n'attend cette réponse",
+  "Nothing was heard. Tap the mic and speak.": "Rien n'a été entendu. Touchez le micro et parlez.",
+  "Nothing would change.": "Rien ne changerait.",
+  "Notifications": "Notifications",
+  "now in {room}": "actuellement dans {room}",
+  "Obstructed": "Obstrué",
+  "Obstruction Detected": "Obstruction détectée",
+  "Occupancy Detected": "Présence détectée",
+  "Occupancy Sensor": "Détecteur de présence",
+  "Occupied": "Occupé",
+  "Ocean": "Océan",
+  "off": "éteint",
+  "Off": "Éteint",
+  "Off · {inside}": "Éteint · {inside}",
+  "Off · air {quality}": "Éteint · qualité de l'air : {quality}",
+  "Off [alarm]": "Désactivé",
+  "Off [setting]": "Désactivé",
+  "OK": "OK",
+  "On": "Allumé",
+  "On · {brightness} %": "Allumé · {brightness} %",
+  "On · {input}": "Allumé · {input}",
+  "On · {speed} %": "Allumé · {speed} %",
+  "On · in use": "Allumé · en service",
+  "on (true or false) is required": "on (true ou false) est requis",
+  "On [setting]": "Activé",
+  "on {days}": "le {days}",
+  "On GitHub": "Sur GitHub",
+  "On in the Home app": "Activée dans l'app Maison",
+  "On the bridge {name}": "Sur le pont {name}",
+  "on weekdays": "en semaine",
+  "One wall": "Un seul mur",
+  "only an administrator can do this": "seul un administrateur peut faire cela",
+  "only an administrator can empty the log": "seul un administrateur peut vider le journal",
+  "Only for you to recognise it.": "Seulement pour que vous la reconnaissiez.",
+  "Only if": "Seulement si",
+  "open": "ouvrir",
+  "Open": "Ouvert",
+  "Open · {position} %": "Ouvert · {position} %",
+  "Open [action]": "Ouvrir",
+  "open [chat]": "ouverte",
+  "Open Config": "Ouvrir Config",
+  "Open in the app": "Ouvrir dans l'app",
+  "Open its page": "Ouvrir sa page",
+  "Open its settings": "Ouvrir ses réglages",
+  "Open on its own": "Ouvrir à part",
+  "Open this page over HTTPS (the HomeswiftUI block's https) or on localhost to turn them on here.": "Ouvrez cette page en HTTPS (le réglage https du bloc HomeswiftUI) ou sur localhost pour les activer ici.",
+  "Open Users": "Ouvrir Utilisateurs",
+  "Opening": "Ouverture",
+  "Opening…": "Ouverture…",
+  "Optical Zoom": "Zoom optique",
+  "order lists accessory ids": "order liste des identifiants d'accessoires",
+  "origin {0} does not match the host": "l'origine {0} ne correspond pas à l'hôte",
+  "Other accessories": "Autres accessoires",
+  "other accessory": "autre accessoire",
+  "Outcome": "Résultat",
+  "Outlet": "Prise",
+  "Outlet In Use": "Prise utilisée",
+  "outside {0}–{1}": "hors de {0}–{1}",
+  "Overview": "Vue d'ensemble",
+  "Ozone Density": "Ozone",
+  "Paired · {count}": "Jumelé · {count}",
+  "Pairing": "Jumelage",
+  "Pairing codes and what each bridge runs": "Codes de jumelage et ce que chaque pont exécute",
+  "Pairing Features": "Fonctions de jumelage",
+  "Pairing QR code": "Code QR de jumelage",
+  "Password": "Mot de passe",
+  "Password changed. Other browsers signed in as {username} are signed out; this one stays.": "Mot de passe changé. Les autres navigateurs connectés en tant que {username} sont déconnectés ; celui-ci reste connecté.",
+  "Password strength": "Robustesse du mot de passe",
+  "Password, to turn it off": "Mot de passe, pour la désactiver",
+  "Pause": "Mettre en pause",
+  "Paused": "En pause",
+  "Paused · {plugin}": "En pause · {plugin}",
+  "Paused · its plugin": "En pause · son plugin",
+  "Paused.": "En pause.",
+  "Pink": "Rose",
+  "Play/Pause": "Lecture/Pause",
+  "Plugin": "Plugin",
+  "Plugin device calls": "Appels des plugins aux appareils",
+  "Plugin settings": "Réglages du plugin",
+  "Plugins": "Plugins",
+  "Plugins › HomeswiftUI › Settings turns sign-in on.": "Plugins › HomeswiftUI › Réglages active la connexion.",
+  "Plugins on HomeKit bridges of their own (a block with _bridge), inside this process: one can restart without the others.": "Des plugins sur leurs propres ponts HomeKit (un bloc avec _bridge), dans ce processus : chacun peut redémarrer sans les autres.",
+  "PM10 Density": "PM10",
+  "PM2.5 Density": "PM2,5",
+  "Poor": "Mauvaise",
+  "Port": "Port",
+  "port must be a port number, or null for an automatic one": "port doit être un numéro de port, ou null pour un port automatique",
+  "Position": "Position",
+  "Position State": "Mouvement",
+  "Power": "Marche/arrêt",
+  "Power [watts]": "Puissance",
+  "Power Management": "Gestion de l'alimentation",
+  "Preparing the image…": "Préparation de l'image…",
+  "Program Mode": "Mode de programmation",
+  "Programmable Switch Event": "Événement du bouton",
+  "Programmable Switch Output State": "État de sortie du bouton",
+  "Purifying": "Purification",
+  "Purifying · {how}": "Purification · {how}",
+  "Push payload too large ({0} bytes)": "Contenu push trop volumineux ({0} octets)",
+  "Put in a room…": "Mettre dans une pièce…",
+  "QR code for an authenticator app": "Code QR pour une app d'authentification",
+  "Quick controls": "Commandes rapides",
+  "Raise {setting}": "Augmenter ({setting})",
+  "Rang {when}": "A sonné {when}",
+  "Read": "Lecture",
+  "Reading {n} line…": "Lecture de {n} ligne…",
+  "Reading {n} lines…": "Lecture de {n} lignes…",
+  "Reading the day…": "Lecture de la journée…",
+  "Received Signal Strength Indication": "Force du signal reçu",
+  "Receiver Sensitivity": "Sensibilité du récepteur",
+  "Reconnecting…": "Reconnexion…",
+  "Recorded values, as Eve shows them": "Valeurs enregistrées, comme Eve les affiche",
+  "Recording": "Enregistrement",
+  "Recording Audio Active": "Enregistrement audio",
+  "Red": "Rouge",
+  "Refresh": "Actualiser",
+  "Relative Humidity Dehumidifier Threshold": "Seuil de déshumidification",
+  "Relative Humidity Humidifier Threshold": "Seuil d'humidification",
+  "Relay Enabled": "Relais activé",
+  "Relay State": "État du relais",
+  "Remaining Duration": "Durée restante",
+  "Remote": "Télécommande",
+  "Remote for {name}": "Télécommande de {name}",
+  "Remote Key": "Touche de télécommande",
+  "Remove": "Supprimer",
+  "Remove \"{name}\" from config.json? Its accessories leave the Home app.": "Supprimer « {name} » de config.json ? Ses accessoires quittent l'app Maison.",
+  "Remove {name} ({username})? They are signed out at once.": "Supprimer {name} ({username}) ? La personne est déconnectée aussitôt.",
+  "Remove {name} ({username})? They are signed out at once. That is you: this browser is signed out too.": "Supprimer {name} ({username}) ? La personne est déconnectée aussitôt. C'est vous : ce navigateur est déconnecté lui aussi.",
+  "Remove {name} from the cache?": "Retirer {name} du cache ?",
+  "Remove from Quick Controls": "Retirer des commandes rapides",
+  "Remove from the cache…": "Retirer du cache…",
+  "Remove this plugin": "Supprimer ce plugin",
+  "Remove your account": "Supprimer votre compte",
+  "Remove your image": "Supprimer votre image",
+  "removed": "supprimé",
+  "Repeat": "Répétition",
+  "repeated or sequential characters add nothing": "les caractères répétés ou consécutifs n'apportent rien",
+  "Replace [filter]": "À remplacer",
+  "Replace the whole config.json? A backup is kept.": "Remplacer tout le config.json ? Une sauvegarde est conservée.",
+  "requestId is required": "requestId est requis",
+  "Requests": "Requêtes",
+  "Requests this month": "Requêtes ce mois-ci",
+  "Requests today": "Requêtes aujourd'hui",
+  "required": "obligatoire",
+  "Required: {n} bits": "Requis : {n} bits",
+  "Reset every accessory cache?": "Réinitialiser tous les caches d'accessoires ?",
+  "Reset every cache…": "Réinitialiser tous les caches…",
+  "Reset Filter Indication": "Réinitialiser le filtre",
+  "Reset pairings": "Réinitialiser les jumelages",
+  "Reset pairings…": "Réinitialiser les jumelages…",
+  "Reset the caches": "Réinitialiser les caches",
+  "Reset the pairings of {name}?": "Réinitialiser les jumelages de {name} ?",
+  "resetting pairings needs confirm: true": "réinitialiser les jumelages nécessite confirm: true",
+  "resetting the caches needs confirm: true": "réinitialiser les caches nécessite confirm: true",
+  "Restart": "Redémarrer",
+  "Restart {name}?": "Redémarrer {name} ?",
+  "Restart homeswift now? Every connection drops for a few seconds.": "Redémarrer homeswift maintenant ? Toutes les connexions sont coupées quelques secondes.",
+  "Restart homeswift to apply the rest: {0}.": "Redémarrez homeswift pour appliquer le reste : {0}.",
+  "Restart homeswift to apply the restore: it is applied before anything else at the next start.": "Redémarrez homeswift pour appliquer la restauration : elle passe avant tout le reste au prochain démarrage.",
+  "Restart homeswift with these settings?": "Redémarrer homeswift avec ces réglages ?",
+  "Restart homeswift? Connections drop for a few seconds.": "Redémarrer homeswift ? Les connexions sont coupées quelques secondes.",
+  "Restart homeswift…": "Redémarrer homeswift…",
+  "Restart now": "Redémarrer maintenant",
+  "Restarting homeswift…": "Redémarrage de homeswift…",
+  "Restarts": "Redémarrages",
+  "Restore": "Restaurer",
+  "Restore {name}?": "Restaurer {name} ?",
+  "Restore a backup": "Restaurer une sauvegarde",
+  "Restore and restart": "Restaurer et redémarrer",
+  "Restore config.json from {backup}?": "Restaurer config.json depuis {backup} ?",
+  "Restore this config.json?": "Restaurer ce config.json ?",
+  "Restore…": "Restaurer…",
+  "Resume": "Reprendre",
+  "Resume {name}": "Reprendre {name}",
+  "Revert": "Annuler les modifications",
+  "Revoke": "Révoquer",
+  "Revoke the token “{name}”? Scripts using it are refused at once.": "Révoquer le jeton « {name} » ? Les scripts qui l'utilisent sont refusés aussitôt.",
+  "Right": "Droite",
+  "Room: {room}…": "Pièce : {room}…",
+  "rooms must be names": "rooms doit contenir des noms",
+  "Rotation Direction": "Sens de rotation",
+  "Rotation Speed": "Vitesse de rotation",
+  "Router Status": "État du routeur",
+  "run": "démarrer",
+  "Run": "Lancer",
+  "Run [valve]": "Démarrer",
+  "Run {name}": "Lancer {name}",
+  "Run {name} [valve]": "Démarrer {name}",
+  "Run by hand": "Lancée à la main",
+  "Run it automatically. Sunrise and sunset are for {place}.": "La lancer automatiquement. Le lever et le coucher du soleil sont ceux de {place}.",
+  "Run it automatically. Sunrise and sunset need a location: set it on the Scenes page.": "La lancer automatiquement. Le lever et le coucher du soleil demandent une position : définissez-la sur la page Scènes.",
+  "Run one homeswift per backup: two bridges with the same identity make the Home app drop them.": "Faites tourner un seul homeswift par sauvegarde : deux ponts de même identité amènent l'app Maison à les abandonner.",
+  "Run the plugin again": "Relancer le plugin",
+  "Running": "En marche",
+  "Running · {time} left": "En marche · reste {time}",
+  "Running, and everything is in the Home app": "En marche, et tout est dans l'app Maison",
+  "Running; {n} servers wait to be added in the Home app": "En marche ; {n} serveurs attendent d'être ajoutés dans l'app Maison",
+  "Running; one server waits to be added in the Home app": "En marche ; un serveur attend d'être ajouté dans l'app Maison",
+  "Running; some changes need a restart": "En marche ; certaines modifications nécessitent un redémarrage",
+  "Runs inside homeswift": "S'exécute dans homeswift",
+  "Sa": "Sa",
+  "Sat": "Sam",
+  "Saturation": "Saturation",
+  "Save": "Enregistrer",
+  "Save “{entry}” in {block}?": "Enregistrer « {entry} » dans {block} ?",
+  "Save and restart": "Enregistrer et redémarrer",
+  "Save anyway": "Enregistrer quand même",
+  "Save payloads": "Conserver les contenus",
+  "Save the budgets": "Enregistrer les budgets",
+  "Save this entry in {block}?": "Enregistrer cette entrée dans {block} ?",
+  "Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list": "Enregistrer ce que le schéma du plugin refuse : pour une valeur que le plugin accepte mais que son schéma ne liste pas",
+  "Save what the plugins' schemas refuse: for a value a plugin accepts that its schema does not list": "Enregistrer ce que les schémas des plugins refusent : pour une valeur qu'un plugin accepte mais que son schéma ne liste pas",
+  "Saved": "Enregistré",
+  "Saved and applied.": "Enregistré et appliqué.",
+  "Saved for you, on every browser": "Enregistré pour vous, sur tous vos navigateurs",
+  "Saved for your account, on every browser.": "Enregistré pour votre compte, sur tous les navigateurs.",
+  "Saved.": "Enregistré.",
+  "Saved. Homeswift restarts by itself to apply the bridge settings…": "Enregistré. Homeswift redémarre de lui-même pour appliquer les réglages du pont…",
+  "Saved. Its lock, door or alarm actions run only when you run it here: automations leave them out.": "Enregistrée. Ses actions sur une serrure, une porte ou une alarme ne s'exécutent que si vous la lancez ici : les automatisations les laissent de côté.",
+  "Saved. Restart homeswift to apply the rest: {pending}.": "Enregistré. Redémarrez homeswift pour appliquer le reste : {pending}.",
+  "Saved. The web UI moves to {scheme}…": "Enregistré. L'interface web passe en {scheme}…",
+  "Saved. The web UI moves to port {port}…": "Enregistré. L'interface web passe sur le port {port}…",
+  "saveDetails (true or false) is required": "saveDetails (true ou false) est requis",
+  "Saving…": "Enregistrement…",
+  "say what the block should do": "dites ce que le bloc doit faire",
+  "Scan this code with your authenticator app, or open the link on this device; or type the key by hand.": "Scannez ce code avec votre app d'authentification, ou ouvrez le lien sur cet appareil ; ou saisissez la clé à la main.",
+  "Scenes": "Scènes",
+  "Scheduled restart": "Redémarrage planifié",
+  "Schedules and proxy": "Planifications et proxy",
+  "Scope": "Portée",
+  "Search accessories": "Rechercher des accessoires",
+  "Sections": "Sections",
+  "Secured": "Verrouillé",
+  "Security System": "Système de sécurité",
+  "Security System Alarm Type": "Type d'alarme",
+  "Security System Current State": "État du système de sécurité",
+  "Security System Target State": "Mode du système de sécurité",
+  "See your accessories, rooms, scenes and the bridge's state. Changes nothing.": "Voir vos accessoires, pièces, scènes et l'état du pont. Ne modifie rien.",
+  "Select [remote]": "Sélection",
+  "Selected Diagnostics Modes": "Modes de diagnostic choisis",
+  "Selected: press ⌘C or Ctrl+C": "Sélectionné : appuyez sur ⌘C ou Ctrl+C",
+  "Send": "Envoyer",
+  "Send (Enter)": "Envoyer (Entrée)",
+  "Send a test": "Envoyer un test",
+  "Send a test here": "Envoyer un test ici",
+  "Send a test to every channel that is on": "Envoyer un test à chaque canal activé",
+  "send JSON": "envoyez du JSON",
+  "send the archive (Content-Type: application/x-tar)": "envoyez l'archive (Content-Type: application/x-tar)",
+  "send the choices as a JSON object": "envoyez les choix sous forme d'objet JSON",
+  "send the image as base64 in data": "envoyez l'image en base64 dans data",
+  "Sending…": "Envoi…",
+  "sensor": "capteur",
+  "Sent through {channels}.": "Envoyée par {channels}.",
+  "Sent.": "Envoyé.",
+  "Serial Number": "Numéro de série",
+  "Server": "Serveur",
+  "Service Label": "Étiquette de service",
+  "Service Label Index": "Index d'étiquette",
+  "Service Label Namespace": "Espace de noms d'étiquette",
+  "Set {characteristic} to {value} on {id}?": "Régler {characteristic} sur {value} pour {id} ?",
+  "Set {setting} of {name} to {value}?": "Régler {setting} de {name} sur {value} ?",
+  "Set Duration": "Durée définie",
+  "Set to": "Régler à",
+  "Set up": "Configurer",
+  "set up two-factor authentication first": "configurez d'abord l'authentification à deux facteurs",
+  "Set-up code": "Code de configuration",
+  "Settings": "Réglages",
+  "settings are required": "settings est requis",
+  "Settings pages": "Pages des réglages",
+  "Settings, pairings and backups": "Réglages, jumelages et sauvegardes",
+  "Setup code": "Code de configuration",
+  "Show": "Afficher",
+  "Show {name}": "Afficher {name}",
+  "show all controls": "afficher toutes les commandes",
+  "Show as a table": "Afficher sous forme de tableau",
+  "Show hidden ({count})": "Afficher les masqués ({count})",
+  "Show it again": "Afficher à nouveau",
+  "Show its log": "Afficher son journal",
+  "Show less": "Afficher moins",
+  "Show more": "Afficher plus",
+  "Show the payload": "Afficher le contenu",
+  "Shower head": "Pommeau de douche",
+  "Shown in the web UI; the username when empty.": "Affiché dans l'interface web ; le nom d'utilisateur s'il est vide.",
+  "shutter": "volet",
+  "Sign in": "Se connecter",
+  "sign in first": "connectez-vous d'abord",
+  "Sign in to manage the bridge.": "Connectez-vous pour gérer le pont.",
+  "Sign in with your Homeswift account to connect an app.": "Connectez-vous avec votre compte Homeswift pour connecter une app.",
+  "Sign out": "Se déconnecter",
+  "Signal To Noise Ratio": "Rapport signal/bruit",
+  "Signed in on this browser. Logins last {n} day without activity; changing the password, or turning two-factor authentication on or off, signs the others out.": "Connecté sur ce navigateur. Les sessions expirent après {n} jour d'inactivité ; changer le mot de passe, ou activer ou désactiver l'authentification à deux facteurs, déconnecte les autres.",
+  "Signed in on this browser. Logins last {n} days without activity; changing the password, or turning two-factor authentication on or off, signs the others out.": "Connecté sur ce navigateur. Les sessions expirent après {n} jours d'inactivité ; changer le mot de passe, ou activer ou désactiver l'authentification à deux facteurs, déconnecte les autres.",
+  "Signing in asks for the code your authenticator app shows, after the password.": "La connexion demande le code affiché par votre app d'authentification, après le mot de passe.",
+  "Signing in…": "Connexion…",
+  "since: an ISO time, or 1h, 24h, 7d": "since : une heure ISO, ou 1h, 24h, 7d",
+  "Single press": "Appui simple",
+  "Siri": "Siri",
+  "Siri Enable": "Siri activé",
+  "Siri Endpoint": "Point d'accès Siri",
+  "Siri Engine Version": "Version du moteur Siri",
+  "Siri Input Type": "Type d'entrée Siri",
+  "Siri Light On Use": "Voyant Siri à l'utilisation",
+  "Siri Listening": "Siri à l'écoute",
+  "Siri Touch To Use": "Toucher pour utiliser Siri",
+  "Size and place of {name}": "Taille et place de {name}",
+  "Sizes and order of the widgets": "Tailles et ordre des widgets",
+  "sizes are by accessory id": "les tailles sont indexées par identifiant d'accessoire",
+  "Skipped {date}: {reason}": "Ignorée le {date} : {reason}",
+  "Slat Type": "Type de lamelles",
+  "Slats": "Lamelles",
+  "Sleep Interval": "Intervalle de veille",
+  "Small": "Petit",
+  "Smart Speaker": "Enceinte connectée",
+  "Smoke": "Fumée",
+  "Smoke Detected": "Fumée détectée",
+  "Smoke Sensor": "Détecteur de fumée",
+  "Snapshot of {name}": "Instantané de {name}",
+  "Software Revision": "Version du logiciel",
+  "Some changes need a restart of homeswift.": "Certaines modifications nécessitent un redémarrage de homeswift.",
+  "Something follows the end of the JSON": "Quelque chose suit la fin du JSON",
+  "Speaker": "Haut-parleur",
+  "Speed": "Vitesse",
+  "Spent this month": "Dépensé ce mois-ci",
+  "Spent today": "Dépensé aujourd'hui",
+  "Staged Firmware Version": "Firmware en attente",
+  "Stale": "Obsolète",
+  "Start": "Démarrer",
+  "Starting…": "Démarrage…",
+  "Stateful Programmable Switch": "Interrupteur programmable",
+  "Stateless Programmable Switch": "Bouton programmable",
+  "Status": "État",
+  "Status Active": "En fonctionnement",
+  "Status Fault": "Défaillance",
+  "Status Jammed": "Bloqué",
+  "Status light": "Voyant d'état",
+  "Status Low Battery": "Batterie faible",
+  "Status Tampered": "Manipulé",
+  "stop": "arrêter",
+  "Stop": "Arrêter",
+  "Stop {name}": "Arrêter {name}",
+  "Stop {name}?": "Arrêter {name} ?",
+  "Stop the plugin's calls to its devices for now": "Suspendre pour l'instant les appels du plugin à ses appareils",
+  "Stopped": "Arrêté",
+  "Stopped [bridge]": "Arrêté",
+  "Stopped by hand": "Arrêté manuellement",
+  "Stopped.": "Arrêté.",
+  "Strength": "Robustesse",
+  "Strength of the new password": "Robustesse du nouveau mot de passe",
+  "Strings take double quotes": "Les chaînes prennent des guillemets doubles",
+  "Strong": "Fort",
+  "Strong to very strong": "Fort à très fort",
+  "Su": "Di",
+  "Suggest": "Suggérer",
+  "Suggest rooms": "Suggérer des pièces",
+  "Suggested rooms": "Pièces suggérées",
+  "Sulphur Dioxide Density": "Dioxyde de soufre",
+  "Sun": "Dim",
+  "Sunrise": "Lever du soleil",
+  "Sunrise {days}": "Lever du soleil {days}",
+  "Sunrise or sunset": "Lever ou coucher du soleil",
+  "Sunset": "Coucher du soleil",
+  "Sunset {days}": "Coucher du soleil {days}",
+  "Supported Asset Types": "Types de ressources pris en charge",
+  "Supported Diagnostics Modes": "Modes de diagnostic pris en charge",
+  "Swing": "Oscillation",
+  "Swing Mode": "Oscillation",
+  "switch": "interrupteur",
+  "Switch": "Interrupteur",
+  "System": "Système",
+  "Takes the block out of config.json. Its accessories leave the Home app, with their rooms, scenes and automations.": "Retire le bloc de config.json. Ses accessoires quittent l'app Maison, avec leurs pièces, scènes et automatisations.",
+  "Tap Management": "Gestion des appuis",
+  "Tap Type": "Type d'appui",
+  "Target Air Purifier State": "Mode du purificateur",
+  "Target Control": "Télécommande",
+  "Target Control Management": "Gestion de la télécommande",
+  "Target Door State": "Commande de la porte",
+  "Target Fan State": "Mode du ventilateur",
+  "Target Heater-Cooler State": "Mode de climatisation",
+  "Target Heating Cooling State": "Mode de chauffage",
+  "Target Horizontal Tilt Angle": "Inclinaison horizontale",
+  "Target Humidifier-Dehumidifier State": "Mode de l'humidificateur",
+  "Target Position": "Position cible",
+  "Target Relative Humidity": "Humidité cible",
+  "Target temperature": "Température cible",
+  "Target Temperature": "Température cible",
+  "Target Tilt Angle": "Inclinaison cible",
+  "Target Vertical Tilt Angle": "Inclinaison verticale",
+  "television": "téléviseur",
+  "Television": "Téléviseur",
+  "Television Speaker": "Haut-parleur du téléviseur",
+  "Temperature": "Température",
+  "Temperature Display Units": "Unité de température",
+  "Temperature Sensor": "Capteur de température",
+  "Temperature unit": "Unité de température",
+  "Temperatures": "Températures",
+  "Ten-minute averages, kept four weeks; each point here averages those in its span.": "Moyennes sur dix minutes, conservées quatre semaines ; chaque point ici fait la moyenne de celles de son intervalle.",
+  "Test connection": "Tester la connexion",
+  "Th": "Je",
+  "that code is not right: type the 6 digits your authenticator app shows now": "ce code est incorrect : saisissez les 6 chiffres qu'affiche maintenant votre app d'authentification",
+  "That file is too large for a certificate or a key.": "Ce fichier est trop volumineux pour un certificat ou une clé.",
+  "That is {0} actions; a scene holds at most {1}. Pass fewer accessories or limit characteristics.": "Cela fait {0} actions ; une scène en contient au plus {1}. Indiquez moins d'accessoires ou limitez les caractéristiques.",
+  "that plugin has no config.schema.json": "ce plugin n'a pas de config.schema.json",
+  "that user already exists": "cet utilisateur existe déjà",
+  "The {0} channel is on but not fully set up": "Le canal {0} est activé mais pas entièrement configuré",
+  "the accessory is gone": "l'accessoire a disparu",
+  "the Adaptive Lighting schedule of {0} does not cover this time of day; turn it on in the Home app": "le programme d'Éclairage adaptatif de {0} ne couvre pas ce moment de la journée ; activez-le dans l'app Maison",
+  "The address this app asked to return to is not one it registered.": "L'adresse de retour demandée par cette app ne fait pas partie de celles qu'elle a enregistrées.",
+  "The answer was cut off at its output limit. Raise the maximum answer length, or ask for less at once.": "La réponse a été coupée à sa limite de sortie. Augmentez la longueur maximale des réponses, ou demandez-en moins à la fois.",
+  "The answer was cut off at the {0}-token output limit. Raise the maximum answer length, or ask for less at once.": "La réponse a été coupée à la limite de sortie de {0} tokens. Augmentez la longueur maximale des réponses, ou demandez-en moins à la fois.",
+  "The app did not say where to return to.": "L'app n'a pas indiqué où revenir.",
+  "the archive is larger than 64 MB": "l'archive dépasse 64 MB",
+  "The Assistant": "L'Assistant",
+  "the Assistant did not answer: {0}": "l'Assistant n'a pas répondu : {0}",
+  "The Assistant did not answer: {0}": "L'Assistant n'a pas répondu : {0}",
+  "the Assistant did not answer: {0}: cannot reach the provider: {1}": "l'Assistant n'a pas répondu : {0} : impossible de joindre le fournisseur : {1}",
+  "The Assistant did not answer: {0}: cannot reach the provider: {1}": "L'Assistant n'a pas répondu : {0} : impossible de joindre le fournisseur : {1}",
+  "the Assistant did not answer: {0}: HTTP {1}: {2}": "l'Assistant n'a pas répondu : {0} : HTTP {1} : {2}",
+  "The Assistant did not answer: {0}: HTTP {1}: {2}": "L'Assistant n'a pas répondu : {0} : HTTP {1} : {2}",
+  "the Assistant did not answer: {0}: the response is not JSON": "l'Assistant n'a pas répondu : {0} : la réponse n'est pas du JSON",
+  "The Assistant did not answer: {0}: the response is not JSON": "L'Assistant n'a pas répondu : {0} : la réponse n'est pas du JSON",
+  "the Assistant did not answer: The answer was cut off at its output limit. Raise the maximum answer length, or ask for less at once.": "l'Assistant n'a pas répondu : la réponse a été coupée à sa limite de sortie. Augmentez la longueur maximale des réponses, ou demandez-en moins à la fois.",
+  "the Assistant did not answer: The answer was cut off at the {0}-token output limit. Raise the maximum answer length, or ask for less at once.": "l'Assistant n'a pas répondu : la réponse a été coupée à la limite de sortie de {0} tokens. Augmentez la longueur maximale des réponses, ou demandez-en moins à la fois.",
+  "the Assistant did not answer: The daily AI budget is used up: {0} of {1} today. It resets at midnight.": "l'Assistant n'a pas répondu : le budget IA quotidien est épuisé : {0} sur {1} aujourd'hui. Il repart à zéro à minuit.",
+  "The Assistant did not answer: The daily AI budget is used up: {0} of {1} today. It resets at midnight.": "L'Assistant n'a pas répondu : le budget IA quotidien est épuisé : {0} sur {1} aujourd'hui. Il repart à zéro à minuit.",
+  "the Assistant did not answer: The daily AI budget is used up: {0} tokens of {1} tokens today. It resets at midnight.": "l'Assistant n'a pas répondu : le budget IA quotidien est épuisé : {0} tokens sur {1} aujourd'hui. Il repart à zéro à minuit.",
+  "The Assistant did not answer: The daily AI budget is used up: {0} tokens of {1} tokens today. It resets at midnight.": "L'Assistant n'a pas répondu : le budget IA quotidien est épuisé : {0} tokens sur {1} aujourd'hui. Il repart à zéro à minuit.",
+  "the Assistant did not answer: The model did not return valid JSON: {0}": "l'Assistant n'a pas répondu : le modèle n'a pas renvoyé de JSON valide : {0}",
+  "the Assistant did not answer: The monthly AI budget is used up: {0} of {1} this month. It resets on the 1st of next month.": "l'Assistant n'a pas répondu : le budget IA mensuel est épuisé : {0} sur {1} ce mois-ci. Il repart à zéro le 1er du mois prochain.",
+  "The Assistant did not answer: The monthly AI budget is used up: {0} of {1} this month. It resets on the 1st of next month.": "L'Assistant n'a pas répondu : le budget IA mensuel est épuisé : {0} sur {1} ce mois-ci. Il repart à zéro le 1er du mois prochain.",
+  "the Assistant did not answer: The monthly AI budget is used up: {0} tokens of {1} tokens this month. It resets on the 1st of next month.": "l'Assistant n'a pas répondu : le budget IA mensuel est épuisé : {0} tokens sur {1} ce mois-ci. Il repart à zéro le 1er du mois prochain.",
+  "The Assistant did not answer: The monthly AI budget is used up: {0} tokens of {1} tokens this month. It resets on the 1st of next month.": "L'Assistant n'a pas répondu : le budget IA mensuel est épuisé : {0} tokens sur {1} ce mois-ci. Il repart à zéro le 1er du mois prochain.",
+  "the Assistant is off: add a HomeswiftAiKit block": "l'Assistant est désactivé : ajoutez un bloc HomeswiftAiKit",
+  "The Assistant is off: add a HomeswiftAiKit block": "L'Assistant est désactivé : ajoutez un bloc HomeswiftAiKit",
+  "The Assistant is off: config.json has no HomeswiftAiKit block. Add one on the Config page, {example}, or choose apple on a Mac with Apple Intelligence.": "L'Assistant est désactivé : config.json n'a pas de bloc HomeswiftAiKit. Ajoutez-en un sur la page Config, {example}, ou choisissez apple sur un Mac avec Apple Intelligence.",
+  "The Assistant is sorting your accessories into rooms…": "L'Assistant range vos accessoires par pièce…",
+  "the Assistant is still answering; stop it first": "l'Assistant répond encore ; arrêtez-le d'abord",
+  "The Assistant is writing the block…": "L'Assistant rédige le bloc…",
+  "The Assistant reads the lines shown and groups the issues, with causes and fixes": "L'Assistant lit les lignes affichées et regroupe les problèmes, avec leurs causes et leurs solutions",
+  "The Assistant stopped after many steps without an answer. Ask again, or more precisely.": "L'Assistant s'est arrêté après de nombreuses étapes sans réponse. Reposez la question, ou soyez plus précis.",
+  "the Assistant writes the settings": "l'Assistant rédige les réglages",
+  "The Assistant: whether its provider answers, what it costs, and its budgets.": "L'Assistant : si son fournisseur répond, ce qu'il coûte, et ses budgets.",
+  "The Assistant's explanation": "L'explication de l'Assistant",
+  "The Assistant's summary of the day": "Le résumé de la journée par l'Assistant",
+  "The audit log is off: the HomeswiftAiKit block's mcp.http says auditLog: false.": "Le journal d'audit est désactivé : le mcp.http du bloc HomeswiftAiKit indique auditLog: false.",
+  "the backup folder {0} does not exist": "le dossier de sauvegarde {0} n'existe pas",
+  "the backup folder {0} is not writable": "le dossier de sauvegarde {0} n'est pas accessible en écriture",
+  "the backup has no config.json": "la sauvegarde n'a pas de config.json",
+  "the backup's config.json cannot run: {0}": "le config.json de la sauvegarde ne peut pas fonctionner : {0}",
+  "The block as config.json keeps it.": "Le bloc tel que config.json le conserve.",
+  "The block as JSON": "Le bloc en JSON",
+  "the block must keep its platform": "le bloc doit garder sa plateforme",
+  "The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.": "Les blocs de config.json. Un enregistrement s'applique aussitôt : le plugin se recharge en gardant ses accessoires.",
+  "The bridge block is the bridge's HomeKit identity: homeswift restarts to apply it, and every connection drops for a few seconds.": "Le bloc bridge est l'identité HomeKit du pont : homeswift redémarre pour l'appliquer, et toutes les connexions sont coupées quelques secondes.",
+  "The bridge did not answer: {error}": "Le pont n'a pas répondu : {error}",
+  "The bridge needs a name": "Le pont a besoin d'un nom",
+  "The bridge, its pairings and cached accessories, child bridges, backups and the audit log.": "Le pont, ses jumelages et ses accessoires en cache, les ponts enfants, les sauvegardes et le journal d'audit.",
+  "The browser did not allow copying.": "Le navigateur n'a pas autorisé la copie.",
+  "The browser did not allow the microphone for this page.": "Le navigateur n'a pas autorisé le micro pour cette page.",
+  "The browser did not give its location (it needs HTTPS away from localhost).": "Le navigateur n'a pas donné sa position (il faut HTTPS hors de localhost).",
+  "The browser's notifications are blocked for this site.": "Les notifications du navigateur sont bloquées pour ce site.",
+  "the change for {0} must be an object": "la modification de {0} doit être un objet",
+  "the characteristic of the accessory could not be read": "la caractéristique de l'accessoire n'a pas pu être lue",
+  "the code is required": "le code est requis",
+  "The code the app shows now": "Le code que l'app affiche maintenant",
+  "The code the Home app asks for, as XXX-XX-XXX. It is never logged.": "Le code que demande l'app Maison, sous la forme XXX-XX-XXX. Il n'apparaît jamais dans le journal.",
+  "the config must be a JSON object": "la config doit être un objet JSON",
+  "The connection dropped before the answer ended.": "La connexion a été coupée avant la fin de la réponse.",
+  "The connection dropped: {error}": "La connexion a été coupée : {error}",
+  "the current and the new password are required": "le mot de passe actuel et le nouveau sont requis",
+  "the current password is not right": "le mot de passe actuel est incorrect",
+  "The daily AI budget is used up: {0} of {1} today. It resets at midnight.": "Le budget IA quotidien est épuisé : {0} sur {1} aujourd'hui. Il repart à zéro à minuit.",
+  "The daily AI budget is used up: {0} tokens of {1} tokens today. It resets at midnight.": "Le budget IA quotidien est épuisé : {0} tokens sur {1} aujourd'hui. Il repart à zéro à minuit.",
+  "The device ID stays: a new one is a new bridge to the Home app. To pair again from scratch, reset the bridge's pairings below.": "L'identifiant de l'appareil ne change pas : un nouvel identifiant serait un nouveau pont pour l'app Maison. Pour jumeler à nouveau depuis le début, réinitialisez les jumelages du pont ci-dessous.",
+  "The digest time must be HH:mm": "L'heure du résumé doit être au format HH:mm",
+  "the endpoint is required": "l'endpoint est requis",
+  "The file before each of its last {n} saves": "Le fichier avant chacun de ses {n} derniers enregistrements",
+  "The file before its last save": "Le fichier avant son dernier enregistrement",
+  "the file is missing or too large": "le fichier manque ou est trop volumineux",
+  "the first user already exists; sign in": "le premier utilisateur existe déjà ; connectez-vous",
+  "The form below has other unsaved changes: save them with the budgets?": "Le formulaire ci-dessous contient d'autres modifications non enregistrées : les enregistrer avec les budgets ?",
+  "The HomeKit server's port; empty picks a free one and keeps it.": "Le port du serveur HomeKit ; vide, un port libre est choisi et conservé.",
+  "The homeswift process, at its highest in each point": "Le processus homeswift, à son maximum en chaque point",
+  "The homeswift process; 100% is one core busy": "Le processus homeswift ; 100 % correspond à un cœur occupé",
+  "The homeswift version": "La version de homeswift",
+  "The image could not be read.": "L'image n'a pas pu être lue.",
+  "the image is too large: {0} MB at most": "l'image est trop volumineuse : {0} MB au maximum",
+  "The JSON is not valid: {error}": "Le JSON n'est pas valide : {error}",
+  "The last administrator": "Le dernier administrateur",
+  "The last administrator stays one: make another user an administrator first.": "Le dernier administrateur le reste : faites d'abord d'un autre utilisateur un administrateur.",
+  "the layout must be a JSON object": "la disposition doit être un objet JSON",
+  "The layout was not kept: {error}": "La disposition n'a pas été enregistrée : {error}",
+  "The machine, and Restart": "La machine, et Redémarrer",
+  "the MCP server is off: turn on mcp.http in the HomeswiftAiKit block": "le serveur MCP est désactivé : activez mcp.http dans le bloc HomeswiftAiKit",
+  "The MCP server is read-only (readOnly in the HomeswiftAiKit block): whatever you choose, the app can only read.": "Le serveur MCP est en lecture seule (readOnly dans le bloc HomeswiftAiKit) : quel que soit votre choix, l'app peut seulement lire.",
+  "the message is too long: 4000 characters at most": "le message est trop long : 4 000 caractères au maximum",
+  "The model did not return valid JSON: {0}": "Le modèle n'a pas renvoyé de JSON valide : {0}",
+  "The monthly AI budget is used up: {0} of {1} this month. It resets on the 1st of next month.": "Le budget IA mensuel est épuisé : {0} sur {1} ce mois-ci. Il repart à zéro le 1er du mois prochain.",
+  "The monthly AI budget is used up: {0} tokens of {1} tokens this month. It resets on the 1st of next month.": "Le budget IA mensuel est épuisé : {0} tokens sur {1} ce mois-ci. Il repart à zéro le 1er du mois prochain.",
+  "the name must be 1 to 64 characters": "le nom doit compter de 1 à 64 caractères",
+  "The name must be 1 to 64 characters": "Le nom doit compter de 1 à 64 caractères",
+  "The new password is not strong enough yet: the gauge says what is missing.": "Le nouveau mot de passe n'est pas encore assez robuste : la jauge indique ce qui manque.",
+  "The new password is the current one.": "Le nouveau mot de passe est identique à l'actuel.",
+  "The ntfy server must be an http(s) URL": "Le serveur ntfy doit être une URL http(s)",
+  "The ntfy topic may only use letters, numbers, - and _ (up to 64)": "Le sujet ntfy ne peut contenir que des lettres, des chiffres, - et _ (64 au maximum)",
+  "The on-device model declined this request.": "Le modèle sur l'appareil a refusé cette demande.",
+  "The pages' language and the one the Assistant answers in. Automatic follows the browser.": "La langue des pages et celle dans laquelle l'Assistant répond. Automatique suit le navigateur.",
+  "The password is not strong enough yet: the gauge says what is missing.": "Le mot de passe n'est pas encore assez robuste : la jauge indique ce qui manque.",
+  "the password is required": "le mot de passe est requis",
+  "the password is too weak: {0}": "le mot de passe est trop faible : {0}",
+  "the password is too weak: make it stronger: {0} of {1} bits": "le mot de passe est trop faible : renforcez-le : {0} bits sur {1}",
+  "the password is too weak: make it stronger: {0} of {1} bits; common words add little": "le mot de passe est trop faible : renforcez-le : {0} bits sur {1} ; les mots courants apportent peu",
+  "the password is too weak: make it stronger: {0} of {1} bits; repeated or sequential characters add nothing": "le mot de passe est trop faible : renforcez-le : {0} bits sur {1} ; les caractères répétés ou consécutifs n'apportent rien",
+  "the password is too weak: make it stronger: {0} of {1} bits; your username adds nothing": "le mot de passe est trop faible : renforcez-le : {0} bits sur {1} ; votre nom d'utilisateur n'apporte rien",
+  "the password is too weak: use at least {0} characters; make it stronger: {1} of {2} bits": "le mot de passe est trop faible : utilisez au moins {0} caractères ; renforcez-le : {1} bits sur {2}",
+  "the password is too weak: use at least {0} characters; make it stronger: {1} of {2} bits; common words add little": "le mot de passe est trop faible : utilisez au moins {0} caractères ; renforcez-le : {1} bits sur {2} ; les mots courants apportent peu",
+  "the password is too weak: use at least {0} characters; make it stronger: {1} of {2} bits; repeated or sequential characters add nothing": "le mot de passe est trop faible : utilisez au moins {0} caractères ; renforcez-le : {1} bits sur {2} ; les caractères répétés ou consécutifs n'apportent rien",
+  "the password is too weak: use at least {0} characters; make it stronger: {1} of {2} bits; your username adds nothing": "le mot de passe est trop faible : utilisez au moins {0} caractères ; renforcez-le : {1} bits sur {2} ; votre nom d'utilisateur n'apporte rien",
+  "the password is too weak: use at most {0} bytes": "le mot de passe est trop faible : utilisez au plus {0} octets",
+  "The plugin makes no calls to its devices, and they show No Response in the Home app. This page needs it running.": "Le plugin n'appelle plus ses appareils, qui affichent Pas de réponse dans l'app Maison. Cette page a besoin qu'il tourne.",
+  "The plugin's schema refuses this:": "Le schéma du plugin refuse ceci :",
+  "The plugins started again on empty caches and add the devices they reach; aids and iids stay, so rooms and automations survive.": "Les plugins ont redémarré sur des caches vides et ajoutent les appareils qu'ils atteignent ; les aids et iids restent, donc les pièces et les automatisations sont conservées.",
+  "The plugins' schemas refuse this:": "Les schémas des plugins refusent ceci :",
+  "the preferences could not be saved: {0}": "impossible d'enregistrer les préférences : {0}",
+  "the prompt is too long: 8000 characters at most": "la question est trop longue : 8 000 caractères au maximum",
+  "The push endpoint is not a known browser push service": "L'endpoint push n'est pas un service push de navigateur connu",
+  "The push endpoint must be an https URL": "L'endpoint push doit être une URL https",
+  "the request is not one Homeswift can answer": "Homeswift ne peut pas répondre à cette demande",
+  "the request is too large": "la requête est trop volumineuse",
+  "The room of {name}. A new name adds the room; empty takes it out of its room.": "La pièce de {name}. Un nouveau nom ajoute la pièce ; vide, l'accessoire sort de sa pièce.",
+  "The room of {name}. Rooms: {rooms}. A new name adds the room; empty takes it out of its room.": "La pièce de {name}. Pièces : {rooms}. Un nouveau nom ajoute la pièce ; vide, l'accessoire sort de sa pièce.",
+  "The same as config.json now.": "Identique au config.json actuel.",
+  "The same event about the same thing goes out once per 15 minutes at most, and 12 notifications an hour at most.": "Un même événement sur un même sujet est envoyé au plus une fois toutes les 15 minutes, avec 12 notifications par heure au maximum.",
+  "the scope is read or admin": "la portée est read ou admin",
+  "the search took longer than {0} and was stopped; try a simpler pattern or plain text": "la recherche a pris plus de {0} et a été arrêtée ; essayez un motif plus simple ou du texte brut",
+  "The settings do not match the plugin's schema: {0}": "Les réglages ne correspondent pas au schéma du plugin : {0}",
+  "The settings do not match the plugin's schema: {0}; and {1} more": "Les réglages ne correspondent pas au schéma du plugin : {0} ; et {1} de plus",
+  "The status, accessories and metrics.": "L'état, les accessoires et les métriques.",
+  "The text ends before this list is closed": "Le texte se termine avant la fermeture de cette liste",
+  "The text ends before this object is closed": "Le texte se termine avant la fermeture de cet objet",
+  "The text ends where a value should be": "Le texte se termine là où une valeur est attendue",
+  "the time window uses sunrise or sunset, but no location is set": "la plage horaire utilise le lever ou le coucher du soleil, mais aucune position n'est définie",
+  "the token needs a name of 1 to 64 characters": "le jeton doit avoir un nom de 1 à 64 caractères",
+  "The two new passwords are not the same.": "Les deux nouveaux mots de passe ne sont pas identiques.",
+  "the upload is larger than {0} MB": "le fichier envoyé dépasse {0} MB",
+  "The username": "Le nom d'utilisateur",
+  "the username must be 1 to 64 characters without spaces or colons": "le nom d'utilisateur doit compter de 1 à 64 caractères, sans espaces ni deux-points",
+  "The values to set, in this order.": "Les valeurs à régler, dans cet ordre.",
+  "The webhook URL must be an http(s) URL": "L'URL du webhook doit être une URL http(s)",
+  "The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once.": "Tout le fichier config.json. L'enregistrement le valide, garde une sauvegarde du fichier précédent (les 20 dernières sous backups/), et l'applique aussitôt.",
+  "The whole instance, to move it or start over, and each saved config.json.": "L'instance entière, pour la déplacer ou repartir de zéro, et chaque config.json enregistré.",
+  "The whole request": "La requête complète",
+  "Their ids stay, so rooms and automations come back with the devices; accessories of devices that are gone do not.": "Leurs identifiants restent, donc pièces et automatisations reviennent avec les appareils ; les accessoires des appareils disparus, non.",
+  "Theme": "Thème",
+  "there are no log lines to diagnose": "il n'y a aucune ligne de journal à diagnostiquer",
+  "there is already a block {0} of {1}": "il existe déjà un bloc {0} de {1}",
+  "There is already a room {0}": "Il existe déjà une pièce {0}",
+  "There is no HomeswiftAiKit block: choose a provider first.": "Il n'y a pas de bloc HomeswiftAiKit : choisissez d'abord un fournisseur.",
+  "there is no such token": "ce jeton n'existe pas",
+  "there is no such user": "cet utilisateur n'existe pas",
+  "Thermostat": "Thermostat",
+  "Thinking about it…": "Réflexion en cours…",
+  "Thinking…": "Réflexion…",
+  "this API token can only read": "ce jeton d'API ne peut que lire",
+  "This app is not registered with Homeswift, or its registration expired. Connect again from the app.": "Cette app n'est pas enregistrée auprès de Homeswift, ou son enregistrement a expiré. Reconnectez-la depuis l'app.",
+  "this backup": "cette sauvegarde",
+  "This block has no settings form; edit it as JSON.": "Ce bloc n'a pas de formulaire de réglages ; modifiez-le en JSON.",
+  "This bridge has no account yet. Open its web UI and create the administrator first.": "Ce pont n'a pas encore de compte. Ouvrez son interface web et créez d'abord l'administrateur.",
+  "This browser and others": "Ce navigateur et d'autres",
+  "This browser cannot play this camera's video": "Ce navigateur ne peut pas lire la vidéo de cette caméra",
+  "This browser cannot receive push notifications.": "Ce navigateur ne peut pas recevoir de notifications push.",
+  "This browser cannot tell its location.": "Ce navigateur ne peut pas donner sa position.",
+  "This browser is not subscribed": "Ce navigateur n'est pas abonné",
+  "This browser is not subscribed.": "Ce navigateur n'est pas abonné.",
+  "This certificate cannot be read.": "Ce certificat est illisible.",
+  "This device is not in the configuration.": "Cet appareil n'est pas dans la configuration.",
+  "this homeswift keeps no log on disk": "ce homeswift ne garde aucun journal sur disque",
+  "this homeswift records no metrics": "ce homeswift n'enregistre aucune métrique",
+  "This homeswift's log, live, and up to a week back.": "Le journal de ce homeswift, en direct, et jusqu'à une semaine en arrière.",
+  "This is {version}": "Version actuelle : {version}",
+  "This is {version} · released {date}": "Version actuelle : {version} · publiée le {date}",
+  "This is a certificate; drop the private key here.": "C'est un certificat ; déposez ici la clé privée.",
+  "This is a private key; drop the certificate here.": "C'est une clé privée ; déposez ici le certificat.",
+  "this is not a JPEG, PNG or WebP image": "ce n'est pas une image JPEG, PNG ou WebP",
+  "this is not a name the web UI answers to; add it to allowedHosts in the HomeswiftUI block": "l'interface web ne répond pas à ce nom ; ajoutez-le à allowedHosts dans le bloc HomeswiftUI",
+  "This is not a PEM file: a certificate or a key starts with -----BEGIN.": "Ce n'est pas un fichier PEM : un certificat ou une clé commence par -----BEGIN.",
+  "this is the last administrator: make another user an administrator first": "c'est le dernier administrateur : faites d'abord d'un autre utilisateur un administrateur",
+  "This month by model and by user": "Ce mois-ci par modèle et par utilisateur",
+  "This private key cannot be read (an encrypted key needs its passphrase removed).": "Cette clé privée est illisible (retirez d'abord la phrase secrète d'une clé chiffrée).",
+  "this process cannot restart itself; restart homeswift by hand": "ce processus ne peut pas redémarrer de lui-même ; redémarrez homeswift à la main",
+  "This scene changes a lock, a door or an alarm: confirm to run it": "Cette scène modifie une serrure, une porte ou une alarme : confirmez pour la lancer",
+  "This scene is already running": "Cette scène est déjà en cours",
+  "This string is not closed": "Cette chaîne n'est pas fermée",
+  "This string is not closed before the end of the line": "Cette chaîne n'est pas fermée avant la fin de la ligne",
+  "this web UI has no accounts: its auth is none": "cette interface web n'a pas de comptes : son auth vaut none",
+  "This web UI has no sign-in: its HomeswiftUI block says auth none, so there are no users.": "Cette interface web ne demande pas de connexion : son bloc HomeswiftUI indique auth none, il n'y a donc pas d'utilisateurs.",
+  "This web UI has no sign-in: its HomeswiftUI block says auth none, so there is no password to change.": "Cette interface web ne demande pas de connexion : son bloc HomeswiftUI indique auth none, il n'y a donc pas de mot de passe à changer.",
+  "Thread Node Capabilities": "Capacités du nœud Thread",
+  "Thread OpenThread Version": "Version d'OpenThread",
+  "Thread Status": "État Thread",
+  "Thread Transport": "Transport Thread",
+  "Thu": "Jeu",
+  "Tilt": "Inclinaison",
+  "Time": "Heure",
+  "Time range": "Période",
+  "To": "Au",
+  "Today": "Aujourd'hui",
+  "Token “{name}”": "Jeton « {name} »",
+  "Tokens": "Tokens",
+  "Tokens per day": "Tokens par jour",
+  "Tokens per month": "Tokens par mois",
+  "Tokens this month": "Tokens ce mois-ci",
+  "Tokens today": "Tokens aujourd'hui",
+  "too many accessories": "trop d'accessoires",
+  "Too many Assistant requests. Wait a minute and try again.": "Trop de requêtes à l'Assistant. Attendez une minute et réessayez.",
+  "Too many test notifications: try again in a minute": "Trop de notifications de test : réessayez dans une minute",
+  "too many widgets": "trop de widgets",
+  "Tool or route": "Outil ou route",
+  "Topic": "Sujet",
+  "Transfer Transport Management": "Gestion des transferts",
+  "Transmit Power": "Puissance d'émission",
+  "Trigger": "Déclencheur",
+  "Trigger {0} must be an object": "Le déclencheur {0} doit être un objet",
+  "Trigger {0}: {1} is missing": "Déclencheur {0} : il manque {1}",
+  "Trigger {0}: days are 0 (Sunday) to 6": "Déclencheur {0} : les jours vont de 0 (dimanche) à 6",
+  "Trigger {0}: invalid cron expression": "Déclencheur {0} : expression cron non valide",
+  "Trigger {0}: invalid operator": "Déclencheur {0} : opérateur non valide",
+  "Trigger {0}: the event must be sunrise or sunset": "Déclencheur {0} : l'événement doit être sunrise ou sunset",
+  "Trigger {0}: the offset must be a whole number of minutes from -720 to 720": "Déclencheur {0} : le décalage doit être un nombre entier de minutes entre -720 et 720",
+  "Trigger {0}: the time must be HH:mm": "Déclencheur {0} : l'heure doit être au format HH:mm",
+  "Trigger {0}: the type must be time, cron, sun or characteristic": "Déclencheur {0} : le type doit être time, cron, sun ou characteristic",
+  "Trigger {0}: the value must be a boolean, a number or a short text": "Déclencheur {0} : la valeur doit être un booléen, un nombre ou un texte court",
+  "Triggers": "Déclencheurs",
+  "Try again": "Réessayer",
+  "Tu": "Ma",
+  "Tue": "Mar",
+  "Tunnel": "Tunnel",
+  "Tunnel Connection Timeout": "Délai de connexion du tunnel",
+  "Tunneled Accessory Advertising": "Annonce de l'accessoire tunnelé",
+  "Tunneled Accessory Connected": "Accessoire tunnelé connecté",
+  "Tunneled Accessory State Number": "Numéro d'état de l'accessoire tunnelé",
+  "turn Adaptive Lighting on once in the Home app (the light's settings): the bridge then keeps the schedule and can resume it": "activez une fois l'Éclairage adaptatif dans l'app Maison (réglages de la lampe) : le pont garde ensuite le programme et peut le reprendre",
+  "turn off": "éteindre",
+  "Turn off": "Éteindre",
+  "Turn off [setting]": "Désactiver",
+  "Turn off every light": "Éteins toutes les lampes",
+  "Turn off on this browser": "Désactiver sur ce navigateur",
+  "turn on": "allumer",
+  "Turn on": "Activer",
+  "Turn on for this browser": "Activer pour ce navigateur",
+  "Turned off in the Home app": "Désactivée dans l'app Maison",
+  "Two-factor": "Deux facteurs",
+  "Two-factor authentication": "Authentification à deux facteurs",
+  "two-factor authentication is already on; turn it off first": "l'authentification à deux facteurs est déjà activée ; désactivez-la d'abord",
+  "Type {text} to confirm": "Saisissez {text} pour confirmer",
+  "type the code from your authenticator app": "saisissez le code de votre app d'authentification",
+  "Unknown": "Inconnu",
+  "unknown API route": "route d'API inconnue",
+  "unknown auth action": "action d'authentification inconnue",
+  "unknown camera route {0}": "route de caméra {0} inconnue",
+  "unknown preference {0}": "préférence {0} inconnue",
+  "unknown route": "route inconnue",
+  "unknown subscription": "abonnement inconnu",
+  "Unlocked": "Déverrouillé",
+  "Unmute": "Activer le son",
+  "Unsaved changes": "Modifications non enregistrées",
+  "Unsecured": "Déverrouillé",
+  "Up": "Haut",
+  "Up [uptime]": "En marche",
+  "URL": "URL",
+  "USD per day": "USD par jour",
+  "USD per month": "USD par mois",
+  "Use an image of your own…": "Utiliser votre propre image…",
+  "use at least {0} characters": "utilisez au moins {0} caractères",
+  "use at most {0} bytes": "utilisez au plus {0} octets",
+  "Use it": "Utiliser",
+  "Use this device's location": "Utiliser la position de cet appareil",
+  "User": "Utilisateur",
+  "User key": "Clé utilisateur",
+  "Username": "Nom d'utilisateur",
+  "username and password are required": "le nom d'utilisateur et le mot de passe sont requis",
+  "Users": "Utilisateurs",
+  "Users and API tokens": "Utilisateurs et jetons d'API",
+  "Users and tokens": "Utilisateurs et jetons",
+  "Valid JSON · unsaved": "JSON valide · non enregistré",
+  "Value": "Valeur",
+  "value must be a boolean, a number or a string": "value doit être un booléen, un nombre ou une chaîne",
+  "valve": "vanne",
+  "Valve": "Vanne",
+  "Valve position": "Position de la vanne",
+  "Valve Type": "Type de vanne",
+  "Version {version} · {host}": "Version {version} · {host}",
+  "Very weak": "Très faible",
+  "Video Analysis Active": "Analyse vidéo",
+  "Violet": "Violet",
+  "VOC": "COV",
+  "VOC density": "Densité de COV",
+  "VOC Density": "COV",
+  "Voice": "Voix",
+  "Voice did not start: {error}": "La voix n'a pas démarré : {error}",
+  "Voice language": "Langue de la voix",
+  "Voice needs HTTPS here: turn on https in Plugins › HomeswiftUI › Settings (or open the page on localhost).": "La voix nécessite HTTPS ici : activez https dans Plugins › HomeswiftUI › Réglages (ou ouvrez la page sur localhost).",
+  "Voice needs HTTPS: turn on https in the HomeswiftUI settings, or open this page on localhost.": "La voix nécessite HTTPS : activez https dans les réglages de HomeswiftUI, ou ouvrez cette page sur localhost.",
+  "Voice stopped: {error}.": "La voix s'est arrêtée : {error}.",
+  "Volume": "Volume",
+  "Volume down": "Baisser le volume",
+  "Volume Selector": "Volume",
+  "Volume up": "Augmenter le volume",
+  "Waiting to be added (setup code on the Status page)": "En attente d'ajout (code de configuration sur la page État)",
+  "Wallpaper": "Fond d'écran",
+  "Warm white": "Blanc chaud",
+  "Warnings": "Avertissements",
+  "Water": "Eau",
+  "Water Level": "Niveau d'eau",
+  "We": "Me",
+  "Weak": "Très faible",
+  "Web Push to the browsers that turned it on below. It needs HTTPS (or localhost).": "Web Push vers les navigateurs qui l'ont activé ci-dessous. Il faut HTTPS (ou localhost).",
+  "Webhook": "Webhook",
+  "Wed": "Mer",
+  "What": "Quoi",
+  "What can I do for you?": "Que puis-je faire pour vous ?",
+  "What does my bridge run?": "Que fait tourner mon pont ?",
+  "What needs attention today, from the log and the accessories": "Ce qui demande votre attention aujourd'hui, d'après le journal et les accessoires",
+  "What should {plugin} do? For example: \"add my second light at 192.168.1.40, and poll every 5 seconds\".": "Que doit faire {plugin} ? Par exemple : « ajoute ma deuxième lampe à 192.168.1.40, et interroge-la toutes les 5 secondes ».",
+  "What the bridge tells you when you are not looking: it started or stopped, a plugin reported an error, an accessory stopped responding, an automation failed.": "Ce que le pont vous signale quand vous ne regardez pas : il a démarré ou s'est arrêté, un plugin a signalé une erreur, un accessoire ne répond plus, une automatisation a échoué.",
+  "What the Home app calls the bridge when it is added.": "Le nom que l'app Maison donne au pont quand il est ajouté.",
+  "What the lines are about": "Ce dont parlent les lignes",
+  "What they sign in with: no spaces or colons.": "L'identifiant de connexion de la personne : sans espaces ni deux-points.",
+  "What uses it, to know it again.": "Ce qui l'utilise, pour le reconnaître.",
+  "What would change": "Ce qui changerait",
+  "What's new": "Nouveautés",
+  "When": "Quand",
+  "When {who} {characteristic} {comparison} {value}": "Quand {characteristic} de {who} {comparison} {value}",
+  "When {who} {characteristic} changes": "Quand {characteristic} de {who} change",
+  "When an accessory changes": "Quand un accessoire change",
+  "Where the Home app finds the bridge": "Où l'app Maison trouve le pont",
+  "Whether its provider answers, and what it costs.": "Si son fournisseur répond, et ce qu'il coûte.",
+  "White": "Blanc",
+  "Who": "Qui",
+  "Who may use this web UI. Administrators change settings, plugins and users; other users see the bridge and control accessories.": "Qui peut utiliser cette interface web. Les administrateurs modifient les réglages, les plugins et les utilisateurs ; les autres utilisateurs voient le pont et commandent les accessoires.",
+  "Who the Home app knows each server by": "Sous quelle identité l'app Maison connaît chaque serveur",
+  "Whose requests": "Serveur",
+  "Why is an accessory not responding?": "Pourquoi un accessoire ne répond-il pas ?",
+  "Wi Fi Router": "Routeur Wi-Fi",
+  "Wi Fi Satellite": "Satellite Wi-Fi",
+  "Wi Fi Transport": "Transport Wi-Fi",
+  "Wi-Fi Capabilities": "Capacités Wi-Fi",
+  "Wi-Fi Satellite Status": "État du satellite Wi-Fi",
+  "Window": "Fenêtre",
+  "Window Covering": "Store",
+  "Worth a look": "À vérifier",
+  "Write it again": "Rédiger à nouveau",
+  "Write today's digest": "Rédiger le résumé du jour",
+  "Written {when}": "Rédigé le {when}",
+  "Written {when} by {model}": "Rédigé le {when} par {model}",
+  "Written by {model}. Passwords and tokens never reach it; check addresses and names before saving.": "Rédigé par {model}. Les mots de passe et jetons ne lui parviennent jamais ; vérifiez les adresses et les noms avant d'enregistrer.",
+  "wrong set-up code: it is in the bridge's output, next to the web UI address": "code de configuration erroné : il figure dans la sortie du pont, à côté de l'adresse de l'interface web",
+  "wrong username or password": "nom d'utilisateur ou mot de passe incorrect",
+  "Yesterday": "Hier",
+  "you": "vous",
+  "Your account": "Votre compte",
+  "Your favourite accessories and the scenes, at hand.": "Vos accessoires favoris et les scènes, à portée de main.",
+  "Your image": "Votre image",
+  "Your image is the wallpaper now.": "Votre image est maintenant le fond d'écran.",
+  "Your password and two-factor": "Votre mot de passe et l'authentification à deux facteurs",
+  "Your setup, in your words": "Votre installation, en vos propres mots",
+  "Your sign-in to this bridge's web UI, as an administrator.": "Votre connexion à l'interface web de ce pont, en tant qu'administrateur.",
+  "Your sign-in to this bridge's web UI.": "Votre connexion à l'interface web de ce pont.",
+  "Your user key and an application token from pushover.net.": "Votre clé utilisateur et un jeton d'application de pushover.net.",
+  "your username adds nothing": "votre nom d'utilisateur n'apporte rien"
+});
+
+"""#),
+        "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
+// The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
+HomeswiftI18n.add("pt", {
+  "-100… or @channel": "-100… ou @canal",
+  "\"{0}\" is in several caches; pass cacheFile ({1})": "«{0}» está em várias caches; indique cacheFile ({1})",
+  "(done)": "(concluído)",
+  "(failed)": "(falhou)",
+  "(not allowed)": "(não permitido)",
+  "(running)": "(em curso)",
+  "(secret, kept)": "(secreto, mantido)",
+  "{0} blocks have platform {1}; give the name": "{0} blocos têm a plataforma {1}; indique o nome",
+  "{0} cannot do that now": "{0} não pode fazer isso agora",
+  "{0} did not answer: the device may be off or out of reach": "{0} não respondeu: o dispositivo pode estar desligado ou fora de alcance",
+  "{0} did not start: {1}": "{0} não arrancou: {1}",
+  "{0} gave no live video: {1}": "{0} não forneceu vídeo em direto: {1}",
+  "{0} gave no snapshot: {1}": "{0} não forneceu nenhuma imagem: {1}",
+  "{0} has {1} lights with Adaptive Lighting; name the service": "{0} tem {1} luzes com Iluminação adaptativa; indique o serviço",
+  "{0} has {1} services with {2}; name the service": "{0} tem {1} serviços com {2}; indique o serviço",
+  "{0} has {1} viewers already": "{0} já tem {1} espectadores",
+  "{0} has no Adaptive Lighting": "{0} não tem Iluminação adaptativa",
+  "{0} has no Adaptive Lighting on service {1}": "{0} não tem Iluminação adaptativa no serviço {1}",
+  "{0} has no characteristic {1}": "{0} não tem a característica {1}",
+  "{0} has no characteristic {1} on service {2}": "{0} não tem a característica {1} no serviço {2}",
+  "{0} has no live feed; its card shows snapshots": "{0} não tem transmissão em direto; o cartão mostra imagens fixas",
+  "{0} is busy: try again in a moment": "{0} está ocupado: tente novamente daqui a pouco",
+  "{0} is not allowed here": "{0} não é permitido aqui",
+  "{0} is one of {1}": "{0} é um destes valores: {1}",
+  "{0} is paused: its plugin does not run": "{0} está em pausa: o plugin não está em execução",
+  "{0} is paused: resume it on the Plugins page to control {1}": "{0} está em pausa: retome-o na página Plugins para controlar {1}",
+  "{0} is required": "{0} é obrigatório",
+  "{0} is turned off in the Home app": "{0}: a câmara está desativada na app Casa",
+  "{0} matches none of the allowed shapes": "{0} não corresponde a nenhuma das formas permitidas",
+  "{0} must be {1}": "{0} tem de ser {1}",
+  "{0} must be <= {1}": "{0} tem de ser <= {1}",
+  "{0} must be >= {1}": "{0} tem de ser >= {1}",
+  "{0} must be array": "{0} tem de ser uma lista",
+  "{0} must be at least {1} characters": "{0} tem de ter pelo menos {1} caracteres",
+  "{0} must be at most {1} characters": "{0} tem de ter no máximo {1} caracteres",
+  "{0} must be boolean": "{0} tem de ser um booleano",
+  "{0} must be integer": "{0} tem de ser um número inteiro",
+  "{0} must be number": "{0} tem de ser um número",
+  "{0} must be object": "{0} tem de ser um objeto",
+  "{0} must be one of {1}": "{0} tem de ser um destes valores: {1}",
+  "{0} must be string": "{0} tem de ser uma cadeia de caracteres",
+  "{0} must have at least {1} items": "{0} tem de ter pelo menos {1} elementos",
+  "{0} must have at most {1} items": "{0} tem de ter no máximo {1} elementos",
+  "{0} needs set_security_accessory": "{0} precisa de set_security_accessory",
+  "{0} of {1} unlocks, opens or disarms: use set_security_accessory": "{0} de {1} destranca, abre ou desarma: use set_security_accessory",
+  "{0} of the accessory could not be read": "não foi possível ler {0} do acessório",
+  "{0} only reports this value": "{0} só comunica este valor",
+  "{0} refused that value": "{0} recusou esse valor",
+  "{0} refused the change ({1})": "{0} recusou a alteração ({1})",
+  "{0} security action(s) not run": "{0} ação(ões) de segurança não executada(s)",
+  "{0} took too long to answer": "{0} demorou demasiado a responder",
+  "{0}: cannot reach the provider: {1}": "{0}: não é possível contactar o fornecedor: {1}",
+  "{0}: no answer within {1} seconds": "{0}: sem resposta em {1} segundos",
+  "{0}: the response is not JSON": "{0}: a resposta não é JSON",
+  "{action} (press and hold)": "{action} (manter premido)",
+  "{address} · last used {when}": "{address} · última utilização: {when}",
+  "{bits} bits": "{bits} bits",
+  "{bits} bits needed": "{bits} bits necessários",
+  "{channel} on": "{channel} ativado",
+  "{client} asks to use your bridge as {username}.": "{client} pede para usar a sua ponte como {username}.",
+  "{client} asks to use your bridge. This web UI has no sign-in, so it acts as its administrator.": "{client} pede para usar a sua ponte. Esta interface web não tem início de sessão, pelo que atua como administrador.",
+  "{count} in {n} cache file": "{count} em {n} ficheiro de cache",
+  "{count} in {n} cache files": "{count} em {n} ficheiros de cache",
+  "{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.": "{count} em {servers} servidores, tal como a app Casa os vê. As alterações feitas aqui chegam aos dispositivos.",
+  "{count} on one server, as the Home app sees them. Changes here reach your devices.": "{count} num servidor, tal como a app Casa os vê. As alterações feitas aqui chegam aos dispositivos.",
+  "{cron} · next {date}": "{cron} · próximo: {date}",
+  "{d}d {h}h": "{d} d {h} h",
+  "{file} is larger than {size}.": "{file} tem mais de {size}.",
+  "{file} is removed from the folder.": "{file} é removido da pasta.",
+  "{h}h {m}m": "{h} h {m} min",
+  "{hours} h ago": "há {hours} h",
+  "{label} {n} of {count}": "{label} {n} de {count}",
+  "{label}: {value}": "{label}: {value}",
+  "{level}, {bits} bits": "{level}, {bits} bits",
+  "{m}m": "{m} min",
+  "{minutes} min after sunrise {days}": "{minutes} min depois do nascer do sol {days}",
+  "{minutes} min after sunset {days}": "{minutes} min depois do pôr do sol {days}",
+  "{minutes} min ago": "há {minutes} min",
+  "{minutes} min before sunrise {days}": "{minutes} min antes do nascer do sol {days}",
+  "{minutes} min before sunset {days}": "{minutes} min antes do pôr do sol {days}",
+  "{model} read {n} line. Secrets and addresses were masked first; check its advice before acting on it.": "{model} leu {n} linha. Os segredos e os endereços foram ocultados primeiro; verifique os conselhos antes de os seguir.",
+  "{model} read {n} lines. Secrets and addresses were masked first; check its advice before acting on it.": "{model} leu {n} linhas. Os segredos e os endereços foram ocultados primeiro; verifique os conselhos antes de os seguir.",
+  "{n} accessories": "{n} acessórios",
+  "{n} accessories on {bridge}": "{n} acessórios em {bridge}",
+  "{n} accessory": "{n} acessório",
+  "{n} accessory on {bridge}": "{n} acessório em {bridge}",
+  "{n} day": "{n} dia",
+  "{n} days": "{n} dias",
+  "{n} file from {date} is staged.": "{n} ficheiro de {date} está preparado.",
+  "{n} file from the backup is staged.": "{n} ficheiro da cópia está preparado.",
+  "{n} files from {date} are staged.": "{n} ficheiros de {date} estão preparados.",
+  "{n} files from the backup are staged.": "{n} ficheiros da cópia estão preparados.",
+  "{n} Home app controller": "{n} controlador da app Casa",
+  "{n} Home app controllers": "{n} controladores da app Casa",
+  "{n} message": "{n} mensagem",
+  "{n} messages": "{n} mensagens",
+  "{n} min": "{n} min",
+  "{n} of {total} on": "Ligados: {n} de {total}",
+  "{n} unchanged line": "{n} linha inalterada",
+  "{n} unchanged lines": "{n} linhas inalteradas",
+  "{n}, newest first": "{n}, as mais recentes primeiro",
+  "{name} · child bridge": "{name} · ponte secundária",
+  "{name} · its own server": "{name} · servidor próprio",
+  "{name} (gone)": "{name} (desaparecido)",
+  "{name} in the Home app": "{name} na app Casa",
+  "{name} saved": "{name} guardado",
+  "{name}: {action}": "{name}: {action}",
+  "{name}: {setting}": "{name}: {setting}",
+  "{name}: on": "{name}: ligado",
+  "{name}: power": "{name}: ligar/desligar",
+  "{names} and {n} more": "{names} e mais {n}",
+  "{platform}: {problem}": "{platform}: {problem}",
+  "{plugin} did not start: {reason}": "{plugin} não arrancou: {reason}",
+  "{plugin} is paused: resume it to control {name}": "{plugin} está em pausa: retome-o para controlar {name}",
+  "{provider} · {cost} so far. Changes always ask first.": "{provider} · {cost} até agora. As alterações pedem sempre confirmação.",
+  "{provider}. Changes always ask first.": "{provider}. As alterações pedem sempre confirmação.",
+  "{remote}: arrows move, Enter selects, Backspace goes back": "{remote}: as setas movem, Enter seleciona, Retrocesso volta atrás",
+  "{scene} changes a lock, a door or an alarm ({which}). Run it?": "{scene} altera uma fechadura, uma porta ou um alarme ({which}). Executar?",
+  "{scene} ran, but not everything worked:\n{failures}": "{scene} foi executada, mas nem tudo funcionou:\n{failures}",
+  "{shown} of {n} line": "{shown} de {n} linha",
+  "{shown} of {n} line (the latest of the range)": "{shown} de {n} linha (as mais recentes do intervalo)",
+  "{shown} of {n} lines": "{shown} de {n} linhas",
+  "{shown} of {n} lines (the latest of the range)": "{shown} de {n} linhas (as mais recentes do intervalo)",
+  "{shown} of {total}": "{shown} de {total}",
+  "{size} for every {kind}": "{size} para cada {kind}",
+  "{size} for every accessory like it": "{size} para cada acessório do mesmo tipo",
+  "{state} · {names} unlocked": "{state} · destrancado: {names}",
+  "{temperature} inside": "{temperature} no interior",
+  "{temperature} now": "{temperature} agora",
+  "{time} left": "faltam {time}",
+  "{title}, drawn over time": "{title}, ao longo do tempo",
+  "{title}, nothing recorded": "{title}, nada registado",
+  "{title}. Nothing changes until you allow it.": "{title}. Nada muda até o permitir.",
+  "{tool} (dry run)": "{tool} (simulação)",
+  "{trigger} (off)": "{trigger} (desativado)",
+  "{used} of {limit}": "{used} de {limit}",
+  "{username} · Administrator": "{username} · Administrador",
+  "{username} (the username)": "{username} (o nome de utilizador)",
+  "24 hours": "24 horas",
+  "4 weeks": "4 semanas",
+  "7 days": "7 dias",
+  "A backup made by Download a backup or kept below replaces this bridge's files as homeswift restarts: its pairings, accessories and plugin settings come back; this machine's bridge and web UI ports stay. Files it does not have stay as they are.": "Uma cópia feita com Descarregar uma cópia de segurança ou guardada abaixo substitui os ficheiros desta ponte quando o homeswift reinicia: os emparelhamentos, acessórios e definições dos plugins regressam; as portas da ponte e da interface web desta máquina mantêm-se. Os ficheiros que não contém ficam como estão.",
+  "A block of the runtime itself.": "Um bloco do próprio motor.",
+  "A bot's token from @BotFather, and the chat it writes to.": "O token de um bot do @BotFather e o chat onde escreve.",
+  "A colon is missing after this key": "Faltam os dois pontos depois desta chave",
+  "A comma before the closing brace": "Uma vírgula antes da chaveta de fecho",
+  "A comma before the closing bracket": "Uma vírgula antes do parêntese reto de fecho",
+  "A comma or a closing brace is missing after this value": "Falta uma vírgula ou uma chaveta de fecho depois deste valor",
+  "A comma or a closing bracket is missing after this value": "Falta uma vírgula ou um parêntese reto de fecho depois deste valor",
+  "A control character in a string must be escaped": "Um carácter de controlo numa cadeia tem de ser escapado",
+  "A display name must be 1 to {0} characters": "Um nome de apresentação tem de ter de 1 a {0} caracteres",
+  "a field name is required": "é preciso um nome de campo",
+  "A JSON POST to a URL of yours: event, title, message, instance, timestamp.": "Um POST JSON para um URL seu: event, title, message, instance, timestamp.",
+  "A location needs lat (-90 to 90) and lon (-180 to 180)": "Uma localização precisa de lat (-90 a 90) e lon (-180 a 180)",
+  "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)": "uma fechadura, porta ou alarme: uma pessoa tem de confirmar (set_security_accessory, ou a interface web)",
+  "a lock, door or alarm: automations do not change them": "uma fechadura, porta ou alarme: as automatizações não lhes tocam",
+  "a message is required": "é preciso uma mensagem",
+  "A name for {name} on these pages (the Home app keeps its own). Empty goes back to {name}.": "Um nome para {name} nestas páginas (a app Casa mantém o seu). Se ficar vazio, volta a ser {name}.",
+  "A new block: Add writes it to config.json.": "Um bloco novo: Adicionar escreve-o no config.json.",
+  "A new setup code applies to new pairings only: the Home app keeps the bridge.": "Um novo código de configuração só se aplica a novos emparelhamentos: a app Casa mantém a ponte.",
+  "A phrase of several random words is long, strong and easy to remember.": "Uma frase de várias palavras aleatórias é longa, forte e fácil de memorizar.",
+  "a platform block needs a platform": "um bloco de plataforma precisa de uma plataforma",
+  "a prompt is required": "é preciso uma pergunta",
+  "A restore is staged: it applies when homeswift next starts.": "Há um restauro preparado: aplica-se no próximo arranque do homeswift.",
+  "A room's name must be 1 to {0} characters": "O nome de uma divisão tem de ter de 1 a {0} caracteres",
+  "A scene needs 1 to {0} actions": "Uma cena precisa de 1 a {0} ações",
+  "A scheduled restart (a cron expression), the daily backup (its folder and how long it is kept) and the reverse proxies trusted for X-Forwarded-For and X-Forwarded-Proto are settings of the HomeswiftUI block.": "Um reinício agendado (uma expressão cron), a cópia de segurança diária (a sua pasta e durante quanto tempo é guardada) e os proxies inversos de confiança para X-Forwarded-For e X-Forwarded-Proto são definições do bloco HomeswiftUI.",
+  "a security control: use set_security_accessory, one at a time": "um controlo de segurança: use set_security_accessory, um de cada vez",
+  "a size is small, medium or large": "um tamanho é small, medium ou large",
+  "a token expires after 1 to {0} days, or never": "um token expira após 1 a {0} dias, ou nunca",
+  "A topic on ntfy.sh or your own ntfy server; the app shows it on a phone.": "Um tópico em ntfy.sh ou no seu próprio servidor ntfy; a app mostra-o num telemóvel.",
+  "a username and a password are required": "são obrigatórios um nome de utilizador e uma palavra-passe",
+  "a widget id is a short word": "um identificador de widget é uma palavra curta",
+  "Abnormal": "Anómalo",
+  "About {name}: ": "Sobre {name}: ",
+  "Access Code": "Código de acesso",
+  "Access Control": "Controlo de acesso",
+  "Access Control Level": "Nível de controlo de acesso",
+  "Access token": "Token de acesso",
+  "Accessories": "Acessórios",
+  "Accessory": "Acessório",
+  "Accessory Flags": "Indicadores do acessório",
+  "accessory id \"{0}\" is already used by {1}": "o identificador de acessório «{0}» já é usado por {1}",
+  "Accessory Identifier": "Identificador do acessório",
+  "Accessory Information": "Informações do acessório",
+  "Accessory Metrics": "Métricas do acessório",
+  "Accessory of its own": "Acessório independente",
+  "Accessory of its own, from {plugins}": "Acessório independente, de {plugins}",
+  "Accessory of its own, from a plugin": "Acessório independente, de um plugin",
+  "Accessory Runtime Information": "Informações de execução",
+  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them.": "Valores de acessórios definidos em conjunto, manualmente ou num horário, ao nascer ou ao pôr do sol, ou quando um acessório muda. O Homeswift guarda-os; a app Casa não os vê.",
+  "Account": "Conta",
+  "Account menu": "Menu da conta",
+  "Action {0} must be an object": "A ação {0} tem de ser um objeto",
+  "Action {0}: {1} is missing": "Ação {0}: falta {1}",
+  "Action {0}: the value must be a boolean, a number or a short text": "Ação {0}: o valor tem de ser um booleano, um número ou um texto curto",
+  "Actions": "Ações",
+  "Actions for {name}": "Ações de {name}",
+  "Actions for every cache": "Ações de todas as caches",
+  "Actions for the backup of {date}": "Ações da cópia de {date}",
+  "Actions for the token {name}": "Ações do token {name}",
+  "Active": "Ativo",
+  "Active Identifier": "Entrada ativa",
+  "Activity": "Atividade",
+  "Activity Interval": "Intervalo de atividade",
+  "Adaptive": "Adaptativa",
+  "Adaptive Lighting": "Iluminação adaptativa",
+  "Adaptive Lighting: on": "Iluminação adaptativa: ativada",
+  "Adaptive Lighting: resume the Home app's schedule": "Iluminação adaptativa: retomar o horário da app Casa",
+  "Adaptive Lighting: turn it on once in the Home app": "Iluminação adaptativa: ative-a uma vez na app Casa",
+  "Add": "Adicionar",
+  "Add {item}": "Adicionar {item}",
+  "Add {name}": "Adicionar {name}",
+  "Add a condition": "Adicionar uma condição",
+  "Add a device for me": "Adicione um dispositivo por mim",
+  "Add a plugin": "Adicionar um plugin",
+  "Add a trigger": "Adicionar um acionador",
+  "Add a user": "Adicionar um utilizador",
+  "Add an accessory as it is now…": "Adicionar um acessório tal como está…",
+  "Add an action": "Adicionar uma ação",
+  "Add another": "Adicionar outro",
+  "Add anyway": "Adicionar mesmo assim",
+  "Add it again afterwards with its setup code, as a new bridge.": "Depois, adicione-a de novo com o seu código de configuração, como uma ponte nova.",
+  "Add people who may use this web UI, choose who administers it, and make tokens for scripts.": "Adicione as pessoas que podem usar esta interface web, escolha quem a administra e crie tokens para scripts.",
+  "Add the current state of an accessory": "Adicionar o estado atual de um acessório",
+  "Add to Quick Controls": "Adicionar aos controlos rápidos",
+  "Add user": "Adicionar utilizador",
+  "Added": "Adicionado",
+  "Admin": "Admin",
+  "Administer": "Administração",
+  "Administrator": "Administrador",
+  "Administrator Only Access": "Acesso apenas para administradores",
+  "Admins": "Administradores",
+  "Advertised with": "Anunciada com",
+  "air conditioner and thermostat": "ar condicionado e termóstato",
+  "Air Particulate Density": "Densidade de partículas",
+  "Air Particulate Size": "Tamanho das partículas",
+  "Air pressure": "Pressão atmosférica",
+  "air purifier": "purificador de ar",
+  "Air Purifier": "Purificador de ar",
+  "Air quality": "Qualidade do ar",
+  "Air Quality": "Qualidade do ar",
+  "Air Quality Sensor": "Sensor de qualidade do ar",
+  "AirPlay Enable": "AirPlay ativado",
+  "alarm": "alarme",
+  "Alarm": "Alarme",
+  "All": "Todos",
+  "All controls": "Todos os controlos",
+  "All lines": "Todas as linhas",
+  "All off": "Tudo desligado",
+  "All servers": "Todos os servidores",
+  "All the Assistant's settings: provider, model, key, MCP server": "Todas as definições do Assistente: fornecedor, modelo, chave, servidor MCP",
+  "Allow": "Permitir",
+  "Allow {tool}?": "Permitir {tool}?",
+  "Allowed": "Permitido",
+  "Allowing sends you back to {destination}. You can disconnect it from your account page at any time.": "Ao permitir, regressa a {destination}. Pode desligá-la a qualquer momento na página da sua conta.",
+  "already there": "já está lá",
+  "Also change config.json, plugins and settings, and restart the bridge: everything this web UI can do.": "Também alterar o config.json, os plugins e as definições, e reiniciar a ponte: tudo o que esta interface web pode fazer.",
+  "Also turn accessories on and off and run scenes. Locks, garage doors and alarms still ask you first.": "Também ligar e desligar acessórios e executar cenas. Fechaduras, portas de garagem e alarmes continuam a pedir confirmação primeiro.",
+  "Amber": "Âmbar",
+  "An administrator changes settings, plugins and users; anyone else sees the bridge and controls accessories.": "Um administrador altera definições, plugins e utilizadores; os restantes veem a ponte e controlam os acessórios.",
+  "an API token cannot manage accounts or tokens; sign in to the web UI": "um token de API não pode gerir contas nem tokens; inicie sessão na interface web",
+  "an API token names no account: sign in to connect an app": "um token de API não identifica nenhuma conta: inicie sessão para ligar uma app",
+  "An automatic run goes ahead only when all of these hold. Running it by hand ignores them.": "Uma execução automática só avança quando todas se verificam. Executá-la manualmente ignora-as.",
+  "an error to explain is required": "é preciso um erro para explicar",
+  "and": "e",
+  "and {n} more": "e mais {n}",
+  "another attempt from this address is under way; try again in a moment": "está em curso outra tentativa a partir deste endereço; tente novamente daqui a pouco",
+  "Anyone who opens this web UI uses it": "Qualquer pessoa que abra esta interface web pode usá-la",
+  "API tokens": "Tokens de API",
+  "Appearance": "Aspeto",
+  "apple: the input is too long for the on-device model (about 4,000 tokens); shorten it or use a cloud provider": "apple: o texto é demasiado longo para o modelo no dispositivo (cerca de 4000 tokens); encurte-o ou use um fornecedor na nuvem",
+  "apple: the on-device model does not support this language": "apple: o modelo no dispositivo não suporta este idioma",
+  "apple: the on-device model is busy; try again": "apple: o modelo no dispositivo está ocupado; tente novamente",
+  "apple: the on-device model is not ready; try again in a few minutes": "apple: o modelo no dispositivo não está pronto; tente novamente dentro de alguns minutos",
+  "Application token": "Token de aplicação",
+  "Applied; homeswift restarts by itself for the rest ({0}).": "Aplicado; o homeswift reinicia-se sozinho para o resto ({0}).",
+  "Applied.": "Aplicado.",
+  "Apply what is ticked": "Aplicar o que está assinalado",
+  "Apps you allowed to use the bridge through its MCP server, which is off now.": "As apps que autorizou a usar a ponte através do servidor MCP, agora desativado.",
+  "Apps you allowed to use the bridge through its MCP server. To add one in claude.ai or the Claude apps, make a custom connector with {address}.": "As apps que autorizou a usar a ponte através do servidor MCP. Para adicionar uma no claude.ai ou nas apps Claude, crie um conector personalizado com {address}.",
+  "Armed · {mode}": "Armado · {mode}",
+  "Ask for a code from an authenticator app (Passwords on iPhone and Mac, Google Authenticator, 1Password…) after the password, so a password alone no longer signs in.": "Pedir um código de uma app de autenticação (Palavras-passe no iPhone e no Mac, Google Authenticator, 1Password…) depois da palavra-passe, para que a palavra-passe sozinha deixe de bastar para iniciar sessão.",
+  "Ask the Assistant": "Perguntar ao Assistente",
+  "Ask the Assistant ({provider})": "Perguntar ao Assistente ({provider})",
+  "Ask the Assistant ({shortcut})": "Perguntar ao Assistente ({shortcut})",
+  "Ask, or tell it what to set up…": "Pergunte, ou diga-lhe o que configurar…",
+  "Asking the browser…": "A perguntar ao navegador…",
+  "Asking the provider…": "A contactar o fornecedor…",
+  "Asset Update": "Atualização de recursos",
+  "Asset Update Readiness": "Atualização de recursos pronta",
+  "Assistant": "Assistente",
+  "Assistant · {model}": "Assistente · {model}",
+  "At": "Às",
+  "At {time} {days}": "Às {time} {days}",
+  "At a time": "A uma hora",
+  "At least {n} bits of entropy (ANSSI: medium to strong)": "Pelo menos {n} bits de entropia (ANSSI: médio a forte)",
+  "At least {n} characters": "Pelo menos {n} caracteres",
+  "At most {0} conditions": "{0} condições no máximo",
+  "At most {0} rooms": "{0} divisões no máximo",
+  "At most {0} scenes": "{0} cenas no máximo",
+  "At most {0} triggers": "{0} acionadores no máximo",
+  "At most 20 devices can receive browser notifications": "No máximo 20 dispositivos podem receber notificações do navegador",
+  "At most 5 devices per user can receive browser notifications": "No máximo 5 dispositivos por utilizador podem receber notificações do navegador",
+  "at weekends": "aos fins de semana",
+  "Audio Feedback": "Resposta áudio",
+  "Audio Stream Management": "Gestão do fluxo de áudio",
+  "Audit log": "Registo de auditoria",
+  "Aurora": "Aurora",
+  "auto": "auto",
+  "Auto": "Auto",
+  "Automatic": "Automático",
+  "Automatic (now {port})": "Automática (agora {port})",
+  "Automatic [port]": "Automática",
+  "Automatic follows the system's light or dark appearance.": "Automático segue o aspeto claro ou escuro do sistema.",
+  "Average": "Média",
+  "Average of {n} call · longest {longest}": "Média de {n} chamada · a mais longa {longest}",
+  "Average of {n} calls · longest {longest}": "Média de {n} chamadas · a mais longa {longest}",
+  "Away": "Ausente",
+  "Back": "Voltar",
+  "Back from the cache, not added again by its plugin": "Recuperado da cache, mas não voltou a ser adicionado pelo seu plugin",
+  "Back to its page": "Voltar à página",
+  "Back to the chat": "Voltar à conversa",
+  "Back to the usual layout": "Voltar à disposição habitual",
+  "Back up now": "Fazer cópia agora",
+  "Back up this bridge": "Fazer uma cópia de segurança desta ponte",
+  "Backup script": "Script de cópia de segurança",
+  "Backups": "Cópias de segurança",
+  "bad index": "índice incorreto",
+  "Battery": "Bateria",
+  "Battery Level": "Nível da bateria",
+  "Behind the glass of every page.": "Por trás do vidro de cada página.",
+  "Between": "Entre",
+  "Blowing": "A ventilar",
+  "Blue": "Azul",
+  "Bot token": "Token do bot",
+  "Breadcrumb": "Trilho de navegação",
+  "Bridge": "Ponte",
+  "Bridges": "Pontes",
+  "Bridges and accessories": "Pontes e acessórios",
+  "Bridges only": "Só pontes",
+  "Brightness": "Brilho",
+  "Browser's language": "Idioma do navegador",
+  "Built in": "Integrado",
+  "By plugin": "Por plugin",
+  "By room": "Por divisão",
+  "Cached accessories": "Acessórios em cache",
+  "camera": "câmara",
+  "Camera": "Câmara",
+  "Camera Operating Mode": "Modo de funcionamento da câmara",
+  "Camera Operating Mode Indicator": "Indicador de funcionamento da câmara",
+  "Cancel": "Cancelar",
+  "Cannot connect": "Não é possível ligar",
+  "cannot read {0}": "não é possível ler {0}",
+  "Cannot restore __REDACTED__ (no matching value in the current config) in {0}. Supply the real value, or keep the entry's identifying fields (platform, accessory, name) unchanged.": "Não é possível restaurar __REDACTED__ (nenhum valor correspondente na configuração atual) em {0}. Indique o valor real, ou mantenha inalterados os campos que identificam a entrada (platform, accessory, name).",
+  "Carbon Dioxide Detected": "Dióxido de carbono detetado",
+  "Carbon Dioxide Level": "Nível de CO₂",
+  "Carbon Dioxide Peak Level": "Pico de CO₂",
+  "Carbon Dioxide Sensor": "Sensor de CO₂",
+  "Carbon Monoxide Detected": "Monóxido de carbono detetado",
+  "Carbon Monoxide Level": "Nível de CO",
+  "Carbon Monoxide Peak Level": "Pico de CO",
+  "Carbon Monoxide Sensor": "Sensor de CO",
+  "CCA Energy Detect Threshold": "Limiar de deteção de energia CCA",
+  "CCA Signal Detect Threshold": "Limiar de deteção de sinal CCA",
+  "Celsius (°C)": "Celsius (°C)",
+  "Change {settings} of {block}?": "Alterar {settings} de {block}?",
+  "Change password": "Alterar palavra-passe",
+  "Change the settings of {block}?": "Alterar as definições de {block}?",
+  "Change your password": "Alterar a palavra-passe",
+  "Changed: {changes}.": "Alterado: {changes}.",
+  "Changed: {changes}. {result}": "Alterado: {changes}. {result}",
+  "Changed: nothing. {result}": "Nada foi alterado. {result}",
+  "changes": "muda",
+  "Characteristic": "Característica",
+  "characteristic and value are required": "characteristic e value são obrigatórios",
+  "Charging": "A carregar",
+  "Charging State": "Estado de carregamento",
+  "Chat id": "ID do chat",
+  "Check the settings below before saving them, and see what it costs.": "Verifique as definições abaixo antes de as guardar e veja quanto custa.",
+  "Checking the backup…": "A verificar a cópia de segurança…",
+  "Checking the request…": "A verificar o pedido…",
+  "Checking…": "A verificar…",
+  "child bridge": "ponte secundária",
+  "Child bridge": "Ponte secundária",
+  "Child bridges": "Pontes secundárias",
+  "Child lock": "Bloqueio para crianças",
+  "Choose a JPEG, PNG or WebP image.": "Escolha uma imagem JPEG, PNG ou WebP.",
+  "Choose another image…": "Escolher outra imagem…",
+  "choose it": "escolha-a",
+  "choose it [file]": "escolha-o",
+  "choose read, control or admin, up to what your account may do": "escolha read, control ou admin, até ao que a conta pode fazer",
+  "Clear [smoke]": "Sem fumo",
+  "Clearer names": "Nomes mais claros",
+  "Client or user": "Cliente ou utilizador",
+  "Clockwise": "Sentido horário",
+  "close": "fechar",
+  "Close": "Fechar",
+  "Close (Esc)": "Fechar (Esc)",
+  "Close the diagnosis": "Fechar o diagnóstico",
+  "Close the explanation": "Fechar a explicação",
+  "Closed": "Fechado",
+  "Closed and locked": "Fechado e trancado",
+  "Closing": "A fechar",
+  "Closing…": "A fechar…",
+  "Cloud Relay": "Retransmissão na nuvem",
+  "Code from your authenticator app": "Código da app de autenticação",
+  "Color Temperature": "Temperatura de cor",
+  "Colour": "Cor",
+  "common words add little": "as palavras comuns acrescentam pouco",
+  "Compare": "Comparar",
+  "Compare with config.json": "Comparar com o config.json",
+  "Comparing…": "A comparar…",
+  "Comparison": "Comparação",
+  "compiled into this homeswift": "compilados neste homeswift",
+  "Condition": "Condição",
+  "Condition {0} must be an object": "A condição {0} tem de ser um objeto",
+  "Condition {0}: {1} is missing": "Condição {0}: falta {1}",
+  "Condition {0}: a time must be HH:mm, sunrise or sunset": "Condição {0}: uma hora tem de ser HH:mm, sunrise ou sunset",
+  "Condition {0}: invalid operator": "Condição {0}: operador inválido",
+  "Condition {0}: the type must be time or characteristic": "Condição {0}: o tipo tem de ser time ou characteristic",
+  "Condition {0}: the value must be a boolean, a number or a short text": "Condição {0}: o valor tem de ser um booleano, um número ou um texto curto",
+  "Condition {0}: the window is empty": "Condição {0}: o intervalo horário está vazio",
+  "Conditions": "Condições",
+  "Config": "Configuração",
+  "config.json backups": "Cópias de segurança do config.json",
+  "config.json must be a JSON object": "config.json tem de ser um objeto JSON",
+  "config.json now": "config.json atual",
+  "config.json, each bridge's HomeKit identity and pairings, accessory caches, plugin files, the web UI's users": "config.json, a identidade HomeKit e os emparelhamentos de cada ponte, as caches de acessórios, os ficheiros dos plugins, os utilizadores da interface web",
+  "config.json: \"{0}\" is not a valid setup code (eight digits as XXX-XX-XXX, not trivial)": "config.json: \"{0}\" não é um código de configuração válido (oito dígitos no formato XXX-XX-XXX, não triviais)",
+  "config.json: \"{0}\" is not a valid username (six hex octets, XX:XX:XX:XX:XX:XX)": "config.json: \"{0}\" não é um username válido (seis octetos hexadecimais, XX:XX:XX:XX:XX:XX)",
+  "config.json: \"{0}\" must be {1}": "config.json: \"{0}\" tem de ser {1}",
+  "config.json: \"{0}\" must be a platform name": "config.json: \"{0}\" tem de ser um nome de plataforma",
+  "config.json: \"{0}\" must be an array": "config.json: \"{0}\" tem de ser uma lista",
+  "config.json: \"{0}\" must be an array of names": "config.json: \"{0}\" tem de ser uma lista de nomes",
+  "config.json: \"{0}\" must be an object": "config.json: \"{0}\" tem de ser um objeto",
+  "config.json: \"{0}\" must be true or false": "config.json: \"{0}\" tem de ser true ou false",
+  "config.json's bridge block": "O bloco bridge do config.json",
+  "Configuration": "Configuração",
+  "Configuration State": "Estado da configuração",
+  "Connect {client}": "Ligar {client}",
+  "Connect to Homeswift": "Ligar ao Homeswift",
+  "Connected apps": "Apps ligadas",
+  "Connecting…": "A ligar…",
+  "Contact": "Contacto",
+  "Contact Sensor": "Sensor de contacto",
+  "Contact Sensor State": "Estado do sensor de contacto",
+  "Continue": "Continuar",
+  "Control": "Controlo",
+  "Controllers": "Controladores",
+  "cool": "arrefecer",
+  "Cool": "Arrefecer",
+  "Cool to": "Arrefecer até",
+  "Cooling": "A arrefecer",
+  "Cooling Threshold Temperature": "Limiar de arrefecimento",
+  "Cooling to {temperature}": "A arrefecer até {temperature}",
+  "Copied": "Copiado",
+  "Copied {n} line": "{n} linha copiada",
+  "Copied {n} lines": "{n} linhas copiadas",
+  "Copy": "Copiar",
+  "Copy it now: it is shown once. Send it as {header}.": "Copie-o agora: só é mostrado uma vez. Envie-o como {header}.",
+  "Copy the lines shown": "Copiar as linhas mostradas",
+  "Cost": "Custo",
+  "Cost this month": "Custo este mês",
+  "Cost today": "Custo hoje",
+  "Costs come from the token counts at today's prices; only Claude models are priced.": "Os custos resultam do número de tokens aos preços de hoje; só os modelos Claude têm preço.",
+  "could not change the cache: {0}": "não foi possível alterar a cache: {0}",
+  "Count": "Número",
+  "Counter-clockwise": "Sentido anti-horário",
+  "CPU": "CPU",
+  "CPUs": "CPU",
+  "Create account": "Criar conta",
+  "Create an API token": "Criar um token de API",
+  "Create the administrator account for this bridge. The set-up code is in the bridge's output, next to the web UI address.": "Crie a conta de administrador desta ponte. O código de configuração está na saída da ponte, junto ao endereço da interface web.",
+  "Create the scene": "Criar a cena",
+  "Create token": "Criar token",
+  "Creating the account…": "A criar a conta…",
+  "Cron": "Cron",
+  "Cron {expression}": "Cron {expression}",
+  "Cron expression": "Expressão cron",
+  "cross-site request refused": "pedido entre sites recusado",
+  "Current": "Atual",
+  "Current Air Purifier State": "Estado do purificador",
+  "Current Ambient Light Level": "Luz ambiente",
+  "Current Door State": "Estado da porta",
+  "Current Fan State": "Estado da ventoinha",
+  "Current Heater-Cooler State": "Estado da climatização",
+  "Current Heating Cooling State": "Estado da climatização",
+  "Current Horizontal Tilt Angle": "Inclinação horizontal atual",
+  "Current Humidifier-Dehumidifier State": "Estado do humidificador",
+  "Current password": "Palavra-passe atual",
+  "Current Position": "Posição atual",
+  "Current Relative Humidity": "Humidade relativa",
+  "Current Slat State": "Estado das lâminas",
+  "Current Temperature": "Temperatura atual",
+  "Current Tilt Angle": "Inclinação atual",
+  "Current Transport": "Transporte atual",
+  "Current Vertical Tilt Angle": "Inclinação vertical atual",
+  "Custom (cron)": "Personalizado (cron)",
+  "Custom range…": "Intervalo personalizado…",
+  "Customise the Status page": "Personalizar a página Estado",
+  "Customise this page": "Personalizar esta página",
+  "Customise this page…": "Personalizar esta página…",
+  "Cyan": "Ciano",
+  "Daily backup": "Cópia de segurança diária",
+  "Daily digest": "Resumo diário",
+  "Daily digest at": "Resumo diário às",
+  "Daily digest time": "Hora do resumo diário",
+  "Dark": "Escuro",
+  "Days": "Dias",
+  "Days (none: every day)": "Dias (nenhum: todos os dias)",
+  "defaults are by kind of widget (climate, light…)": "as predefinições são por tipo de widget (climate, light…)",
+  "Degraded": "Degradada",
+  "Delete": "Eliminar",
+  "Delete the scene {name}?": "Eliminar a cena {name}?",
+  "Delete this backup?": "Eliminar esta cópia de segurança?",
+  "Delete…": "Eliminar…",
+  "Deny": "Recusar",
+  "Describe your setup": "Descreva a sua instalação",
+  "Details": "Detalhes",
+  "Device ID": "ID do dispositivo",
+  "Diagnose": "Diagnosticar",
+  "Diagnostics": "Diagnóstico",
+  "Dictate": "Ditar",
+  "Dictate: tap, or hold while you speak": "Ditar: toque, ou mantenha premido enquanto fala",
+  "Digest actions": "Ações do resumo",
+  "Digital Zoom": "Zoom digital",
+  "Direction": "Direção",
+  "Disabled": "Desativado",
+  "Discard": "Descartar",
+  "Disconnect": "Desligar",
+  "Disconnect {name}? It is refused at once and must sign in again.": "Desligar {name}? O acesso é recusado de imediato e terá de iniciar sessão novamente.",
+  "Dismiss": "Ignorar",
+  "Don't allow": "Não permitir",
+  "Done": "OK",
+  "Done [outcome]": "Concluído",
+  "Door": "Porta",
+  "Doorbell": "Campainha",
+  "Double press": "Pressão dupla",
+  "Down": "Baixo",
+  "Download": "Descarregar",
+  "Download a backup": "Descarregar uma cópia de segurança",
+  "Download the package": "Descarregar o pacote",
+  "Download the whole log": "Descarregar o registo completo",
+  "Download this range": "Descarregar este intervalo",
+  "Drop a backup (.tar) here, or {choose}": "Largue aqui uma cópia de segurança (.tar) ou {choose}",
+  "Drop or choose a backup to restore": "Largue ou escolha uma cópia de segurança para restaurar",
+  "Drop or choose the file for {key}": "Largue ou escolha o ficheiro para {key}",
+  "Drop the file here, or ": "Largue o ficheiro aqui, ou ",
+  "Dry": "Seco",
+  "Duration": "Duração",
+  "each accessory change needs its id": "cada alteração de acessório precisa do respetivo id",
+  "Earlier chats": "Conversas anteriores",
+  "Edit": "Editar",
+  "Edit {name}": "Editar {name}",
+  "Edit as": "Editar como",
+  "Edit as JSON": "Editar como JSON",
+  "Edit as JSON (Expert)": "Editar como JSON (vista avançada)",
+  "Edit settings (Expert)": "Editar definições (vista avançada)",
+  "Edit the budgets": "Editar os orçamentos",
+  "empty": "vazia",
+  "Empty the log? Every line goes, in memory and the files kept on disk (up to a week). This cannot be undone.": "Esvaziar o registo? Todas as linhas desaparecem, em memória e nos ficheiros guardados em disco (até uma semana). Não é possível anular.",
+  "Empty the log…": "Esvaziar o registo…",
+  "Enabled": "Ativado",
+  "Entropy of the new password": "Entropia da nova palavra-passe",
+  "Errors": "Erros",
+  "Evening": "Serão",
+  "Event": "Evento",
+  "Event Retransmission Maximum": "Máximo de retransmissões de eventos",
+  "Event Transmission Counters": "Contadores de transmissão de eventos",
+  "Events": "Eventos",
+  "Every accessory is hidden.": "Todos os acessórios estão ocultos.",
+  "Every change made through the MCP server, the Assistant's chat and this web UI, with who made it.": "Cada alteração feita através do servidor MCP, do chat do Assistente e desta interface web, com quem a fez.",
+  "Every controller was removed and disconnected: add the bridge again in the Home app with its setup code.": "Todos os controladores foram removidos e desligados: adicione novamente a ponte na app Casa com o respetivo código de configuração.",
+  "every day": "todos os dias",
+  "Every Home app controller paired with it is forgotten and disconnected. The Home app loses it with its accessories, their rooms, scenes and automations.": "Todos os controladores da app Casa emparelhados com ela são esquecidos e desligados. A app Casa perde-a, com os seus acessórios, divisões, cenas e automatizações.",
+  "Every one": "Todas",
+  "Every outcome": "Todos os resultados",
+  "Every plugin's accessories leave HomeKit, and the plugins start again on empty caches, adding the devices they reach.": "Os acessórios de todos os plugins saem do HomeKit e os plugins recomeçam com caches vazias, adicionando os dispositivos que alcançam.",
+  "Every setting of the block, as config.json keeps it, including what {plugin}'s page does not show. A save reloads the plugin.": "Todas as definições do bloco, tal como o config.json as guarda, incluindo o que a página de {plugin} não mostra. Ao guardar, o plugin recarrega.",
+  "Every setting of this plugin's block, as config.json keeps it, including what this page does not show.": "Todas as definições do bloco deste plugin, tal como o config.json as guarda, incluindo o que esta página não mostra.",
+  "Every subscribed browser has unsubscribed": "Todos os navegadores subscritos cancelaram a subscrição",
+  "Everything an administrator does, except users and tokens.": "Tudo o que um administrador faz, exceto utilizadores e tokens.",
+  "Everything kept": "Tudo o que está guardado",
+  "Excellent": "Excelente",
+  "Expected a key in double quotes": "Era esperada uma chave entre aspas duplas",
+  "Expected a scene": "Era esperada uma cena",
+  "Expert": "Vista avançada",
+  "Expert.": "Vista avançada.",
+  "Expired": "Expirado",
+  "Expires": "Expira",
+  "Explain": "Explicar",
+  "Fahrenheit (°F)": "Fahrenheit (°F)",
+  "Failed": "Falhou",
+  "Fair": "Razoável",
+  "fan": "ventoinha",
+  "Fan": "Ventoinha",
+  "Fanv 2": "Ventoinha",
+  "Fanv2": "Ventoinha",
+  "Faucet": "Torneira",
+  "Favourite accessories and scenes": "Acessórios e cenas favoritos",
+  "Filter": "Filtro",
+  "filter {percent} %": "filtro {percent} %",
+  "Filter by client": "Filtrar por cliente",
+  "Filter by tool": "Filtrar por ferramenta",
+  "Filter Change Indication": "Substituição do filtro",
+  "Filter life": "Vida do filtro",
+  "Filter Life Level": "Vida do filtro",
+  "Filter Maintenance": "Manutenção do filtro",
+  "Filter text": "Filtrar texto",
+  "Filter the log": "Filtrar o registo",
+  "Firmware revision": "Versão do firmware",
+  "Firmware Revision": "Versão do firmware",
+  "Firmware Update": "Atualização do firmware",
+  "Folder": "Pasta",
+  "Follow": "Seguir",
+  "for {time}": "durante {time}",
+  "for a protected topic": "para um tópico protegido",
+  "For scripts: {header} on {path}": "Para scripts: {header} em {path}",
+  "Forest": "Floresta",
+  "Forget “{title}”": "Esquecer «{title}»",
+  "Forget it": "Esquecer",
+  "Forget this chat": "Esquecer esta conversa",
+  "Form": "Formulário",
+  "Format": "Formatar",
+  "Found: save to keep it.": "Encontrada: guarde para a manter.",
+  "Fr": "Sex",
+  "Fri": "Sex",
+  "From": "De",
+  "From {model}. Untick what you do not want; nothing changes until you apply. Names show on these pages only: the Home app keeps its own.": "De {model}. Desmarque o que não pretende; nada muda até aplicar. Os nomes só aparecem nestas páginas: a app Casa mantém os seus.",
+  "from must be before to": "from tem de ser anterior a to",
+  "Full screen": "Ecrã inteiro",
+  "Garage Door Opener": "Porta de garagem",
+  "gate": "portão",
+  "GitHub answered HTTP {0}": "O GitHub respondeu HTTP {0}",
+  "GitHub's answer has no release": "A resposta do GitHub não inclui nenhuma versão",
+  "GitHub's latest release has an unexpected tag": "A versão mais recente no GitHub tem uma etiqueta inesperada",
+  "Good": "Boa",
+  "Graphite": "Grafite",
+  "Green": "Verde",
+  "group of switches": "grupo de interruptores",
+  "Group the accessories": "Agrupar os acessórios",
+  "grouping is plugin, room or none": "grouping é plugin, room ou none",
+  "Hardware Revision": "Versão do hardware",
+  "Health, accessories, plugins, uptime": "Saúde, acessórios, plugins, tempo ativo",
+  "Heart Beat": "Pulsação",
+  "heat": "aquecer",
+  "Heat": "Aquecer",
+  "Heat to": "Aquecer até",
+  "Heater Cooler": "Climatizador",
+  "Heating": "A aquecer",
+  "Heating Threshold Temperature": "Limiar de aquecimento",
+  "Heating to {temperature}": "A aquecer até {temperature}",
+  "Hide": "Ocultar",
+  "Hide the payload": "Ocultar o conteúdo",
+  "Highest {highest} · lowest {lowest}": "Máximo {highest} · mínimo {lowest}",
+  "History": "Histórico",
+  "Hold Position": "Manter a posição",
+  "hold to open": "manter para abrir",
+  "Hold to open": "Manter para abrir",
+  "hold to turn off": "manter para desativar",
+  "Hold to turn off": "Manter para desativar",
+  "hold to turn on": "manter para ligar",
+  "Hold to turn on": "Manter para ligar",
+  "hold to unlock": "manter para destrancar",
+  "Hold to unlock": "Manter para destrancar",
+  "Home": "Início",
+  "Home [alarm]": "Em casa",
+  "Home app": "App Casa",
+  "Home app controllers": "Controladores da app Casa",
+  "Home app requests": "Pedidos da app Casa",
+  "HomeKit Camera Active": "Câmara HomeKit ativa",
+  "HomeKit pairings": "Emparelhamentos HomeKit",
+  "HomeKit Secure Video records this camera's events": "O HomeKit Secure Video grava os eventos desta câmara",
+  "Homeswift {version} is available": "O Homeswift {version} está disponível",
+  "homeswift did not come back; check its log.": "O homeswift não voltou; consulte o registo.",
+  "Homeswift listens and advertises on every interface, with the system's mDNS: there is no interface or mDNS backend to choose, as Homebridge's bind and advertiser settings do.": "O Homeswift escuta e anuncia-se em todas as interfaces, com o mDNS do sistema: não há interface nem motor mDNS a escolher, como acontece com as definições bind e advertiser do Homebridge.",
+  "homeswift restarts now and starts on the restored files.": "o homeswift reinicia agora e arranca com os ficheiros restaurados.",
+  "homeswift restarts on the backup's files: config.json, the bridges' HomeKit identities and pairings, accessory caches, plugin files and the web UI's users. What changed since it was made is lost.": "O homeswift reinicia com os ficheiros da cópia: config.json, as identidades HomeKit e os emparelhamentos das pontes, as caches de acessórios, os ficheiros dos plugins e os utilizadores da interface web. O que mudou desde então perde-se.",
+  "HomeswiftAiKit: \"{0}\" must be {1}": "HomeswiftAiKit: \"{0}\" tem de ser {1}",
+  "HomeswiftAiKit: \"{0}\" must be a non-negative integer": "HomeswiftAiKit: \"{0}\" tem de ser um número inteiro não negativo",
+  "HomeswiftAiKit: \"{0}\" must be a positive integer": "HomeswiftAiKit: \"{0}\" tem de ser um número inteiro positivo",
+  "HomeswiftAiKit: \"{0}\" must be a positive number": "HomeswiftAiKit: \"{0}\" tem de ser um número positivo",
+  "HomeswiftAiKit: \"{0}\" must be a URL": "HomeswiftAiKit: \"{0}\" tem de ser um URL",
+  "HomeswiftAiKit: \"{0}\" must be an object": "HomeswiftAiKit: \"{0}\" tem de ser um objeto",
+  "HomeswiftAiKit: \"{0}\" must be one of {1}": "HomeswiftAiKit: \"{0}\" tem de ser um destes valores: {1}",
+  "HomeswiftAiKit: \"{0}\" must be responses or chat": "HomeswiftAiKit: \"{0}\" tem de ser responses ou chat",
+  "HomeswiftAiKit: {0} needs an API key: set \"apiKey\" in the block": "HomeswiftAiKit: {0} precisa de uma chave de API: defina \"apiKey\" no bloco",
+  "HomeswiftAiKit: {0} needs an API key: set \"apiKey\" in the block or {1} in the environment": "HomeswiftAiKit: {0} precisa de uma chave de API: defina \"apiKey\" no bloco ou {1} no ambiente",
+  "HomeswiftAiKit: Apple Intelligence is turned off in System Settings": "HomeswiftAiKit: o Apple Intelligence está desativado nas Definições do Sistema",
+  "HomeswiftAiKit: Apple's on-device model is only available on macOS": "HomeswiftAiKit: o modelo no dispositivo da Apple só está disponível no macOS",
+  "HomeswiftAiKit: Apple's on-device model needs macOS 26 or later": "HomeswiftAiKit: o modelo no dispositivo da Apple precisa do macOS 26 ou posterior",
+  "HomeswiftAiKit: the on-device model is still downloading; try again in a few minutes": "HomeswiftAiKit: o modelo no dispositivo ainda está a ser descarregado; tente novamente dentro de alguns minutos",
+  "HomeswiftAiKit: the on-device model is unavailable": "HomeswiftAiKit: o modelo no dispositivo não está disponível",
+  "HomeswiftAiKit: this Mac does not support Apple Intelligence": "HomeswiftAiKit: este Mac não suporta o Apple Intelligence",
+  "hours must be between 0 and 8760": "hours tem de estar entre 0 e 8760",
+  "How accessories and plugin pages show them. HomeKit and the Home app keep their own setting.": "Como os acessórios e as páginas dos plugins as mostram. O HomeKit e a app Casa mantêm a sua própria definição.",
+  "How long plugins take to reach their devices or clouds": "Quanto tempo os plugins demoram a chegar aos seus dispositivos ou nuvens",
+  "How long the bridge takes to answer reads and writes": "Quanto tempo a ponte demora a responder a leituras e escritas",
+  "How the web UI looks for you, on every browser you sign in to.": "O aspeto da interface web para si, em todos os navegadores em que iniciar sessão.",
+  "Hue": "Matiz",
+  "Humidifier Dehumidifier": "Humidificador-desumidificador",
+  "Humidity": "Humidade",
+  "Humidity Sensor": "Sensor de humidade",
+  "I can look at your bridge, set up a device with its plugin, or change a setting. I ask before I change anything.": "Posso analisar a ponte, configurar um dispositivo com o seu plugin ou alterar uma definição. Pergunto antes de alterar seja o que for.",
+  "id and allow are required": "id e allow são obrigatórios",
+  "id is required": "id é obrigatório",
+  "Identify": "Identificar",
+  "Idle": "Em repouso",
+  "Idle · auto to {temperature}": "Em repouso · auto até {temperature}",
+  "Idle · cool to {temperature}": "Em repouso · arrefecer até {temperature}",
+  "Idle · heat to {temperature}": "Em repouso · aquecer até {temperature}",
+  "Image Mirroring": "Imagem espelhada",
+  "Image Rotation": "Rotação da imagem",
+  "In 30 days": "Daqui a 30 dias",
+  "In 90 days": "Daqui a 90 dias",
+  "In a year": "Daqui a um ano",
+  "In the form: review it, then Save.": "No formulário: reveja-o e depois escolha Guardar.",
+  "In the Home app": "Na app Casa",
+  "In the Home app: Add Accessory, then scan this code, or choose More options and type it.": "Na app Casa: escolha Adicionar acessório e leia este código, ou escolha Mais opções e introduza-o.",
+  "In the web UI's settings": "Nas definições da interface web",
+  "In use": "Em utilização",
+  "In Use": "Em utilização",
+  "In use [used]": "Em utilização",
+  "Inactive": "Inativo",
+  "Inferior": "Fraca",
+  "Info": "Info",
+  "Input": "Entrada",
+  "Inside": "Interior",
+  "Inside · {humidity} %": "Interior · {humidity} %",
+  "Interfaces": "Interfaces",
+  "invalid configuration: \"{0}\" must be {1}": "configuração inválida: \"{0}\" tem de ser {1}",
+  "invalid configuration: \"{0}\" must be {1}, not null": "configuração inválida: \"{0}\" tem de ser {1}, não null",
+  "invalid configuration: {0}": "configuração inválida: {0}",
+  "invalid configuration: missing \"{0}\"": "configuração inválida: falta \"{0}\"",
+  "Invalid ntfy access token": "Token de acesso ntfy inválido",
+  "Invalid push endpoint": "Endpoint push inválido",
+  "Invalid push endpoint or keys": "Endpoint ou chaves push inválidos",
+  "Invalid push subscription keys": "Chaves de subscrição push inválidas",
+  "Invalid Pushover application token": "Token de aplicação Pushover inválido",
+  "Invalid Pushover user key": "Chave de utilizador Pushover inválida",
+  "Invalid regular expression": "Expressão regular inválida",
+  "Invalid Telegram bot token": "Token de bot Telegram inválido",
+  "Invalid Telegram chat id": "ID de conversa Telegram inválido",
+  "invalid URL": "URL inválido",
+  "Irrigation": "Rega",
+  "Irrigation System": "Sistema de rega",
+  "is": "é",
+  "is above": "é superior a",
+  "is at least": "é pelo menos",
+  "is at most": "é no máximo",
+  "is below": "é inferior a",
+  "is not": "não é",
+  "It changes a lock, a door or an alarm: the page asks before running it, and automations leave those actions out.": "Altera uma fechadura, uma porta ou um alarme: a página pergunta antes de a executar, e as automatizações deixam essas ações de fora.",
+  "It did not answer.": "Não respondeu.",
+  "It did not start: the log says why.": "Não arrancou: o registo indica porquê.",
+  "It leaves HomeKit now. A plugin that still has the device adds it again, under the same ids, so rooms and automations come back with it.": "Sai do HomeKit de imediato. Um plugin que ainda tenha o dispositivo volta a adicioná-lo com os mesmos ids, pelo que as divisões e automatizações regressam com ele.",
+  "It may": "Poderá",
+  "It replaces config.json (which is kept as a backup first) and applies at once, as a save does: plugins reload, and the bridge block restarts homeswift.": "Substitui o config.json (que antes é guardado como cópia) e aplica-se de imediato, tal como ao guardar: os plugins recarregam e o bloco bridge reinicia o homeswift.",
+  "It works: {provider} · {model} answered in {ms} ms.": "Funciona: {provider} · {model} respondeu em {ms} ms.",
+  "Its accessories are unavailable for a moment; pairings stay.": "Os seus acessórios ficam indisponíveis por um momento; os emparelhamentos mantêm-se.",
+  "Its accessories show No Response": "Os seus acessórios mostram Sem resposta",
+  "Its block is no longer in config.json": "O seu bloco já não está no config.json",
+  "Its plugin is paused: resume it to control {name}": "O plugin está em pausa: retome-o para controlar {name}",
+  "Its plugins stop and its accessories show No Response until it starts again, or homeswift restarts.": "Os seus plugins param e os seus acessórios mostram Sem resposta até voltar a iniciar ou até o homeswift reiniciar.",
+  "Jammed": "Encravado",
+  "just now": "agora mesmo",
+  "Keep each line's JSON payload in the log on disk, secrets masked, so you and the Assistant can read it later. Off: only the latest lines, in memory, have it.": "Guardar o conteúdo JSON de cada linha no registo em disco, com os segredos ocultados, para poder lê-lo mais tarde, tal como o Assistente. Desativado: só as últimas linhas, em memória, o têm.",
+  "Keeping {low}–{high}": "A manter {low}–{high}",
+  "Kept": "Retenção",
+  "Kept {file} ({size}).": "{file} guardado ({size}).",
+  "Kept backups": "Cópias de segurança guardadas",
+  "Language": "Idioma",
+  "Large": "Grande",
+  "Last 24 hours": "Últimas 24 horas",
+  "Last 30 days": "Últimos 30 dias",
+  "Last 6 hours": "Últimas 6 horas",
+  "Last 7 days": "Últimos 7 dias",
+  "Last hour": "Última hora",
+  "Last run {date} ({trigger})": "Última execução: {date} ({trigger})",
+  "Last run {date} ({trigger}), with errors": "Última execução: {date} ({trigger}), com erros",
+  "Last used": "Última utilização",
+  "Last used {when}": "Última utilização: {when}",
+  "Last, {date}": "Último valor, {date}",
+  "Latest lines": "Últimas linhas",
+  "Latitude": "Latitude",
+  "Leak": "Fuga",
+  "Leak Detected": "Fuga detetada",
+  "Leak Sensor": "Sensor de fugas",
+  "Leave empty to keep theirs. A new one signs them out everywhere.": "Deixe vazio para manter a atual. Uma nova termina as sessões deste utilizador em todo o lado.",
+  "Leave without saving your changes?": "Sair sem guardar as alterações?",
+  "Left": "Esquerda",
+  "Left out: {files}.": "Deixados de fora: {files}.",
+  "Length helps most: a phrase of several random words is strong and easy to remember.": "O comprimento é o que mais ajuda: uma frase de várias palavras aleatórias é forte e fácil de memorizar.",
+  "Levels shown": "Níveis mostrados",
+  "light": "luz",
+  "Light": "Claro",
+  "Light level": "Nível de luz",
+  "Light or dark, the wallpaper, °C or °F, the language": "Claro ou escuro, o papel de parede, °C ou °F, o idioma",
+  "Light Sensor": "Sensor de luz",
+  "Lightbulb": "Lâmpada",
+  "Line {line}": "Linha {line}",
+  "Listening on port": "Porta de escuta",
+  "Listening… tap the mic again when you are done.": "A ouvir… toque novamente no microfone quando terminar.",
+  "Live": "Em direto",
+  "Live video of {name}": "Vídeo em direto de {name}",
+  "Loading": "A carregar",
+  "Loading…": "A carregar…",
+  "Location for sunrise and sunset": "Localização para o nascer e o pôr do sol",
+  "lock": "trancar",
+  "Lock": "Trancar",
+  "lock [kind]": "fechadura",
+  "Lock Current State": "Estado da fechadura",
+  "Lock Last Known Action": "Última ação da fechadura",
+  "Lock Management": "Gestão da fechadura",
+  "Lock Management Auto Security Timeout": "Tempo de trancamento automático",
+  "Lock Mechanism": "Fechadura",
+  "Lock Physical Controls": "Bloqueio para crianças",
+  "Lock Target State": "Trancamento",
+  "Locked": "Trancado",
+  "Log actions": "Ações do registo",
+  "Log Doctor": "Médico do registo",
+  "Logs": "Registos",
+  "Long press": "Pressão longa",
+  "Longest": "Máximo",
+  "Longitude": "Longitude",
+  "Low": "Baixa",
+  "Low [strength]": "Baixo",
+  "Low to medium": "Baixo a médio",
+  "Lower {setting}": "Baixar ({setting})",
+  "Lowest {min} · highest {max} · average {average}": "Mínimo {min} · máximo {max} · média {average}",
+  "MAC Retransmission Maximum": "Máximo de retransmissões MAC",
+  "Machine up": "Tempo ativo da máquina",
+  "Main bridge": "Ponte principal",
+  "make it stronger: {0} of {1} bits": "torne-a mais forte: {0} de {1} bits",
+  "make it stronger: {0} of {1} bits; common words add little": "torne-a mais forte: {0} de {1} bits; as palavras comuns acrescentam pouco",
+  "make it stronger: {0} of {1} bits; repeated or sequential characters add nothing": "torne-a mais forte: {0} de {1} bits; os caracteres repetidos ou sequenciais não acrescentam nada",
+  "make it stronger: {0} of {1} bits; your username adds nothing": "torne-a mais forte: {0} de {1} bits; o nome de utilizador não acrescenta nada",
+  "Managed Network Enable": "Rede gerida ativada",
+  "Manual": "Manual",
+  "Manufacturer": "Fabricante",
+  "Matter Firmware Revision Number": "Versão do firmware Matter",
+  "Maximum Transmit Power": "Potência de transmissão máxima",
+  "Media Access Control Level": "Nível de controlo de acesso a conteúdos",
+  "Medium": "Médio",
+  "Medium to strong": "Médio a forte",
+  "Memory": "Memória",
+  "Memory, CPU and response times": "Memória, CPU e tempos de resposta",
+  "Message to the Assistant": "Mensagem para o Assistente",
+  "Metrics Buffer Full State": "Memória de métricas cheia",
+  "Microphone": "Microfone",
+  "Minutes after (negative: before)": "Minutos depois (negativo: antes)",
+  "Minutes after; negative for before": "Minutos depois; negativo para antes",
+  "Mo": "Seg",
+  "Mode": "Modo",
+  "Model": "Modelo",
+  "Mon": "Seg",
+  "More": "Mais",
+  "More options ({count})": "Mais opções ({count})",
+  "Motion": "Movimento",
+  "Motion Detected": "Movimento detetado",
+  "Motion Sensor": "Sensor de movimento",
+  "Move {name} down": "Descer {name}",
+  "Move {name} up": "Subir {name}",
+  "Move earlier": "Mover para trás",
+  "Move later": "Mover para a frente",
+  "Multifunction Button": "Botão multifunções",
+  "Mute": "Silenciar",
+  "My home": "A minha casa",
+  "Name": "Nome",
+  "Name on these pages…": "Nome nestas páginas…",
+  "Needs the Assistant (a HomeswiftAiKit block)": "Requer o Assistente (um bloco HomeswiftAiKit)",
+  "Needs the Assistant (a HomeswiftAiKit block).": "Requer o Assistente (um bloco HomeswiftAiKit).",
+  "Network": "Rede",
+  "Never": "Nunca",
+  "Never run": "Nunca executada",
+  "New": "Novo",
+  "New chat": "Nova conversa",
+  "New password": "Nova palavra-passe",
+  "New password again": "Repetir a nova palavra-passe",
+  "New scene": "Nova cena",
+  "Next {date}": "Próxima: {date}",
+  "Next sunrise {sunrise}, sunset {sunset}.": "Próximo nascer do sol: {sunrise}; pôr do sol: {sunset}.",
+  "NFCAccess": "Acesso NFC",
+  "Night": "Noite",
+  "Night Vision": "Visão noturna",
+  "Nitrogen Dioxide Density": "Dióxido de azoto",
+  "No accessories yet. Plugins add them once they reach their devices.": "Ainda não há acessórios. Os plugins adicionam-nos assim que chegam aos seus dispositivos.",
+  "no accessory {0}": "não existe nenhum acessório {0}",
+  "No accessory matches.": "Nenhum acessório corresponde.",
+  "no accessory with id \"{0}\"": "não existe nenhum acessório com o identificador «{0}»",
+  "No accessory with id {0}": "Não existe nenhum acessório com o identificador {0}",
+  "No accessory with that id": "Não existe nenhum acessório com esse identificador",
+  "no action {0}: stop, start or restart": "não existe a ação {0}: stop, start ou restart",
+  "no backup {0}": "não existe nenhuma cópia de segurança {0}",
+  "No block": "Sem bloco",
+  "no block {0}": "não existe nenhum bloco {0}",
+  "no block {0} of {1}": "não existe nenhum bloco {0} de {1}",
+  "No block {0} of {1}": "Não existe nenhum bloco {0} de {1}",
+  "no bridge \"{0}\"": "não existe nenhuma ponte «{0}»",
+  "No browser is subscribed": "Nenhum navegador está subscrito",
+  "No budget: requests are not limited.": "Sem orçamento: os pedidos não têm limite.",
+  "no cached accessory \"{0}\"": "não existe nenhum acessório em cache «{0}»",
+  "No cached accessory.": "Nenhum acessório em cache.",
+  "No calls in this range": "Sem chamadas neste intervalo",
+  "No calls to its devices; they show No Response in the Home app.": "Sem chamadas aos seus dispositivos; aparecem como Sem resposta na app Casa.",
+  "no camera {0}": "não existe nenhuma câmara {0}",
+  "No change to the block.": "Nenhuma alteração ao bloco.",
+  "No channel is set up to send to": "Nenhum canal está configurado para enviar",
+  "No chat yet. Each one you start is kept here, the last ten.": "Ainda não há conversas. As que iniciar ficam guardadas aqui (as dez últimas).",
+  "no child bridge \"{0}\"": "não existe nenhuma ponte secundária «{0}»",
+  "No child bridge {0}; list_child_bridges lists them": "Não existe nenhuma ponte secundária {0}; list_child_bridges lista-as",
+  "No child bridge. Give a plugin's block a \"_bridge\" object (its Expert JSON) to run it on a bridge of its own.": "Nenhuma ponte secundária. Adicione ao bloco de um plugin um objeto \"_bridge\" (no seu JSON avançado) para o executar numa ponte própria.",
+  "No config backup {0}": "Não existe nenhuma cópia de segurança da configuração {0}",
+  "No contact": "Sem contacto",
+  "No digest yet today: an administrator has the Assistant write it.": "Ainda não há resumo hoje: um administrador pede ao Assistente que o escreva.",
+  "No digest yet today. The Assistant reads the day's warnings and errors and the accessories, and says what needs attention.": "Ainda não há resumo hoje. O Assistente lê os avisos e erros do dia e os acessórios, e indica o que precisa de atenção.",
+  "No limit": "Sem limite",
+  "No line is shown: widen the range or the filters first.": "Não há linhas visíveis: alargue primeiro o intervalo ou os filtros.",
+  "No line matches.": "Nenhuma linha corresponde.",
+  "No location yet: sunrise and sunset triggers wait for one.": "Ainda sem localização: os acionadores de nascer e pôr do sol aguardam uma.",
+  "no login is needed": "não é preciso iniciar sessão",
+  "No motion": "Sem movimento",
+  "No picture from the camera": "Sem imagem da câmara",
+  "No plugin": "Nenhum plugin",
+  "No plugin at /plugins/{slug} in config.json.": "Não há nenhum plugin em /plugins/{slug} no config.json.",
+  "No plugin compiled into this homeswift provides this platform.": "Nenhum plugin compilado neste homeswift fornece esta plataforma.",
+  "No plugin provides {platform}.": "Nenhum plugin fornece {platform}.",
+  "No plugin provides {platforms}: those blocks are ignored.": "Nenhum plugin fornece {platforms}: esses blocos são ignorados.",
+  "No plugin yet. Add one below.": "Ainda não há plugins. Adicione um abaixo.",
+  "No room": "Sem divisão",
+  "No room {0}": "Não existe nenhuma divisão {0}",
+  "No room to suggest.": "Nenhuma divisão a sugerir.",
+  "no running instance \"{0}\" of {1}": "não existe nenhuma instância «{0}» de {1} em execução",
+  "No scene \"{0}\". Scenes: {1}.": "Não existe nenhuma cena «{0}». Cenas: {1}.",
+  "No scene \"{0}\". Scenes: none.": "Não existe nenhuma cena «{0}». Cenas: nenhuma.",
+  "No scene {0}": "Não existe nenhuma cena {0}",
+  "No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.": "Ainda não há cenas. Uma cena define vários acessórios de uma vez, como todas as luzes de uma divisão para a noite.",
+  "no schema for {0}": "não existe nenhum esquema para {0}",
+  "No sign-in": "Sem início de sessão",
+  "no such accessory": "esse acessório não existe",
+  "no such bridge": "essa ponte não existe",
+  "no such connected app": "essa app ligada não existe",
+  "no such conversation": "essa conversa não existe",
+  "No such page.": "Esta página não existe.",
+  "No such scene.": "Esta cena não existe.",
+  "No tokens yet. One lets a script or another program read the bridge, or change it as an administrator would.": "Ainda não há tokens. Um token permite a um script ou outro programa ler a ponte, ou alterá-la como faria um administrador.",
+  "No values were recorded for this accessory in this period. Homeswift keeps the history of accessories whose plugin records an Eve history (temperature, humidity, air quality, power, contact and motion of plugs and sensors), ten-minute averages for four weeks.": "Não foram registados valores para este acessório neste período. O Homeswift guarda o histórico dos acessórios cujo plugin regista um histórico Eve (temperatura, humidade, qualidade do ar, potência, contacto e movimento de tomadas e sensores), em médias de dez minutos durante quatro semanas.",
+  "no wallpaper of your own": "não tem papel de parede próprio",
+  "None": "Nenhum",
+  "None yet: each save of config.json keeps the file it replaces.": "Ainda nenhuma: sempre que o config.json é guardado, o ficheiro substituído é mantido.",
+  "None yet: the daily backup and Back up now keep them here.": "Ainda nenhuma: a cópia diária e Fazer cópia agora guardam-nas aqui.",
+  "None yet.": "Nenhuma por enquanto.",
+  "Normal": "Normal",
+  "not a backup id: {0}": "não é um identificador de cópia de segurança: {0}",
+  "Not a bridge setting here: {0} (the device ID stays; reset_pairings starts the pairing over)": "Não é uma definição da ponte aqui: {0} (o ID do dispositivo mantém-se; reset_pairings recomeça o emparelhamento)",
+  "not a homeswift backup: {0}": "não é uma cópia de segurança do homeswift: {0}",
+  "not a homeswift backup: a header's checksum is wrong at byte {0}: not a tar archive, or a damaged one": "não é uma cópia de segurança do homeswift: a soma de verificação de um cabeçalho está errada no byte {0}: não é um arquivo tar, ou está danificado",
+  "not a homeswift backup: a header's number is not octal": "não é uma cópia de segurança do homeswift: um número de um cabeçalho não é octal",
+  "not a homeswift backup: an entry runs past the end of the archive": "não é uma cópia de segurança do homeswift: uma entrada ultrapassa o fim do arquivo",
+  "not a homeswift backup: it has no info.json from homeswift (an archive made by Backups › Download)": "não é uma cópia de segurança do homeswift: não tem o info.json do homeswift (um arquivo feito em Cópias de segurança › Descarregar)",
+  "not a homeswift backup: the archive holds a link or a special file ({0}): refused": "não é uma cópia de segurança do homeswift: o arquivo contém uma ligação ou um ficheiro especial ({0}): recusado",
+  "not a homeswift backup: the archive holds more than {0} entries": "não é uma cópia de segurança do homeswift: o arquivo contém mais de {0} entradas",
+  "not a homeswift backup: unsafe path in the archive: {0}": "não é uma cópia de segurança do homeswift: caminho inseguro no arquivo: {0}",
+  "Not a valid escape in a string": "Sequência de escape inválida numa cadeia",
+  "Not a valid value": "Valor inválido",
+  "Not allowed": "Não permitido",
+  "Not chargeable": "Não recarregável",
+  "Not charging": "Não está a carregar",
+  "Not confirmed": "Não confirmado",
+  "Not copied": "Não copiado",
+  "Not in use": "Sem utilização",
+  "Not occupied": "Desocupado",
+  "Not paired": "Não emparelhada",
+  "Not running": "Parado",
+  "not set": "não definida",
+  "not valid JSON: {0} at byte {1}": "JSON inválido: {0} no byte {1}",
+  "Not you? Sign in as someone else": "Não é a sua conta? Inicie sessão com outra",
+  "Nothing changed.": "Nada foi alterado.",
+  "Nothing here yet. On the Accessories page, a card's menu adds it to the Quick Controls; scenes you make show here too.": "Ainda não há nada. Na página Acessórios, o menu de um cartão adiciona-o aos controlos rápidos; as cenas criadas também aparecem aqui.",
+  "Nothing in this range matches.": "Nada corresponde neste período.",
+  "Nothing recorded in this range": "Nada registado neste intervalo",
+  "nothing to capture": "nada para capturar",
+  "Nothing to save: {0}": "Nada para guardar: {0}",
+  "nothing waits for that answer": "nada aguarda essa resposta",
+  "Nothing was heard. Tap the mic and speak.": "Não se ouviu nada. Toque no microfone e fale.",
+  "Nothing would change.": "Nada mudaria.",
+  "Notifications": "Notificações",
+  "now in {room}": "atualmente em {room}",
+  "Obstructed": "Obstruído",
+  "Obstruction Detected": "Obstrução detetada",
+  "Occupancy Detected": "Presença detetada",
+  "Occupancy Sensor": "Sensor de presença",
+  "Occupied": "Ocupado",
+  "Ocean": "Oceano",
+  "off": "desligado",
+  "Off": "Desligado",
+  "Off · {inside}": "Desligado · {inside}",
+  "Off · air {quality}": "Desligado · qualidade do ar: {quality}",
+  "Off [alarm]": "Desativado",
+  "Off [setting]": "Desativado",
+  "OK": "OK",
+  "On": "Ligado",
+  "On · {brightness} %": "Ligado · {brightness} %",
+  "On · {input}": "Ligado · {input}",
+  "On · {speed} %": "Ligado · {speed} %",
+  "On · in use": "Ligado · em utilização",
+  "on (true or false) is required": "on (true ou false) é obrigatório",
+  "On [setting]": "Ativado",
+  "on {days}": "às {days}",
+  "On GitHub": "No GitHub",
+  "On in the Home app": "Ativada na app Casa",
+  "On the bridge {name}": "Na ponte {name}",
+  "on weekdays": "nos dias úteis",
+  "One wall": "Um só mural",
+  "only an administrator can do this": "só um administrador pode fazer isto",
+  "only an administrator can empty the log": "só um administrador pode esvaziar o registo",
+  "Only for you to recognise it.": "Apenas para a reconhecer.",
+  "Only if": "Só se",
+  "open": "abrir",
+  "Open": "Aberto",
+  "Open · {position} %": "Aberto · {position} %",
+  "Open [action]": "Abrir",
+  "open [chat]": "aberta",
+  "Open Config": "Abrir Configuração",
+  "Open in the app": "Abrir na app",
+  "Open its page": "Abrir a página",
+  "Open its settings": "Abrir as definições",
+  "Open on its own": "Abrir em separado",
+  "Open this page over HTTPS (the HomeswiftUI block's https) or on localhost to turn them on here.": "Abra esta página por HTTPS (a definição https do bloco HomeswiftUI) ou em localhost para as ativar aqui.",
+  "Open Users": "Abrir Utilizadores",
+  "Opening": "A abrir",
+  "Opening…": "A abrir…",
+  "Optical Zoom": "Zoom ótico",
+  "order lists accessory ids": "order lista identificadores de acessórios",
+  "origin {0} does not match the host": "a origem {0} não corresponde ao host",
+  "Other accessories": "Outros acessórios",
+  "other accessory": "outro acessório",
+  "Outcome": "Resultado",
+  "Outlet": "Tomada",
+  "Outlet In Use": "Tomada em utilização",
+  "outside {0}–{1}": "fora de {0}–{1}",
+  "Overview": "Visão geral",
+  "Ozone Density": "Ozono",
+  "Paired · {count}": "Emparelhada · {count}",
+  "Pairing": "Emparelhamento",
+  "Pairing codes and what each bridge runs": "Códigos de emparelhamento e o que cada ponte executa",
+  "Pairing Features": "Funcionalidades de emparelhamento",
+  "Pairing QR code": "Código QR de emparelhamento",
+  "Password": "Palavra-passe",
+  "Password changed. Other browsers signed in as {username} are signed out; this one stays.": "Palavra-passe alterada. Os outros navegadores com sessão iniciada como {username} terminam a sessão; este mantém-se.",
+  "Password strength": "Força da palavra-passe",
+  "Password, to turn it off": "Palavra-passe, para a desativar",
+  "Pause": "Pausar",
+  "Paused": "Em pausa",
+  "Paused · {plugin}": "Em pausa · {plugin}",
+  "Paused · its plugin": "Em pausa · o plugin",
+  "Paused.": "Em pausa.",
+  "Pink": "Rosa",
+  "Play/Pause": "Reproduzir/Pausa",
+  "Plugin": "Plugin",
+  "Plugin device calls": "Chamadas dos plugins aos dispositivos",
+  "Plugin settings": "Definições do plugin",
+  "Plugins": "Plugins",
+  "Plugins › HomeswiftUI › Settings turns sign-in on.": "Plugins › HomeswiftUI › Definições ativa o início de sessão.",
+  "Plugins on HomeKit bridges of their own (a block with _bridge), inside this process: one can restart without the others.": "Plugins em pontes HomeKit próprias (um bloco com _bridge), dentro deste processo: cada uma pode reiniciar sem as outras.",
+  "PM10 Density": "PM10",
+  "PM2.5 Density": "PM2,5",
+  "Poor": "Má",
+  "Port": "Porta",
+  "port must be a port number, or null for an automatic one": "port tem de ser um número de porta, ou null para uma automática",
+  "Position": "Posição",
+  "Position State": "Movimento",
+  "Power": "Ligar/desligar",
+  "Power [watts]": "Potência",
+  "Power Management": "Gestão de energia",
+  "Preparing the image…": "A preparar a imagem…",
+  "Program Mode": "Modo de programa",
+  "Programmable Switch Event": "Evento do botão",
+  "Programmable Switch Output State": "Estado de saída do botão",
+  "Purifying": "A purificar",
+  "Purifying · {how}": "A purificar · {how}",
+  "Push payload too large ({0} bytes)": "Conteúdo push demasiado grande ({0} bytes)",
+  "Put in a room…": "Colocar numa divisão…",
+  "QR code for an authenticator app": "Código QR para uma app de autenticação",
+  "Quick controls": "Controlos rápidos",
+  "Raise {setting}": "Subir ({setting})",
+  "Rang {when}": "Tocou {when}",
+  "Read": "Leitura",
+  "Reading {n} line…": "A ler {n} linha…",
+  "Reading {n} lines…": "A ler {n} linhas…",
+  "Reading the day…": "A ler o dia…",
+  "Received Signal Strength Indication": "Intensidade do sinal recebido",
+  "Receiver Sensitivity": "Sensibilidade do recetor",
+  "Reconnecting…": "A restabelecer a ligação…",
+  "Recorded values, as Eve shows them": "Valores registados, tal como a Eve os mostra",
+  "Recording": "A gravar",
+  "Recording Audio Active": "Gravação de áudio",
+  "Red": "Vermelho",
+  "Refresh": "Atualizar",
+  "Relative Humidity Dehumidifier Threshold": "Limiar de desumidificação",
+  "Relative Humidity Humidifier Threshold": "Limiar de humidificação",
+  "Relay Enabled": "Relé ativado",
+  "Relay State": "Estado do relé",
+  "Remaining Duration": "Duração restante",
+  "Remote": "Comando",
+  "Remote for {name}": "Comando de {name}",
+  "Remote Key": "Tecla do comando",
+  "Remove": "Remover",
+  "Remove \"{name}\" from config.json? Its accessories leave the Home app.": "Remover «{name}» do config.json? Os acessórios saem da app Casa.",
+  "Remove {name} ({username})? They are signed out at once.": "Remover {name} ({username})? A sessão termina de imediato.",
+  "Remove {name} ({username})? They are signed out at once. That is you: this browser is signed out too.": "Remover {name} ({username})? A sessão termina de imediato. É a sua conta: a sessão neste navegador também termina.",
+  "Remove {name} from the cache?": "Remover {name} da cache?",
+  "Remove from Quick Controls": "Remover dos controlos rápidos",
+  "Remove from the cache…": "Remover da cache…",
+  "Remove this plugin": "Remover este plugin",
+  "Remove your account": "Remover a sua conta",
+  "Remove your image": "Remover a sua imagem",
+  "removed": "removido",
+  "Repeat": "Repetir",
+  "repeated or sequential characters add nothing": "os caracteres repetidos ou sequenciais não acrescentam nada",
+  "Replace [filter]": "Substituir",
+  "Replace the whole config.json? A backup is kept.": "Substituir todo o config.json? É mantida uma cópia de segurança.",
+  "requestId is required": "requestId é obrigatório",
+  "Requests": "Pedidos",
+  "Requests this month": "Pedidos este mês",
+  "Requests today": "Pedidos hoje",
+  "required": "obrigatório",
+  "Required: {n} bits": "Necessário: {n} bits",
+  "Reset every accessory cache?": "Repor todas as caches de acessórios?",
+  "Reset every cache…": "Repor todas as caches…",
+  "Reset Filter Indication": "Repor o filtro",
+  "Reset pairings": "Repor emparelhamentos",
+  "Reset pairings…": "Repor emparelhamentos…",
+  "Reset the caches": "Repor as caches",
+  "Reset the pairings of {name}?": "Repor os emparelhamentos de {name}?",
+  "resetting pairings needs confirm: true": "repor os emparelhamentos requer confirm: true",
+  "resetting the caches needs confirm: true": "repor as caches requer confirm: true",
+  "Restart": "Reiniciar",
+  "Restart {name}?": "Reiniciar {name}?",
+  "Restart homeswift now? Every connection drops for a few seconds.": "Reiniciar o homeswift agora? Todas as ligações caem durante alguns segundos.",
+  "Restart homeswift to apply the rest: {0}.": "Reinicie o homeswift para aplicar o resto: {0}.",
+  "Restart homeswift to apply the restore: it is applied before anything else at the next start.": "Reinicie o homeswift para aplicar o restauro: é aplicado antes de tudo no próximo arranque.",
+  "Restart homeswift with these settings?": "Reiniciar o homeswift com estas definições?",
+  "Restart homeswift? Connections drop for a few seconds.": "Reiniciar o homeswift? As ligações caem durante alguns segundos.",
+  "Restart homeswift…": "Reiniciar o homeswift…",
+  "Restart now": "Reiniciar agora",
+  "Restarting homeswift…": "A reiniciar o homeswift…",
+  "Restarts": "Reinícios",
+  "Restore": "Restaurar",
+  "Restore {name}?": "Restaurar {name}?",
+  "Restore a backup": "Restaurar uma cópia de segurança",
+  "Restore and restart": "Restaurar e reiniciar",
+  "Restore config.json from {backup}?": "Restaurar o config.json a partir de {backup}?",
+  "Restore this config.json?": "Restaurar este config.json?",
+  "Restore…": "Restaurar…",
+  "Resume": "Retomar",
+  "Resume {name}": "Retomar {name}",
+  "Revert": "Reverter",
+  "Revoke": "Revogar",
+  "Revoke the token “{name}”? Scripts using it are refused at once.": "Revogar o token «{name}»? Os scripts que o usam são recusados de imediato.",
+  "Right": "Direita",
+  "Room: {room}…": "Divisão: {room}…",
+  "rooms must be names": "rooms tem de conter nomes",
+  "Rotation Direction": "Sentido de rotação",
+  "Rotation Speed": "Velocidade de rotação",
+  "Router Status": "Estado do router",
+  "run": "iniciar",
+  "Run": "Executar",
+  "Run [valve]": "Iniciar",
+  "Run {name}": "Executar {name}",
+  "Run {name} [valve]": "Iniciar {name}",
+  "Run by hand": "Executada manualmente",
+  "Run it automatically. Sunrise and sunset are for {place}.": "Executá-la automaticamente. O nascer e o pôr do sol são os de {place}.",
+  "Run it automatically. Sunrise and sunset need a location: set it on the Scenes page.": "Executá-la automaticamente. O nascer e o pôr do sol precisam de uma localização: defina-a na página Cenas.",
+  "Run one homeswift per backup: two bridges with the same identity make the Home app drop them.": "Execute um único homeswift por cópia: duas pontes com a mesma identidade fazem a app Casa perdê-las.",
+  "Run the plugin again": "Voltar a executar o plugin",
+  "Running": "Em execução",
+  "Running · {time} left": "Em funcionamento · faltam {time}",
+  "Running, and everything is in the Home app": "Em execução, e está tudo na app Casa",
+  "Running; {n} servers wait to be added in the Home app": "Em execução; {n} servidores aguardam ser adicionados na app Casa",
+  "Running; one server waits to be added in the Home app": "Em execução; um servidor aguarda ser adicionado na app Casa",
+  "Running; some changes need a restart": "Em execução; algumas alterações precisam de um reinício",
+  "Runs inside homeswift": "Executa-se dentro do homeswift",
+  "Sa": "Sáb",
+  "Sat": "Sáb",
+  "Saturation": "Saturação",
+  "Save": "Guardar",
+  "Save “{entry}” in {block}?": "Guardar «{entry}» em {block}?",
+  "Save and restart": "Guardar e reiniciar",
+  "Save anyway": "Guardar mesmo assim",
+  "Save payloads": "Guardar conteúdos",
+  "Save the budgets": "Guardar os orçamentos",
+  "Save this entry in {block}?": "Guardar esta entrada em {block}?",
+  "Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list": "Guardar o que o esquema do plugin recusa: para um valor que o plugin aceita mas que o esquema não inclui",
+  "Save what the plugins' schemas refuse: for a value a plugin accepts that its schema does not list": "Guardar o que os esquemas dos plugins recusam: para um valor que um plugin aceita mas que o esquema não inclui",
+  "Saved": "Guardado",
+  "Saved and applied.": "Guardado e aplicado.",
+  "Saved for you, on every browser": "Guardado para si, em todos os navegadores",
+  "Saved for your account, on every browser.": "Guardado para a sua conta, em todos os navegadores.",
+  "Saved.": "Guardado.",
+  "Saved. Homeswift restarts by itself to apply the bridge settings…": "Guardado. O Homeswift reinicia-se automaticamente para aplicar as definições da ponte…",
+  "Saved. Its lock, door or alarm actions run only when you run it here: automations leave them out.": "Guardada. As ações de fechadura, porta ou alarme só são executadas quando a executa aqui: as automatizações deixam-nas de fora.",
+  "Saved. Restart homeswift to apply the rest: {pending}.": "Guardado. Reinicie o homeswift para aplicar o resto: {pending}.",
+  "Saved. The web UI moves to {scheme}…": "Guardado. A interface web passa para {scheme}…",
+  "Saved. The web UI moves to port {port}…": "Guardado. A interface web passa para a porta {port}…",
+  "saveDetails (true or false) is required": "saveDetails (true ou false) é obrigatório",
+  "Saving…": "A guardar…",
+  "say what the block should do": "indique o que o bloco deve fazer",
+  "Scan this code with your authenticator app, or open the link on this device; or type the key by hand.": "Digitalize este código com a app de autenticação, ou abra a ligação neste dispositivo; ou introduza a chave manualmente.",
+  "Scenes": "Cenas",
+  "Scheduled restart": "Reinício agendado",
+  "Schedules and proxy": "Agendamentos e proxy",
+  "Scope": "Âmbito",
+  "Search accessories": "Pesquisar acessórios",
+  "Sections": "Secções",
+  "Secured": "Trancado",
+  "Security System": "Sistema de segurança",
+  "Security System Alarm Type": "Tipo de alarme",
+  "Security System Current State": "Estado do sistema de segurança",
+  "Security System Target State": "Modo do sistema de segurança",
+  "See your accessories, rooms, scenes and the bridge's state. Changes nothing.": "Ver os acessórios, divisões, cenas e o estado da ponte. Não altera nada.",
+  "Select [remote]": "Selecionar",
+  "Selected Diagnostics Modes": "Modos de diagnóstico selecionados",
+  "Selected: press ⌘C or Ctrl+C": "Selecionado: prima ⌘C ou Ctrl+C",
+  "Send": "Enviar",
+  "Send (Enter)": "Enviar (Enter)",
+  "Send a test": "Enviar um teste",
+  "Send a test here": "Enviar um teste aqui",
+  "Send a test to every channel that is on": "Enviar um teste a cada canal ativado",
+  "send JSON": "envie JSON",
+  "send the archive (Content-Type: application/x-tar)": "envie o arquivo (Content-Type: application/x-tar)",
+  "send the choices as a JSON object": "envie as opções como um objeto JSON",
+  "send the image as base64 in data": "envie a imagem em base64 em data",
+  "Sending…": "A enviar…",
+  "sensor": "sensor",
+  "Sent through {channels}.": "Enviada por {channels}.",
+  "Sent.": "Enviado.",
+  "Serial Number": "Número de série",
+  "Server": "Servidor",
+  "Service Label": "Etiqueta de serviço",
+  "Service Label Index": "Índice de etiqueta",
+  "Service Label Namespace": "Espaço de nomes da etiqueta",
+  "Set {characteristic} to {value} on {id}?": "Definir {characteristic} como {value} em {id}?",
+  "Set {setting} of {name} to {value}?": "Definir {setting} de {name} como {value}?",
+  "Set Duration": "Duração definida",
+  "Set to": "Definir para",
+  "Set up": "Configurar",
+  "set up two-factor authentication first": "configure primeiro a autenticação de dois fatores",
+  "Set-up code": "Código de configuração",
+  "Settings": "Definições",
+  "settings are required": "settings é obrigatório",
+  "Settings pages": "Páginas das definições",
+  "Settings, pairings and backups": "Definições, emparelhamentos e cópias de segurança",
+  "Setup code": "Código de configuração",
+  "Show": "Mostrar",
+  "Show {name}": "Mostrar {name}",
+  "show all controls": "mostrar todos os controlos",
+  "Show as a table": "Mostrar como tabela",
+  "Show hidden ({count})": "Mostrar ocultos ({count})",
+  "Show it again": "Mostrar novamente",
+  "Show its log": "Mostrar o registo",
+  "Show less": "Mostrar menos",
+  "Show more": "Mostrar mais",
+  "Show the payload": "Mostrar o conteúdo",
+  "Shower head": "Chuveiro",
+  "Shown in the web UI; the username when empty.": "Mostrado na interface web; o nome de utilizador se estiver vazio.",
+  "shutter": "estore",
+  "Sign in": "Iniciar sessão",
+  "sign in first": "inicie sessão primeiro",
+  "Sign in to manage the bridge.": "Inicie sessão para gerir a ponte.",
+  "Sign in with your Homeswift account to connect an app.": "Inicie sessão com a sua conta Homeswift para ligar uma app.",
+  "Sign out": "Terminar sessão",
+  "Signal To Noise Ratio": "Relação sinal/ruído",
+  "Signed in on this browser. Logins last {n} day without activity; changing the password, or turning two-factor authentication on or off, signs the others out.": "Sessão iniciada neste navegador. As sessões duram {n} dia sem atividade; alterar a palavra-passe, ou ativar ou desativar a autenticação de dois fatores, termina as outras sessões.",
+  "Signed in on this browser. Logins last {n} days without activity; changing the password, or turning two-factor authentication on or off, signs the others out.": "Sessão iniciada neste navegador. As sessões duram {n} dias sem atividade; alterar a palavra-passe, ou ativar ou desativar a autenticação de dois fatores, termina as outras sessões.",
+  "Signing in asks for the code your authenticator app shows, after the password.": "O início de sessão pede o código que a app de autenticação mostra, depois da palavra-passe.",
+  "Signing in…": "A iniciar sessão…",
+  "since: an ISO time, or 1h, 24h, 7d": "since: uma hora ISO, ou 1h, 24h, 7d",
+  "Single press": "Pressão simples",
+  "Siri": "Siri",
+  "Siri Enable": "Siri ativada",
+  "Siri Endpoint": "Ponto de acesso da Siri",
+  "Siri Engine Version": "Versão do motor da Siri",
+  "Siri Input Type": "Tipo de entrada da Siri",
+  "Siri Light On Use": "Luz da Siri ao utilizar",
+  "Siri Listening": "Siri a ouvir",
+  "Siri Touch To Use": "Tocar para usar a Siri",
+  "Size and place of {name}": "Tamanho e posição de {name}",
+  "Sizes and order of the widgets": "Tamanhos e ordem dos widgets",
+  "sizes are by accessory id": "os tamanhos são por identificador de acessório",
+  "Skipped {date}: {reason}": "Ignorada {date}: {reason}",
+  "Slat Type": "Tipo de lâminas",
+  "Slats": "Lâminas",
+  "Sleep Interval": "Intervalo de repouso",
+  "Small": "Pequeno",
+  "Smart Speaker": "Altifalante inteligente",
+  "Smoke": "Fumo",
+  "Smoke Detected": "Fumo detetado",
+  "Smoke Sensor": "Detetor de fumo",
+  "Snapshot of {name}": "Instantâneo de {name}",
+  "Software Revision": "Versão do software",
+  "Some changes need a restart of homeswift.": "Algumas alterações exigem reiniciar o homeswift.",
+  "Something follows the end of the JSON": "Há algo depois do fim do JSON",
+  "Speaker": "Altifalante",
+  "Speed": "Velocidade",
+  "Spent this month": "Gasto este mês",
+  "Spent today": "Gasto hoje",
+  "Staged Firmware Version": "Firmware preparado",
+  "Stale": "Obsoleto",
+  "Start": "Iniciar",
+  "Starting…": "A iniciar…",
+  "Stateful Programmable Switch": "Interruptor programável",
+  "Stateless Programmable Switch": "Botão programável",
+  "Status": "Estado",
+  "Status Active": "Em funcionamento",
+  "Status Fault": "Avaria",
+  "Status Jammed": "Encravado",
+  "Status light": "Luz de estado",
+  "Status Low Battery": "Bateria fraca",
+  "Status Tampered": "Manipulado",
+  "stop": "parar",
+  "Stop": "Parar",
+  "Stop {name}": "Parar {name}",
+  "Stop {name}?": "Parar {name}?",
+  "Stop the plugin's calls to its devices for now": "Parar por agora as chamadas do plugin aos seus dispositivos",
+  "Stopped": "Parado",
+  "Stopped [bridge]": "Parada",
+  "Stopped by hand": "Parada manualmente",
+  "Stopped.": "Interrompido.",
+  "Strength": "Força",
+  "Strength of the new password": "Força da nova palavra-passe",
+  "Strings take double quotes": "As cadeias usam aspas duplas",
+  "Strong": "Forte",
+  "Strong to very strong": "Forte a muito forte",
+  "Su": "Dom",
+  "Suggest": "Sugerir",
+  "Suggest rooms": "Sugerir divisões",
+  "Suggested rooms": "Divisões sugeridas",
+  "Sulphur Dioxide Density": "Dióxido de enxofre",
+  "Sun": "Dom",
+  "Sunrise": "Nascer do sol",
+  "Sunrise {days}": "Nascer do sol {days}",
+  "Sunrise or sunset": "Nascer ou pôr do sol",
+  "Sunset": "Pôr do sol",
+  "Sunset {days}": "Pôr do sol {days}",
+  "Supported Asset Types": "Tipos de recursos suportados",
+  "Supported Diagnostics Modes": "Modos de diagnóstico suportados",
+  "Swing": "Oscilação",
+  "Swing Mode": "Oscilação",
+  "switch": "interruptor",
+  "Switch": "Interruptor",
+  "System": "Sistema",
+  "Takes the block out of config.json. Its accessories leave the Home app, with their rooms, scenes and automations.": "Retira o bloco do config.json. Os acessórios saem da app Casa, com as suas divisões, cenas e automatizações.",
+  "Tap Management": "Gestão de toques",
+  "Tap Type": "Tipo de toque",
+  "Target Air Purifier State": "Modo do purificador",
+  "Target Control": "Comando",
+  "Target Control Management": "Gestão do comando",
+  "Target Door State": "Comando da porta",
+  "Target Fan State": "Modo da ventoinha",
+  "Target Heater-Cooler State": "Modo de climatização",
+  "Target Heating Cooling State": "Modo de climatização",
+  "Target Horizontal Tilt Angle": "Inclinação horizontal",
+  "Target Humidifier-Dehumidifier State": "Modo do humidificador",
+  "Target Position": "Posição pretendida",
+  "Target Relative Humidity": "Humidade pretendida",
+  "Target temperature": "Temperatura pretendida",
+  "Target Temperature": "Temperatura pretendida",
+  "Target Tilt Angle": "Inclinação pretendida",
+  "Target Vertical Tilt Angle": "Inclinação vertical",
+  "television": "televisor",
+  "Television": "Televisor",
+  "Television Speaker": "Altifalante do televisor",
+  "Temperature": "Temperatura",
+  "Temperature Display Units": "Unidade de temperatura",
+  "Temperature Sensor": "Sensor de temperatura",
+  "Temperature unit": "Unidade de temperatura",
+  "Temperatures": "Temperaturas",
+  "Ten-minute averages, kept four weeks; each point here averages those in its span.": "Médias de dez minutos, guardadas durante quatro semanas; cada ponto aqui faz a média das do seu intervalo.",
+  "Test connection": "Testar a ligação",
+  "Th": "Qui",
+  "that code is not right: type the 6 digits your authenticator app shows now": "esse código não está correto: introduza os 6 dígitos que a app de autenticação mostra agora",
+  "That file is too large for a certificate or a key.": "Esse ficheiro é demasiado grande para um certificado ou uma chave.",
+  "That is {0} actions; a scene holds at most {1}. Pass fewer accessories or limit characteristics.": "São {0} ações; uma cena tem no máximo {1}. Indique menos acessórios ou limite as características.",
+  "that plugin has no config.schema.json": "esse plugin não tem config.schema.json",
+  "that user already exists": "esse utilizador já existe",
+  "The {0} channel is on but not fully set up": "O canal {0} está ativado mas não está totalmente configurado",
+  "the accessory is gone": "o acessório já não existe",
+  "the Adaptive Lighting schedule of {0} does not cover this time of day; turn it on in the Home app": "o horário de Iluminação adaptativa de {0} não abrange esta hora do dia; ative-a na app Casa",
+  "The address this app asked to return to is not one it registered.": "O endereço de regresso pedido por esta app não é um dos que registou.",
+  "The answer was cut off at its output limit. Raise the maximum answer length, or ask for less at once.": "A resposta foi cortada no seu limite de saída. Aumente o comprimento máximo da resposta, ou peça menos de cada vez.",
+  "The answer was cut off at the {0}-token output limit. Raise the maximum answer length, or ask for less at once.": "A resposta foi cortada no limite de saída de {0} tokens. Aumente o comprimento máximo da resposta, ou peça menos de cada vez.",
+  "The app did not say where to return to.": "A app não indicou para onde regressar.",
+  "the archive is larger than 64 MB": "o arquivo tem mais de 64 MB",
+  "The Assistant": "O Assistente",
+  "the Assistant did not answer: {0}": "o Assistente não respondeu: {0}",
+  "The Assistant did not answer: {0}": "O Assistente não respondeu: {0}",
+  "the Assistant did not answer: {0}: cannot reach the provider: {1}": "o Assistente não respondeu: {0}: não é possível contactar o fornecedor: {1}",
+  "The Assistant did not answer: {0}: cannot reach the provider: {1}": "O Assistente não respondeu: {0}: não é possível contactar o fornecedor: {1}",
+  "the Assistant did not answer: {0}: HTTP {1}: {2}": "o Assistente não respondeu: {0}: HTTP {1}: {2}",
+  "The Assistant did not answer: {0}: HTTP {1}: {2}": "O Assistente não respondeu: {0}: HTTP {1}: {2}",
+  "the Assistant did not answer: {0}: the response is not JSON": "o Assistente não respondeu: {0}: a resposta não é JSON",
+  "The Assistant did not answer: {0}: the response is not JSON": "O Assistente não respondeu: {0}: a resposta não é JSON",
+  "the Assistant did not answer: The answer was cut off at its output limit. Raise the maximum answer length, or ask for less at once.": "o Assistente não respondeu: a resposta foi cortada no seu limite de saída. Aumente o comprimento máximo da resposta, ou peça menos de cada vez.",
+  "the Assistant did not answer: The answer was cut off at the {0}-token output limit. Raise the maximum answer length, or ask for less at once.": "o Assistente não respondeu: a resposta foi cortada no limite de saída de {0} tokens. Aumente o comprimento máximo da resposta, ou peça menos de cada vez.",
+  "the Assistant did not answer: The daily AI budget is used up: {0} of {1} today. It resets at midnight.": "o Assistente não respondeu: o orçamento diário de IA esgotou-se: {0} de {1} hoje. É reposto à meia-noite.",
+  "The Assistant did not answer: The daily AI budget is used up: {0} of {1} today. It resets at midnight.": "O Assistente não respondeu: o orçamento diário de IA esgotou-se: {0} de {1} hoje. É reposto à meia-noite.",
+  "the Assistant did not answer: The daily AI budget is used up: {0} tokens of {1} tokens today. It resets at midnight.": "o Assistente não respondeu: o orçamento diário de IA esgotou-se: {0} tokens de {1} hoje. É reposto à meia-noite.",
+  "The Assistant did not answer: The daily AI budget is used up: {0} tokens of {1} tokens today. It resets at midnight.": "O Assistente não respondeu: o orçamento diário de IA esgotou-se: {0} tokens de {1} hoje. É reposto à meia-noite.",
+  "the Assistant did not answer: The model did not return valid JSON: {0}": "o Assistente não respondeu: o modelo não devolveu JSON válido: {0}",
+  "the Assistant did not answer: The monthly AI budget is used up: {0} of {1} this month. It resets on the 1st of next month.": "o Assistente não respondeu: o orçamento mensal de IA esgotou-se: {0} de {1} este mês. É reposto no dia 1 do próximo mês.",
+  "The Assistant did not answer: The monthly AI budget is used up: {0} of {1} this month. It resets on the 1st of next month.": "O Assistente não respondeu: o orçamento mensal de IA esgotou-se: {0} de {1} este mês. É reposto no dia 1 do próximo mês.",
+  "the Assistant did not answer: The monthly AI budget is used up: {0} tokens of {1} tokens this month. It resets on the 1st of next month.": "o Assistente não respondeu: o orçamento mensal de IA esgotou-se: {0} tokens de {1} este mês. É reposto no dia 1 do próximo mês.",
+  "The Assistant did not answer: The monthly AI budget is used up: {0} tokens of {1} tokens this month. It resets on the 1st of next month.": "O Assistente não respondeu: o orçamento mensal de IA esgotou-se: {0} tokens de {1} este mês. É reposto no dia 1 do próximo mês.",
+  "the Assistant is off: add a HomeswiftAiKit block": "o Assistente está desativado: adicione um bloco HomeswiftAiKit",
+  "The Assistant is off: add a HomeswiftAiKit block": "O Assistente está desativado: adicione um bloco HomeswiftAiKit",
+  "The Assistant is off: config.json has no HomeswiftAiKit block. Add one on the Config page, {example}, or choose apple on a Mac with Apple Intelligence.": "O Assistente está desativado: o config.json não tem um bloco HomeswiftAiKit. Adicione um na página Configuração, {example}, ou escolha apple num Mac com Apple Intelligence.",
+  "The Assistant is sorting your accessories into rooms…": "O Assistente está a organizar os acessórios por divisões…",
+  "the Assistant is still answering; stop it first": "o Assistente ainda está a responder; pare-o primeiro",
+  "The Assistant is writing the block…": "O Assistente está a escrever o bloco…",
+  "The Assistant reads the lines shown and groups the issues, with causes and fixes": "O Assistente lê as linhas mostradas e agrupa os problemas, com causas e soluções",
+  "The Assistant stopped after many steps without an answer. Ask again, or more precisely.": "O Assistente parou após muitos passos sem resposta. Pergunte novamente, ou de forma mais precisa.",
+  "the Assistant writes the settings": "o Assistente escreve as definições",
+  "The Assistant: whether its provider answers, what it costs, and its budgets.": "O Assistente: se o fornecedor responde, quanto custa e os orçamentos.",
+  "The Assistant's explanation": "A explicação do Assistente",
+  "The Assistant's summary of the day": "O resumo do dia feito pelo Assistente",
+  "The audit log is off: the HomeswiftAiKit block's mcp.http says auditLog: false.": "O registo de auditoria está desativado: o mcp.http do bloco HomeswiftAiKit indica auditLog: false.",
+  "the backup folder {0} does not exist": "a pasta de cópias de segurança {0} não existe",
+  "the backup folder {0} is not writable": "não é possível escrever na pasta de cópias de segurança {0}",
+  "the backup has no config.json": "a cópia de segurança não tem config.json",
+  "the backup's config.json cannot run: {0}": "o config.json da cópia de segurança não pode funcionar: {0}",
+  "The block as config.json keeps it.": "O bloco tal como o config.json o guarda.",
+  "The block as JSON": "O bloco em JSON",
+  "the block must keep its platform": "o bloco tem de manter a sua plataforma",
+  "The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.": "Os blocos do config.json. Ao guardar, aplica-se de imediato: o plugin recarrega e mantém os acessórios.",
+  "The bridge block is the bridge's HomeKit identity: homeswift restarts to apply it, and every connection drops for a few seconds.": "O bloco bridge é a identidade HomeKit da ponte: o homeswift reinicia para o aplicar e todas as ligações caem durante alguns segundos.",
+  "The bridge did not answer: {error}": "A ponte não respondeu: {error}",
+  "The bridge needs a name": "A ponte precisa de um nome",
+  "The bridge, its pairings and cached accessories, child bridges, backups and the audit log.": "A ponte, os seus emparelhamentos e acessórios em cache, as pontes secundárias, as cópias de segurança e o registo de auditoria.",
+  "The browser did not allow copying.": "O navegador não permitiu copiar.",
+  "The browser did not allow the microphone for this page.": "O navegador não permitiu o microfone nesta página.",
+  "The browser did not give its location (it needs HTTPS away from localhost).": "O navegador não deu a sua localização (é necessário HTTPS fora de localhost).",
+  "The browser's notifications are blocked for this site.": "As notificações do navegador estão bloqueadas para este site.",
+  "the change for {0} must be an object": "a alteração de {0} tem de ser um objeto",
+  "the characteristic of the accessory could not be read": "não foi possível ler a característica do acessório",
+  "the code is required": "o código é obrigatório",
+  "The code the app shows now": "O código que a app mostra agora",
+  "The code the Home app asks for, as XXX-XX-XXX. It is never logged.": "O código que a app Casa pede, no formato XXX-XX-XXX. Nunca fica registado.",
+  "the config must be a JSON object": "a configuração tem de ser um objeto JSON",
+  "The connection dropped before the answer ended.": "A ligação caiu antes do fim da resposta.",
+  "The connection dropped: {error}": "A ligação caiu: {error}",
+  "the current and the new password are required": "a palavra-passe atual e a nova são obrigatórias",
+  "the current password is not right": "a palavra-passe atual não está correta",
+  "The daily AI budget is used up: {0} of {1} today. It resets at midnight.": "O orçamento diário de IA esgotou-se: {0} de {1} hoje. É reposto à meia-noite.",
+  "The daily AI budget is used up: {0} tokens of {1} tokens today. It resets at midnight.": "O orçamento diário de IA esgotou-se: {0} tokens de {1} hoje. É reposto à meia-noite.",
+  "The device ID stays: a new one is a new bridge to the Home app. To pair again from scratch, reset the bridge's pairings below.": "O ID do dispositivo mantém-se: um novo seria uma ponte nova para a app Casa. Para emparelhar de novo desde o início, reponha os emparelhamentos da ponte abaixo.",
+  "The digest time must be HH:mm": "A hora do resumo tem de estar no formato HH:mm",
+  "the endpoint is required": "o endpoint é obrigatório",
+  "The file before each of its last {n} saves": "O ficheiro antes de cada uma das suas {n} últimas gravações",
+  "The file before its last save": "O ficheiro antes da última gravação",
+  "the file is missing or too large": "o ficheiro está em falta ou é demasiado grande",
+  "the first user already exists; sign in": "o primeiro utilizador já existe; inicie sessão",
+  "The form below has other unsaved changes: save them with the budgets?": "O formulário abaixo tem outras alterações não guardadas: guardá-las com os orçamentos?",
+  "The HomeKit server's port; empty picks a free one and keeps it.": "A porta do servidor HomeKit; se ficar vazia, é escolhida uma porta livre, que se mantém.",
+  "The homeswift process, at its highest in each point": "O processo do homeswift, no seu máximo em cada ponto",
+  "The homeswift process; 100% is one core busy": "O processo do homeswift; 100% é um núcleo ocupado",
+  "The homeswift version": "A versão do homeswift",
+  "The image could not be read.": "Não foi possível ler a imagem.",
+  "the image is too large: {0} MB at most": "a imagem é demasiado grande: {0} MB no máximo",
+  "The JSON is not valid: {error}": "O JSON não é válido: {error}",
+  "The last administrator": "O último administrador",
+  "The last administrator stays one: make another user an administrator first.": "O último administrador continua a sê-lo: torne primeiro outro utilizador administrador.",
+  "the layout must be a JSON object": "a disposição tem de ser um objeto JSON",
+  "The layout was not kept: {error}": "A disposição não foi guardada: {error}",
+  "The machine, and Restart": "A máquina, e Reiniciar",
+  "the MCP server is off: turn on mcp.http in the HomeswiftAiKit block": "o servidor MCP está desativado: ative mcp.http no bloco HomeswiftAiKit",
+  "The MCP server is read-only (readOnly in the HomeswiftAiKit block): whatever you choose, the app can only read.": "O servidor MCP é só de leitura (readOnly no bloco HomeswiftAiKit): seja qual for a escolha, a app só pode ler.",
+  "the message is too long: 4000 characters at most": "a mensagem é demasiado longa: 4000 caracteres no máximo",
+  "The model did not return valid JSON: {0}": "O modelo não devolveu JSON válido: {0}",
+  "The monthly AI budget is used up: {0} of {1} this month. It resets on the 1st of next month.": "O orçamento mensal de IA esgotou-se: {0} de {1} este mês. É reposto no dia 1 do próximo mês.",
+  "The monthly AI budget is used up: {0} tokens of {1} tokens this month. It resets on the 1st of next month.": "O orçamento mensal de IA esgotou-se: {0} tokens de {1} este mês. É reposto no dia 1 do próximo mês.",
+  "the name must be 1 to 64 characters": "o nome tem de ter de 1 a 64 caracteres",
+  "The name must be 1 to 64 characters": "O nome tem de ter de 1 a 64 caracteres",
+  "The new password is not strong enough yet: the gauge says what is missing.": "A nova palavra-passe ainda não é suficientemente forte: o indicador mostra o que falta.",
+  "The new password is the current one.": "A nova palavra-passe é a atual.",
+  "The ntfy server must be an http(s) URL": "O servidor ntfy tem de ser um URL http(s)",
+  "The ntfy topic may only use letters, numbers, - and _ (up to 64)": "O tópico ntfy só pode usar letras, números, - e _ (até 64)",
+  "The on-device model declined this request.": "O modelo no dispositivo recusou este pedido.",
+  "The pages' language and the one the Assistant answers in. Automatic follows the browser.": "O idioma das páginas e aquele em que o Assistente responde. Automático segue o navegador.",
+  "The password is not strong enough yet: the gauge says what is missing.": "A palavra-passe ainda não é suficientemente forte: o indicador mostra o que falta.",
+  "the password is required": "a palavra-passe é obrigatória",
+  "the password is too weak: {0}": "a palavra-passe é demasiado fraca: {0}",
+  "the password is too weak: make it stronger: {0} of {1} bits": "a palavra-passe é demasiado fraca: torne-a mais forte: {0} de {1} bits",
+  "the password is too weak: make it stronger: {0} of {1} bits; common words add little": "a palavra-passe é demasiado fraca: torne-a mais forte: {0} de {1} bits; as palavras comuns acrescentam pouco",
+  "the password is too weak: make it stronger: {0} of {1} bits; repeated or sequential characters add nothing": "a palavra-passe é demasiado fraca: torne-a mais forte: {0} de {1} bits; os caracteres repetidos ou sequenciais não acrescentam nada",
+  "the password is too weak: make it stronger: {0} of {1} bits; your username adds nothing": "a palavra-passe é demasiado fraca: torne-a mais forte: {0} de {1} bits; o nome de utilizador não acrescenta nada",
+  "the password is too weak: use at least {0} characters; make it stronger: {1} of {2} bits": "a palavra-passe é demasiado fraca: use pelo menos {0} caracteres; torne-a mais forte: {1} de {2} bits",
+  "the password is too weak: use at least {0} characters; make it stronger: {1} of {2} bits; common words add little": "a palavra-passe é demasiado fraca: use pelo menos {0} caracteres; torne-a mais forte: {1} de {2} bits; as palavras comuns acrescentam pouco",
+  "the password is too weak: use at least {0} characters; make it stronger: {1} of {2} bits; repeated or sequential characters add nothing": "a palavra-passe é demasiado fraca: use pelo menos {0} caracteres; torne-a mais forte: {1} de {2} bits; os caracteres repetidos ou sequenciais não acrescentam nada",
+  "the password is too weak: use at least {0} characters; make it stronger: {1} of {2} bits; your username adds nothing": "a palavra-passe é demasiado fraca: use pelo menos {0} caracteres; torne-a mais forte: {1} de {2} bits; o nome de utilizador não acrescenta nada",
+  "the password is too weak: use at most {0} bytes": "a palavra-passe é demasiado fraca: use no máximo {0} bytes",
+  "The plugin makes no calls to its devices, and they show No Response in the Home app. This page needs it running.": "O plugin não faz chamadas aos seus dispositivos, que mostram Sem resposta na app Casa. Esta página precisa que esteja em execução.",
+  "The plugin's schema refuses this:": "O esquema do plugin recusa isto:",
+  "The plugins started again on empty caches and add the devices they reach; aids and iids stay, so rooms and automations survive.": "Os plugins voltaram a arrancar com as caches vazias e adicionam os dispositivos que alcançam; os aids e iids mantêm-se, por isso as divisões e as automatizações são preservadas.",
+  "The plugins' schemas refuse this:": "Os esquemas dos plugins recusam isto:",
+  "the preferences could not be saved: {0}": "não foi possível guardar as preferências: {0}",
+  "the prompt is too long: 8000 characters at most": "a pergunta é demasiado longa: 8000 caracteres no máximo",
+  "The push endpoint is not a known browser push service": "O endpoint push não é um serviço push de navegador conhecido",
+  "The push endpoint must be an https URL": "O endpoint push tem de ser um URL https",
+  "the request is not one Homeswift can answer": "o Homeswift não consegue responder a este pedido",
+  "the request is too large": "o pedido é demasiado grande",
+  "The room of {name}. A new name adds the room; empty takes it out of its room.": "A divisão de {name}. Um nome novo adiciona a divisão; se ficar vazio, o acessório sai da sua divisão.",
+  "The room of {name}. Rooms: {rooms}. A new name adds the room; empty takes it out of its room.": "A divisão de {name}. Divisões: {rooms}. Um nome novo adiciona a divisão; se ficar vazio, o acessório sai da sua divisão.",
+  "The same as config.json now.": "Igual ao config.json atual.",
+  "The same event about the same thing goes out once per 15 minutes at most, and 12 notifications an hour at most.": "O mesmo evento sobre a mesma coisa é enviado no máximo uma vez a cada 15 minutos, e no máximo 12 notificações por hora.",
+  "the scope is read or admin": "o âmbito é read ou admin",
+  "the search took longer than {0} and was stopped; try a simpler pattern or plain text": "a pesquisa demorou mais de {0} e foi interrompida; experimente um padrão mais simples ou texto simples",
+  "The settings do not match the plugin's schema: {0}": "As definições não correspondem ao esquema do plugin: {0}",
+  "The settings do not match the plugin's schema: {0}; and {1} more": "As definições não correspondem ao esquema do plugin: {0}; e mais {1}",
+  "The status, accessories and metrics.": "O estado, os acessórios e as métricas.",
+  "The text ends before this list is closed": "O texto termina antes de esta lista ser fechada",
+  "The text ends before this object is closed": "O texto termina antes de este objeto ser fechado",
+  "The text ends where a value should be": "O texto termina onde deveria haver um valor",
+  "the time window uses sunrise or sunset, but no location is set": "o intervalo horário usa o nascer ou o pôr do sol, mas não está definida nenhuma localização",
+  "the token needs a name of 1 to 64 characters": "o token precisa de um nome de 1 a 64 caracteres",
+  "The two new passwords are not the same.": "As duas novas palavras-passe não coincidem.",
+  "the upload is larger than {0} MB": "o ficheiro enviado tem mais de {0} MB",
+  "The username": "O nome de utilizador",
+  "the username must be 1 to 64 characters without spaces or colons": "o nome de utilizador tem de ter de 1 a 64 caracteres, sem espaços nem dois pontos",
+  "The values to set, in this order.": "Os valores a definir, por esta ordem.",
+  "The webhook URL must be an http(s) URL": "O URL do webhook tem de ser um URL http(s)",
+  "The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once.": "Todo o config.json. Ao guardar, é validado, é mantida uma cópia de segurança do ficheiro anterior (as últimas 20 em backups/) e é aplicado de imediato.",
+  "The whole instance, to move it or start over, and each saved config.json.": "A instância completa, para a mudar ou recomeçar, e cada config.json guardado.",
+  "The whole request": "O pedido completo",
+  "Their ids stay, so rooms and automations come back with the devices; accessories of devices that are gone do not.": "Os seus ids mantêm-se, pelo que as divisões e automatizações regressam com os dispositivos; os acessórios de dispositivos que já não existem, não.",
+  "Theme": "Tema",
+  "there are no log lines to diagnose": "não há linhas de registo para diagnosticar",
+  "there is already a block {0} of {1}": "já existe um bloco {0} de {1}",
+  "There is already a room {0}": "Já existe uma divisão {0}",
+  "There is no HomeswiftAiKit block: choose a provider first.": "Não existe nenhum bloco HomeswiftAiKit: escolha primeiro um fornecedor.",
+  "there is no such token": "esse token não existe",
+  "there is no such user": "esse utilizador não existe",
+  "Thermostat": "Termóstato",
+  "Thinking about it…": "A pensar…",
+  "Thinking…": "A pensar…",
+  "this API token can only read": "este token de API só pode ler",
+  "This app is not registered with Homeswift, or its registration expired. Connect again from the app.": "Esta app não está registada no Homeswift, ou o registo expirou. Volte a ligá-la a partir da app.",
+  "this backup": "esta cópia",
+  "This block has no settings form; edit it as JSON.": "Este bloco não tem formulário de definições; edite-o como JSON.",
+  "This bridge has no account yet. Open its web UI and create the administrator first.": "Esta ponte ainda não tem nenhuma conta. Abra a sua interface web e crie primeiro o administrador.",
+  "This browser and others": "Este navegador e outros",
+  "This browser cannot play this camera's video": "Este navegador não consegue reproduzir o vídeo desta câmara",
+  "This browser cannot receive push notifications.": "Este navegador não pode receber notificações push.",
+  "This browser cannot tell its location.": "Este navegador não consegue indicar a sua localização.",
+  "This browser is not subscribed": "Este navegador não está subscrito",
+  "This browser is not subscribed.": "Este navegador não está subscrito.",
+  "This certificate cannot be read.": "Não é possível ler este certificado.",
+  "This device is not in the configuration.": "Este dispositivo não está na configuração.",
+  "this homeswift keeps no log on disk": "este homeswift não guarda nenhum registo em disco",
+  "this homeswift records no metrics": "este homeswift não regista métricas",
+  "This homeswift's log, live, and up to a week back.": "O registo deste homeswift, em direto, e até uma semana atrás.",
+  "This is {version}": "Esta é a {version}",
+  "This is {version} · released {date}": "Esta é a {version} · publicada a {date}",
+  "This is a certificate; drop the private key here.": "Isto é um certificado; largue aqui a chave privada.",
+  "This is a private key; drop the certificate here.": "Isto é uma chave privada; largue aqui o certificado.",
+  "this is not a JPEG, PNG or WebP image": "não é uma imagem JPEG, PNG ou WebP",
+  "this is not a name the web UI answers to; add it to allowedHosts in the HomeswiftUI block": "a interface web não responde a este nome; adicione-o a allowedHosts no bloco HomeswiftUI",
+  "This is not a PEM file: a certificate or a key starts with -----BEGIN.": "Não é um ficheiro PEM: um certificado ou uma chave começa por -----BEGIN.",
+  "this is the last administrator: make another user an administrator first": "este é o último administrador: torne primeiro outro utilizador administrador",
+  "This month by model and by user": "Este mês por modelo e por utilizador",
+  "This private key cannot be read (an encrypted key needs its passphrase removed).": "Não é possível ler esta chave privada (a uma chave cifrada é preciso retirar a frase de acesso).",
+  "this process cannot restart itself; restart homeswift by hand": "este processo não se consegue reiniciar sozinho; reinicie o homeswift manualmente",
+  "This scene changes a lock, a door or an alarm: confirm to run it": "Esta cena altera uma fechadura, uma porta ou um alarme: confirme para a executar",
+  "This scene is already running": "Esta cena já está em execução",
+  "This string is not closed": "Esta cadeia não está fechada",
+  "This string is not closed before the end of the line": "Esta cadeia não é fechada antes do fim da linha",
+  "this web UI has no accounts: its auth is none": "esta interface web não tem contas: o seu auth é none",
+  "This web UI has no sign-in: its HomeswiftUI block says auth none, so there are no users.": "Esta interface web não tem início de sessão: o bloco HomeswiftUI indica auth none, por isso não há utilizadores.",
+  "This web UI has no sign-in: its HomeswiftUI block says auth none, so there is no password to change.": "Esta interface web não tem início de sessão: o bloco HomeswiftUI indica auth none, por isso não há palavra-passe a alterar.",
+  "Thread Node Capabilities": "Capacidades do nó Thread",
+  "Thread OpenThread Version": "Versão do OpenThread",
+  "Thread Status": "Estado do Thread",
+  "Thread Transport": "Transporte Thread",
+  "Thu": "Qui",
+  "Tilt": "Inclinação",
+  "Time": "Hora",
+  "Time range": "Período",
+  "To": "Até",
+  "Today": "Hoje",
+  "Token “{name}”": "Token «{name}»",
+  "Tokens": "Tokens",
+  "Tokens per day": "Tokens por dia",
+  "Tokens per month": "Tokens por mês",
+  "Tokens this month": "Tokens este mês",
+  "Tokens today": "Tokens hoje",
+  "too many accessories": "demasiados acessórios",
+  "Too many Assistant requests. Wait a minute and try again.": "Demasiados pedidos ao Assistente. Aguarde um minuto e tente novamente.",
+  "Too many test notifications: try again in a minute": "Demasiadas notificações de teste: tente novamente dentro de um minuto",
+  "too many widgets": "demasiados widgets",
+  "Tool or route": "Ferramenta ou rota",
+  "Topic": "Tópico",
+  "Transfer Transport Management": "Gestão de transferências",
+  "Transmit Power": "Potência de transmissão",
+  "Trigger": "Acionador",
+  "Trigger {0} must be an object": "O acionador {0} tem de ser um objeto",
+  "Trigger {0}: {1} is missing": "Acionador {0}: falta {1}",
+  "Trigger {0}: days are 0 (Sunday) to 6": "Acionador {0}: os dias vão de 0 (domingo) a 6",
+  "Trigger {0}: invalid cron expression": "Acionador {0}: expressão cron inválida",
+  "Trigger {0}: invalid operator": "Acionador {0}: operador inválido",
+  "Trigger {0}: the event must be sunrise or sunset": "Acionador {0}: o evento tem de ser sunrise ou sunset",
+  "Trigger {0}: the offset must be a whole number of minutes from -720 to 720": "Acionador {0}: o desvio tem de ser um número inteiro de minutos entre -720 e 720",
+  "Trigger {0}: the time must be HH:mm": "Acionador {0}: a hora tem de estar no formato HH:mm",
+  "Trigger {0}: the type must be time, cron, sun or characteristic": "Acionador {0}: o tipo tem de ser time, cron, sun ou characteristic",
+  "Trigger {0}: the value must be a boolean, a number or a short text": "Acionador {0}: o valor tem de ser um booleano, um número ou um texto curto",
+  "Triggers": "Acionadores",
+  "Try again": "Tentar novamente",
+  "Tu": "Ter",
+  "Tue": "Ter",
+  "Tunnel": "Túnel",
+  "Tunnel Connection Timeout": "Tempo limite da ligação do túnel",
+  "Tunneled Accessory Advertising": "Anúncio do acessório em túnel",
+  "Tunneled Accessory Connected": "Acessório em túnel ligado",
+  "Tunneled Accessory State Number": "Número de estado do acessório em túnel",
+  "turn Adaptive Lighting on once in the Home app (the light's settings): the bridge then keeps the schedule and can resume it": "ative uma vez a Iluminação adaptativa na app Casa (definições da luz): a ponte passa a guardar o horário e pode retomá-lo",
+  "turn off": "desligar",
+  "Turn off": "Desligar",
+  "Turn off [setting]": "Desativar",
+  "Turn off every light": "Desligue todas as luzes",
+  "Turn off on this browser": "Desativar neste navegador",
+  "turn on": "ligar",
+  "Turn on": "Ativar",
+  "Turn on for this browser": "Ativar neste navegador",
+  "Turned off in the Home app": "Desativada na app Casa",
+  "Two-factor": "Dois fatores",
+  "Two-factor authentication": "Autenticação de dois fatores",
+  "two-factor authentication is already on; turn it off first": "a autenticação de dois fatores já está ativada; desative-a primeiro",
+  "Type {text} to confirm": "Escreva {text} para confirmar",
+  "type the code from your authenticator app": "introduza o código da app de autenticação",
+  "Unknown": "Desconhecido",
+  "unknown API route": "rota de API desconhecida",
+  "unknown auth action": "ação de autenticação desconhecida",
+  "unknown camera route {0}": "rota de câmara {0} desconhecida",
+  "unknown preference {0}": "preferência {0} desconhecida",
+  "unknown route": "rota desconhecida",
+  "unknown subscription": "subscrição desconhecida",
+  "Unlocked": "Destrancado",
+  "Unmute": "Ativar som",
+  "Unsaved changes": "Alterações não guardadas",
+  "Unsecured": "Destrancado",
+  "Up": "Cima",
+  "Up [uptime]": "Tempo ativo",
+  "URL": "URL",
+  "USD per day": "USD por dia",
+  "USD per month": "USD por mês",
+  "Use an image of your own…": "Usar uma imagem própria…",
+  "use at least {0} characters": "use pelo menos {0} caracteres",
+  "use at most {0} bytes": "use no máximo {0} bytes",
+  "Use it": "Usar",
+  "Use this device's location": "Usar a localização deste dispositivo",
+  "User": "Utilizador",
+  "User key": "Chave de utilizador",
+  "Username": "Nome de utilizador",
+  "username and password are required": "o nome de utilizador e a palavra-passe são obrigatórios",
+  "Users": "Utilizadores",
+  "Users and API tokens": "Utilizadores e tokens de API",
+  "Users and tokens": "Utilizadores e tokens",
+  "Valid JSON · unsaved": "JSON válido · não guardado",
+  "Value": "Valor",
+  "value must be a boolean, a number or a string": "value tem de ser um booleano, um número ou uma cadeia de caracteres",
+  "valve": "válvula",
+  "Valve": "Válvula",
+  "Valve position": "Posição da válvula",
+  "Valve Type": "Tipo de válvula",
+  "Version {version} · {host}": "Versão {version} · {host}",
+  "Very weak": "Muito fraco",
+  "Video Analysis Active": "Análise de vídeo",
+  "Violet": "Violeta",
+  "VOC": "COV",
+  "VOC density": "Densidade de COV",
+  "VOC Density": "COV",
+  "Voice": "Voz",
+  "Voice did not start: {error}": "A voz não iniciou: {error}",
+  "Voice language": "Idioma da voz",
+  "Voice needs HTTPS here: turn on https in Plugins › HomeswiftUI › Settings (or open the page on localhost).": "A voz requer HTTPS aqui: ative https em Plugins › HomeswiftUI › Definições (ou abra a página em localhost).",
+  "Voice needs HTTPS: turn on https in the HomeswiftUI settings, or open this page on localhost.": "A voz requer HTTPS: ative https nas definições do HomeswiftUI, ou abra esta página em localhost.",
+  "Voice stopped: {error}.": "A voz parou: {error}.",
+  "Volume": "Volume",
+  "Volume down": "Baixar volume",
+  "Volume Selector": "Volume",
+  "Volume up": "Aumentar volume",
+  "Waiting to be added (setup code on the Status page)": "A aguardar adição (código de configuração na página Estado)",
+  "Wallpaper": "Papel de parede",
+  "Warm white": "Branco quente",
+  "Warnings": "Avisos",
+  "Water": "Água",
+  "Water Level": "Nível da água",
+  "We": "Qua",
+  "Weak": "Fraco",
+  "Web Push to the browsers that turned it on below. It needs HTTPS (or localhost).": "Web Push para os navegadores que o ativaram abaixo. É necessário HTTPS (ou localhost).",
+  "Webhook": "Webhook",
+  "Wed": "Qua",
+  "What": "O quê",
+  "What can I do for you?": "Em que posso ajudar?",
+  "What does my bridge run?": "O que está a correr na minha ponte?",
+  "What needs attention today, from the log and the accessories": "O que precisa de atenção hoje, segundo o registo e os acessórios",
+  "What should {plugin} do? For example: \"add my second light at 192.168.1.40, and poll every 5 seconds\".": "O que deve fazer o {plugin}? Por exemplo: «adicione a minha segunda luz em 192.168.1.40 e consulte-a a cada 5 segundos».",
+  "What the bridge tells you when you are not looking: it started or stopped, a plugin reported an error, an accessory stopped responding, an automation failed.": "O que a ponte comunica quando não está a olhar: iniciou ou parou, um plugin reportou um erro, um acessório deixou de responder, uma automatização falhou.",
+  "What the Home app calls the bridge when it is added.": "O nome que a app Casa dá à ponte quando é adicionada.",
+  "What the lines are about": "Sobre o que são as linhas",
+  "What they sign in with: no spaces or colons.": "O que o utilizador usa para iniciar sessão: sem espaços nem dois pontos.",
+  "What uses it, to know it again.": "O que o usa, para o reconhecer.",
+  "What would change": "O que mudaria",
+  "What's new": "Novidades",
+  "When": "Quando",
+  "When {who} {characteristic} {comparison} {value}": "Quando {characteristic} de {who} {comparison} {value}",
+  "When {who} {characteristic} changes": "Quando {characteristic} de {who} muda",
+  "When an accessory changes": "Quando um acessório muda",
+  "Where the Home app finds the bridge": "Onde a app Casa encontra a ponte",
+  "Whether its provider answers, and what it costs.": "Se o fornecedor responde e quanto custa.",
+  "White": "Branco",
+  "Who": "Quem",
+  "Who may use this web UI. Administrators change settings, plugins and users; other users see the bridge and control accessories.": "Quem pode usar esta interface web. Os administradores alteram definições, plugins e utilizadores; os outros utilizadores veem a ponte e controlam os acessórios.",
+  "Who the Home app knows each server by": "Como a app Casa conhece cada servidor",
+  "Whose requests": "Pedidos de quem",
+  "Why is an accessory not responding?": "Porque é que um acessório não responde?",
+  "Wi Fi Router": "Router Wi-Fi",
+  "Wi Fi Satellite": "Satélite Wi-Fi",
+  "Wi Fi Transport": "Transporte Wi-Fi",
+  "Wi-Fi Capabilities": "Capacidades Wi-Fi",
+  "Wi-Fi Satellite Status": "Estado do satélite Wi-Fi",
+  "Window": "Janela",
+  "Window Covering": "Estore",
+  "Worth a look": "Merece atenção",
+  "Write it again": "Voltar a escrever",
+  "Write today's digest": "Escrever o resumo de hoje",
+  "Written {when}": "Escrito a {when}",
+  "Written {when} by {model}": "Escrito a {when} por {model}",
+  "Written by {model}. Passwords and tokens never reach it; check addresses and names before saving.": "Escrito por {model}. As palavras-passe e os tokens nunca lhe chegam; verifique endereços e nomes antes de guardar.",
+  "wrong set-up code: it is in the bridge's output, next to the web UI address": "código de configuração errado: está na saída da ponte, junto ao endereço da interface web",
+  "wrong username or password": "nome de utilizador ou palavra-passe incorretos",
+  "Yesterday": "Ontem",
+  "you": "a sua conta",
+  "Your account": "A sua conta",
+  "Your favourite accessories and the scenes, at hand.": "Os acessórios favoritos e as cenas, à mão.",
+  "Your image": "A sua imagem",
+  "Your image is the wallpaper now.": "A sua imagem é agora o papel de parede.",
+  "Your password and two-factor": "A palavra-passe e a autenticação de dois fatores",
+  "Your setup, in your words": "A sua instalação, por palavras suas",
+  "Your sign-in to this bridge's web UI, as an administrator.": "O seu início de sessão na interface web desta ponte, como administrador.",
+  "Your sign-in to this bridge's web UI.": "O seu início de sessão na interface web desta ponte.",
+  "Your user key and an application token from pushover.net.": "A chave de utilizador e um token de aplicação de pushover.net.",
+  "your username adds nothing": "o nome de utilizador não acrescenta nada"
+});
+
+"""#),
+        "i18n.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
+// The web UI's languages: English, French, Spanish and Portuguese. Loaded first, in the <head> of every page (the
+// server adds it to plugins' pages), it picks the language and writes the catalog's script tag, so the catalog runs
+// before any other script. The English text is the key: `t("Sign in")`, `t("Restart {name}", { name })`,
+// `tn("{n} line", "{n} lines", count)`; a text a catalog lacks stays English. Catalogs are i18n-fr.js, i18n-es.js and
+// i18n-pt.js, `HomeswiftI18n.add("fr", {…})` around one JSON object; a plugin's page adds its own strings the same
+// way from its own i18n.js. UITests.webStringsAreTranslated checks every t() and tn() literal is in each catalog.
+(() => {
+  "use strict";
+
+  const languages = ["en", "fr", "es", "pt"];
+  /// The language's own name, as the language picker shows it.
+  const names = { en: "English", fr: "Français", es: "Español", pt: "Português" };
+  /// The flags the language menus show beside the names.
+  const flags = { en: "🇬🇧", fr: "🇫🇷", es: "🇪🇸", pt: "🇵🇹" };
+  /// The region a language's dates and numbers take when the browser names none: Spain's Spanish, Portugal's Portuguese.
+  const regions = { en: "en-US", fr: "fr-FR", es: "es-ES", pt: "pt-PT" };
+
+  /// The user's choice, kept by common.js with their other preferences ("auto" follows the browser).
+  function chosen() {
+    try { return JSON.parse(localStorage.getItem("homeswift.preferences") || "{}").language || "auto"; } catch { return "auto"; }
+  }
+  const browser = (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || "en"]).map((tag) => String(tag));
+  /// "fr", "es", "pt" or "en" for a preference: a language of the four, or the browser's first one of them.
+  function resolve(preference) {
+    if (languages.includes(preference)) return preference;
+    for (const tag of browser) {
+      const primary = tag.toLowerCase().split("-")[0];
+      if (languages.includes(primary)) return primary;
+    }
+    return "en";
+  }
+  const language = resolve(chosen());
+  /// Dates and numbers: the browser's own variant of the language when it has one (fr-CA, en-GB), else the default region.
+  const locale = browser.find((tag) => tag.toLowerCase().split("-")[0] === language && tag.includes("-")) || regions[language];
+  document.documentElement.lang = locale;
+
+  const catalog = Object.create(null);
+  const plural = new Intl.PluralRules(locale);
+
+  const fill = (text, vars) => vars ? text.replace(/\{(\w+)\}/g, (whole, name) => (name in vars && vars[name] != null ? String(vars[name]) : whole)) : text;
+  const format = (vars) => {
+    if (!vars) return vars;
+    const out = {};
+    for (const [key, value] of Object.entries(vars)) out[key] = typeof value === "number" ? value.toLocaleString(locale) : value;
+    return out;
+  };
+
+  /// The text in the page's language, `{name}` filled from `vars` (numbers formatted for the locale). A key may end
+  /// with a context in brackets, for a word English uses in two senses: "On [setting]" is "On" in English.
+  function t(text, vars) {
+    const translated = catalog[text];
+    return fill(typeof translated === "string" && translated ? translated : text.replace(/ \[[\w ]+\]$/, ""), format(vars));
+  }
+
+  /// `one` or `other` by `count` as the page's language counts (French says "0 ligne"), `{n}` being the count.
+  function tn(one, other, count, vars) {
+    const key = plural.select(Number(count)) === "one" ? one : other;
+    return t(key, { n: count, ...vars });
+  }
+
+  // Server text (an error from /api, a name from HomeKit's definitions) is translated when a catalog knows it: as
+  // written, or as a key whose {placeholders} stand for its variable parts ("the image is too large: {0} MB at most").
+  let patterns = null;
+  const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  function message(text) {
+    if (text == null || language === "en") return text;
+    const value = String(text);
+    if (typeof catalog[value] === "string" && catalog[value]) return catalog[value];
+    if (!patterns) {
+      patterns = [];
+      for (const key of Object.keys(catalog)) {
+        const parts = key.split(/\{\w+\}/);
+        // A key of placeholders and little else would match anything.
+        if (parts.length < 2 || parts.join("").length < 8) continue;
+        const names = [...key.matchAll(/\{(\w+)\}/g)].map((match) => match[1]);
+        patterns.push({ key, names, fixed: parts.join("").length, pattern: new RegExp(`^${parts.map(escape).join("(.+?)")}$`, "s") });
+      }
+      // The most specific first: "the Assistant did not answer: {0}: HTTP {1}: {2}" before "…: {0}", "{0} must be {1}" last.
+      patterns.sort((a, b) => b.fixed - a.fixed);
+    }
+    for (const { key, names, pattern } of patterns) {
+      const match = value.match(pattern);
+      if (match) return fill(catalog[key], Object.fromEntries(names.map((name, index) => [name, match[index + 1]])));
+    }
+    return value;
+  }
+
+  /// A catalog's strings, for one language (`add("fr", {…})`) or several (`add({ fr: {…}, es: {…} })`, a plugin's).
+  function add(code, strings) {
+    if (typeof code === "object") { for (const [one, entries] of Object.entries(code)) add(one, entries); return; }
+    if (code !== language) return;
+    Object.assign(catalog, strings);
+    patterns = null;
+  }
+
+  /// Static HTML: an element with `data-i18n` has its own text and its title, aria-label, placeholder and alt translated.
+  function translate(root = document) {
+    for (const node of root.querySelectorAll("[data-i18n]")) {
+      for (const child of node.childNodes) {
+        if (child.nodeType !== Node.TEXT_NODE || !child.nodeValue.trim()) continue;
+        const [, before, text, after] = child.nodeValue.match(/^(\s*)([\s\S]*?)(\s*)$/);
+        child.nodeValue = before + t(text.replace(/\s+/g, " ")) + after;
+      }
+      for (const attribute of ["title", "aria-label", "placeholder", "alt"]) {
+        if (node.hasAttribute(attribute)) node.setAttribute(attribute, t(node.getAttribute(attribute)));
+      }
+    }
+  }
+
+  /// Before signing in, a language chosen from the sign-in page's flags: kept in this browser, and on the server once
+  /// the user signs in (common.js's loadPreferences); the page opens again in it.
+  function choose(code) {
+    try {
+      const kept = JSON.parse(localStorage.getItem("homeswift.preferences") || "{}");
+      localStorage.setItem("homeswift.preferences", JSON.stringify({ ...kept, language: code }));
+      localStorage.setItem("homeswift.language-chosen", code);
+    } catch { return; }
+    if (resolve(code) !== language) location.reload();
+  }
+
+  window.HomeswiftI18n = { languages, names, flags, language, locale, t, tn, message, add, translate, resolve, choose };
+
+  // The catalog before the page's other scripts: a parser-inserted script written here runs before the next one.
+  if (language !== "en" && document.readyState === "loading") document.write(`<script src="/i18n-${language}.js"><\/script>`);
+  if (language !== "en") {
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => translate());
+    else translate();
+  }
 })();
 
 """#),
@@ -6215,6 +11722,7 @@ enum WebAssets {
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="stylesheet" href="/style.css">
+<script src="/i18n.js"></script>
 </head>
 <body>
 <div id="auth" class="auth hidden">
@@ -6222,30 +11730,30 @@ enum WebAssets {
     <img src="/icon.svg" class="logo large" alt="">
     <h1>Homeswift</h1>
     <p id="auth-text"></p>
-    <label>Username <input name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required></label>
-    <label>Password <input name="password" type="password" autocomplete="current-password" required minlength="1"></label>
-    <label id="auth-otp" class="hidden">Code from your authenticator app <input name="otp" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" placeholder="123 456" maxlength="9"></label>
-    <label id="auth-setup-code" class="hidden">Set-up code <input name="setupCode" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX"></label>
+    <label data-i18n>Username <input name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required></label>
+    <label data-i18n>Password <input name="password" type="password" autocomplete="current-password" required minlength="1"></label>
+    <label id="auth-otp" class="hidden" data-i18n>Code from your authenticator app <input name="otp" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" placeholder="123 456" maxlength="9"></label>
+    <label id="auth-setup-code" class="hidden" data-i18n>Set-up code <input name="setupCode" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX"></label>
     <p class="error" id="auth-error"></p>
-    <button type="submit" id="auth-submit" class="primary">Sign in</button>
+    <button type="submit" id="auth-submit" class="primary" data-i18n>Sign in</button>
   </form>
 </div>
 <div id="app" class="hidden">
   <header>
     <a class="brand" href="/" aria-label="Homeswift" title="Homeswift"><img src="/icon.svg" class="logo" alt=""></a>
     <nav>
-      <a href="/status">Status</a>
-      <a href="/accessories">Accessories</a>
-      <a href="/scenes">Scenes</a>
-      <a href="/plugins">Plugins</a>
-      <a href="/config">Config</a>
-      <a href="/logs">Logs</a>
-      <a href="/settings">Settings</a>
+      <a href="/status" data-i18n>Status</a>
+      <a href="/accessories" data-i18n>Accessories</a>
+      <a href="/scenes" data-i18n>Scenes</a>
+      <a href="/plugins" data-i18n>Plugins</a>
+      <a href="/config" data-i18n>Config</a>
+      <a href="/logs" data-i18n>Logs</a>
+      <a href="/settings" data-i18n>Settings</a>
     </nav>
     <span class="spacer"></span>
-    <button id="user" type="button" class="user-button" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu"><span class="user-avatar" aria-hidden="true"></span><span class="user-name"></span></button>
+    <button id="user" type="button" class="user-button" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu" data-i18n><span class="user-avatar" aria-hidden="true"></span><span class="user-name"></span></button>
   </header>
-  <div id="banner" class="banner hidden">Some changes need a restart of homeswift. <button id="restart" class="link">Restart now</button></div>
+  <div id="banner" class="banner hidden" data-i18n>Some changes need a restart of homeswift. <button id="restart" class="link" data-i18n>Restart now</button></div>
   <main id="view"></main>
 </div>
 <script src="/common.js"></script>
@@ -6301,6 +11809,7 @@ enum WebAssets {
   const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
 
   const { $, el, icon, tile, fact, markdown, sparkle, api, assistantRequest, formatTemperature, temperature } = HomeswiftCommon;
+  const { t } = HomeswiftI18n;
 
   /// This plugin instance's own routes (its handleWebRequest).
   const request = (path, options) => api(prefix + String(path).replace(/^\//, ""), options);
@@ -6320,12 +11829,12 @@ enum WebAssets {
     const box = el("div", { class: "explain" });
     assistant().then((state) => {
       if (!state.enabled) return;
-      const button = el("button", { class: "ai-button", title: `Ask the Assistant (${state.provider})` }, sparkle(), el("span", { text: "Explain" }));
-      const card = el("div", { class: "ai-card hidden", role: "region", "aria-label": "The Assistant's explanation", "aria-live": "polite" });
+      const button = el("button", { class: "ai-button", title: t("Ask the Assistant ({provider})", { provider: state.provider }) }, sparkle(), el("span", { text: t("Explain") }));
+      const card = el("div", { class: "ai-card hidden", role: "region", "aria-label": t("The Assistant's explanation"), "aria-live": "polite" });
       const show = (entry) => {
         card.classList.remove("hidden", "thinking", "answered", "failed");
         button.classList.add("hidden");
-        const close = el("button", { class: "ai-close", title: "Close", "aria-label": "Close the explanation", text: "×", onclick: () => {
+        const close = el("button", { class: "ai-close", title: t("Close"), "aria-label": t("Close the explanation"), text: "×", onclick: () => {
           card.classList.add("hidden");
           button.classList.remove("hidden");
         } });
@@ -6333,27 +11842,27 @@ enum WebAssets {
         if (entry.pending) {
           card.classList.add("thinking");
           // The answer as it is written, once it starts.
-          const live = el("div", { class: "ai-live" }, entry.text ? markdown(entry.text) : el("p", { class: "ai-thinking", text: "Thinking about it…" }));
+          const live = el("div", { class: "ai-live" }, entry.text ? markdown(entry.text) : el("p", { class: "ai-thinking", text: t("Thinking about it…") }));
           entry.draw = () => { if (live.isConnected) live.replaceChildren(markdown(entry.text)); };
-          card.replaceChildren(el("div", { class: "ai-inner" }, head("Assistant"), live));
+          card.replaceChildren(el("div", { class: "ai-inner" }, head(t("Assistant")), live));
           entry.pending.finally(() => { if (document.body.contains(card) && !card.classList.contains("hidden")) show(explanations.get(error)); });
           return;
         }
         if (entry.failed) {
           card.classList.add("failed");
-          card.replaceChildren(el("div", { class: "ai-inner" }, head("Assistant"),
+          card.replaceChildren(el("div", { class: "ai-inner" }, head(t("Assistant")),
             el("p", { class: "error", text: entry.failed }),
-            el("button", { class: "link", text: "Try again", onclick: () => { explanations.delete(error); explainNow(); } })));
+            el("button", { class: "link", text: t("Try again"), onclick: () => { explanations.delete(error); explainNow(); } })));
           return;
         }
         card.classList.add("answered");
         const body = markdown(entry.text);
         body.classList.add("ai-body");
-        const more = el("button", { class: "link ai-more", text: "Show more", onclick: () => {
+        const more = el("button", { class: "link ai-more", text: t("Show more"), onclick: () => {
           body.classList.toggle("clamped");
-          more.textContent = body.classList.contains("clamped") ? "Show more" : "Show less";
+          more.textContent = body.classList.contains("clamped") ? t("Show more") : t("Show less");
         } });
-        card.replaceChildren(el("div", { class: "ai-inner" }, head(`Assistant · ${entry.model || state.model}`), body, more));
+        card.replaceChildren(el("div", { class: "ai-inner" }, head(t("Assistant · {model}", { model: entry.model || state.model })), body, more));
         // Long answers open on their first lines, with the rest a click away.
         requestAnimationFrame(() => {
           body.classList.add("clamped");
@@ -6396,18 +11905,18 @@ enum WebAssets {
     let auth = { mode: "none" };
     const avatar = el("span", { class: "user-avatar", "aria-hidden": "true" }, HomeswiftCommon.icon("user"));
     const userName = el("span", { class: "user-name" });
-    const user = el("button", { id: "user", type: "button", class: "user-button", "aria-haspopup": "menu", "aria-expanded": "false", "aria-label": "Account menu" }, avatar, userName);
+    const user = el("button", { id: "user", type: "button", class: "user-button", "aria-haspopup": "menu", "aria-expanded": "false", "aria-label": t("Account menu") }, avatar, userName);
     const shownName = () => (auth.mode === "form" ? (auth.name && auth.name !== auth.username ? auth.name : auth.username || "") : "");
     user.addEventListener("click", (event) => {
       event.stopPropagation();
       const form = auth.mode === "form";
       HomeswiftCommon.menu(user, [
-        form ? { heading: shownName(), detail: `${auth.username}${auth.admin ? " · Administrator" : ""}` } : { heading: "No sign-in", detail: "Anyone who opens this web UI uses it" },
-        { label: form ? "Your account" : "Account", icon: "user", href: "/account" },
-        { label: "Appearance", icon: "sliders", href: "/appearance" },
-        form && auth.admin ? { label: "Users and tokens", icon: "users", href: "/users" } : null,
+        form ? { heading: shownName(), detail: auth.admin ? t("{username} · Administrator", { username: auth.username }) : auth.username } : { heading: t("No sign-in"), detail: t("Anyone who opens this web UI uses it") },
+        { label: form ? t("Your account") : t("Account"), icon: "user", href: "/account" },
+        { label: t("Appearance"), icon: "sliders", href: "/appearance" },
+        form && auth.admin ? { label: t("Users and tokens"), icon: "users", href: "/users" } : null,
         form ? { separator: true } : null,
-        form ? { label: "Sign out", icon: "logout", onSelect: async () => {
+        form ? { label: t("Sign out"), icon: "logout", onSelect: async () => {
           try { await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }); } catch {}
           location.href = "/";
         } } : null,
@@ -6415,7 +11924,7 @@ enum WebAssets {
     });
     header.replaceChildren(
       el("a", { class: "brand", href: "/", "aria-label": "Homeswift", title: "Homeswift" }, el("img", { src: "/icon.svg", class: "logo", alt: "" })),
-      el("nav", { "aria-label": "Sections" }, sections.map(([path, text]) => el("a", { href: path, text, class: path === "/plugins" ? "active" : "" }))),
+      el("nav", { "aria-label": t("Sections") }, sections.map(([path, text]) => el("a", { href: path, text, class: path === "/plugins" ? "active" : "" }))),
       el("span", { class: "spacer" }), user);
     // On a phone the sections sit in a tab bar at the bottom, as on the UI's own pages; the page also extends
     // under the notch and the home indicator, which the layout pads around.
@@ -6463,7 +11972,7 @@ enum WebAssets {
   function breadcrumb(text, close) {
     opened = text ? { text, close } : null;
     const crumb = (content, current) => el("li", current ? { "aria-current": "page" } : {}, content);
-    const levels = [crumb(el("a", { href: "/plugins", text: "Plugins" }))];
+    const levels = [crumb(el("a", { href: "/plugins", text: t("Plugins") }))];
     const pageLevel = name !== pageTitle ? `${pageTitle} · ${name}` : pageTitle;
     levels.push(opened
       ? crumb(el("a", { href: "#", text: pageLevel, onclick: (event) => { event.preventDefault(); opened?.close?.(); } }))
@@ -6476,30 +11985,30 @@ enum WebAssets {
     // Pause, at the right of the breadcrumb: the plugin stops calling its devices (an app sharing the account
     // keeps its session) until Resume, which a banner offers while it is paused.
     const toggle = el("button", { type: "button", class: "link pause-toggle hidden" });
-    main.prepend(el("nav", { class: "breadcrumb", "aria-label": "Breadcrumb" }, trail, toggle));
+    main.prepend(el("nav", { class: "breadcrumb", "aria-label": t("Breadcrumb") }, trail, toggle));
     breadcrumb(null);
     api("/api/plugins").then(({ platforms }) => {
       const instance = platforms.find((p) => p.platform === platform && p.name === name);
       if (!instance) return;
       const set = (paused) => act(toggle, () => HomeswiftCommon.setPaused(platform, name, paused).then(() => location.reload()));
-      toggle.replaceChildren(icon(instance.paused ? "play" : "pause"), el("span", { text: instance.paused ? "Resume" : "Pause" }));
-      toggle.title = instance.paused ? "Run the plugin again" : "Stop the plugin's calls to its devices for now";
+      toggle.replaceChildren(icon(instance.paused ? "play" : "pause"), el("span", { text: instance.paused ? t("Resume") : t("Pause") }));
+      toggle.title = instance.paused ? t("Run the plugin again") : t("Stop the plugin's calls to its devices for now");
       toggle.onclick = () => set(!instance.paused);
       toggle.classList.remove("hidden");
       if (instance.paused) {
         main.querySelector(".breadcrumb").after(el("div", { class: "card page-note paused-note" },
-          el("p", {}, el("strong", { text: "Paused. " }), "The plugin makes no calls to its devices, and they show No Response in the Home app. This page needs it running."),
-          el("button", { class: "primary", text: "Resume", onclick: (event) => act(event.currentTarget, () => HomeswiftCommon.setPaused(platform, name, false).then(() => location.reload())) })));
+          el("p", {}, el("strong", { text: t("Paused.") }), " ", t("The plugin makes no calls to its devices, and they show No Response in the Home app. This page needs it running.")),
+          el("button", { class: "primary", text: t("Resume"), onclick: (event) => act(event.currentTarget, () => HomeswiftCommon.setPaused(platform, name, false).then(() => location.reload())) })));
       }
     }).catch(() => {});
     // Expert, last on the page once the page's own script has laid it out: the whole block as config.json
     // keeps it, as a form or as JSON, for what the page itself does not set.
     const expert = (mode) => `${address}/expert${mode === "json" ? "/json" : ""}`;
     const section = el("section", { class: "expert", "aria-labelledby": "expert-title" },
-      el("div", { class: "section-head" }, el("h2", { id: "expert-title", text: "Expert" })),
+      el("div", { class: "section-head" }, el("h2", { id: "expert-title", text: t("Expert") })),
       el("div", { class: "card page-note" },
-        el("p", { class: "muted", text: "Every setting of this plugin's block, as config.json keeps it, including what this page does not show." }),
-        el("div", { class: "expert-links" }, el("a", { class: "button", href: expert("form"), text: "Form" }), el("a", { class: "button", href: expert("json"), text: "JSON" }))));
+        el("p", { class: "muted", text: t("Every setting of this plugin's block, as config.json keeps it, including what this page does not show.") }),
+        el("div", { class: "expert-links" }, el("a", { class: "button", href: expert("form"), text: t("Form") }), el("a", { class: "button", href: expert("json"), text: "JSON" }))));
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => main.append(section));
     else main.append(section);
   }
@@ -6545,7 +12054,7 @@ enum WebAssets {
   function updateDevice(mac, change) {
     return updateDevices((devices) => {
       const index = devices.findIndex((device) => sameMAC(device.mac, mac));
-      if (index < 0) throw new Error("This device is not in the configuration.");
+      if (index < 0) throw new Error(t("This device is not in the configuration."));
       const replacement = change(devices[index]);
       if (replacement === null) devices.splice(index, 1);
       else if (replacement) devices[index] = replacement;
@@ -6626,6 +12135,7 @@ enum WebAssets {
 (() => {
   "use strict";
 
+  const { t, tn } = HomeswiftI18n;
   const icons = {
     up: '<path d="M6 15l6-6 6 6"/>', down: '<path d="M6 9l6 6 6-6"/>', left: '<path d="M15 6l-6 6 6 6"/>', right: '<path d="M9 6l6 6-6 6"/>',
     back: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
@@ -6637,8 +12147,8 @@ enum WebAssets {
     power: '<path d="M12 3v9"/><path d="M6.3 7.2a8 8 0 1 0 11.4 0"/>',
   };
   const labels = {
-    up: "Up", down: "Down", left: "Left", right: "Right", select: "OK", back: "Back", home: "Home", info: "Info",
-    playPause: "Play/Pause", mute: "Mute", volumeUp: "Volume up", volumeDown: "Volume down", power: "Power",
+    up: t("Up"), down: t("Down"), left: t("Left"), right: t("Right"), select: t("OK"), back: t("Back"), home: t("Home"), info: t("Info"),
+    playPause: t("Play/Pause"), mute: t("Mute"), volumeUp: t("Volume up"), volumeDown: t("Volume down"), power: t("Power"),
   };
   const keyboard = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", Enter: "select", Backspace: "back", " ": "playPause" };
 
@@ -6652,7 +12162,7 @@ enum WebAssets {
 
   /// `actions`: the actions this TV takes (others are left out). `send(action)`: a promise. `disabled`: the
   /// TV cannot take keys now. `extra`: nodes for the side (a power or Ambilight button).
-  function build({ actions, send, disabled = false, label = "Remote", extra = [] }) {
+  function build({ actions, send, disabled = false, label = t("Remote"), extra = [] }) {
     const has = new Set(actions);
     const remote = document.createElement("div");
     remote.className = `mini-remote${disabled ? " is-disabled" : ""}`;
@@ -6682,9 +12192,9 @@ enum WebAssets {
     const pad = document.createElement("div");
     pad.className = "pad";
     pad.tabIndex = disabled ? -1 : 0;
-    pad.setAttribute("aria-label", `${label}: arrows move, Enter selects, Backspace goes back`);
+    pad.setAttribute("aria-label", t("{remote}: arrows move, Enter selects, Backspace goes back", { remote: label }));
     const ok = document.createElement("span");
-    ok.textContent = "OK";
+    ok.textContent = t("OK");
     pad.append(key("up", "pad-key up"), key("left", "pad-key left"), key("select", "pad-ok", ok), key("right", "pad-key right"), key("down", "pad-key down"));
     pad.addEventListener("keydown", (event) => {
       const action = keyboard[event.key];
@@ -6704,7 +12214,7 @@ enum WebAssets {
       const rocker = document.createElement("div");
       rocker.className = "rocker";
       rocker.setAttribute("role", "group");
-      rocker.setAttribute("aria-label", "Volume");
+      rocker.setAttribute("aria-label", t("Volume"));
       rocker.append(key("volumeUp", "rocker-key"), key("volumeDown", "rocker-key"));
       side.append(rocker);
     }
@@ -7881,6 +13391,12 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .auth h1 { margin-top: 6px; }
 .auth button { width: 100%; margin-top: 10px; }
 .auth p.error:empty { display: none; }
+/* The sign-in page's language flags, quiet under the button; the page's own is lit. */
+.auth .auth-languages { display: flex; justify-content: center; gap: 4px; margin-top: 14px; }
+.auth .auth-languages button { width: auto; margin: 0; padding: 4px 8px; min-height: 0; font-size: 1.25rem; line-height: 1; background: none; border-color: transparent; box-shadow: none; opacity: 0.5; transition: opacity var(--fast, 150ms) ease; }
+.auth .auth-languages button:hover, .auth .auth-languages button[aria-pressed="true"] { opacity: 1; }
+.auth .auth-languages button[aria-pressed="true"] { background: var(--material-thin); border-color: var(--line); }
+.menu-flag { width: 18px; flex: none; text-align: center; font-size: 1rem; line-height: 1; }
 /* The OAuth sign-in page (authorize.html): one choice per scope, each saying what it allows; Deny and Allow side by side. */
 .auth .scopes { display: grid; gap: 8px; margin: 14px 0 8px; padding: 0; border: 0; background: none; }
 .auth .scopes legend { padding: 0; margin-bottom: 2px; }
@@ -8660,24 +14176,25 @@ self.addEventListener("notificationclick", (event) => {
   "use strict";
 
   const { el, menuButton, api } = HomeswiftCommon;
+  const { t, tn } = HomeswiftI18n;
 
   // ---- Values -------------------------------------------------------------------------------------------
 
   const enumLabels = {
-    "Lock Target State": ["Unsecured", "Secured"], "Lock Current State": ["Unsecured", "Secured", "Jammed", "Unknown"],
-    "Target Door State": ["Open", "Closed"], "Current Door State": ["Open", "Closed", "Opening", "Closing", "Stopped"],
-    "Security System Target State": ["Home", "Away", "Night", "Off"], "Security System Current State": ["Home", "Away", "Night", "Off", "Alarm"],
-    "Active": ["Inactive", "Active"], "Target Heating Cooling State": ["Off", "Heat", "Cool", "Auto"], "Current Heating Cooling State": ["Off", "Heating", "Cooling"],
-    "Target Heater-Cooler State": ["Auto", "Heat", "Cool"], "Current Heater-Cooler State": ["Inactive", "Idle", "Heating", "Cooling"],
-    "Target Fan State": ["Manual", "Auto"], "Current Fan State": ["Inactive", "Idle", "Blowing"], "Rotation Direction": ["Clockwise", "Counter-clockwise"],
-    "Swing Mode": ["Disabled", "Enabled"], "Programmable Switch Event": ["Single press", "Double press", "Long press"],
-    "Contact Sensor State": ["Contact", "No contact"], "Temperature Display Units": ["Celsius", "Fahrenheit"],
-    "Air Quality": ["Unknown", "Excellent", "Good", "Fair", "Inferior", "Poor"], "Charging State": ["Not charging", "Charging", "Not chargeable"],
-    "Status Low Battery": ["Normal", "Low"], "Leak Detected": ["Dry", "Leak"], "Smoke Detected": ["Clear", "Smoke"], "Carbon Monoxide Detected": ["Normal", "Abnormal"],
-    "Carbon Dioxide Detected": ["Normal", "Abnormal"], "Target Air Purifier State": ["Manual", "Auto"], "Current Air Purifier State": ["Inactive", "Idle", "Purifying"],
-    "Motion Detected": ["No motion", "Motion"], "Occupancy Detected": ["Not occupied", "Occupied"], "Mute": ["Off", "On"],
-    "Position State": ["Closing", "Opening", "Stopped"], "Filter Change Indication": ["OK", "Replace"], "In Use": ["Not in use", "In use"],
-    "Lock Physical Controls": ["Unlocked", "Locked"], "Valve Type": ["Valve", "Irrigation", "Shower head", "Faucet"],
+    "Lock Target State": [t("Unsecured"), t("Secured")], "Lock Current State": [t("Unsecured"), t("Secured"), t("Jammed"), t("Unknown")],
+    "Target Door State": [t("Open"), t("Closed")], "Current Door State": [t("Open"), t("Closed"), t("Opening"), t("Closing"), t("Stopped")],
+    "Security System Target State": [t("Home [alarm]"), t("Away"), t("Night"), t("Off [alarm]")], "Security System Current State": [t("Home [alarm]"), t("Away"), t("Night"), t("Off [alarm]"), t("Alarm")],
+    "Active": [t("Inactive"), t("Active")], "Target Heating Cooling State": [t("Off"), t("Heat"), t("Cool"), t("Auto")], "Current Heating Cooling State": [t("Off"), t("Heating"), t("Cooling")],
+    "Target Heater-Cooler State": [t("Auto"), t("Heat"), t("Cool")], "Current Heater-Cooler State": [t("Inactive"), t("Idle"), t("Heating"), t("Cooling")],
+    "Target Fan State": [t("Manual"), t("Auto")], "Current Fan State": [t("Inactive"), t("Idle"), t("Blowing")], "Rotation Direction": [t("Clockwise"), t("Counter-clockwise")],
+    "Swing Mode": [t("Disabled"), t("Enabled")], "Programmable Switch Event": [t("Single press"), t("Double press"), t("Long press")],
+    "Contact Sensor State": [t("Contact"), t("No contact")], "Temperature Display Units": ["Celsius", "Fahrenheit"],
+    "Air Quality": [t("Unknown"), t("Excellent"), t("Good"), t("Fair"), t("Inferior"), t("Poor")], "Charging State": [t("Not charging"), t("Charging"), t("Not chargeable")],
+    "Status Low Battery": [t("Normal"), t("Low")], "Leak Detected": [t("Dry"), t("Leak")], "Smoke Detected": [t("Clear [smoke]"), t("Smoke")], "Carbon Monoxide Detected": [t("Normal"), t("Abnormal")],
+    "Carbon Dioxide Detected": [t("Normal"), t("Abnormal")], "Target Air Purifier State": [t("Manual"), t("Auto")], "Current Air Purifier State": [t("Inactive"), t("Idle"), t("Purifying")],
+    "Motion Detected": [t("No motion"), t("Motion")], "Occupancy Detected": [t("Not occupied"), t("Occupied")], "Mute": [t("Off [setting]"), t("On [setting]")],
+    "Position State": [t("Closing"), t("Opening"), t("Stopped")], "Filter Change Indication": [t("OK"), t("Replace [filter]")], "In Use": [t("Not in use"), t("In use")],
+    "Lock Physical Controls": [t("Unlocked"), t("Locked")], "Valve Type": [t("Valve"), t("Irrigation"), t("Shower head"), t("Faucet")],
   };
   // What HomeKit needs to describe an accessory rather than a state a person reads or changes: kept off the page.
   const plumbing = new Set([
@@ -8692,13 +14209,19 @@ self.addEventListener("notificationclick", (event) => {
   // On and off as 1 and 0.
   const numericSwitches = new Set(["HomeKit Camera Active"]);
   const rowLabels = {
-    "Active Identifier": "Input", "Remote Key": "Remote", "Volume Selector": "Volume",
-    "HomeKit Camera Active": "On in the Home app", "Camera Operating Mode Indicator": "Status light",
+    "Active Identifier": t("Input"), "Remote Key": t("Remote"), "Volume Selector": t("Volume"),
+    "HomeKit Camera Active": t("On in the Home app"), "Camera Operating Mode Indicator": t("Status light"),
   };
 
   const serviceKey = (service) => service.subtype || service.type;
   /// "Color Temperature" reads "Color temperature".
   const sentence = (type) => type.charAt(0) + type.slice(1).toLowerCase();
+  /// A characteristic's name from HomeKit's definitions as a row reads it: translated when the catalog knows it,
+  /// else in sentence case.
+  const typeName = (type) => { const translated = HomeswiftI18n.message(type); return translated !== type ? translated : sentence(type); };
+  /// A number as the page's language writes it: "21,5" in French.
+  const decimal = (1.5).toLocaleString(HomeswiftI18n.locale).charAt(1);
+  const num = (value) => typeof value === "number" ? String(value).replace(".", decimal) : value;
   /// The text for an enumerated value, or the value itself.
   function labelFor(type, value) {
     const labels = enumLabels[type];
@@ -8711,9 +14234,9 @@ self.addEventListener("notificationclick", (event) => {
   const unit = (characteristic) => characteristic.unit === "celsius" ? ` ${HomeswiftCommon.temperature(0).unit}` : units[characteristic.unit] || "";
   /// A value with its characteristic's unit, a temperature converted to the user's unit.
   const withUnit = (value, characteristic) =>
-    characteristic.unit === "celsius" && typeof value === "number" ? HomeswiftCommon.formatTemperature(value) : `${value}${unit(characteristic)}`;
+    characteristic.unit === "celsius" && typeof value === "number" ? HomeswiftCommon.formatTemperature(value) : `${num(value)}${unit(characteristic)}`;
   function formatValue(characteristic) {
-    if (characteristic.format === "bool") return characteristic.value ? "On" : "Off";
+    if (characteristic.format === "bool") return characteristic.value ? t("On [setting]") : t("Off [setting]");
     if (characteristic.value === null || characteristic.value === undefined) return "";
     return withUnit(characteristic.value, characteristic);
   }
@@ -8729,15 +14252,15 @@ self.addEventListener("notificationclick", (event) => {
     return min === undefined || max === undefined || !step ? Infinity : Math.round((max - min) / step);
   }
   /// A temperature (HomeKit's °C) in the user's unit, as the dials show it: "21.5°".
-  const degrees = (celsius) => { const { value } = HomeswiftCommon.temperature(celsius); return `${Number.isInteger(value) ? value : value.toFixed(1)}°`; };
+  const degrees = (celsius) => { const { value } = HomeswiftCommon.temperature(celsius); return `${Number.isInteger(value) ? value : value.toFixed(1).replace(".", decimal)}°`; };
   const clock = (seconds) => `${Math.floor(seconds / 60)}:${String(Math.max(0, Math.round(seconds % 60))).padStart(2, "0")}`;
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
   /// A colour temperature in mireds (what HomeKit sends) in kelvin, to the nearest 50.
   const kelvin = (mireds) => Math.round(1e6 / mireds / 50) * 50;
   /// About the colour of white light at `k` kelvin, for a tile and the temperature track.
   function whiteColor(k, lightness = 70) {
-    const t = clamp((k - 2700) / (6500 - 2700), 0, 1);
-    return `hsl(${Math.round(32 + t * 178)} ${Math.round(90 - t * 70)}% ${lightness}%)`;
+    const share = clamp((k - 2700) / (6500 - 2700), 0, 1);
+    return `hsl(${Math.round(32 + share * 178)} ${Math.round(90 - share * 70)}% ${lightness}%)`;
   }
 
   function describeModel(accessory) {
@@ -8758,8 +14281,10 @@ self.addEventListener("notificationclick", (event) => {
       const last = parts[parts.length - 1];
       if (last) return sentence(words(last));
     }
-    return words(service.type);
+    return serviceName(words(service.type));
   }
+  /// A service type from HomeKit's definitions ("Temperature Sensor"), translated when the catalog knows it.
+  const serviceName = (text) => HomeswiftI18n.message(text);
 
   // ---- An accessory on the page: its values, writes and painters --------------------------------------
 
@@ -8788,10 +14313,14 @@ self.addEventListener("notificationclick", (event) => {
     /// marked) asks first unless the control was held to confirm (`held`).
     ctx.write = async (service, characteristic, value, { held = false } = {}) => {
       // A paused plugin's accessory answers nothing: say so rather than ask.
-      if (accessory.paused) { ctx.flash(`${accessory.platformName ?? "Its plugin"} is paused: resume it to control ${accessory.name}`); return; }
+      if (accessory.paused) {
+        ctx.flash(accessory.platformName ? t("{plugin} is paused: resume it to control {name}", { plugin: accessory.platformName, name: accessory.name })
+          : t("Its plugin is paused: resume it to control {name}", { name: accessory.name }));
+        return;
+      }
       if (characteristic.security && !held) {
-        const label = characteristic.format === "bool" ? (value ? "On" : "Off") : labelFor(characteristic.type, value);
-        if (!confirm(`Set ${sentence(characteristic.type).toLowerCase()} of ${accessory.name} to ${label}?`)) { ctx.paint(); return; }
+        const label = characteristic.format === "bool" ? (value ? t("On") : t("Off")) : labelFor(characteristic.type, value);
+        if (!confirm(t("Set {setting} of {name} to {value}?", { setting: typeName(characteristic.type).toLowerCase(), name: accessory.name, value: label }))) { ctx.paint(); return; }
       }
       const before = characteristic.value;
       characteristic.value = value;
@@ -8949,7 +14478,7 @@ self.addEventListener("notificationclick", (event) => {
   function steps({ label, count }, onChange) {
     const node = el("div", { class: "steps", role: "radiogroup", "aria-label": label });
     const bars = Array.from({ length: count }, (_, index) => {
-      const bar = el("button", { type: "button", role: "radio", "aria-label": `${label} ${index + 1} of ${count}`, onclick: () => { show(index + 1); onChange(index + 1); } });
+      const bar = el("button", { type: "button", role: "radio", "aria-label": t("{label} {n} of {count}", { label, n: index + 1, count }), onclick: () => { show(index + 1); onChange(index + 1); } });
       bar.style.height = `${Math.round(38 + (62 * (index + 1)) / count)}%`;
       return bar;
     });
@@ -8983,8 +14512,9 @@ self.addEventListener("notificationclick", (event) => {
       clearTimeout(timer);
       timer = setTimeout(() => { timer = null; onChange(value); }, 600);
     };
-    const round = (glyph, text, delta) => el("button", { type: "button", class: "round", "aria-label": `${text} ${label.toLowerCase()}`, onclick: () => bump(delta) }, icon(glyph));
-    const node = el("div", { class: "setpoint" }, round("minus", "Lower", -step), el("div", { class: "sp-value", "aria-live": "polite" }, number, caption), round("plus", "Raise", step));
+    const round = (glyph, text, delta) => el("button", { type: "button", class: "round", "aria-label": text, onclick: () => bump(delta) }, icon(glyph));
+    const node = el("div", { class: "setpoint" }, round("minus", t("Lower {setting}", { setting: label.toLowerCase() }), -step),
+      el("div", { class: "sp-value", "aria-live": "polite" }, number, caption), round("plus", t("Raise {setting}", { setting: label.toLowerCase() }), step));
     return { node, set: (next) => { if (!timer) show(next); } };
   }
 
@@ -9022,7 +14552,7 @@ self.addEventListener("notificationclick", (event) => {
         const [x1, y1] = point(angle(to), r - 13), [x2, y2] = point(angle(to), r + 13);
         tick.setAttribute("x1", x1.toFixed(2)); tick.setAttribute("y1", y1.toFixed(2)); tick.setAttribute("x2", x2.toFixed(2)); tick.setAttribute("y2", y2.toFixed(2));
       }
-      svg.setAttribute("aria-label", known ? `${caption}: ${degrees(+value.toFixed(1))}` : caption);
+      svg.setAttribute("aria-label", known ? t("{label}: {value}", { label: caption, value: degrees(+value.toFixed(1)) }) : caption);
     }
     return { node: svg, update };
   }
@@ -9090,7 +14620,7 @@ self.addEventListener("notificationclick", (event) => {
     node.addEventListener("keydown", (event) => { if ((event.key === " " || event.key === "Enter") && !event.repeat) { event.preventDefault(); start(); } });
     node.addEventListener("keyup", (event) => { if (event.key === " " || event.key === "Enter") cancel(); });
     node.addEventListener("click", (event) => event.preventDefault());
-    const name = (next) => { text.textContent = next; fillText.textContent = next; node.setAttribute("aria-label", `${next} (press and hold)`); };
+    const name = (next) => { text.textContent = next; fillText.textContent = next; node.setAttribute("aria-label", t("{action} (press and hold)", { action: next })); };
     name(label);
     return { node, label: name };
   }
@@ -9121,14 +14651,14 @@ self.addEventListener("notificationclick", (event) => {
 
   // ---- Rows: a characteristic as a labelled control, for what no widget draws --------------------------
 
-  const remoteKeys = [["←", 6, "Left"], ["↑", 4, "Up"], ["↓", 5, "Down"], ["→", 7, "Right"], ["Select", 8], ["Back", 9], ["Play/Pause", 11], ["Info", 15]];
+  const remoteKeys = [["←", 6, t("Left")], ["↑", 4, t("Up")], ["↓", 5, t("Down")], ["→", 7, t("Right")], [t("Select [remote]"), 8], [t("Back"), 9], [t("Play/Pause"), 11], [t("Info"), 15]];
 
   function controlFor(ctx, service, characteristic) {
     const writable = canWrite(characteristic), readable = canRead(characteristic);
     const labels = enumLabels[characteristic.type];
     const write = (value) => ctx.write(service, characteristic, value);
     if (writable && (characteristic.format === "bool" || numericSwitches.has(characteristic.type))) {
-      const control = toggle(`${ctx.accessory.name}: ${sentence(characteristic.type)}`, (on) => write(onValue(characteristic, on)));
+      const control = toggle(t("{name}: {setting}", { name: ctx.accessory.name, setting: typeName(characteristic.type) }), (on) => write(onValue(characteristic, on)));
       ctx.watch(() => control.set(isOn(characteristic)));
       return control.node;
     }
@@ -9138,17 +14668,17 @@ self.addEventListener("notificationclick", (event) => {
     }
     if (writable && !readable && characteristic.type === "Volume Selector") {
       const send = (value) => ctx.send(service, characteristic, value).catch((e) => ctx.flash(e.message));
-      return el("div", { class: "group" }, el("button", { text: "−", "aria-label": "Volume down", onclick: () => send(1) }), el("button", { text: "+", "aria-label": "Volume up", onclick: () => send(0) }));
+      return el("div", { class: "group" }, el("button", { text: "−", "aria-label": t("Volume down"), onclick: () => send(1) }), el("button", { text: "+", "aria-label": t("Volume up"), onclick: () => send(0) }));
     }
     if (writable && (characteristic.validValues || labels)) {
       const values = characteristic.validValues || labels.map((_, index) => index);
-      const select = el("select", { "aria-label": sentence(characteristic.type) }, values.map((value) => el("option", { value, text: labelFor(characteristic.type, value) })));
+      const select = el("select", { "aria-label": typeName(characteristic.type) }, values.map((value) => el("option", { value, text: labelFor(characteristic.type, value) })));
       select.addEventListener("change", () => write(Number(select.value)));
       ctx.watch(() => { if (document.activeElement !== select) select.value = String(characteristic.value); });
       return select;
     }
     if (writable && ["int", "uint8", "uint16", "uint32", "uint64", "float"].includes(characteristic.format) && characteristic.minValue !== undefined && characteristic.maxValue !== undefined) {
-      const input = el("input", { type: "range", min: characteristic.minValue, max: characteristic.maxValue, step: characteristic.minStep || 1, "aria-label": sentence(characteristic.type) });
+      const input = el("input", { type: "range", min: characteristic.minValue, max: characteristic.maxValue, step: characteristic.minStep || 1, "aria-label": typeName(characteristic.type) });
       const value = el("span", { class: "value" });
       let timer = null;
       input.addEventListener("input", () => {
@@ -9160,7 +14690,7 @@ self.addEventListener("notificationclick", (event) => {
       return el("span", { class: "range" }, input, value);
     }
     if (writable && characteristic.format === "string") {
-      const input = el("input", { type: "text", "aria-label": sentence(characteristic.type) });
+      const input = el("input", { type: "text", "aria-label": typeName(characteristic.type) });
       input.addEventListener("change", () => write(input.value));
       ctx.watch(() => { if (document.activeElement !== input) input.value = characteristic.value ?? ""; });
       return input;
@@ -9177,7 +14707,7 @@ self.addEventListener("notificationclick", (event) => {
       const value = (type) => s.characteristics.find((c) => c.type === type)?.value;
       return { identifier: value("Identifier"), name: value("Configured Name") || s.name, hidden: value("Current Visibility State") === 1 };
     }).filter((input) => input.identifier !== undefined && !input.hidden);
-    const select = el("select", { "aria-label": "Input" }, inputs.map((input) => el("option", { value: input.identifier, text: input.name })));
+    const select = el("select", { "aria-label": t("Input") }, inputs.map((input) => el("option", { value: input.identifier, text: input.name })));
     select.addEventListener("change", () => ctx.write(service, characteristic, Number(select.value)));
     ctx.watch(() => { if (document.activeElement !== select) select.value = String(characteristic.value); });
     return select;
@@ -9189,7 +14719,7 @@ self.addEventListener("notificationclick", (event) => {
       const control = controlFor(ctx, service, characteristic);
       ctx.use(characteristic);
       if (!control) return null;
-      return el("div", { class: "control" }, el("span", { text: rowLabels[characteristic.type] || sentence(characteristic.type) }), control);
+      return el("div", { class: "control" }, el("span", { text: rowLabels[characteristic.type] || typeName(characteristic.type) }), control);
     }).filter(Boolean);
   }
 
@@ -9209,12 +14739,12 @@ self.addEventListener("notificationclick", (event) => {
     const min = characteristic.minValue ?? 0, max = characteristic.maxValue ?? 100, count = positions(characteristic);
     if (count <= 6 && count >= 2) {
       const stepSize = (max - min) / count;
-      const control = steps({ label: "Speed", count }, (n) => ctx.write(service, characteristic, min + n * stepSize));
+      const control = steps({ label: t("Speed"), count }, (n) => ctx.write(service, characteristic, min + n * stepSize));
       if (color) control.node.style.setProperty("--steps", color);
       ctx.watch(() => control.set(Math.round((numberOf(characteristic) - min) / stepSize)));
-      return el("div", { class: "w-row" }, el("span", { class: "w-label", text: "Speed" }), control.node);
+      return el("div", { class: "w-row" }, el("span", { class: "w-label", text: t("Speed") }), control.node);
     }
-    const control = level({ label: "Speed", min, max, step: characteristic.minStep || 1, format: (v) => `${v}${unit(characteristic)}`, fill: color }, (v) => ctx.write(service, characteristic, v));
+    const control = level({ label: t("Speed"), min, max, step: characteristic.minStep || 1, format: (v) => `${num(v)}${unit(characteristic)}`, fill: color }, (v) => ctx.write(service, characteristic, v));
     ctx.watch(() => control.set(numberOf(characteristic)));
     return control.node;
   }
@@ -9229,7 +14759,7 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   const presets = [
-    ["Warm white", 30, 55], ["Amber", 26, 85], ["Red", 2, 90], ["Pink", 330, 70], ["Violet", 275, 70], ["Blue", 220, 85], ["Cyan", 185, 75], ["Green", 125, 75],
+    [t("Warm white"), 30, 55], [t("Amber"), 26, 85], [t("Red"), 2, 90], [t("Pink"), 330, 70], [t("Violet"), 275, 70], [t("Blue"), 220, 85], [t("Cyan"), 185, 75], [t("Green"), 125, 75],
   ];
 
   /// A light's controls, each a function that builds it (null when the light has none): `brightness` (a level,
@@ -9257,15 +14787,15 @@ self.addEventListener("notificationclick", (event) => {
     };
     /// The Adaptive control: a swatch among the colours, a round button beside a white slider, or a chip.
     const adaptiveControl = (kind) => {
-      const label = "Adaptive Lighting";
+      const label = t("Adaptive Lighting");
       const node = kind === "chip"
-        ? el("button", { type: "button", class: "chip adaptive-chip", "aria-pressed": "false" }, icon("sun"), el("span", { text: "Adaptive" }))
+        ? el("button", { type: "button", class: "chip adaptive-chip", "aria-pressed": "false" }, icon("sun"), el("span", { text: t("Adaptive") }))
         : el("button", { type: "button", class: kind === "swatch" ? "swatch adaptive" : "round adaptive", role: kind === "swatch" ? "radio" : null, "aria-label": label, title: label }, icon("sun"));
       node.addEventListener("click", () => setAdaptive(!adaptiveOn()));
       ctx.watch(() => {
         node.setAttribute(kind === "swatch" ? "aria-checked" : "aria-pressed", String(adaptiveOn()));
         node.classList.toggle("unset", !adaptive.resumable && !adaptiveOn());
-        node.title = adaptiveOn() ? "Adaptive Lighting: on" : adaptive.resumable ? "Adaptive Lighting: resume the Home app's schedule" : "Adaptive Lighting: turn it on once in the Home app";
+        node.title = adaptiveOn() ? t("Adaptive Lighting: on") : adaptive.resumable ? t("Adaptive Lighting: resume the Home app's schedule") : t("Adaptive Lighting: turn it on once in the Home app");
       });
       return node;
     };
@@ -9278,7 +14808,7 @@ self.addEventListener("notificationclick", (event) => {
     const css = (c, lightness) => c.k ? whiteColor(c.k, lightness) : `hsl(${Math.round(c.h)} ${Math.round(c.s)}% ${lightness}%)`;
     return {
       brightness: canWrite(brightness) ? ({ vertical = false } = {}) => {
-        const control = level({ label: "Brightness", min: brightness.minValue ?? 0, max: brightness.maxValue ?? 100, step: brightness.minStep || 1, format: (v) => `${v} %`, vertical },
+        const control = level({ label: t("Brightness"), min: brightness.minValue ?? 0, max: brightness.maxValue ?? 100, step: brightness.minStep || 1, format: (v) => `${v} %`, vertical },
           (v) => ctx.write(service, brightness, v));
         ctx.watch(() => {
           control.set(numberOf(brightness));
@@ -9301,12 +14831,12 @@ self.addEventListener("notificationclick", (event) => {
           const near = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b)) <= 6;
           for (const one of swatches) one.swatch.setAttribute("aria-checked", String(!adaptiveOn() && s > 4 && near(one.h, h) && Math.abs(one.s - s) <= 12));
         });
-        return el("div", { class: `swatches${grid ? " grid" : ""}`, role: "radiogroup", "aria-label": "Colour" }, adaptive ? adaptiveControl("swatch") : null, swatches.map((one) => one.swatch));
+        return el("div", { class: `swatches${grid ? " grid" : ""}`, role: "radiogroup", "aria-label": t("Colour") }, adaptive ? adaptiveControl("swatch") : null, swatches.map((one) => one.swatch));
       } : null,
       white: canWrite(temperature) ? ({ vertical = false, thin = false } = {}) => {
         // Mireds run the other way: the track goes from warm (few kelvin, many mireds) to cool.
         const low = kelvin(temperature.maxValue ?? 500), high = kelvin(temperature.minValue ?? 140);
-        const control = level({ label: "White", min: low, max: high, step: 50, format: (k) => `${k} K`, vertical, thin,
+        const control = level({ label: t("White"), min: low, max: high, step: 50, format: (k) => `${k} K`, vertical, thin,
           gradient: `linear-gradient(${vertical ? "0deg" : "90deg"}, ${whiteColor(low, 72)}, ${whiteColor((low + high) / 2, 88)}, ${whiteColor(high, 84)})` },
         (k) => {
           const mireds = clamp(Math.round(1e6 / k), temperature.minValue ?? 0, temperature.maxValue ?? 1000);
@@ -9342,18 +14872,18 @@ self.addEventListener("notificationclick", (event) => {
     const main = type && ctx.char(service, type);
     if (!main) return null;
     ctx.use(main, ctx.char(service, "Status Active"));
-    const extra = ["PM2.5 Density", "PM10 Density", "VOC Density", "Carbon Dioxide Detected"].map((t) => ctx.take(service, t)).filter(Boolean);
+    const extra = ["PM2.5 Density", "PM10 Density", "VOC Density", "Carbon Dioxide Detected"].map((type) => ctx.take(service, type)).filter(Boolean);
     const active = ctx.char(service, "Status Active");
     const value = () => {
       const v = main.value;
       const inactive = active && active.value === false;
       switch (service.type) {
-        case "TemperatureSensor": return { text: typeof v === "number" ? HomeswiftCommon.temperature(v).value.toFixed(1) : "–", unit: HomeswiftCommon.temperature(0).unit, tone: inactive ? "muted" : "" };
+        case "TemperatureSensor": return { text: typeof v === "number" ? HomeswiftCommon.temperature(v).value.toFixed(1).replace(".", decimal) : "–", unit: HomeswiftCommon.temperature(0).unit, tone: inactive ? "muted" : "" };
         case "HumiditySensor": return { text: typeof v === "number" ? String(Math.round(v)) : "–", unit: "%", tone: inactive ? "muted" : "" };
         case "LightSensor": return { text: typeof v === "number" ? String(Math.round(v)) : "–", unit: "lx" };
         case "CarbonDioxideSensor": return { text: typeof v === "number" ? String(Math.round(v)) : "–", unit: "ppm" };
         case "AirQualitySensor": return { text: labelFor(main.type, v), tone: v >= 4 ? "warn" : v >= 1 ? "ok" : "muted", scale: v >= 1 ? 6 - v : 0 };
-        case "ContactSensor": return { text: v === 0 ? "Closed" : "Open", tone: v === 0 ? "" : "warn" };
+        case "ContactSensor": return { text: v === 0 ? t("Closed") : t("Open"), tone: v === 0 ? "" : "warn" };
         default: return { text: labelFor(main.type, v), tone: isOn(main) ? "warn" : "" };
       }
     };
@@ -9377,16 +14907,16 @@ self.addEventListener("notificationclick", (event) => {
         ctx.watch(() => { const v = one.value(); control.set(v.text, v.unit, v.tone, v.scale); });
         out.readouts.push(control.node);
         for (const extra of one.extra) {
-          const more = readout(extra.type.replace(" Density", "").replace("Carbon Dioxide Detected", "CO₂"));
+          const more = readout(extra.type === "VOC Density" ? t("VOC") : extra.type.replace(" Density", "").replace("Carbon Dioxide Detected", "CO₂"));
           ctx.watch(() => more.set(extra.format === "bool" || enumLabels[extra.type] ? labelFor(extra.type, extra.value) : String(Math.round(numberOf(extra))), extra.type.endsWith("Density") ? "µg/m³" : ""));
           out.readouts.push(more.node);
         }
       } else if (service.type === "FilterMaintenance" || service.type === "Battery") {
         const life = ctx.take(service, service.type === "Battery" ? "Battery Level" : "Filter Life Level");
         const flag = ctx.take(service, service.type === "Battery" ? "Status Low Battery" : "Filter Change Indication");
-        const label = service.type === "Battery" ? "Battery" : "Filter";
+        const label = service.type === "Battery" ? t("Battery") : t("Filter");
         if (life) {
-          const control = meter(label === "Filter" ? "Filter life" : label);
+          const control = meter(service.type === "Battery" ? t("Battery") : t("Filter life"));
           ctx.watch(() => control.set(Math.round(numberOf(life))));
           out.meters.push(control.node);
         } else if (flag) {
@@ -9419,7 +14949,7 @@ self.addEventListener("notificationclick", (event) => {
   /// A secondary light (a TV's Ambilight, a camera's flashlight): its name and switch, then its body.
   function lightBlock(ctx, service, name) {
     const on = ctx.take(service, "On");
-    const power = toggle(`${name}: on`, (v) => ctx.write(service, on, onValue(on, v)));
+    const power = toggle(t("{name}: on", { name }), (v) => ctx.write(service, on, onValue(on, v)));
     ctx.watch(() => power.set(isOn(on)));
     const body = el("div", { class: "w-block-body" }, lightBody(ctx, service).nodes);
     ctx.watch(() => { body.hidden = !isOn(on); });
@@ -9428,7 +14958,7 @@ self.addEventListener("notificationclick", (event) => {
 
   function fanBlock(ctx, service, name) {
     const power = ctx.take(service, "Active") || ctx.take(service, "On");
-    const control = toggle(`${name}: on`, (v) => ctx.write(service, power, onValue(power, v)));
+    const control = toggle(t("{name}: on", { name }), (v) => ctx.write(service, power, onValue(power, v)));
     ctx.watch(() => control.set(isOn(power)));
     const speed = ctx.take(service, "Rotation Speed");
     const target = ctx.take(service, "Target Fan State");
@@ -9437,13 +14967,13 @@ self.addEventListener("notificationclick", (event) => {
     const body = el("div", { class: "w-block-body" },
       canWrite(speed) ? speedControl(ctx, service, speed) : null,
       canWrite(target) ? modeControl(ctx, service, target) : null,
-      el("div", { class: "chips" }, chipFor(ctx, service, ctx.char(service, "Swing Mode"), "Swing"), chipFor(ctx, service, ctx.char(service, "Lock Physical Controls"), "Child lock")));
+      el("div", { class: "chips" }, chipFor(ctx, service, ctx.char(service, "Swing Mode"), t("Swing")), chipFor(ctx, service, ctx.char(service, "Lock Physical Controls"), t("Child lock"))));
     ctx.watch(() => { body.hidden = !isOn(power); });
     return el("div", { class: "w-block" }, el("div", { class: "w-row" }, el("span", { class: "w-label", text: name }), control.node), body);
   }
 
   /// A writable enumeration of two to four values as a segmented control (more stay a menu, under More).
-  function modeControl(ctx, service, characteristic, label = sentence(characteristic.type)) {
+  function modeControl(ctx, service, characteristic, label = typeName(characteristic.type)) {
     const values = characteristic.validValues || (enumLabels[characteristic.type] || []).map((_, i) => i);
     if (values.length < 2 || values.length > 4) return null;
     ctx.use(characteristic);
@@ -9494,7 +15024,7 @@ self.addEventListener("notificationclick", (event) => {
 
   /// A setpoint control per temperature a service has; `show(list)` shows those a mode uses.
   function setpointControls(ctx, parts) {
-    const labels = new Map([[parts.heat, "Heat to"], [parts.cool, "Cool to"], [parts.single, "Set to"]]);
+    const labels = new Map([[parts.heat, t("Heat to")], [parts.cool, t("Cool to")], [parts.single, t("Set to")]]);
     const controls = [...labels.keys()].filter((c) => canWrite(c)).map((characteristic) => {
       const control = setpoint({ label: labels.get(characteristic), min: characteristic.minValue ?? 10, max: characteristic.maxValue ?? 35, step: characteristic.minStep || 0.5 },
         (v) => ctx.write(parts.service, characteristic, v));
@@ -9507,7 +15037,7 @@ self.addEventListener("notificationclick", (event) => {
         for (const { characteristic, control } of controls) control.node.hidden = !list.includes(characteristic);
         // One setpoint per mode with a single target: "Heat to" or "Cool to" rather than "Set to".
         const single = controls.find((one) => one.characteristic === parts.single);
-        if (single) single.control.node.querySelector(".sp-value span").textContent = { heat: "Heat to", cool: "Cool to" }[parts.mode()] ?? "Set to";
+        if (single) single.control.node.querySelector(".sp-value span").textContent = { heat: t("Heat to"), cool: t("Cool to") }[parts.mode()] ?? t("Set to");
       },
     };
   }
@@ -9519,7 +15049,7 @@ self.addEventListener("notificationclick", (event) => {
     const order = parts.heaterCooler ? [0, 1, 2] : [0, 3, 1, 2];
     const options = order.filter((v) => values.includes(v)).map((value) => ({ value, label: labelFor(parts.target.type, value) }));
     if (options.length < 2) return null;
-    const control = segmented(options, "Mode", (v) => ctx.write(parts.service, parts.target, v));
+    const control = segmented(options, t("Mode"), (v) => ctx.write(parts.service, parts.target, v));
     ctx.watch(() => control.set(parts.target.value));
     return control.node;
   }
@@ -9531,9 +15061,9 @@ self.addEventListener("notificationclick", (event) => {
     const now = el("span", { class: "muted" });
     ctx.watch(() => {
       points.show(parts.setpoints(parts.mode() === "off" ? parts.lastMode() : parts.mode()));
-      now.textContent = typeof parts.current?.value === "number" && parts.current.value > -40 ? `${degrees(+parts.current.value.toFixed(1))} now` : "";
+      now.textContent = typeof parts.current?.value === "number" && parts.current.value > -40 ? t("{temperature} now", { temperature: degrees(+parts.current.value.toFixed(1)) }) : "";
     });
-    const power = parts.active ? toggle(`${name}: on`, (v) => ctx.write(service, parts.active, v ? 1 : 0)) : null;
+    const power = parts.active ? toggle(t("{name}: on", { name }), (v) => ctx.write(service, parts.active, v ? 1 : 0)) : null;
     if (power) ctx.watch(() => power.set(isOn(parts.active)));
     return el("div", { class: "w-block" },
       el("div", { class: "w-row" }, el("span", { class: "w-label" }, name, " ", now), power?.node ?? null),
@@ -9546,8 +15076,8 @@ self.addEventListener("notificationclick", (event) => {
   function lockRow(ctx, service, name) {
     const current = ctx.take(service, "Lock Current State"), target = ctx.take(service, "Lock Target State");
     const state = pill();
-    const unlock = canWrite(target) ? hold("Hold to unlock", () => ctx.write(service, target, 0, { held: true })) : null;
-    const lock = canWrite(target) ? el("button", { type: "button", class: "w-button", text: "Lock", onclick: () => ctx.write(service, target, 1, { held: true }) }) : null;
+    const unlock = canWrite(target) ? hold(t("Hold to unlock"), () => ctx.write(service, target, 0, { held: true })) : null;
+    const lock = canWrite(target) ? el("button", { type: "button", class: "w-button", text: t("Lock"), onclick: () => ctx.write(service, target, 1, { held: true }) }) : null;
     ctx.watch(() => {
       const value = numberOf(current, numberOf(target, 3));
       state.textContent = labelFor(current.type, value);
@@ -9588,7 +15118,7 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   /// Chips for the bools of a service a widget offers as options (Swing, Child lock).
-  const optionChips = (ctx, service) => [chipFor(ctx, service, ctx.char(service, "Swing Mode"), "Swing"), chipFor(ctx, service, ctx.char(service, "Lock Physical Controls"), "Child lock")].filter(Boolean);
+  const optionChips = (ctx, service) => [chipFor(ctx, service, ctx.char(service, "Swing Mode"), t("Swing")), chipFor(ctx, service, ctx.char(service, "Lock Physical Controls"), t("Child lock"))].filter(Boolean);
   const chipRow = (nodes) => nodes.length ? el("div", { class: "chips" }, nodes) : null;
   const row = (label, ...nodes) => el("div", { class: "w-row" }, label ? el("span", { class: "w-label", text: label }) : null, ...nodes);
 
@@ -9597,7 +15127,7 @@ self.addEventListener("notificationclick", (event) => {
     ctx.use(characteristic);
     const state = el("span");
     const node = el("button", { type: "button", class: "mini-toggle", onclick: () => ctx.write(service, characteristic, onValue(characteristic, !isOn(characteristic))) }, el("b", { text: name }), state);
-    ctx.watch(() => { node.setAttribute("aria-pressed", String(isOn(characteristic))); state.textContent = isOn(characteristic) ? "On" : "Off"; });
+    ctx.watch(() => { node.setAttribute("aria-pressed", String(isOn(characteristic))); state.textContent = isOn(characteristic) ? t("On") : t("Off"); });
     return node;
   }
 
@@ -9608,7 +15138,7 @@ self.addEventListener("notificationclick", (event) => {
     const node = el("div", { class: "w-line" });
     ctx.watch(() => {
       const parts = list.map((one) => { const v = one.value(); return `${v.text}${v.unit ? ` ${v.unit}` : ""}`; });
-      if (filter) parts.push(`filter ${Math.round(numberOf(filter))} %`);
+      if (filter) parts.push(t("filter {percent} %", { percent: Math.round(numberOf(filter)) }));
       node.textContent = parts.join(" · ");
     });
     return list.length || filter ? node : null;
@@ -9630,7 +15160,7 @@ self.addEventListener("notificationclick", (event) => {
         : [chipRow(switches.map((s, i) => chipFor(ctx, s, ons[i], shortName(ctx.accessory, s))))];
       return {
         body, hero: () => `${count()}/${ons.length}`,
-        status: () => [count() ? `${count()} of ${ons.length} on` : "All off"],
+        status: () => [count() ? t("{n} of {total} on", { n: count(), total: ons.length }) : t("All off")],
         on: () => count() > 0,
       };
     },
@@ -9650,7 +15180,7 @@ self.addEventListener("notificationclick", (event) => {
         const homeKitKeys = { up: 4, down: 5, left: 6, right: 7, select: 8, back: 9, playPause: 11, info: 15 };
         const actions = [...Object.keys(homeKitKeys), ...(canWrite(volume) ? ["volumeUp", "volumeDown"] : []), ...(canWrite(mute) ? ["mute"] : [])];
         return el("div", { class: "card-remote" }, HomeswiftRemote.build({
-          actions, label: `Remote for ${ctx.accessory.name}`,
+          actions, label: t("Remote for {name}", { name: ctx.accessory.name }),
           send: (action) => {
             if (action in homeKitKeys) return ctx.send(primary, remoteKey, homeKitKeys[action]);
             if (action === "volumeUp" || action === "volumeDown") return ctx.send(speaker, volume, action === "volumeUp" ? 0 : 1);
@@ -9663,17 +15193,17 @@ self.addEventListener("notificationclick", (event) => {
         const chosen = ctx.accessory.services.find((s) => s.type === "InputSource" && ctx.char(s, "Identifier")?.value === input?.value);
         return chosen ? ctx.char(chosen, "Configured Name")?.value || chosen.name : null;
       };
-      const volumeKeys = () => canWrite(volume) ? ["minus", "plus"].map((glyph, i) => el("button", { type: "button", class: "round", "aria-label": i ? "Volume up" : "Volume down",
+      const volumeKeys = () => canWrite(volume) ? ["minus", "plus"].map((glyph, i) => el("button", { type: "button", class: "round", "aria-label": i ? t("Volume up") : t("Volume down"),
         onclick: () => ctx.send(speaker, volume, i ? 0 : 1).catch((e) => ctx.flash(e.message)) }, icon(glyph))) : [];
       const parts = {
         power: canWrite(active) ? { service: primary, characteristic: active } : null,
-        status: () => isOn(active) ? [inputName() ? `On · ${inputName()}` : "On"] : ["Off"],
+        status: () => isOn(active) ? [inputName() ? t("On · {input}", { input: inputName() }) : t("On")] : [t("Off")],
         on: () => isOn(active),
         tap: canWrite(active) ? () => ctx.write(primary, active, isOn(active) ? 0 : 1) : null,
       };
-      if (size === "medium") parts.body = [el("div", { class: "w-row" }, picker(), el("div", { class: "w-keys" }, volumeKeys(), canWrite(mute) ? chipFor(ctx, speaker, mute, "Mute") : null))];
-      if (size === "large") parts.body = [remote(), input ? row("Input", picker()) : null].filter(Boolean);
-      if (size === "full") Object.assign(parts, { body: [remote()].filter(Boolean), side: input ? [row("Input", picker())] : [], facets: facets(ctx, [primary, speaker]) });
+      if (size === "medium") parts.body = [el("div", { class: "w-row" }, picker(), el("div", { class: "w-keys" }, volumeKeys(), canWrite(mute) ? chipFor(ctx, speaker, mute, t("Mute")) : null))];
+      if (size === "large") parts.body = [remote(), input ? row(t("Input"), picker()) : null].filter(Boolean);
+      if (size === "full") Object.assign(parts, { body: [remote()].filter(Boolean), side: input ? [row(t("Input"), picker())] : [], facets: facets(ctx, [primary, speaker]) });
       return parts;
     },
   });
@@ -9685,26 +15215,28 @@ self.addEventListener("notificationclick", (event) => {
       const now = () => typeof parts.current?.value === "number" ? parts.current.value : null;
       const mode = () => parts.mode();
       const shownMode = () => mode() === "off" ? parts.lastMode() : mode();
+      const modeWords = { off: t("off"), heat: t("heat"), cool: t("cool"), auto: t("auto") };
       const built = {
         power: canWrite(parts.active) ? { service: primary, characteristic: parts.active } : null,
         tone: () => ({ heat: "heat", cool: "blue", auto: "green" })[shownMode()] ?? "teal",
         on: () => mode() !== "off",
-        hero: () => now() === null ? "" : el("span", {}, degrees(+now().toFixed(1)), el("small", { text: mode() })),
+        hero: () => now() === null ? "" : el("span", {}, degrees(+now().toFixed(1)), el("small", { text: modeWords[mode()] ?? mode() })),
         tap: canWrite(parts.active) ? () => ctx.write(primary, parts.active, isOn(parts.active) ? 0 : 1) : null,
         status() {
-          const inside = now() === null ? "" : `${degrees(+now().toFixed(1))} inside`;
-          if (mode() === "off") return [inside ? `Off · ${inside}` : "Off"];
+          const inside = now() === null ? "" : t("{temperature} inside", { temperature: degrees(+now().toFixed(1)) });
+          if (mode() === "off") return [inside ? t("Off · {inside}", { inside }) : t("Off")];
           const shown = parts.setpoints(mode());
           const working = parts.working();
           if (shown.length === 2) {
-            if (working === "heating") return [`Heating to ${degrees(numberOf(shown[0]))}`, "heat"];
-            if (working === "cooling") return [`Cooling to ${degrees(numberOf(shown[1]))}`, "cool"];
-            return [`Keeping ${degrees(numberOf(shown[0]))}–${degrees(numberOf(shown[1]))}`, "auto"];
+            if (working === "heating") return [t("Heating to {temperature}", { temperature: degrees(numberOf(shown[0])) }), "heat"];
+            if (working === "cooling") return [t("Cooling to {temperature}", { temperature: degrees(numberOf(shown[1])) }), "cool"];
+            return [t("Keeping {low}–{high}", { low: degrees(numberOf(shown[0])), high: degrees(numberOf(shown[1])) }), "auto"];
           }
           const target = shown[0] ? degrees(numberOf(shown[0])) : "";
-          if (working === "heating") return [`Heating to ${target}`, "heat"];
-          if (working === "cooling") return [`Cooling to ${target}`, "cool"];
-          return [`Idle · ${mode()} to ${target}`];
+          if (working === "heating") return [t("Heating to {temperature}", { temperature: target }), "heat"];
+          if (working === "cooling") return [t("Cooling to {temperature}", { temperature: target }), "cool"];
+          const idle = { heat: t("Idle · heat to {temperature}", { temperature: target }), cool: t("Idle · cool to {temperature}", { temperature: target }) };
+          return [idle[mode()] ?? t("Idle · auto to {temperature}", { temperature: target })];
         },
       };
       if (size === "small") return built;
@@ -9717,7 +15249,7 @@ self.addEventListener("notificationclick", (event) => {
           points.show(shown.slice(-1));
           big.textContent = now() === null ? "–" : degrees(+now().toFixed(1));
         });
-        built.body = [el("div", { class: "w-row" }, el("div", { class: "w-figure" }, big, el("span", { text: "Inside" })), el("div", { class: "setpoints" }, points.nodes))];
+        built.body = [el("div", { class: "w-row" }, el("div", { class: "w-figure" }, big, el("span", { text: t("Inside") })), el("div", { class: "setpoints" }, points.nodes))];
         return built;
       }
       const temps = [parts.heat, parts.cool, parts.single].filter(Boolean);
@@ -9727,7 +15259,7 @@ self.addEventListener("notificationclick", (event) => {
       ctx.watch(() => {
         const shown = parts.setpoints(shownMode());
         points.show(shown);
-        const caption = typeof parts.humidity?.value === "number" ? `Inside · ${Math.round(parts.humidity.value)} %` : "Inside";
+        const caption = typeof parts.humidity?.value === "number" ? t("Inside · {humidity} %", { humidity: Math.round(parts.humidity.value) }) : t("Inside");
         if (mode() === "off" || !shown.length) dial.update({ value: now(), caption });
         else if (shown.length === 2) dial.update({ value: now(), from: numberOf(shown[0]), to: numberOf(shown[1]), color: colors.auto, caption });
         else dial.update({ value: now(), from: now() ?? numberOf(shown[0]), to: numberOf(shown[0]), color: colors[mode()], caption });
@@ -9755,17 +15287,17 @@ self.addEventListener("notificationclick", (event) => {
         power: canWrite(active) ? { service: primary, characteristic: active } : null,
         on: () => isOn(active),
         tap: canWrite(active) ? () => ctx.write(primary, active, isOn(active) ? 0 : 1) : null,
-        hero: () => quality ? el("span", { class: "w-hero-word" }, labelFor(quality.type, quality.value)) : speed && isOn(active) ? `${numberOf(speed)}%` : "",
+        hero: () => quality ? el("span", { class: "w-hero-word" }, labelFor(quality.type, quality.value)) : speed && isOn(active) ? `${num(numberOf(speed))}%` : "",
         status() {
-          if (!isOn(active)) return [quality ? `Off · air ${labelFor(quality.type, quality.value).toLowerCase()}` : "Off"];
-          const how = target && numberOf(target) === 1 ? "auto" : speed ? `${numberOf(speed)} %` : "";
-          return numberOf(state) === 2 ? [how ? `Purifying · ${how}` : "Purifying", "ok"] : ["Idle"];
+          if (!isOn(active)) return [quality ? t("Off · air {quality}", { quality: labelFor(quality.type, quality.value).toLowerCase() }) : t("Off")];
+          const how = target && numberOf(target) === 1 ? t("auto") : speed ? `${num(numberOf(speed))} %` : "";
+          return numberOf(state) === 2 ? [how ? t("Purifying · {how}", { how }) : t("Purifying"), "ok"] : [t("Idle")];
         },
       };
       if (size === "small") return built;
       const speedNode = canWrite(speed) ? speedControl(ctx, primary, speed, "linear-gradient(90deg, #8fe3da, #1c9c91)") : null;
-      if (size === "medium") { built.body = [speedNode ?? modeControl(ctx, primary, target, "Mode"), readingLine(ctx)].filter(Boolean); return built; }
-      const mode = modeControl(ctx, primary, target, "Mode");
+      if (size === "medium") { built.body = [speedNode ?? modeControl(ctx, primary, target, t("Mode")), readingLine(ctx)].filter(Boolean); return built; }
+      const mode = modeControl(ctx, primary, target, t("Mode"));
       const chips = optionChips(ctx, primary);
       if (size === "large") {
         const f = facets(ctx, [primary]);
@@ -9786,15 +15318,15 @@ self.addEventListener("notificationclick", (event) => {
       ctx.take(primary, "Current Fan State");
       const built = {
         power: canWrite(power) ? { service: primary, characteristic: power } : null,
-        on: () => isOn(power), hero: () => speed && isOn(power) ? `${numberOf(speed)}%` : "",
+        on: () => isOn(power), hero: () => speed && isOn(power) ? `${num(numberOf(speed))}%` : "",
         tap: canWrite(power) ? () => ctx.write(primary, power, onValue(power, !isOn(power))) : null,
-        status: () => isOn(power) ? [speed ? `On · ${numberOf(speed)} %` : "On"] : ["Off"],
+        status: () => isOn(power) ? [speed ? t("On · {speed} %", { speed: numberOf(speed) }) : t("On")] : [t("Off")],
       };
       const speedNode = canWrite(speed) ? speedControl(ctx, primary, speed) : null;
       if (size === "medium") built.body = [speedNode ?? chipRow(optionChips(ctx, primary))].filter(Boolean);
       if (size === "large" || size === "full") {
-        built.body = [speedNode, modeControl(ctx, primary, ctx.char(primary, "Target Fan State"), "Mode"),
-          modeControl(ctx, primary, ctx.char(primary, "Rotation Direction"), "Direction"), chipRow(optionChips(ctx, primary))].filter(Boolean);
+        built.body = [speedNode, modeControl(ctx, primary, ctx.char(primary, "Target Fan State"), t("Mode")),
+          modeControl(ctx, primary, ctx.char(primary, "Rotation Direction"), t("Direction")), chipRow(optionChips(ctx, primary))].filter(Boolean);
       }
       if (size === "full") built.facets = facets(ctx, [primary]);
       return built;
@@ -9813,8 +15345,8 @@ self.addEventListener("notificationclick", (event) => {
         power: { service: primary, characteristic: on },
         tap: () => ctx.write(primary, on, onValue(on, !isOn(on))),
         on: () => isOn(on), color: light.color,
-        hero: () => brightness && isOn(on) ? `${numberOf(brightness)}%` : "",
-        status: () => isOn(on) ? [[brightness ? `On · ${numberOf(brightness)} %` : "On", light.adaptiveOn() ? "Adaptive" : ""].filter(Boolean).join(" · ")] : ["Off"],
+        hero: () => brightness && isOn(on) ? `${num(numberOf(brightness))}%` : "",
+        status: () => isOn(on) ? [[brightness ? t("On · {brightness} %", { brightness: numberOf(brightness) }) : t("On"), light.adaptiveOn() ? t("Adaptive") : ""].filter(Boolean).join(" · ")] : [t("Off")],
       };
       // A white-only light's Adaptive control sits beside its white slider.
       const whiteRow = (options) => light.white ? (light.adaptive ? el("div", { class: "w-row" }, el("div", { class: "w-grow" }, light.white(options)), light.adaptive("round")) : light.white(options)) : null;
@@ -9859,32 +15391,32 @@ self.addEventListener("notificationclick", (event) => {
       };
       const built = {
         tap: () => go(shown() > min ? min : max),
-        tapLabel: () => shown() > min ? "close" : "open",
+        tapLabel: () => shown() > min ? t("close") : t("open"),
         on: () => shown() > min, hero: () => `${shown()}%`, shade: () => 100 - (shown() - min) / (max - min) * 100,
         // The small tile slides: dragged down it closes, up it opens, written when let go.
         slide: { min, max, step, value: shown, commit: go },
         status() {
-          if (isOn(obstruction)) return ["Obstructed", "warn"];
+          if (isOn(obstruction)) return [t("Obstructed"), "warn"];
           const moving = numberOf(state, 2);
           const p = shown();
-          if (moving === 1 || (moving === 2 && goal && goal.value > position())) return ["Opening…", "cool"];
-          if (moving === 0 || (moving === 2 && goal && goal.value < position())) return ["Closing…", "cool"];
-          return [p <= min ? "Closed" : p >= max ? "Open" : `Open · ${p} %`];
+          if (moving === 1 || (moving === 2 && goal && goal.value > position())) return [t("Opening…"), "cool"];
+          if (moving === 0 || (moving === 2 && goal && goal.value < position())) return [t("Closing…"), "cool"];
+          return [p <= min ? t("Closed") : p >= max ? t("Open") : t("Open · {position} %", { position: p })];
         },
       };
       if (size === "small") return built;
       // Stop: Hold Position where it has one, else the position it is at as the target.
-      const buttons = [["up", "Open", () => go(max)],
-        ["stop", "Stop", () => { goal = null; return canWrite(hold) ? ctx.write(primary, hold, true) : go(position()); }],
-        ["down", "Close", () => go(min)]].map(([glyph, label, act]) => el("button", { type: "button", class: "round", "aria-label": label, title: label, onclick: act }, icon(glyph)));
+      const buttons = [["up", t("Open [action]"), () => go(max)],
+        ["stop", t("Stop"), () => { goal = null; return canWrite(hold) ? ctx.write(primary, hold, true) : go(position()); }],
+        ["down", t("Close"), () => go(min)]].map(([glyph, label, act]) => el("button", { type: "button", class: "round", "aria-label": label, title: label, onclick: act }, icon(glyph)));
       const slider = (vertical) => {
-        const control = level({ label: "Position", min, max, step, format: (v) => `${v} %`, vertical,
+        const control = level({ label: t("Position"), min, max, step, format: (v) => `${v} %`, vertical,
           fill: `linear-gradient(${vertical ? "0deg" : "90deg"}, #4aa3ff, #a8dbff)` }, go);
         ctx.watch(() => control.set(numberOf(target, position())));
         return control.node;
       };
       const tilts = ["Target Horizontal Tilt Angle", "Target Vertical Tilt Angle"].map((type) => ctx.take(primary, type)).filter(canWrite).map((tilt) => {
-        const one = level({ label: "Tilt", min: tilt.minValue ?? -90, max: tilt.maxValue ?? 90, step: tilt.minStep || 1, format: (v) => `${v}°`, thin: true }, (v) => ctx.write(primary, tilt, v));
+        const one = level({ label: t("Tilt"), min: tilt.minValue ?? -90, max: tilt.maxValue ?? 90, step: tilt.minStep || 1, format: (v) => `${v}°`, thin: true }, (v) => ctx.write(primary, tilt, v));
         ctx.watch(() => one.set(numberOf(tilt)));
         return one.node;
       });
@@ -9910,22 +15442,23 @@ self.addEventListener("notificationclick", (event) => {
       const built = {
         on: () => doorState() !== 1 || unlocked().length > 0,
         hero: () => icon("lock"),
-        hold: canWrite(target) ? { armed: () => asked() === 1, confirm: openIt, tap: () => { if (asked() === 0) closeIt(); }, verb: () => asked() === 1 ? "hold to open" : "close" } : null,
+        hold: canWrite(target) ? { armed: () => asked() === 1, confirm: openIt, tap: () => { if (asked() === 0) closeIt(); }, verb: () => asked() === 1 ? t("hold to open") : t("close") } : null,
         status() {
           const now = doorState();
-          const door = asked() !== now && now <= 1 ? (asked() === 0 ? "Opening" : "Closing") : labelFor(current.type, now);
-          if (isOn(obstruction)) return ["Obstructed", "warn"];
-          if (door === "Opening" || door === "Closing") return [`${door}…`, "warn"];
+          const moving = asked() !== now && now <= 1;
+          if (isOn(obstruction)) return [t("Obstructed"), "warn"];
+          if (moving) return [asked() === 0 ? t("Opening…") : t("Closing…"), "warn"];
+          const door = labelFor(current.type, now);
           const names = unlocked().map((s) => shortName(ctx.accessory, s).toLowerCase());
-          if (now === 1 && !names.length) return [locks.length ? "Closed and locked" : "Closed", "ok"];
-          return [names.length ? `${door} · ${names.join(", ")} unlocked` : door, "warn"];
+          if (now === 1 && !names.length) return [locks.length ? t("Closed and locked") : t("Closed"), "ok"];
+          return [names.length ? t("{state} · {names} unlocked", { state: door, names: names.join(", ") }) : door, "warn"];
         },
       };
       if (size === "small") return built;
       const big = el("b", { class: "w-state" });
-      const warning = pill("Obstructed", "bad");
-      const open = canWrite(target) ? hold("Hold to open", openIt) : null;
-      const close = canWrite(target) ? el("button", { type: "button", class: "w-button", text: "Close", onclick: closeIt }) : null;
+      const warning = pill(t("Obstructed"), "bad");
+      const open = canWrite(target) ? hold(t("Hold to open"), openIt) : null;
+      const close = canWrite(target) ? el("button", { type: "button", class: "w-button", text: t("Close"), onclick: closeIt }) : null;
       ctx.watch(() => {
         big.textContent = labelFor(current.type, doorState());
         warning.hidden = !isOn(obstruction);
@@ -9951,7 +15484,7 @@ self.addEventListener("notificationclick", (event) => {
       const built = {
         on: () => numberOf(current, 1) !== 1,
         hold: canWrite(target) ? { armed: () => numberOf(target, 1) === 1, confirm: () => ctx.write(primary, target, 0, { held: true }),
-          tap: () => { if (numberOf(target, 1) === 0) ctx.write(primary, target, 1, { held: true }); }, verb: () => numberOf(target, 1) === 1 ? "hold to unlock" : "lock" } : null,
+          tap: () => { if (numberOf(target, 1) === 0) ctx.write(primary, target, 1, { held: true }); }, verb: () => numberOf(target, 1) === 1 ? t("hold to unlock") : t("lock") } : null,
         status: () => { const v = numberOf(current, 3); return [labelFor(current.type, v), v === 1 ? "ok" : "warn"]; },
       };
       ctx.use(current, target);
@@ -9972,14 +15505,14 @@ self.addEventListener("notificationclick", (event) => {
       const disarm = () => ctx.write(primary, target, 3, { held: true });
       const built = {
         on: () => numberOf(current, 3) !== 3,
-        hold: canWrite(target) && values.includes(3) ? { armed: () => numberOf(target, 3) !== 3, confirm: disarm, tap: () => ctx.openFull(), verb: () => numberOf(target, 3) !== 3 ? "hold to turn off" : "open" } : null,
-        status: () => { const v = numberOf(current, 3); return [v === 4 ? "Alarm" : v === 3 ? "Off" : `Armed · ${labelFor(current.type, v)}`, v === 4 ? "bad" : v === 3 ? "" : "ok"]; },
+        hold: canWrite(target) && values.includes(3) ? { armed: () => numberOf(target, 3) !== 3, confirm: disarm, tap: () => ctx.openFull(), verb: () => numberOf(target, 3) !== 3 ? t("hold to turn off") : t("open") } : null,
+        status: () => { const v = numberOf(current, 3); return [v === 4 ? t("Alarm") : v === 3 ? t("Off [alarm]") : t("Armed · {mode}", { mode: labelFor(current.type, v) }), v === 4 ? "bad" : v === 3 ? "" : "ok"]; },
       };
       if (size === "small") return built;
       const big = el("b", { class: "w-state" });
       const arm = canWrite(target) ? el("div", { class: "chips" }, values.filter((v) => v !== 3).map((value) =>
         el("button", { type: "button", class: "chip", text: labelFor(target.type, value), onclick: () => ctx.write(primary, target, value, { held: true }) }))) : null;
-      const off = built.hold ? hold("Hold to turn off", disarm) : null;
+      const off = built.hold ? hold(t("Hold to turn off"), disarm) : null;
       ctx.watch(() => {
         big.textContent = labelFor(current.type, numberOf(current, 3));
         if (arm) for (const [i, button] of [...arm.children].entries()) button.setAttribute("aria-pressed", String(values.filter((v) => v !== 3)[i] === numberOf(target)));
@@ -10007,9 +15540,9 @@ self.addEventListener("notificationclick", (event) => {
       });
       const toggleRun = () => ctx.write(primary, active, isOn(active) ? 0 : 1);
       const built = {
-        on: () => running(), tap: toggleRun, tapLabel: () => isOn(active) ? "stop" : "run",
+        on: () => running(), tap: toggleRun, tapLabel: () => isOn(active) ? t("stop") : t("run"),
         hero: () => running() ? clock(left()) : "",
-        status: () => running() ? [`Running · ${clock(left())} left`, "cool"] : isOn(active) ? ["Starting…"] : ["Off"],
+        status: () => running() ? [t("Running · {time} left", { time: clock(left()) }), "cool"] : isOn(active) ? [t("Starting…")] : [t("Off")],
       };
       // The figures move each second while it runs.
       const ticker = setInterval(() => {
@@ -10028,10 +15561,10 @@ self.addEventListener("notificationclick", (event) => {
       const total = () => numberOf(set, numberOf(remaining, 0)) || 1;
       ctx.watch(() => {
         const on = running();
-        title.textContent = isOn(active) ? "Stop" : "Run";
-        detail.textContent = on ? `${clock(left())} left` : `for ${clock(numberOf(set, 0))}`;
+        title.textContent = isOn(active) ? t("Stop") : t("Run [valve]");
+        detail.textContent = on ? t("{time} left", { time: clock(left()) }) : t("for {time}", { time: clock(numberOf(set, 0)) });
         ring.querySelector(".ring").style.strokeDashoffset = String(on ? circumference * (1 - clamp(left() / total(), 0, 1)) : circumference);
-        button.setAttribute("aria-label", `${isOn(active) ? "Stop" : "Run"} ${ctx.accessory.name}`);
+        button.setAttribute("aria-label", isOn(active) ? t("Stop {name}", { name: ctx.accessory.name }) : t("Run {name} [valve]", { name: ctx.accessory.name }));
       });
       let durations = null;
       if (canWrite(set)) {
@@ -10039,7 +15572,7 @@ self.addEventListener("notificationclick", (event) => {
         if (!choices.includes(numberOf(set)) && numberOf(set) > 0) choices.push(numberOf(set));
         choices.sort((a, b) => a - b);
         const shown = choices.slice(0, 4).includes(numberOf(set)) ? choices.slice(0, 4) : [...choices.slice(0, 3), numberOf(set)];
-        const control = segmented(shown.map((s) => ({ value: s, label: s % 60 ? clock(s) : `${s / 60} min` })), "Duration", (v) => ctx.write(primary, set, v));
+        const control = segmented(shown.map((s) => ({ value: s, label: s % 60 ? clock(s) : t("{n} min", { n: s / 60 }) })), t("Duration"), (v) => ctx.write(primary, set, v));
         ctx.watch(() => control.set(numberOf(set)));
         durations = control.node;
       }
@@ -10055,14 +15588,14 @@ self.addEventListener("notificationclick", (event) => {
     icon: (ctx, primary) => primary.type === "Outlet" ? "outlet" : "switch", tone: "green", size: "small",
     build(ctx, primary, size) {
       const on = ctx.take(primary, "On"), inUse = ctx.take(primary, "Outlet In Use");
-      const status = () => isOn(on) ? [isOn(inUse) ? "On · in use" : "On"] : ["Off"];
+      const status = () => isOn(on) ? [isOn(inUse) ? t("On · in use") : t("On")] : [t("Off")];
       const turn = (value) => ctx.write(primary, on, onValue(on, value), { held: true });
       if (on.security) {
         // A plugin's security switch (one that unlocks a door): held to turn on, a tap to turn off.
-        const built = { on: () => isOn(on), status, hold: { armed: () => !isOn(on), confirm: () => turn(true), tap: () => { if (isOn(on)) turn(false); }, verb: () => isOn(on) ? "turn off" : "hold to turn on" } };
+        const built = { on: () => isOn(on), status, hold: { armed: () => !isOn(on), confirm: () => turn(true), tap: () => { if (isOn(on)) turn(false); }, verb: () => isOn(on) ? t("turn off") : t("hold to turn on") } };
         if (size === "small") return built;
-        const turnOn = hold("Hold to turn on", () => turn(true));
-        const turnOff = el("button", { type: "button", class: "w-button", text: "Turn off", onclick: () => turn(false) });
+        const turnOn = hold(t("Hold to turn on"), () => turn(true));
+        const turnOff = el("button", { type: "button", class: "w-button", text: t("Turn off"), onclick: () => turn(false) });
         ctx.watch(() => { turnOn.node.hidden = isOn(on); turnOff.hidden = !isOn(on); });
         built.body = [turnOn.node, turnOff];
         if (size === "full") built.facets = facets(ctx, [primary]);
@@ -10074,7 +15607,7 @@ self.addEventListener("notificationclick", (event) => {
         on: () => isOn(on), status,
       };
       if (size === "large") {
-        const button = el("button", { type: "button", class: "power-button", "aria-label": `${ctx.accessory.name}: power`, onclick: built.tap }, icon("power"));
+        const button = el("button", { type: "button", class: "power-button", "aria-label": t("{name}: power", { name: ctx.accessory.name }), onclick: built.tap }, icon("power"));
         ctx.watch(() => button.setAttribute("aria-pressed", String(isOn(on))));
         built.power = null;
         const f = facets(ctx, [primary]);
@@ -10155,12 +15688,12 @@ self.addEventListener("notificationclick", (event) => {
   /// The ⋯ menu: All controls (the full view), then what the page offers for the accessory, else Identify.
   function actionsButton(ctx, full) {
     const items = () => [
-      full ? null : { label: "All controls", icon: "edit", onSelect: () => open(ctx.accessory, ctx.options) },
+      full ? null : { label: t("All controls"), icon: "edit", onSelect: () => open(ctx.accessory, ctx.options) },
       full ? null : { separator: true },
       ...(ctx.options.actions ? ctx.options.actions(ctx.accessory)
-        : [{ label: "Identify", icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(ctx.accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) }]),
+        : [{ label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(ctx.accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) }]),
     ];
-    return menuButton(`Actions for ${ctx.accessory.name}`, items);
+    return menuButton(t("Actions for {name}", { name: ctx.accessory.name }), items);
   }
   /// What the search box looks in: the names, the room, the plugin and the model.
   const searchText = (accessory) => [accessory.name, accessory.displayName, accessory.room, accessory.platformName, accessory.model].filter(Boolean).join(" ").toLowerCase();
@@ -10203,7 +15736,7 @@ self.addEventListener("notificationclick", (event) => {
     }
     ctx.node = node;
     cards.add(ctx);
-    const done = el("button", { type: "button", class: "link", text: "Done" });
+    const done = el("button", { type: "button", class: "link", text: t("Done") });
     const dialog = el("dialog", { class: "widget-sheet", "aria-label": accessory.name }, el("div", { class: "sheet-bar" }, done), node);
     done.addEventListener("click", () => dialog.close());
     // On a phone a swipe down from the grabber or the name puts the sheet away, from where the finger left it.
@@ -10240,7 +15773,7 @@ self.addEventListener("notificationclick", (event) => {
   }
   function statusPainter(ctx, built, status) {
     return () => {
-      const paused = ctx.accessory.paused ? [`Paused · ${ctx.accessory.platformName ?? "its plugin"}`, "warn"] : null;
+      const paused = ctx.accessory.paused ? [ctx.accessory.platformName ? t("Paused · {plugin}", { plugin: ctx.accessory.platformName }) : t("Paused · its plugin"), "warn"] : null;
       const [text, tone] = ctx.flashing ? [ctx.flashing, "bad"] : paused ?? (built.status ? built.status() : [""]);
       status.textContent = text;
       if (tone) status.dataset.tone = tone; else delete status.dataset.tone;
@@ -10249,7 +15782,7 @@ self.addEventListener("notificationclick", (event) => {
   function powerToggle(ctx, built) {
     if (!built.power) return null;
     const { service, characteristic, big } = built.power;
-    const control = toggle(`${ctx.accessory.name}: power`, (on) => ctx.write(service, characteristic, onValue(characteristic, on)));
+    const control = toggle(t("{name}: power", { name: ctx.accessory.name }), (on) => ctx.write(service, characteristic, onValue(characteristic, on)));
     if (big) control.node.classList.add("big");
     ctx.watch(() => control.set(isOn(characteristic)));
     return control.node;
@@ -10261,7 +15794,7 @@ self.addEventListener("notificationclick", (event) => {
     const { accessory } = ctx;
     const [glyph, paintGlyph] = glyphFor(ctx, widget, built, primary);
     const status = el("span", { class: "status" });
-    const who = el("div", { class: "who" }, el("strong", { text: accessory.displayName || accessory.name, title: accessory.displayName ? `${accessory.name} in the Home app` : null }), status);
+    const who = el("div", { class: "who" }, el("strong", { text: accessory.displayName || accessory.name, title: accessory.displayName ? t("{name} in the Home app", { name: accessory.name }) : null }), status);
     const menu = actionsButton(ctx, false);
     const node = el("article", { class: `card widget size-${size} widget-${widget.name}`, "data-search": searchText(accessory), "data-id": accessory.id });
     if (size === "small") {
@@ -10342,8 +15875,8 @@ self.addEventListener("notificationclick", (event) => {
           const { min, max } = built.slide ?? { min: 0, max: 100 };
           shade.style.setProperty("--closed", `${sliding !== null ? 100 - (sliding - min) / (max - min) * 100 : built.shade()}%`);
         }
-        const verb = built.hold ? built.hold.verb() : built.tap ? (built.tapLabel ? built.tapLabel() : on ? "turn off" : "turn on") : "show all controls";
-        hit.setAttribute("aria-label", `${accessory.name}: ${verb}`);
+        const verb = built.hold ? built.hold.verb() : built.tap ? (built.tapLabel ? built.tapLabel() : on ? t("turn off") : t("turn on")) : t("show all controls");
+        hit.setAttribute("aria-label", t("{name}: {action}", { name: accessory.name, action: verb }));
         hit.setAttribute("aria-pressed", String(on));
       });
     } else {
@@ -10382,7 +15915,7 @@ self.addEventListener("notificationclick", (event) => {
       split ? el("div", { class: "w-split" }, el("div", { class: "w-main" }, body), el("div", { class: "w-side" }, side, facetList))
         : body.length + side.length + facetList.length ? el("div", { class: "w-main" }, body, side, facetList) : null,
       rest.length ? el("details", { class: "more", open: rest.length <= 2 },
-        el("summary", { text: names.length > 3 ? `${names.slice(0, 2).join(", ")} and ${names.length - 2} more` : names.join(", ") }),
+        el("summary", { text: names.length > 3 ? t("{names} and {n} more", { names: names.slice(0, 2).join(", "), n: names.length - 2 }) : names.join(", ") }),
         el("div", { class: "controls" }, rest)) : null,
       el("div", { class: "card-foot" }, el("span", { class: "muted", text: [describeModel(accessory), accessory.bridge].filter(Boolean).join(" · ") }), actionsButton(ctx, true)));
     if (built.power && !built.power.big) ctx.watch(() => node.classList.toggle("powered-off", !isOn(built.power.characteristic)));
@@ -10395,7 +15928,7 @@ self.addEventListener("notificationclick", (event) => {
   // Under a camera's video: its light (a package camera's flashlight), switches and HomeKit camera setting;
   // sensors and the rest under "More".
   const cameraFirst = new Set(["Lightbulb", "Switch", "Outlet", "CameraOperatingMode"]);
-  const cameraServiceNames = { CameraOperatingMode: "Camera", Microphone: "Microphone", Speaker: "Speaker" };
+  const cameraServiceNames = { CameraOperatingMode: t("Camera"), Microphone: t("Microphone"), Speaker: t("Speaker") };
 
   function cameraView(ctx) {
     const { accessory } = ctx;
@@ -10412,7 +15945,7 @@ self.addEventListener("notificationclick", (event) => {
     const view = cameraView(ctx);
     const node = el("article", { class: `card widget size-${size} widget-camera camera-tile`, "data-search": searchText(ctx.accessory), "data-id": ctx.accessory.id },
       view.element, el("span", { class: "w-corner" }, actionsButton(ctx, false)));
-    if (size === "small") node.append(el("button", { type: "button", class: "w-hit", "aria-label": `${ctx.accessory.name}: show all controls`, onclick: () => ctx.openFull() }));
+    if (size === "small") node.append(el("button", { type: "button", class: "w-hit", "aria-label": t("{name}: {action}", { name: ctx.accessory.name, action: t("show all controls") }), onclick: () => ctx.openFull() }));
     paused(node, ctx);
     return node;
   }
@@ -10426,7 +15959,7 @@ self.addEventListener("notificationclick", (event) => {
     // A camera's sensors carry its own name: they read as what they are.
     const named = (service) => {
       const own = !service.name || service.name === accessory.name;
-      return own ? { ...service, name: cameraServiceNames[service.type] || service.type.replace(/([a-z])([A-Z])/g, "$1 $2") } : service;
+      return own ? { ...service, name: cameraServiceNames[service.type] || serviceName(service.type.replace(/([a-z])([A-Z])/g, "$1 $2")) } : service;
     };
     const first = leftovers(ctx, ctx.services.filter((s) => cameraFirst.has(s.type)).map(named));
     const more = leftovers(ctx, ctx.services.filter((s) => !cameraFirst.has(s.type)).map(named));
@@ -10437,7 +15970,7 @@ self.addEventListener("notificationclick", (event) => {
       subtitle ? el("div", { class: "camera-meta muted", text: subtitle }) : null,
       first.length ? el("div", { class: "controls" }, first) : null,
       more.length ? el("details", { class: "more" },
-        el("summary", { text: names.length > 3 ? `${names.slice(0, 2).join(", ")} and ${names.length - 2} more` : names.join(", ") }),
+        el("summary", { text: names.length > 3 ? t("{names} and {n} more", { names: names.slice(0, 2).join(", "), n: names.length - 2 }) : names.join(", ") }),
         el("div", { class: "controls" }, more)) : null,
       el("div", { class: "card-foot" }, el("span", { class: "muted", text: accessory.bridge }), actionsButton(ctx, true)));
   }

@@ -10,6 +10,7 @@
 (() => {
   "use strict";
   const { $, el, icon, markdown, sparkle, api, jsonView } = HomeswiftCommon;
+  const { t, tn } = HomeswiftI18n;
 
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   const phone = matchMedia("(max-width: 640px)");
@@ -72,32 +73,32 @@
 
   function build() {
     const log = el("div", { class: "chat-log", "aria-live": "polite", "aria-relevant": "additions" });
-    const input = el("textarea", { rows: 1, placeholder: "Ask, or tell it what to set up…", "aria-label": "Message to the Assistant", maxLength: 4000 });
-    const mic = el("button", { type: "button", class: "chat-mic", "aria-label": "Dictate", title: "Dictate: tap, or hold while you speak" });
+    const input = el("textarea", { rows: 1, placeholder: t("Ask, or tell it what to set up…"), "aria-label": t("Message to the Assistant"), maxLength: 4000 });
+    const mic = el("button", { type: "button", class: "chat-mic", "aria-label": t("Dictate"), title: t("Dictate: tap, or hold while you speak") });
     mic.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>';
-    const send = el("button", { type: "submit", class: "chat-send", "aria-label": "Send" });
+    const send = el("button", { type: "submit", class: "chat-send", "aria-label": t("Send") });
     send.innerHTML = '<svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>'
       + '<svg class="stop-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>';
     const foot = el("p", { class: "chat-foot" });
     // The language spoken to the mic and in which answers are read out; this browser remembers it.
-    const languages = [["", "Browser's language"], ["en-US", "English (US)"], ["en-GB", "English (UK)"], ["fr-FR", "Français"], ["de-DE", "Deutsch"],
+    const languages = [["", t("Browser's language")], ["en-US", "English (US)"], ["en-GB", "English (UK)"], ["fr-FR", "Français"], ["de-DE", "Deutsch"],
       ["es-ES", "Español"], ["it-IT", "Italiano"], ["nl-NL", "Nederlands"], ["pt-PT", "Português"], ["pt-BR", "Português (Brasil)"],
       ["sv-SE", "Svenska"], ["da-DK", "Dansk"], ["nb-NO", "Norsk"], ["fi-FI", "Suomi"], ["pl-PL", "Polski"], ["ja-JP", "日本語"], ["zh-CN", "中文"]];
     let stored = "";
     try { stored = localStorage.getItem("homeswift.voiceLanguage") || ""; } catch {}
-    const languagePicker = el("select", { class: "popup", "aria-label": "Voice language" },
+    const languagePicker = el("select", { class: "popup", "aria-label": t("Voice language") },
       languages.map(([value, text]) => el("option", { value, text, selected: value === stored })));
     languagePicker.addEventListener("change", () => { try { localStorage.setItem("homeswift.voiceLanguage", languagePicker.value); } catch {} });
-    const voice = Recognition ? el("div", { class: "chat-voice" }, el("span", { text: "Voice" }), languagePicker) : null;
+    const voice = Recognition ? el("div", { class: "chat-voice" }, el("span", { text: t("Voice") }), languagePicker) : null;
     const form = el("form", { class: "chat-composer", onsubmit: (event) => { event.preventDefault(); running ? stop() : submit(); } },
       input, Recognition ? mic : null, send);
-    const close = el("button", { type: "button", class: "chat-icon", "aria-label": "Close", title: "Close (Esc)", text: "×", onclick: () => toggle(false) });
-    const fresh = el("button", { type: "button", class: "chat-icon", "aria-label": "New chat", title: "New chat", onclick: reset });
+    const close = el("button", { type: "button", class: "chat-icon", "aria-label": t("Close"), title: t("Close (Esc)"), text: "×", onclick: () => toggle(false) });
+    const fresh = el("button", { type: "button", class: "chat-icon", "aria-label": t("New chat"), title: t("New chat"), onclick: reset });
     fresh.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h8M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
-    const earlier = el("button", { type: "button", class: "chat-icon", "aria-label": "Earlier chats", title: "Earlier chats", "aria-expanded": "false", onclick: () => showHistory() }, icon("history"));
+    const earlier = el("button", { type: "button", class: "chat-icon", "aria-label": t("Earlier chats"), title: t("Earlier chats"), "aria-expanded": "false", onclick: () => showHistory() }, icon("history"));
     const head = el("div", { class: "chat-head" },
       el("span", { class: "chat-grabber", "aria-hidden": "true" }),
-      sparkle(), el("strong", { id: "chat-title", text: "Assistant" }), el("span", { class: "chat-model", text: info.model || "" }),
+      sparkle(), el("strong", { id: "chat-title", text: t("Assistant") }), el("span", { class: "chat-model", text: info.model || "" }),
       el("span", { class: "spacer" }), earlier, fresh, close);
     const sheet = el("section", { class: "chat", role: "dialog", "aria-labelledby": "chat-title", hidden: true },
       el("div", { class: "chat-glow", "aria-hidden": "true" }),
@@ -301,7 +302,7 @@
         }
       }
     } catch (e) {
-      if (own === session) showError(`The connection dropped: ${e.message}`);
+      if (own === session) showError(t("The connection dropped: {error}", { error: e.message }));
     }
     if (own !== session) return;
     running = false;
@@ -335,27 +336,27 @@
     if (historyOpen) { closeHistory(); return; }
     historyOpen = true;
     panel.earlier.setAttribute("aria-expanded", "true");
-    const list = el("div", { class: "chat-history", role: "region", "aria-label": "Earlier chats" }, el("p", { class: "muted", text: "Loading…" }));
+    const list = el("div", { class: "chat-history", role: "region", "aria-label": t("Earlier chats") }, el("p", { class: "muted", text: t("Loading…") }));
     panel.log.replaceChildren(list);
     let chats;
     try { chats = await api("/api/assistant/chats"); } catch (e) { list.replaceChildren(el("p", { class: "chat-error", text: e.message })); return; }
     if (!historyOpen) return;
-    const when = new Intl.DateTimeFormat([], { dateStyle: "medium", timeStyle: "short" });
+    const when = new Intl.DateTimeFormat(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" });
     const rows = chats.map((chat) => {
       const row = el("div", { class: `chat-history-row${chat.current ? " current" : ""}` },
         el("button", { type: "button", class: "chat-history-open", onclick: () => openChat(chat) },
           el("strong", { text: chat.title }),
-          el("span", { class: "muted", text: `${when.format(new Date(chat.updated))} · ${chat.messages} ${chat.messages === 1 ? "message" : "messages"}${chat.current ? " · open" : ""}` })),
-        el("button", { type: "button", class: "chat-icon", "aria-label": `Forget “${chat.title}”`, title: "Forget this chat", text: "×", onclick: async () => {
+          el("span", { class: "muted", text: [when.format(new Date(chat.updated)), tn("{n} message", "{n} messages", chat.messages), chat.current ? t("open [chat]") : null].filter(Boolean).join(" · ") })),
+        el("button", { type: "button", class: "chat-icon", "aria-label": t("Forget “{title}”", { title: chat.title }), title: t("Forget this chat"), text: "×", onclick: async () => {
           try { await api(`/api/assistant/chats/${encodeURIComponent(chat.id)}`, { method: "DELETE" }); } catch (e) { showError(e.message); return; }
           row.remove();
           if (chat.current) { setItems([], false); historyOpen = false; showHistory(); }
         } }));
       return row;
     });
-    list.replaceChildren(el("h2", { text: "Earlier chats" }),
-      rows.length ? el("div", { class: "chat-history-list" }, rows) : el("p", { class: "muted", text: "No chat yet. Each one you start is kept here, the last ten." }),
-      el("button", { type: "button", class: "link", text: "Back to the chat", onclick: closeHistory }));
+    list.replaceChildren(el("h2", { text: t("Earlier chats") }),
+      rows.length ? el("div", { class: "chat-history-list" }, rows) : el("p", { class: "muted", text: t("No chat yet. Each one you start is kept here, the last ten.") }),
+      el("button", { type: "button", class: "link", text: t("Back to the chat"), onclick: closeHistory }));
   }
 
   async function openChat(chat) {
@@ -393,11 +394,11 @@
 
   /// Suggestions for an empty conversation.
   function welcome() {
-    const suggestions = ["Add a device for me", "What does my bridge run?", "Why is an accessory not responding?", "Turn off every light"];
+    const suggestions = [t("Add a device for me"), t("What does my bridge run?"), t("Why is an accessory not responding?"), t("Turn off every light")];
     return el("div", { class: "chat-welcome" },
       sparkle(),
-      el("h2", { text: "What can I do for you?" }),
-      el("p", { class: "muted", text: "I can look at your bridge, set up a device with its plugin, or change a setting. I ask before I change anything." }),
+      el("h2", { text: t("What can I do for you?") }),
+      el("p", { class: "muted", text: t("I can look at your bridge, set up a device with its plugin, or change a setting. I ask before I change anything.") }),
       el("div", { class: "chat-suggestions" }, suggestions.map((text) => el("button", { type: "button", text, onclick: () => submit(text) }))));
   }
 
@@ -437,11 +438,11 @@
       return el("div", { class: `chat-step ${item.state}`, title: item.name },
         el("span", { class: "chat-step-mark", "aria-hidden": "true" }),
         el("span", {}, el("span", { class: "chat-step-title", text: item.title }), item.summary ? el("span", { class: "chat-step-summary", text: ` · ${item.summary}` }) : null),
-        el("span", { class: "visually-hidden", text: { running: " (running)", failed: " (failed)", declined: " (not allowed)" }[item.state] ?? " (done)" }));
+        el("span", { class: "visually-hidden", text: ` ${{ running: t("(running)"), failed: t("(failed)"), declined: t("(not allowed)") }[item.state] ?? t("(done)")}` }));
     case "confirm":
       return confirmCard(item);
     default:
-      return el("p", { class: "chat-error", role: "alert", text: item.text });
+      return el("p", { class: "chat-error", role: "alert", text: HomeswiftI18n.message(item.text) });
     }
   }
 
@@ -454,28 +455,28 @@
     };
     const changes = changeList(item.preview);
     const details = el("details", {},
-      el("summary", { text: changes ? "The whole request" : item.preview !== undefined ? "What would change" : "Details" }),
+      el("summary", { text: changes ? t("The whole request") : item.preview !== undefined ? t("What would change") : t("Details") }),
       jsonView(changes ? item.arguments : item.preview ?? item.arguments));
     return el("div", { class: `chat-confirm ${item.state}` },
       el("div", { class: "chat-confirm-head" }, el("strong", { text: describe(item) }),
-        pending ? null : el("span", { class: `pill status ${item.state === "allowed" ? "on" : "standby"}`, text: item.state === "allowed" ? "Allowed" : "Not allowed" })),
-      el("p", { text: pending ? `${item.title}. Nothing changes until you allow it.` : item.title }),
+        pending ? null : el("span", { class: `pill status ${item.state === "allowed" ? "on" : "standby"}`, text: item.state === "allowed" ? t("Allowed") : t("Not allowed") })),
+      el("p", { text: pending ? t("{title}. Nothing changes until you allow it.", { title: item.title }) : item.title }),
       changes,
       details,
       pending ? el("div", { class: "chat-confirm-actions" },
-        el("button", { type: "button", text: "Don't allow", onclick: answer(false) }),
-        el("button", { type: "button", class: "primary", text: "Allow", onclick: answer(true) })) : null);
+        el("button", { type: "button", text: t("Don't allow"), onclick: answer(false) }),
+        el("button", { type: "button", class: "primary", text: t("Allow"), onclick: answer(true) })) : null);
   }
 
   /// What a config dry run would change, a line per setting with its new value; null for other previews.
   function changeList(preview) {
     if (!preview || !Array.isArray(preview.changes) || !preview.config) return null;
     const valueAt = (path) => path.match(/[^.[\]]+/g).reduce((value, key) => value?.[/^\d+$/.test(key) ? Number(key) : key], preview.config);
-    const shown = (value) => value === undefined ? "removed" : value === "__REDACTED__" ? "(secret, kept)" : JSON.stringify(value);
+    const shown = (value) => value === undefined ? t("removed") : value === "__REDACTED__" ? t("(secret, kept)") : JSON.stringify(value);
     const lines = preview.changes.slice(0, 8).map((path) => el("li", {},
       el("code", { text: path.replace(/^platforms\[\d+\]\./, "") }), " ", el("span", { text: `→ ${shown(valueAt(path))}`.slice(0, 120) })));
-    if (preview.changes.length > 8) lines.push(el("li", { class: "muted", text: `and ${preview.changes.length - 8} more` }));
-    return lines.length ? el("ul", { class: "chat-changes" }, lines) : el("p", { class: "muted", text: "Nothing would change." });
+    if (preview.changes.length > 8) lines.push(el("li", { class: "muted", text: tn("and {n} more", "and {n} more", preview.changes.length - 8) }));
+    return lines.length ? el("ul", { class: "chat-changes" }, lines) : el("p", { class: "muted", text: t("Nothing would change.") });
   }
 
   /// A change in a sentence, from the tool and its arguments.
@@ -484,14 +485,18 @@
     const settings = Object.keys(args.settings || {});
     switch (tool) {
     case "put_list_entry":
-      return `Save “${entry.name || entry.mac || "this entry"}” in ${args.name || args.platform}?`;
+      return entry.name || entry.mac
+        ? t("Save “{entry}” in {block}?", { entry: entry.name || entry.mac, block: args.name || args.platform })
+        : t("Save this entry in {block}?", { block: args.name || args.platform });
     case "patch_config":
-      return `Change ${settings.length ? settings.join(", ") : "settings"} of ${args.name || args.platform}?`;
-    case "update_config": return "Replace the whole config.json? A backup is kept.";
-    case "restore_config": return `Restore config.json from ${args.backup}?`;
-    case "restart_bridge": return "Restart homeswift? Connections drop for a few seconds.";
-    case "set_security_accessory": return `Set ${args.characteristic} to ${JSON.stringify(args.value)} on ${args.id}?`;
-    default: return `Allow ${tool}?`;
+      return settings.length
+        ? t("Change {settings} of {block}?", { settings: settings.join(", "), block: args.name || args.platform })
+        : t("Change the settings of {block}?", { block: args.name || args.platform });
+    case "update_config": return t("Replace the whole config.json? A backup is kept.");
+    case "restore_config": return t("Restore config.json from {backup}?", { backup: args.backup });
+    case "restart_bridge": return t("Restart homeswift? Connections drop for a few seconds.");
+    case "set_security_accessory": return t("Set {characteristic} to {value} on {id}?", { characteristic: args.characteristic, value: JSON.stringify(args.value), id: args.id });
+    default: return t("Allow {tool}?", { tool });
     }
   }
 
@@ -514,15 +519,18 @@
     sheet.classList.toggle("working", running);
     log.setAttribute("aria-busy", String(running));
     send.classList.toggle("stop", running);
-    send.setAttribute("aria-label", running ? "Stop" : "Send");
-    send.title = running ? "Stop" : "Send (Enter)";
+    send.setAttribute("aria-label", running ? t("Stop") : t("Send"));
+    send.title = running ? t("Stop") : t("Send (Enter)");
     const waiting = running && !items.some((item) => item.kind === "confirm" && item.state === "pending") && items[items.length - 1]?.kind !== "assistant";
     let thinking = log.querySelector(".chat-thinking");
-    if (waiting && !thinking) log.append(thinking = el("p", { class: "chat-thinking", text: "Thinking…" }));
+    if (waiting && !thinking) log.append(thinking = el("p", { class: "chat-thinking", text: t("Thinking…") }));
     if (waiting) log.append(thinking);   // stays last
     if (!waiting) thinking?.remove();
-    const cost = usage && usage.cost != null && usage.cost > 0 ? ` · $${usage.cost < 0.01 ? usage.cost.toFixed(4) : usage.cost.toFixed(2)} so far` : "";
-    foot.textContent = listening ? "Listening… tap the mic again when you are done." : voiceNote || `${info.provider || "Assistant"}${cost}. Changes always ask first.`;
+    const provider = info.provider || t("Assistant");
+    const cost = usage && usage.cost != null && usage.cost > 0
+      ? new Intl.NumberFormat(HomeswiftI18n.locale, { style: "currency", currency: "USD", minimumFractionDigits: usage.cost < 0.01 ? 4 : 2, maximumFractionDigits: usage.cost < 0.01 ? 4 : 2 }).format(usage.cost) : null;
+    foot.textContent = listening ? t("Listening… tap the mic again when you are done.") : voiceNote
+      || (cost ? t("{provider} · {cost} so far. Changes always ask first.", { provider, cost }) : t("{provider}. Changes always ask first.", { provider }));
   }
 
   // ---- Voice ------------------------------------------------------------------------------------------------
@@ -535,7 +543,7 @@
     const { mic } = panel;
     if (!window.isSecureContext) {
       mic.classList.add("unavailable");
-      mic.title = "Voice needs HTTPS: turn on https in the HomeswiftUI settings, or open this page on localhost.";
+      mic.title = t("Voice needs HTTPS: turn on https in the HomeswiftUI settings, or open this page on localhost.");
     }
     let pressedAt = 0;
     mic.addEventListener("pointerdown", (event) => {
@@ -555,7 +563,7 @@
 
   function startListening() {
     if (!window.isSecureContext) {
-      voiceNote = "Voice needs HTTPS here: turn on https in Plugins › HomeswiftUI › Settings (or open the page on localhost).";
+      voiceNote = t("Voice needs HTTPS here: turn on https in Plugins › HomeswiftUI › Settings (or open the page on localhost).");
       renderControls();
       return;
     }
@@ -579,8 +587,8 @@
     };
     recognition.onerror = (event) => {
       voiceNote = event.error === "not-allowed" || event.error === "service-not-allowed"
-        ? "The browser did not allow the microphone for this page."
-        : event.error === "no-speech" ? "Nothing was heard. Tap the mic and speak." : `Voice stopped: ${event.error}.`;
+        ? t("The browser did not allow the microphone for this page.")
+        : event.error === "no-speech" ? t("Nothing was heard. Tap the mic and speak.") : t("Voice stopped: {error}.", { error: event.error });
     };
     recognition.onend = () => {
       const send = recognition?.sendWhenDone !== false;
@@ -594,7 +602,7 @@
     try {
       recognition.start();
     } catch (e) {
-      voiceNote = `Voice did not start: ${e.message}`;
+      voiceNote = t("Voice did not start: {error}", { error: e.message });
       renderControls();
       return;
     }
@@ -632,7 +640,7 @@
     if (!header || header.querySelector(".chat-open")) return;
     const shortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl+K";
     trigger = el("button", {
-      type: "button", class: "chat-open", "aria-expanded": "false", "aria-haspopup": "dialog", "aria-label": "Assistant", title: `Ask the Assistant (${shortcut})`,
+      type: "button", class: "chat-open", "aria-expanded": "false", "aria-haspopup": "dialog", "aria-label": t("Assistant"), title: t("Ask the Assistant ({shortcut})", { shortcut }),
       "aria-keyshortcuts": "Meta+K Control+K", onclick: () => toggle(),
     }, sparkle());
     header.insertBefore(trigger, header.querySelector("#user"));
@@ -682,8 +690,8 @@
     renderControls();
   }
 
-  /// The language chosen for voice, else the browser's.
-  const voiceLanguage = () => panel?.languagePicker.value || navigator.language || "en-US";
+  /// The language chosen for voice, else the page's.
+  const voiceLanguage = () => panel?.languagePicker.value || HomeswiftI18n.locale || "en-US";
 
   window.HomeswiftChat = { mount, ask, signedOut, open: () => toggle(true), available: () => Boolean(info?.enabled) };
   // The UI's own page mounts it once signed in; a plugin page is signed in already.

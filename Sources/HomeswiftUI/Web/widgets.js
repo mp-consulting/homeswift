@@ -15,24 +15,25 @@
   "use strict";
 
   const { el, menuButton, api } = HomeswiftCommon;
+  const { t, tn } = HomeswiftI18n;
 
   // ---- Values -------------------------------------------------------------------------------------------
 
   const enumLabels = {
-    "Lock Target State": ["Unsecured", "Secured"], "Lock Current State": ["Unsecured", "Secured", "Jammed", "Unknown"],
-    "Target Door State": ["Open", "Closed"], "Current Door State": ["Open", "Closed", "Opening", "Closing", "Stopped"],
-    "Security System Target State": ["Home", "Away", "Night", "Off"], "Security System Current State": ["Home", "Away", "Night", "Off", "Alarm"],
-    "Active": ["Inactive", "Active"], "Target Heating Cooling State": ["Off", "Heat", "Cool", "Auto"], "Current Heating Cooling State": ["Off", "Heating", "Cooling"],
-    "Target Heater-Cooler State": ["Auto", "Heat", "Cool"], "Current Heater-Cooler State": ["Inactive", "Idle", "Heating", "Cooling"],
-    "Target Fan State": ["Manual", "Auto"], "Current Fan State": ["Inactive", "Idle", "Blowing"], "Rotation Direction": ["Clockwise", "Counter-clockwise"],
-    "Swing Mode": ["Disabled", "Enabled"], "Programmable Switch Event": ["Single press", "Double press", "Long press"],
-    "Contact Sensor State": ["Contact", "No contact"], "Temperature Display Units": ["Celsius", "Fahrenheit"],
-    "Air Quality": ["Unknown", "Excellent", "Good", "Fair", "Inferior", "Poor"], "Charging State": ["Not charging", "Charging", "Not chargeable"],
-    "Status Low Battery": ["Normal", "Low"], "Leak Detected": ["Dry", "Leak"], "Smoke Detected": ["Clear", "Smoke"], "Carbon Monoxide Detected": ["Normal", "Abnormal"],
-    "Carbon Dioxide Detected": ["Normal", "Abnormal"], "Target Air Purifier State": ["Manual", "Auto"], "Current Air Purifier State": ["Inactive", "Idle", "Purifying"],
-    "Motion Detected": ["No motion", "Motion"], "Occupancy Detected": ["Not occupied", "Occupied"], "Mute": ["Off", "On"],
-    "Position State": ["Closing", "Opening", "Stopped"], "Filter Change Indication": ["OK", "Replace"], "In Use": ["Not in use", "In use"],
-    "Lock Physical Controls": ["Unlocked", "Locked"], "Valve Type": ["Valve", "Irrigation", "Shower head", "Faucet"],
+    "Lock Target State": [t("Unsecured"), t("Secured")], "Lock Current State": [t("Unsecured"), t("Secured"), t("Jammed"), t("Unknown")],
+    "Target Door State": [t("Open"), t("Closed")], "Current Door State": [t("Open"), t("Closed"), t("Opening"), t("Closing"), t("Stopped")],
+    "Security System Target State": [t("Home [alarm]"), t("Away"), t("Night"), t("Off [alarm]")], "Security System Current State": [t("Home [alarm]"), t("Away"), t("Night"), t("Off [alarm]"), t("Alarm")],
+    "Active": [t("Inactive"), t("Active")], "Target Heating Cooling State": [t("Off"), t("Heat"), t("Cool"), t("Auto")], "Current Heating Cooling State": [t("Off"), t("Heating"), t("Cooling")],
+    "Target Heater-Cooler State": [t("Auto"), t("Heat"), t("Cool")], "Current Heater-Cooler State": [t("Inactive"), t("Idle"), t("Heating"), t("Cooling")],
+    "Target Fan State": [t("Manual"), t("Auto")], "Current Fan State": [t("Inactive"), t("Idle"), t("Blowing")], "Rotation Direction": [t("Clockwise"), t("Counter-clockwise")],
+    "Swing Mode": [t("Disabled"), t("Enabled")], "Programmable Switch Event": [t("Single press"), t("Double press"), t("Long press")],
+    "Contact Sensor State": [t("Contact"), t("No contact")], "Temperature Display Units": ["Celsius", "Fahrenheit"],
+    "Air Quality": [t("Unknown"), t("Excellent"), t("Good"), t("Fair"), t("Inferior"), t("Poor")], "Charging State": [t("Not charging"), t("Charging"), t("Not chargeable")],
+    "Status Low Battery": [t("Normal"), t("Low")], "Leak Detected": [t("Dry"), t("Leak")], "Smoke Detected": [t("Clear [smoke]"), t("Smoke")], "Carbon Monoxide Detected": [t("Normal"), t("Abnormal")],
+    "Carbon Dioxide Detected": [t("Normal"), t("Abnormal")], "Target Air Purifier State": [t("Manual"), t("Auto")], "Current Air Purifier State": [t("Inactive"), t("Idle"), t("Purifying")],
+    "Motion Detected": [t("No motion"), t("Motion")], "Occupancy Detected": [t("Not occupied"), t("Occupied")], "Mute": [t("Off [setting]"), t("On [setting]")],
+    "Position State": [t("Closing"), t("Opening"), t("Stopped")], "Filter Change Indication": [t("OK"), t("Replace [filter]")], "In Use": [t("Not in use"), t("In use")],
+    "Lock Physical Controls": [t("Unlocked"), t("Locked")], "Valve Type": [t("Valve"), t("Irrigation"), t("Shower head"), t("Faucet")],
   };
   // What HomeKit needs to describe an accessory rather than a state a person reads or changes: kept off the page.
   const plumbing = new Set([
@@ -47,13 +48,19 @@
   // On and off as 1 and 0.
   const numericSwitches = new Set(["HomeKit Camera Active"]);
   const rowLabels = {
-    "Active Identifier": "Input", "Remote Key": "Remote", "Volume Selector": "Volume",
-    "HomeKit Camera Active": "On in the Home app", "Camera Operating Mode Indicator": "Status light",
+    "Active Identifier": t("Input"), "Remote Key": t("Remote"), "Volume Selector": t("Volume"),
+    "HomeKit Camera Active": t("On in the Home app"), "Camera Operating Mode Indicator": t("Status light"),
   };
 
   const serviceKey = (service) => service.subtype || service.type;
   /// "Color Temperature" reads "Color temperature".
   const sentence = (type) => type.charAt(0) + type.slice(1).toLowerCase();
+  /// A characteristic's name from HomeKit's definitions as a row reads it: translated when the catalog knows it,
+  /// else in sentence case.
+  const typeName = (type) => { const translated = HomeswiftI18n.message(type); return translated !== type ? translated : sentence(type); };
+  /// A number as the page's language writes it: "21,5" in French.
+  const decimal = (1.5).toLocaleString(HomeswiftI18n.locale).charAt(1);
+  const num = (value) => typeof value === "number" ? String(value).replace(".", decimal) : value;
   /// The text for an enumerated value, or the value itself.
   function labelFor(type, value) {
     const labels = enumLabels[type];
@@ -66,9 +73,9 @@
   const unit = (characteristic) => characteristic.unit === "celsius" ? ` ${HomeswiftCommon.temperature(0).unit}` : units[characteristic.unit] || "";
   /// A value with its characteristic's unit, a temperature converted to the user's unit.
   const withUnit = (value, characteristic) =>
-    characteristic.unit === "celsius" && typeof value === "number" ? HomeswiftCommon.formatTemperature(value) : `${value}${unit(characteristic)}`;
+    characteristic.unit === "celsius" && typeof value === "number" ? HomeswiftCommon.formatTemperature(value) : `${num(value)}${unit(characteristic)}`;
   function formatValue(characteristic) {
-    if (characteristic.format === "bool") return characteristic.value ? "On" : "Off";
+    if (characteristic.format === "bool") return characteristic.value ? t("On [setting]") : t("Off [setting]");
     if (characteristic.value === null || characteristic.value === undefined) return "";
     return withUnit(characteristic.value, characteristic);
   }
@@ -84,15 +91,15 @@
     return min === undefined || max === undefined || !step ? Infinity : Math.round((max - min) / step);
   }
   /// A temperature (HomeKit's °C) in the user's unit, as the dials show it: "21.5°".
-  const degrees = (celsius) => { const { value } = HomeswiftCommon.temperature(celsius); return `${Number.isInteger(value) ? value : value.toFixed(1)}°`; };
+  const degrees = (celsius) => { const { value } = HomeswiftCommon.temperature(celsius); return `${Number.isInteger(value) ? value : value.toFixed(1).replace(".", decimal)}°`; };
   const clock = (seconds) => `${Math.floor(seconds / 60)}:${String(Math.max(0, Math.round(seconds % 60))).padStart(2, "0")}`;
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
   /// A colour temperature in mireds (what HomeKit sends) in kelvin, to the nearest 50.
   const kelvin = (mireds) => Math.round(1e6 / mireds / 50) * 50;
   /// About the colour of white light at `k` kelvin, for a tile and the temperature track.
   function whiteColor(k, lightness = 70) {
-    const t = clamp((k - 2700) / (6500 - 2700), 0, 1);
-    return `hsl(${Math.round(32 + t * 178)} ${Math.round(90 - t * 70)}% ${lightness}%)`;
+    const share = clamp((k - 2700) / (6500 - 2700), 0, 1);
+    return `hsl(${Math.round(32 + share * 178)} ${Math.round(90 - share * 70)}% ${lightness}%)`;
   }
 
   function describeModel(accessory) {
@@ -113,8 +120,10 @@
       const last = parts[parts.length - 1];
       if (last) return sentence(words(last));
     }
-    return words(service.type);
+    return serviceName(words(service.type));
   }
+  /// A service type from HomeKit's definitions ("Temperature Sensor"), translated when the catalog knows it.
+  const serviceName = (text) => HomeswiftI18n.message(text);
 
   // ---- An accessory on the page: its values, writes and painters --------------------------------------
 
@@ -143,10 +152,14 @@
     /// marked) asks first unless the control was held to confirm (`held`).
     ctx.write = async (service, characteristic, value, { held = false } = {}) => {
       // A paused plugin's accessory answers nothing: say so rather than ask.
-      if (accessory.paused) { ctx.flash(`${accessory.platformName ?? "Its plugin"} is paused: resume it to control ${accessory.name}`); return; }
+      if (accessory.paused) {
+        ctx.flash(accessory.platformName ? t("{plugin} is paused: resume it to control {name}", { plugin: accessory.platformName, name: accessory.name })
+          : t("Its plugin is paused: resume it to control {name}", { name: accessory.name }));
+        return;
+      }
       if (characteristic.security && !held) {
-        const label = characteristic.format === "bool" ? (value ? "On" : "Off") : labelFor(characteristic.type, value);
-        if (!confirm(`Set ${sentence(characteristic.type).toLowerCase()} of ${accessory.name} to ${label}?`)) { ctx.paint(); return; }
+        const label = characteristic.format === "bool" ? (value ? t("On") : t("Off")) : labelFor(characteristic.type, value);
+        if (!confirm(t("Set {setting} of {name} to {value}?", { setting: typeName(characteristic.type).toLowerCase(), name: accessory.name, value: label }))) { ctx.paint(); return; }
       }
       const before = characteristic.value;
       characteristic.value = value;
@@ -304,7 +317,7 @@
   function steps({ label, count }, onChange) {
     const node = el("div", { class: "steps", role: "radiogroup", "aria-label": label });
     const bars = Array.from({ length: count }, (_, index) => {
-      const bar = el("button", { type: "button", role: "radio", "aria-label": `${label} ${index + 1} of ${count}`, onclick: () => { show(index + 1); onChange(index + 1); } });
+      const bar = el("button", { type: "button", role: "radio", "aria-label": t("{label} {n} of {count}", { label, n: index + 1, count }), onclick: () => { show(index + 1); onChange(index + 1); } });
       bar.style.height = `${Math.round(38 + (62 * (index + 1)) / count)}%`;
       return bar;
     });
@@ -338,8 +351,9 @@
       clearTimeout(timer);
       timer = setTimeout(() => { timer = null; onChange(value); }, 600);
     };
-    const round = (glyph, text, delta) => el("button", { type: "button", class: "round", "aria-label": `${text} ${label.toLowerCase()}`, onclick: () => bump(delta) }, icon(glyph));
-    const node = el("div", { class: "setpoint" }, round("minus", "Lower", -step), el("div", { class: "sp-value", "aria-live": "polite" }, number, caption), round("plus", "Raise", step));
+    const round = (glyph, text, delta) => el("button", { type: "button", class: "round", "aria-label": text, onclick: () => bump(delta) }, icon(glyph));
+    const node = el("div", { class: "setpoint" }, round("minus", t("Lower {setting}", { setting: label.toLowerCase() }), -step),
+      el("div", { class: "sp-value", "aria-live": "polite" }, number, caption), round("plus", t("Raise {setting}", { setting: label.toLowerCase() }), step));
     return { node, set: (next) => { if (!timer) show(next); } };
   }
 
@@ -377,7 +391,7 @@
         const [x1, y1] = point(angle(to), r - 13), [x2, y2] = point(angle(to), r + 13);
         tick.setAttribute("x1", x1.toFixed(2)); tick.setAttribute("y1", y1.toFixed(2)); tick.setAttribute("x2", x2.toFixed(2)); tick.setAttribute("y2", y2.toFixed(2));
       }
-      svg.setAttribute("aria-label", known ? `${caption}: ${degrees(+value.toFixed(1))}` : caption);
+      svg.setAttribute("aria-label", known ? t("{label}: {value}", { label: caption, value: degrees(+value.toFixed(1)) }) : caption);
     }
     return { node: svg, update };
   }
@@ -445,7 +459,7 @@
     node.addEventListener("keydown", (event) => { if ((event.key === " " || event.key === "Enter") && !event.repeat) { event.preventDefault(); start(); } });
     node.addEventListener("keyup", (event) => { if (event.key === " " || event.key === "Enter") cancel(); });
     node.addEventListener("click", (event) => event.preventDefault());
-    const name = (next) => { text.textContent = next; fillText.textContent = next; node.setAttribute("aria-label", `${next} (press and hold)`); };
+    const name = (next) => { text.textContent = next; fillText.textContent = next; node.setAttribute("aria-label", t("{action} (press and hold)", { action: next })); };
     name(label);
     return { node, label: name };
   }
@@ -476,14 +490,14 @@
 
   // ---- Rows: a characteristic as a labelled control, for what no widget draws --------------------------
 
-  const remoteKeys = [["←", 6, "Left"], ["↑", 4, "Up"], ["↓", 5, "Down"], ["→", 7, "Right"], ["Select", 8], ["Back", 9], ["Play/Pause", 11], ["Info", 15]];
+  const remoteKeys = [["←", 6, t("Left")], ["↑", 4, t("Up")], ["↓", 5, t("Down")], ["→", 7, t("Right")], [t("Select [remote]"), 8], [t("Back"), 9], [t("Play/Pause"), 11], [t("Info"), 15]];
 
   function controlFor(ctx, service, characteristic) {
     const writable = canWrite(characteristic), readable = canRead(characteristic);
     const labels = enumLabels[characteristic.type];
     const write = (value) => ctx.write(service, characteristic, value);
     if (writable && (characteristic.format === "bool" || numericSwitches.has(characteristic.type))) {
-      const control = toggle(`${ctx.accessory.name}: ${sentence(characteristic.type)}`, (on) => write(onValue(characteristic, on)));
+      const control = toggle(t("{name}: {setting}", { name: ctx.accessory.name, setting: typeName(characteristic.type) }), (on) => write(onValue(characteristic, on)));
       ctx.watch(() => control.set(isOn(characteristic)));
       return control.node;
     }
@@ -493,17 +507,17 @@
     }
     if (writable && !readable && characteristic.type === "Volume Selector") {
       const send = (value) => ctx.send(service, characteristic, value).catch((e) => ctx.flash(e.message));
-      return el("div", { class: "group" }, el("button", { text: "−", "aria-label": "Volume down", onclick: () => send(1) }), el("button", { text: "+", "aria-label": "Volume up", onclick: () => send(0) }));
+      return el("div", { class: "group" }, el("button", { text: "−", "aria-label": t("Volume down"), onclick: () => send(1) }), el("button", { text: "+", "aria-label": t("Volume up"), onclick: () => send(0) }));
     }
     if (writable && (characteristic.validValues || labels)) {
       const values = characteristic.validValues || labels.map((_, index) => index);
-      const select = el("select", { "aria-label": sentence(characteristic.type) }, values.map((value) => el("option", { value, text: labelFor(characteristic.type, value) })));
+      const select = el("select", { "aria-label": typeName(characteristic.type) }, values.map((value) => el("option", { value, text: labelFor(characteristic.type, value) })));
       select.addEventListener("change", () => write(Number(select.value)));
       ctx.watch(() => { if (document.activeElement !== select) select.value = String(characteristic.value); });
       return select;
     }
     if (writable && ["int", "uint8", "uint16", "uint32", "uint64", "float"].includes(characteristic.format) && characteristic.minValue !== undefined && characteristic.maxValue !== undefined) {
-      const input = el("input", { type: "range", min: characteristic.minValue, max: characteristic.maxValue, step: characteristic.minStep || 1, "aria-label": sentence(characteristic.type) });
+      const input = el("input", { type: "range", min: characteristic.minValue, max: characteristic.maxValue, step: characteristic.minStep || 1, "aria-label": typeName(characteristic.type) });
       const value = el("span", { class: "value" });
       let timer = null;
       input.addEventListener("input", () => {
@@ -515,7 +529,7 @@
       return el("span", { class: "range" }, input, value);
     }
     if (writable && characteristic.format === "string") {
-      const input = el("input", { type: "text", "aria-label": sentence(characteristic.type) });
+      const input = el("input", { type: "text", "aria-label": typeName(characteristic.type) });
       input.addEventListener("change", () => write(input.value));
       ctx.watch(() => { if (document.activeElement !== input) input.value = characteristic.value ?? ""; });
       return input;
@@ -532,7 +546,7 @@
       const value = (type) => s.characteristics.find((c) => c.type === type)?.value;
       return { identifier: value("Identifier"), name: value("Configured Name") || s.name, hidden: value("Current Visibility State") === 1 };
     }).filter((input) => input.identifier !== undefined && !input.hidden);
-    const select = el("select", { "aria-label": "Input" }, inputs.map((input) => el("option", { value: input.identifier, text: input.name })));
+    const select = el("select", { "aria-label": t("Input") }, inputs.map((input) => el("option", { value: input.identifier, text: input.name })));
     select.addEventListener("change", () => ctx.write(service, characteristic, Number(select.value)));
     ctx.watch(() => { if (document.activeElement !== select) select.value = String(characteristic.value); });
     return select;
@@ -544,7 +558,7 @@
       const control = controlFor(ctx, service, characteristic);
       ctx.use(characteristic);
       if (!control) return null;
-      return el("div", { class: "control" }, el("span", { text: rowLabels[characteristic.type] || sentence(characteristic.type) }), control);
+      return el("div", { class: "control" }, el("span", { text: rowLabels[characteristic.type] || typeName(characteristic.type) }), control);
     }).filter(Boolean);
   }
 
@@ -564,12 +578,12 @@
     const min = characteristic.minValue ?? 0, max = characteristic.maxValue ?? 100, count = positions(characteristic);
     if (count <= 6 && count >= 2) {
       const stepSize = (max - min) / count;
-      const control = steps({ label: "Speed", count }, (n) => ctx.write(service, characteristic, min + n * stepSize));
+      const control = steps({ label: t("Speed"), count }, (n) => ctx.write(service, characteristic, min + n * stepSize));
       if (color) control.node.style.setProperty("--steps", color);
       ctx.watch(() => control.set(Math.round((numberOf(characteristic) - min) / stepSize)));
-      return el("div", { class: "w-row" }, el("span", { class: "w-label", text: "Speed" }), control.node);
+      return el("div", { class: "w-row" }, el("span", { class: "w-label", text: t("Speed") }), control.node);
     }
-    const control = level({ label: "Speed", min, max, step: characteristic.minStep || 1, format: (v) => `${v}${unit(characteristic)}`, fill: color }, (v) => ctx.write(service, characteristic, v));
+    const control = level({ label: t("Speed"), min, max, step: characteristic.minStep || 1, format: (v) => `${num(v)}${unit(characteristic)}`, fill: color }, (v) => ctx.write(service, characteristic, v));
     ctx.watch(() => control.set(numberOf(characteristic)));
     return control.node;
   }
@@ -584,7 +598,7 @@
   }
 
   const presets = [
-    ["Warm white", 30, 55], ["Amber", 26, 85], ["Red", 2, 90], ["Pink", 330, 70], ["Violet", 275, 70], ["Blue", 220, 85], ["Cyan", 185, 75], ["Green", 125, 75],
+    [t("Warm white"), 30, 55], [t("Amber"), 26, 85], [t("Red"), 2, 90], [t("Pink"), 330, 70], [t("Violet"), 275, 70], [t("Blue"), 220, 85], [t("Cyan"), 185, 75], [t("Green"), 125, 75],
   ];
 
   /// A light's controls, each a function that builds it (null when the light has none): `brightness` (a level,
@@ -612,15 +626,15 @@
     };
     /// The Adaptive control: a swatch among the colours, a round button beside a white slider, or a chip.
     const adaptiveControl = (kind) => {
-      const label = "Adaptive Lighting";
+      const label = t("Adaptive Lighting");
       const node = kind === "chip"
-        ? el("button", { type: "button", class: "chip adaptive-chip", "aria-pressed": "false" }, icon("sun"), el("span", { text: "Adaptive" }))
+        ? el("button", { type: "button", class: "chip adaptive-chip", "aria-pressed": "false" }, icon("sun"), el("span", { text: t("Adaptive") }))
         : el("button", { type: "button", class: kind === "swatch" ? "swatch adaptive" : "round adaptive", role: kind === "swatch" ? "radio" : null, "aria-label": label, title: label }, icon("sun"));
       node.addEventListener("click", () => setAdaptive(!adaptiveOn()));
       ctx.watch(() => {
         node.setAttribute(kind === "swatch" ? "aria-checked" : "aria-pressed", String(adaptiveOn()));
         node.classList.toggle("unset", !adaptive.resumable && !adaptiveOn());
-        node.title = adaptiveOn() ? "Adaptive Lighting: on" : adaptive.resumable ? "Adaptive Lighting: resume the Home app's schedule" : "Adaptive Lighting: turn it on once in the Home app";
+        node.title = adaptiveOn() ? t("Adaptive Lighting: on") : adaptive.resumable ? t("Adaptive Lighting: resume the Home app's schedule") : t("Adaptive Lighting: turn it on once in the Home app");
       });
       return node;
     };
@@ -633,7 +647,7 @@
     const css = (c, lightness) => c.k ? whiteColor(c.k, lightness) : `hsl(${Math.round(c.h)} ${Math.round(c.s)}% ${lightness}%)`;
     return {
       brightness: canWrite(brightness) ? ({ vertical = false } = {}) => {
-        const control = level({ label: "Brightness", min: brightness.minValue ?? 0, max: brightness.maxValue ?? 100, step: brightness.minStep || 1, format: (v) => `${v} %`, vertical },
+        const control = level({ label: t("Brightness"), min: brightness.minValue ?? 0, max: brightness.maxValue ?? 100, step: brightness.minStep || 1, format: (v) => `${v} %`, vertical },
           (v) => ctx.write(service, brightness, v));
         ctx.watch(() => {
           control.set(numberOf(brightness));
@@ -656,12 +670,12 @@
           const near = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b)) <= 6;
           for (const one of swatches) one.swatch.setAttribute("aria-checked", String(!adaptiveOn() && s > 4 && near(one.h, h) && Math.abs(one.s - s) <= 12));
         });
-        return el("div", { class: `swatches${grid ? " grid" : ""}`, role: "radiogroup", "aria-label": "Colour" }, adaptive ? adaptiveControl("swatch") : null, swatches.map((one) => one.swatch));
+        return el("div", { class: `swatches${grid ? " grid" : ""}`, role: "radiogroup", "aria-label": t("Colour") }, adaptive ? adaptiveControl("swatch") : null, swatches.map((one) => one.swatch));
       } : null,
       white: canWrite(temperature) ? ({ vertical = false, thin = false } = {}) => {
         // Mireds run the other way: the track goes from warm (few kelvin, many mireds) to cool.
         const low = kelvin(temperature.maxValue ?? 500), high = kelvin(temperature.minValue ?? 140);
-        const control = level({ label: "White", min: low, max: high, step: 50, format: (k) => `${k} K`, vertical, thin,
+        const control = level({ label: t("White"), min: low, max: high, step: 50, format: (k) => `${k} K`, vertical, thin,
           gradient: `linear-gradient(${vertical ? "0deg" : "90deg"}, ${whiteColor(low, 72)}, ${whiteColor((low + high) / 2, 88)}, ${whiteColor(high, 84)})` },
         (k) => {
           const mireds = clamp(Math.round(1e6 / k), temperature.minValue ?? 0, temperature.maxValue ?? 1000);
@@ -697,18 +711,18 @@
     const main = type && ctx.char(service, type);
     if (!main) return null;
     ctx.use(main, ctx.char(service, "Status Active"));
-    const extra = ["PM2.5 Density", "PM10 Density", "VOC Density", "Carbon Dioxide Detected"].map((t) => ctx.take(service, t)).filter(Boolean);
+    const extra = ["PM2.5 Density", "PM10 Density", "VOC Density", "Carbon Dioxide Detected"].map((type) => ctx.take(service, type)).filter(Boolean);
     const active = ctx.char(service, "Status Active");
     const value = () => {
       const v = main.value;
       const inactive = active && active.value === false;
       switch (service.type) {
-        case "TemperatureSensor": return { text: typeof v === "number" ? HomeswiftCommon.temperature(v).value.toFixed(1) : "–", unit: HomeswiftCommon.temperature(0).unit, tone: inactive ? "muted" : "" };
+        case "TemperatureSensor": return { text: typeof v === "number" ? HomeswiftCommon.temperature(v).value.toFixed(1).replace(".", decimal) : "–", unit: HomeswiftCommon.temperature(0).unit, tone: inactive ? "muted" : "" };
         case "HumiditySensor": return { text: typeof v === "number" ? String(Math.round(v)) : "–", unit: "%", tone: inactive ? "muted" : "" };
         case "LightSensor": return { text: typeof v === "number" ? String(Math.round(v)) : "–", unit: "lx" };
         case "CarbonDioxideSensor": return { text: typeof v === "number" ? String(Math.round(v)) : "–", unit: "ppm" };
         case "AirQualitySensor": return { text: labelFor(main.type, v), tone: v >= 4 ? "warn" : v >= 1 ? "ok" : "muted", scale: v >= 1 ? 6 - v : 0 };
-        case "ContactSensor": return { text: v === 0 ? "Closed" : "Open", tone: v === 0 ? "" : "warn" };
+        case "ContactSensor": return { text: v === 0 ? t("Closed") : t("Open"), tone: v === 0 ? "" : "warn" };
         default: return { text: labelFor(main.type, v), tone: isOn(main) ? "warn" : "" };
       }
     };
@@ -732,16 +746,16 @@
         ctx.watch(() => { const v = one.value(); control.set(v.text, v.unit, v.tone, v.scale); });
         out.readouts.push(control.node);
         for (const extra of one.extra) {
-          const more = readout(extra.type.replace(" Density", "").replace("Carbon Dioxide Detected", "CO₂"));
+          const more = readout(extra.type === "VOC Density" ? t("VOC") : extra.type.replace(" Density", "").replace("Carbon Dioxide Detected", "CO₂"));
           ctx.watch(() => more.set(extra.format === "bool" || enumLabels[extra.type] ? labelFor(extra.type, extra.value) : String(Math.round(numberOf(extra))), extra.type.endsWith("Density") ? "µg/m³" : ""));
           out.readouts.push(more.node);
         }
       } else if (service.type === "FilterMaintenance" || service.type === "Battery") {
         const life = ctx.take(service, service.type === "Battery" ? "Battery Level" : "Filter Life Level");
         const flag = ctx.take(service, service.type === "Battery" ? "Status Low Battery" : "Filter Change Indication");
-        const label = service.type === "Battery" ? "Battery" : "Filter";
+        const label = service.type === "Battery" ? t("Battery") : t("Filter");
         if (life) {
-          const control = meter(label === "Filter" ? "Filter life" : label);
+          const control = meter(service.type === "Battery" ? t("Battery") : t("Filter life"));
           ctx.watch(() => control.set(Math.round(numberOf(life))));
           out.meters.push(control.node);
         } else if (flag) {
@@ -774,7 +788,7 @@
   /// A secondary light (a TV's Ambilight, a camera's flashlight): its name and switch, then its body.
   function lightBlock(ctx, service, name) {
     const on = ctx.take(service, "On");
-    const power = toggle(`${name}: on`, (v) => ctx.write(service, on, onValue(on, v)));
+    const power = toggle(t("{name}: on", { name }), (v) => ctx.write(service, on, onValue(on, v)));
     ctx.watch(() => power.set(isOn(on)));
     const body = el("div", { class: "w-block-body" }, lightBody(ctx, service).nodes);
     ctx.watch(() => { body.hidden = !isOn(on); });
@@ -783,7 +797,7 @@
 
   function fanBlock(ctx, service, name) {
     const power = ctx.take(service, "Active") || ctx.take(service, "On");
-    const control = toggle(`${name}: on`, (v) => ctx.write(service, power, onValue(power, v)));
+    const control = toggle(t("{name}: on", { name }), (v) => ctx.write(service, power, onValue(power, v)));
     ctx.watch(() => control.set(isOn(power)));
     const speed = ctx.take(service, "Rotation Speed");
     const target = ctx.take(service, "Target Fan State");
@@ -792,13 +806,13 @@
     const body = el("div", { class: "w-block-body" },
       canWrite(speed) ? speedControl(ctx, service, speed) : null,
       canWrite(target) ? modeControl(ctx, service, target) : null,
-      el("div", { class: "chips" }, chipFor(ctx, service, ctx.char(service, "Swing Mode"), "Swing"), chipFor(ctx, service, ctx.char(service, "Lock Physical Controls"), "Child lock")));
+      el("div", { class: "chips" }, chipFor(ctx, service, ctx.char(service, "Swing Mode"), t("Swing")), chipFor(ctx, service, ctx.char(service, "Lock Physical Controls"), t("Child lock"))));
     ctx.watch(() => { body.hidden = !isOn(power); });
     return el("div", { class: "w-block" }, el("div", { class: "w-row" }, el("span", { class: "w-label", text: name }), control.node), body);
   }
 
   /// A writable enumeration of two to four values as a segmented control (more stay a menu, under More).
-  function modeControl(ctx, service, characteristic, label = sentence(characteristic.type)) {
+  function modeControl(ctx, service, characteristic, label = typeName(characteristic.type)) {
     const values = characteristic.validValues || (enumLabels[characteristic.type] || []).map((_, i) => i);
     if (values.length < 2 || values.length > 4) return null;
     ctx.use(characteristic);
@@ -849,7 +863,7 @@
 
   /// A setpoint control per temperature a service has; `show(list)` shows those a mode uses.
   function setpointControls(ctx, parts) {
-    const labels = new Map([[parts.heat, "Heat to"], [parts.cool, "Cool to"], [parts.single, "Set to"]]);
+    const labels = new Map([[parts.heat, t("Heat to")], [parts.cool, t("Cool to")], [parts.single, t("Set to")]]);
     const controls = [...labels.keys()].filter((c) => canWrite(c)).map((characteristic) => {
       const control = setpoint({ label: labels.get(characteristic), min: characteristic.minValue ?? 10, max: characteristic.maxValue ?? 35, step: characteristic.minStep || 0.5 },
         (v) => ctx.write(parts.service, characteristic, v));
@@ -862,7 +876,7 @@
         for (const { characteristic, control } of controls) control.node.hidden = !list.includes(characteristic);
         // One setpoint per mode with a single target: "Heat to" or "Cool to" rather than "Set to".
         const single = controls.find((one) => one.characteristic === parts.single);
-        if (single) single.control.node.querySelector(".sp-value span").textContent = { heat: "Heat to", cool: "Cool to" }[parts.mode()] ?? "Set to";
+        if (single) single.control.node.querySelector(".sp-value span").textContent = { heat: t("Heat to"), cool: t("Cool to") }[parts.mode()] ?? t("Set to");
       },
     };
   }
@@ -874,7 +888,7 @@
     const order = parts.heaterCooler ? [0, 1, 2] : [0, 3, 1, 2];
     const options = order.filter((v) => values.includes(v)).map((value) => ({ value, label: labelFor(parts.target.type, value) }));
     if (options.length < 2) return null;
-    const control = segmented(options, "Mode", (v) => ctx.write(parts.service, parts.target, v));
+    const control = segmented(options, t("Mode"), (v) => ctx.write(parts.service, parts.target, v));
     ctx.watch(() => control.set(parts.target.value));
     return control.node;
   }
@@ -886,9 +900,9 @@
     const now = el("span", { class: "muted" });
     ctx.watch(() => {
       points.show(parts.setpoints(parts.mode() === "off" ? parts.lastMode() : parts.mode()));
-      now.textContent = typeof parts.current?.value === "number" && parts.current.value > -40 ? `${degrees(+parts.current.value.toFixed(1))} now` : "";
+      now.textContent = typeof parts.current?.value === "number" && parts.current.value > -40 ? t("{temperature} now", { temperature: degrees(+parts.current.value.toFixed(1)) }) : "";
     });
-    const power = parts.active ? toggle(`${name}: on`, (v) => ctx.write(service, parts.active, v ? 1 : 0)) : null;
+    const power = parts.active ? toggle(t("{name}: on", { name }), (v) => ctx.write(service, parts.active, v ? 1 : 0)) : null;
     if (power) ctx.watch(() => power.set(isOn(parts.active)));
     return el("div", { class: "w-block" },
       el("div", { class: "w-row" }, el("span", { class: "w-label" }, name, " ", now), power?.node ?? null),
@@ -901,8 +915,8 @@
   function lockRow(ctx, service, name) {
     const current = ctx.take(service, "Lock Current State"), target = ctx.take(service, "Lock Target State");
     const state = pill();
-    const unlock = canWrite(target) ? hold("Hold to unlock", () => ctx.write(service, target, 0, { held: true })) : null;
-    const lock = canWrite(target) ? el("button", { type: "button", class: "w-button", text: "Lock", onclick: () => ctx.write(service, target, 1, { held: true }) }) : null;
+    const unlock = canWrite(target) ? hold(t("Hold to unlock"), () => ctx.write(service, target, 0, { held: true })) : null;
+    const lock = canWrite(target) ? el("button", { type: "button", class: "w-button", text: t("Lock"), onclick: () => ctx.write(service, target, 1, { held: true }) }) : null;
     ctx.watch(() => {
       const value = numberOf(current, numberOf(target, 3));
       state.textContent = labelFor(current.type, value);
@@ -943,7 +957,7 @@
   }
 
   /// Chips for the bools of a service a widget offers as options (Swing, Child lock).
-  const optionChips = (ctx, service) => [chipFor(ctx, service, ctx.char(service, "Swing Mode"), "Swing"), chipFor(ctx, service, ctx.char(service, "Lock Physical Controls"), "Child lock")].filter(Boolean);
+  const optionChips = (ctx, service) => [chipFor(ctx, service, ctx.char(service, "Swing Mode"), t("Swing")), chipFor(ctx, service, ctx.char(service, "Lock Physical Controls"), t("Child lock"))].filter(Boolean);
   const chipRow = (nodes) => nodes.length ? el("div", { class: "chips" }, nodes) : null;
   const row = (label, ...nodes) => el("div", { class: "w-row" }, label ? el("span", { class: "w-label", text: label }) : null, ...nodes);
 
@@ -952,7 +966,7 @@
     ctx.use(characteristic);
     const state = el("span");
     const node = el("button", { type: "button", class: "mini-toggle", onclick: () => ctx.write(service, characteristic, onValue(characteristic, !isOn(characteristic))) }, el("b", { text: name }), state);
-    ctx.watch(() => { node.setAttribute("aria-pressed", String(isOn(characteristic))); state.textContent = isOn(characteristic) ? "On" : "Off"; });
+    ctx.watch(() => { node.setAttribute("aria-pressed", String(isOn(characteristic))); state.textContent = isOn(characteristic) ? t("On") : t("Off"); });
     return node;
   }
 
@@ -963,7 +977,7 @@
     const node = el("div", { class: "w-line" });
     ctx.watch(() => {
       const parts = list.map((one) => { const v = one.value(); return `${v.text}${v.unit ? ` ${v.unit}` : ""}`; });
-      if (filter) parts.push(`filter ${Math.round(numberOf(filter))} %`);
+      if (filter) parts.push(t("filter {percent} %", { percent: Math.round(numberOf(filter)) }));
       node.textContent = parts.join(" · ");
     });
     return list.length || filter ? node : null;
@@ -985,7 +999,7 @@
         : [chipRow(switches.map((s, i) => chipFor(ctx, s, ons[i], shortName(ctx.accessory, s))))];
       return {
         body, hero: () => `${count()}/${ons.length}`,
-        status: () => [count() ? `${count()} of ${ons.length} on` : "All off"],
+        status: () => [count() ? t("{n} of {total} on", { n: count(), total: ons.length }) : t("All off")],
         on: () => count() > 0,
       };
     },
@@ -1005,7 +1019,7 @@
         const homeKitKeys = { up: 4, down: 5, left: 6, right: 7, select: 8, back: 9, playPause: 11, info: 15 };
         const actions = [...Object.keys(homeKitKeys), ...(canWrite(volume) ? ["volumeUp", "volumeDown"] : []), ...(canWrite(mute) ? ["mute"] : [])];
         return el("div", { class: "card-remote" }, HomeswiftRemote.build({
-          actions, label: `Remote for ${ctx.accessory.name}`,
+          actions, label: t("Remote for {name}", { name: ctx.accessory.name }),
           send: (action) => {
             if (action in homeKitKeys) return ctx.send(primary, remoteKey, homeKitKeys[action]);
             if (action === "volumeUp" || action === "volumeDown") return ctx.send(speaker, volume, action === "volumeUp" ? 0 : 1);
@@ -1018,17 +1032,17 @@
         const chosen = ctx.accessory.services.find((s) => s.type === "InputSource" && ctx.char(s, "Identifier")?.value === input?.value);
         return chosen ? ctx.char(chosen, "Configured Name")?.value || chosen.name : null;
       };
-      const volumeKeys = () => canWrite(volume) ? ["minus", "plus"].map((glyph, i) => el("button", { type: "button", class: "round", "aria-label": i ? "Volume up" : "Volume down",
+      const volumeKeys = () => canWrite(volume) ? ["minus", "plus"].map((glyph, i) => el("button", { type: "button", class: "round", "aria-label": i ? t("Volume up") : t("Volume down"),
         onclick: () => ctx.send(speaker, volume, i ? 0 : 1).catch((e) => ctx.flash(e.message)) }, icon(glyph))) : [];
       const parts = {
         power: canWrite(active) ? { service: primary, characteristic: active } : null,
-        status: () => isOn(active) ? [inputName() ? `On · ${inputName()}` : "On"] : ["Off"],
+        status: () => isOn(active) ? [inputName() ? t("On · {input}", { input: inputName() }) : t("On")] : [t("Off")],
         on: () => isOn(active),
         tap: canWrite(active) ? () => ctx.write(primary, active, isOn(active) ? 0 : 1) : null,
       };
-      if (size === "medium") parts.body = [el("div", { class: "w-row" }, picker(), el("div", { class: "w-keys" }, volumeKeys(), canWrite(mute) ? chipFor(ctx, speaker, mute, "Mute") : null))];
-      if (size === "large") parts.body = [remote(), input ? row("Input", picker()) : null].filter(Boolean);
-      if (size === "full") Object.assign(parts, { body: [remote()].filter(Boolean), side: input ? [row("Input", picker())] : [], facets: facets(ctx, [primary, speaker]) });
+      if (size === "medium") parts.body = [el("div", { class: "w-row" }, picker(), el("div", { class: "w-keys" }, volumeKeys(), canWrite(mute) ? chipFor(ctx, speaker, mute, t("Mute")) : null))];
+      if (size === "large") parts.body = [remote(), input ? row(t("Input"), picker()) : null].filter(Boolean);
+      if (size === "full") Object.assign(parts, { body: [remote()].filter(Boolean), side: input ? [row(t("Input"), picker())] : [], facets: facets(ctx, [primary, speaker]) });
       return parts;
     },
   });
@@ -1040,26 +1054,28 @@
       const now = () => typeof parts.current?.value === "number" ? parts.current.value : null;
       const mode = () => parts.mode();
       const shownMode = () => mode() === "off" ? parts.lastMode() : mode();
+      const modeWords = { off: t("off"), heat: t("heat"), cool: t("cool"), auto: t("auto") };
       const built = {
         power: canWrite(parts.active) ? { service: primary, characteristic: parts.active } : null,
         tone: () => ({ heat: "heat", cool: "blue", auto: "green" })[shownMode()] ?? "teal",
         on: () => mode() !== "off",
-        hero: () => now() === null ? "" : el("span", {}, degrees(+now().toFixed(1)), el("small", { text: mode() })),
+        hero: () => now() === null ? "" : el("span", {}, degrees(+now().toFixed(1)), el("small", { text: modeWords[mode()] ?? mode() })),
         tap: canWrite(parts.active) ? () => ctx.write(primary, parts.active, isOn(parts.active) ? 0 : 1) : null,
         status() {
-          const inside = now() === null ? "" : `${degrees(+now().toFixed(1))} inside`;
-          if (mode() === "off") return [inside ? `Off · ${inside}` : "Off"];
+          const inside = now() === null ? "" : t("{temperature} inside", { temperature: degrees(+now().toFixed(1)) });
+          if (mode() === "off") return [inside ? t("Off · {inside}", { inside }) : t("Off")];
           const shown = parts.setpoints(mode());
           const working = parts.working();
           if (shown.length === 2) {
-            if (working === "heating") return [`Heating to ${degrees(numberOf(shown[0]))}`, "heat"];
-            if (working === "cooling") return [`Cooling to ${degrees(numberOf(shown[1]))}`, "cool"];
-            return [`Keeping ${degrees(numberOf(shown[0]))}–${degrees(numberOf(shown[1]))}`, "auto"];
+            if (working === "heating") return [t("Heating to {temperature}", { temperature: degrees(numberOf(shown[0])) }), "heat"];
+            if (working === "cooling") return [t("Cooling to {temperature}", { temperature: degrees(numberOf(shown[1])) }), "cool"];
+            return [t("Keeping {low}–{high}", { low: degrees(numberOf(shown[0])), high: degrees(numberOf(shown[1])) }), "auto"];
           }
           const target = shown[0] ? degrees(numberOf(shown[0])) : "";
-          if (working === "heating") return [`Heating to ${target}`, "heat"];
-          if (working === "cooling") return [`Cooling to ${target}`, "cool"];
-          return [`Idle · ${mode()} to ${target}`];
+          if (working === "heating") return [t("Heating to {temperature}", { temperature: target }), "heat"];
+          if (working === "cooling") return [t("Cooling to {temperature}", { temperature: target }), "cool"];
+          const idle = { heat: t("Idle · heat to {temperature}", { temperature: target }), cool: t("Idle · cool to {temperature}", { temperature: target }) };
+          return [idle[mode()] ?? t("Idle · auto to {temperature}", { temperature: target })];
         },
       };
       if (size === "small") return built;
@@ -1072,7 +1088,7 @@
           points.show(shown.slice(-1));
           big.textContent = now() === null ? "–" : degrees(+now().toFixed(1));
         });
-        built.body = [el("div", { class: "w-row" }, el("div", { class: "w-figure" }, big, el("span", { text: "Inside" })), el("div", { class: "setpoints" }, points.nodes))];
+        built.body = [el("div", { class: "w-row" }, el("div", { class: "w-figure" }, big, el("span", { text: t("Inside") })), el("div", { class: "setpoints" }, points.nodes))];
         return built;
       }
       const temps = [parts.heat, parts.cool, parts.single].filter(Boolean);
@@ -1082,7 +1098,7 @@
       ctx.watch(() => {
         const shown = parts.setpoints(shownMode());
         points.show(shown);
-        const caption = typeof parts.humidity?.value === "number" ? `Inside · ${Math.round(parts.humidity.value)} %` : "Inside";
+        const caption = typeof parts.humidity?.value === "number" ? t("Inside · {humidity} %", { humidity: Math.round(parts.humidity.value) }) : t("Inside");
         if (mode() === "off" || !shown.length) dial.update({ value: now(), caption });
         else if (shown.length === 2) dial.update({ value: now(), from: numberOf(shown[0]), to: numberOf(shown[1]), color: colors.auto, caption });
         else dial.update({ value: now(), from: now() ?? numberOf(shown[0]), to: numberOf(shown[0]), color: colors[mode()], caption });
@@ -1110,17 +1126,17 @@
         power: canWrite(active) ? { service: primary, characteristic: active } : null,
         on: () => isOn(active),
         tap: canWrite(active) ? () => ctx.write(primary, active, isOn(active) ? 0 : 1) : null,
-        hero: () => quality ? el("span", { class: "w-hero-word" }, labelFor(quality.type, quality.value)) : speed && isOn(active) ? `${numberOf(speed)}%` : "",
+        hero: () => quality ? el("span", { class: "w-hero-word" }, labelFor(quality.type, quality.value)) : speed && isOn(active) ? `${num(numberOf(speed))}%` : "",
         status() {
-          if (!isOn(active)) return [quality ? `Off · air ${labelFor(quality.type, quality.value).toLowerCase()}` : "Off"];
-          const how = target && numberOf(target) === 1 ? "auto" : speed ? `${numberOf(speed)} %` : "";
-          return numberOf(state) === 2 ? [how ? `Purifying · ${how}` : "Purifying", "ok"] : ["Idle"];
+          if (!isOn(active)) return [quality ? t("Off · air {quality}", { quality: labelFor(quality.type, quality.value).toLowerCase() }) : t("Off")];
+          const how = target && numberOf(target) === 1 ? t("auto") : speed ? `${num(numberOf(speed))} %` : "";
+          return numberOf(state) === 2 ? [how ? t("Purifying · {how}", { how }) : t("Purifying"), "ok"] : [t("Idle")];
         },
       };
       if (size === "small") return built;
       const speedNode = canWrite(speed) ? speedControl(ctx, primary, speed, "linear-gradient(90deg, #8fe3da, #1c9c91)") : null;
-      if (size === "medium") { built.body = [speedNode ?? modeControl(ctx, primary, target, "Mode"), readingLine(ctx)].filter(Boolean); return built; }
-      const mode = modeControl(ctx, primary, target, "Mode");
+      if (size === "medium") { built.body = [speedNode ?? modeControl(ctx, primary, target, t("Mode")), readingLine(ctx)].filter(Boolean); return built; }
+      const mode = modeControl(ctx, primary, target, t("Mode"));
       const chips = optionChips(ctx, primary);
       if (size === "large") {
         const f = facets(ctx, [primary]);
@@ -1141,15 +1157,15 @@
       ctx.take(primary, "Current Fan State");
       const built = {
         power: canWrite(power) ? { service: primary, characteristic: power } : null,
-        on: () => isOn(power), hero: () => speed && isOn(power) ? `${numberOf(speed)}%` : "",
+        on: () => isOn(power), hero: () => speed && isOn(power) ? `${num(numberOf(speed))}%` : "",
         tap: canWrite(power) ? () => ctx.write(primary, power, onValue(power, !isOn(power))) : null,
-        status: () => isOn(power) ? [speed ? `On · ${numberOf(speed)} %` : "On"] : ["Off"],
+        status: () => isOn(power) ? [speed ? t("On · {speed} %", { speed: numberOf(speed) }) : t("On")] : [t("Off")],
       };
       const speedNode = canWrite(speed) ? speedControl(ctx, primary, speed) : null;
       if (size === "medium") built.body = [speedNode ?? chipRow(optionChips(ctx, primary))].filter(Boolean);
       if (size === "large" || size === "full") {
-        built.body = [speedNode, modeControl(ctx, primary, ctx.char(primary, "Target Fan State"), "Mode"),
-          modeControl(ctx, primary, ctx.char(primary, "Rotation Direction"), "Direction"), chipRow(optionChips(ctx, primary))].filter(Boolean);
+        built.body = [speedNode, modeControl(ctx, primary, ctx.char(primary, "Target Fan State"), t("Mode")),
+          modeControl(ctx, primary, ctx.char(primary, "Rotation Direction"), t("Direction")), chipRow(optionChips(ctx, primary))].filter(Boolean);
       }
       if (size === "full") built.facets = facets(ctx, [primary]);
       return built;
@@ -1168,8 +1184,8 @@
         power: { service: primary, characteristic: on },
         tap: () => ctx.write(primary, on, onValue(on, !isOn(on))),
         on: () => isOn(on), color: light.color,
-        hero: () => brightness && isOn(on) ? `${numberOf(brightness)}%` : "",
-        status: () => isOn(on) ? [[brightness ? `On · ${numberOf(brightness)} %` : "On", light.adaptiveOn() ? "Adaptive" : ""].filter(Boolean).join(" · ")] : ["Off"],
+        hero: () => brightness && isOn(on) ? `${num(numberOf(brightness))}%` : "",
+        status: () => isOn(on) ? [[brightness ? t("On · {brightness} %", { brightness: numberOf(brightness) }) : t("On"), light.adaptiveOn() ? t("Adaptive") : ""].filter(Boolean).join(" · ")] : [t("Off")],
       };
       // A white-only light's Adaptive control sits beside its white slider.
       const whiteRow = (options) => light.white ? (light.adaptive ? el("div", { class: "w-row" }, el("div", { class: "w-grow" }, light.white(options)), light.adaptive("round")) : light.white(options)) : null;
@@ -1214,32 +1230,32 @@
       };
       const built = {
         tap: () => go(shown() > min ? min : max),
-        tapLabel: () => shown() > min ? "close" : "open",
+        tapLabel: () => shown() > min ? t("close") : t("open"),
         on: () => shown() > min, hero: () => `${shown()}%`, shade: () => 100 - (shown() - min) / (max - min) * 100,
         // The small tile slides: dragged down it closes, up it opens, written when let go.
         slide: { min, max, step, value: shown, commit: go },
         status() {
-          if (isOn(obstruction)) return ["Obstructed", "warn"];
+          if (isOn(obstruction)) return [t("Obstructed"), "warn"];
           const moving = numberOf(state, 2);
           const p = shown();
-          if (moving === 1 || (moving === 2 && goal && goal.value > position())) return ["Opening…", "cool"];
-          if (moving === 0 || (moving === 2 && goal && goal.value < position())) return ["Closing…", "cool"];
-          return [p <= min ? "Closed" : p >= max ? "Open" : `Open · ${p} %`];
+          if (moving === 1 || (moving === 2 && goal && goal.value > position())) return [t("Opening…"), "cool"];
+          if (moving === 0 || (moving === 2 && goal && goal.value < position())) return [t("Closing…"), "cool"];
+          return [p <= min ? t("Closed") : p >= max ? t("Open") : t("Open · {position} %", { position: p })];
         },
       };
       if (size === "small") return built;
       // Stop: Hold Position where it has one, else the position it is at as the target.
-      const buttons = [["up", "Open", () => go(max)],
-        ["stop", "Stop", () => { goal = null; return canWrite(hold) ? ctx.write(primary, hold, true) : go(position()); }],
-        ["down", "Close", () => go(min)]].map(([glyph, label, act]) => el("button", { type: "button", class: "round", "aria-label": label, title: label, onclick: act }, icon(glyph)));
+      const buttons = [["up", t("Open [action]"), () => go(max)],
+        ["stop", t("Stop"), () => { goal = null; return canWrite(hold) ? ctx.write(primary, hold, true) : go(position()); }],
+        ["down", t("Close"), () => go(min)]].map(([glyph, label, act]) => el("button", { type: "button", class: "round", "aria-label": label, title: label, onclick: act }, icon(glyph)));
       const slider = (vertical) => {
-        const control = level({ label: "Position", min, max, step, format: (v) => `${v} %`, vertical,
+        const control = level({ label: t("Position"), min, max, step, format: (v) => `${v} %`, vertical,
           fill: `linear-gradient(${vertical ? "0deg" : "90deg"}, #4aa3ff, #a8dbff)` }, go);
         ctx.watch(() => control.set(numberOf(target, position())));
         return control.node;
       };
       const tilts = ["Target Horizontal Tilt Angle", "Target Vertical Tilt Angle"].map((type) => ctx.take(primary, type)).filter(canWrite).map((tilt) => {
-        const one = level({ label: "Tilt", min: tilt.minValue ?? -90, max: tilt.maxValue ?? 90, step: tilt.minStep || 1, format: (v) => `${v}°`, thin: true }, (v) => ctx.write(primary, tilt, v));
+        const one = level({ label: t("Tilt"), min: tilt.minValue ?? -90, max: tilt.maxValue ?? 90, step: tilt.minStep || 1, format: (v) => `${v}°`, thin: true }, (v) => ctx.write(primary, tilt, v));
         ctx.watch(() => one.set(numberOf(tilt)));
         return one.node;
       });
@@ -1265,22 +1281,23 @@
       const built = {
         on: () => doorState() !== 1 || unlocked().length > 0,
         hero: () => icon("lock"),
-        hold: canWrite(target) ? { armed: () => asked() === 1, confirm: openIt, tap: () => { if (asked() === 0) closeIt(); }, verb: () => asked() === 1 ? "hold to open" : "close" } : null,
+        hold: canWrite(target) ? { armed: () => asked() === 1, confirm: openIt, tap: () => { if (asked() === 0) closeIt(); }, verb: () => asked() === 1 ? t("hold to open") : t("close") } : null,
         status() {
           const now = doorState();
-          const door = asked() !== now && now <= 1 ? (asked() === 0 ? "Opening" : "Closing") : labelFor(current.type, now);
-          if (isOn(obstruction)) return ["Obstructed", "warn"];
-          if (door === "Opening" || door === "Closing") return [`${door}…`, "warn"];
+          const moving = asked() !== now && now <= 1;
+          if (isOn(obstruction)) return [t("Obstructed"), "warn"];
+          if (moving) return [asked() === 0 ? t("Opening…") : t("Closing…"), "warn"];
+          const door = labelFor(current.type, now);
           const names = unlocked().map((s) => shortName(ctx.accessory, s).toLowerCase());
-          if (now === 1 && !names.length) return [locks.length ? "Closed and locked" : "Closed", "ok"];
-          return [names.length ? `${door} · ${names.join(", ")} unlocked` : door, "warn"];
+          if (now === 1 && !names.length) return [locks.length ? t("Closed and locked") : t("Closed"), "ok"];
+          return [names.length ? t("{state} · {names} unlocked", { state: door, names: names.join(", ") }) : door, "warn"];
         },
       };
       if (size === "small") return built;
       const big = el("b", { class: "w-state" });
-      const warning = pill("Obstructed", "bad");
-      const open = canWrite(target) ? hold("Hold to open", openIt) : null;
-      const close = canWrite(target) ? el("button", { type: "button", class: "w-button", text: "Close", onclick: closeIt }) : null;
+      const warning = pill(t("Obstructed"), "bad");
+      const open = canWrite(target) ? hold(t("Hold to open"), openIt) : null;
+      const close = canWrite(target) ? el("button", { type: "button", class: "w-button", text: t("Close"), onclick: closeIt }) : null;
       ctx.watch(() => {
         big.textContent = labelFor(current.type, doorState());
         warning.hidden = !isOn(obstruction);
@@ -1306,7 +1323,7 @@
       const built = {
         on: () => numberOf(current, 1) !== 1,
         hold: canWrite(target) ? { armed: () => numberOf(target, 1) === 1, confirm: () => ctx.write(primary, target, 0, { held: true }),
-          tap: () => { if (numberOf(target, 1) === 0) ctx.write(primary, target, 1, { held: true }); }, verb: () => numberOf(target, 1) === 1 ? "hold to unlock" : "lock" } : null,
+          tap: () => { if (numberOf(target, 1) === 0) ctx.write(primary, target, 1, { held: true }); }, verb: () => numberOf(target, 1) === 1 ? t("hold to unlock") : t("lock") } : null,
         status: () => { const v = numberOf(current, 3); return [labelFor(current.type, v), v === 1 ? "ok" : "warn"]; },
       };
       ctx.use(current, target);
@@ -1327,14 +1344,14 @@
       const disarm = () => ctx.write(primary, target, 3, { held: true });
       const built = {
         on: () => numberOf(current, 3) !== 3,
-        hold: canWrite(target) && values.includes(3) ? { armed: () => numberOf(target, 3) !== 3, confirm: disarm, tap: () => ctx.openFull(), verb: () => numberOf(target, 3) !== 3 ? "hold to turn off" : "open" } : null,
-        status: () => { const v = numberOf(current, 3); return [v === 4 ? "Alarm" : v === 3 ? "Off" : `Armed · ${labelFor(current.type, v)}`, v === 4 ? "bad" : v === 3 ? "" : "ok"]; },
+        hold: canWrite(target) && values.includes(3) ? { armed: () => numberOf(target, 3) !== 3, confirm: disarm, tap: () => ctx.openFull(), verb: () => numberOf(target, 3) !== 3 ? t("hold to turn off") : t("open") } : null,
+        status: () => { const v = numberOf(current, 3); return [v === 4 ? t("Alarm") : v === 3 ? t("Off [alarm]") : t("Armed · {mode}", { mode: labelFor(current.type, v) }), v === 4 ? "bad" : v === 3 ? "" : "ok"]; },
       };
       if (size === "small") return built;
       const big = el("b", { class: "w-state" });
       const arm = canWrite(target) ? el("div", { class: "chips" }, values.filter((v) => v !== 3).map((value) =>
         el("button", { type: "button", class: "chip", text: labelFor(target.type, value), onclick: () => ctx.write(primary, target, value, { held: true }) }))) : null;
-      const off = built.hold ? hold("Hold to turn off", disarm) : null;
+      const off = built.hold ? hold(t("Hold to turn off"), disarm) : null;
       ctx.watch(() => {
         big.textContent = labelFor(current.type, numberOf(current, 3));
         if (arm) for (const [i, button] of [...arm.children].entries()) button.setAttribute("aria-pressed", String(values.filter((v) => v !== 3)[i] === numberOf(target)));
@@ -1362,9 +1379,9 @@
       });
       const toggleRun = () => ctx.write(primary, active, isOn(active) ? 0 : 1);
       const built = {
-        on: () => running(), tap: toggleRun, tapLabel: () => isOn(active) ? "stop" : "run",
+        on: () => running(), tap: toggleRun, tapLabel: () => isOn(active) ? t("stop") : t("run"),
         hero: () => running() ? clock(left()) : "",
-        status: () => running() ? [`Running · ${clock(left())} left`, "cool"] : isOn(active) ? ["Starting…"] : ["Off"],
+        status: () => running() ? [t("Running · {time} left", { time: clock(left()) }), "cool"] : isOn(active) ? [t("Starting…")] : [t("Off")],
       };
       // The figures move each second while it runs.
       const ticker = setInterval(() => {
@@ -1383,10 +1400,10 @@
       const total = () => numberOf(set, numberOf(remaining, 0)) || 1;
       ctx.watch(() => {
         const on = running();
-        title.textContent = isOn(active) ? "Stop" : "Run";
-        detail.textContent = on ? `${clock(left())} left` : `for ${clock(numberOf(set, 0))}`;
+        title.textContent = isOn(active) ? t("Stop") : t("Run [valve]");
+        detail.textContent = on ? t("{time} left", { time: clock(left()) }) : t("for {time}", { time: clock(numberOf(set, 0)) });
         ring.querySelector(".ring").style.strokeDashoffset = String(on ? circumference * (1 - clamp(left() / total(), 0, 1)) : circumference);
-        button.setAttribute("aria-label", `${isOn(active) ? "Stop" : "Run"} ${ctx.accessory.name}`);
+        button.setAttribute("aria-label", isOn(active) ? t("Stop {name}", { name: ctx.accessory.name }) : t("Run {name} [valve]", { name: ctx.accessory.name }));
       });
       let durations = null;
       if (canWrite(set)) {
@@ -1394,7 +1411,7 @@
         if (!choices.includes(numberOf(set)) && numberOf(set) > 0) choices.push(numberOf(set));
         choices.sort((a, b) => a - b);
         const shown = choices.slice(0, 4).includes(numberOf(set)) ? choices.slice(0, 4) : [...choices.slice(0, 3), numberOf(set)];
-        const control = segmented(shown.map((s) => ({ value: s, label: s % 60 ? clock(s) : `${s / 60} min` })), "Duration", (v) => ctx.write(primary, set, v));
+        const control = segmented(shown.map((s) => ({ value: s, label: s % 60 ? clock(s) : t("{n} min", { n: s / 60 }) })), t("Duration"), (v) => ctx.write(primary, set, v));
         ctx.watch(() => control.set(numberOf(set)));
         durations = control.node;
       }
@@ -1410,14 +1427,14 @@
     icon: (ctx, primary) => primary.type === "Outlet" ? "outlet" : "switch", tone: "green", size: "small",
     build(ctx, primary, size) {
       const on = ctx.take(primary, "On"), inUse = ctx.take(primary, "Outlet In Use");
-      const status = () => isOn(on) ? [isOn(inUse) ? "On · in use" : "On"] : ["Off"];
+      const status = () => isOn(on) ? [isOn(inUse) ? t("On · in use") : t("On")] : [t("Off")];
       const turn = (value) => ctx.write(primary, on, onValue(on, value), { held: true });
       if (on.security) {
         // A plugin's security switch (one that unlocks a door): held to turn on, a tap to turn off.
-        const built = { on: () => isOn(on), status, hold: { armed: () => !isOn(on), confirm: () => turn(true), tap: () => { if (isOn(on)) turn(false); }, verb: () => isOn(on) ? "turn off" : "hold to turn on" } };
+        const built = { on: () => isOn(on), status, hold: { armed: () => !isOn(on), confirm: () => turn(true), tap: () => { if (isOn(on)) turn(false); }, verb: () => isOn(on) ? t("turn off") : t("hold to turn on") } };
         if (size === "small") return built;
-        const turnOn = hold("Hold to turn on", () => turn(true));
-        const turnOff = el("button", { type: "button", class: "w-button", text: "Turn off", onclick: () => turn(false) });
+        const turnOn = hold(t("Hold to turn on"), () => turn(true));
+        const turnOff = el("button", { type: "button", class: "w-button", text: t("Turn off"), onclick: () => turn(false) });
         ctx.watch(() => { turnOn.node.hidden = isOn(on); turnOff.hidden = !isOn(on); });
         built.body = [turnOn.node, turnOff];
         if (size === "full") built.facets = facets(ctx, [primary]);
@@ -1429,7 +1446,7 @@
         on: () => isOn(on), status,
       };
       if (size === "large") {
-        const button = el("button", { type: "button", class: "power-button", "aria-label": `${ctx.accessory.name}: power`, onclick: built.tap }, icon("power"));
+        const button = el("button", { type: "button", class: "power-button", "aria-label": t("{name}: power", { name: ctx.accessory.name }), onclick: built.tap }, icon("power"));
         ctx.watch(() => button.setAttribute("aria-pressed", String(isOn(on))));
         built.power = null;
         const f = facets(ctx, [primary]);
@@ -1510,12 +1527,12 @@
   /// The ⋯ menu: All controls (the full view), then what the page offers for the accessory, else Identify.
   function actionsButton(ctx, full) {
     const items = () => [
-      full ? null : { label: "All controls", icon: "edit", onSelect: () => open(ctx.accessory, ctx.options) },
+      full ? null : { label: t("All controls"), icon: "edit", onSelect: () => open(ctx.accessory, ctx.options) },
       full ? null : { separator: true },
       ...(ctx.options.actions ? ctx.options.actions(ctx.accessory)
-        : [{ label: "Identify", icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(ctx.accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) }]),
+        : [{ label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(ctx.accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) }]),
     ];
-    return menuButton(`Actions for ${ctx.accessory.name}`, items);
+    return menuButton(t("Actions for {name}", { name: ctx.accessory.name }), items);
   }
   /// What the search box looks in: the names, the room, the plugin and the model.
   const searchText = (accessory) => [accessory.name, accessory.displayName, accessory.room, accessory.platformName, accessory.model].filter(Boolean).join(" ").toLowerCase();
@@ -1558,7 +1575,7 @@
     }
     ctx.node = node;
     cards.add(ctx);
-    const done = el("button", { type: "button", class: "link", text: "Done" });
+    const done = el("button", { type: "button", class: "link", text: t("Done") });
     const dialog = el("dialog", { class: "widget-sheet", "aria-label": accessory.name }, el("div", { class: "sheet-bar" }, done), node);
     done.addEventListener("click", () => dialog.close());
     // On a phone a swipe down from the grabber or the name puts the sheet away, from where the finger left it.
@@ -1595,7 +1612,7 @@
   }
   function statusPainter(ctx, built, status) {
     return () => {
-      const paused = ctx.accessory.paused ? [`Paused · ${ctx.accessory.platformName ?? "its plugin"}`, "warn"] : null;
+      const paused = ctx.accessory.paused ? [ctx.accessory.platformName ? t("Paused · {plugin}", { plugin: ctx.accessory.platformName }) : t("Paused · its plugin"), "warn"] : null;
       const [text, tone] = ctx.flashing ? [ctx.flashing, "bad"] : paused ?? (built.status ? built.status() : [""]);
       status.textContent = text;
       if (tone) status.dataset.tone = tone; else delete status.dataset.tone;
@@ -1604,7 +1621,7 @@
   function powerToggle(ctx, built) {
     if (!built.power) return null;
     const { service, characteristic, big } = built.power;
-    const control = toggle(`${ctx.accessory.name}: power`, (on) => ctx.write(service, characteristic, onValue(characteristic, on)));
+    const control = toggle(t("{name}: power", { name: ctx.accessory.name }), (on) => ctx.write(service, characteristic, onValue(characteristic, on)));
     if (big) control.node.classList.add("big");
     ctx.watch(() => control.set(isOn(characteristic)));
     return control.node;
@@ -1616,7 +1633,7 @@
     const { accessory } = ctx;
     const [glyph, paintGlyph] = glyphFor(ctx, widget, built, primary);
     const status = el("span", { class: "status" });
-    const who = el("div", { class: "who" }, el("strong", { text: accessory.displayName || accessory.name, title: accessory.displayName ? `${accessory.name} in the Home app` : null }), status);
+    const who = el("div", { class: "who" }, el("strong", { text: accessory.displayName || accessory.name, title: accessory.displayName ? t("{name} in the Home app", { name: accessory.name }) : null }), status);
     const menu = actionsButton(ctx, false);
     const node = el("article", { class: `card widget size-${size} widget-${widget.name}`, "data-search": searchText(accessory), "data-id": accessory.id });
     if (size === "small") {
@@ -1697,8 +1714,8 @@
           const { min, max } = built.slide ?? { min: 0, max: 100 };
           shade.style.setProperty("--closed", `${sliding !== null ? 100 - (sliding - min) / (max - min) * 100 : built.shade()}%`);
         }
-        const verb = built.hold ? built.hold.verb() : built.tap ? (built.tapLabel ? built.tapLabel() : on ? "turn off" : "turn on") : "show all controls";
-        hit.setAttribute("aria-label", `${accessory.name}: ${verb}`);
+        const verb = built.hold ? built.hold.verb() : built.tap ? (built.tapLabel ? built.tapLabel() : on ? t("turn off") : t("turn on")) : t("show all controls");
+        hit.setAttribute("aria-label", t("{name}: {action}", { name: accessory.name, action: verb }));
         hit.setAttribute("aria-pressed", String(on));
       });
     } else {
@@ -1737,7 +1754,7 @@
       split ? el("div", { class: "w-split" }, el("div", { class: "w-main" }, body), el("div", { class: "w-side" }, side, facetList))
         : body.length + side.length + facetList.length ? el("div", { class: "w-main" }, body, side, facetList) : null,
       rest.length ? el("details", { class: "more", open: rest.length <= 2 },
-        el("summary", { text: names.length > 3 ? `${names.slice(0, 2).join(", ")} and ${names.length - 2} more` : names.join(", ") }),
+        el("summary", { text: names.length > 3 ? t("{names} and {n} more", { names: names.slice(0, 2).join(", "), n: names.length - 2 }) : names.join(", ") }),
         el("div", { class: "controls" }, rest)) : null,
       el("div", { class: "card-foot" }, el("span", { class: "muted", text: [describeModel(accessory), accessory.bridge].filter(Boolean).join(" · ") }), actionsButton(ctx, true)));
     if (built.power && !built.power.big) ctx.watch(() => node.classList.toggle("powered-off", !isOn(built.power.characteristic)));
@@ -1750,7 +1767,7 @@
   // Under a camera's video: its light (a package camera's flashlight), switches and HomeKit camera setting;
   // sensors and the rest under "More".
   const cameraFirst = new Set(["Lightbulb", "Switch", "Outlet", "CameraOperatingMode"]);
-  const cameraServiceNames = { CameraOperatingMode: "Camera", Microphone: "Microphone", Speaker: "Speaker" };
+  const cameraServiceNames = { CameraOperatingMode: t("Camera"), Microphone: t("Microphone"), Speaker: t("Speaker") };
 
   function cameraView(ctx) {
     const { accessory } = ctx;
@@ -1767,7 +1784,7 @@
     const view = cameraView(ctx);
     const node = el("article", { class: `card widget size-${size} widget-camera camera-tile`, "data-search": searchText(ctx.accessory), "data-id": ctx.accessory.id },
       view.element, el("span", { class: "w-corner" }, actionsButton(ctx, false)));
-    if (size === "small") node.append(el("button", { type: "button", class: "w-hit", "aria-label": `${ctx.accessory.name}: show all controls`, onclick: () => ctx.openFull() }));
+    if (size === "small") node.append(el("button", { type: "button", class: "w-hit", "aria-label": t("{name}: {action}", { name: ctx.accessory.name, action: t("show all controls") }), onclick: () => ctx.openFull() }));
     paused(node, ctx);
     return node;
   }
@@ -1781,7 +1798,7 @@
     // A camera's sensors carry its own name: they read as what they are.
     const named = (service) => {
       const own = !service.name || service.name === accessory.name;
-      return own ? { ...service, name: cameraServiceNames[service.type] || service.type.replace(/([a-z])([A-Z])/g, "$1 $2") } : service;
+      return own ? { ...service, name: cameraServiceNames[service.type] || serviceName(service.type.replace(/([a-z])([A-Z])/g, "$1 $2")) } : service;
     };
     const first = leftovers(ctx, ctx.services.filter((s) => cameraFirst.has(s.type)).map(named));
     const more = leftovers(ctx, ctx.services.filter((s) => !cameraFirst.has(s.type)).map(named));
@@ -1792,7 +1809,7 @@
       subtitle ? el("div", { class: "camera-meta muted", text: subtitle }) : null,
       first.length ? el("div", { class: "controls" }, first) : null,
       more.length ? el("details", { class: "more" },
-        el("summary", { text: names.length > 3 ? `${names.slice(0, 2).join(", ")} and ${names.length - 2} more` : names.join(", ") }),
+        el("summary", { text: names.length > 3 ? t("{names} and {n} more", { names: names.slice(0, 2).join(", "), n: names.length - 2 }) : names.join(", ") }),
         el("div", { class: "controls" }, more)) : null,
       el("div", { class: "card-foot" }, el("span", { class: "muted", text: accessory.bridge }), actionsButton(ctx, true)));
   }

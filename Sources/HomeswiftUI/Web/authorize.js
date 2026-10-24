@@ -4,17 +4,19 @@
 // their web UI account (the same login, two-factor code and throttle as the UI's), see which app asks and where
 // approving sends them back, choose what it may do, and the bridge redirects to the app with a code or a refusal.
 (() => {
+  const { t } = HomeswiftI18n;
   const $ = (selector) => document.querySelector(selector);
+  document.title = t("Connect to Homeswift");
   const query = Object.fromEntries(new URLSearchParams(location.search));
 
   async function api(path, { method = "GET", body } = {}) {
-    const options = { method, credentials: "same-origin", headers: {} };
+    const options = { method, credentials: "same-origin", headers: { "Accept-Language": HomeswiftI18n.locale } };
     if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
     const response = await fetch(path, options);
     const text = await response.text();
     let json = null;
     try { json = text ? JSON.parse(text) : null; } catch { json = { error: text }; }
-    if (!response.ok) throw Object.assign(new Error((json && json.error) || `HTTP ${response.status}`), { status: response.status });
+    if (!response.ok) throw Object.assign(new Error(HomeswiftI18n.message((json && json.error) || `HTTP ${response.status}`)), { status: response.status });
     return json;
   }
 
@@ -24,30 +26,30 @@
     $("#consent").classList.toggle("hidden", part !== "consent");
     if (lead !== undefined) $("#lead").textContent = lead;
   }
-  const stop = (message) => { $("#title").textContent = "Cannot connect"; show(null, message); };
+  const stop = (message) => { $("#title").textContent = t("Cannot connect"); show(null, message); };
 
   const scopes = {
-    read: ["Read", "See your accessories, rooms, scenes and the bridge's state. Changes nothing."],
-    control: ["Control", "Also turn accessories on and off and run scenes. Locks, garage doors and alarms still ask you first."],
-    admin: ["Administer", "Also change config.json, plugins and settings, and restart the bridge: everything this web UI can do."],
+    read: [t("Read"), t("See your accessories, rooms, scenes and the bridge's state. Changes nothing.")],
+    control: [t("Control"), t("Also turn accessories on and off and run scenes. Locks, garage doors and alarms still ask you first.")],
+    admin: [t("Administer"), t("Also change config.json, plugins and settings, and restart the bridge: everything this web UI can do.")],
   };
 
   async function start() {
     let state;
-    try { state = await api("/api/auth/state"); } catch (e) { stop(`The bridge did not answer: ${e.message}`); return; }
-    if (state.setupNeeded) { stop("This bridge has no account yet. Open its web UI and create the administrator first."); return; }
+    try { state = await api("/api/auth/state"); } catch (e) { stop(t("The bridge did not answer: {error}", { error: e.message })); return; }
+    if (state.setupNeeded) { stop(t("This bridge has no account yet. Open its web UI and create the administrator first.")); return; }
     if (!state.authenticated) {
-      show("login", "Sign in with your Homeswift account to connect an app.");
+      show("login", t("Sign in with your Homeswift account to connect an app."));
       $("#login").username.focus();
       return;
     }
     let request;
     try { request = await api(`/api/oauth/request?${new URLSearchParams(query)}`); } catch (e) { stop(e.message); return; }
     if (request.redirect) { location.replace(request.redirect); return; }
-    $("#title").textContent = `Connect ${request.client}`;
+    $("#title").textContent = t("Connect {client}", { client: request.client });
     show("consent", state.mode === "form"
-      ? `${request.client} asks to use your bridge as ${request.username}.`
-      : `${request.client} asks to use your bridge. This web UI has no sign-in, so it acts as its administrator.`);
+      ? t("{client} asks to use your bridge as {username}.", { client: request.client, username: request.username })
+      : t("{client} asks to use your bridge. This web UI has no sign-in, so it acts as its administrator.", { client: request.client }));
     const fieldset = $("#scopes");
     fieldset.querySelectorAll(".scope").forEach((node) => node.remove());
     for (const name of request.choices) {
@@ -65,7 +67,9 @@
     $("#read-only").classList.toggle("hidden", !request.readOnly);
     const destination = document.createElement("strong");
     destination.textContent = request.destination;
-    $("#destination").replaceChildren("Allowing sends you back to ", destination, ". You can disconnect it from your account page at any time.");
+    // The sentence around the address, in the page's language: the address goes where {destination} stands.
+    const [before, after = ""] = t("Allowing sends you back to {destination}. You can disconnect it from your account page at any time.").split("{destination}");
+    $("#destination").replaceChildren(before, destination, after);
     $("#switch-user").classList.toggle("hidden", state.mode !== "form");
     // Nothing is focused and the answers wait a moment: the Enter that signed in, or a click meant for what was there
     // before, never approves an app the user has not seen.
@@ -87,7 +91,7 @@
     const submit = $("#login-submit");
     $("#login-error").textContent = "";
     submit.disabled = true;
-    submit.textContent = "Signing in…";
+    submit.textContent = t("Signing in…");
     const body = { username: login.username.value, password: login.password.value };
     if (!$("#login-otp").classList.contains("hidden")) body.otp = login.otp.value;
     try {
@@ -103,7 +107,7 @@
       }
     } finally {
       submit.disabled = false;
-      submit.textContent = "Sign in";
+      submit.textContent = t("Sign in");
     }
   });
 
@@ -113,21 +117,21 @@
     buttons.forEach((button) => { button.disabled = true; });
     $("#consent-error").textContent = "";
     const chosen = $("#scopes input:checked");
-    if (approve) $("#allow").textContent = "Connecting…";
+    if (approve) $("#allow").textContent = t("Connecting…");
     try {
       const answer = await api("/api/oauth/decision", { method: "POST", body: { ...query, approve, scope_granted: chosen ? chosen.value : null } });
       location.assign(answer.redirect);
     } catch (e) {
       $("#consent-error").textContent = e.message;
       buttons.forEach((button) => { button.disabled = false; });
-      $("#allow").textContent = "Allow";
+      $("#allow").textContent = t("Allow");
     }
   }
   $("#consent").addEventListener("submit", (event) => { event.preventDefault(); decide(true); });
   $("#deny").addEventListener("click", () => decide(false));
   $("#switch-user").addEventListener("click", async () => {
     try { await api("/api/auth/logout", { method: "POST" }); } catch {}
-    $("#title").textContent = "Connect to Homeswift";
+    $("#title").textContent = t("Connect to Homeswift");
     await start();
   });
 

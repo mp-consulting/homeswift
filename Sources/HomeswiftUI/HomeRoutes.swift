@@ -24,16 +24,16 @@ import NIOHTTP1
 //   POST   /api/notifications/push/test       {"endpoint"?}
 //   DELETE /api/notifications/push/subscriptions/<id>
 extension UIServer {
-    func homeAPI(_ route: [String], _ method: HTTPMethod, body: JSONValue, username: String) async throws -> Reply? {
+    func homeAPI(_ route: [String], _ method: HTTPMethod, body: JSONValue, username: String, language: String? = nil) async throws -> Reply? {
         guard let first = route.first, ["rooms", "scenes", "notifications"].contains(first) else { return nil }
         do {
-            return try await homeRoute(route, method, body: body, username: username)
+            return try await homeRoute(route, method, body: body, username: username, language: language)
         } catch let error as CatalogError {
             return .error(error.description.hasPrefix("No scene") ? 404 : 400, error.description)
         }
     }
 
-    private func homeRoute(_ route: [String], _ method: HTTPMethod, body: JSONValue, username: String) async throws -> Reply? {
+    private func homeRoute(_ route: [String], _ method: HTTPMethod, body: JSONValue, username: String, language: String?) async throws -> Reply? {
         switch (method, route) {
         case (.GET, ["rooms"]):
             return .json(catalog.layoutJSON())
@@ -44,7 +44,7 @@ extension UIServer {
         case (.POST, ["rooms", "suggest"]):
             guard catalog.host.assistant != nil else { return .error(404, "the Assistant is off: add a HomeswiftAiKit block") }
             do {
-                return .json(try await catalog.suggestRooms())
+                return .json(try await catalog.suggestRooms(language: language))
             } catch let error as CatalogError {
                 throw error
             } catch {

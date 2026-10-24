@@ -8,6 +8,7 @@
   "use strict";
 
   const { el } = HomeswiftCommon;
+  const { t, tn } = HomeswiftI18n;
   const MediaSourceType = window.ManagedMediaSource || window.MediaSource;
   const SNAPSHOT_EVERY = 3000;
   // Behind the live edge by more than this, the video jumps forward; buffer older than KEEP seconds goes.
@@ -31,10 +32,10 @@
   /// "just now", "4 min ago", "2 h ago", or the date.
   function ago(date) {
     const seconds = (Date.now() - date) / 1000;
-    if (seconds < 45) return "just now";
-    if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
-    if (seconds < 86400) return `${Math.round(seconds / 3600)} h ago`;
-    return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    if (seconds < 45) return t("just now");
+    if (seconds < 3600) return t("{minutes} min ago", { minutes: Math.round(seconds / 60) });
+    if (seconds < 86400) return t("{hours} h ago", { hours: Math.round(seconds / 3600) });
+    return date.toLocaleDateString(HomeswiftI18n.locale, { month: "short", day: "numeric" });
   }
 
   // Every view on the page, for the accessory events and the page's visibility.
@@ -50,35 +51,35 @@
   /// A view of `camera` ({ id, name, doorbell, motion, recording, lastRing }): the element to place, and
   /// `motion(on)`, `ring(date)`, `recording(on)` to change what it shows.
   function view(camera) {
-    const video = el("video", { muted: true, playsInline: true, autoplay: true, disablePictureInPicture: true, "aria-label": `Live video of ${camera.name}` });
+    const video = el("video", { muted: true, playsInline: true, autoplay: true, disablePictureInPicture: true, "aria-label": t("Live video of {name}", { name: camera.name }) });
     // ManagedMediaSource plays only with AirPlay off (or an AirPlay alternative), and a muted video autoplays.
     video.disableRemotePlayback = true;
     video.muted = true;
     video.setAttribute("muted", "");
     video.setAttribute("playsinline", "");
-    const still = el("img", { class: "camera-still", alt: `Snapshot of ${camera.name}`, decoding: "async" });
-    const liveBadge = el("span", { class: "camera-badge live hidden", text: "Live" });
+    const still = el("img", { class: "camera-still", alt: t("Snapshot of {name}", { name: camera.name }), decoding: "async" });
+    const liveBadge = el("span", { class: "camera-badge live hidden", text: t("Live") });
     const stillBadge = el("span", { class: "camera-badge hidden" });
-    const motionBadge = el("span", { class: "camera-badge motion hidden", text: "Motion" });
+    const motionBadge = el("span", { class: "camera-badge motion hidden", text: t("Motion") });
     const ringBadge = el("span", { class: "camera-badge ring hidden" });
-    const recordingBadge = el("span", { class: "camera-badge recording hidden", text: "Recording", title: "HomeKit Secure Video records this camera's events" });
-    const message = el("div", { class: "camera-message", text: "Connecting…" });
-    const sound = button("muted", "Unmute", () => {
+    const recordingBadge = el("span", { class: "camera-badge recording hidden", text: t("Recording"), title: t("HomeKit Secure Video records this camera's events") });
+    const message = el("div", { class: "camera-message", text: t("Connecting…") });
+    const sound = button("muted", t("Unmute"), () => {
       video.muted = !video.muted;
       sound.replaceChildren(glyph(video.muted ? "muted" : "sound"));
-      sound.setAttribute("aria-label", video.muted ? "Unmute" : "Mute");
+      sound.setAttribute("aria-label", video.muted ? t("Unmute") : t("Mute"));
       sound.title = sound.getAttribute("aria-label");
       if (!video.muted) video.play().catch(() => {});
     });
     sound.classList.add("hidden");
-    const fullscreen = button("fullscreen", "Full screen", () => {
+    const fullscreen = button("fullscreen", t("Full screen"), () => {
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       else if (element.requestFullscreen) element.requestFullscreen().catch(() => {});
       else if (element.webkitRequestFullscreen) element.webkitRequestFullscreen();
       // An iPhone has full screen for videos only.
       else if (video.webkitEnterFullscreen && state.live) video.webkitEnterFullscreen();
     });
-    const refresh = button("refresh", "Refresh", () => { state.noLive = false; restart(); });
+    const refresh = button("refresh", t("Refresh"), () => { state.noLive = false; restart(); });
     const element = el("div", { class: "camera-view", "data-camera": camera.id },
       still, video, message,
       el("div", { class: "camera-top" },
@@ -128,7 +129,7 @@
       still.src = next;
       if (stillURL) URL.revokeObjectURL(stillURL);
       stillURL = next;
-      stillBadge.textContent = new Date().toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" });
+      stillBadge.textContent = new Date().toLocaleTimeString(HomeswiftI18n.locale, { hour: "numeric", minute: "2-digit", second: "2-digit" });
     }
 
     async function snapshots(signal) {
@@ -139,7 +140,7 @@
           await sleep(SNAPSHOT_EVERY, signal);
         } catch (error) {
           if (signal.aborted) return;
-          show("message", error.status === 409 ? "Turned off in the Home app" : error.status === 503 ? "Paused" : "No picture from the camera");
+          show("message", error.status === 409 ? t("Turned off in the Home app") : error.status === 503 ? t("Paused") : t("No picture from the camera"));
           // A camera that fails is asked less often.
           await sleep(SNAPSHOT_EVERY * 4, signal);
         }
@@ -154,8 +155,8 @@
       if (!response.ok) {
         // No feed from this camera: snapshots, until Refresh. Busy or failing: snapshots, live again later.
         if (response.status === 404) state.noLive = true;
-        if (response.status === 409) { show("message", "Turned off in the Home app"); state.noLive = true; }
-        if (response.status === 503) { show("message", "Paused"); state.noLive = true; }
+        if (response.status === 409) { show("message", t("Turned off in the Home app")); state.noLive = true; }
+        if (response.status === 503) { show("message", t("Paused")); state.noLive = true; }
         response.body?.cancel().catch(() => {});
         return false;
       }
@@ -163,7 +164,7 @@
       if (!MediaSourceType.isTypeSupported(type)) {
         state.noLive = true;
         response.body.cancel().catch(() => {});
-        show("message", still.src ? "" : "This browser cannot play this camera's video");
+        show("message", still.src ? "" : t("This browser cannot play this camera's video"));
         return false;
       }
       sound.classList.toggle("hidden", !/mp4a|opus|ac-3|ec-3/i.test(type));
@@ -260,7 +261,7 @@
         state.live = false;
         video.removeAttribute("src");
         video.load();
-        if (wasLive) { show(still.src ? "still" : "message", still.src ? "" : "Reconnecting…"); await sleep(1500, signal); continue; }
+        if (wasLive) { show(still.src ? "still" : "message", still.src ? "" : t("Reconnecting…")); await sleep(1500, signal); continue; }
         if (state.noLive) continue;
         // Live failed: snapshots for a while, then live again.
         const pause = new AbortController();
@@ -276,7 +277,7 @@
       if (state.running) return;
       state.running = true;
       state.abort = new AbortController();
-      show(still.src ? "still" : "message", still.src ? "" : "Connecting…");
+      show(still.src ? "still" : "message", still.src ? "" : t("Connecting…"));
       run(state.abort.signal);
     }
     function stop() {
@@ -297,7 +298,7 @@
       element, camera,
       setVisible(visible) { state.visible = visible; update(); },
       update,
-      tick() { if (state.lastRing) ringBadge.textContent = `Rang ${ago(state.lastRing)}`; },
+      tick() { if (state.lastRing) ringBadge.textContent = t("Rang {when}", { when: ago(state.lastRing) }); },
       motion(on) { motionBadge.classList.toggle("hidden", !on); element.classList.toggle("motion", !!on); },
       recording(on) { recordingBadge.classList.toggle("hidden", !on); },
       ring(date = new Date()) {

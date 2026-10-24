@@ -4,6 +4,7 @@
 (() => {
   "use strict";
   const { $, el, api, request, readBlock, updateBlock, explain, breadcrumb } = homeswift;
+  const { t } = HomeswiftI18n;
 
   const DEFAULT_COUNTRY = "US";
   const DEFAULT_LANGUAGE = "en-US";
@@ -13,42 +14,42 @@
   const DEVICE_TYPE_FIELDS = {
     AC: {
       selects: [
-        { key: "ac_mode", label: "AC mode", options: [["", "Both (default)"], ["COOLING", "Cooling only"], ["HEATING", "Heating only"], ["BOTH", "Both"]] },
-        { key: "ac_swing_mode", label: "Swing mode", options: [["", "Default"], ["BOTH", "Both axes"], ["VERTICAL", "Vertical only"], ["HORIZONTAL", "Horizontal only"]] },
-        { key: "ac_temperature_unit", label: "Temperature unit", options: [["C", "Celsius (°C)"], ["F", "Fahrenheit (°F)"]] },
+        { key: "ac_mode", label: t("AC mode"), options: [["", t("Both (default)")], ["COOLING", t("Cooling only")], ["HEATING", t("Heating only")], ["BOTH", t("Both")]] },
+        { key: "ac_swing_mode", label: t("Swing mode"), options: [["", t("Default")], ["BOTH", t("Both axes")], ["VERTICAL", t("Vertical only")], ["HORIZONTAL", t("Horizontal only")]] },
+        { key: "ac_temperature_unit", label: t("Temperature unit"), options: [["C", t("Celsius (°C)")], ["F", t("Fahrenheit (°F)")]] },
       ],
       toggles: [
-        { key: "ac_fan_control", label: "Separate fan control", group: "Controls" },
-        { key: "ac_jet_control", label: "Separate jet control", group: "Controls" },
-        { key: "ac_energy_save", label: "Energy save switch", group: "Controls" },
-        { key: "ac_air_clean", label: "Air purify switch", group: "Controls" },
-        { key: "ac_led_control", label: "LED panel control", group: "Controls" },
-        { key: "ac_air_quality", label: "Air quality sensor", group: "Sensors" },
-        { key: "ac_temperature_sensor", label: "Current temperature as sensor", group: "Sensors" },
-        { key: "ac_humidity_sensor", label: "Humidity sensor", group: "Sensors" },
+        { key: "ac_fan_control", label: t("Separate fan control"), group: t("Controls") },
+        { key: "ac_jet_control", label: t("Separate jet control"), group: t("Controls") },
+        { key: "ac_energy_save", label: t("Energy save switch"), group: t("Controls") },
+        { key: "ac_air_clean", label: t("Air purify switch"), group: t("Controls") },
+        { key: "ac_led_control", label: t("LED panel control"), group: t("Controls") },
+        { key: "ac_air_quality", label: t("Air quality sensor"), group: t("Sensors") },
+        { key: "ac_temperature_sensor", label: t("Current temperature as sensor"), group: t("Sensors") },
+        { key: "ac_humidity_sensor", label: t("Humidity sensor"), group: t("Sensors") },
       ],
     },
     WASHER: {
       toggles: [
-        { key: "washer_trigger", label: "Program finished trigger" },
-        { key: "washer_tub_clean", label: "Tub clean event" },
-        { key: "washer_door_lock", label: "Door lock status" },
+        { key: "washer_trigger", label: t("Program finished trigger") },
+        { key: "washer_tub_clean", label: t("Tub clean event") },
+        { key: "washer_door_lock", label: t("Door lock status") },
       ],
     },
     REFRIGERATOR: {
       toggles: [
-        { key: "ref_express_freezer", label: "Express Freezer / Ice Plus" },
-        { key: "ref_express_fridge", label: "Express Fridge" },
-        { key: "ref_eco_friendly", label: "Eco Friendly" },
+        { key: "ref_express_freezer", label: t("Express Freezer / Ice Plus") },
+        { key: "ref_express_fridge", label: t("Express Fridge") },
+        { key: "ref_eco_friendly", label: t("Eco Friendly") },
       ],
     },
-    DISHWASHER: { toggles: [{ key: "dishwasher_trigger", label: "Program finished trigger" }] },
-    AIR_PURIFIER: { toggles: [{ key: "air_fast_mode", label: "Air Fast Mode" }] },
+    DISHWASHER: { toggles: [{ key: "dishwasher_trigger", label: t("Program finished trigger") }] },
+    AIR_PURIFIER: { toggles: [{ key: "air_fast_mode", label: t("Air Fast Mode") }] },
   };
   for (const type of ["WASHER_NEW", "WASH_TOWER", "WASH_TOWER_2", "DRYER"]) DEVICE_TYPE_FIELDS[type] = DEVICE_TYPE_FIELDS.WASHER;
   // The AeroTower is an air purifier with the same Air Fast switch.
   DEVICE_TYPE_FIELDS.AERO_TOWER = DEVICE_TYPE_FIELDS.AIR_PURIFIER;
-  const AC_OP_MODES = [[0, "Cool"], [1, "Dry"], [2, "Fan"], [4, "Heat"], [5, "Air Clean"], [6, "Auto"]];
+  const AC_OP_MODES = [[0, t("Cool")], [1, t("Dry")], [2, t("Fan")], [4, t("Heat")], [5, t("Air Clean")], [6, t("Auto")]];
 
   // State: the block as saved, the session used to list devices, the devices and the choices on them.
   let config = {};
@@ -86,9 +87,34 @@
 
   // MARK: Step 1: sign in
 
+  /// A sentence of the page with elements in it (a link, code): the translation's {0}, {1}… are the element's
+  /// children, in order.
+  function sentence(node, text) {
+    const parts = [...node.children];
+    node.replaceChildren(...text.split(/\{(\d+)\}/).map((part, i) => (i % 2 ? parts[Number(part)] : part)));
+  }
+  sentence($("#login-form .wiki"), t("Signing in to LG with Google, Apple, Facebook or Amazon? {0}, or use LG's own sign-in page below."));
+  sentence($("#third-party .help"), t("Open LG's sign-in page, sign in, then paste the address of the page it ends on (it starts with the LG account site and contains {0})."));
+
+  // In another language than English, a region is named in the page's language and its language by its own name
+  // (Intl.DisplayNames), in that order; the Homebridge plugin's English labels are the fallback.
+  const displayNames = (locale, type) => { try { return new Intl.DisplayNames([locale], { type }); } catch { return null; } };
+  const regionNames = HomeswiftI18n.language === "en" ? null : displayNames(HomeswiftI18n.locale, "region");
+  function regionLabel({ country, language, label }) {
+    if (!regionNames) return label;
+    try {
+      const region = regionNames.of(country);
+      const primary = language.split("-")[0];
+      const speech = displayNames(primary, "language")?.of(primary);
+      if (!region || region === country) return label;
+      return `${region}/${speech && speech !== primary ? speech : label.slice(label.indexOf("/") + 1)}`;
+    } catch { return label; }
+  }
+  const regions = window.LG_COUNTRIES.map((entry) => ({ ...entry, text: regionLabel(entry) }));
+  if (regionNames) regions.sort((a, b) => a.text.localeCompare(b.text, HomeswiftI18n.locale));
   const countrySelect = $("#country-language");
-  countrySelect.replaceChildren(...window.LG_COUNTRIES.map(({ country, language, label }) =>
-    el("option", { value: `${country}|${language}`, text: label })));
+  countrySelect.replaceChildren(...regions.map(({ country, language, text }) =>
+    el("option", { value: `${country}|${language}`, text })));
   const selectedRegion = () => {
     const [country, language] = countrySelect.value.split("|");
     return { country, language };
@@ -122,17 +148,17 @@
     const { country, language } = selectedRegion();
     const problem = $("#login-problem");
     if (!username || !password) {
-      showProblem(problem, "Please enter your username and password.");
+      showProblem(problem, t("Please enter your username and password."));
       return;
     }
     clearProblem(problem);
     act(button, async () => {
       try {
         const answer = await request("login-by-user-pass", { method: "POST", body: { country, language, username, password } });
-        if (!answer.success) throw new Error(answer.error || "Login failed");
+        if (!answer.success) throw new Error(HomeswiftI18n.message(answer.error) || t("Login failed"));
         await connected(answer.token, country, language, { username, password });
       } catch (e) {
-        showProblem(problem, e.message || "Login failed",
+        showProblem(problem, e.message || t("Login failed"),
           `Signing in to the LG ThinQ cloud with an LG account email and password from the plugin settings failed. Selected region: ${country} / ${language}.`);
       }
     });
@@ -175,10 +201,10 @@
     clearProblem(problem);
     try {
       const answer = await request("login-by-redirect", { method: "POST", body: { url: $("#redirect-url").value.trim(), country, language } });
-      if (!answer.success) throw new Error(answer.error || "Login failed");
+      if (!answer.success) throw new Error(HomeswiftI18n.message(answer.error) || t("Login failed"));
       await connected(answer.token, country, language, null);
     } catch (e) {
-      showProblem(problem, e.message || "Login failed",
+      showProblem(problem, e.message || t("Login failed"),
         `Signing in through LG's own page (an account of Google, Apple, Facebook or Amazon) failed. Selected region: ${country} / ${language}.`);
     }
   }));
@@ -195,7 +221,7 @@
     await act(button, async () => {
       try {
         const answer = await request("get-all-devices", { method: "POST", body: credentials });
-        if (!answer.success) throw new Error(answer.error || "Failed to load devices");
+        if (!answer.success) throw new Error(HomeswiftI18n.message(answer.error) || t("Failed to load devices"));
         devices = answer.devices || [];
         if (selected.size === 0) devices.forEach((device) => selected.add(device.id));
         try {
@@ -203,7 +229,7 @@
         } catch { running = new Set(); }
         renderDevices();
       } catch (e) {
-        showProblem(problem, e.message || "Failed to load devices",
+        showProblem(problem, e.message || t("Failed to load devices"),
           "Loading the device list from the LG ThinQ cloud with the stored refresh token failed in the plugin settings.");
       }
     });
@@ -211,35 +237,35 @@
 
   function renderDevices() {
     $("#device-count").textContent = String(devices.length);
-    $("#select-all").textContent = selected.size === devices.length && devices.length > 0 ? "Deselect all" : "Select all";
+    $("#select-all").textContent = selected.size === devices.length && devices.length > 0 ? t("Deselect all") : t("Select all");
     if (!devices.length) {
-      list.replaceChildren(el("li", { class: "empty muted", text: "No devices found. Connect your LG account and press Refresh." }));
+      list.replaceChildren(el("li", { class: "empty muted", text: t("No devices found. Connect your LG account and press Refresh.") }));
       return;
     }
     list.replaceChildren(...devices.map((device) => {
       const overrides = deviceSettings[device.id] || {};
       const isSelected = selected.has(device.id);
       const online = device.online !== false;
-      const checkbox = el("input", { type: "checkbox", checked: isSelected, "aria-label": `Add ${overrides.name || device.name} to HomeKit` });
+      const checkbox = el("input", { type: "checkbox", checked: isSelected, "aria-label": t("Add {name} to HomeKit", { name: overrides.name || device.name }) });
       const row = el("li", { class: `device${isSelected ? " selected" : ""}`, "data-id": device.id },
         checkbox,
         el("div", { class: "who" }, el("strong", { text: overrides.name || device.name }),
-          el("div", { class: "meta muted" }, el("span", { text: typeOf(device) }), " · ", el("span", { class: "id mono", text: `ID: ${device.id}` }))),
+          el("div", { class: "meta muted" }, el("span", { text: device.type ? typeOf(device) : t("Unknown") }), " · ", el("span", { class: "id mono", text: t("ID: {id}", { id: device.id }) }))),
         online ? null : explain({
           error: "The LG ThinQ cloud reports this appliance as offline (not connected to LG).",
           context: assistantContext("The user is looking at the device list of the LG ThinQ plugin settings."),
           device: { name: overrides.name || device.name, type: typeOf(device), online, includedInHomeKit: isSelected },
         }),
-        running.has(device.id) ? el("span", { class: "pill on", text: "In HomeKit" }) : null,
-        el("span", { class: `pill status ${online ? "on" : "away"}`, text: online ? "Online" : "Offline" }),
-        el("button", { class: "gear", title: "Device settings", "aria-label": `Settings of ${overrides.name || device.name}`, text: "⚙",
+        running.has(device.id) ? el("span", { class: "pill on", text: t("In HomeKit") }) : null,
+        el("span", { class: `pill status ${online ? "on" : "away"}`, text: online ? t("Online") : t("Offline") }),
+        el("button", { class: "gear", title: t("Device settings"), "aria-label": t("Settings of {name}", { name: overrides.name || device.name }), text: "⚙",
           onclick: (event) => { event.stopPropagation(); openDevice(device.id); } }));
       row.addEventListener("click", (event) => {
         if (event.target.closest(".gear, .explain")) return;
         if (event.target !== checkbox) checkbox.checked = !checkbox.checked;
         if (checkbox.checked) selected.add(device.id); else selected.delete(device.id);
         row.classList.toggle("selected", checkbox.checked);
-        $("#select-all").textContent = selected.size === devices.length ? "Deselect all" : "Select all";
+        $("#select-all").textContent = selected.size === devices.length ? t("Deselect all") : t("Select all");
       });
       return row;
     }));
@@ -270,7 +296,7 @@
     let buttonsList = null;
     const typeSection = [];
     if (fields) {
-      typeSection.push(el("h3", { class: "group-title", text: `${device.type} settings` }));
+      typeSection.push(el("h3", { class: "group-title", text: t("{type} settings", { type: device.type }) }));
       if (fields.selects) {
         typeSection.push(el("div", { class: "columns" }, fields.selects.map((field) => {
           const select = el("select", {}, field.options.map(([value, label]) => el("option", { value, text: label, selected: String(overrides[field.key] || "").toUpperCase() === value })));
@@ -295,15 +321,15 @@
       if (device.type === "AC") {
         buttonsList = el("div", {});
         const addButton = (button = {}) => {
-          const label = el("input", { type: "text", placeholder: "Name", value: button.name || "" });
+          const label = el("input", { type: "text", placeholder: t("Name"), value: button.name || "" });
           const mode = el("select", {}, AC_OP_MODES.map(([value, title]) => el("option", { value: String(value), text: title, selected: Number(button.op_mode ?? 0) === value })));
-          const row = el("div", { class: "button-row" }, label, mode, el("button", { class: "link danger", text: "Remove", onclick: () => row.remove() }));
+          const row = el("div", { class: "button-row" }, label, mode, el("button", { class: "link danger", text: t("Remove"), onclick: () => row.remove() }));
           buttonsList.append(row);
         };
         (overrides.ac_buttons || []).forEach(addButton);
         typeSection.push(el("div", { class: "buttons-editor" },
-          el("div", { class: "list-head" }, el("h3", { class: "group-title", text: "AC buttons" }), el("button", { text: "Add button", onclick: () => addButton() })),
-          el("p", { class: "help", text: "Custom HomeKit switches that select an operation mode." }), buttonsList));
+          el("div", { class: "list-head" }, el("h3", { class: "group-title", text: t("AC buttons") }), el("button", { text: t("Add button"), onclick: () => addButton() })),
+          el("p", { class: "help", text: t("Custom HomeKit switches that select an operation mode.") }), buttonsList));
       }
     }
     const apply = () => {
@@ -320,17 +346,17 @@
       deviceSettings[id] = next;
       closeDevice();
       renderDevices();
-      $("#devices-status").textContent = "Device settings applied: Save to keep them.";
+      $("#devices-status").textContent = t("Device settings applied: Save to keep them.");
     };
     breadcrumb(overrides.name || device.name, closeDevice);
     panel.classList.remove("hidden");
     panel.replaceChildren(
-      el("div", { class: "panel-head" }, el("h3", { text: overrides.name || device.name }), el("button", { class: "link", text: "Close", onclick: closeDevice })),
+      el("div", { class: "panel-head" }, el("h3", { text: overrides.name || device.name }), el("button", { class: "link", text: t("Close"), onclick: closeDevice })),
       el("div", { class: "columns" },
-        fieldRow("Display name", nameInput, "Its name in HomeKit; empty uses the device's name."),
-        fieldRow("Serial number (optional)", serialInput)),
+        fieldRow(t("Display name"), nameInput, t("Its name in HomeKit; empty uses the device's name.")),
+        fieldRow(t("Serial number (optional)"), serialInput)),
       typeSection,
-      el("div", { class: "save-bar" }, el("span", { class: "muted", text: "" }), el("button", { text: "Cancel", onclick: closeDevice }), el("button", { class: "primary", text: "Apply", onclick: apply })));
+      el("div", { class: "save-bar" }, el("span", { class: "muted", text: "" }), el("button", { text: t("Cancel"), onclick: closeDevice }), el("button", { class: "primary", text: t("Apply"), onclick: apply })));
     panel.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest" });
   }
 
@@ -373,11 +399,11 @@
         const pending = report.restartNeeded || [];
         $("#restart").classList.toggle("hidden", pending.length === 0);
         $("#complete-text").textContent = pending.length
-          ? `Saved. Restart Homeswift to apply the rest (${pending.join("; ")}).`
-          : "Saved. The plugin restarted with the new settings: its devices keep their place in the Home app.";
+          ? t("Saved. Restart Homeswift to apply the rest ({changes}).", { changes: pending.join("; ") })
+          : t("Saved. The plugin restarted with the new settings: its devices keep their place in the Home app.");
         showStep("complete");
       } catch (e) {
-        $("#devices-status").textContent = e.message || "Failed to save the configuration";
+        $("#devices-status").textContent = e.message || t("Failed to save the configuration");
       }
     });
   }
@@ -431,12 +457,12 @@
   $("#back").addEventListener("click", () => showStep("devices"));
   $("#restart").addEventListener("click", (event) => act(event.currentTarget, async () => {
     await api("/api/restart", { method: "POST" });
-    $("#complete-text").textContent = "Restarting…";
+    $("#complete-text").textContent = t("Restarting…");
     for (let tries = 0; tries < 60; tries++) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       try { await request("devices"); break; } catch { /* not back yet */ }
     }
-    $("#complete-text").textContent = "Homeswift restarted with the new settings.";
+    $("#complete-text").textContent = t("Homeswift restarted with the new settings.");
     $("#restart").classList.add("hidden");
   }));
 
