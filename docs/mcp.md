@@ -200,6 +200,12 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   list of `changes`, or one `characteristic` and `value` for the accessories that `ids` or `filter` (the same
   filters) pick; it refuses when more than `maxTargets` (25 by default, at most 200) would change, and skips
   and reports accessories without the characteristic and security controls.
+- **config.json.** `update_config`, `patch_config` and `put_list_entry` check what they change in a plugin's block
+  against its `config.schema.json` (and the runtime's own blocks against theirs): a setting added or changed, a
+  required one removed, a new block whole. What they leave as it was is not checked, so an old mistake in a
+  block never stops a change to another setting. A refusal names each problem with its place
+  (`ElgatoKeyLights: pollingRate must be >= 250`), the dry run's too. `ignoreSchema: true` saves anyway, for a
+  value the plugin accepts that its schema does not list; `restore_config` puts a backup back unchecked.
 - **Rooms.** The Home app's rooms never reach a bridge; these are the web UI's (Glass UI's accessory layout,
   `accessory-layout.json`). `get_accessory_layout` lists the rooms with their accessories (and `displayName`,
   `hidden`, `favourite`) and those in no room; `set_accessory_layout` puts accessories in rooms (a new name adds

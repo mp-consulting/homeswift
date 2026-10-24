@@ -320,7 +320,7 @@ struct AssistantServiceTests {
         #expect(first.system?.contains("\"required\":[\"config\",\"explanation\"]") == true)
         #expect(first.messages[0].text.contains("__REDACTED__"))
         #expect(!first.messages[0].text.contains("real-key"))
-        #expect(provider.requests[1].messages.last?.text.contains("must have required property 'explanation'") == true)
+        #expect(provider.requests[1].messages.last?.text.contains("explanation is required") == true)
     }
 }
 

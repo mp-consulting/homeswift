@@ -242,6 +242,7 @@ let main = Task {
                 }
             }
         },
+        blockSchemas: [UIConfiguration.platform: UIConfiguration.schemaJSON, AIConfiguration.platform: AIConfiguration.schemaJSON],
         logger: logger)
     catalogBox.withLockedValue { $0 = catalog }
     homeCatalog.withLockedValue { $0 = catalog }

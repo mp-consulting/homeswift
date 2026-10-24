@@ -541,7 +541,8 @@ enum WebAssets {
 
   const show = (main, ...nodes) => main.replaceChildren(...nodes.flat().filter(Boolean));
 
-  class ApiError extends Error { constructor(status, message) { super(message); this.status = status; } }
+  /// `problems`: what a save changed that its plugin's schema refuses, each with its path (`ConfigSchemaError`).
+  class ApiError extends Error { constructor(status, message, problems) { super(message); this.status = status; this.problems = problems; } }
 
   async function api(path, { method = "GET", body, raw = false } = {}) {
     const options = { method, credentials: "same-origin", headers: {} };
@@ -550,9 +551,9 @@ enum WebAssets {
     if (response.status === 401 && !path.startsWith("/api/auth/")) { showAuth(); throw new ApiError(401, "signed out"); }
     const text = await response.text();
     if (!response.ok) {
-      let message = text;
-      try { message = JSON.parse(text).error || text; } catch {}
-      throw new ApiError(response.status, message || `HTTP ${response.status}`);
+      let message = text, problems;
+      try { ({ error: message = text, problems } = JSON.parse(text)); } catch {}
+      throw new ApiError(response.status, message || `HTTP ${response.status}`, problems);
     }
     return raw ? text : (text ? JSON.parse(text) : null);
   }
@@ -1680,8 +1681,19 @@ enum WebAssets {
     const dirty = () => snapshot() !== saved;
     const message = el("span", { class: "muted" });
     const save = el("button", { class: "primary", text: isNew ? "Add" : "Save" });
+    const force = el("button", { class: "hidden", text: isNew ? "Add anyway" : "Save anyway", title: "Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list" });
     const revert = el("button", { text: isNew ? "Cancel" : "Revert" });
+    // The JSON on screen is checked as it is typed: a syntax error marks its line, and Save waits for it.
+    const jsonShown = () => textarea.isConnected && !textarea.closest(".hidden");
     const update = () => {
+      const result = jsonShown() ? editor.check() : null;
+      if (result && !("value" in result)) {
+        message.className = "error";
+        message.replaceChildren(...lineLink(result, editor), result.message);
+        save.disabled = true;
+        revert.disabled = false;
+        return;
+      }
       const changed = dirty();
       save.disabled = !isNew && !changed;
       revert.disabled = !isNew && !changed;
@@ -1690,18 +1702,19 @@ enum WebAssets {
         message.textContent = isNew ? "A new block: Add writes it to config.json." : changed ? "Unsaved changes" : "Saved";
       }
     };
-    body.addEventListener("input", () => { message.className = ""; update(); });
+    body.addEventListener("input", () => { message.className = ""; force.classList.add("hidden"); update(); });
     body.addEventListener("change", () => { message.className = ""; update(); });
     body.addEventListener("click", () => setTimeout(update, 0));   // the array editors add and remove rows by click
 
-    save.addEventListener("click", async () => {
+    const doSave = async (anyway) => {
       save.disabled = true;
+      force.classList.add("hidden");
       message.className = "muted";
       message.textContent = "Saving…";
       try {
         const value = getValue();
         value.platform = platform;
-        const result = await api(`/api/config/platforms/${block.index}`, { method: "PUT", body: value });
+        const result = await api(`/api/config/platforms/${block.index}${anyway ? "?force=true" : ""}`, { method: "PUT", body: value });
         saved = snapshot();
         message.className = "ok";
         message.textContent = savedText(result);
@@ -1718,8 +1731,19 @@ enum WebAssets {
         const name = value.name || platform;
         if (isNew || name !== block.name) { leaveGuard = null; navigate((hasPage ? expertLink : settingsLink)({ slug: slug(name) }), { replace: true }); return; }
         update();
-      } catch (e) { message.className = "error"; message.textContent = e.message; save.disabled = false; }
-    });
+      } catch (e) {
+        message.className = "error";
+        save.disabled = false;
+        if (!e.problems) { message.textContent = e.message; return; }
+        // Inside the block: the paths start at the file's platforms. The JSON on screen marks their lines.
+        const paths = e.problems.map((problem) => problem.path.slice(2));
+        const places = jsonShown() ? editor.markPaths(paths) : [];
+        message.replaceChildren(el("span", { text: "The plugin's schema refuses this:" }), problemList(e.problems.map((problem, i) => ({ ...places[i], text: problem.text })), jsonShown() ? editor : null));
+        force.classList.remove("hidden");
+      }
+    };
+    save.addEventListener("click", () => doSave(false));
+    force.addEventListener("click", () => doSave(true));
     revert.addEventListener("click", () => { if (isNew) { navigate("/plugins"); return; } leaveGuard = null; route(); });
 
     const [state, kind] = isNew ? ["New", "standby"] : blockState(block, plugin, instance);
@@ -1748,7 +1772,7 @@ enum WebAssets {
         useValue: useSuggestion, save, dirty }) : null,
       useSuggestion && !block.system ? describeSetup({ platform, pluginName: plugin ? plugin.name : platform, current: () => { try { return getValue(); } catch { return current; } }, use: useSuggestion }) : null,
       body,
-      el("div", { class: "settings-bar" }, message, revert, save),
+      el("div", { class: "settings-bar" }, message, revert, force, save),
       remove);
     update();
   };
@@ -2892,50 +2916,74 @@ enum WebAssets {
 
   // ---- Config --------------------------------------------------------------
 
+  /// "Line 12", a link that puts the caret there: for a syntax error or a problem the editor placed.
+  const lineLink = (place, editor) => place.line && editor
+    ? [el("button", { type: "button", class: "line-link", text: `Line ${place.line}`, onclick: () => editor.reveal(place.offset) })] : [];
+
+  /// A save's schema problems, `{ text, line?, offset? }`, each with its line when the editor shows it.
+  const problemList = (items, editor) => el("ul", { class: "schema-problems" }, items.map((item) => el("li", {}, ...lineLink(item, editor), item.text)));
+
   views.config = async (main) => {
     let saved = await api("/api/config", { raw: true });
     const textarea = el("textarea", { value: saved, spellcheck: false, "aria-label": "config.json" });
     const check = el("span", { class: "muted" });
     const message = el("p", { class: "status-line muted" });
     const save = el("button", { class: "primary", text: "Save", disabled: true });
+    const force = el("button", { class: "hidden", text: "Save anyway", title: "Save what the plugins' schemas refuse: for a value a plugin accepts that its schema does not list" });
     const revert = el("button", { text: "Revert", disabled: true });
     const format = el("button", { class: "link", text: "Format" });
-    // Validity and the unsaved state follow every keystroke, so Save is only offered when it can work.
+    // Validity and the unsaved state follow every keystroke, so Save is only offered when it can work; a syntax
+    // error marks its line.
     const update = () => {
       const dirty = textarea.value !== saved;
-      let valid = true;
-      try { JSON.parse(textarea.value); check.className = "ok"; check.textContent = dirty ? "Valid JSON · unsaved" : "Saved"; }
-      catch (e) { valid = false; check.className = "error"; check.textContent = e.message; }
+      const result = editor.check();
+      const valid = "value" in result;
+      if (valid) { check.className = "ok"; check.textContent = dirty ? "Valid JSON · unsaved" : "Saved"; }
+      else { check.className = "error"; check.replaceChildren(...lineLink(result, editor), result.message); }
       save.disabled = !dirty || !valid;
       revert.disabled = !dirty;
     };
-    const doSave = async () => {
+    const doSave = async (anyway = false) => {
       if (save.disabled) return;
       save.disabled = true;
+      force.classList.add("hidden");
       try {
-        const result = await api("/api/config", { method: "PUT", body: JSON.parse(textarea.value) });
+        const result = await api(`/api/config${anyway ? "?force=true" : ""}`, { method: "PUT", body: JSON.parse(textarea.value) });
         message.className = "status-line ok";
         message.textContent = `Changed: ${result.changes.join(", ") || "nothing"}. ${savedText(result)}`;
         saved = await api("/api/config", { raw: true });
         textarea.value = saved;
         editor.repaint();
-      } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
+      } catch (e) {
+        message.className = "status-line error";
+        if (e.problems) {
+          // Each problem on its line; the plugin may accept what its schema does not list, so saving anyway stays possible.
+          const places = editor.markPaths(e.problems.map((problem) => problem.path));
+          message.replaceChildren(el("span", { text: "The plugins' schemas refuse this:" }), problemList(e.problems.map((problem, i) => ({ ...places[i], text: `${problem.platform}: ${problem.text}` })), editor));
+          force.classList.remove("hidden");
+          update();
+          save.disabled = true;
+          return;
+        }
+        message.textContent = e.message;
+      }
       update();
     };
-    textarea.addEventListener("input", update);
+    textarea.addEventListener("input", () => { force.classList.add("hidden"); message.textContent = ""; update(); });
     textarea.addEventListener("keydown", (event) => {
       if ((event.metaKey || event.ctrlKey) && event.key === "s") { event.preventDefault(); doSave(); }
       if (event.key === "Tab" && !event.shiftKey) { event.preventDefault(); textarea.setRangeText("  ", textarea.selectionStart, textarea.selectionEnd, "end"); update(); }
     });
-    save.addEventListener("click", doSave);
-    revert.addEventListener("click", () => { textarea.value = saved; message.textContent = ""; editor.repaint(); update(); });
+    save.addEventListener("click", () => doSave());
+    force.addEventListener("click", () => { save.disabled = false; doSave(true); });
+    revert.addEventListener("click", () => { textarea.value = saved; message.textContent = ""; force.classList.add("hidden"); editor.repaint(); update(); });
     const editor = jsonEditor(textarea);
     format.addEventListener("click", () => { try { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); update(); } catch {} });
     update();
     show(main,
       pageHead("Configuration", "The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once."),
       el("div", { class: "card editor-card" },
-        el("div", { class: "editor-bar" }, el("span", { class: "mono muted", text: "config.json" }), check, el("span", { class: "spacer" }), format, revert, save),
+        el("div", { class: "editor-bar" }, el("span", { class: "mono muted", text: "config.json" }), check, el("span", { class: "spacer" }), format, revert, force, save),
         editor, message));
   };
 
@@ -5118,24 +5166,159 @@ enum WebAssets {
   /// A value shown as indented, coloured JSON.
   const jsonView = (value, attrs = {}) => el("pre", { class: "json", ...attrs }, jsonHighlight(JSON.stringify(value, null, 2) ?? ""));
 
+  /// Where things are in JSON text: the offset of each key (or array item) by its path as `JSON.stringify(path)`,
+  /// or the first syntax error, `{ message, offset }`. A small parser of its own, since the browsers' JSON.parse
+  /// errors neither read the same nor, in Safari, say where.
+  function jsonLocate(text) {
+    const places = new Map([["[]", 0]]);
+    const numberPattern = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
+    let at = 0;
+    const fail = (message, offset = at) => { throw { message, offset: Math.min(offset, text.length) }; };
+    const space = () => { while (at < text.length && " \t\n\r".includes(text[at])) at++; };
+    const string = () => {
+      at++;
+      for (;;) {
+        if (at >= text.length) fail("This string is not closed");
+        const character = text[at];
+        if (character === '"') { at++; return; }
+        if (character === "\\") {
+          const next = text[at + 1];
+          if (next === "u" && /^[0-9a-fA-F]{4}$/.test(text.slice(at + 2, at + 6))) at += 6;
+          else if (next !== undefined && "\"\\/bfnrt".includes(next)) at += 2;
+          else fail("Not a valid escape in a string");
+          continue;
+        }
+        if (character === "\n") fail("This string is not closed before the end of the line");
+        if (character < " ") fail("A control character in a string must be escaped");
+        at++;
+      }
+    };
+    // A missing comma is reported where it belongs: after the value before it, on that value's line.
+    const after = (end, closing) => {
+      space();
+      if (text[at] === ",") { at++; return false; }
+      if (text[at] === closing) { at++; return true; }
+      fail(at >= text.length ? `The text ends before this ${closing === "}" ? "object" : "list"} is closed` : `A comma or a ${closing === "}" ? "closing brace" : "closing bracket"} is missing after this value`, end);
+    };
+    const value = (path) => {
+      space();
+      const character = text[at];
+      if (character === "{") {
+        at++;
+        space();
+        if (text[at] === "}") { at++; return; }
+        for (;;) {
+          space();
+          if (text[at] !== '"') fail(text[at] === "}" ? "A comma before the closing brace" : at >= text.length ? "The text ends before this object is closed" : "Expected a key in double quotes");
+          const start = at;
+          string();
+          const key = JSON.parse(text.slice(start, at));
+          places.set(JSON.stringify([...path, key]), start);
+          space();
+          if (text[at] !== ":") fail("A colon is missing after this key");
+          at++;
+          value([...path, key]);
+          if (after(at, "}")) return;
+        }
+      }
+      if (character === "[") {
+        at++;
+        space();
+        if (text[at] === "]") { at++; return; }
+        for (let index = 0; ; index++) {
+          space();
+          if (text[at] === "]") fail("A comma before the closing bracket");
+          places.set(JSON.stringify([...path, index]), at);
+          value([...path, index]);
+          if (after(at, "]")) return;
+        }
+      }
+      if (character === '"') return string();
+      for (const word of ["true", "false", "null"]) if (text.startsWith(word, at)) { at += word.length; return; }
+      numberPattern.lastIndex = at;
+      const number = numberPattern.exec(text);
+      if (number && number[0] !== "-") { at += number[0].length; return; }
+      fail(at >= text.length ? "The text ends where a value should be" : character === "'" ? "Strings take double quotes" : "Not a valid value");
+    };
+    try {
+      value([]);
+      space();
+      if (at < text.length) fail("Something follows the end of the JSON");
+      return { places };
+    } catch (error) {
+      if (error instanceof Error) throw error;
+      return { places, error };
+    }
+  }
+
+  /// The line (from 1) of an offset in `text`.
+  const lineAt = (text, offset) => { let line = 1; for (let i = 0; i < offset && i < text.length; i++) if (text.charCodeAt(i) === 10) line++; return line; };
+
+  /// Parses `text`: `{ value }`, or `{ message, offset, line }` for where it goes wrong.
+  function jsonCheck(text) {
+    try {
+      return { value: JSON.parse(text) };
+    } catch (parseError) {
+      const { error } = jsonLocate(text);
+      return error ? { ...error, line: lineAt(text, error.offset) } : { message: parseError.message };
+    }
+  }
+
   /// Colours a JSON textarea as it is typed: a coloured copy of its text sits under it, the textarea's own
-  /// text transparent, so editing, selection and undo stay the browser's. Returns the wrapper to show.
+  /// text transparent, so editing, selection and undo stay the browser's. Returns the wrapper to show, with
+  /// `check()` (parses the text and marks the line of a syntax error), `markPaths(paths)` (marks where each
+  /// path is, or its nearest parent; returns `{ offset, line }` for each) and `reveal(offset)`.
   function jsonEditor(textarea) {
     const layer = el("pre", { class: "code-layer", "aria-hidden": "true" });
     const wrapper = el("div", { class: "code-editor" }, layer, textarea);
     textarea.classList.add("code-input");
     let scheduled = false;
+    // The line of a syntax error (check), else the places of a save's problems (markPaths), which an edit clears.
+    let syntax = null, placed = [];
     const paint = () => {
       scheduled = false;
       // A final newline needs a character after it to take its line.
       layer.replaceChildren(jsonHighlight(textarea.value), "\n");
+      // A marked line: a band under its text, as many line heights down as the line is from the top.
+      const top = getComputedStyle(layer).paddingTop;
+      const marks = syntax === null ? placed : [syntax];
+      for (const line of new Set(marks.map((offset) => lineAt(textarea.value, offset)))) {
+        layer.append(el("span", { class: "code-mark", style: `top: calc(${top} + ${line - 1} * var(--code-line))` }));
+      }
       layer.scrollTop = textarea.scrollTop;
       layer.scrollLeft = textarea.scrollLeft;
     };
     const schedule = () => { if (!scheduled) { scheduled = true; requestAnimationFrame(paint); } };
-    textarea.addEventListener("input", schedule);
+    textarea.addEventListener("input", () => { placed = []; schedule(); });
     textarea.addEventListener("scroll", () => { layer.scrollTop = textarea.scrollTop; layer.scrollLeft = textarea.scrollLeft; });
-    wrapper.repaint = paint;
+    // After the text is set in code: the problems' places no longer hold.
+    wrapper.repaint = () => { placed = []; paint(); };
+    wrapper.check = () => {
+      const result = jsonCheck(textarea.value);
+      const next = result.offset ?? null;
+      if (next !== syntax) { syntax = next; schedule(); }
+      return result;
+    };
+    wrapper.markPaths = (paths) => {
+      const { places } = jsonLocate(textarea.value);
+      const found = paths.map((path) => {
+        let place = path;
+        while (place.length && !places.has(JSON.stringify(place))) place = place.slice(0, -1);
+        const offset = places.get(JSON.stringify(place)) ?? 0;
+        return { offset, line: lineAt(textarea.value, offset) };
+      });
+      placed = found.map((place) => place.offset);
+      schedule();
+      return found;
+    };
+    // The caret on the line, the line a third of the way down.
+    wrapper.reveal = (offset) => {
+      textarea.focus({ preventScroll: true });
+      textarea.setSelectionRange(offset, offset);
+      const lineHeight = parseFloat(getComputedStyle(textarea).lineHeight) || 20;
+      textarea.scrollTop = Math.max(0, (lineAt(textarea.value, offset) - 1) * lineHeight - textarea.clientHeight / 3);
+      wrapper.scrollIntoView({ block: "nearest" });
+    };
     paint();
     return wrapper;
   }
@@ -5301,7 +5484,7 @@ enum WebAssets {
   const formatTemperature = (celsius) => { const { value, unit } = temperature(celsius); return `${value} ${unit}`; };
 
   window.HomeswiftCommon = {
-    $, el, icon, tile, fact, markdown, sparkle, api, menu, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
+    $, el, icon, tile, fact, markdown, sparkle, api, menu, menuButton, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature,
   };
 })();
@@ -7502,7 +7685,8 @@ textarea.short { min-height: 220px; }
 .editor-bar .count { font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
 .editor-card textarea { display: block; border: 0; border-radius: 0; box-shadow: none; background: transparent; min-height: 62vh; padding: 16px 18px; resize: vertical; tab-size: 2; line-height: 1.55; }
 .editor-card textarea:focus { box-shadow: none; }
-.editor-card .status-line { padding: 0 18px 14px; margin: 0; }
+.editor-card .status-line { padding: 12px 18px 14px; margin: 0; }
+.editor-card .status-line:empty { display: none; }
 
 /* Facts: label over value in thin chips, three to a row; long values end in an ellipsis with the whole
    value in the tooltip. */
@@ -7913,12 +8097,36 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   grid-area: 1 / 1; margin: 0; box-sizing: border-box; min-width: 0; padding: 14px 16px;
   font: 0.8125rem/1.55 var(--mono); tab-size: 2; white-space: pre; overflow: auto; overflow-wrap: normal; word-break: normal;
 }
-.code-editor > .code-layer { pointer-events: none; border: 1px solid transparent; border-radius: var(--radius); overflow: hidden; color: var(--text); }
+.code-editor > .code-layer { pointer-events: none; border: 1px solid transparent; border-radius: var(--radius); overflow: hidden; color: var(--text); position: relative; z-index: 0; }
+/* A line with a problem (common.js jsonEditor): a band under its text, from the layer's top by line heights. */
+.code-editor { --code-line: 1.55em; }
+.code-mark { position: absolute; left: 0; right: 0; height: var(--code-line); z-index: -1; background: rgba(255, 107, 107, 0.16); box-shadow: inset 3px 0 0 var(--error); }
+.line-link { padding: 0; margin: 0 6px 0 0; border: 0; background: none; box-shadow: none; font: inherit; font-weight: 600; color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.line-link:hover { transform: none; }
+.schema-problems { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 2px; }
 .code-editor > .code-input { position: relative; z-index: 1; color: transparent; background: transparent; caret-color: var(--text); resize: vertical; }
 .code-editor > .code-input::selection { color: transparent; background: rgba(10, 132, 255, 0.28); }
 .editor-card .code-editor > * { border-width: 0; border-radius: 0; padding: 16px 18px; min-height: 62vh; }
 .form-card .code-editor > * { min-height: 340px; }
 .form-card .code-editor { margin-top: 4px; border-radius: var(--radius); background: var(--field); }
+
+/* Logs and JSON on a dark surface in either theme, as a terminal: the log list, JSON blocks, the JSON editors and
+   the config diffs take the dark theme's text, lines and hues, on a ground a step below the dark cards. */
+:root { --console: #161a21; }
+@media (prefers-color-scheme: dark) { :root:not(:where([data-theme="light"])) { --console: #0b0d12; } }
+:root:where([data-theme="dark"]) { --console: #0b0d12; }
+.log, pre.json, pre.diff, .code-editor {
+  color-scheme: dark; color: var(--text);
+  --text: #f3f4f7; --muted: #a2a9b5; --line: rgba(255, 255, 255, 0.1); --edge: rgba(255, 255, 255, 0.16);
+  --material-thin: rgba(255, 255, 255, 0.06); --field: rgba(255, 255, 255, 0.04);
+  --warn: #e9a04a; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #ff8f3d;
+  --json-key: #c8a2ff; --json-string: #8ddc8f; --json-number: #ffb06b; --json-bool: #79b8ff; --json-null: #8b949e;
+}
+.log-card .log, pre.json, pre.diff, .code-editor, .form-card .code-editor { background: var(--console); }
+.log pre.json { background: var(--material-thin); }
+.log-line.warning { background: rgba(233, 160, 74, 0.1); }
+.log-line.error, .log-line.critical { background: rgba(255, 107, 107, 0.1); }
+@media (prefers-contrast: more) { .log, pre.json, pre.diff, .code-editor { --muted: #cfd4dc; --line: rgba(255, 255, 255, 0.3); --edge: rgba(255, 255, 255, 0.6); } }
 
 /* A file field: its path, and a place to drop the file or choose it. */
 .drop-zone {

@@ -999,7 +999,8 @@ textarea.short { min-height: 220px; }
 .editor-bar .count { font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
 .editor-card textarea { display: block; border: 0; border-radius: 0; box-shadow: none; background: transparent; min-height: 62vh; padding: 16px 18px; resize: vertical; tab-size: 2; line-height: 1.55; }
 .editor-card textarea:focus { box-shadow: none; }
-.editor-card .status-line { padding: 0 18px 14px; margin: 0; }
+.editor-card .status-line { padding: 12px 18px 14px; margin: 0; }
+.editor-card .status-line:empty { display: none; }
 
 /* Facts: label over value in thin chips, three to a row; long values end in an ellipsis with the whole
    value in the tooltip. */
@@ -1410,12 +1411,36 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   grid-area: 1 / 1; margin: 0; box-sizing: border-box; min-width: 0; padding: 14px 16px;
   font: 0.8125rem/1.55 var(--mono); tab-size: 2; white-space: pre; overflow: auto; overflow-wrap: normal; word-break: normal;
 }
-.code-editor > .code-layer { pointer-events: none; border: 1px solid transparent; border-radius: var(--radius); overflow: hidden; color: var(--text); }
+.code-editor > .code-layer { pointer-events: none; border: 1px solid transparent; border-radius: var(--radius); overflow: hidden; color: var(--text); position: relative; z-index: 0; }
+/* A line with a problem (common.js jsonEditor): a band under its text, from the layer's top by line heights. */
+.code-editor { --code-line: 1.55em; }
+.code-mark { position: absolute; left: 0; right: 0; height: var(--code-line); z-index: -1; background: rgba(255, 107, 107, 0.16); box-shadow: inset 3px 0 0 var(--error); }
+.line-link { padding: 0; margin: 0 6px 0 0; border: 0; background: none; box-shadow: none; font: inherit; font-weight: 600; color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.line-link:hover { transform: none; }
+.schema-problems { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 2px; }
 .code-editor > .code-input { position: relative; z-index: 1; color: transparent; background: transparent; caret-color: var(--text); resize: vertical; }
 .code-editor > .code-input::selection { color: transparent; background: rgba(10, 132, 255, 0.28); }
 .editor-card .code-editor > * { border-width: 0; border-radius: 0; padding: 16px 18px; min-height: 62vh; }
 .form-card .code-editor > * { min-height: 340px; }
 .form-card .code-editor { margin-top: 4px; border-radius: var(--radius); background: var(--field); }
+
+/* Logs and JSON on a dark surface in either theme, as a terminal: the log list, JSON blocks, the JSON editors and
+   the config diffs take the dark theme's text, lines and hues, on a ground a step below the dark cards. */
+:root { --console: #161a21; }
+@media (prefers-color-scheme: dark) { :root:not(:where([data-theme="light"])) { --console: #0b0d12; } }
+:root:where([data-theme="dark"]) { --console: #0b0d12; }
+.log, pre.json, pre.diff, .code-editor {
+  color-scheme: dark; color: var(--text);
+  --text: #f3f4f7; --muted: #a2a9b5; --line: rgba(255, 255, 255, 0.1); --edge: rgba(255, 255, 255, 0.16);
+  --material-thin: rgba(255, 255, 255, 0.06); --field: rgba(255, 255, 255, 0.04);
+  --warn: #e9a04a; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #ff8f3d;
+  --json-key: #c8a2ff; --json-string: #8ddc8f; --json-number: #ffb06b; --json-bool: #79b8ff; --json-null: #8b949e;
+}
+.log-card .log, pre.json, pre.diff, .code-editor, .form-card .code-editor { background: var(--console); }
+.log pre.json { background: var(--material-thin); }
+.log-line.warning { background: rgba(233, 160, 74, 0.1); }
+.log-line.error, .log-line.critical { background: rgba(255, 107, 107, 0.1); }
+@media (prefers-contrast: more) { .log, pre.json, pre.diff, .code-editor { --muted: #cfd4dc; --line: rgba(255, 255, 255, 0.3); --edge: rgba(255, 255, 255, 0.6); } }
 
 /* A file field: its path, and a place to drop the file or choose it. */
 .drop-zone {
