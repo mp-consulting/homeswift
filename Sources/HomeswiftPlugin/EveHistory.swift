@@ -565,15 +565,17 @@ public final class EveHistory: Sendable {
                 }
             }
             if state.refTime == 0 {
-                state.refTime = entry.time - Self.epochOffset
-                state.history[state.lastEntry] = .marker(time: entry.time)
+                state.refTime = entry.time &- Self.epochOffset
+                // In the ring like every other entry: a damaged file's huge lastEntry must not size the saved array.
+                state.history[state.lastEntry % size] = .marker(time: entry.time)
                 state.initialTime = entry.time
                 state.lastEntry += 1
                 state.usedMemory += 1
             }
             state.history[state.lastEntry % size] = entry
             let full = state.usedMemory >= size
-            return Self.hex32(entry.time - state.refTime - Self.epochOffset) + "00000000" + Self.hex32(state.refTime) + type116
+            // Wrapping, as fakegato's 32-bit fields do: times from a damaged file must not trap.
+            return Self.hex32(entry.time &- state.refTime &- Self.epochOffset) + "00000000" + Self.hex32(state.refTime) + type116
                 + Self.hex16(Double(full ? state.usedMemory : state.usedMemory + 1)) + Self.hex16(Double(size))
                 + Self.hex32(full ? state.firstEntry + 1 : state.firstEntry) + "000000000101"
         }
@@ -618,7 +620,7 @@ public final class EveHistory: Sendable {
     }
 
     private func encode(_ entry: Entry, address: Int, refTime: Int) -> String {
-        let head = Self.hex32(address) + Self.hex32(entry.time - refTime - Self.epochOffset)
+        let head = Self.hex32(address) + Self.hex32(entry.time &- refTime &- Self.epochOffset)
         func v(_ value: Double?) -> Double { value ?? .nan }
         switch kind {
         case .weather:

@@ -88,12 +88,16 @@ extension PluginHost {
 
     /// The child bridge with this device ID (with or without colons, any case) or name.
     public func childBridge(id: String) -> Bridge? {
-        bridges.filter(\.isChild).first { Self.sameBridge($0, id) }
+        Self.find(id, in: bridges.filter(\.isChild))
     }
 
-    static func sameBridge(_ bridge: Bridge, _ id: String) -> Bool {
+    /// The bridge with this device ID, else the one bridge with this name: names are not unique (a child bridge
+    /// and the television it publishes may share one), and a name several have finds none rather than the first.
+    static func find(_ id: String, in bridges: [Bridge]) -> Bridge? {
         let bare = { (text: String) in text.replacingOccurrences(of: ":", with: "").uppercased() }
-        return bare(bridge.server.deviceID) == bare(id) || bridge.name.lowercased() == id.lowercased()
+        if let found = bridges.first(where: { bare($0.server.deviceID) == bare(id) }) { return found }
+        let named = bridges.filter { $0.name.lowercased() == id.lowercased() }
+        return named.count == 1 ? named[0] : nil
     }
 
     /// Stops the plugins of a child bridge, the servers of their external accessories and the bridge's server.
@@ -254,9 +258,9 @@ extension PluginHost {
 
     // MARK: Pairings
 
-    /// The bridge, child bridge or external accessory with this device ID or name.
+    /// The bridge, child bridge or external accessory with this device ID or name (`find`).
     public func bridge(id: String) -> Bridge? {
-        bridges.first { Self.sameBridge($0, id) }
+        Self.find(id, in: bridges)
     }
 
     /// Forgets every controller paired with a bridge and disconnects them: the Home app must add it again

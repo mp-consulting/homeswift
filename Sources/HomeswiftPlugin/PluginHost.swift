@@ -221,8 +221,14 @@ public final class PluginHost: @unchecked Sendable {
         for instance in instances { instance.context.restoreCache() }
     }
 
+    /// How long `start()` waits for the plugins' `start()`, and `stop()` for each plugin's `stop()`: a plugin
+    /// stuck on a device or a cloud keeps neither the web UI from starting nor a restart from happening.
+    static let pluginStartWait: Duration = .seconds(30)
+    static let pluginStopWait: Duration = .seconds(10)
+
     /// Starts the bridges, then creates and starts every plugin. Returns once each plugin's `start()` has
-    /// returned; a plugin that throws is logged and left out.
+    /// returned, or after `pluginStartWait` with the slow ones still starting; a plugin that throws is logged
+    /// and left out.
     public func start() async throws {
         for bridge in bridges {
             try await bridge.server.start()
@@ -230,21 +236,62 @@ public final class PluginHost: @unchecked Sendable {
         }
         // From here on an external accessory a plugin publishes starts its server at once.
         externals.markRunning()
-        await withTaskGroup(of: Void.self) { group in
-            for instance in instances {
-                group.addTask { await self.launch(instance) }
+        let instances = instances
+        let launched = NIOLockedValueBox(Set<ObjectIdentifier>())
+        let launches = instances.map { instance in
+            Task {
+                await self.launch(instance)
+                launched.withLockedValue { _ = $0.insert(ObjectIdentifier(instance)) }
             }
+        }
+        let all = Task { for launch in launches { await launch.value } }
+        guard await !Self.wait(for: all, atMost: Self.pluginStartWait) else { return }
+        let done = launched.withLockedValue { $0 }
+        for instance in instances where !done.contains(ObjectIdentifier(instance)) {
+            instance.context.logger.warning("Still starting after \(Self.pluginStartWait): the bridge goes on without waiting for it")
         }
     }
 
-    /// Stops the plugins, saves the accessory caches, and stops the bridges.
+    /// Stops the plugins, saves the accessory caches, and stops the bridges. A plugin whose `stop()` takes
+    /// longer than `pluginStopWait` is left to finish on its own.
     public func stop() async {
         _ = await reloadTail.withLockedValue({ $0 })?.value
-        for instance in instances {
-            await stopPlugin(instance)
+        await withTaskGroup(of: Void.self) { group in
+            for instance in instances {
+                group.addTask {
+                    let stopping = Task { await self.stopPlugin(instance) }
+                    if await !Self.wait(for: stopping, atMost: Self.pluginStopWait) {
+                        instance.context.logger.warning("Did not stop within \(Self.pluginStopWait); stopping the bridge anyway")
+                    }
+                }
+            }
         }
         for bridge in bridges {
             await bridge.server.stop()
+        }
+    }
+
+    /// Waits for `task` to end, or `limit`, whichever comes first; the task goes on past the limit. Returns
+    /// whether it ended.
+    static func wait(for task: Task<Void, Never>, atMost limit: Duration) async -> Bool {
+        let waiting = NIOLockedValueBox<CheckedContinuation<Bool, Never>?>(nil)
+        let finish: @Sendable (Bool) -> Void = { ended in
+            waiting.withLockedValue { continuation in
+                defer { continuation = nil }
+                return continuation
+            }?.resume(returning: ended)
+        }
+        return await withCheckedContinuation { continuation in
+            waiting.withLockedValue { $0 = continuation }
+            let timer = Task {
+                try? await Task.sleep(for: limit)
+                finish(false)
+            }
+            Task {
+                await task.value
+                timer.cancel()
+                finish(true)
+            }
         }
     }
 
@@ -294,16 +341,7 @@ public final class PluginHost: @unchecked Sendable {
     /// block, which only a restart changes, is listed as such.
     @discardableResult
     public func apply(_ next: HomeswiftConfiguration) async -> ReloadReport {
-        let task = reloadTail.withLockedValue { tail -> Task<ReloadReport, Never> in
-            let previous = tail
-            let task = Task { () -> ReloadReport in
-                _ = await previous?.value
-                return await self.reload(to: next)
-            }
-            tail = Task { _ = await task.value }
-            return task
-        }
-        return await task.value
+        await serialized { await self.reload(to: next) }
     }
 
     private func reload(to next: HomeswiftConfiguration) async -> ReloadReport {
@@ -327,14 +365,22 @@ public final class PluginHost: @unchecked Sendable {
         let wanted = next.platforms.filter { !options.systemPlatforms.contains($0.platform) && !next.disabledPlugins.contains($0.platform) }
         let isSame = { (a: HomeswiftConfiguration.Platform, b: HomeswiftConfiguration.Platform) in a.platform == b.platform && a.name == b.name }
 
-        for instance in instances where !wanted.contains(where: { isSame($0, instance.block) }) {
+        // Each block with the instance it had: blocks of the same platform and name pair up in order (the second
+        // with the second), so a change to one of them reloads that one and not the first.
+        var unpaired = instances
+        let pairs = wanted.map { block -> (block: HomeswiftConfiguration.Platform, old: Instance?) in
+            guard let index = unpaired.firstIndex(where: { isSame($0.block, block) }) else { return (block, nil) }
+            return (block, unpaired.remove(at: index))
+        }
+
+        for instance in unpaired {
             await remove(instance)
             instance.context.logger.info("Stopped: the block left the configuration")
             report.stopped.append(instance.context.name)
         }
 
-        for block in wanted {
-            if let old = instances.first(where: { isSame($0.block, block) }) {
+        for (block, old) in pairs {
+            if let old {
                 guard old.block.json != block.json else { continue }
                 if old.block.childBridge == block.childBridge {
                     // A fresh plugin on the same context: same accessories, aids, iids and pairings.
@@ -438,6 +484,7 @@ public final class PluginHost: @unchecked Sendable {
         }
         instance.plugin.withLockedValue { $0 = nil }
         instance.context.saveCache()
+        instance.context.flushStores()
     }
 
     /// The plugin for a block; nil, with a line in the log, when no plugin compiled in provides its platform.
@@ -508,7 +555,15 @@ public final class PluginHost: @unchecked Sendable {
         do {
             let plugin = try await instance.entry.make(instance.block.json, context)
             instance.plugin.withLockedValue { $0 = plugin }
-            try await plugin.start()
+            do {
+                try await plugin.start()
+            } catch {
+                // What it began before throwing (polls, sockets) stops with it, and a restart of its child
+                // bridge launches it again.
+                instance.plugin.withLockedValue { $0 = nil }
+                await plugin.stop()
+                throw error
+            }
             context.logger.info("\(verb)", metadata: ["plugin": "\(instance.entry.name)", "bridge": "\(context.bridge.name)"])
         } catch let error as DecodingError {
             instance.failure.withLockedValue { $0 = "invalid configuration: \(Self.describe(error))" }

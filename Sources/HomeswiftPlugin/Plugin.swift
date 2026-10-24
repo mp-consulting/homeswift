@@ -277,6 +277,9 @@ public final class PluginContext: @unchecked Sendable {
     private let list = NIOLockedValueBox<Entries>(Entries())
     /// A save of the cache is due: changes in a burst (a plugin adding its devices at launch) write it once.
     private let cacheSaveDue = NIOLockedValueBox(false)
+    /// Saves the stores `persistedDictionary` made that are still alive: the runtime runs them when the plugin stops, so
+    /// a restart within a store's autosave delay keeps its last change.
+    let storeFlushes = NIOLockedValueBox<[(isAlive: @Sendable () -> Bool, flush: @Sendable () -> Void)]>([])
     /// Where the due saves run, one at a time.
     private let cacheQueue = DispatchQueue(label: "homeswift.accessory-cache", qos: .utility)
 
@@ -336,9 +339,9 @@ public final class PluginContext: @unchecked Sendable {
     public func add(_ accessory: Accessory) throws {
         try bridge.claim(accessory.id, for: key, name: name)
         if isExternal(id: accessory.id) {
-            // Moving from its own server to the bridge: the old server stops in the background.
-            let externals = externals, id = accessory.id, key = key
-            Task { await externals.unpublish(id: id, key: key) }
+            // Moving from its own server to the bridge: the old server leaves the list now (a quick
+            // `publishExternal` back makes a new one) and stops in the background.
+            externals.unpublishInBackground(id: accessory.id, key: key)
             _ = list.withLockedValue { $0.external.remove(accessory.id) }
         }
         try bridge.server.add(accessory)
@@ -364,6 +367,7 @@ public final class PluginContext: @unchecked Sendable {
         }
         scheduleCacheSave()
         if isNew, externals.isRunning {
+            await externals.stopped(id: accessory.id, key: key)
             try await published.server.start()
         }
     }
@@ -480,6 +484,11 @@ public final class PluginContext: @unchecked Sendable {
     /// Saves the cache now, after a save under way; the runtime does when the plugin stops.
     func saveCache() {
         cacheQueue.sync { writeCache() }
+    }
+
+    /// Writes the changes the plugin's persisted dictionaries still hold.
+    func flushStores() {
+        for store in storeFlushes.withLockedValue({ $0 }) { store.flush() }
     }
 
     /// Writes a save still waiting for the end of its burst, so the file says what the plugin has now.

@@ -45,8 +45,20 @@ import Testing
         #expect(details["accessToken"]?.stringValue == Redaction.placeholder)
         #expect(details["password"]?.stringValue == Redaction.placeholder)
         #expect(details["nested"]?["apiKey"]?.stringValue == Redaction.placeholder)
-        #expect(details["auth"]?.stringValue == "Bearer \(Redaction.placeholder)")
+        #expect(details["auth"]?.stringValue == Redaction.placeholder)
         #expect(details["name"]?.stringValue == "Living room lamp")
+    }
+
+    /// HTTP credentials a plugin logs with a request or a reply: the whole value goes, whatever its shape.
+    @Test func masksHeadersAndSessions() throws {
+        let payload = #"{"headers":{"Authorization":"Basic dXNlcjpwYXNz","Cookie":"sid=0123456789abcdef; lang=en","X-Session-Id":"s-42"},"Set-Cookie":["a=1","b=2"],"session_id":"abcdef","status":200,"padding":"\#(String(repeating: "x", count: 60))"}"#
+        let details = try JSONValue(string: try #require(LogDetails.split("reply \(payload)")).details)
+        #expect(details["headers"]?["Authorization"]?.stringValue == Redaction.placeholder)
+        #expect(details["headers"]?["Cookie"]?.stringValue == Redaction.placeholder)
+        #expect(details["headers"]?["X-Session-Id"]?.stringValue == Redaction.placeholder)
+        #expect(details["Set-Cookie"]?.stringValue == Redaction.placeholder)
+        #expect(details["session_id"]?.stringValue == Redaction.placeholder)
+        #expect(details["status"]?.doubleValue == 200)
     }
 
     @Test func writesSizes() {

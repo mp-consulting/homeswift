@@ -65,18 +65,33 @@ public enum LogDetails {
         return nil
     }
 
-    /// The JSON with the values of secret-named keys (`password`, `accessToken`, `apiKey`…) and credential shapes
-    /// in strings (JWTs, bearer tokens, setup codes) replaced by `Redaction.placeholder`.
+    /// The JSON with the values of secret-named keys (`password`, `accessToken`, `apiKey`…, and the HTTP
+    /// credentials of `credentialKeys`) and credential shapes in strings (JWTs, bearer tokens, setup codes)
+    /// replaced by `Redaction.placeholder`.
     static func masked(_ value: JSONValue) -> JSONValue {
         func shapes(_ value: JSONValue) -> JSONValue {
             switch value {
             case .string(let string) where string.utf8.count >= 8: .string(Redaction.redactText(string))
             case .array(let items): .array(items.map(shapes))
-            case .object(let object): .object(object.mapValues(shapes))
+            case .object(let object):
+                .object(Dictionary(uniqueKeysWithValues: object.map { key, item in
+                    (key, isCredentialKey(key) && item != .null ? .string(Redaction.placeholder) : shapes(item))
+                }))
             default: value
             }
         }
         return shapes(Redaction.redactSecrets(value))
+    }
+
+    /// Keys whose values are credentials although `Redaction` does not name them: request headers and session
+    /// ids a plugin logs with a device's or a cloud's reply. Compared lowercased, without `-` and `_`: these
+    /// names, and any name ending in one of `credentialSuffixes` (`Proxy-Authorization`, `Set-Cookie`, `X-Session-Id`).
+    static let credentialKeys: Set<String> = ["auth", "session", "sid", "signature", "otp"]
+    static let credentialSuffixes = ["authorization", "cookie", "cookies", "sessionid", "sessionkey"]
+
+    static func isCredentialKey(_ key: String) -> Bool {
+        let key = key.lowercased().filter { $0 != "-" && $0 != "_" }
+        return credentialKeys.contains(key) || credentialSuffixes.contains { key.hasSuffix($0) }
     }
 
     /// `840 B`, `1.4 KB`, `2.1 MB`.

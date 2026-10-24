@@ -10,8 +10,12 @@ cd "$HOMESWIFT_DATA" || exit 1
 # DSM's main menu opens the web UI where config.json puts it (port, HTTPS), not where it was installed.
 ui=$(jq -r '[.platforms[]? | select(.platform == "HomeswiftUI")][0] // empty
     | "\(if .https == true then "https" else "http" end) \(.port // 8581)"' config.json 2> /dev/null)
+# Written into the menu's JSON: a scheme and a port number, or nothing.
+case ${ui#* } in
+    '' | *[!0-9]*) ui= ;;
+esac
 if [ -n "$ui" ]; then
-    write_ui_config /var/packages/homeswift/target/ui ${ui% *} ${ui#* }
+    write_ui_config /var/packages/homeswift/target/ui "${ui% *}" "${ui#* }"
 fi
 
 exec "$HOMESWIFT_BINARY" -U "$HOMESWIFT_DATA"

@@ -11,6 +11,8 @@ import NIOConcurrencyHelpers
 final class ExternalAccessories: @unchecked Sendable {
     private let bridges: NIOLockedValueBox<[PluginHost.Bridge]>
     private let running = NIOLockedValueBox(false)
+    // The servers on their way out, by "<key>/<accessory id>" (`unpublishInBackground`).
+    private let stopping = NIOLockedValueBox<[String: Task<Void, Never>]>([:])
     private let storageDirectory: URL
     private let options: PluginHost.Options
     private let setupCode: @Sendable () -> SetupCode
@@ -62,8 +64,33 @@ final class ExternalAccessories: @unchecked Sendable {
     /// Stops and forgets the server of an accessory. Its state file stays, so publishing the accessory
     /// again brings its identity and pairings back.
     func unpublish(id: String, key: String) async {
-        guard let bridge = bridge(id: id, key: key) else { return }
-        bridges.withLockedValue { $0.removeAll { $0 === bridge } }
-        await bridge.server.stop()
+        await take(id: id, key: key)?.server.stop()
+    }
+
+    /// Takes the server of an accessory off the list at once and stops it in the background: a `publish` from
+    /// then on makes a new server rather than finding one on its way out, and `stopped` waits for the old one.
+    func unpublishInBackground(id: String, key: String) {
+        guard let bridge = take(id: id, key: key) else { return }
+        let name = "\(key)/\(id)", stopping = stopping
+        let task = Task { await bridge.server.stop() }
+        stopping.withLockedValue { $0[name] = task }
+        Task {
+            await task.value
+            stopping.withLockedValue { if $0[name] == task { $0[name] = nil } }
+        }
+    }
+
+    /// Waits until the server `unpublishInBackground` took for this accessory has stopped, so its successor
+    /// never advertises the same identity beside it.
+    func stopped(id: String, key: String) async {
+        let name = "\(key)/\(id)"
+        await stopping.withLockedValue { $0[name] }?.value
+    }
+
+    private func take(id: String, key: String) -> PluginHost.Bridge? {
+        bridges.withLockedValue { bridges in
+            guard let index = bridges.firstIndex(where: { $0.isExternal && $0.ownerKey == key && $0.server.primary.id == id }) else { return nil }
+            return bridges.remove(at: index)
+        }
     }
 }
