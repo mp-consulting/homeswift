@@ -1,0 +1,269 @@
+/* The chat-first prototype, on top of site.css: a chat beside a small wall it drives, then the ways to ask,
+   the safety rules, what it knows, the models, the bridge underneath and the install. */
+
+/* Languages (i18n.js): hidden until the catalog has been applied; French, Spanish and Portuguese run about a
+   third longer than English, so long words may break in headings and narrow cards rather than overflow. */
+.i18n-pending body { visibility: hidden; }
+h1, h2, h3, .ask q, .way h3, .who strong, .plugin strong, .plugin span, .brain span, .figures small { overflow-wrap: break-word; hyphens: auto; -webkit-hyphens: auto; }
+.lang { font: 500 0.8125rem/1 var(--font); color: var(--muted); background: var(--track); border: 0; border-radius: 999px; padding: 8px 26px 8px 12px; cursor: pointer;
+  appearance: none; -webkit-appearance: none; background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 13px) 52%, calc(100% - 9px) 52%; background-size: 4px 4px; background-repeat: no-repeat; }
+.lang:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.nav .lang { margin-right: 6px; }
+/* The section links never wrap. With the language picker in the bar, and French or Portuguese labels a third
+   longer, they leave it below 1000 px rather than site.css's 720. */
+.nav-links a { white-space: nowrap; }
+@media (max-width: 1000px) { .nav-links { display: none; } .brand { margin-right: auto; } }
+@media (max-width: 480px) { .nav .gh span { display: none; } .nav .gh { padding: 9px; } .nav .lang { margin-right: 2px; padding-left: 10px; padding-right: 22px; background-position: calc(100% - 11px) 52%, calc(100% - 7px) 52%; } }
+
+/* Hero: the copy, then a stage with the house above the chat. */
+.talk-hero .wrap { grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr); }
+.chat-stage { container-type: inline-size; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+
+.house { --gap: 8px; --u: calc((100cqw - 7 * var(--gap)) / 8); display: grid; grid-template-columns: repeat(8, var(--u)); grid-auto-rows: calc(var(--u) * 1.15); gap: var(--gap); }
+@container (max-width: 560px) { .house { --u: calc((100cqw - 3 * var(--gap)) / 4); grid-template-columns: repeat(4, var(--u)); grid-auto-rows: minmax(calc(var(--u) * 0.72), auto); } .house .w-head { gap: 4px; } .house .w .pct { font-size: 0.75rem; }
+  /* “Allumé · 80 %” is wider than a quarter of a phone: the status takes a second line rather than an ellipsis. */
+  .house .status { white-space: normal; overflow-wrap: break-word; } }
+@container (max-width: 330px) { .house .w .pct { display: none; } }
+.house .w { padding: 8px; border-radius: 16px; gap: 4px; box-shadow: var(--shadow-small); transition: background-color 280ms var(--ease-out), color 280ms var(--ease-out), box-shadow 280ms var(--ease-out), transform 400ms var(--spring); }
+.house .icon { width: 26px; height: 26px; border-radius: 8px; }
+.house .icon svg { width: 15px; height: 15px; }
+.house .who strong { font-size: 0.6875rem; line-height: 1.2; }
+.house .status { font-size: 0.625rem; }
+.house .pct { margin-left: auto; font-size: 0.8125rem; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.house .w.touched { box-shadow: 0 0 0 2px var(--accent), var(--shadow); transform: translateY(-3px); }
+.icon.tv { background: var(--tile-off-icon); }
+.on .icon.tv { background: linear-gradient(160deg, #9b8cff, #5856d6); }
+.house .lock.unlocked .icon.lock { background: linear-gradient(160deg, #ffb15c, #f2711c); }
+.shutter-tile .slats { position: absolute; inset: 0 0 auto; height: calc(var(--closed, 0.4) * 100%); pointer-events: none; transition: height 900ms var(--ease-out);
+  background: repeating-linear-gradient(180deg, var(--track) 0 5px, transparent 5px 7px); border-bottom: 1px solid var(--line); }
+.shutter-tile > * { position: relative; }
+
+/* The chat: a glass panel, a scrolling log, suggestion chips and a composer. */
+.chat { display: flex; flex-direction: column; height: clamp(380px, 52vh, 470px); border-radius: var(--radius); background: var(--glass); border: 1px solid var(--glass-edge);
+  -webkit-backdrop-filter: blur(24px) saturate(170%); backdrop-filter: blur(24px) saturate(170%); box-shadow: var(--shadow); overflow: hidden; }
+.chat-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.chat-head div { display: grid; }
+.chat-head strong { font-size: 0.9375rem; font-weight: 600; }
+.chat-head div span { font-size: 0.75rem; color: var(--faint); }
+.spark { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; color: #fff; background: linear-gradient(160deg, #ffb15c, #f0442e); flex: none; }
+.spark svg { width: 17px; height: 17px; }
+
+.log { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 8px; overscroll-behavior: contain; scroll-behavior: smooth; }
+.msg { max-width: 86%; padding: 9px 13px; border-radius: 18px; font-size: 0.9375rem; line-height: 1.4; animation: bubble-in 540ms var(--spring) backwards; transform-origin: 0 100%; }
+.msg.me { transform-origin: 100% 100%; align-self: flex-end; background: linear-gradient(180deg, var(--button-top), var(--button-bottom)); color: var(--on-accent); border-bottom-right-radius: 6px; }
+.msg.bot { align-self: flex-start; background: var(--bg-raised); border: 1px solid var(--line); border-bottom-left-radius: 6px; }
+.msg.bot b { font-weight: 600; }
+@keyframes msg-in { from { opacity: 0; transform: translateY(6px) scale(0.98); } }
+/* A bubble grows out of its own corner: the visitor's from the right, the assistant's from the left. */
+@keyframes bubble-in { from { opacity: 0; transform: translateY(8px) scale(0.9); } }
+
+.typing { align-self: flex-start; display: inline-flex; gap: 4px; padding: 12px 14px; border-radius: 18px; border-bottom-left-radius: 6px; background: var(--bg-raised); border: 1px solid var(--line); }
+.typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); animation: dot 1s infinite ease-in-out; }
+.typing i:nth-child(2) { animation-delay: 0.15s; } .typing i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes dot { 0%, 60%, 100% { opacity: 0.3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
+
+/* A tool call: what the assistant is doing, as a quiet line that checks itself off. */
+.tool { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 5px 10px 5px 6px; border-radius: 999px; background: var(--track);
+  font: 0.75rem/1.3 var(--mono); color: var(--muted); animation: msg-in 220ms var(--ease-out) both; }
+.tool .st { width: 16px; height: 16px; border-radius: 50%; flex: none; border: 2px solid var(--faint); border-top-color: transparent; animation: spin 700ms linear infinite; }
+.tool.done .st { animation: none; border: 0; background: var(--ok); color: #fff; display: grid; place-items: center; }
+.tool.done .st svg { width: 10px; height: 10px; }
+.tool.refused .st { animation: none; border: 0; background: var(--faint); }
+.tool b { color: var(--ink); font-weight: 600; }
+.tool span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* The confirmation card: what would change, then Allow or Don't allow. */
+.confirm { align-self: stretch; display: grid; gap: 10px; padding: 12px; border-radius: 16px; background: var(--bg-raised); border: 1px solid var(--line); box-shadow: var(--shadow-small); animation: materialize 540ms var(--spring) backwards; }
+@keyframes materialize { from { opacity: 0; transform: scale(0.96); filter: blur(6px); } }
+.confirm-head { display: flex; gap: 10px; align-items: center; }
+.confirm-head div { display: grid; }
+.confirm-head strong { font-size: 0.9375rem; font-weight: 600; }
+.confirm-head span:not(.ic) { font: 0.6875rem/1.3 var(--mono); color: var(--faint); }
+.confirm .ic { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; color: #fff; flex: none; background: linear-gradient(160deg, #ffb15c, #f2711c); }
+.confirm .ic svg { width: 17px; height: 17px; }
+.diff { display: flex; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 10px; background: var(--track); font-size: 0.8125rem; }
+.diff span:first-child { color: var(--muted); }
+.diff s { color: var(--faint); }
+.confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.confirm-actions button, .confirm-actions span { font: 600 0.875rem/1 var(--font); padding: 10px; border-radius: 12px; border: 0; cursor: pointer; text-align: center; transition: transform 100ms ease-out, opacity 200ms; -webkit-tap-highlight-color: transparent; }
+.confirm-actions button:active { transform: scale(0.97); }
+.b-no { background: var(--track); color: var(--ink); }
+.b-yes { background: linear-gradient(180deg, var(--button-top), var(--button-bottom)); color: var(--on-accent); }
+.confirm.answered .confirm-actions { opacity: 0.5; pointer-events: none; }
+.confirm.static { animation: none; max-width: 320px; justify-self: center; width: 100%; box-shadow: var(--shadow); }
+
+.chips { display: flex; gap: 6px; padding: 0 14px 10px; overflow-x: auto; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }
+.chips::-webkit-scrollbar { display: none; }
+.chips button { flex: none; font: 500 0.8125rem/1 var(--font); padding: 8px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg-raised); color: var(--ink); cursor: pointer; white-space: nowrap;
+  transition: transform 100ms ease-out, background-color 160ms var(--ease-out); -webkit-tap-highlight-color: transparent; }
+@media (hover: hover) { .chips button:hover { background: var(--tile-on); } }
+.chips button:active { transform: scale(0.96); }
+.chips[aria-disabled="true"] button { opacity: 0.5; pointer-events: none; }
+
+.composer { display: flex; align-items: center; gap: 6px; margin: 0 10px 10px; padding: 5px; border-radius: 999px; background: var(--bg-raised); border: 1px solid var(--line); }
+.composer input { flex: 1; min-width: 0; border: 0; background: none; color: var(--ink); font: 1rem/1.3 var(--font); padding: 8px 4px; outline: none; }
+.composer input::placeholder { color: var(--faint); }
+.composer:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.mic, .send { width: 34px; height: 34px; border-radius: 50%; border: 0; display: grid; place-items: center; flex: none; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform 100ms ease-out; }
+.mic { background: none; color: var(--muted); }
+.send { background: linear-gradient(180deg, var(--button-top), var(--button-bottom)); color: var(--on-accent); }
+.mic:active, .send:active { transform: scale(0.92); }
+.mic svg, .send svg { width: 18px; height: 18px; }
+.chat-stage .wire { margin-top: 0; }
+
+/* Agents: Homeswift's own sign-in page when Claude connects, beside the steps and what an agent gets. */
+.agents { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: clamp(24px, 4vw, 48px); align-items: center; }
+.consent { display: grid; gap: 12px; justify-items: center; text-align: center; max-width: 400px; width: 100%; justify-self: center; padding: 28px 22px 22px; border-radius: var(--radius); background: var(--bg-raised); border: 1px solid var(--line); box-shadow: var(--shadow); }
+.consent-logo { width: 52px; height: 52px; }
+.consent-title { font-size: 1.25rem; font-weight: 650; letter-spacing: -0.015em; }
+.consent-lead { color: var(--muted); font-size: 0.9375rem; margin-top: -6px; }
+.consent-lead b { color: var(--ink); font-weight: 600; }
+.scopes { display: grid; gap: 8px; width: 100%; text-align: left; }
+.scope { display: grid; grid-template-columns: 20px minmax(0, 1fr); column-gap: 10px; row-gap: 2px; padding: 11px 12px; border-radius: 14px; border: 1px solid var(--line); background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer;
+  transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out); -webkit-tap-highlight-color: transparent; }
+.scope i { grid-row: span 2; width: 18px; height: 18px; margin-top: 1px; border-radius: 50%; border: 2px solid var(--faint); transition: border-color 160ms, border-width 160ms; }
+.scope strong { font-size: 0.9375rem; font-weight: 600; }
+.scope span { font-size: 0.8125rem; color: var(--muted); line-height: 1.35; }
+.scope[aria-checked="true"] { border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.scope[aria-checked="true"] i { border: 6px solid var(--accent); }
+.consent-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
+.consent-actions span { font: 600 0.875rem/1 var(--font); padding: 11px; border-radius: 12px; text-align: center; }
+.consent-tools { font-size: 0.75rem; color: var(--faint); line-height: 1.5; text-align: left; width: 100%; }
+.consent-tools b { color: var(--ink); }
+.consent-tools span { font-family: var(--mono); font-size: 0.6875rem; }
+.agents-side { display: grid; gap: 22px; }
+.agents-side code { font-size: 0.8125rem; padding: 1px 5px; border-radius: 5px; background: var(--track); color: var(--ink); overflow-wrap: anywhere; }
+.agents-side .figures { margin-top: 0; }
+
+/* The hostile name: the tile shows it, the chat shows it fenced off. */
+.house .w.hostile { box-shadow: 0 0 0 2px var(--warn, #f0a01e), var(--shadow-small); }
+.house .w.hostile .who strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.note { align-self: center; font-size: 0.75rem; color: var(--faint); text-align: center; max-width: 90%; animation: msg-in 220ms var(--ease-out) both; }
+.fence { align-self: stretch; padding: 8px 10px; border-radius: 12px; background: var(--code-bg); color: var(--code-ink); font: 0.75rem/1.5 var(--mono); animation: msg-in 220ms var(--ease-out) both; overflow-wrap: anywhere; }
+.fence .tag { color: var(--code-kw); }
+.fence mark { background: color-mix(in srgb, #f0a01e 30%, transparent); color: inherit; border-radius: 3px; padding: 0 2px; }
+.audit { display: grid; gap: 3px; margin-top: 6px; font: 0.75rem/1.4 var(--mono); color: var(--muted); }
+.audit b { color: var(--ink); font-weight: 600; }
+
+/* Ways to ask: three cards, each with a small picture of where you'd type. */
+.ways { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.way .mock { height: 170px; border-radius: 16px; padding: 12px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; overflow: hidden; background: var(--bg); border: 1px solid var(--line); }
+.bubble { max-width: 85%; padding: 7px 11px; border-radius: 14px; font-size: 0.8125rem; line-height: 1.35; }
+.bubble.me { align-self: flex-end; background: linear-gradient(180deg, var(--button-top), var(--button-bottom)); color: var(--on-accent); border-bottom-right-radius: 4px; }
+.bubble.bot { align-self: flex-start; background: var(--bg-raised); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.mock-bar { display: flex; gap: 5px; align-items: center; margin-bottom: 4px; }
+.mock-bar span { width: 8px; height: 8px; border-radius: 50%; background: var(--track); }
+.mock-bar i { margin-left: auto; font: 600 0.6875rem/1 var(--font); font-style: normal; color: var(--muted); padding: 4px 6px; border-radius: 6px; background: var(--track); }
+.mock-mic { margin-top: auto; align-self: center; display: inline-flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--muted); padding: 6px 12px; border-radius: 999px; background: var(--bg-raised); border: 1px solid var(--line); }
+.mock-mic svg { width: 14px; height: 14px; color: var(--accent-ink); }
+.conn { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; background: var(--bg-raised); border: 1px solid var(--line); margin-bottom: 4px; }
+.conn svg { width: 26px; height: 26px; flex: none; }
+.conn div { display: grid; }
+.conn strong { font-size: 0.8125rem; }
+.conn span { font-size: 0.6875rem; color: var(--ok); }
+.mock-term { background: var(--code-bg) !important; border-color: transparent !important; }
+.mock-term pre { margin: 0; font: 0.75rem/1.6 var(--mono); color: var(--code-ink); white-space: pre-wrap; }
+.mock-term .p { color: var(--code-kw); } .mock-term .o { color: var(--code-type); }
+.way code { font-size: 0.875em; padding: 1px 5px; border-radius: 5px; background: var(--track); color: var(--ink); }
+
+/* Safety: a lead card with the confirmation, then the rules. */
+.trust { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.trust-lead { grid-column: 1 / -1; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: center; gap: 28px; }
+.trust-lead > div:first-child { display: grid; gap: 10px; }
+.trust-lead p b { color: var(--ink); font-weight: 600; }
+.trust .glyph svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* What it knows: things you'd say, and what happens. */
+.asks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.ask { padding: 20px; border-radius: var(--radius); background: var(--glass); border: 1px solid var(--glass-edge); display: grid; gap: 8px; align-content: start; }
+.ask q { quotes: "“" "”"; font-size: 1.125rem; font-weight: 600; letter-spacing: -0.015em; line-height: 1.3; }
+.ask p { font-size: 0.9375rem; color: var(--muted); }
+
+/* Models */
+.brains { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.brain { padding: 16px; border-radius: 16px; background: var(--bg-raised); border: 1px solid var(--line); display: grid; gap: 4px; align-content: start; }
+.brain strong { font-weight: 650; letter-spacing: -0.01em; }
+.brain span { font-size: 0.8125rem; color: var(--muted); }
+
+/* The bridge underneath */
+.bridge { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(24px, 4vw, 48px); align-items: center; }
+.bridge h2 { margin: 14px 0; }
+.figures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 26px; }
+.figures div { display: grid; gap: 4px; align-content: start; }
+.figures .big { color: var(--accent-ink); }
+.figures small { font-size: 0.8125rem; color: var(--muted); line-height: 1.35; }
+.figures-foot { margin-top: 16px; }
+.plugins.compact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.term-stack { display: grid; gap: 12px; }
+
+/* The prototype's angle switch, out of the way at the bottom. */
+.proto { position: fixed; z-index: 30; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 999px;
+  background: var(--glass); -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%); border: 1px solid var(--glass-edge); box-shadow: var(--shadow); max-width: calc(100vw - 32px); }
+.proto span { font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); padding: 0 8px 0 10px; }
+.proto button { font: 500 0.8125rem/1 var(--font); border: 0; padding: 8px 12px; border-radius: 999px; background: none; color: var(--muted); cursor: pointer; white-space: nowrap; transition: background-color 200ms var(--ease-out), color 200ms var(--ease-out); }
+.proto button[aria-pressed="true"] { background: var(--bg-raised); color: var(--ink); box-shadow: var(--shadow-small); }
+/* With the script, a pill slides to the chosen angle, and the bar steps aside while it would cover the composer. */
+.proto { transition: transform 400ms var(--spring), opacity 200ms var(--ease-out); }
+.proto.away { transform: translate(-50%, calc(100% + 24px)); opacity: 0; pointer-events: none; }
+.proto .pill { position: absolute; z-index: 0; top: 4px; bottom: 4px; left: 0; width: var(--pill-w, 0); transform: translateX(var(--pill-x, 0)); border-radius: 999px; background: var(--bg-raised); box-shadow: var(--shadow-small); }
+.proto .pill.ready { transition: transform 400ms var(--spring), width 400ms var(--spring); }
+.proto button { position: relative; z-index: 1; touch-action: manipulation; }
+.motion .proto button[aria-pressed="true"] { background: none; box-shadow: none; }
+.proto button:active { transform: scale(0.96); }
+footer { padding-bottom: 96px; }
+@media (max-width: 400px) { .proto span { display: none; } .proto button { padding: 8px 10px; } }
+
+@media (max-width: 900px) {
+  .talk-hero .wrap, .bridge, .agents { grid-template-columns: minmax(0, 1fr); }
+  .ways, .trust, .asks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .brains { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+  .ways, .trust, .asks { grid-template-columns: minmax(0, 1fr); }
+  .trust-lead { grid-template-columns: minmax(0, 1fr); }
+  .brains { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .figures { grid-template-columns: minmax(0, 1fr); }
+  /* Short enough that the wall and the whole chat fit one phone screen together. */
+  .chat { height: clamp(320px, calc(100svh - 340px), 440px); }
+}
+
+/* Motion. One spring for everything: critically damped, so nothing overshoots; 400 ms for a response of 0.3 s,
+   540 ms for 0.4 s. Browsers without linear() get a curve close to it. */
+:root { --spring: cubic-bezier(0.2, 0.9, 0.25, 1); }
+@supports (transition-timing-function: linear(0, 1)) {
+  :root { --spring: linear(0, 0.058, 0.181, 0.322, 0.456, 0.574, 0.672, 0.751, 0.813, 0.861, 0.897, 0.925, 0.945, 0.96, 0.971, 0.979, 0.985, 0.989, 0.992, 0.995, 0.997, 1); }
+}
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+@keyframes tile-in { from { opacity: 0; transform: scale(0.92); } }
+@keyframes tick { from { opacity: 0; transform: translateY(5px); } }
+
+/* The hero arrives in order: the words, then the wall tile by tile, then the chat. `.motion` is set before the
+   first paint (talk-boot.js), so nothing flashes; fill is backwards only, so the tiles' own transforms still apply. */
+.motion .hero-copy > * { animation: rise 540ms var(--spring) backwards; animation-delay: calc(var(--i, 0) * 70ms); }
+.motion .house .w { animation: tile-in 540ms var(--spring) backwards; animation-delay: calc(240ms + var(--i, 0) * 45ms); }
+.motion .chat, .motion .chat-stage .wire { animation: rise 540ms var(--spring) backwards; animation-delay: 520ms; }
+
+/* Below the hero, each block rises as it comes into view, siblings a beat apart. */
+.motion [data-reveal] { transition: opacity 500ms var(--ease-out), transform 540ms var(--spring); transition-delay: calc(var(--i, 0) * 60ms); }
+.motion [data-reveal]:not(.in) { opacity: 0; transform: translateY(18px); }
+
+/* A tile's status line rolls in when the conversation changes it. */
+.status.tick { animation: tick 400ms var(--spring) backwards; }
+
+.chips button, .composer button, .confirm-actions button, .scope { touch-action: manipulation; }
+.scope:active { transform: scale(0.98); }
+
+@media (prefers-reduced-motion: reduce) {
+  .motion .hero-copy > *, .motion .house .w, .motion .chat, .motion .chat-stage .wire, .status.tick, .note, .fence { animation: none; }
+  .motion [data-reveal]:not(.in) { transform: none; }
+  .proto.away { transform: translateX(-50%); }
+  .msg, .tool, .confirm { animation: none; }
+  .typing i, .tool .st { animation: none; }
+  .log { scroll-behavior: auto; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .chat, .proto, .ask { background: var(--glass-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
