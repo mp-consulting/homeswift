@@ -18,7 +18,7 @@ reduced-transparency and increased-contrast settings.
 | `auth` | `form` | A username and password, created on the first visit with the set-up code from the bridge's output. `none` for a trusted network or localhost only |
 | `sessionDays` | `7` | How long a login lasts without activity |
 | `trustProxy` | none | Reverse proxies (addresses, CIDR ranges, or `loopback`, `linklocal`, `uniquelocal`) whose `X-Forwarded-For` and `X-Forwarded-Proto` count |
-| `scheduledRestartCron` | none | Restart homeswift on a schedule: a cron expression of five fields, `0 4 * * 1` for Mondays at 4:00 |
+| `scheduledRestartCron` | none | Restart homeswift on a schedule: a cron expression of five fields, `0 4 * * 1` for Mondays at 4:00; the settings form sets it as a time and days |
 | `scheduledBackupDisable` | `false` | Turns off the daily backup of the instance |
 | `scheduledBackupPath` | `instance-backups` next to config.json | Where backups are kept: a folder that exists, a network share for a copy off the machine |
 | `scheduledBackupDays` | `7` | How many days daily backups are kept |

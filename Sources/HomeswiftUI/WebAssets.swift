@@ -2041,11 +2041,52 @@ enum WebAssets {
       watch(made.element, property.condition ?? property["x-schema-form"]?.condition, index);
       return made;
     };
+    /// A cron expression (`x-schema-form.type: "schedule"`, the scheduled restart) as a time and the days it runs on,
+    /// which it writes as `M H * * d,d`; an expression that says more than that stays as it is, under Custom.
+    const scheduleField = (wrap, current) => {
+      const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      const text = typeof current === "string" ? current.trim() : "";
+      const simple = /^(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+(\*|[0-7](?:,[0-7])*)$/.exec(text);
+      const fits = simple && Number(simple[1]) < 60 && Number(simple[2]) < 24;
+      const mode = el("select", { "aria-label": "Repeat" },
+        el("option", { value: "never", text: "Never" }), el("option", { value: "time", text: "At a time" }), el("option", { value: "custom", text: "Custom (cron)" }));
+      mode.value = !text ? "never" : fits ? "time" : "custom";
+      const pad = (n) => String(n).padStart(2, "0");
+      const time = el("input", { type: "time", value: fits ? `${pad(simple[2])}:${pad(simple[1])}` : "04:00", "aria-label": "Time" });
+      const chosen = new Set(fits && simple[3] !== "*" ? simple[3].split(",").map((day) => Number(day) % 7) : []);
+      const days = el("span", { class: "days", role: "group", "aria-label": "Days (none: every day)" }, names.map((name, day) => {
+        const box = el("input", { type: "checkbox", checked: chosen.has(day), "aria-label": name });
+        box.addEventListener("change", () => { if (box.checked) chosen.add(day); else chosen.delete(day); });
+        return el("label", { class: "day" }, box, el("span", { text: name.slice(0, 2) }));
+      }));
+      const custom = el("input", { type: "text", value: text, placeholder: "0 4 * * 1", "aria-label": "Cron expression" });
+      const timed = el("span", { class: "group-inline" }, time, days);
+      const fromTime = () => {
+        const [hour, minute] = (time.value || "04:00").split(":").map(Number);
+        const list = chosen.size === 0 || chosen.size === 7 ? "*" : [...chosen].sort((a, b) => a - b).join(",");
+        return `${minute} ${hour} * * ${list}`;
+      };
+      const show = () => {
+        timed.classList.toggle("hidden", mode.value !== "time");
+        custom.classList.toggle("hidden", mode.value !== "custom");
+      };
+      mode.addEventListener("change", () => {
+        // Custom starts from what the time and days say.
+        if (mode.value === "custom" && !custom.value.trim()) custom.value = fromTime();
+        show();
+      });
+      show();
+      return {
+        element: wrap(el("span", { class: "group-inline" }, mode, timed, custom)),
+        get: () => (mode.value === "never" ? undefined : mode.value === "time" ? fromTime() : custom.value.trim() || undefined),
+      };
+    };
     const makeField = (key, property, current, required, index) => {
       const title = property.title || key;
       const help = property.description ? el("div", { class: "help", text: property.description }) : null;
       const wrap = (control) => el("label", { class: "field" }, el("span", { class: "field-title" }, title, required ? el("span", { class: "muted", text: " · required" }) : null), control, help);
       const type = property.type;
+      if (property["x-schema-form"]?.type === "schedule") return scheduleField(wrap, current);
       const options = property.oneOf && property.oneOf.every((o) => Array.isArray(o.enum)) ? property.oneOf.map((o) => ({ value: o.enum[0], title: o.title ?? String(o.enum[0]) })) : property.enum ? property.enum.map((v) => ({ value: v, title: String(v) })) : null;
       if (options) {
         const select = el("select", {}, el("option", { value: "", text: "—" }), ...options.map((o) => el("option", { value: JSON.stringify(o.value), text: o.title, selected: current !== undefined ? JSON.stringify(o.value) === JSON.stringify(current) : JSON.stringify(o.value) === JSON.stringify(property.default) })));

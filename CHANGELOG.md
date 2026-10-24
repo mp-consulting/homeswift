@@ -6,8 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Web UI: the scheduled restart is set as a time and the days it runs on (none: every day), or a cron expression
+  under Custom (`x-schema-form.type: "schedule"`); the daily backup is "Turn on the daily backup", on while
+  `scheduledBackupDisable` is false (`x-schema-form.invert`).
+- MCP: turning the server on without a client token makes one and saves it in config.json (`mcp.http.token`)
+  instead of not starting; `homeswift mcp --snippets` shows how to connect a client.
+
 ### Fixed
 
+- Web UI: over HTTPS the page carries its home screen icon, which iOS could not fetch past a self-signed certificate,
+  so Add to Home Screen showed a letter.
 - The Synology package includes FFmpeg (ffmpeg-for-homeswift, as the container image): DSM's own FFmpeg 4.1 has no
   libx264, so every HomeKit Secure Video recording of a UniFi Protect camera failed. `videoProcessor` still picks
   another one.
