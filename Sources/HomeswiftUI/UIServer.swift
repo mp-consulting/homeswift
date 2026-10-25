@@ -762,6 +762,24 @@ public final class UIServer: Sendable {
                 return .json(result)
             }
         case .POST:
+            if route == ["config", "check-port"] {
+                guard let candidate = body["port"]?.intValue, (1...65535).contains(candidate) else {
+                    return .error(400, "port must be an integer from 1 to 65535")
+                }
+                let host = body["host"]?.stringValue ?? "0.0.0.0"
+                if body["service"]?.stringValue != "bridge", candidate == port && host == configuration.host {
+                    return .json(["available": true, "current": true])
+                }
+                do {
+                    let probe = try await ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton)
+                        .childChannelInitializer { channel in channel.close() }
+                        .bind(host: host, port: candidate).get()
+                    try await probe.close().get()
+                    return .json(["available": true, "current": false])
+                } catch {
+                    return .json(["available": false, "current": false])
+                }
+            }
             if route == ["assistant", "config"] {
                 // Describe your setup: a block written from the plugin's config.schema.json and a request in plain
                 // language, for the settings form to show as a change to review; nothing is saved here.

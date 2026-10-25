@@ -121,31 +121,35 @@
   // Its menu: who is signed in and as what, their account and appearance, the users for an administrator, signing out.
   $("#user").addEventListener("click", (event) => {
     event.stopPropagation();
+    openUserMenu(event.currentTarget, event.detail === 0);
+  });
+  document.addEventListener("homeswift-account-menu", (event) => openUserMenu(event.detail.trigger, event.detail.keyboard));
+  function openUserMenu(trigger, keyboard = false) {
     const form = auth.mode === "form";
-    HomeswiftCommon.menu($("#user"), [
+    HomeswiftCommon.menu(trigger, [
       form ? { heading: shownName(), detail: isAdmin() ? t("{username} · Administrator", { username: auth.username }) : auth.username } : { heading: t("No sign-in"), detail: t("Anyone who opens this web UI uses it") },
       { label: form ? t("Your account") : t("Account"), icon: "user", href: "/account" },
       { label: t("Appearance"), icon: "sliders", href: "/appearance" },
       form && isAdmin() ? { label: t("Users and tokens"), icon: "users", href: "/users" } : null,
       // A phone's tab bar has no room for Settings: it is here, as the header holds it on a wider window.
       isAdmin() && matchMedia("(max-width: 640px)").matches ? { label: t("Settings"), icon: "gear", href: "/settings" } : null,
-      { label: t("Language"), icon: flag(HomeswiftI18n.language), onSelect: () => setTimeout(languageMenu) },
+      { label: t("Language"), icon: flag(HomeswiftI18n.language), onSelect: () => setTimeout(() => languageMenu(trigger)) },
       form ? { separator: true } : null,
       form ? { label: t("Sign out"), icon: "logout", onSelect: signOut } : null,
-    ], { keyboard: event.detail === 0 });
-  });
+    ], { keyboard });
+  }
 
   const flag = (code) => el("span", { class: "menu-flag", "aria-hidden": "true", text: code ? HomeswiftI18n.flags[code] : "🌐" });
 
   /// The language, from the account menu: Automatic (the browser's) or one of the four, each in its own name. Saved
   /// with the user's preferences, which opens the page again in it.
-  function languageMenu() {
+  function languageMenu(trigger = $("#user")) {
     const current = HomeswiftCommon.preferences().language || "auto";
     const choose = async (code) => {
       if (code === current) return;
       try { HomeswiftCommon.applyPreferences(await api("/api/preferences", { method: "PUT", body: { language: code } })); } catch (e) { alert(e.message); }
     };
-    HomeswiftCommon.menu($("#user"), [
+    HomeswiftCommon.menu(trigger, [
       { label: t("Automatic"), icon: flag(null), checked: current === "auto", onSelect: () => choose("auto") },
       ...HomeswiftI18n.languages.map((code) => ({ label: HomeswiftI18n.names[code], icon: flag(code), checked: current === code, onSelect: () => choose(code) })),
     ]);
@@ -167,38 +171,111 @@
 
   // ---- Restart -------------------------------------------------------------
 
-  async function restartBridge(event) {
-    if (!confirm(t("Restart homeswift now? Every connection drops for a few seconds."))) return;
-    const button = event.target;
-    button.disabled = true;
-    try {
-      await api("/api/restart", { method: "POST" });
-    } catch (e) {
-      alert(e.message);
-      button.disabled = false;
-      return;
-    }
-    waitForRestart();
+  function confirmRestart() {
+    return new Promise((resolve) => {
+      const dialog = el("dialog", { class: "restart-overlay restart-confirm", "aria-labelledby": "restart-confirm-title", "aria-describedby": "restart-confirm-description" });
+      const finish = (accepted) => { dialog.close(); dialog.remove(); resolve(accepted); };
+      const cancel = el("button", { text: t("Cancel"), onclick: () => finish(false) });
+      dialog.append(
+        el("div", { class: "restart-confirm-icon", "aria-hidden": "true" }, HomeswiftCommon.icon("power")),
+        el("h2", { id: "restart-confirm-title", text: t("Restart Homeswift?") }),
+        el("p", { id: "restart-confirm-description", text: t("Your accessories will disconnect briefly. This page will reconnect automatically when Homeswift is ready.") }),
+        el("div", { class: "restart-confirm-actions" }, cancel,
+          el("button", { class: "primary", text: t("Restart"), onclick: () => finish(true) })));
+      dialog.addEventListener("cancel", (event) => { event.preventDefault(); finish(false); });
+      document.body.append(dialog); dialog.showModal(); cancel.focus();
+    });
   }
 
-  /// Shows the restart in the banner and reloads the page once a younger process answers.
-  function waitForRestart() {
-    closeEvents();
-    const banner = $("#banner");
-    banner.classList.remove("hidden");
-    banner.replaceChildren(t("Restarting homeswift…"));
+  async function restartBridge(event) {
+    const button = event.currentTarget;
+    if (!await confirmRestart()) return;
+    button.disabled = true;
+    showRestartOverlay();
     const started = Date.now();
-    // Back when a status answers from a process younger than this restart; the login survives it.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    try {
+      const response = await fetch("/api/restart", { method: "POST", credentials: "same-origin", signal: controller.signal });
+      if (!response.ok) throw new ApiError(response.status, `HTTP ${response.status}`);
+      // The process may exit before completing the response body. Headers are enough.
+    } catch (e) {
+      if (e instanceof ApiError) {
+        restartOverlay?.close(); restartOverlay?.remove(); restartOverlay = null;
+        alert(e.message); button.disabled = false; return;
+      }
+      // A disconnected or aborted request can mean the restart already began.
+    } finally { clearTimeout(timeout); }
+    waitForRestart(started);
+  }
+
+  let restartOverlay = null;
+  let restartPolling = false;
+  function showRestartOverlay() {
+    if (restartOverlay?.isConnected) return restartOverlay;
+    restartOverlay = el("dialog", { class: "restart-overlay", "aria-labelledby": "restart-heading", "aria-describedby": "restart-message" },
+      el("span", { class: "spinner", "aria-hidden": "true" }),
+      el("h2", { id: "restart-heading", text: t("Restarting homeswift…") }),
+      el("p", { id: "restart-message", role: "status", "aria-live": "polite", text: t("Please wait. This page will reconnect automatically.") }));
+    restartOverlay.addEventListener("cancel", (event) => event.preventDefault());
+    document.body.append(restartOverlay); restartOverlay.showModal();
+    return restartOverlay;
+  }
+
+  async function finishRestart() {
+    const overlay = restartOverlay;
+    if (overlay?.isConnected && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      overlay.classList.add("restart-leaving");
+      await new Promise((resolve) => setTimeout(resolve, 220));
+    }
+    overlay?.close();
+    overlay?.remove();
+    restartOverlay = null;
+    restartPolling = false;
+    const restartButton = $("#restart");
+    if (restartButton) restartButton.disabled = false;
+    // Keep the current DOM, scroll position, filters and unsaved edits intact.
+    try {
+      auth = await api("/api/auth/state");
+      if (!auth.authenticated) { showAuth(); return; }
+      showSections();
+      openEvents();
+      $("#banner").classList.add("hidden");
+      document.querySelectorAll(".dashboard-quick-actions button").forEach((button) => { button.disabled = false; });
+    } catch (error) { console.error("Could not reconnect after restart", error); }
+  }
+
+  /// A modal blocks controls until a younger process answers, with recovery if the restart times out.
+  function waitForRestart(started = Date.now()) {
+    if (restartPolling) return;
+    restartPolling = true;
+    closeEvents();
+    const overlay = showRestartOverlay();
+    let wasOffline = false;
+    let healthyReplies = 0;
     const poll = async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
       try {
-        const response = await fetch("/api/status", { credentials: "same-origin" });
+        const response = await fetch("/api/status", { credentials: "same-origin", cache: "no-store", signal: controller.signal });
         if (response.ok) {
           const status = await response.json();
-          if (status.uptimeSeconds < (Date.now() - started) / 1000 + 5) { location.reload(); return; }
-        } else if (response.status === 401) { location.reload(); return; }
-      } catch {}
+          healthyReplies++;
+          const younger = Number.isFinite(status.uptimeSeconds) && status.uptimeSeconds < (Date.now() - started) / 1000 + 5;
+          if (younger || (wasOffline && healthyReplies >= 2)) { await finishRestart(); return; }
+        } else if (response.status === 401) { await finishRestart(); return; }
+      } catch { wasOffline = true; healthyReplies = 0; } finally { clearTimeout(timeout); }
       if (Date.now() - started < 90000) setTimeout(poll, 1000);
-      else banner.replaceChildren(t("homeswift did not come back; check its log."));
+      else {
+        restartPolling = false;
+        overlay.querySelector(".spinner")?.remove();
+        overlay.querySelector("#restart-heading").textContent = t("homeswift did not come back; check its log.");
+        overlay.querySelector("#restart-message").textContent = "";
+        overlay.append(el("button", { class: "primary", text: t("Try again"), onclick: () => {
+          overlay.close(); overlay.remove(); restartOverlay = null;
+          waitForRestart(started);
+        } }));
+      }
     };
     setTimeout(poll, 1500);
   }
@@ -395,8 +472,10 @@
           fact(t("Machine up"), formatDuration(status.system.systemUptimeSeconds ?? 0))),
         el("div", { class: "fact wide" }, el("span", { text: t("Configuration") }), el("b", { class: "mono", text: status.configPath, title: status.configPath })),
         // Changes apply without one; this is for a plugin that misbehaves.
-        isAdmin() ? el("div", { class: "actions" }, el("button", { class: "link", text: t("Restart homeswift…"), onclick: restartBridge }),
-          el("a", { class: "link", href: "/settings", text: t("Settings, pairings and backups") }), el("a", { class: "link", href: "/notifications", text: t("Notifications") })) : null)],
+        isAdmin() ? el("div", { class: "actions dashboard-quick-actions" },
+          el("button", { class: "link", onclick: restartBridge }, HomeswiftCommon.icon("power"), el("span", { text: t("Restart homeswift…") })),
+          el("a", { class: "link", href: "/settings" }, HomeswiftCommon.icon("sliders"), el("span", { text: t("Settings, pairings and backups") })),
+          el("a", { class: "link", href: "/notifications" }, HomeswiftCommon.icon("bell"), el("span", { text: t("Notifications") }))) : null)],
     };
     const sections = new Map();
     const footer = el("div", { class: "actions page-foot" },
@@ -736,10 +815,11 @@
     const params = new URLSearchParams(location.search);
     // Hidden accessories (an accessory's ⋯ menu) only with ?hidden=1.
     const showHidden = params.get("hidden") === "1";
+    const noResponse = params.get("unavailable") === "1";
     // The controllers some accessories mirror (Apple Home, through Wingman): each gets a filter.
     const sources = [...new Set(all.map((accessory) => accessory.mirroredFrom).filter(Boolean))];
     const from = sources.includes(params.get("from")) ? params.get("from") : null;
-    const accessories = all.filter((accessory) => (showHidden || !accessory.hidden) && (!from || accessory.mirroredFrom === from));
+    const accessories = all.filter((accessory) => (showHidden || !accessory.hidden) && (!from || accessory.mirroredFrom === from) && (!noResponse || accessory.unavailable || accessory.paused));
     const hiddenCount = all.filter((accessory) => accessory.hidden).length;
     const rooms = home.rooms.map((room) => room.name);
     const servers = new Set(accessories.map((accessory) => accessory.bridge)).size;
@@ -774,6 +854,9 @@
       }, 300);
     };
 
+    const groupingControls = HomeswiftGroups.mount({ all, layout,
+      persist: async () => { clearTimeout(saveTimer); await api("/api/layout", { method: "PUT", body: layout }); }, refresh: render });
+    window.homeswiftGroupEvent = groupingControls.event;
     const nodes = new Map();
     const actions = (accessory) => {
       const size = sizeOf(accessory), kind = kindOf(accessory);
@@ -932,6 +1015,7 @@
       const start = { x: event.clientX, y: event.clientY };
       const originalStyle = node.style.cssText, originalNext = node.nextElementSibling;
       let slot = null, pointer = event, scroller = null;
+      let groupTarget = null, groupSince = 0;
       node.setPointerCapture(event.pointerId);
       const lift = () => {
         const box = node.getBoundingClientRect();
@@ -951,8 +1035,15 @@
       // The widget under the pointer: the slot goes before it, or after it past its middle.
       const hover = () => {
         const under = document.elementFromPoint(pointer.clientX, pointer.clientY)?.closest(".wall > .widget");
-        if (!under || under === slot || under.parentElement !== wall) return;
+        if (!under || under === slot || under.parentElement !== wall) { groupTarget?.classList.remove("group-drop-target"); groupTarget = null; return; }
         const box = under.getBoundingClientRect();
+        const center = pointer.clientX > box.left + box.width * .25 && pointer.clientX < box.right - box.width * .25 && pointer.clientY > box.top + box.height * .2 && pointer.clientY < box.bottom - box.height * .2;
+        if (center && groupingControls.canJoin(node.dataset.id, under.dataset.id)) {
+          if (groupTarget !== under) { groupTarget?.classList.remove("group-drop-target"); groupTarget = under; groupSince = Date.now(); }
+          under.classList.add("group-drop-target");
+          return;
+        }
+        groupTarget?.classList.remove("group-drop-target"); groupTarget = null;
         const after = pointer.clientY > box.top + box.height * .75 ||
           (pointer.clientY >= box.top + box.height * .25 && pointer.clientX > box.left + box.width / 2);
         if ((after ? under.nextElementSibling : under.previousElementSibling) === slot) return;
@@ -974,6 +1065,8 @@
         node.removeEventListener("pointercancel", end);
         node.removeEventListener("lostpointercapture", end);
         clearInterval(scroller);
+        const joinTarget = ended.type === "pointerup" && groupTarget && Date.now() - groupSince >= 450 ? groupTarget.dataset.id : null;
+        groupTarget?.classList.remove("group-drop-target");
         if (!slot || !slot.isConnected) return;
         if (ended.type !== "pointerup") {
           if (originalNext?.parentElement === wall) originalNext.before(slot); else wall.append(slot);
@@ -990,11 +1083,12 @@
         node.style.transition = reducedMotion.matches ? "none" : "transform 220ms var(--ease-out)";
         node.style.transform = "";
         // The wall's accessories take the places they had in the order, in the order they now stand.
-        const ids = [...wall.children].map((child) => child.dataset.id).filter(Boolean);
+        const ids = [...wall.children].map((child) => child.dataset.id).filter((id) => ordered.some((a) => a.id === id));
         const places = ordered.flatMap((accessory, index) => ids.includes(accessory.id) ? [index] : []);
         const byID = new Map(ordered.map((accessory) => [accessory.id, accessory]));
         ids.forEach((id, index) => { ordered[places[index]] = byID.get(id); });
         save();
+        if (joinTarget) groupingControls.join(node.dataset.id, joinTarget);
       };
       node.addEventListener("pointermove", move);
       node.addEventListener("pointerup", end);
@@ -1011,9 +1105,17 @@
       const sections = layout.grouping === "plugin" ? groupByPlugin(accessories)
         : layout.grouping === "room" && rooms.length ? HomeswiftHome.groupByRoom(accessories, rooms) : null;
       const groups = sections ? sections.map(([name, group]) => [name, ordered.filter((accessory) => group.includes(accessory))]) : [["", ordered]];
+      const memberIDs = new Set(layout.groups.flatMap((g) => g.members));
       content.replaceChildren(...groups.map(([name, group]) => el("section", { class: "accessory-section" },
         name ? el("div", { class: "section-head" }, el("h2", { text: name }), el("span", { class: "muted", text: tn("{n} accessory", "{n} accessories", group.length) })) : null,
-        el("div", { class: `wall${editing ? " editing" : ""}` }, group.map(widget)))));
+        el("div", { class: `wall${editing ? " editing" : ""}` }, group.filter((a) => !memberIDs.has(a.id) || noResponse).map(widget)))));
+      const visibleGroups = layout.groups.filter((g) => g.members.some((id) => accessories.some((a) => a.id === id)));
+      if (!noResponse && visibleGroups.length) {
+        const wall = el("div", { class: `wall${editing ? " editing" : ""}` }, visibleGroups.map((g) => groupingControls.card(g, editing)));
+        // Keep groups in the same drag surface as individual tiles.
+        const firstWall = content.querySelector(".wall");
+        if (firstWall) firstWall.prepend(...wall.children); else content.prepend(el("section", { class: "accessory-section" }, wall));
+      }
       filter();
     }
 
@@ -1078,12 +1180,35 @@
     const suggest = isAdmin() && window.HomeswiftChat?.available() && all.length
       ? el("button", { class: "ai-button icon-on-phone", title: t("Suggest rooms"), "aria-label": t("Suggest rooms"), onclick: () => HomeswiftHome.suggestRooms(content, all) }, sparkle(), el("span", { text: t("Suggest rooms") })) : null;
 
+    const changeFilter = (key, value, enabled) => {
+      const next = new URLSearchParams(location.search);
+      if (enabled) next.set(key, value); else next.delete(key);
+      navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
+    };
+    const activeFilters = Number(Boolean(from)) + Number(showHidden) + Number(noResponse);
+    const filters = el("button", { type: "button", class: activeFilters ? "on" : "", "aria-haspopup": "menu" },
+      HomeswiftCommon.icon("sliders"), el("span", { text: t("Filters") }), activeFilters ? el("span", { class: "toolbar-count", text: activeFilters }) : null);
+    filters.addEventListener("click", () => HomeswiftCommon.menu(filters, [
+      ...sources.map((source) => ({ label: t("Only from {source}", { source: t(source) }), checked: from === source, checkbox: true, toggle: true,
+        icon: source === "Apple Home" ? el("img", { src: "/apple-home.png", width: 20, height: 20, alt: "" }) : null,
+        onSelect: () => changeFilter("from", source, from !== source) })),
+      { label: t("No Response"), checked: noResponse, checkbox: true, toggle: true, onSelect: () => changeFilter("unavailable", "1", !noResponse) },
+      ...(hiddenCount ? [{ label: t("Show hidden ({count})", { count: hiddenCount }), checked: showHidden, checkbox: true, toggle: true, onSelect: () => changeFilter("hidden", "1", !showHidden) }] : [])
+    ]));
+    const more = menuButton(t("Accessory options"), () => [
+      { label: t("Create group"), icon: "group", onSelect: () => groupingControls.edit() },
+      { separator: true },
+      ...groupings.map(([value, label, icon], index) => ({ label, icon, checked: layout.grouping === value, onSelect: () => grouping.children[index].click() })),
+      ...(suggest ? [{ separator: true }, { label: t("Suggest rooms"), icon: "sparkle", onSelect: () => suggest.click() }] : [])
+    ]);
+    more.replaceChildren(HomeswiftCommon.icon("sliders"));
+    more.classList.add("accessory-options-button");
     render();
     show(main,
       pageHead(t("Accessories"), !accessories.length ? "" : from ? t("{count} from {source}, which HomeKit has already. Changes here reach your devices.", { count: accessories.length, source: t(from) })
         : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
         : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers }),
-        ...(accessories.length ? [search, grouping, edit] : []), ...sourceToggles, hiddenToggle, suggest),
+        el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, more)),
       note,
       accessories.length ? [content, none] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") })));
   };
@@ -1098,6 +1223,7 @@
   function applyAccessoryEvent(event) {
     window.HomeswiftCamera?.event(event);
     HomeswiftWidgets.event(event);
+    if (location.pathname === "/accessories") window.homeswiftGroupEvent?.(event);
   }
 
   // ---- Plugins and settings forms -----------------------------------------
@@ -1263,6 +1389,16 @@
     if ((plugin && plugin.hasSchema) || block.system) {
       try { schema = JSON.parse(await api(`/api/plugins/${encodeURIComponent(platform)}/schema`, { raw: true })); } catch {}
     }
+    if (platform === "HomeswiftUI" && schema) {
+      const advanced = (schema.layout || []).filter((item) => typeof item === "object");
+      schema.layout = [
+        { type: "fieldset", title: t("Connection"), items: ["port", "host", "allowedHosts"] },
+        { type: "fieldset", title: t("Sign-in"), items: ["auth", "sessionDays"] },
+        { type: "fieldset", title: "HTTPS", expandable: true, expanded: Boolean(current.https), items: ["https", { items: ["certificate", "privateKey"] }] },
+        { type: "fieldset", title: t("Updates"), expandable: true, expanded: false, items: ["checkForUpdates"] },
+        ...advanced
+      ];
+    }
     let getValue;
     let body;
     let useSuggestion = null;
@@ -1296,6 +1432,7 @@
           for (const tab of tabs.children) { tab.classList.toggle("on", tab.dataset.mode === mode); tab.setAttribute("aria-selected", String(tab.dataset.mode === mode)); }
         } })));
       body = el("div", { class: "card form-card" }, tabs, switchError, formView, jsonView);
+      if (platform === "HomeswiftUI") body.classList.add("local-ui-settings");
       getValue = () => (mode === "form" ? form.getValue() : fromJSON());
       // The Assistant's suggestion goes into the view on screen, as unsaved changes to review and save.
       useSuggestion = (value) => {
@@ -1343,6 +1480,39 @@
     body.addEventListener("change", () => { message.className = ""; update(); });
     body.addEventListener("click", () => setTimeout(update, 0));   // the array editors add and remove rows by click
 
+    const portNotice = el("p", { class: "muted", role: "status", "aria-live": "polite" });
+    let portCheckVersion = 0;
+    let portCheckTimer;
+    const checkPort = async (value) => {
+      const port = Number(value.port ?? 8581);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(t("Choose a port between 1 and 65535."));
+      const result = await api("/api/config/check-port", { method: "POST", body: { port, host: value.host || "0.0.0.0" } });
+      if (!result.available) throw new Error(t("Port {port} is in use or cannot be opened on this address. Choose another port.", { port: String(port) }));
+      return t("Port {port} is available.", { port: String(port) });
+    };
+    if (platform === "HomeswiftUI") {
+      body.append(portNotice);
+      let previousBinding = JSON.stringify([current.host, current.port]);
+      body.addEventListener("input", () => {
+        let value; try { value = getValue(); } catch { return; }
+        const binding = JSON.stringify([value.host, value.port]);
+        if (binding === previousBinding) return;
+        previousBinding = binding;
+        const version = ++portCheckVersion;
+        clearTimeout(portCheckTimer);
+        portNotice.className = "muted";
+        portNotice.textContent = t("Checking port…");
+        portCheckTimer = setTimeout(async () => {
+          try {
+            const text = await checkPort(value);
+            if (version === portCheckVersion) { portNotice.className = "ok"; portNotice.textContent = text; }
+          } catch (error) {
+            if (version === portCheckVersion) { portNotice.className = "error"; portNotice.textContent = error.message; }
+          }
+        }, 400);
+      });
+    }
+
     const doSave = async (anyway) => {
       save.disabled = true;
       force.classList.add("hidden");
@@ -1351,6 +1521,7 @@
       try {
         const value = getValue();
         value.platform = platform;
+        if (platform === "HomeswiftUI") await checkPort(value);
         const result = await api(`/api/config/platforms/${block.index}${anyway ? "?force=true" : ""}`, { method: "PUT", body: value });
         saved = snapshot();
         message.className = "ok";
@@ -1412,6 +1583,21 @@
       el("div", { class: "settings-bar" }, message, revert, force, save),
       remove);
     update();
+    if (platform === "HomeswiftUI") {
+      const section = new URLSearchParams(location.search).get("section");
+      if (["proxy", "schedules"].includes(section)) {
+        const target = body.querySelector(`[data-section="${section}"]`);
+        if (target) {
+          target.open = true;
+          target.style.scrollMarginTop = "90px";
+          requestAnimationFrame(() => {
+            if (!target.isConnected) return;
+            target.scrollIntoView({ block: "start" });
+            target.querySelector("summary")?.focus({ preventScroll: true });
+          });
+        }
+      }
+    }
   };
 
   /// The Assistant's settings card (Glass UI's): Test connection, and what the Assistant used today and this month
@@ -1935,7 +2121,7 @@
         const inner = item.items.map(layoutItem).flat().filter(Boolean);
         if (!inner.length) return null;
         const node = item.type === "fieldset" || item.title
-          ? el("details", { class: "group-box", open: !item.expandable || item.expanded !== false }, el("summary", { text: item.title || t("More") }), el("div", { class: "fields" }, ...inner))
+          ? el("details", { class: "group-box", "data-section": slug(item.title || ""), open: !item.expandable || item.expanded !== false }, el("summary", { text: item.title || t("More") }), el("div", { class: "fields" }, ...inner))
           : el("div", { class: "fields" }, ...inner);
         watch(node, item.condition);
         return node;
@@ -2048,8 +2234,10 @@
   views.account = async (main) => {
     const [state, apps] = await Promise.all([api("/api/auth/state"), api("/api/account/apps").catch(() => null)]);
     if (state.mode !== "form") {
+      const plugins = await api("/api/plugins");
+      const ui = plugins.blocks.find((block) => block.platform === "HomeswiftUI");
       show(main, pageHead(t("Account"), t("This web UI has no sign-in: its HomeswiftUI block says auth none, so there is no password to change.")),
-        el("div", { class: "card" }, el("p", { class: "muted", text: t("Plugins › HomeswiftUI › Settings turns sign-in on.") })), appearanceLink());
+        el("div", { class: "card" }, el("p", { class: "muted" }, el("a", { class: "account-settings-link", href: ui ? settingsLink(ui) : "/plugins", text: t("Plugins › HomeswiftUI › Settings") }), " ", t("turns sign-in on."))), appearanceLink());
       return;
     }
     const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);

@@ -63,6 +63,22 @@ final class AccessoryLayout: Sendable {
         guard order.count <= maximumAccessories, sizes.count <= maximumAccessories else { throw Invalid(description: "too many accessories") }
         let grouping = object["grouping"]?.stringValue ?? "none"
         guard groupings.contains(grouping) else { throw Invalid(description: "grouping is plugin, room or none") }
-        return ["order": .array(order), "sizes": .object(sizes), "defaults": .object(defaults), "grouping": .string(grouping)]
+        var groups: [JSONValue] = [], groupIDs = Set<String>(), members = Set<String>()
+        if let value = object["groups"], value.arrayValue == nil { throw Invalid(description: "groups must be an array") }
+        for group in object["groups"]?.arrayValue ?? [] {
+            guard let id = group["id"]?.stringValue, id.hasPrefix("group:"), isID(id), groupIDs.insert(id).inserted,
+                  let name = group["name"]?.stringValue, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, name.count <= 64,
+                  let ids = group["members"]?.arrayValue, ids.count >= 2, ids.count <= 100 else { throw Invalid(description: "invalid accessory group") }
+            var checkedMembers: [JSONValue] = []
+            for value in ids {
+                guard let member = value.stringValue, isID(member), !member.hasPrefix("group:"), members.insert(member).inserted else { throw Invalid(description: "an accessory belongs to only one group") }
+                checkedMembers.append(.string(member))
+            }
+            groups.append(["id": .string(id), "name": .string(name), "members": .array(checkedMembers)])
+        }
+        guard groups.count <= 100 else { throw Invalid(description: "too many groups") }
+        var result: [String: JSONValue] = ["order": .array(order), "sizes": .object(sizes), "defaults": .object(defaults), "grouping": .string(grouping)]
+        if object["groups"] != nil { result["groups"] = .array(groups) }
+        return .object(result)
     }
 }

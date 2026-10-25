@@ -1,0 +1,16 @@
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+const context = { window: {}, HomeswiftCommon: {}, HomeswiftI18n: { t: x => x } };
+vm.runInNewContext(readFileSync('Sources/HomeswiftUI/Web/groups.js', 'utf8').replace('window.HomeswiftGroups = { mount };', 'window.HomeswiftGroups = { controls, shared, compatible };'), context);
+const { shared, compatible } = context.window.HomeswiftGroups;
+const accessory = (type, chars) => ({ services: [{ type, characteristics: chars.map(type => ({ type, permissions: ['pr', 'pw'] })) }] });
+const light = accessory('Lightbulb', ['On', 'Brightness', 'Hue']);
+const outlet = accessory('Outlet', ['On']);
+assert.equal(compatible([light, outlet]), true);
+assert.deepEqual(Array.from(shared([light, outlet])), ['On']);
+assert.equal(compatible([light, accessory('LockMechanism', ['On'])]), false);
+assert.equal(compatible([light, undefined]), false);
+assert.equal(compatible([light, { services: [...light.services, ...light.services] }]), false);
+assert.equal(compatible([light, accessory('WindowCovering', ['Target Position'])]), false);
+console.log('Passed: common controls, incompatible devices, missing members, and ambiguous services.');

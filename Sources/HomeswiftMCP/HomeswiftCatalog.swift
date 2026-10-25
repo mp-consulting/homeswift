@@ -24,6 +24,7 @@ public struct HomeswiftCatalog: Sendable {
     public let allowSecrets: Bool
     /// Restarts the process, when it can (the `homeswift` binary execs itself). nil in a library or a test.
     let restart: (@Sendable () -> Void)?
+    private let restartScheduled = NIOLockedValueBox(false)
     /// Restarts the servers of the runtime's own blocks that changed (the web UI, the MCP server), given the
     /// new configuration and the platforms of those blocks. Runs after the reply that saved them has left.
     let reloadServices: (@Sendable (HomeswiftConfiguration, [String]) async -> Void)?
@@ -57,6 +58,11 @@ public struct HomeswiftCatalog: Sendable {
     /// Runs the restart hook once the current reply has left. False when this process cannot restart itself.
     public func scheduleRestart(requestedBy who: String) -> Bool {
         guard let restart else { return false }
+        guard restartScheduled.withLockedValue({ scheduled in
+            guard !scheduled else { return false }
+            scheduled = true
+            return true
+        }) else { return true }
         logger.warning("Restart requested", metadata: ["by": "\(who)"])
         Task {
             try? await Task.sleep(for: .milliseconds(400))

@@ -353,3 +353,9 @@ images (sizes, menus, the sheet, a slide, Adaptive Lighting, Edit) are close-ups
 
 In `/api/accessories`, a light with Adaptive Lighting has `adaptiveLighting: { active, resumable }` on its
 service, and an accessory of a paused plugin `paused: true`.
+
+### Accessory groups
+
+Use **Create group** on Accessories, or in Edit mode drag a compatible accessory onto the center of another tile, hold briefly, and drop. Confirm the group name and members before saving. A group's menu lets you edit its members or ungroup them. Groups are dashboard controls, not new HomeKit accessories; member tiles return when ungrouped.
+
+Groups offer only shared writable controls for lights, switches/outlets, fans and window coverings. Mixed values are labeled, and partial failures identify the devices that could not be updated. Locks and alarm controls are excluded. Membership is saved in `ui-layout.json`. The **No Response** filter shows individual unavailable or paused accessories, including group members.
