@@ -98,6 +98,9 @@ public struct HomeswiftCatalog: Sendable {
         public var platform: PluginHost.PlatformInstance?
         /// Its room, hidden flag, display name and Quick Controls flag in the web UI's layout.
         public var layout: AccessoryLayout.Entry?
+
+        /// The room the user gave it, else the one the controller it mirrors puts it in (`Accessory.suggestedRoom`).
+        public var room: String? { layout?.room ?? accessory.suggestedRoom }
     }
 
     public func located() -> [Located] {
@@ -230,6 +233,8 @@ public struct HomeswiftCatalog: Sendable {
             json.field("id", .string(accessory.id))
             if let lastRing { json.field("lastRing", .string(lastRing)) }
             json.field("manufacturer", Self.json(information[.manufacturer]?.value ?? .null))
+            // Another controller's accessory, out of HomeKit here: the web UI says where it comes from.
+            if let source = accessory.mirroredFrom { json.field("mirroredFrom", .string(source)) }
             json.field("model", Self.json(information[.model]?.value ?? .null))
             json.field("name", .string(accessory.name))
             if let platform = located.platform {
@@ -238,7 +243,7 @@ public struct HomeswiftCatalog: Sendable {
                 json.field("platform", .string(platform.platform))
                 json.field("platformName", .string(platform.name))
             }
-            if let room = layout?.room { json.field("room", .string(room)) }
+            if let room = located.room { json.field("room", .string(room)) }
             json.field("serialNumber", Self.json(information[.serialNumber]?.value ?? .null))
             json.key("services")
             json.array { json in
@@ -246,6 +251,8 @@ public struct HomeswiftCatalog: Sendable {
                     writeService(service, detailed: detailed, to: &json)
                 }
             }
+            // The device does not answer (a paused plugin says so with `paused`): the web UI shows No Response.
+            if accessory.isUnavailable, located.platform?.paused != true { json.field("unavailable", true) }
         }
     }
 

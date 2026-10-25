@@ -21,6 +21,8 @@ actor DevicesPlugin: HomeswiftPlugin {
         /// Colour lightbulbs `Devices:bulb1`…, for the moods; the last one fails every write when `failingBulb` is set.
         var colourBulbs: Int?
         var failingBulb: Bool?
+        /// A colour bulb mirrored from Apple Home (`Devices:mirrored`, in the room Salon), as Wingman adds one.
+        var mirroredBulb: Bool?
     }
 
     static let platform = "Devices"
@@ -76,6 +78,18 @@ actor DevicesPlugin: HomeswiftPlugin {
                 }
             }
             try context.add(Accessory(id: "Devices:\(name)", name: "Bulb \(number + 1)", category: .lightbulb, services: [light]))
+        }
+
+        if configuration.mirroredBulb == true {
+            let light = Service(.lightbulb, name: "Ceiling Light", optional: [.brightness, .hue, .saturation, .colorTemperature], isPrimary: true)
+            light.characteristic(.brightness).value = .int(70)
+            for (type, key) in [(CharacteristicType.on, "on"), (.brightness, "brightness"), (.hue, "hue"), (.saturation, "saturation"), (.colorTemperature, "colorTemperature")] {
+                light.characteristic(type).onWrite { value in writes.withLockedValue { $0.append(("mirrored.\(key)", value)) } }
+            }
+            let mirrored = Accessory(id: "Devices:mirrored", name: "Ceiling Light", category: .lightbulb, services: [light])
+            mirrored.mirroredFrom = "Apple Home"
+            mirrored.suggestedRoom = "Salon"
+            try context.add(mirrored)
         }
     }
 

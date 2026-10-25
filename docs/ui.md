@@ -59,7 +59,8 @@ with a new code). More users are added on the **Users** page (see below).
   dragged into place; **One wall** (the default), **By room** (once there are rooms) or **By plugin**. The bridge keeps the layout in
   `ui-layout.json` next to config.json (`/api/layout`), the same for every user. Opening, unlocking and disarming
   are held; a shutter's tile slides; a light with Adaptive Lighting has a sun swatch that turns it off or resumes
-  the Home app's schedule. A paused plugin's accessories are drawn striped, their controls out of reach. A change
+  the Home app's schedule. A paused plugin's accessories are drawn striped, their controls out of reach; an accessory whose device does not
+  answer says No Response. A change
   shows at once and goes to the device; a refusal puts the value back and says why. Values that carry keys (a
   camera's Setup Endpoints) are not shown, nor what only HomeKit uses. Temperatures show in the unit chosen on
   the Appearance page. [widgets.md](widgets.md) has it all, with
@@ -74,7 +75,9 @@ with a new code). More users are added on the **Users** page (see below).
 - **Rooms** (Glass UI's accessory layout): a card's **⋯** menu puts the accessory in a room (a new name adds
   the room), gives it a name for these pages (the Home app keeps its own), adds it to the Quick Controls, or
   hides it. The wall then groups by room (**By room**, kept with the wall's layout);
-  hidden accessories stay out unless **Show hidden** (`?hidden=1`). The layout is the bridge's, shared by every
+  hidden accessories stay out unless **Show hidden** (`?hidden=1`). Accessories mirrored from another controller (the
+  Home app's, through the Wingman plugin) carry a small house badge, sit in the room that controller gives them until
+  they are given one here, and get a filter of their own: **Only from Apple Home** (`?from=Apple%20Home`). The layout is the bridge's, shared by every
   user, in `accessory-layout.json` next to config.json (owner-only; `/api/rooms`); the Home app never sees it, but the MCP
   tools do: `list_accessories` and `set_accessories` filter by these rooms. With the Assistant on, **Suggest
   rooms** asks it for rooms and clearer names for every accessory (`AssistantService.suggestOrganization`; the ids

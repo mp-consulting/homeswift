@@ -48,7 +48,6 @@ extension HomeswiftCatalog {
     /// `{"rooms": [{name, accessories}], "unassigned": [...]}`: every running accessory under its room, with its
     /// display name, hidden and favourite flags.
     public func layoutJSON() -> JSONValue {
-        let layout = home.layout.value
         let all = located()
         func entry(_ located: Located) -> JSONValue {
             var object: [String: JSONValue] = ["id": .string(located.accessory.id), "name": .string(located.accessory.name)]
@@ -57,10 +56,10 @@ extension HomeswiftCatalog {
             if located.layout?.favourite == true { object["favourite"] = true }
             return .object(object)
         }
-        let rooms: [JSONValue] = layout.rooms.map { room in
-            ["name": .string(room), "accessories": .array(all.filter { $0.layout?.room == room }.map(entry))]
+        let rooms: [JSONValue] = allRoomNames(all).map { room in
+            ["name": .string(room), "accessories": .array(all.filter { $0.room == room }.map(entry))]
         }
-        return ["rooms": .array(rooms), "unassigned": .array(all.filter { $0.layout?.room == nil }.map(entry))]
+        return ["rooms": .array(rooms), "unassigned": .array(all.filter { $0.room == nil }.map(entry))]
     }
 
     /// Changes the layout. `body` may hold `accessories`, an object by accessory id (or a list of objects with
@@ -156,7 +155,7 @@ extension HomeswiftCatalog {
             if let maker = accessory.information[.manufacturer]?.value.stringValue { object["manufacturer"] = .string(maker) }
             if let model = accessory.information[.model]?.value.stringValue { object["model"] = .string(model) }
             if let platform = located.platform?.name { object["plugin"] = .string(platform) }
-            if let room = located.layout?.room { object["room"] = .string(room) }
+            if let room = located.room { object["room"] = .string(room) }
             return .object(object)
         }
         let rooms = home.layout.value.rooms
@@ -179,10 +178,19 @@ extension HomeswiftCatalog {
         ]
     }
 
+    /// The user's rooms, then those only a mirrored controller names (Apple Home's, through Wingman), by name.
+    func allRoomNames(_ all: [Located]? = nil) -> [String] {
+        let layout = home.layout.value.rooms
+        let suggested = Set((all ?? located()).compactMap { $0.layout?.room == nil ? $0.accessory.suggestedRoom : nil })
+            .filter { name in !layout.contains { $0.caseInsensitiveCompare(name) == .orderedSame } }.sorted()
+        return layout + suggested
+    }
+
     /// An error naming the rooms when a filter's room is not one of them (upstream's answer), else nil.
     func unknownRoom(_ filter: AccessoryFilter) -> String? {
         guard let room = filter.room else { return nil }
-        let rooms = home.layout.value.rooms
+        // The user's rooms, and those a mirrored controller names (Apple Home's, through Wingman).
+        let rooms = allRoomNames()
         guard !rooms.contains(where: { $0.caseInsensitiveCompare(room) == .orderedSame }) else { return nil }
         return "Room not found: \"\(room)\". Rooms: \(rooms.isEmpty ? "none yet (set them with set_accessory_layout or on the web UI's Accessories page)" : rooms.joined(separator: ", "))."
     }

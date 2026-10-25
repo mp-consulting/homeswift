@@ -1269,14 +1269,18 @@ enum WebAssets {
     ];
   }
 
-  // /accessories?group=room|plugin&hidden=1: sections per room (once there are rooms) or per plugin; hidden
-  // accessories only with hidden=1.
+  // /accessories?group=room|plugin&hidden=1&from=<source>: sections per room (once there are rooms) or per plugin; hidden
+  // accessories only with hidden=1; only another controller's (Apple Home's, through Wingman) with from=.
   views.accessories = async (main) => {
     const [list, saved, home] = await Promise.all([api("/api/accessories"), api("/api/layout").catch(() => null), api("/api/rooms").catch(() => ({ rooms: [] }))]);
     const all = withSlugs(list, "accessory");
+    const params = new URLSearchParams(location.search);
     // Hidden accessories (an accessory's ⋯ menu) only with ?hidden=1.
-    const showHidden = new URLSearchParams(location.search).get("hidden") === "1";
-    const accessories = showHidden ? all : all.filter((accessory) => !accessory.hidden);
+    const showHidden = params.get("hidden") === "1";
+    // The controllers some accessories mirror (Apple Home, through Wingman): each gets a filter.
+    const sources = [...new Set(all.map((accessory) => accessory.mirroredFrom).filter(Boolean))];
+    const from = sources.includes(params.get("from")) ? params.get("from") : null;
+    const accessories = all.filter((accessory) => (showHidden || !accessory.hidden) && (!from || accessory.mirroredFrom === from));
     const hiddenCount = all.filter((accessory) => accessory.hidden).length;
     const rooms = home.rooms.map((room) => room.name);
     const servers = new Set(accessories.map((accessory) => accessory.bridge)).size;
@@ -1517,14 +1521,20 @@ enum WebAssets {
       if (event.target.checked) next.set("hidden", "1"); else next.delete("hidden");
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
     } }), el("span", { text: t("Show hidden ({count})", { count: hiddenCount }) })) : null;
+    const sourceToggles = sources.map((source) => el("label", { class: "toggle compact" }, el("input", { type: "checkbox", checked: from === source, onchange: (event) => {
+      const next = new URLSearchParams(location.search);
+      if (event.target.checked) next.set("from", source); else next.delete("from");
+      navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
+    } }), el("span", { text: t("Only from {source} ({count})", { source: t(source), count: all.filter((accessory) => accessory.mirroredFrom === source).length }) })));
     const suggest = isAdmin() && window.HomeswiftChat?.available() && all.length
       ? el("button", { class: "ai-button icon-on-phone", title: t("Suggest rooms"), "aria-label": t("Suggest rooms"), onclick: () => HomeswiftHome.suggestRooms(content, all) }, sparkle(), el("span", { text: t("Suggest rooms") })) : null;
 
     render();
     show(main,
-      pageHead(t("Accessories"), accessories.length ? (servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
-        : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers })) : "",
-        ...(accessories.length ? [search, grouping, edit] : []), hiddenToggle, suggest),
+      pageHead(t("Accessories"), !accessories.length ? "" : from ? t("{count} from {source}, which HomeKit has already. Changes here reach your devices.", { count: accessories.length, source: t(from) })
+        : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
+        : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers }),
+        ...(accessories.length ? [search, grouping, edit] : []), ...sourceToggles, hiddenToggle, suggest),
       note,
       accessories.length ? [content, none] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") })));
   };
@@ -6520,6 +6530,7 @@ HomeswiftI18n.add("es", {
   "{channel} on": "{channel} activado",
   "{client} asks to use your bridge as {username}.": "{client} pide usar tu puente como {username}.",
   "{client} asks to use your bridge. This web UI has no sign-in, so it acts as its administrator.": "{client} pide usar tu puente. Esta interfaz web no tiene inicio de sesión, así que actúa como su administrador.",
+  "{count} from {source}, which HomeKit has already. Changes here reach your devices.": "{count} desde {source}, que HomeKit ya tiene. Los cambios que hagas aquí llegan a tus dispositivos.",
   "{count} in {n} cache file": "{count} en {n} archivo de caché",
   "{count} in {n} cache files": "{count} en {n} archivos de caché",
   "{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.": "{count} en {servers} servidores, tal como los ve la app Casa. Los cambios que hagas aquí llegan a tus dispositivos.",
@@ -6749,6 +6760,7 @@ HomeswiftI18n.add("es", {
   "Anyone who opens this web UI uses it": "Cualquiera que abra esta interfaz web puede usarla",
   "API tokens": "Tokens de API",
   "Appearance": "Apariencia",
+  "Apple Home": "la app Casa",
   "apple: the input is too long for the on-device model (about 4,000 tokens); shorten it or use a cloud provider": "apple: el texto es demasiado largo para el modelo del dispositivo (unos 4000 tokens); acórtalo o usa un proveedor en la nube",
   "apple: the on-device model does not support this language": "apple: el modelo del dispositivo no admite este idioma",
   "apple: the on-device model is busy; try again": "apple: el modelo del dispositivo está ocupado; vuelve a intentarlo",
@@ -7128,6 +7140,7 @@ HomeswiftI18n.add("es", {
   "Fri": "Vie",
   "From": "Desde",
   "From {model}. Untick what you do not want; nothing changes until you apply. Names show on these pages only: the Home app keeps its own.": "De {model}. Desmarca lo que no quieras; nada cambia hasta que apliques. Los nombres solo se muestran en estas páginas: la app Casa mantiene los suyos.",
+  "From {source}: Homeswift does not add it to HomeKit again": "Desde {source}: Homeswift no lo vuelve a añadir a HomeKit",
   "from must be before to": "from debe ser anterior a to",
   "Full screen": "Pantalla completa",
   "Garage Door Opener": "Puerta de garaje",
@@ -7434,6 +7447,7 @@ HomeswiftI18n.add("es", {
   "No plugin provides {platform}.": "Ningún plugin ofrece {platform}.",
   "No plugin provides {platforms}: those blocks are ignored.": "Ningún plugin ofrece {platforms}: esos bloques se ignoran.",
   "No plugin yet. Add one below.": "Aún no hay plugins. Añade uno abajo.",
+  "No Response": "Sin respuesta",
   "No room": "Sin habitación",
   "No room {0}": "No hay ninguna habitación {0}",
   "No room to suggest.": "No hay habitaciones que sugerir.",
@@ -7523,6 +7537,7 @@ HomeswiftI18n.add("es", {
   "only an administrator can do this": "solo un administrador puede hacer esto",
   "only an administrator can empty the log": "solo un administrador puede vaciar el registro",
   "Only for you to recognise it.": "Solo para que la reconozcas.",
+  "Only from {source} ({count})": "Solo desde {source} ({count})",
   "Only if": "Solo si",
   "open": "abrir",
   "Open": "Abierto",
@@ -8351,6 +8366,7 @@ HomeswiftI18n.add("fr", {
   "{channel} on": "{channel} activé",
   "{client} asks to use your bridge as {username}.": "{client} demande à utiliser votre pont en tant que {username}.",
   "{client} asks to use your bridge. This web UI has no sign-in, so it acts as its administrator.": "{client} demande à utiliser votre pont. Cette interface web ne demande pas de connexion : l'app agit donc en tant qu'administrateur.",
+  "{count} from {source}, which HomeKit has already. Changes here reach your devices.": "{count} depuis {source}, que HomeKit a déjà. Les modifications faites ici s'appliquent à vos appareils.",
   "{count} in {n} cache file": "{count} dans {n} fichier de cache",
   "{count} in {n} cache files": "{count} dans {n} fichiers de cache",
   "{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.": "{count} sur {servers} serveurs, tels que l'app Maison les voit. Les modifications faites ici s'appliquent à vos appareils.",
@@ -8580,6 +8596,7 @@ HomeswiftI18n.add("fr", {
   "Anyone who opens this web UI uses it": "Quiconque ouvre cette interface web peut l'utiliser",
   "API tokens": "Jetons d'API",
   "Appearance": "Apparence",
+  "Apple Home": "l'app Maison",
   "apple: the input is too long for the on-device model (about 4,000 tokens); shorten it or use a cloud provider": "apple : le texte est trop long pour le modèle sur l'appareil (environ 4 000 tokens) ; raccourcissez-le ou utilisez un fournisseur dans le cloud",
   "apple: the on-device model does not support this language": "apple : le modèle sur l'appareil ne prend pas en charge cette langue",
   "apple: the on-device model is busy; try again": "apple : le modèle sur l'appareil est occupé ; réessayez",
@@ -8959,6 +8976,7 @@ HomeswiftI18n.add("fr", {
   "Fri": "Ven",
   "From": "Du",
   "From {model}. Untick what you do not want; nothing changes until you apply. Names show on these pages only: the Home app keeps its own.": "Par {model}. Décochez ce que vous ne voulez pas ; rien ne change tant que vous n'appliquez pas. Les noms ne s'affichent que sur ces pages : l'app Maison garde les siens.",
+  "From {source}: Homeswift does not add it to HomeKit again": "Depuis {source} : Homeswift ne l'ajoute pas une seconde fois à HomeKit",
   "from must be before to": "from doit précéder to",
   "Full screen": "Plein écran",
   "Garage Door Opener": "Porte de garage",
@@ -9265,6 +9283,7 @@ HomeswiftI18n.add("fr", {
   "No plugin provides {platform}.": "Aucun plugin ne fournit {platform}.",
   "No plugin provides {platforms}: those blocks are ignored.": "Aucun plugin ne fournit {platforms} : ces blocs sont ignorés.",
   "No plugin yet. Add one below.": "Aucun plugin pour l'instant. Ajoutez-en un ci-dessous.",
+  "No Response": "Pas de réponse",
   "No room": "Sans pièce",
   "No room {0}": "Aucune pièce {0}",
   "No room to suggest.": "Aucune pièce à suggérer.",
@@ -9354,6 +9373,7 @@ HomeswiftI18n.add("fr", {
   "only an administrator can do this": "seul un administrateur peut faire cela",
   "only an administrator can empty the log": "seul un administrateur peut vider le journal",
   "Only for you to recognise it.": "Seulement pour que vous la reconnaissiez.",
+  "Only from {source} ({count})": "Seulement depuis {source} ({count})",
   "Only if": "Seulement si",
   "open": "ouvrir",
   "Open": "Ouvert",
@@ -10182,6 +10202,7 @@ HomeswiftI18n.add("pt", {
   "{channel} on": "{channel} ativado",
   "{client} asks to use your bridge as {username}.": "{client} pede para usar a sua ponte como {username}.",
   "{client} asks to use your bridge. This web UI has no sign-in, so it acts as its administrator.": "{client} pede para usar a sua ponte. Esta interface web não tem início de sessão, pelo que atua como administrador.",
+  "{count} from {source}, which HomeKit has already. Changes here reach your devices.": "{count} da {source}, que o HomeKit já tem. As alterações feitas aqui chegam aos dispositivos.",
   "{count} in {n} cache file": "{count} em {n} ficheiro de cache",
   "{count} in {n} cache files": "{count} em {n} ficheiros de cache",
   "{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.": "{count} em {servers} servidores, tal como a app Casa os vê. As alterações feitas aqui chegam aos dispositivos.",
@@ -10411,6 +10432,7 @@ HomeswiftI18n.add("pt", {
   "Anyone who opens this web UI uses it": "Qualquer pessoa que abra esta interface web pode usá-la",
   "API tokens": "Tokens de API",
   "Appearance": "Aspeto",
+  "Apple Home": "a app Casa",
   "apple: the input is too long for the on-device model (about 4,000 tokens); shorten it or use a cloud provider": "apple: o texto é demasiado longo para o modelo no dispositivo (cerca de 4000 tokens); encurte-o ou use um fornecedor na nuvem",
   "apple: the on-device model does not support this language": "apple: o modelo no dispositivo não suporta este idioma",
   "apple: the on-device model is busy; try again": "apple: o modelo no dispositivo está ocupado; tente novamente",
@@ -10790,6 +10812,7 @@ HomeswiftI18n.add("pt", {
   "Fri": "Sex",
   "From": "De",
   "From {model}. Untick what you do not want; nothing changes until you apply. Names show on these pages only: the Home app keeps its own.": "De {model}. Desmarque o que não pretende; nada muda até aplicar. Os nomes só aparecem nestas páginas: a app Casa mantém os seus.",
+  "From {source}: Homeswift does not add it to HomeKit again": "Da {source}: o Homeswift não o volta a adicionar ao HomeKit",
   "from must be before to": "from tem de ser anterior a to",
   "Full screen": "Ecrã inteiro",
   "Garage Door Opener": "Porta de garagem",
@@ -11096,6 +11119,7 @@ HomeswiftI18n.add("pt", {
   "No plugin provides {platform}.": "Nenhum plugin fornece {platform}.",
   "No plugin provides {platforms}: those blocks are ignored.": "Nenhum plugin fornece {platforms}: esses blocos são ignorados.",
   "No plugin yet. Add one below.": "Ainda não há plugins. Adicione um abaixo.",
+  "No Response": "Sem resposta",
   "No room": "Sem divisão",
   "No room {0}": "Não existe nenhuma divisão {0}",
   "No room to suggest.": "Nenhuma divisão a sugerir.",
@@ -11185,6 +11209,7 @@ HomeswiftI18n.add("pt", {
   "only an administrator can do this": "só um administrador pode fazer isto",
   "only an administrator can empty the log": "só um administrador pode esvaziar o registo",
   "Only for you to recognise it.": "Apenas para a reconhecer.",
+  "Only from {source} ({count})": "Só da {source} ({count})",
   "Only if": "Só se",
   "open": "abrir",
   "Open": "Aberto",
@@ -13394,6 +13419,14 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .w-head .who, .w-bottom .who { flex: 1; min-width: 0; display: grid; }
 .widget:not(.widget-full) .who strong { font-size: 0.875rem; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .widget.size-small:not(.widget-full) .who strong { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+/* Another controller's accessory (Apple Home's, through Wingman): a house badge on the tile's corner, ringed with the
+   card's material so it reads as sitting on the tile. */
+.widget .tile { position: relative; }
+.widget .mirror-mark {
+  position: absolute; right: -5px; bottom: -5px; width: 17px; height: 17px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--material-solid); color: var(--muted); box-shadow: 0 0 0 1.5px var(--material-solid), var(--shadow-control);
+}
+.widget .mirror-mark svg { width: 10px; height: 10px; stroke-width: 2.6; }
 .widget .status { font-size: 0.8125rem; color: var(--muted); transition: color var(--normal) var(--ease-out); }
 .widget:not(.widget-full) .status { font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status[data-tone="heat"] { color: var(--heat); } .status[data-tone="cool"] { color: var(--cool); } .status[data-tone="auto"], .status[data-tone="ok"] { color: var(--ok); }
@@ -13696,7 +13729,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .field > input, .field > select { margin-top: 0; }
 .toggle { display: flex; align-items: flex-start; gap: 12px; margin: 14px 0 6px; cursor: pointer; }
 .toggle .field-title { margin: 3px 0 2px; }
-.toggle.compact { align-items: center; margin: 0; gap: 8px; }
+.toggle.compact { align-items: center; margin: 0; gap: 8px; white-space: nowrap; }
 .group-box { border: 1px solid var(--line); border-radius: 18px; padding: 4px 16px 12px; margin: 12px 0; background: var(--material-thin); }
 .group-box > summary { font-weight: 600; color: var(--text); padding: 10px 0 6px; }
 .item .item-head strong { font-weight: 600; }
@@ -16312,10 +16345,18 @@ self.addEventListener("notificationclick", (event) => {
       glyph.style.setProperty("--glow", color?.glow ?? "");
     }];
   }
+  /// Another controller's accessory (`mirroredFrom`, Apple Home's through Wingman): a small house badge on its tile's
+  /// corner, the same at every size, since HomeKit has it already and Homeswift does not publish it again.
+  function mirrorMark(accessory) {
+    if (!accessory.mirroredFrom) return null;
+    const label = t("From {source}: Homeswift does not add it to HomeKit again", { source: t(accessory.mirroredFrom) });
+    return el("span", { class: "mirror-mark", title: label, "aria-label": label, role: "img" }, icon("bridge"));
+  }
   function statusPainter(ctx, built, status) {
     return () => {
       const paused = ctx.accessory.paused ? [ctx.accessory.platformName ? t("Paused · {plugin}", { plugin: ctx.accessory.platformName }) : t("Paused · its plugin"), "warn"] : null;
-      const [text, tone] = ctx.flashing ? [ctx.flashing, "bad"] : paused ?? (built.status ? built.status() : [""]);
+      const unavailable = !paused && ctx.accessory.unavailable ? [t("No Response"), "bad"] : null;
+      const [text, tone] = ctx.flashing ? [ctx.flashing, "bad"] : paused ?? unavailable ?? (built.status ? built.status() : [""]);
       status.textContent = text;
       if (tone) status.dataset.tone = tone; else delete status.dataset.tone;
     };
@@ -16336,6 +16377,8 @@ self.addEventListener("notificationclick", (event) => {
     const [glyph, paintGlyph] = glyphFor(ctx, widget, built, primary);
     const status = el("span", { class: "status" });
     const who = el("div", { class: "who" }, el("strong", { text: accessory.displayName || accessory.name, title: accessory.displayName ? t("{name} in the Home app", { name: accessory.name }) : null }), status);
+    const mark = mirrorMark(accessory);
+    if (mark) glyph.append(mark);
     const menu = actionsButton(ctx, false);
     const node = el("article", { class: `card widget size-${size} widget-${widget.name}`, "data-search": searchText(accessory), "data-id": accessory.id });
     if (size === "small") {

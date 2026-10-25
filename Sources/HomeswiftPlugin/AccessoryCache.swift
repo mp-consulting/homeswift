@@ -49,12 +49,17 @@ struct CachedAccessory: Codable {
     var firmwareRevision: String
     /// Published on its own HAP server, not the bridge.
     var external: Bool?
+    /// `Accessory.mirroredFrom` and `suggestedRoom`: a mirrored accessory comes back out of HomeKit too.
+    var mirroredFrom: String?
+    var suggestedRoom: String?
     var services: [CachedService]
 
     init(_ accessory: Accessory, external: Bool = false) {
         id = accessory.id
         self.external = external ? true : nil
         name = accessory.name
+        mirroredFrom = accessory.mirroredFrom
+        suggestedRoom = accessory.suggestedRoom
         category = accessory.category
         let information = accessory.information
         manufacturer = information[.manufacturer]?.value.stringValue ?? ""
@@ -74,9 +79,12 @@ struct CachedAccessory: Codable {
         for (service, cached) in zip(restored, services) {
             service.linked = (cached.linked ?? []).filter { restored.indices.contains($0) }.map { restored[$0] }
         }
-        return Accessory(
+        let accessory = Accessory(
             id: id, name: name, manufacturer: manufacturer, model: model, serialNumber: serialNumber,
             firmwareRevision: firmwareRevision, category: category, services: restored)
+        accessory.mirroredFrom = mirroredFrom
+        accessory.suggestedRoom = suggestedRoom
+        return accessory
     }
 }
 

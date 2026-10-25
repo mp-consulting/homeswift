@@ -668,6 +668,14 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .w-head .who, .w-bottom .who { flex: 1; min-width: 0; display: grid; }
 .widget:not(.widget-full) .who strong { font-size: 0.875rem; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .widget.size-small:not(.widget-full) .who strong { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+/* Another controller's accessory (Apple Home's, through Wingman): a house badge on the tile's corner, ringed with the
+   card's material so it reads as sitting on the tile. */
+.widget .tile { position: relative; }
+.widget .mirror-mark {
+  position: absolute; right: -5px; bottom: -5px; width: 17px; height: 17px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--material-solid); color: var(--muted); box-shadow: 0 0 0 1.5px var(--material-solid), var(--shadow-control);
+}
+.widget .mirror-mark svg { width: 10px; height: 10px; stroke-width: 2.6; }
 .widget .status { font-size: 0.8125rem; color: var(--muted); transition: color var(--normal) var(--ease-out); }
 .widget:not(.widget-full) .status { font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status[data-tone="heat"] { color: var(--heat); } .status[data-tone="cool"] { color: var(--cool); } .status[data-tone="auto"], .status[data-tone="ok"] { color: var(--ok); }
@@ -970,7 +978,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .field > input, .field > select { margin-top: 0; }
 .toggle { display: flex; align-items: flex-start; gap: 12px; margin: 14px 0 6px; cursor: pointer; }
 .toggle .field-title { margin: 3px 0 2px; }
-.toggle.compact { align-items: center; margin: 0; gap: 8px; }
+.toggle.compact { align-items: center; margin: 0; gap: 8px; white-space: nowrap; }
 .group-box { border: 1px solid var(--line); border-radius: 18px; padding: 4px 16px 12px; margin: 12px 0; background: var(--material-thin); }
 .group-box > summary { font-weight: 600; color: var(--text); padding: 10px 0 6px; }
 .item .item-head strong { font-weight: 600; }
