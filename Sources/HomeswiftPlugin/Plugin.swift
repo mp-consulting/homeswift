@@ -319,6 +319,20 @@ public final class PluginContext: @unchecked Sendable {
         self.externals = externals
     }
 
+    /// Every accessory on the host's servers (the bridges and the external accessories), set by `PluginHost`.
+    var publishedAccessories: @Sendable () -> [Accessory] {
+        get { publishedBox.withLockedValue { $0 } }
+        set { publishedBox.withLockedValue { $0 = newValue } }
+    }
+    private let publishedBox = NIOLockedValueBox<@Sendable () -> [Accessory]>({ [] })
+
+    /// The serial numbers of every accessory Homeswift itself publishes to HomeKit, on any bridge or on its own, mirrored
+    /// ones left out: a plugin that reads another controller's view of the home (Wingman reads the Home app's, which has
+    /// Homeswift's accessories too) knows which are Homeswift's own.
+    public var publishedSerialNumbers: Set<String> {
+        Set(publishedAccessories().filter { $0.mirroredFrom == nil }.compactMap { $0.information[.serialNumber]?.value.stringValue })
+    }
+
     /// The accessories this instance has on the bridge or published on their own, including those
     /// restored from the cache at launch that the plugin has not replaced yet.
     public var accessories: [Accessory] { list.withLockedValue { $0.accessories } }

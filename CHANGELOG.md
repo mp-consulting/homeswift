@@ -19,7 +19,7 @@ All notable changes to this project are documented here. The format follows
 - Mirrored accessories (`Accessory.mirroredFrom`, `suggestedRoom`): kept out of HomeKit's database, marked with a house
   badge on the Accessories page, which filters on them (**Only from Apple Home**). `CharacteristicType.known(uuid:)` and
   `ServiceType.known(uuid:)` find Homeswift's types by UUID.
-- The Accessories page shows No Response for an accessory whose device does not answer.
+- The Accessories page shows No Response for an accessory whose device does not answer, and follows it as it changes.
 
 ## [0.9.0] - 2026-10-25
 

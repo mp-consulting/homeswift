@@ -1,4 +1,5 @@
 import Foundation
+import NIOConcurrencyHelpers
 import Testing
 
 @testable import Homeswift
@@ -54,6 +55,43 @@ import Testing
         try server.add(lamp("own2"))
         #expect(number() != before)
         await server.stop()
+    }
+
+    /// An accessory HomeKit could see that comes back mirrored leaves its database: the configuration number moves.
+    @Test func anAccessoryThatBecomesMirroredLeavesHomeKitsDatabase() async throws {
+        let server = try HAPServer(
+            bridge: Accessory(id: "bridge", name: "Test Bridge", category: .bridge, services: []), accessories: [], storage: MemoryStorage(),
+            options: .init(port: 0, advertise: false, logger: testLogger))
+        try server.add(lamp("x"))
+        try await server.start()
+        let before = server.txtRecord().first { $0.0 == "c#" }?.1
+        let mirrored = lamp("x")
+        mirrored.mirroredFrom = "Apple Home"
+        try server.add(mirrored)
+        #expect(server.txtRecord().first { $0.0 == "c#" }?.1 != before)
+        #expect(!server.database(includeValues: false).accessories.map(\.aid).contains(mirrored.aid))
+        await server.stop()
+    }
+
+    /// Becoming unavailable, or available again, is announced with an event of a value that did not change, so the web
+    /// UI's cards follow; setting it to what it is announces nothing, and a button's press is never what announces it.
+    @Test func availabilityChangesAreAnnounced() {
+        let light = lamp("l")
+        let on = light.service(.lightbulb)!.characteristic(.on)
+        let changes = NIOLockedValueBox<[Characteristic.Change]>([])
+        _ = on.observe { change in changes.withLockedValue { $0.append(change) } }
+        light.isUnavailable = true
+        light.isUnavailable = true
+        light.isUnavailable = false
+        #expect(changes.withLockedValue { $0.count } == 2)
+        #expect(changes.withLockedValue { $0.allSatisfy { $0.oldValue == $0.newValue } })
+
+        let button = Accessory(id: "b", name: "b", services: [Service(.statelessProgrammableSwitch, isPrimary: true)])
+        let press = button.service(.statelessProgrammableSwitch)!.characteristic(.programmableSwitchEvent)
+        let presses = NIOLockedValueBox(0)
+        _ = press.observe { _ in presses.withLockedValue { $0 += 1 } }
+        button.isUnavailable = true
+        #expect(presses.withLockedValue { $0 } == 0)
     }
 
     @Test func knownTypesAreFoundByUUID() {

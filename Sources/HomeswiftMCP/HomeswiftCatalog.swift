@@ -99,8 +99,12 @@ public struct HomeswiftCatalog: Sendable {
         /// Its room, hidden flag, display name and Quick Controls flag in the web UI's layout.
         public var layout: AccessoryLayout.Entry?
 
-        /// The room the user gave it, else the one the controller it mirrors puts it in (`Accessory.suggestedRoom`).
-        public var room: String? { layout?.room ?? accessory.suggestedRoom }
+        /// The room the user gave it, else the one the controller it mirrors puts it in (`Accessory.suggestedRoom`). An
+        /// empty room in the layout is the user's "no room", which the suggestion does not override.
+        public var room: String? {
+            if let room = layout?.room { return room.isEmpty ? nil : room }
+            return accessory.suggestedRoom
+        }
     }
 
     public func located() -> [Located] {

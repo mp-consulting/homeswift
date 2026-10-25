@@ -41,4 +41,38 @@ import Testing
         located.accessory.isUnavailable = true
         #expect(HomeswiftCatalog.accessoryJSON(located, detailed: false)["unavailable"] == true)
     }
+
+    static func config(secondRoom: String) -> String {
+        config.replacingOccurrences(of: #""mirroredBulb": true"#, with: #""mirroredBulb": true, "secondMirroredRoom": "\#(secondRoom)""#)
+    }
+
+    func rooms(_ layout: JSONValue) -> [String: [String]] {
+        Dictionary(uniqueKeysWithValues: (layout["rooms"]?.arrayValue ?? []).map { room in
+            (room["name"]?.stringValue ?? "", (room["accessories"]?.arrayValue ?? []).compactMap { $0["id"]?.stringValue })
+        })
+    }
+
+    /// Apple Home rooms that differ only in case are one room, listed once with both accessories.
+    @Test func suggestedRoomsDifferingInCaseAreOne() async throws {
+        let environment = try MCPTestEnvironment(config: Self.config(secondRoom: "salon"))
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let rooms = rooms(environment.catalog.layoutJSON())
+        #expect(rooms.keys.filter { $0.lowercased() == "salon" }.count == 1)
+        #expect(Set(rooms["Salon"] ?? []) == ["Devices:mirrored", "Devices:mirrored2"])
+    }
+
+    /// A room only Apple Home names can be renamed, and removed: its accessories then have no room, not the suggestion.
+    @Test func aSuggestedRoomCanBeRenamedAndRemoved() async throws {
+        let environment = try MCPTestEnvironment(config: Self.config(secondRoom: "Kitchen"))
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let renamed = rooms(try environment.catalog.updateLayout(["renameRoom": ["from": "salon", "to": "Lounge"]]))
+        #expect(renamed["Lounge"] == ["Devices:mirrored"])
+        #expect(renamed["Salon"] == nil)
+        let removed = try environment.catalog.updateLayout(["removeRooms": ["Lounge", "Kitchen"]])
+        #expect(rooms(removed)["Lounge"] == nil && rooms(removed)["Kitchen"] == nil && rooms(removed)["Salon"] == nil)
+        let unassigned = (removed["unassigned"]?.arrayValue ?? []).compactMap { $0["id"]?.stringValue }
+        #expect(unassigned.contains("Devices:mirrored") && unassigned.contains("Devices:mirrored2"))
+    }
 }

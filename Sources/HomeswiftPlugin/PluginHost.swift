@@ -505,6 +505,7 @@ public final class PluginHost: @unchecked Sendable {
             bridge = try Self.makeBridge(child.bridge(named: block.name), storageName: "child-bridges/\(key)", isChild: true, storageDirectory: storageDirectory, options: options)
         }
         let context = Self.makeContext(block: block, key: key, bridge: bridge, storageDirectory: storageDirectory, logLevel: logger.logLevel, assistant: assistantBox, externals: externals, assistantBackground: entry.assistantBackground)
+        context.publishedAccessories = { [weak self] in self?.bridges.flatMap(\.server.accessories) ?? [] }
         return Instance(entry: entry, block: block, context: context)
     }
 

@@ -116,10 +116,66 @@ struct WingmanTests {
         #expect(await eventually { (try? await web(plugin, "GET", "wingmen"))?.json["wingmen"]?.arrayValue?.first?["state"] == "connected" })
         let status = try await web(plugin, "GET", "wingmen")
         let wingman = try #require(status.json["wingmen"]?.arrayValue?.first)
-        #expect(wingman["accessories"]?.doubleValue == 3)
+        #expect(wingman["accessories"]?.doubleValue == 4)
         #expect(wingman["leftOut"]?.doubleValue == 1)
         #expect(wingman["notResponding"]?.doubleValue == 1)
         await host.stop()
+    }
+
+    /// An accessory Homeswift publishes on its own (a TV, a camera) is not bridged: its serial number tells it apart.
+    @Test func homeswiftsOwnExternalAccessoriesAreLeftOutByTheirSerialNumber() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, "tv-1")
+        try host.mainBridge.server.add(Accessory(
+            id: "PhilipsAmbilightTV:tv", name: "Salon TV", serialNumber: "TV-SERIAL", category: .television, services: [Service(.switch, isPrimary: true)]))
+        let link = try #require(await environment.plugin?.links["wm-1"])
+        try await link.refresh()
+        #expect(!host.mainBridge.server.accessories.contains { $0.id == "Wingman:tv-1" })
+        await host.stop()
+    }
+
+    /// `since` is counted before the homes are read: a change made during the read comes as an event too.
+    @Test func eventsAreCountedBeforeTheHomesAreRead() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, "light-1")
+        let requests = environment.wingman.requests.filter { $0 == "events" || $0 == "homes" }
+        #expect(Array(requests.prefix(2)) == ["events", "homes"])
+        await host.stop()
+    }
+
+    /// Events Wingman no longer keeps were missed: the homes are read again.
+    @Test func missedEventsMakeTheHomesReadAgain() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, "light-1")
+        let reads = environment.wingman.requests.filter { $0 == "homes" }.count
+        environment.wingman.dropKeptEvents()
+        #expect(await eventually { environment.wingman.requests.filter { $0 == "homes" }.count > reads })
+        await host.stop()
+    }
+
+    /// The token goes only to a pinned certificate: an entry without one (edited by hand) is not used.
+    @Test func aWingmanWithoutAPinnedCertificateIsNotReached() async throws {
+        var entry = TestEnvironment.paired
+        entry["fingerprint"] = nil
+        let host = try await environment.start(settings: ["devices": [entry]])
+        let status = try await web(environment.plugin, "GET", "wingmen")
+        #expect(status.json["wingmen"]?.arrayValue?.first?["state"] == "unpaired")
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(!environment.wingman.requests.contains("homes"))
+        await host.stop()
+    }
+
+    /// Services without ids (an older Wingman): one primary, and two of a type kept apart.
+    @Test func servicesWithoutIdsStayApart() throws {
+        let on = WingmanAPI.Characteristic(id: nil, type: "00000025-0000-1000-8000-0026BB765291", properties: ["read", "write"], value: .bool(true), format: "bool")
+        let first = WingmanAPI.Service(id: nil, name: "One", type: "00000049-0000-1000-8000-0026BB765291", characteristics: [on])
+        let second = WingmanAPI.Service(id: nil, name: "Two", type: "00000049-0000-1000-8000-0026BB765291", characteristics: [on])
+        let source = WingmanAPI.Accessory(id: "double", name: "Double Switch", services: [first, second])
+        let mirror = try #require(Mirror(source) { _, _, _ in })
+        let switches = mirror.accessory.services.filter { $0.type.uuid == ServiceType.switch.uuid }
+        #expect(switches.count == 2)
+        #expect(Set(switches.map(\.subtype)).count == 2)
+        #expect(switches.filter(\.isPrimary).count == 1)
     }
 
     @Test func homeKitIsNotGivenTheMirroredAccessories() async throws {
