@@ -82,6 +82,12 @@ with a new code). More users are added on the **Users** page (see below).
   rooms and the names as display names. Accessories it finds odd are listed as advice.
 - **Quick controls**: the favourite accessories, by room, and a button per scene, at the top of the Status page
   and on their own at `/quick` (a page to keep on a phone's home screen).
+- **Moods** (on the Scenes page): the rooms that have lights as chips, and the collection of moods by kind, each
+  drawn with its colours; a tap plays one on the room's lights, and the pill stays lit while it plays, with the mood
+  and a **Stop** under the rooms. With the Assistant on, a box writes a mood from a description ("a jazz bar"). A
+  mood that sets the lights once can be saved as a scene (an administrator's). On a phone each kind is a row that
+  swipes sideways, so the whole card fits a screen. Playing and stopping moods is controlling accessories, as
+  running a scene is. `MoodLibrary` is the collection; MCP clients use `list_moods`, `start_mood` and `stop_mood`.
 - **Scenes** (`/scenes`, Glass UI's scenes): accessory values set together, by hand or by triggers: a time of day
   on chosen days, sunrise or sunset with an offset (from -12 to +12 hours), a characteristic change (the motion
   sensor turns on), or a cron expression (`30 7 * * 1-5`; five fields, or six with seconds, which are ignored).

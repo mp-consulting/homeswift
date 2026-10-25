@@ -98,6 +98,11 @@ For the web UI and the MCP server:
   upstream's shape. The ids reach the model as aliases (`a1`, `a2`…), so long ids and MAC addresses in them
   stay home, and ids the model invents are dropped. Each reply is schema-checked JSON with one repair; large
   homes go in batches sized to `maxOutputTokens`, three at a time, with `onProgress(done, total)`.
+- **Moods**: `assistant.designMood(_:lights:)` turns a description ("a rainy afternoon") into a mood for the
+  lights: steps of colours, how long each holds, whether it loops and puts the lights back
+  (`AssistantService.moodSchema`, schema-checked with one repair). It learns how many lights there are and which
+  take colours or only whites, never their names or rooms. Homeswift plays it as it plays the collection's
+  (docs/mcp.md, "Moods").
 - homebridge-ai-kit's `assessPluginUpdate` (the risk of a plugin update, from its changelog) is not ported:
   Homeswift's plugins are compiled into the binary and have no updates of their own.
 

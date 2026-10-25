@@ -178,8 +178,8 @@ sends you back.
 
 | Scope | Tools |
 |---|---|
-| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `list_backups`, `get_accessory_layout`, `list_scenes`, `get_assistant_usage`, `get_daily_digest` |
-| `control` | Plus `set_accessory`, `set_accessories` (with `dryRun`), `set_security_accessory`, `identify_accessory`, `run_scene` |
+| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `list_backups`, `get_accessory_layout`, `list_scenes`, `list_moods`, `get_assistant_usage`, `get_daily_digest` |
+| `control` | Plus `set_accessory`, `set_accessories` (with `dryRun`), `set_security_accessory`, `identify_accessory`, `run_scene`, `start_mood` (with `dryRun`), `stop_mood` |
 | `admin` | Plus `update_config`, `patch_config`, `restore_config`, `put_list_entry`, `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `create_backup`, `get_audit_log`, `update_bridge_settings`, `set_accessory_layout`, `save_scene` (with `dryRun`), `send_test_notification`, `truncate_logs`, `test_assistant_connection` |
 
 A token sees only the tools its scope allows. Locks, garage doors and alarms (Lock Target State, Target
@@ -217,6 +217,16 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   go through `set_security_accessory`, which asks, or the web UI, where the signed-in user confirms. `save_scene`
   makes a scene from the current values of `ids` (only `characteristics`, when given), never capturing a security
   control; `dryRun` lists the actions. The `scene-builder` prompt ends with it.
+- **Moods.** `list_moods` lists the collection (calm ambiances such as candlelight or cinema, slow animations such as
+  a fireplace or a sunset, party effects such as disco or a police siren, signals such as an alert flash) and the
+  moods playing. `start_mood` plays one on the lights of a `room` (or `ids`, or a `filter`, 25 lights at most): a
+  `mood` from the list, a `description` the bridge's Assistant turns into one, or a `plan` of the client's own
+  (`{name, steps: [{colors: [{on, brightness, hue, saturation, colorTemperature}], assign: spread|random, seconds,
+  jitter}], loop, durationSeconds, restore}`), checked and kept to each light's range. Only lightbulbs change, never a
+  security control. A mood of one step that does not loop sets the lights and is done; any other plays in the
+  background, at least half a second a step since lights fade, and puts the lights back when it ends (when it loops,
+  or with `restore`) or when `stop_mood` stops it. A mood started on lights another plays on takes them over, and
+  restores them as they were before the first; a light that fails three writes in a row leaves the show.
 - **Notifications.** `send_test_notification` sends a test through the channels that are on (`channel` for one:
   `webhook`, `ntfy`, `pushover`, `telegram`, `browser`) and answers per channel, 5 a minute at most. The channels
   are set up on the web UI's Notifications page, in a file of their own that no tool reads.
