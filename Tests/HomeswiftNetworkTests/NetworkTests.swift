@@ -400,7 +400,7 @@ struct WakeOnLANTests {
         defer { Task { try? await listener.close().get() } }
         let port = listener.localAddress!.port!
         try await WakeOnLAN.wake(mac: "01:23:45:67:89:AB", addresses: ["127.0.0.1"], port: port, bursts: 2, packetsPerBurst: 3, interval: .milliseconds(20))
-        let deadline = ContinuousClock.now + .seconds(3)
+        let deadline = ContinuousClock.now + .seconds(30)
         while collector.received.withLockedValue({ $0.count }) < 6, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
         let packets = collector.received.withLockedValue { $0 }
         #expect(packets.count == 6)

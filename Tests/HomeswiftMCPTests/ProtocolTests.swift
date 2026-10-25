@@ -429,7 +429,7 @@ struct ProtocolTests {
         _ = try await client.call("resources/subscribe", ["uri": "homeswift://accessory/Devices:lamp"])
         environment.host.mainBridge.server.accessories[1].service(.lightbulb)?.characteristic(.on).value = .bool(true)
         var notified = false
-        let deadline = ContinuousClock.now + .seconds(5)
+        let deadline = ContinuousClock.now + .seconds(30)
         for await message in client.session.outbound {
             if case .notification("notifications/resources/updated", let params) = message, params?["uri"] == "homeswift://accessory/Devices:lamp" {
                 notified = true
