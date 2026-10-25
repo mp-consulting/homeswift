@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+- Use Wingman’s winged-house icon on its plugin page, plugin cards and website listing.
+
+### Fixed
+
+- Observe Daikin curl subprocess termination before launch and drain both output pipes concurrently, preventing the macOS CI process-wait hang and full-pipe deadlocks.
+
+- Prevent a cancelled UniFi Protect timeout from overriding a completed operation, which could drop RTSP recording initialization and intermittently fail Linux CI.
+
 ## [0.11.0] - 2026-10-25
 
 ### Added

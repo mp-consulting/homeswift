@@ -1281,7 +1281,7 @@
       const kindName = [plugin?.name, block.platform].find((name) => name && name !== block.name);
       return el("div", { class: "card server plugin-instance" },
         el("div", { class: "server-head" },
-          tile(block.system ? "gear" : "plugin", block.system ? "grey" : "orange"),
+          tile(block.system ? "gear" : block.platform === "Wingman" ? "wingman" : "plugin", block.system ? "grey" : "orange"),
           el("div", { class: "who" }, el("a", { class: "card-title", href: opens }, el("strong", { text: block.name })),
             el("div", { class: "muted", text: [kindName, block.childBridge ? t("child bridge") : null].filter(Boolean).join(" · ") })),
           el("span", { class: `pill status ${kind}`, text: state })),
@@ -1315,7 +1315,7 @@
     const catalog = el("div", { class: "grid plugin-catalog" }, plugins.plugins.map((plugin) => {
       const used = plugins.blocks.some((block) => block.platform === plugin.platform);
       return el("div", { class: "card server catalog" },
-        el("div", { class: "server-head" }, tile("plugin", "orange"),
+        el("div", { class: "server-head" }, tile(plugin.platform === "Wingman" ? "wingman" : "plugin", "orange"),
           el("div", { class: "who" }, el("strong", { text: plugin.name }), el("div", { class: "muted", text: plugin.platform })),
           used ? el("span", { class: "pill status standby", text: t("In use [used]") }) : null),
         el("div", { class: "actions" }, plugin.hasPages
@@ -1603,7 +1603,7 @@
     show(main,
       breadcrumb([t("Plugins"), "/plugins"], [block.name, isNew ? "/plugins" : settingsLink(block)], [isNew ? t("Add") : hasPage ? t("Expert") : t("Settings")]),
       el("div", { class: "page-head settings-head" },
-        tile(block.system ? "gear" : "plugin", block.system ? "grey" : "orange"),
+        tile(block.system ? "gear" : block.platform === "Wingman" ? "wingman" : "plugin", block.system ? "grey" : "orange"),
         el("div", { class: "who" },
           el("h1", { text: isNew ? t("Add {name}", { name: plugin.name }) : block.name }),
           el("p", { class: "muted", text: [...new Set([plugin ? plugin.name : platform, platform])].filter((part) => part !== block.name).concat(

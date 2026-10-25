@@ -1,5 +1,6 @@
 import Foundation
 import HomeswiftNetwork
+import NIOConcurrencyHelpers
 
 /// Requests through the system's curl binary: the escape hatch for networks whose firewall drops the built-in
 /// client's TLS ClientHello while curl's passes (`"httpTransport": "curl"`).
@@ -140,26 +141,51 @@ struct CurlTransport: HTTPSending {
         process.standardOutput = output
         process.standardError = errors
         process.standardInput = FileHandle.nullDevice
-        do {
-            try process.run()
-        } catch {
-            throw DaikinNetworkError(code: "ENOENT", message: "httpTransport \"curl\" requires the curl binary, but none was found on this system")
-        }
-        let watchdog = Task {
-            try? await Task.sleep(for: timeout)
-            if process.isRunning { process.terminate() }
-        }
-        defer { watchdog.cancel() }
-        return await withCheckedContinuation { continuation in
+        // Install termination observation before launch: a short-lived child can exit before a later
+        // waitUntilExit() starts its run loop (the macOS CI hang). Drain both pipes independently too:
+        // reading stdout to EOF first can deadlock when the child fills stderr before closing stdout.
+        return try await withCheckedThrowingContinuation { continuation in
+            let completed = DispatchGroup()
+            let stdout = NIOLockedValueBox(Data())
+            let stderr = NIOLockedValueBox(Data())
+            let exitStatus = NIOLockedValueBox<Int32>(0)
+            completed.enter()
+            process.terminationHandler = { child in
+                exitStatus.withLockedValue { $0 = child.terminationStatus }
+                completed.leave()
+            }
+            do {
+                try process.run()
+            } catch {
+                process.terminationHandler = nil
+                completed.leave()
+                continuation.resume(throwing: DaikinNetworkError(code: "ENOENT", message: "httpTransport \"curl\" requires the curl binary, but none was found on this system"))
+                return
+            }
+            let watchdog = Task {
+                do { try await Task.sleep(for: timeout) } catch { return }
+                if process.isRunning { process.terminate() }
+            }
+            completed.enter()
             DispatchQueue.global().async {
-                // Read before waiting: a full pipe would block curl forever.
-                let stdout = output.fileHandleForReading.readDataToEndOfFile()
-                let stderr = errors.fileHandleForReading.readDataToEndOfFile()
-                process.waitUntilExit()
-                var status = process.terminationStatus
+                let data = output.fileHandleForReading.readDataToEndOfFile()
+                stdout.withLockedValue { $0 = data }
+                completed.leave()
+            }
+            completed.enter()
+            DispatchQueue.global().async {
+                let data = errors.fileHandleForReading.readDataToEndOfFile()
+                stderr.withLockedValue { $0 = data }
+                completed.leave()
+            }
+            completed.notify(queue: .global()) {
+                watchdog.cancel()
+                process.terminationHandler = nil
+                var status = exitStatus.withLockedValue { $0 }
+                let errors = String(decoding: stderr.withLockedValue { $0 }, as: UTF8.self)
                 // `env` answers 127 when it cannot find curl.
-                if status == 127, String(decoding: stderr, as: UTF8.self).contains("No such file") { status = -1 }
-                continuation.resume(returning: (status, stdout, status == -1 ? "httpTransport \"curl\" requires the curl binary, but none was found on this system" : String(decoding: stderr, as: UTF8.self)))
+                if status == 127, errors.contains("No such file") { status = -1 }
+                continuation.resume(returning: (status, stdout.withLockedValue { $0 }, status == -1 ? "httpTransport \"curl\" requires the curl binary, but none was found on this system" : errors))
             }
         }
     }

@@ -97,6 +97,29 @@ struct TransportTests {
         }
     }
 
+    /// Repeated rapid exits exercise termination observation being installed before Process.run().
+    @Test func concurrentShortLivedCurlProcesses() async throws {
+        let executable = try fakeCurl(exit: 0, stdout: "HTTP/1.1 200 OK\\r\\n\\r\\nhello")
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0..<8 {
+                group.addTask {
+                    for _ in 0..<10 {
+                        let response = try await CurlTransport(executable: executable).send(HTTPRequest(url: URL(string: "https://api.example.com/")!))
+                        #expect(response.text == "hello")
+                    }
+                }
+            }
+            try await group.waitForAll()
+        }
+    }
+
+    /// Stderr exceeds pipe capacity before stdout closes: sequential draining used to deadlock.
+    @Test func drainsBothCurlPipesConcurrently() async throws {
+        let executable = try fakeCurl(exit: 0, stdout: "HTTP/1.1 200 OK\\r\\n\\r\\nhello", stderr: String(repeating: "x", count: 262_144))
+        let response = try await CurlTransport(executable: executable).send(HTTPRequest(url: URL(string: "https://api.example.com/")!))
+        #expect(response.text == "hello")
+    }
+
     @Test func missingCurl() async throws {
         let curl = CurlTransport(executable: "/nonexistent/curl")
         await #expect(throws: DaikinNetworkError.self) { try await curl.send(HTTPRequest(url: URL(string: "https://api.example.com/")!)) }
