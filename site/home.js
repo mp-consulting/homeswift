@@ -85,6 +85,8 @@
   async function call(name, args, effect, ms = 700) {
     const el = tool(name, args);
     await wait(ms);
+    // Any other change to the lights ends a mood first, as a new value does on the bridge.
+    if (effect && !name.endsWith('_mood')) stopMood();
     if (effect) { const ids = effect(); touch(ids); render(); record(name, ids); }
     finish(el);
     await wait(250);
@@ -111,6 +113,33 @@
     await say(locking ? t('Locked. The {door} reports Secured.', { door: b('door') }) : t('Unlocked. Say “lock up” when you want it locked again.'));
   }
 
+  // Moods (start_mood, stop_mood): the three lights take colours on a beat for a while, then go back as they were.
+  const lightIds = ['living', 'kitchen', 'porch'];
+  let mood = null;
+  function stopMood() {
+    if (!mood) return false;
+    clearInterval(mood.timer); clearTimeout(mood.end);
+    lightIds.forEach((id) => { tiles[id].classList.remove('mood-on'); tiles[id].style.removeProperty('--tint'); });
+    Object.assign(state, mood.before); render(); mood = null;
+    return true;
+  }
+  function playMood(palette, { beat = 1200, seconds = 16, random = true } = {}) {
+    stopMood();
+    const before = { living: state.living, kitchen: state.kitchen, porch: state.porch };
+    state.living = Math.max(state.living, 60); state.kitchen = true; state.porch = true; render();
+    let step = 0;
+    const paint = () => {
+      lightIds.forEach((id, i) => {
+        tiles[id].style.setProperty('--tint', random ? palette[Math.floor(Math.random() * palette.length)] : palette[(i + step) % palette.length]);
+        tiles[id].classList.add('mood-on');
+      });
+      step++;
+    };
+    paint();
+    mood = { before, timer: setInterval(paint, reduce ? beat * 3 : beat), end: setTimeout(stopMood, seconds * 1000) };
+    return lightIds;
+  }
+
   // What the demo understands. A suggestion runs its script directly; a typed request is matched on the
   // script's words: the English ones and the page language's, both written as regular-expression alternatives
   // (the catalogs translate them like any text), accents ignored.
@@ -123,6 +152,19 @@
       const time = (d) => d.toLocaleTimeString(i18n.locale, { hour: '2-digit', minute: '2-digit' });
       const rows = audit.map((a) => `<span>${time(a.at)} <b>${a.name}</b> ${escape(a.ids.map((id) => names[id]).join(', '))}${a.outcome ? ` · ${escape(t(a.outcome))}` : ''}</span>`).join('');
       await say(`${escape(tn('{n} entry from this chat, refusals included, each with who asked and from where:', '{n} entries from this chat, refusals included, each with who asked and from where:', audit.length))}<span class="audit">${rows}</span>`);
+    } },
+    stop: { words: '\\bstop\\b|enough|back to normal', run: async () => {
+      await call('stop_mood', {}, () => (stopMood() ? lightIds : []), 500);
+      await say(t('Stopped. The lights are back as they were.'));
+    } },
+    halloween: { words: 'halloween|spooky|creepy', run: async () => {
+      await call('start_mood', { mood: 'halloween', room: t('Downstairs') }, () => playMood(['#8e2de2', '#ff7a00', '#5b1a9a', '#2f8f3a'], { beat: 1500 }));
+      await say(t('Halloween is playing on {living}, {kitchen} and {porch}: purple and orange with an eerie flicker. They go back as they were when it ends, or say “stop”.',
+        { living: b('living'), kitchen: b('kitchen'), porch: b('porch') }));
+    } },
+    jazz: { words: 'jazz|lounge|mood|ambiance|vibe|feel like', run: async () => {
+      await call('start_mood', { description: t('a jazz bar'), room: t('Downstairs') }, () => playMood(['#ffb347', '#c46a1c', '#24306e', '#4a2366'], { beat: 2600, random: false }), 1100);
+      await say(t('I wrote one, “Late-night jazz”: warm amber over deep blue and plum, shifting every few seconds. The model only learned that three lights take colours, not their names. Want it saved as a scene?'));
     } },
     kitchen: { words: 'kitchen', run: async () => {
       await call('list_accessories', { room: t('Kitchen') }, null, 700);
@@ -209,10 +251,10 @@
     movie: 'Movie night', unlock: 'Unlock the front door', why: 'Why did the porch light drop off?', warm: 'Make it 22°',
     today: 'What happened today?', bed: 'I’m off to bed', coffee: 'Start the coffee', on: 'Turn the lights back on',
     hostile: { label: 'Try a hostile device name', text: 'What’s on in the kitchen?', script: 'kitchen', before: plantName },
-    audit: 'What did you change today?',
+    audit: 'What did you change today?', jazz: 'Make it feel like a jazz bar', halloween: 'Halloween downstairs',
   };
   // The safety demos first: the page is about handing the house to an agent.
-  const chipOrder = ['hostile', 'unlock', 'movie', 'audit', 'why', 'today', 'warm', 'bed', 'coffee', 'on'];
+  const chipOrder = ['hostile', 'unlock', 'movie', 'jazz', 'halloween', 'audit', 'why', 'today', 'warm', 'bed', 'coffee', 'on'];
   // On a phone the wall sits above the chat: a tapped suggestion scrolls both into view, when they fit, so the
   // visitor sees the tiles change. Not on a typed message, where the keyboard owns the screen.
   function keepStageInView() {
