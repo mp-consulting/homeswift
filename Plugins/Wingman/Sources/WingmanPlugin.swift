@@ -340,7 +340,12 @@ actor Link {
         let homeswift = plugin.context.publishedSerialNumbers
         let write: @Sendable (String, String, JSONValue) async throws -> Void = { [weak self] accessoryID, characteristicID, value in
             guard let client = await self?.client else { throw WingmanError.unreachable("stopped") }
-            try await client.write(accessory: accessoryID, characteristic: characteristicID, value: value)
+            do {
+                try await client.write(accessory: accessoryID, characteristic: characteristicID, value: value)
+            } catch {
+                self?.logger.warning("Wingman write failed: \(error)", metadata: ["accessory": "\(accessoryID)", "characteristic": "\(characteristicID)"])
+                throw error
+            }
         }
         var mirrors: [String: Mirror] = [:]
         var changed: [Mirror] = []
