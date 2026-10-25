@@ -47,7 +47,7 @@ const add = (code, strings) => { if (typeof code === "object") for (const [langu
 for (const language of Object.keys(catalogs)) vm.runInNewContext(readFileSync(join(root, `Sources/HomeswiftUI/Web/i18n-${language}.js`), "utf8"), { HomeswiftI18n: { add } });
 vm.runInNewContext(readFileSync(join(root, "site/design/translations.js"), "utf8"), { HomeswiftI18n: { add } });
 const keys = new Set(["Foundations", "Widgets", "Characteristics", "All", "Small", "Medium", "Large", "Extra large", "XL", "Accent", "Text", "Secondary text", "Surface", "Success", "Warning", "Error", "Active tile", "Layout", "Type & shape", "Interaction"]);
-for (const file of ["explorer.js", "frame.js"]) {
+for (const file of ["explorer.js", "canvas.js"]) {
   const text = readFileSync(join(root, "site/design", file), "utf8");
   for (const match of text.matchAll(/\b(?:t|note|pair)\("((?:[^"\\]|\\.)*)"/g)) keys.add(JSON.parse(`"${match[1]}"`));
 }

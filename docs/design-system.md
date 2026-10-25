@@ -8,6 +8,7 @@ an account, a framework or a build step.
 
 ## Find and exercise a component
 
+On phones, **Browse components** opens the component list and selecting a story brings the preview back into view.
 The sidebar contains foundations, 14 widget stories, and one story for each of the 252 characteristics in
 `Definitions.swift`. Search by a characteristic's name, Swift identifier, service identifier or short UUID.
 Filters separate widgets, characteristics and foundations.
@@ -29,6 +30,8 @@ Copy link preserves the story, size, viewport, state and language, for example:
 - [Brightness inspector](https://homeswift.dev/design/#characteristic/brightness)
 - [Protocol-only field](https://homeswift.dev/design/#characteristic/pairSetup)
 - [Foundations](https://homeswift.dev/design/#foundations)
+
+<img src="images/design-system/phone.png" width="320" alt="WebKit at iPhone width: the component browser is collapsed and the interactive light is visible">
 
 ## Component rules
 
@@ -65,10 +68,10 @@ the production keyboard, focus, accessible-name and reduced-motion behaviour.
 
 ## Isolation and limits
 
-The canvas is a same-origin iframe with its own document and styles. Before loading the real controls,
-`transport.js` installs an in-memory fetch adapter. It accepts local demo accessory commands, echoes values
-back as accessory events, and supplies a local camera illustration. The unavailable state returns a demo
-503. Content Security Policy disables network connections in the explorer and its canvas.
+The canvas renders directly in the page: the public host blocks frames through CSP and `X-Frame-Options`.
+Before loading the real controls, `transport.js` installs an in-memory fetch adapter. It accepts local demo accessory commands, echoes values
+back as accessory events, and supplies a local camera illustration as a permitted data URL.
+The unavailable state returns a demo 503. Content Security Policy disables network connections in the explorer.
 
 No bridge, cloud service or physical device is contacted. The camera story demonstrates snapshots, not a
 real video stream; valve timers and device transitions use fixture values. The explorer does not model a
@@ -81,7 +84,7 @@ own story.
 | File | Responsibility |
 |---|---|
 | `site/design/index.html`, `explorer.js`, `explorer.css` | Navigation, controls, contract documentation and canvas toolbar |
-| `site/design/frame.html`, `frame.js`, `frame.css` | Isolated canvas and the production renderer |
+| `site/design/canvas.js` | Inline canvas and the production renderer |
 | `site/design/stories.js` | Demonstration accessory fixtures for each widget |
 | `site/design/translations.js` | Explorer-specific French, Spanish and Portuguese strings |
 | `site/design/transport.js` | Local simulated writes, failures and camera still |
@@ -112,5 +115,5 @@ node Scripts/design-system-check.mjs /tmp/homeswift-design-shots
 ```
 
 The checker visits every widget and characteristic story, exercises controls and state changes, checks mobile
-layout and languages, and verifies that no demo API request reaches the server. CI and the Pages deployment
+layout and languages under the public host’s CSP and frame restrictions, and verifies that no demo API request reaches the server. CI and the Pages deployment
 run the sync check: a stale catalog or runtime copy stops deployment.

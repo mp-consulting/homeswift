@@ -22,8 +22,10 @@
   let theme = document.documentElement.dataset.theme;
   const inputs = new Map();
   const language = HomeswiftI18n.language;
-  const frame = $("preview");
-  frame.src = `frame.html?lang=${language}&theme=${theme}`;
+  const canvas = $("preview");
+  const browser = $("story-browser"), mobile = matchMedia("(max-width: 700px)");
+  browser.open = !mobile.matches;
+  mobile.addEventListener("change", () => { browser.open = !mobile.matches; });
   $("viewport").value = ["fit", "393", "768", "1120"].includes(params.get("viewport")) ? params.get("viewport") : innerWidth < 700 ? "fit" : "393";
   $("state").value = ["normal", "paused", "unavailable", "readonly"].includes(params.get("state")) ? params.get("state") : "normal";
   $("language").value = language;
@@ -63,15 +65,15 @@
   function fixture() { $("fixture").textContent = JSON.stringify(accessory, null, 2); }
   function fitCanvas() {
     const viewport = $("viewport").value;
-    const host = frame.parentElement, style = getComputedStyle(host);
+    const host = canvas.parentElement, style = getComputedStyle(host);
     const available = host.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-    frame.style.width = `${viewport === "fit" ? Math.max(240, available) : viewport}px`;
+    canvas.style.width = `${viewport === "fit" ? Math.max(240, available) : viewport}px`;
   }
-  new ResizeObserver(fitCanvas).observe(frame.parentElement);
+  new ResizeObserver(fitCanvas).observe(canvas.parentElement);
   function send() {
     if (!accessory) return;
     fitCanvas();
-    frame.contentWindow?.postMessage({ type: "design-render", accessory, kind: current.kind, size, state: $("state").value, theme }, location.origin);
+    HomeswiftDesignCanvas.render({ accessory, kind: current.kind, size, state: $("state").value, theme });
     fixture(); updateURL();
   }
   function setSize(one) {
@@ -99,7 +101,7 @@
         const value = c.format === "bool" ? input.checked : c.format === "string" ? input.value : Number(input.value);
         c.value = value;
         const change = { service: service.subtype || service.type, characteristic: c.type, value };
-        frame.contentWindow.postMessage({ type: "design-value", change }, location.origin);
+        HomeswiftDesignCanvas.setValue(change);
         fixture(); event(`${t("Simulated reading")}: ${c.type} = ${JSON.stringify(value)}`);
       };
       inputs.set(key, { input, characteristic: c }); label.append(input); $("knobs").append(label);
@@ -147,6 +149,7 @@
     for (const [name,text] of [["Layout","Columns start at 176 px; phones keep two columns. Compact rows are at least 64 px with a 10 px gap. L and XL fit whole rows to their controls."],["Type & shape","System type, a 22 px accessory radius, 40 px summary icons, and a clear name/status hierarchy."],["Interaction","Keyboard focus, named controls, deliberate security actions and reduced-motion support are part of the component contract."]]) host.append(el("section",{className:"story-panel"},el("h2",{text:t(name)}),el("p",{className:"rule",text:t(text)})));
   }
   function select() {
+    if (mobile.matches) browser.open = false;
     let id; try { id = decodeURIComponent(location.hash.slice(1)); } catch { id = ""; }
     current = stories.find((one) => one.id === id) || widgets[0];
     $("eyebrow").textContent = t(current.kind === "widget" ? "Widgets" : current.kind === "characteristic" ? "Characteristics" : "Foundations");
@@ -160,11 +163,8 @@
     accessory = current.kind === "widget" ? current.build() : rowStory(current.characteristic.id);
     knobs(); metadata(); send();
   }
-  addEventListener("message", (eventMessage) => {
-    if (eventMessage.origin !== location.origin || eventMessage.source !== frame.contentWindow) return;
-    const data = eventMessage.data;
-    if (data?.type === "design-ready") send();
-    if (data?.type === "design-height") frame.style.height = `${Math.min(1000, Math.max(220, data.height))}px`;
+  canvas.addEventListener("design-event", (eventMessage) => {
+    const data = eventMessage.detail;
     if (data?.type === "design-size" && sizes.includes(data.size)) setSize(data.size);
     if (data?.type === "design-action") {
       if (data.error) { event(`${t("Rejected")}: ${t(data.error)}`); return; }
@@ -176,12 +176,11 @@
       fixture();
     }
   });
-  frame.onload = send;
   $("search").oninput = navigation;
   $("viewport").onchange = send; $("state").onchange = send;
   $("reset").onclick = select; $("clear-events").onclick = clearEvents;
   $("copy-link").onclick = async () => { updateURL(); try { await navigator.clipboard.writeText(location.href); $("copy-link").textContent = t("Copied"); } catch { event(location.href); } };
-  $("theme").onclick = () => { theme = theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = theme; localStorage.setItem("homeswift.design.theme",theme); $("theme").textContent = t(theme === "dark" ? "Light mode" : "Dark mode"); frame.contentWindow.postMessage({type:"design-theme",theme},location.origin); if(current.kind === "foundation")tokens(); };
+  $("theme").onclick = () => { theme = theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = theme; localStorage.setItem("homeswift.design.theme",theme); $("theme").textContent = t(theme === "dark" ? "Light mode" : "Dark mode"); if(current.kind === "foundation")tokens(); };
   $("theme").textContent = t(theme === "dark" ? "Light mode" : "Dark mode");
   $("language").onchange = () => { const url = new URL(location.href); url.searchParams.set("lang",$("language").value); localStorage.setItem("homeswift.design.language",$("language").value); location.href=url; };
   addEventListener("hashchange", select);

@@ -1,6 +1,7 @@
 // The component explorer adds these strings to the production UI catalogs.
 HomeswiftI18n.add({
   "fr": {
+    "Browse components": "Parcourir les composants",
     "Reset": "Réinitialiser",
     "Clear": "Effacer",
     "UUID": "UUID",
@@ -201,6 +202,7 @@ HomeswiftI18n.add({
     "Keyboard focus, named controls, deliberate security actions and reduced-motion support are part of the component contract.": "Le focus clavier, les commandes nommées, les actions de sécurité volontaires et la réduction des animations font partie du composant."
   },
   "es": {
+    "Browse components": "Explorar componentes",
     "Reset": "Restablecer",
     "Clear": "Borrar",
     "UUID": "UUID",
@@ -401,6 +403,7 @@ HomeswiftI18n.add({
     "Keyboard focus, named controls, deliberate security actions and reduced-motion support are part of the component contract.": "El foco de teclado, los controles con nombre, las acciones de seguridad deliberadas y el movimiento reducido forman parte del componente."
   },
   "pt": {
+    "Browse components": "Explorar componentes",
     "Reset": "Repor",
     "Clear": "Limpar",
     "UUID": "UUID",

@@ -1,6 +1,0 @@
-body { margin: 0; padding: 16px; min-height: 220px; }
-#view { width: 100%; max-width: none; padding: 0; margin: 0; }
-.characteristic-demo { padding: 24px; }
-.characteristic-demo .control { margin: 0; }
-.characteristic-demo .control > span:first-child { max-width: 48%; }
-.protocol-note { color: var(--muted); line-height: 1.6; margin: 0; }
