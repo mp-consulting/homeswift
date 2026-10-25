@@ -393,8 +393,11 @@ struct PluginHostTests {
         #expect(report == PluginHost.ReloadReport(reloaded: ["Lights"]))
         #expect(host.platforms.map(\.accessoryIDs) == [["Recording:a"], ["Recording:b", "Recording:c"]])
         #expect(environment.createdPlugins.count == 3)
-        #expect(await !environment.createdPlugins[0].stopped)
-        #expect(await environment.createdPlugins[1].stopped)
+        // The two blocks start at the same time, so they may be created in either order: each is found by its lamps.
+        let first = try #require(environment.createdPlugins.first { $0.configuration.lamps == ["a"] })
+        let replaced = try #require(environment.createdPlugins.first { $0.configuration.lamps == ["b"] })
+        #expect(await !first.stopped)
+        #expect(await replaced.stopped)
         await host.stop()
     }
 
