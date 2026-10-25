@@ -11,6 +11,9 @@ mkdirSync(out,{recursive:true});
 const profile=mkdtempSync("/tmp/design-chrome-");
 const requests=[];
 const server=createServer((req,res)=>{
+  // Mirror the public host: an iframe implementation must fail this check.
+  res.setHeader("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests");
+  res.setHeader("X-Frame-Options", "DENY");
   const pathname=decodeURIComponent(new URL(req.url,"http://localhost").pathname);
   requests.push(pathname);
   const path=resolve(root,"site", "."+pathname+(pathname.endsWith("/")?"index.html":""));
@@ -80,22 +83,23 @@ try{
   await viewport(1440,1100);await appearance("light");
   await navigate("/design/", "#story-title");
   const waitFor = async expression => {for(let i=0;i<100;i++){if(await evaluate(expression))return;await sleep(25);}throw Error("Timed out: "+expression+"\n"+JSON.stringify(errors,null,2));};
-  const frame = expression => evaluate(`(()=>{const f=document.querySelector('#preview').contentWindow;return (${expression})})()`);
-  await waitFor("!!document.querySelector('#preview').contentDocument?.querySelector('.widget')");
+  const canvas = expression => evaluate(`(()=>{const f=window;return (${expression})})()`);
+  await waitFor("!!document.querySelector('.widget')");
+  if(await evaluate("document.querySelectorAll('iframe').length"))throw Error("Public hosting blocks iframe previews");
   await shot("explorer", "body");
   if(await evaluate("document.querySelectorAll('.story-link').length")!==267)throw Error("Incomplete story navigation");
   const expected={gate:"garage-door",alarm:"security-system",switch:"toggle"};
   for(const story of await evaluate("HomeswiftDesignStories.widgets.map(w=>w.id)")){
     await evaluate(`location.hash=${JSON.stringify(story)}`);await sleep(90);
-    if(!await frame("!!f.document.querySelector('.widget')"))throw Error("Missing widget "+story);
-    const kind = await frame(`f.HomeswiftWidgets.kindOf(f.HomeswiftDesignStories.widgets.find(w=>w.id===${JSON.stringify(story)}).build()).kind`);
+    if(!await canvas("!!f.document.querySelector('.widget')"))throw Error("Missing widget "+story);
+    const kind = await canvas(`f.HomeswiftWidgets.kindOf(f.HomeswiftDesignStories.widgets.find(w=>w.id===${JSON.stringify(story)}).build()).kind`);
     const id = story.split("/")[1];
     if(kind!==(expected[id]||id))throw Error(`Wrong renderer ${story}: ${kind}`);
     for(const size of ["small","medium","large","xlarge"]){
       await evaluate(`document.querySelector('#size-picker [data-size=${size}]').click()`);await sleep(40);
-      if(!await frame(`!!f.document.querySelector('.widget.size-${size}')`))throw Error(`Missing ${size} for ${story}`);
+      if(!await canvas(`!!f.document.querySelector('.widget.size-${size}')`))throw Error(`Missing ${size} for ${story}`);
     }
-    if(story==='widget/camera')await waitFor("document.querySelector('#preview').contentDocument.querySelector('.camera-still')?.naturalWidth > 0");
+    if(story==='widget/camera')await waitFor("document.querySelector('.camera-still')?.naturalWidth > 0");
   }
   console.log("PASS: all 14 widget renderers in all four sizes");
   await evaluate("location.hash='characteristic/brightness'");await sleep(150);
@@ -104,11 +108,11 @@ try{
   for(const id of ids){
     await evaluate(`location.hash=${JSON.stringify("characteristic/"+id)}`);await sleep(125);
     await waitFor(`document.querySelector('#fixture').textContent.includes('Design:${id}')`);
-    await waitFor(`document.querySelector('#preview').contentDocument?.querySelector('.characteristic-demo')!==null`);
+    await waitFor(`document.querySelector('.characteristic-demo')!==null`);
   }
   console.log("PASS: all "+ids.length+" characteristic stories render");
   await evaluate("location.hash='widget/light'");await sleep(150);
-  await frame("f.document.querySelector('.widget input[type=checkbox]').click()");await sleep(80);
+  await canvas("f.document.querySelector('.widget input[type=checkbox]').click()");await sleep(80);
   if(await evaluate("document.querySelector('#knobs input[aria-label=On]').checked"))throw Error("Production toggle did not update controls");
   if(!await evaluate("document.querySelector('#events').textContent.includes('On = false')"))throw Error("Write event missing");
   await evaluate("(()=>{const n=document.querySelector('#knobs input[aria-label=Brightness]');n.value=43;n.dispatchEvent(new Event('change'));})()");await sleep(70);
@@ -117,21 +121,21 @@ try{
   if(await evaluate("document.querySelector('#knobs input[aria-label=Brightness]').value")!=="75")throw Error("Reset failed");
   const state = async value => {await evaluate(`document.querySelector('#state').value=${JSON.stringify(value)};document.querySelector('#state').dispatchEvent(new Event('change'))`);await sleep(80);};
   await state("readonly");
-  if(await frame("!!f.document.querySelector('.widget input[type=checkbox]')"))throw Error("Read-only power is writable");
+  if(await canvas("!!f.document.querySelector('.widget input[type=checkbox]')"))throw Error("Read-only power is writable");
   await state("paused");
-  if(!await frame("!!f.document.querySelector('.widget.paused [inert]')"))throw Error("Paused controls not inert");
+  if(!await canvas("!!f.document.querySelector('.widget.paused [inert]')"))throw Error("Paused controls not inert");
   await state("unavailable");
-  await frame("f.document.querySelector('.widget input[type=checkbox]').click()");await sleep(80);
+  await canvas("f.document.querySelector('.widget input[type=checkbox]').click()");await sleep(80);
   if(!await evaluate("document.querySelector('#events').textContent.includes('Rejected')"))throw Error("Failure missing from event log");
-  if(!await frame("f.document.querySelector('.widget input[type=checkbox]').checked"))throw Error("Failed write did not roll back");
+  if(!await canvas("f.document.querySelector('.widget input[type=checkbox]').checked"))throw Error("Failed write did not roll back");
   await state("normal");
-  await frame("f.document.querySelector('.menu-button').click()");await sleep(30);
-  if(await frame("f.document.querySelectorAll('.menu-choice-badge').length")!==4)throw Error("Missing size menu badges");
-  await frame("f.document.querySelector('.menu-choice-badge').click()");await sleep(80);
+  await canvas("f.document.querySelector('.menu-button').click()");await sleep(30);
+  if(await canvas("f.document.querySelectorAll('.menu-choice-badge').length")!==4)throw Error("Missing size menu badges");
+  await canvas("f.document.querySelector('.menu-choice-badge').click()");await sleep(80);
   if(await evaluate("document.querySelector('#size-picker [aria-pressed=true]').dataset.size")!=="small")throw Error("Size menu not connected");
   await evaluate("document.querySelector('#size-picker [data-size=xlarge]').click()");
   await evaluate("location.hash='characteristic/pairSetup'");await sleep(90);
-  if(!await frame("!!f.document.querySelector('.protocol-note')"))throw Error("Opaque protocol has an everyday control");
+  if(!await canvas("!!f.document.querySelector('.protocol-note')"))throw Error("Opaque protocol has an everyday control");
   await evaluate("document.querySelector('#search').value='nothingshouldmatchthis';document.querySelector('#search').dispatchEvent(new Event('input'))");
   if(await evaluate("document.querySelectorAll('.story-link').length")!==0)throw Error("Search filter failed");
   await evaluate("document.querySelector('#search').value='';document.querySelector('#search').dispatchEvent(new Event('input'))");
@@ -139,16 +143,22 @@ try{
   await evaluate("location.hash='foundations'");await sleep(70);await shot("foundations","body");
   await evaluate("location.hash='widget/climate';document.querySelector('#theme').click()");await sleep(150);await shot("dark","body");
   await viewport(393,1000);await evaluate("document.querySelector('#viewport').value='fit';document.querySelector('#viewport').dispatchEvent(new Event('change'))");await sleep(100);await shot("phone","body");
+  if(await evaluate("document.querySelector('#story-browser').open"))throw Error("Mobile component list hides preview");
+  await evaluate("document.querySelector('#story-browser summary').click()");
+  if(!await evaluate("document.querySelector('#story-browser').open"))throw Error("Mobile component browser cannot open");
+  await evaluate("document.querySelector('.story-link[href=\"#widget/light\"]').click()");await sleep(100);
+  if(await evaluate("document.querySelector('#story-browser').open"))throw Error("Mobile component browser did not collapse after selection");
   if(await evaluate("document.documentElement.scrollWidth>innerWidth"))throw Error("Phone overflow");
-  for(const width of [320,768,1120]) {
+  for(const width of [320,393,768,1120]) {
     await viewport(width,1000);await sleep(50);
     if(await evaluate("document.documentElement.scrollWidth>innerWidth"))throw Error(`Layout overflow at ${width}`);
+    if(width<700 && await evaluate("document.querySelector('#preview').getBoundingClientRect().top > 550"))throw Error("Mobile preview below the fold");
   }
   for(const lang of ["fr","es","pt"]){
     await navigate(`/design/?lang=${lang}#characteristic/brightness`,"#story-title");await sleep(150);
     const label=await evaluate("document.querySelector('#story-description').textContent");
     if(label.startsWith("The production"))throw Error("Missing translation "+lang);
-    if((await frame("f.document.documentElement.lang")).split("-")[0]!==lang)throw Error("Frame language "+lang);
+    if((await canvas("f.document.documentElement.lang")).split("-")[0]!==lang)throw Error("Canvas language "+lang);
     await evaluate("document.querySelector('#search').value=document.querySelector('#story-title').textContent;document.querySelector('#search').dispatchEvent(new Event('input'))");
     if(!await evaluate("!!document.querySelector('.story-link[aria-current=page]')"))throw Error("Translated search failed "+lang);
   }
