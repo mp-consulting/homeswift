@@ -195,11 +195,12 @@
   }
 
   /// An accessory event from the page's event stream: the new value, painted on the cards of that accessory.
-  function event({ id, service, subtype, characteristic, value, unavailable }) {
+  function event({ id, service, subtype, characteristic, value, unavailable, naturalLighting }) {
     if (Date.now() - swept > 1000) sweep();
     for (const ctx of cards) {
       if (!ctx.node?.isConnected) continue;
       if (ctx.accessory.id !== id) continue;
+      if (naturalLighting !== undefined) ctx.accessory.naturalLighting = naturalLighting;
       // The device answers again, or stopped: No Response follows. A paused plugin says so with `paused`.
       if (unavailable !== undefined && !ctx.accessory.paused && Boolean(ctx.accessory.unavailable) !== unavailable) {
         ctx.accessory.unavailable = unavailable;
@@ -210,6 +211,33 @@
       const target = owner && owner.characteristics.find((c) => c.type === characteristic);
       if (!target) continue;
       target.value = value;
+      ctx.paint();
+    }
+  }
+
+  // Keep characteristic objects: controls capture them when the card is built.
+  function reconcileAccessory(accessory, latest) {
+    accessory.unavailable = !latest || Boolean(latest.unavailable);
+    if (!latest) return;
+    accessory.paused = Boolean(latest.paused);
+    accessory.naturalLighting = latest.naturalLighting || {};
+    for (const service of accessory.services) {
+      const fresh = latest.services.find(s => serviceKey(s) === serviceKey(service));
+      if (!fresh) continue;
+      service.adaptiveLighting = fresh.adaptiveLighting;
+      for (const characteristic of service.characteristics) {
+        const value = fresh.characteristics.find(c => c.type === characteristic.type);
+        if (value) characteristic.value = value.value;
+      }
+    }
+  }
+
+  function snapshot(accessories) {
+    sweep();
+    const byID = new Map(accessories.map(a => [a.id, a]));
+    for (const ctx of cards) {
+      if (!ctx.node?.isConnected) continue;
+      reconcileAccessory(ctx.accessory, byID.get(ctx.accessory.id));
       ctx.paint();
     }
   }
@@ -615,8 +643,19 @@
     // Adaptive Lighting (a controller on the bridge): on while a schedule runs, which its transition count says.
     const transitions = ctx.char(service, "Characteristic Value Active Transition Count");
     const adaptive = service.adaptiveLighting ? { resumable: !!service.adaptiveLighting.resumable } : null;
-    const adaptiveOn = () => !!adaptive && numberOf(transitions) > 0;
+    const natural = !adaptive && temperature && canWrite(temperature);
+    const naturalState = () => ctx.accessory.naturalLighting?.[serviceKey(service)];
+    const adaptiveOn = () => natural ? !!naturalState()?.enabled && !naturalState()?.paused : !!adaptive && numberOf(transitions) > 0;
     const setAdaptive = async (on) => {
+      if (natural) {
+        try {
+          ctx.accessory.naturalLighting = await api(`/api/accessories/${encodeURIComponent(ctx.accessory.id)}/natural-lighting`, {
+            method: "PUT", body: { service: serviceKey(service), on, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" }
+          });
+          ctx.paint();
+        } catch (e) { if (e.message !== "signed out") ctx.flash(e.message); }
+        return;
+      }
       const before = transitions?.value;
       if (transitions) transitions.value = on ? 1 : 0;
       ctx.paint();
@@ -631,15 +670,15 @@
     };
     /// The Adaptive control: a swatch among the colours, a round button beside a white slider, or a chip.
     const adaptiveControl = (kind) => {
-      const label = t("Adaptive Lighting");
+      const label = natural ? t("Homeswift Natural Lighting") : t("Adaptive Lighting");
       const node = kind === "chip"
-        ? el("button", { type: "button", class: "chip adaptive-chip", "aria-pressed": "false" }, icon("sun"), el("span", { text: t("Adaptive") }))
+        ? el("button", { type: "button", class: "chip adaptive-chip", "aria-pressed": "false" }, icon("sun"), el("span", { text: natural ? t("Natural") : t("Adaptive") }))
         : el("button", { type: "button", class: kind === "swatch" ? "swatch adaptive" : "round adaptive", role: kind === "swatch" ? "radio" : null, "aria-label": label, title: label }, icon("sun"));
       node.addEventListener("click", () => setAdaptive(!adaptiveOn()));
       ctx.watch(() => {
         node.setAttribute(kind === "swatch" ? "aria-checked" : "aria-pressed", String(adaptiveOn()));
-        node.classList.toggle("unset", !adaptive.resumable && !adaptiveOn());
-        node.title = adaptiveOn() ? t("Adaptive Lighting: on") : adaptive.resumable ? t("Adaptive Lighting: resume the Home app's schedule") : t("Adaptive Lighting: turn it on once in the Home app");
+        node.classList.toggle("unset", !natural && !adaptive.resumable && !adaptiveOn());
+        node.title = natural ? (adaptiveOn() ? t("Homeswift Natural Lighting: on; click to turn off") : naturalState()?.paused ? t("Homeswift Natural Lighting: paused; click to resume") : t("Homeswift Natural Lighting: warm evenings, cool days; click to enable")) : adaptiveOn() ? t("Adaptive Lighting: on") : adaptive.resumable ? t("Adaptive Lighting: resume the Home app's schedule") : t("Adaptive Lighting: turn it on once in the Home app");
       });
       return node;
     };
@@ -675,7 +714,7 @@
           const near = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b)) <= 6;
           for (const one of swatches) one.swatch.setAttribute("aria-checked", String(!adaptiveOn() && s > 4 && near(one.h, h) && Math.abs(one.s - s) <= 12));
         });
-        return el("div", { class: `swatches${grid ? " grid" : ""}`, role: "radiogroup", "aria-label": t("Colour") }, adaptive ? adaptiveControl("swatch") : null, swatches.map((one) => one.swatch));
+        return el("div", { class: `swatches${grid ? " grid" : ""}`, role: "radiogroup", "aria-label": t("Colour") }, (adaptive || natural) ? adaptiveControl("swatch") : null, swatches.map((one) => one.swatch));
       } : null,
       white: canWrite(temperature) ? ({ vertical = false, thin = false } = {}) => {
         // Mireds run the other way: the track goes from warm (few kelvin, many mireds) to cool.
@@ -691,8 +730,13 @@
         return control.node;
       } : null,
       // For a light without colours: the Adaptive control on its own ("round" beside the white, or a "chip").
-      adaptive: adaptive ? (kind = "chip") => adaptiveControl(kind) : null,
+      adaptive: (adaptive || natural) ? (kind = "chip") => adaptiveControl(kind) : null,
       adaptiveOn,
+      modeLabel: () => natural ? (naturalState()?.paused ? t("Natural paused") : adaptiveOn() ? t("Natural") : "") : adaptiveOn() ? t("Adaptive") : "",
+      // HomeKit reports mireds. Do not invent a temperature when the cached value is absent.
+      reportedTemperature: () => ctx.accessory.mirroredFrom === "Apple Home" &&
+        typeof temperature?.value === "number" && Number.isFinite(temperature.value) && temperature.value > 0
+        ? `${num(Math.round(1e6 / temperature.value))} K` : "",
       color: () => { const c = color(); return c && { tile: `linear-gradient(160deg, ${css(c, 74)}, ${css(c, 52)})`, glow: css(c, 55) }; },
     };
   }
@@ -1190,7 +1234,7 @@
         tap: () => ctx.write(primary, on, onValue(on, !isOn(on))),
         on: () => isOn(on), color: light.color,
         hero: () => brightness && isOn(on) ? `${num(numberOf(brightness))}%` : "",
-        status: () => isOn(on) ? [[brightness ? t("On · {brightness} %", { brightness: numberOf(brightness) }) : t("On"), light.adaptiveOn() ? t("Adaptive") : ""].filter(Boolean).join(" · ")] : [t("Off")],
+        status: () => isOn(on) ? [[brightness ? t("On · {brightness} %", { brightness: numberOf(brightness) }) : t("On"), light.modeLabel(), light.reportedTemperature()].filter(Boolean).join(" · ")] : [t("Off")],
       };
       // A white-only light's Adaptive control sits beside its white slider.
       const whiteRow = (options) => light.white ? (light.adaptive ? el("div", { class: "w-row" }, el("div", { class: "w-grow" }, light.white(options)), light.adaptive("round")) : light.white(options)) : null;
@@ -1936,7 +1980,7 @@
   for (const node of expandedIn(view)) watchExpanded(node);
 
   window.HomeswiftWidgets = {
-    card, open, kindOf, sizes, event, listen, describeModel, labelFor, enumLabels,
+    card, open, kindOf, sizes, event, snapshot, reconcileAccessory, listen, describeModel, labelFor, enumLabels,
     /// The same fallback characteristic row used under All controls, for live documentation and plugin pages.
     characteristicRow(accessory, service, characteristic) {
       const ctx = context(accessory);

@@ -34,6 +34,8 @@
 
   // Line icons: 24-unit boxes, round caps, the current colour.
   const icons = {
+    power: '<path d="M12 3v9M6.3 5.8a8 8 0 1 0 11.4 0"/>',
+    group: '<rect x="3" y="8" width="13" height="13" rx="3"/><path d="M8 8V6a3 3 0 0 1 3-3h7a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3h-2M7 14.5h5M9.5 12v5"/>',
     bridge: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/>',
     child: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/>',
     accessory: '<rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/>',
@@ -49,7 +51,7 @@
     thermo: '<path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"/>',
     door: '<path d="M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17M3 21h18M14 12h.01"/>',
     generic: '<rect x="4" y="4" width="16" height="16" rx="4"/>',
-    plugin: '<path d="M4 7h4a2 2 0 1 1 4 0h4v4a2 2 0 1 1 0 4v4H4z"/>',
+    plugin: '<g transform="translate(12 12) scale(1.18) rotate(45) translate(-12 -12)" fill="currentColor" stroke="none"><rect x="8" y="4" width="1.8" height="6" rx=".9"/><rect x="14.2" y="4" width="1.8" height="6" rx=".9"/><path d="M7 9h10v3a5 5 0 0 1-10 0Z"/><rect x="10.9" y="15" width="2.2" height="5" rx="1"/></g>',
     gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
     more: '<circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/>',
     logs: '<path d="M8 6h12M8 12h12M8 18h8M4 6h.01M4 12h.01M4 18h.01"/>',
@@ -87,6 +89,7 @@
   function icon(name) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 24 24");
+    svg.classList.add(`icon-${name}`);
     svg.innerHTML = icons[name] ?? icons.generic;
     return svg;
   }
@@ -262,9 +265,10 @@
   /// draws a labelled row of square choices, such as the widget sizes.
   /// Opened from the keyboard, its first item takes the focus; from a click, the menu does, so no item looks
   /// chosen before the pointer or an arrow key gets to it.
-  function menu(trigger, items, { keyboard = false } = {}) {
+  function menu(trigger, items, { keyboard = false, onReorder } = {}) {
     if (openMenu?.trigger === trigger) { openMenu.close(); return; }
     openMenu?.close(true);
+    let pending = false, cancelDrag = null;
     const nodes = items.filter(Boolean).map((item) => {
       if (item.separator) return el("hr", { class: "menu-separator", role: "separator" });
       if (item.choices) {
@@ -281,16 +285,72 @@
       if (item.heading !== undefined) return el("div", { class: "menu-heading" }, el("strong", { text: item.heading }), item.detail ? el("span", { text: item.detail }) : null);
       const glyph = typeof item.icon === "string" ? icon(item.icon) : item.icon ?? null;
       const choice = typeof item.checked === "boolean";
-      const role = choice ? "menuitemradio" : "menuitem";
-      const tick = choice ? el("span", { class: "menu-check", "aria-hidden": "true", text: item.checked ? "✓" : "" }) : null;
+      const role = choice ? (item.checkbox ? "menuitemcheckbox" : "menuitemradio") : "menuitem";
+      const tick = item.toggle ? el("span", { class: "menu-toggle", "aria-hidden": "true" }, el("span"))
+        : choice ? el("span", { class: "menu-check", "aria-hidden": "true", text: item.checked ? "✓" : "" }) : null;
       const node = item.href
         ? el("a", { role, href: item.href, class: item.danger ? "danger" : "", tabIndex: -1 }, glyph, el("span", { text: item.label }), tick)
         : el("button", { type: "button", role, class: item.danger ? "danger" : "", tabIndex: -1, "aria-checked": choice ? String(item.checked) : null }, glyph, el("span", { text: item.label }), tick);
-      node.addEventListener("click", () => { close(); item.onSelect?.(); });
+      if (onReorder && item.key) {
+        node.dataset.menuKey = item.key;
+        const handle = el("span", { class: "menu-drag-handle", title: t("Drag to reorder"), "aria-hidden": "true", text: "⠿" });
+        handle.addEventListener("click", (event) => { event.preventDefault(); event.stopPropagation(); });
+        handle.addEventListener("pointerdown", (event) => {
+          if (event.button !== 0 || pending) return;
+          event.preventDefault(); event.stopPropagation();
+          const rows = () => [...list.querySelectorAll(":scope > [data-menu-key]")];
+          const before = rows(), anchor = before.at(-1).nextSibling;
+          const restore = (order) => order.forEach((row) => list.insertBefore(row, anchor));
+          node.classList.add("menu-dragging");
+          list.setPointerCapture(event.pointerId);
+          const move = (pointer) => {
+            if (pointer.pointerId !== event.pointerId) return;
+            const other = rows().find((row) => {
+              const box = row.getBoundingClientRect();
+              return row !== node && pointer.clientY >= box.top && pointer.clientY <= box.bottom;
+            });
+            if (!other) return;
+            const box = other.getBoundingClientRect();
+            if (pointer.clientY > box.top + box.height / 2) other.after(node); else other.before(node);
+          };
+          const finish = async (pointer) => {
+            if (pointer && pointer.pointerId !== event.pointerId) return;
+            list.removeEventListener("pointermove", move);
+            list.removeEventListener("pointerup", finish);
+            list.removeEventListener("pointercancel", finish);
+            list.removeEventListener("lostpointercapture", finish);
+            cancelDrag = null;
+            node.classList.remove("menu-dragging");
+            if (list.hasPointerCapture(event.pointerId)) list.releasePointerCapture(event.pointerId);
+            if (pointer?.type !== "pointerup") { restore(before); return; }
+            pending = true;
+            try {
+              const saved = await onReorder(rows().map((row) => row.dataset.menuKey));
+              if (saved) restore(saved.map((id) => before.find((row) => row.dataset.menuKey === id)).filter(Boolean));
+            } catch { restore(before); }
+            finally { pending = false; }
+          };
+          cancelDrag = () => finish();
+          list.addEventListener("pointermove", move);
+          list.addEventListener("pointerup", finish);
+          list.addEventListener("pointercancel", finish);
+          list.addEventListener("lostpointercapture", finish);
+        });
+        node.prepend(handle);
+      }
+      node.addEventListener("click", async (event) => {
+        if (pending || event.target.closest(".menu-drag-handle")) return;
+        if (!item.keepOpen) { close(); item.onSelect?.(); return; }
+        pending = true;
+        node.setAttribute("aria-busy", "true");
+        try {
+          const checked = await item.onSelect?.();
+          if (typeof checked === "boolean") node.setAttribute("aria-checked", String(checked));
+        } finally { pending = false; node.removeAttribute("aria-busy"); }
+      });
       return node;
     });
-    const entries = nodes.flatMap((node) => node.getAttribute("role")?.startsWith("menuitem")
-      ? [node] : [...node.querySelectorAll('[role^="menuitem"]')]);
+    const entries = () => [...list.querySelectorAll('[role^="menuitem"]')];
     // On a phone a card's menu is an action sheet over a dimmed page, at the bottom within the thumb's reach, as
     // iOS's; the header's (the account) still drops down from its button.
     const sheet = matchMedia("(max-width: 640px)").matches && !trigger.closest("header");
@@ -313,9 +373,9 @@
       list.style.transformOrigin = `${box.right - parseFloat(list.style.left) - box.width / 2}px ${below ? "0" : "100%"}`;
     }
     trigger.setAttribute("aria-expanded", "true");
-    const focusAt = (index) => entries[(index + entries.length) % entries.length]?.focus();
+    const focusAt = (index) => entries()[(index + entries().length) % entries().length]?.focus();
     const onKey = (event) => {
-      const index = entries.indexOf(document.activeElement);
+      const index = entries().indexOf(document.activeElement);
       if (event.key === "Escape") { event.preventDefault(); close(); }
       else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && document.activeElement.closest(".menu-choice-row")) {
         event.preventDefault();
@@ -332,6 +392,7 @@
     const onPointer = (event) => { if (!list.contains(event.target) && !trigger.contains(event.target)) close(true); };
     function close(quietly = false) {
       if (openMenu?.list !== list) return;
+      cancelDrag?.();
       openMenu = null;
       document.removeEventListener("keydown", onKey, true);
       document.removeEventListener("pointerdown", onPointer, true);
@@ -655,7 +716,7 @@
 
   // ---- The sections, and the tab bar a phone shows them in -----------------------------------------------
 
-  const sections = [["/status", t("Status"), "bridge"], ["/accessories", t("Accessories"), "bulb"], ["/scenes", t("Scenes"), "play"], ["/plugins", t("Plugins"), "plugin"], ["/config", t("Config"), "code"], ["/logs", t("Logs"), "logs"]];
+  const sections = [["/status", t("Status"), "bridge"], ["/accessories", t("Accessories"), "bulb"], ["/scenes", t("Scenes"), "play"], ["/plugins", t("Plugins"), "plugin"], ["/config", t("Config"), "code"], ["/logs", t("Logs"), "logs"], ["/settings", t("Settings"), "gear"]];
 
   /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
   /// a label each, the current one in the accent. `parent` is what hides it with the app (the sign-in screen has
@@ -663,8 +724,27 @@
   function tabBar({ active, parent = document.body } = {}) {
     const existing = document.querySelector("nav.tabbar");
     if (existing) return existing;
-    const bar = el("nav", { class: "tabbar", "aria-label": t("Sections") }, sections.map(([path, text, glyph]) =>
+    const panel = el("div", { class: "mobile-nav-panel", id: "mobile-nav-panel", hidden: true }, sections.map(([path, text, glyph]) =>
       el("a", { href: path, class: path === active ? "active" : "", "aria-current": path === active ? "page" : null }, icon(glyph), el("span", { text }))));
+    const toggle = el("button", { type: "button", class: "mobile-nav-toggle", "aria-label": t("Sections"), "aria-expanded": "false", "aria-controls": "mobile-nav-panel" });
+    toggle.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14"/></svg>';
+    const setOpen = (open) => { panel.hidden = !open; toggle.setAttribute("aria-expanded", String(open)); };
+    panel.append(el("hr", { class: "mobile-nav-divider" }));
+    panel.append(el("button", { type: "button", class: "mobile-nav-account", onclick: (event) => {
+      event.stopPropagation();
+      setOpen(false);
+      document.dispatchEvent(new CustomEvent("homeswift-account-menu", { detail: { trigger: toggle, keyboard: event.detail === 0 } }));
+    } }, icon("user"), el("span", { text: t("Account") })));
+    toggle.addEventListener("click", () => setOpen(panel.hidden));
+    panel.addEventListener("click", (event) => { if (event.target.closest("a")) setOpen(false); });
+    const bar = el("nav", { class: "tabbar", "aria-label": t("Sections") }, panel, toggle);
+    document.addEventListener("pointerdown", (event) => { if (!bar.contains(event.target)) setOpen(false); });
+    bar.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") { setOpen(false); toggle.focus(); }
+      if (event.target === toggle && event.key === "ArrowUp") {
+        event.preventDefault(); setOpen(true); panel.querySelector("a:not(.hidden)")?.focus();
+      }
+    });
     parent.append(bar);
     return bar;
   }
@@ -802,6 +882,63 @@
   }
   /// "21.5 °C" or "70.7 °F".
   const formatTemperature = (celsius) => { const { value, unit } = temperature(celsius); return `${value} ${unit}`; };
+
+  // Keep native select values and form validation, but present choices with the shared menu.
+  function openSelectMenu(select, keyboard = false) {
+    const items = [];
+    for (const child of select.children) {
+      if (child.tagName === "OPTGROUP") {
+        if (child.disabled) continue;
+        items.push({ heading: child.label });
+        for (const option of child.children) add(option);
+      } else add(child);
+    }
+    function add(option) {
+      if (option.tagName !== "OPTION" || option.hidden || option.disabled) return;
+      items.push({ label: option.label, checked: option.selected, onSelect: () => {
+        if (select.value === option.value) return;
+        select.value = option.value;
+        select.dispatchEvent(new Event("input", { bubbles: true }));
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      } });
+    }
+    if (items.length) menu(select, items, { keyboard });
+  }
+  document.addEventListener("pointerdown", (event) => {
+    const select = event.target.closest("select");
+    if (!select || select.disabled || select.multiple || select.size > 1 || event.button !== 0) return;
+    event.preventDefault();
+    select.focus();
+    openSelectMenu(select);
+  });
+  document.addEventListener("keydown", (event) => {
+    const select = event.target.closest("select");
+    if (!select || select.disabled || select.multiple || select.size > 1) return;
+    if ([" ", "Enter", "ArrowDown", "ArrowUp"].includes(event.key)) {
+      event.preventDefault(); openSelectMenu(select, true);
+    }
+  });
+
+  // Reserve horizontal space only when a sticky save bar shares the floating menu's height.
+  let saveBarFrame = 0;
+  function updateSaveBarPosition() {
+    if (saveBarFrame) return;
+    saveBarFrame = requestAnimationFrame(() => {
+      saveBarFrame = 0;
+      const toggle = document.querySelector(".mobile-nav-toggle");
+      const mobile = matchMedia("(max-width: 640px)").matches;
+      const menuRect = mobile && toggle ? toggle.getBoundingClientRect() : null;
+      document.querySelectorAll(".settings-bar").forEach((bar) => {
+        const rect = bar.getBoundingClientRect();
+        const beside = menuRect && menuRect.height > 0 && rect.bottom > menuRect.top && rect.top < menuRect.bottom;
+        bar.classList.toggle("beside-mobile-menu", Boolean(beside));
+      });
+    });
+  }
+  document.addEventListener("scroll", updateSaveBarPosition, { passive: true, capture: true });
+  window.addEventListener("resize", updateSaveBarPosition, { passive: true });
+  new MutationObserver(updateSaveBarPosition).observe(document.body, { childList: true, subtree: true });
+  updateSaveBarPosition();
 
   window.HomeswiftCommon = {
     $, el, icon, tile, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,

@@ -324,7 +324,8 @@ node Scripts/widget-screenshots.mjs
 
 This starts a throwaway localhost fixture server and headless Chrome in light mode at 2x, captures the wall,
 phone, sizes, paused state, menus, Edit, Adaptive Lighting, shutter slide and full sheet, and checks the tile
-alignment and tap/hold actions. It does not connect to devices or read any real names. The demonstration data
+alignment and tap/hold actions. It also captures the group picker, mobile menu, Wingman temperature, grid guides
+and notification settings (saved as `docs/images/notifications.png` by default). It does not connect to devices or read any real names. The demonstration data
 is in `Scripts/fixtures/widgets.js`.
 
 To take screenshots against a running throwaway bridge instead, `wall.png`, `phone.png` and `paused.png` can use `Scripts/docs-screenshots.mjs`, run against a throwaway bridge with real
@@ -340,16 +341,19 @@ node Scripts/docs-screenshots.mjs http://127.0.0.1:18582 ~/names.json
 
 `names.json`, kept out of the repository, maps each real name to a demonstration name (`"names"`) and overrides values
 that would look broken (`"values"`, by demonstration name and characteristic type, such as a sensor that was off). The
-script renders in light mode at 2x and rewrites the page's accessory data as it loads, never the page itself. The other
-images (sizes, menus, the sheet, a slide, Adaptive Lighting, Edit) are close-ups taken by hand in the same setup.
+script renders in light mode at 2x and rewrites the page's accessory data as it loads, never the page itself. The fixture script above also captures sizes, menus, the sheet, a slide, Adaptive Lighting and Edit without live devices.
 
 ## The HTTP API
 
 | Request | What it does |
 |---|---|
-| `GET /api/layout` | The wall: `{ order, sizes, defaults, grouping }`. |
-| `PUT /api/layout` | Keeps it, checked: ids in `order` and `sizes`, sizes `small`, `medium`, `large` or `xlarge`, `defaults` by kind (`climate`, `light`…), `grouping` `none`, `plugin` or `room` (the rooms of `/api/rooms`). |
+| `GET /api/layout` | The wall: `{ order, sizes, defaults, grouping, groups }`. |
+| `PUT /api/layout` | Keeps it, checked: ids in `order` and `sizes`, sizes `small`, `medium`, `large` or `xlarge`, `defaults` by kind (`climate`, `light`…), `grouping` `none`, `plugin` or `room` (the rooms of `/api/rooms`), and `groups` containing `{ id, name, members }`. |
 | `PUT /api/accessories/<id>/adaptive-lighting` | `{ "on": true }` resumes the Home app's last schedule, `false` turns it off; `service` picks the lightbulb when there are several. 409 with what to do when there is no schedule. |
+
+`PUT /api/accessories/<id>/natural-lighting` takes `{ "on": true, "timeZone": "Europe/Lisbon" }`,
+with an optional `service` to choose a lightbulb service. Use `on: false` to remove its schedule. This is
+Homeswift's schedule, not an API for enabling Apple Adaptive Lighting.
 
 In `/api/accessories`, a light with Adaptive Lighting has `adaptiveLighting: { active, resumable }` on its
 service, and an accessory of a paused plugin `paused: true`.
@@ -359,3 +363,5 @@ service, and an accessory of a paused plugin `paused: true`.
 Use **Create group** on Accessories, or in Edit mode drag a compatible accessory onto the center of another tile, hold briefly, and drop. Confirm the group name and members before saving. A group's menu lets you edit its members or ungroup them. Groups are dashboard controls, not new HomeKit accessories; member tiles return when ungrouped.
 
 Groups offer only shared writable controls for lights, switches/outlets, fans and window coverings. Mixed values are labeled, and partial failures identify the devices that could not be updated. Locks and alarm controls are excluded. Membership is saved in `ui-layout.json`. The **No Response** filter shows individual unavailable or paused accessories, including group members.
+
+![Accessory group picker with available and selected devices](images/widgets/group-picker.png)

@@ -106,7 +106,7 @@
           const high = Math.min(...targets.map(({ c }) => c.maxValue ?? (type === 'Hue' ? 360 : 100)));
           if (!isBool && low > high) return null;
           const input = el('input', isBool ? { type: 'checkbox', checked: Boolean(values[0]), disabled: editing } : { type: 'range', min: low, max: high, step: Math.max(...targets.map(({ c }) => c.minStep || 1)), value: values[0] ?? low, disabled: editing });
-          input.setAttribute('aria-label', type); if (isBool) input.indeterminate = mixed;
+          input.setAttribute('aria-label', HomeswiftI18n.message(type)); if (isBool) input.indeterminate = mixed;
           const state = el('span', { class: 'muted', text: mixed ? t('Mixed') : String(values[0] ?? '—') });
           input.addEventListener('change', async () => {
             input.disabled = true;
@@ -117,7 +117,7 @@
             result.textContent = failed.length ? t('Could not update: {names}', { names: failed.join(', ') }) : '';
             input.disabled = editing; input.blur(); draw();
           });
-          return el('label', {}, el('span', { text: type }), input, state);
+          return el('label', {}, el('span', { text: HomeswiftI18n.message(type) }), input, state);
         }).filter(Boolean));
         if (people.some((a) => !a)) result.textContent = t('Some group members are unavailable.');
       };
@@ -136,6 +136,10 @@
       const target = layout.groups.find((g) => g.id === b) || layout.groups.find((g) => g.id === a);
       const ids = [...new Set([...members(a), ...members(b)])];
       return edit(ids, target ? { ...target, members: ids } : null);
+    }, snapshot: (accessories) => {
+      const latest = new Map(accessories.map(a => [a.id, a]));
+      for (const [id, accessory] of byID) HomeswiftWidgets.reconcileAccessory(accessory, latest.get(id));
+      for (const item of cards) { if (!item.node.isConnected) cards.delete(item); else item.draw(); }
     }, event: (event) => {
       const a = byID.get(event.id); if (!a) return;
       for (const s of a.services) if ((s.subtype || s.type) === (event.subtype || event.service)) for (const c of s.characteristics) if (c.type === event.characteristic) c.value = event.value;

@@ -6,7 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-25
+
 ### Added
+
+- Dashboard accessory groups: create a group with an available/selected device picker and type filters, or drag
+  compatible tiles together in Edit mode. Shared controls update the members; ungrouping returns individual tiles.
+  Groups stay in Homeswift and do not create HomeKit accessories.
+- A No Response filter on Accessories, including unavailable group members.
+- Port availability checks in Settings and the HomeswiftUI form, including keyboard and stepper changes.
+- A public design-system explorer with production widgets, characteristic controls and demonstration fixtures.
 
 - Notification webhooks support Bearer and Basic authentication and custom headers, with masked credentials and header validation.
 
@@ -16,8 +25,24 @@ All notable changes to this project are documented here. The format follows
   user's time zone, paused by manual colour writes or external white-temperature changes. Leaves power and brightness alone.
 - Apple Home source filter with the Home app icon, accessory count and an accessible switch.
 
+### Changed
+
+- Mobile navigation uses a bottom-right menu with Settings and Account. Its floating hamburger button has a subtle glass effect, with an opaque fallback for accessibility preferences. Save bars leave room for it when they overlap.
+- Status customisation keeps switches and drag handles in its menu and applies layout changes without reloading.
+- Scenes use a visual builder with clearer removal actions, localised weekdays, and coloured brightness and
+  colour-temperature sliders. The empty state offers New scene directly.
+- Plugin cards have a denser layout and sorting. Notifications, logs, backups, audit history, Assistant setup and
+  HomeswiftUI settings have updated layouts and controls.
+- Restart uses an in-page confirmation and blocking overlay, then reconnects without a full-page reload.
+  Shutdown now logs its stages and has a 30-second fallback that replaces a stalled process.
+- Cached-accessory removal explains the effect on native and mirrored accessories before confirming.
+
 ### Fixed
 
+- Restart recovery retries get a fresh deadline. Reconnected pages refresh accessory values in place and preserve
+  newer live events, without losing layout, scroll position or unsaved forms.
+- Group-control labels and accessible names follow the selected language.
+- Button-shaped links in card footers keep their button appearance on hover and have an explicit keyboard focus ring.
 - Wingman lights show the latest reported colour temperature in kelvin instead of an information-only Adaptive
   Lighting sun button. Missing readings are not shown as a fabricated temperature; Apple Home keeps the schedule.
 
@@ -858,7 +883,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/mp-consulting/homeswift/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/mp-consulting/homeswift/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/mp-consulting/homeswift/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/mp-consulting/homeswift/compare/v0.7.0...v0.8.0

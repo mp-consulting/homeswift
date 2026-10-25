@@ -43,7 +43,7 @@ with a new code). More users are added on the **Users** page (see below).
   what needs attention today, from the day's warnings and errors and the accessories: **Write today's
   digest** streams it, the bridge keeps it for the day (`ai-digest.json`, owner-only), and the card's **⋯**
   writes it again; any user reads today's digest, an administrator writes it. **Customise this page**, at the bottom, opens the same pop-up menu as accessory actions, with switches to show or hide each part (overview, digest,
-  activity, bridges, system) and orders them; the layout is each user's own, on every browser.
+  activity, bridges, system) and drag handles on the left to reorder them. Changes apply immediately without a page reload; the layout is each user's own, on every browser.
   When GitHub has a newer release, a card under the summary says
   so, with its notes and how to upgrade this install: the `.spk` to download on a Synology NAS, the image tag
   to pull in Docker, `brew upgrade` or the tag to check out. The bridge asks GitHub's API a minute after it
@@ -55,7 +55,7 @@ with a new code). More users are added on the **Users** page (see below).
   sheet, the rest under More), identifies the accessory, shows its log, asks the Assistant about it, opens its
   plugin's settings (administrators), resumes a paused plugin, puts the accessory in a room, names it for these
   pages, adds it to the Quick Controls or hides it, and, for an accessory whose plugin records an Eve history
-  (temperature, humidity, power…), charts it over a day, a week or four weeks (**History**). **Edit** shows sizes and arrows on every widget and lets them be
+  (temperature, humidity, power…), charts it over a day, a week or four weeks (**History**). **Edit** shows grid guides, size controls and corner resize handles, and lets tiles be
   dragged into place; **One wall** (the default), **By room** (once there are rooms) or **By plugin**. The bridge keeps the layout in
   `ui-layout.json` next to config.json (`/api/layout`), the same for every user. Opening, unlocking and disarming
   are held; a shutter's tile slides; a light with Adaptive Lighting has a sun swatch that turns it off or resumes
@@ -65,6 +65,14 @@ with a new code). More users are added on the **Users** page (see below).
   camera's Setup Endpoints) are not shown, nor what only HomeKit uses. Temperatures show in the unit chosen on
   the Appearance page. [widgets.md](widgets.md) has it all, with
   screenshots and what a plugin does to get good widgets.
+- **Accessory groups**: **Create group** opens a two-column picker: available accessories on the left, selected
+  members on the right, with search and device-type filters. In Edit mode, hold a compatible tile over another
+  tile's centre and drop to start a group. Groups expose shared writable controls; they are not HomeKit accessories.
+  Their menu edits membership or ungroups the devices. **No Response** reveals unavailable individual members.
+  [The grouping guide](widgets.md#accessory-groups) describes supported devices and storage.
+- **Natural Lighting**: a light with writable colour temperature and no bridge Adaptive Lighting controller can
+  follow Homeswift's own daily schedule. It leaves power and brightness alone and pauses on manual colour changes.
+  Wingman reports the current white temperature in kelvin; it cannot confirm or enable Apple's Adaptive Lighting.
 - **Cameras** get a card of their own: the picture in 16:9 with the name, motion, the doorbell's last ring and
   recording over it, buttons to unmute, refresh and go full screen, and the camera's controls under it. While
   the card is on screen and the page visible, it plays the live feed muted (`GET /api/cameras/<id>/live`, fMP4
@@ -77,7 +85,7 @@ with a new code). More users are added on the **Users** page (see below).
   hides it. The wall then groups by room (**By room**, kept with the wall's layout);
   hidden accessories stay out unless **Show hidden** (`?hidden=1`). Accessories mirrored from another controller (the
   Home app's, through the Wingman plugin) carry a small house badge, sit in the room that controller gives them until
-  they are given one here, and get a filter of their own: **Only from Apple Home** (`?from=Apple%20Home`). The layout is the bridge's, shared by every
+  they are given one here, and get a filter of their own: the **Apple Home icon switch** (`?from=Apple%20Home`), with a count and explanatory tooltip. The layout is the bridge's, shared by every
   user, in `accessory-layout.json` next to config.json (owner-only; `/api/rooms`); the Home app never sees it, but the MCP
   tools do: `list_accessories` and `set_accessories` filter by these rooms. With the Assistant on, **Suggest
   rooms** asks it for rooms and clearer names for every accessory (`AssistantService.suggestOrganization`; the ids
@@ -314,6 +322,17 @@ HomeKit. A few changes still need a restart: the `bridge` block, the runtime's o
 `HomeswiftAiKit`) and child bridges (`_bridge`). The page says which, and its **Restart now** button
 does it. The process replaces itself with a fresh copy (same binary, arguments and PID), so
 launchd, systemd and `brew services` see nothing happen, and the page reloads once the bridge is back.
+The restart button opens an in-page confirmation. While the bridge restarts, a modal with a blurred backdrop
+blocks controls. The browser polls `/api/status`, then fades the overlay and reconnects the event stream without
+reloading the page. A failed recovery offers Try again. The CLI normally shuts down and uses `execv` to replace
+itself with the same arguments; a 30-second watchdog forces replacement if shutdown stalls. This fallback is not
+evidence that the underlying shutdown problem has been resolved. A failed `execv` exits with status 1, so recovery
+in that case depends on an external service manager.
+
+Settings checks a candidate HomeKit port before saving; an empty field selects an automatic port. The HomeswiftUI
+form also checks its listening address and port. These checks describe availability at the time of the probe;
+another process can claim the port before restart.
+
 Logins survive a restart: sessions are kept in `ui-sessions.json` next to config.json.
 
 ## Security
@@ -370,14 +389,16 @@ The UI is an installable web app: `manifest.webmanifest` (standalone, starting o
 and a maskable 512) and an `apple-touch-icon.png`, all served without a session like the other static files.
 Over HTTPS the page carries the touch icon inline: iOS fetches a home screen icon without the exception accepted for a
 self-signed certificate, and would show a letter instead.
-On a phone the sections are a tab bar at the bottom, within the thumb's reach, and Settings is in the account menu;
+On a phone a floating menu button at the bottom right opens the sections, including Settings and Account.
+The current section has a highlighted background. Save bars leave space for the button when they overlap;
 a card's ⋯ menu opens as a sheet from the bottom of the screen (a swipe down puts it away, as an accessory's
 sheet), and toolbars keep their glyphs (the Accessories page's
 grouping, the Assistant's sparkle) where a wide window also shows the words.
 
-In Safari, Share › Add to Home Screen; in Chrome, Install app. It opens full screen with the tab bar at the
-bottom; `/quick` makes a good first page to keep there (a manifest shortcut opens it). The service worker (`/sw.js`)
+In Safari, Share › Add to Home Screen; in Chrome, Install app. It opens full screen with the navigation menu within reach; `/quick` makes a good first page to keep there (a manifest shortcut opens it). The service worker (`/sw.js`)
 only shows notifications, nothing is kept offline: the bridge must be reachable to use it.
+
+![Mobile navigation with Settings and Account](images/widgets/mobile-navigation.png)
 
 ## For plugin authors
 
