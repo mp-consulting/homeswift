@@ -11,6 +11,7 @@ swift test "$@" > "$LOG" 2>&1 &
 TESTS=$!
 tail -n +1 -f "$LOG" &
 TAIL=$!
+trap 'kill "$TAIL" 2>/dev/null' EXIT
 
 last=-1
 idle=0
@@ -30,12 +31,10 @@ while kill -0 "$TESTS" 2>/dev/null; do
         done
         kill "$TESTS" 2>/dev/null
         pkill -f 'PackageTests[.]xctest' 2>/dev/null
-        kill "$TAIL" 2>/dev/null
         exit 1
     fi
 done
 wait "$TESTS"
 status=$?
 sleep 1
-kill "$TAIL" 2>/dev/null
 exit $status
