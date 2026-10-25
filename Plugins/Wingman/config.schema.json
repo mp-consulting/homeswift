@@ -1,0 +1,58 @@
+{
+  "pluginAlias": "Wingman",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "The Home app's accessories in Homeswift, through Homeswift Wingman on a Mac. Pair a Wingman on the plugin's page: it finds them on the network.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "required": true,
+        "default": "Wingman"
+      },
+      "devices": {
+        "title": "Paired Wingmen",
+        "description": "Written by the plugin's page when it pairs a Wingman.",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "title": "Wingman ID", "type": "string", "required": true },
+            "name": { "title": "Name", "type": "string" },
+            "host": { "title": "Address", "type": "string", "description": "Bonjour updates it when Wingman moves." },
+            "port": { "title": "Port", "type": "integer", "placeholder": 8619, "minimum": 1, "maximum": 65535 },
+            "token": { "title": "Token", "type": "string", "description": "From pairing." },
+            "fingerprint": { "title": "Certificate SHA-256", "type": "string", "description": "Pinned at pairing." }
+          }
+        }
+      },
+      "homes": {
+        "title": "Homes",
+        "description": "Only these homes, by name. Empty: every home.",
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "exclude": {
+        "title": "Leave out these accessories",
+        "description": "By name or HomeKit id.",
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "excludeBridges": {
+        "title": "Leave out the accessories of these bridges",
+        "description": "By the bridge's name in the Home app. Homeswift's own bridges are always left out.",
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "refreshMinutes": {
+        "title": "Read the whole home every (minutes)",
+        "description": "Names, rooms and new accessories. Value changes arrive at once.",
+        "type": "integer",
+        "placeholder": 10,
+        "minimum": 1
+      }
+    }
+  }
+}

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wingman</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+<style>
+  /* A card per paired Wingman on the UI's materials (its state as facts), the Wingmen on the network, and the
+     pairing panel: the certificate to compare, then the code. */
+  .wingman { display: grid; gap: 14px; align-content: start; animation: materialize var(--normal) var(--ease-out); }
+  .wingman.redrawn { animation: none; }
+  .wingman .note { margin: 0; }
+  .section-head .actions { margin-top: 0; }
+  .found { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+  .found:first-of-type { border-top: 0; }
+  .found .who { flex: 1; min-width: 180px; }
+  .add-box { margin-bottom: 14px; animation: materialize var(--normal) var(--ease-out); }
+  .add-box > p:first-child { margin-top: 0; font-size: 0.875rem; }
+  .add-form { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+  .add-form .field { flex: 1; min-width: 200px; margin: 0; }
+  .add-form .field.port { flex: 0 0 110px; min-width: 0; }
+  /* The pairing panel, under its row: a tinted inset of the list's card, arriving as a material. */
+  .pair {
+    display: grid; gap: 14px; margin: 4px 0 10px; padding: 16px; border-radius: 18px;
+    background: var(--material-thin); border: 1px solid var(--line); animation: materialize var(--normal) var(--ease-out);
+  }
+  .pair h3 { margin: 0; font-size: 1rem; letter-spacing: -0.01em; }
+  .pair .pair-steps { margin: 0; padding-left: 1.25em; font-size: 0.875rem; line-height: 1.55; }
+  .pair .status-line:empty { display: none; }
+  .facts.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .fact.warn b { color: var(--warn); }
+  .fingerprint { margin: 0; padding: 12px 14px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); display: grid; gap: 4px; }
+  .fingerprint code { font-size: 1.0625rem; font-weight: 600; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .pair-form { display: grid; gap: 12px; }
+  .pair-form .field { margin: 0; max-width: 360px; }
+  .code-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+  .code-row .field { flex: 0 1 240px; }
+  .code-input { font-size: 1.75rem; font-weight: 600; letter-spacing: 0.3em; text-align: center; font-variant-numeric: tabular-nums; max-width: 240px; }
+  .hint { margin: 14px 0 0; padding: 10px 14px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); font-size: 0.8125rem; }
+  @media (pointer: coarse) { .add-form input, .pair-form input { font-size: 16px; } .pair-form .code-input { font-size: 1.75rem; } }
+  @media (prefers-reduced-motion: reduce) { .wingman, .add-box, .pair { animation: none; } }
+</style>
+</head>
+<body>
+<header><a class="brand" href="/" aria-label="Homeswift" title="Homeswift"><img src="/icon.svg" class="logo" alt=""></a></header>
+<main>
+  <div class="page-head">
+    <span class="tile large tone-blue" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/></svg></span>
+    <div class="who">
+      <h1>Wingman</h1>
+      <p class="muted" data-i18n>The Home app's accessories in Homeswift, through Homeswift Wingman on a Mac. They join the Accessories page, moods, scenes and the Assistant, and stay out of HomeKit, which has them already.</p>
+    </div>
+  </div>
+  <div class="section-head"><h2 data-i18n>Your Wingmen</h2><div class="actions"><button id="discover-toggle" aria-expanded="false" aria-controls="discovered" data-i18n>On the network</button><button id="add-toggle" aria-expanded="false" aria-controls="add-wingman" data-i18n>Add by address</button></div></div>
+  <div id="discovered" class="card add-box hidden"></div>
+  <div id="add-wingman" class="card add-box hidden"></div>
+  <div id="wingmen" class="grid"></div>
+  <p id="assistant-hint" class="hint hidden">Tip: add a <strong>HomeswiftAiKit</strong> block to config.json to get the Assistant, which explains connection problems here.</p>
+</main>
+<script src="/common.js"></script>
+<script src="/plugin.js"></script>
+<script src="i18n.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

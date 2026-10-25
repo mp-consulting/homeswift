@@ -24,8 +24,8 @@ services and characteristics, react to writes from the Home app, set values when
 Homeswift takes care of pairing, encryption, Bonjour and keeping the accessory's identity across launches.
 
 It is also a Homebridge written in Swift: the `homeswift` bridge reads a Homebridge-style `config.json` and
-runs the plugins compiled into it, one small binary, no Node.js, no npm. Ten plugins come with it, from Elgato Key
-Lights to UniFi Protect cameras; [docs/plugins.md](docs/plugins.md) explains how to write or port one. Its web UI
+runs the plugins compiled into it, one small binary, no Node.js, no npm. Eleven plugins come with it, from Elgato Key
+Lights to UniFi Protect cameras, and Wingman, which brings in the Home app's own accessories through a Mac; [docs/plugins.md](docs/plugins.md) explains how to write or port one. Its web UI
 shows every accessory as a widget of its kind, on a wall you arrange.
 
 <p align="center">
@@ -165,6 +165,7 @@ over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (t
 | [Philips Ambilight TV](Plugins/PhilipsAmbilightTV) | `PhilipsAmbilightTV` | Philips Android TVs with Ambilight (JointSpace API, paired from the web UI) |
 | [UniFi Access](Plugins/UniFiAccess) | `UniFi Access` | UniFi Access hubs and readers: door locks, doorbells, sensors, followed through the controller's events |
 | [UniFi Protect](Plugins/UniFiProtect) | `UniFi Protect` | UniFi Protect cameras and doorbells (live video, HomeKit Secure Video), sensors, lights, chimes |
+| [Wingman](Plugins/Wingman) | `Wingman` | The Home app's accessories (Matter ones too) through [Homeswift Wingman](https://github.com/mp-consulting/homeswift-wingman) on a Mac: in the web UI, moods, scenes and MCP, never published to HomeKit again |
 
 ### In a container, on a NAS
 
