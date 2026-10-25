@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-25
+
 ### Added
 
 - A calm mood (candlelight, focus…) can be undone for 12 hours: **Undo** on the Scenes page, or `stop_mood`, puts
@@ -20,6 +22,18 @@ All notable changes to this project are documented here. The format follows
   badge on the Accessories page, which filters on them (**Only from Apple Home**). `CharacteristicType.known(uuid:)` and
   `ServiceType.known(uuid:)` find Homeswift's types by UUID.
 - The Accessories page shows No Response for an accessory whose device does not answer, and follows it as it changes.
+- `PluginContext.publishedSerialNumbers`: the serial numbers of every accessory Homeswift publishes, for a plugin that
+  reads another controller's view of the home.
+
+### Changed
+
+- Moods are drawn with small illustrations instead of gradients, on the Scenes page and on homeswift.dev.
+
+### Fixed
+
+- A WebSocket the peer resets (with frames still in flight) ends as a dropped connection, as one closed without a close
+  frame does, instead of with the raw I/O error: the plugins on it (Daikin Cloud and others) reconnect the same way
+  whichever of the two happens.
 
 ## [0.9.0] - 2026-10-25
 
@@ -829,7 +843,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/mp-consulting/homeswift/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/mp-consulting/homeswift/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/mp-consulting/homeswift/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/mp-consulting/homeswift/compare/v0.6.1...v0.7.0
