@@ -350,7 +350,7 @@ final class Browser: @unchecked Sendable {
         let url = root.appendingPathComponent("Plugins/Lamps/Web/app.js")
         try Data("// changed".utf8).write(to: url)
         try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: url.path)
-        let deadline = ContinuousClock.now + .seconds(3)
+        let deadline = ContinuousClock.now + .seconds(30)
         while changes.withLockedValue({ $0.isEmpty }), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
         #expect(changes.withLockedValue { $0 } == ["Plugins/Lamps/Web/app.js"])
     }

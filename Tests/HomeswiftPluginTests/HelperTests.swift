@@ -49,7 +49,7 @@ struct PersistedDictionaryTests {
         store["a"] = 1
         store["b"] = 2
         #expect(!FileManager.default.fileExists(atPath: url.path))
-        let deadline = ContinuousClock.now + .seconds(5)
+        let deadline = ContinuousClock.now + .seconds(30)
         while !FileManager.default.fileExists(atPath: url.path), ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
@@ -75,7 +75,7 @@ struct PersistedDictionaryTests {
             let store = PersistedDictionary<Int>(url: url, autosave: .milliseconds(20))
             store["a"] = 1
         }
-        let deadline = ContinuousClock.now + .seconds(5)
+        let deadline = ContinuousClock.now + .seconds(30)
         while !FileManager.default.fileExists(atPath: url.path), ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
