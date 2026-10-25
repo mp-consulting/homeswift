@@ -88,6 +88,17 @@ try{
   if(await evaluate("document.querySelectorAll('iframe').length"))throw Error("Public hosting blocks iframe previews");
   await shot("explorer", "body");
   if(await evaluate("document.querySelectorAll('.story-link').length")!==267)throw Error("Incomplete story navigation");
+  const checkBadges = async () => {
+    const sizes = await evaluate("[...document.querySelectorAll('#size-picker button')].map(n=>{const r=n.getBoundingClientRect();return [r.width,r.height]})");
+    if(sizes.length!==4 || sizes.some(([w,h])=>w<44||h<44||Math.abs(w-h)>.5))throw Error("Size badges need square 44px targets");
+  };
+  await checkBadges();
+  await evaluate("document.querySelector('.story-link[href=\"#widget/climate\"]').focus()");
+  await send("Input.dispatchKeyEvent",{type:"keyDown",key:"Enter",code:"Enter",windowsVirtualKeyCode:13});
+  await send("Input.dispatchKeyEvent",{type:"keyUp",key:"Enter",code:"Enter",windowsVirtualKeyCode:13});await sleep(100);
+  if(!await evaluate("document.activeElement.matches('.story-link[aria-current=page]')"))throw Error("Story navigation lost desktop keyboard focus");
+  const modes = await evaluate("[...document.querySelector('#knobs select[aria-label=\"Target Heater-Cooler State\"]').options].map(n=>n.textContent)");
+  if(modes.join(',')!=="Auto (0),Heat (1),Cool (2)")throw Error("Mode names or raw values missing");
   const expected={gate:"garage-door",alarm:"security-system",switch:"toggle"};
   for(const story of await evaluate("HomeswiftDesignStories.widgets.map(w=>w.id)")){
     await evaluate(`location.hash=${JSON.stringify(story)}`);await sleep(90);
@@ -115,6 +126,12 @@ try{
   await canvas("f.document.querySelector('.widget input[type=checkbox]').click()");await sleep(80);
   if(await evaluate("document.querySelector('#knobs input[aria-label=On]').checked"))throw Error("Production toggle did not update controls");
   if(!await evaluate("document.querySelector('#events').textContent.includes('On = false')"))throw Error("Write event missing");
+  if(!await evaluate("document.querySelector('#last-event').textContent.includes('On = false')"))throw Error("Live action feedback missing");
+  if(!await evaluate("document.querySelector('#preview').closest('.preview-card').contains(document.querySelector('#events'))"))throw Error("Events are detached from the canvas");
+  await evaluate("document.querySelector('#event-details summary').click()");
+  if(!await evaluate("document.querySelector('#event-details').open"))throw Error("Event log cannot open");
+  await evaluate("document.querySelector('#clear-events').click()");
+  if(await evaluate("document.querySelector('#event-count').textContent")!=="(0)")throw Error("Event count did not clear");
   await evaluate("(()=>{const n=document.querySelector('#knobs input[aria-label=Brightness]');n.value=43;n.dispatchEvent(new Event('change'));})()");await sleep(70);
   if(!await evaluate("document.querySelector('#fixture').textContent.includes('43')"))throw Error("Knob did not update");
   await evaluate("document.querySelector('#reset').click()");await sleep(70);
@@ -148,12 +165,27 @@ try{
   if(!await evaluate("document.querySelector('#story-browser').open"))throw Error("Mobile component browser cannot open");
   await evaluate("document.querySelector('.story-link[href=\"#widget/light\"]').click()");await sleep(100);
   if(await evaluate("document.querySelector('#story-browser').open"))throw Error("Mobile component browser did not collapse after selection");
+  if(await evaluate("document.activeElement.id")!=="story-title")throw Error("Mobile story selection did not focus the heading");
+  await evaluate("(()=>{const input=document.querySelector('#knobs input[aria-label=Brightness]');input.value=62;input.dispatchEvent(new Event('change'));})()");
+  // Choosing the already-selected story dismisses navigation without discarding edited demo values.
+  await evaluate("document.querySelector('#story-browser summary').click();document.querySelector('.story-link[aria-current=page]').click()");
+  if(await evaluate("document.querySelector('#story-browser').open") || await evaluate("document.activeElement.id")!=="story-title")throw Error("Current mobile story lost focus");
+  if(await evaluate("document.querySelector('#knobs input[aria-label=Brightness]').value")!=="62")throw Error("Selecting the current story discarded demo values");
+  await checkBadges();
+  if(!await evaluate("[...document.querySelectorAll('#knobs input:not([type=checkbox]),#knobs select,.preview-toolbar select,#search,#language')].every(n=>parseFloat(getComputedStyle(n).fontSize)>=16)"))throw Error("Mobile fields are smaller than 16px");
   if(await evaluate("document.documentElement.scrollWidth>innerWidth"))throw Error("Phone overflow");
   for(const width of [320,393,768,1120]) {
     await viewport(width,1000);await sleep(50);
     if(await evaluate("document.documentElement.scrollWidth>innerWidth"))throw Error(`Layout overflow at ${width}`);
     if(width<700 && await evaluate("document.querySelector('#preview').getBoundingClientRect().top > 550"))throw Error("Mobile preview below the fold");
   }
+  await viewport(393,1000);
+  await evaluate("document.documentElement.style.fontSize='200%'");await sleep(100);
+  if(await evaluate("parseFloat(getComputedStyle(document.querySelector('#search')).fontSize)")<32)throw Error("Explorer type does not scale");
+  if(await evaluate("document.documentElement.scrollWidth>innerWidth"))throw Error("Text enlargement causes page overflow");
+  await shot("large-text","body");
+  await evaluate("document.documentElement.style.fontSize=''");
+  console.log("PASS: keyboard focus, 44px targets, named modes, adjacent feedback and scalable mobile type");
   for(const lang of ["fr","es","pt"]){
     await navigate(`/design/?lang=${lang}#characteristic/brightness`,"#story-title");await sleep(150);
     const label=await evaluate("document.querySelector('#story-description').textContent");

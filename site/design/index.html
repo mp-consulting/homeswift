@@ -28,17 +28,20 @@
     </details>
   </aside>
   <main id="story" class="library-main" tabindex="-1">
-    <div class="story-heading"><div><p class="story-eyebrow" id="eyebrow"></p><h1 id="story-title"></h1><p id="story-description"></p></div><button id="copy-link" type="button" data-i18n>Copy link</button></div>
+    <div class="story-heading"><div><p class="story-eyebrow" id="eyebrow"></p><h1 id="story-title" tabindex="-1"></h1><p id="story-description"></p></div><button id="copy-link" type="button" data-i18n>Copy link</button></div>
     <section id="foundations" class="hidden"></section>
     <div id="component-story">
       <section class="preview-card" aria-label="Interactive preview" data-i18n>
-        <div class="preview-toolbar"><span class="preview-label" data-i18n>Canvas</span><div id="size-picker" role="group" aria-label="Widget size" data-i18n></div><label><span data-i18n>Viewport</span><select id="viewport"><option value="fit" data-i18n>Fit</option><option value="393">393 px</option><option value="768">768 px</option><option value="1120">1120 px</option></select></label><label><span data-i18n>State</span><select id="state"><option value="normal" data-i18n>Normal</option><option value="paused" data-i18n>Paused</option><option value="unavailable" data-i18n>No Response</option><option value="readonly" data-i18n>Read only</option></select></label><button id="reset" type="button" data-i18n>Reset</button></div>
+        <div class="preview-toolbar"><div id="size-picker" role="group" aria-label="Widget size" data-i18n></div><label><span data-i18n>Viewport</span><select id="viewport"><option value="fit" data-i18n>Fit</option><option value="393">393 px</option><option value="768">768 px</option><option value="1120">1120 px</option></select></label><label><span data-i18n>State</span><select id="state"><option value="normal" data-i18n>Normal</option><option value="paused" data-i18n>Paused</option><option value="unavailable" data-i18n>No Response</option><option value="readonly" data-i18n>Read only</option></select></label><button id="reset" type="button" data-i18n>Reset</button></div>
         <div class="preview-scroll"><div id="preview" role="region" aria-label="Interactive component preview" data-i18n><div id="view" class="accessory-walls"></div></div></div>
+        <div class="preview-feedback">
+          <p id="last-event" role="status" aria-live="polite"></p>
+          <details id="event-details" class="event-details"><summary><span data-i18n>Events</span> <span id="event-count">(0)</span></summary><div class="panel-heading"><button id="clear-events" type="button" data-i18n>Clear</button></div><ol id="events" class="event-log"></ol></details>
+        </div>
         <p class="preview-note" data-i18n>Demo values only. Interactions stay in this browser.</p>
       </section>
       <div class="story-panels"><section class="story-panel"><h2 data-i18n>Controls</h2><p class="panel-help" data-i18n>Change a value here, or interact with the component.</p><div id="knobs"></div></section><section class="story-panel"><h2 data-i18n>Design & behavior</h2><div id="rules"></div><h3 data-i18n>Contract</h3><dl id="metadata"></dl></section></div>
-      <section class="story-panel"><div class="panel-heading"><h2 data-i18n>Events</h2><button id="clear-events" type="button" data-i18n>Clear</button></div><ol id="events" class="event-log" aria-live="polite"></ol></section>
-      <section class="story-panel"><h2 data-i18n>Fixture</h2><p class="panel-help" data-i18n>The exact accessory data passed to the production renderer.</p><pre id="fixture"></pre></section>
+      <details class="story-panel fixture-panel"><summary data-i18n>Fixture</summary><p class="panel-help" data-i18n>The exact accessory data passed to the production renderer.</p><pre id="fixture"></pre></details>
     </div>
   </main>
 </div>

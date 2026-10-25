@@ -9,6 +9,8 @@ an account, a framework or a build step.
 ## Find and exercise a component
 
 On phones, **Browse components** opens the component list and selecting a story brings the preview back into view.
+Desktop navigation preserves keyboard focus on the selected story; mobile selection moves focus to its heading.
+The explorer uses scalable text, 44 px size targets and neutral surfaces around the production widget.
 The sidebar contains foundations, 14 widget stories, and one story for each of the 252 characteristics in
 `Definitions.swift`. Search by a characteristic's name, Swift identifier, service identifier or short UUID.
 Filters separate widgets, characteristics and foundations.
@@ -22,8 +24,9 @@ Filters separate widgets, characteristics and foundations.
 
 Use the canvas toolbar to choose a viewport or Fit, simulate a paused or unavailable accessory, or remove
 write permissions. The Controls panel simulates incoming readings even for read-only characteristics.
-Events records simulated readings, writes and failures; Fixture shows the data sent to the renderer. Reset
-restores the story's demonstration values. Theme and language apply to both the explorer and its canvas.
+The feedback line beneath the canvas shows the latest reading, write or failure; expand Events for its history.
+Enum controls show names alongside protocol values, such as Auto (0), Heat (1) and Cool (2). Expand Fixture to
+inspect the data sent to the renderer. Reset restores the story's demonstration values. Theme and language apply to both the explorer and its canvas.
 Copy link preserves the story, size, viewport, state and language, for example:
 
 - [Expanded light](https://homeswift.dev/design/?size=xlarge&viewport=393#widget/light)

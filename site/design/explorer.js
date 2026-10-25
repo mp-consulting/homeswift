@@ -21,6 +21,7 @@
   let current, accessory, size = sizes.includes(params.get("size")) ? params.get("size") : "xlarge", filter = "all";
   let theme = document.documentElement.dataset.theme;
   const inputs = new Map();
+  let fromNavigation = false;
   const language = HomeswiftI18n.language;
   const canvas = $("preview");
   const browser = $("story-browser"), mobile = matchMedia("(max-width: 700px)");
@@ -55,13 +56,23 @@
     button.onclick = () => { filter = key; for (const node of $("filters").children) node.setAttribute("aria-pressed", String(node === button)); navigation(); };
     $("filters").append(button);
   }
-  function event(text) {
+  function event(text, tone = "normal") {
     const list = $("events");
     if (list.dataset.empty) { list.replaceChildren(); delete list.dataset.empty; }
     list.prepend(el("li", { text: `${new Date().toLocaleTimeString(HomeswiftI18n.locale)}  ${text}` }));
     while (list.children.length > 30) list.lastElementChild.remove();
+    $("last-event").textContent = text; $("last-event").dataset.tone = tone;
+    $("event-count").textContent = `(${list.children.length.toLocaleString(HomeswiftI18n.locale)})`;
   }
-  function clearEvents() { $("events").replaceChildren(el("li", { text: t("Interact with the preview to see events.") })); $("events").dataset.empty = "true"; }
+  function clearEvents() {
+    const text = t("Interact with the preview to see events.");
+    $("events").replaceChildren(el("li", { text })); $("events").dataset.empty = "true";
+    $("last-event").textContent = text; delete $("last-event").dataset.tone; $("event-count").textContent = "(0)";
+  }
+  function enumValue(c, value) {
+    const name = HomeswiftWidgets.labelFor(c.type, value), raw = String(value);
+    return name && String(name) !== raw ? `${name} (${raw})` : raw;
+  }
   function fixture() { $("fixture").textContent = JSON.stringify(accessory, null, 2); }
   function fitCanvas() {
     const viewport = $("viewport").value;
@@ -93,7 +104,7 @@
       const label = el("label", { className: "knob" }, el("span", {}, el("span", { text: HomeswiftI18n.message(c.type) }), el("small", { text: `${service.name || service.type} · ${c.format}${c.unit ? ` · ${c.unit}` : ""}` })));
       let input;
       if (c.format === "bool") input = el("input", { type: "checkbox", checked: !!c.value });
-      else if (c.validValues) input = el("select", {}, c.validValues.map((value) => el("option", { value: String(value), text: String(value), selected: value === c.value })));
+      else if (c.validValues) input = el("select", {}, c.validValues.map((value) => el("option", { value: String(value), text: enumValue(c, value), selected: value === c.value })));
       else input = el("input", { type: c.format === "string" ? "text" : "number", value: c.value ?? "", ...(c.minValue !== undefined ? { min: c.minValue } : {}), ...(c.maxValue !== undefined ? { max: c.maxValue } : {}), ...(c.maxLength !== undefined && c.format === "string" ? { maxLength: c.maxLength } : {}), step: c.minStep || "any" });
       input.setAttribute("aria-label", c.type);
       input.onchange = () => {
@@ -132,7 +143,7 @@
       if (["lockTargetState","targetDoorState","securitySystemTargetState"].includes(c.id)) note("The generic inspector confirms security writes. Dedicated widgets use a hold for opening, unlocking and disarming.");
       pair("Identifier", c.id); pair("UUID", c.uuid); pair("Format", c.format); pair("Permissions", c.permissions.join(" · "));
       pair("Range", c.minValue !== undefined || c.maxValue !== undefined ? `${c.minValue ?? "—"} … ${c.maxValue ?? "—"}` : "—");
-      pair("Step", c.minStep ?? "—"); if (c.maxLength !== undefined) pair("Maximum length", c.maxLength); pair("Unit", c.unit ?? "—"); pair("Values", c.validValues?.join(", ") ?? "—");
+      pair("Step", c.minStep ?? "—"); if (c.maxLength !== undefined) pair("Maximum length", c.maxLength); pair("Unit", c.unit ?? "—"); pair("Values", c.validValues?.map(value => enumValue(c, value)).join(", ") ?? "—");
       pair("Services", c.services.map((id) => services.find((one) => one.id === id)?.name).join(", ") || "—");
       pair("Renderer", "HomeswiftWidgets.characteristicRow");
     }
@@ -149,6 +160,8 @@
     for (const [name,text] of [["Layout","Columns start at 176 px; phones keep two columns. Compact rows are at least 64 px with a 10 px gap. L and XL fit whole rows to their controls."],["Type & shape","System type, a 22 px accessory radius, 40 px summary icons, and a clear name/status hierarchy."],["Interaction","Keyboard focus, named controls, deliberate security actions and reduced-motion support are part of the component contract."]]) host.append(el("section",{className:"story-panel"},el("h2",{text:t(name)}),el("p",{className:"rule",text:t(text)})));
   }
   function select() {
+    const choseStory = fromNavigation || $("stories").contains(document.activeElement);
+    fromNavigation = false;
     if (mobile.matches) browser.open = false;
     let id; try { id = decodeURIComponent(location.hash.slice(1)); } catch { id = ""; }
     current = stories.find((one) => one.id === id) || widgets[0];
@@ -158,7 +171,14 @@
     $("foundations").classList.toggle("hidden", current.kind !== "foundation");
     $("component-story").classList.toggle("hidden", current.kind === "foundation");
     $("size-picker").classList.toggle("hidden", current.kind !== "widget");
-    clearEvents(); navigation();
+    clearEvents(); $("event-details").open = false;
+    $("copy-link").textContent = t("Copy link");
+    if (!$("stories").childElementCount) navigation();
+    else for (const link of $("stories").querySelectorAll(".story-link")) link.setAttribute("aria-current", link.hash === `#${current.id}` ? "page" : "false");
+    if (choseStory) {
+      if (mobile.matches) $("story-title").focus({ preventScroll: true });
+      window.scrollTo(0, 0);
+    }
     if (current.kind === "foundation") { accessory = null; tokens(); updateURL(); return; }
     accessory = current.kind === "widget" ? current.build() : rowStory(current.characteristic.id);
     knobs(); metadata(); send();
@@ -167,7 +187,7 @@
     const data = eventMessage.detail;
     if (data?.type === "design-size" && sizes.includes(data.size)) setSize(data.size);
     if (data?.type === "design-action") {
-      if (data.error) { event(`${t("Rejected")}: ${t(data.error)}`); return; }
+      if (data.error) { event(`${t("Rejected")}: ${t(data.error)}`, "error"); return; }
       for (const change of data.changes || []) {
         const target = inputs.get(`${change.service}/${change.characteristic}`);
         if (target) { target.characteristic.value = change.value; if (target.input.type === "checkbox") target.input.checked = !!change.value; else target.input.value = String(change.value); }
@@ -176,12 +196,25 @@
       fixture();
     }
   });
+  $("stories").addEventListener("click", (event) => {
+    const link = event.target.closest(".story-link"); if (!link) return;
+    fromNavigation = true;
+    if (link.hash === location.hash) {
+      fromNavigation = false;
+      if (mobile.matches) { browser.open = false; $("story-title").focus({ preventScroll: true }); }
+      window.scrollTo(0, 0);
+    }
+  });
   $("search").oninput = navigation;
   $("viewport").onchange = send; $("state").onchange = send;
   $("reset").onclick = select; $("clear-events").onclick = clearEvents;
   $("copy-link").onclick = async () => { updateURL(); try { await navigator.clipboard.writeText(location.href); $("copy-link").textContent = t("Copied"); } catch { event(location.href); } };
-  $("theme").onclick = () => { theme = theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = theme; localStorage.setItem("homeswift.design.theme",theme); $("theme").textContent = t(theme === "dark" ? "Light mode" : "Dark mode"); if(current.kind === "foundation")tokens(); };
-  $("theme").textContent = t(theme === "dark" ? "Light mode" : "Dark mode");
+  function updateThemeButton() {
+    const label = t(theme === "dark" ? "Light mode" : "Dark mode");
+    $("theme").textContent = label; $("theme").setAttribute("aria-label", label); $("theme").title = label;
+  }
+  $("theme").onclick = () => { theme = theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = theme; localStorage.setItem("homeswift.design.theme",theme); updateThemeButton(); if(current.kind === "foundation")tokens(); };
+  updateThemeButton();
   $("language").onchange = () => { const url = new URL(location.href); url.searchParams.set("lang",$("language").value); localStorage.setItem("homeswift.design.language",$("language").value); location.href=url; };
   addEventListener("hashchange", select);
   select();
