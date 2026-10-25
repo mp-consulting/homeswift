@@ -26,7 +26,10 @@ Homeswift takes care of pairing, encryption, Bonjour and keeping the accessory's
 It is also a Homebridge written in Swift: the `homeswift` bridge reads a Homebridge-style `config.json` and
 runs the plugins compiled into it, one small binary, no Node.js, no npm. Eleven plugins come with it, from Elgato Key
 Lights to UniFi Protect cameras, and Wingman, which brings in the Home app's own accessories through a Mac; [docs/plugins.md](docs/plugins.md) explains how to write or port one. Its web UI
-shows every accessory as a widget of its kind, on a wall you arrange.
+shows every accessory as a widget of its kind, on a wall you arrange. Drag and resize tiles, combine compatible
+lights, switches, fans or blinds into dashboard groups, and filter devices that do not respond. Lights with
+writable colour temperature can follow an opt-in Homeswift Natural Lighting schedule. See
+[the widget guide](docs/widgets.md) and [the web UI guide](docs/ui.md).
 
 <p align="center">
   <img src="docs/images/widgets/wall.png" width="820" alt="The web UI's Accessories page: air conditioners with their gauges, a purifier with its air readings, lights, shutters and switches as tiles, on one wall">

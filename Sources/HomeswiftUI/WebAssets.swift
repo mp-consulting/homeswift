@@ -898,6 +898,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (restartPolling) return;
     restartPolling = true;
     closeEvents();
+    const deadline = Date.now() + 90000;
     const overlay = showRestartOverlay();
     let wasOffline = false;
     let healthyReplies = 0;
@@ -913,7 +914,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           if (younger || (wasOffline && healthyReplies >= 2)) { await finishRestart(); return; }
         } else if (response.status === 401) { await finishRestart(); return; }
       } catch { wasOffline = true; healthyReplies = 0; } finally { clearTimeout(timeout); }
-      if (Date.now() - started < 90000) setTimeout(poll, 1000);
+      if (Date.now() < deadline) setTimeout(poll, 1000);
       else {
         restartPolling = false;
         overlay.querySelector(".spinner")?.remove();
@@ -1026,10 +1027,46 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   let events = null;
   function openEvents() {
     if (events) return;
-    events = new EventSource("/api/events");
-    events.addEventListener("accessory", (event) => applyAccessoryEvent(JSON.parse(event.data)));
-    events.addEventListener("log", (event) => appendLogLine(JSON.parse(event.data)));
-    events.addEventListener("asset", (event) => applyAsset(JSON.parse(event.data)));
+    const stream = events = new EventSource("/api/events");
+    let pending = null;
+    let generation = 0;
+    stream.addEventListener("accessory", (message) => {
+      const event = JSON.parse(message.data);
+      if (pending) pending.push(event);
+      else applyAccessoryEvent(event);
+    });
+    // Subscribe first, then read a snapshot: replay anything received during the read last.
+    // This also reconciles an automatic SSE reconnect without replacing forms or the wall.
+    stream.addEventListener("hello", async () => {
+      const current = ++generation;
+      pending = [];
+      try {
+        const accessories = await api("/api/accessories");
+        if (events !== stream || generation !== current) return;
+        HomeswiftWidgets.snapshot(accessories);
+        // Camera indicators use a separate view. Never replay a cached doorbell press.
+        for (const accessory of accessories) for (const service of accessory.services) {
+          for (const characteristic of service.characteristics) {
+            if (characteristic.type === "Motion Detected" ||
+                (service.type === "CameraRecordingManagement" && characteristic.type === "Active")) {
+              window.HomeswiftCamera?.event({ id: accessory.id, service: service.type,
+                characteristic: characteristic.type, value: characteristic.value });
+            }
+          }
+        }
+        if (location.pathname === "/accessories") window.homeswiftGroupSnapshot?.(accessories);
+      } catch (error) {
+        console.error("Could not refresh accessories after reconnect", error);
+      } finally {
+        if (events === stream && generation === current) {
+          const buffered = pending;
+          pending = null;
+          buffered.forEach(applyAccessoryEvent);
+        }
+      }
+    });
+    stream.addEventListener("log", (event) => appendLogLine(JSON.parse(event.data)));
+    stream.addEventListener("asset", (event) => applyAsset(JSON.parse(event.data)));
   }
   /// Live web files (HOMESWIFT_WEB_ROOT): a stylesheet swaps in place, keeping what is open on the page; a
   /// script or a page of the UI reloads. Plugins' files are their pages' business.
@@ -1505,6 +1542,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const groupingControls = HomeswiftGroups.mount({ all, layout,
       persist: async () => { clearTimeout(saveTimer); await api("/api/layout", { method: "PUT", body: layout }); }, refresh: render });
     window.homeswiftGroupEvent = groupingControls.event;
+    window.homeswiftGroupSnapshot = groupingControls.snapshot;
     const nodes = new Map();
     const actions = (accessory) => {
       const size = sizeOf(accessory), kind = kindOf(accessory);
@@ -6321,7 +6359,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           const high = Math.min(...targets.map(({ c }) => c.maxValue ?? (type === 'Hue' ? 360 : 100)));
           if (!isBool && low > high) return null;
           const input = el('input', isBool ? { type: 'checkbox', checked: Boolean(values[0]), disabled: editing } : { type: 'range', min: low, max: high, step: Math.max(...targets.map(({ c }) => c.minStep || 1)), value: values[0] ?? low, disabled: editing });
-          input.setAttribute('aria-label', type); if (isBool) input.indeterminate = mixed;
+          input.setAttribute('aria-label', HomeswiftI18n.message(type)); if (isBool) input.indeterminate = mixed;
           const state = el('span', { class: 'muted', text: mixed ? t('Mixed') : String(values[0] ?? '—') });
           input.addEventListener('change', async () => {
             input.disabled = true;
@@ -6332,7 +6370,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             result.textContent = failed.length ? t('Could not update: {names}', { names: failed.join(', ') }) : '';
             input.disabled = editing; input.blur(); draw();
           });
-          return el('label', {}, el('span', { text: type }), input, state);
+          return el('label', {}, el('span', { text: HomeswiftI18n.message(type) }), input, state);
         }).filter(Boolean));
         if (people.some((a) => !a)) result.textContent = t('Some group members are unavailable.');
       };
@@ -6351,6 +6389,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const target = layout.groups.find((g) => g.id === b) || layout.groups.find((g) => g.id === a);
       const ids = [...new Set([...members(a), ...members(b)])];
       return edit(ids, target ? { ...target, members: ids } : null);
+    }, snapshot: (accessories) => {
+      const latest = new Map(accessories.map(a => [a.id, a]));
+      for (const [id, accessory] of byID) HomeswiftWidgets.reconcileAccessory(accessory, latest.get(id));
+      for (const item of cards) { if (!item.node.isConnected) cards.delete(item); else item.draw(); }
     }, event: (event) => {
       const a = byID.get(event.id); if (!a) return;
       for (const s of a.services) if ((s.subtype || s.type) === (event.subtype || event.service)) for (const c of s.characteristics) if (c.type === event.characteristic) c.value = event.value;
@@ -14223,8 +14265,8 @@ button.add-button svg { width: 16px; height: 16px; fill: none; stroke: currentCo
 .section-head > div > .muted { display: block; margin-top: 2px; }
 .section-head .actions { margin: 0; }
 .section-head code, .account-form .help code { font-family: var(--mono); font-size: 0.92em; }
-.card-foot a { color: var(--accent-ink); text-decoration: none; font-weight: 500; }
-.card-foot a:hover { text-decoration: underline; }
+.card-foot a:not(.button) { color: var(--accent-ink); text-decoration: none; font-weight: 500; }
+.card-foot a:not(.button):hover { text-decoration: underline; }
 .strength-panel {
   padding: 16px 18px; border-radius: calc(var(--radius) - 6px);
   background: var(--material-thin); box-shadow: inset 0 0 0 1px var(--line);
@@ -14264,7 +14306,7 @@ button, a.button {
   background: var(--control); border: 1px solid var(--edge); box-shadow: inset 0 1px 0 var(--edge-light), var(--shadow-control);
   transition: transform var(--fast) var(--ease-out), box-shadow var(--fast) var(--ease-out), opacity var(--fast) var(--ease-out);
 }
-a.button { display: inline-block; text-decoration: none; line-height: normal; }
+a.button { display: inline-flex; align-items: center; justify-content: center; text-align: center; text-decoration: none; line-height: normal; }
 button:hover, a.button:hover { transform: translateY(-1px); }
 button:active:not(:disabled), a.button:active { transform: scale(0.97); transition-duration: 80ms; }
 button.primary, a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: rgba(255, 255, 255, 0.4); box-shadow: 0 8px 20px rgba(255, 122, 26, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
@@ -14272,7 +14314,7 @@ button.link { border: 0; background: none; box-shadow: none; color: var(--accent
 button.link:hover { transform: none; }
 button.link:active:not(:disabled) { transform: none; opacity: 0.6; }
 button:disabled { opacity: .5; cursor: default; transform: none; }
-button:focus-visible, nav a:focus-visible, summary:focus-visible, .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:focus-visible, a.button:focus-visible, nav a:focus-visible, summary:focus-visible, .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
 input, select, textarea {
   font: inherit; color: var(--text); width: 100%; padding: 8px 12px; border-radius: 14px;
   background: var(--field); border: 1px solid var(--edge); box-shadow: inset 0 1px 2px rgba(25, 34, 56, 0.08);
@@ -16324,7 +16366,7 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 }
 
 @media (max-width: 640px) {
-  .mobile-nav-toggle, .mobile-nav-toggle[aria-expanded="true"] { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border: 1px solid var(--edge-light); box-shadow: 0 6px 22px rgba(0,0,0,.28), 0 0 0 3px var(--material-solid); }
+  .mobile-nav-toggle, .mobile-nav-toggle[aria-expanded="true"] { backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%); background: linear-gradient(180deg, color-mix(in srgb, var(--accent-fill-top) 72%, transparent), color-mix(in srgb, var(--accent-fill) 72%, transparent)); color: var(--accent-text); border: 1px solid var(--edge-light); box-shadow: 0 6px 22px rgba(0,0,0,.28), 0 0 0 3px var(--material-solid); }
   .mobile-nav-toggle svg { stroke-width: 2.2; }
   .mobile-nav-account { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 10px 12px; margin-top: 0; border-radius: 14px; color: var(--muted); background: transparent; border: 0; box-shadow: none; text-align: start; font-size: .875rem; font-weight: 600; }
   .mobile-nav-account svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -16355,6 +16397,10 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .port-stepper-buttons button { display: grid; place-items: center; min-height: 0; padding: 0; border: 0; border-radius: 6px; background: var(--material-thin); color: var(--muted); box-shadow: none; }
 .port-stepper-buttons button:hover { transform: none; background: var(--material-regular); color: var(--accent-ink); }
 .port-stepper-buttons svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .mobile-nav-toggle, .mobile-nav-toggle[aria-expanded="true"] { background: var(--accent-fill); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
 
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
@@ -16598,6 +16644,33 @@ self.addEventListener("notificationclick", (event) => {
       const target = owner && owner.characteristics.find((c) => c.type === characteristic);
       if (!target) continue;
       target.value = value;
+      ctx.paint();
+    }
+  }
+
+  // Keep characteristic objects: controls capture them when the card is built.
+  function reconcileAccessory(accessory, latest) {
+    accessory.unavailable = !latest || Boolean(latest.unavailable);
+    if (!latest) return;
+    accessory.paused = Boolean(latest.paused);
+    accessory.naturalLighting = latest.naturalLighting || {};
+    for (const service of accessory.services) {
+      const fresh = latest.services.find(s => serviceKey(s) === serviceKey(service));
+      if (!fresh) continue;
+      service.adaptiveLighting = fresh.adaptiveLighting;
+      for (const characteristic of service.characteristics) {
+        const value = fresh.characteristics.find(c => c.type === characteristic.type);
+        if (value) characteristic.value = value.value;
+      }
+    }
+  }
+
+  function snapshot(accessories) {
+    sweep();
+    const byID = new Map(accessories.map(a => [a.id, a]));
+    for (const ctx of cards) {
+      if (!ctx.node?.isConnected) continue;
+      reconcileAccessory(ctx.accessory, byID.get(ctx.accessory.id));
       ctx.paint();
     }
   }
@@ -18340,7 +18413,7 @@ self.addEventListener("notificationclick", (event) => {
   for (const node of expandedIn(view)) watchExpanded(node);
 
   window.HomeswiftWidgets = {
-    card, open, kindOf, sizes, event, listen, describeModel, labelFor, enumLabels,
+    card, open, kindOf, sizes, event, snapshot, reconcileAccessory, listen, describeModel, labelFor, enumLabels,
     /// The same fallback characteristic row used under All controls, for live documentation and plugin pages.
     characteristicRow(accessory, service, characteristic) {
       const ctx = context(accessory);

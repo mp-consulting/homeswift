@@ -19,7 +19,7 @@ const html = `<!doctype html><html lang="en"><meta charset="utf-8">
 .accessory-walls{width:100%}.page-head{margin-bottom:20px}h2{font-size:20px;margin:28px 0 12px}.wall{margin-bottom:30px}</style>
 <body><div id="app"><main id="view" class="accessory-walls"></main></div>
 <script src="/common.js"></script><script src="/remote.js"></script>
-<script src="/widgets.js"></script><script src="/preview.js"></script></body></html>`;
+<script src="/widgets.js"></script><script src="/groups.js"></script><script src="/home.js"></script><script src="/preview.js"></script></body></html>`;
 const writes = [];
 const server = createServer((request, response) => {
   try {
@@ -100,7 +100,7 @@ try {
     const { data } = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: selector !== ".menu", clip });
     // Extra visual checks stay temporary unless the caller requested a preview directory.
     const directory = !process.argv[2] && (name.startsWith("site-") || name === "phone-dark" || name === "menu-phone") ? profile : out;
-    writeFileSync(join(directory, `${name}.png`), Buffer.from(data, "base64"));
+    writeFileSync(!process.argv[2] && name === "notifications" ? join(root, "docs/images/notifications.png") : join(directory, `${name}.png`), Buffer.from(data, "base64"));
     console.log(`shot ${name}: ${Math.round(clip.width)} × ${Math.round(clip.height)}`);
   };
   await send("Page.enable");
@@ -152,6 +152,41 @@ try {
     await open(mode);
     await shot(mode, mode === "sheet" ? "dialog" : mode === "adaptive" ? ".widget" : "main");
   }
+  await open("wall");
+  await evaluate(`(() => {
+    const a = structuredClone(previewAccessories.find(a => a.id === 'pendant'));
+    a.mirroredFrom = 'Apple Home';
+    document.querySelector('main').replaceChildren(HomeswiftWidgets.card(a, {size:'xlarge', actions:()=>[]}));
+  })()`);
+  await shot("wingman-adaptive", ".widget");
+  await open("edit");
+  await evaluate("document.querySelectorAll('.widget').forEach(n=>n.append(HomeswiftCommon.el('button',{class:'resize-handle',text:'◢','aria-label':'Resize'})))");
+  await shot("grid-editing");
+  await open("wall");
+  await evaluate(`(async () => {
+    delete window.PushManager;
+    const settings = {
+      channels: Object.fromEntries(['webhook','ntfy','pushover','telegram','browser'].map(k=>[k,{enabled:false}])),
+      subscriptions: [], dailyDigestTime: '08:00', assistant: false,
+      events: [['bridgeStarted','Homeswift started'],['bridgeStopped','Homeswift stopped'],['pluginError','Plugin error'],['accessoryOffline','Accessory not responding'],['automationFailed','Automation failed'],['backupFailed','Backup failed'],['dailyDigest','Daily digest']].map(([name,label])=>({name,label,enabled:name!=='dailyDigest'}))
+    };
+    const context = {views:{}, api:async()=>settings, show:(main,...nodes)=>main.replaceChildren(...nodes),
+      pageHead:(title,subtitle)=>HomeswiftCommon.el('div',{class:'page-head'},HomeswiftCommon.el('h1',{text:title}),HomeswiftCommon.el('p',{text:subtitle}))};
+    HomeswiftHome.install(context);
+    await context.views.notifications(document.querySelector('main'));
+  })()`);
+  await shot("notifications");
+  await open("wall");
+  await evaluate(`(() => {
+    const layout = {groups: []};
+    window.releaseGroups = HomeswiftGroups.mount({all: previewAccessories, layout, persist: async () => {}, refresh: () => {}});
+    releaseGroups.edit(['spots', 'pendant']);
+  })()`);
+  await shot("group-picker", "dialog");
+  await open("phone", 393);
+  await viewport(393, 852);
+  await evaluate("HomeswiftCommon.tabBar({active:'/accessories'}); document.querySelector('.mobile-nav-toggle').click()");
+  await shot("mobile-navigation", ".mobile-nav-panel");
   await open("wall");
   await evaluate("document.querySelector('[data-id=pendant] .menu-button').click()");
   const badges = await evaluate("[...document.querySelectorAll('.menu-choice-badge')].map(node => ({label:node.textContent,checked:node.getAttribute('aria-checked'),width:node.offsetWidth,height:node.offsetHeight}))");

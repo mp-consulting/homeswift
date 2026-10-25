@@ -34,7 +34,7 @@ Copy link preserves the story, size, viewport, state and language, for example:
 - [Protocol-only field](https://homeswift.dev/design/#characteristic/pairSetup)
 - [Foundations](https://homeswift.dev/design/#foundations)
 
-<img src="images/design-system/phone.png" width="320" alt="WebKit at iPhone width: the component browser is collapsed and the interactive light is visible">
+<img src="images/design-system/phone.png" width="320" alt="The explorer at phone width: the component browser is collapsed and the interactive light is visible">
 
 ## Component rules
 

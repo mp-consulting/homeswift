@@ -250,6 +250,7 @@
     if (restartPolling) return;
     restartPolling = true;
     closeEvents();
+    const deadline = Date.now() + 90000;
     const overlay = showRestartOverlay();
     let wasOffline = false;
     let healthyReplies = 0;
@@ -265,7 +266,7 @@
           if (younger || (wasOffline && healthyReplies >= 2)) { await finishRestart(); return; }
         } else if (response.status === 401) { await finishRestart(); return; }
       } catch { wasOffline = true; healthyReplies = 0; } finally { clearTimeout(timeout); }
-      if (Date.now() - started < 90000) setTimeout(poll, 1000);
+      if (Date.now() < deadline) setTimeout(poll, 1000);
       else {
         restartPolling = false;
         overlay.querySelector(".spinner")?.remove();
@@ -378,10 +379,46 @@
   let events = null;
   function openEvents() {
     if (events) return;
-    events = new EventSource("/api/events");
-    events.addEventListener("accessory", (event) => applyAccessoryEvent(JSON.parse(event.data)));
-    events.addEventListener("log", (event) => appendLogLine(JSON.parse(event.data)));
-    events.addEventListener("asset", (event) => applyAsset(JSON.parse(event.data)));
+    const stream = events = new EventSource("/api/events");
+    let pending = null;
+    let generation = 0;
+    stream.addEventListener("accessory", (message) => {
+      const event = JSON.parse(message.data);
+      if (pending) pending.push(event);
+      else applyAccessoryEvent(event);
+    });
+    // Subscribe first, then read a snapshot: replay anything received during the read last.
+    // This also reconciles an automatic SSE reconnect without replacing forms or the wall.
+    stream.addEventListener("hello", async () => {
+      const current = ++generation;
+      pending = [];
+      try {
+        const accessories = await api("/api/accessories");
+        if (events !== stream || generation !== current) return;
+        HomeswiftWidgets.snapshot(accessories);
+        // Camera indicators use a separate view. Never replay a cached doorbell press.
+        for (const accessory of accessories) for (const service of accessory.services) {
+          for (const characteristic of service.characteristics) {
+            if (characteristic.type === "Motion Detected" ||
+                (service.type === "CameraRecordingManagement" && characteristic.type === "Active")) {
+              window.HomeswiftCamera?.event({ id: accessory.id, service: service.type,
+                characteristic: characteristic.type, value: characteristic.value });
+            }
+          }
+        }
+        if (location.pathname === "/accessories") window.homeswiftGroupSnapshot?.(accessories);
+      } catch (error) {
+        console.error("Could not refresh accessories after reconnect", error);
+      } finally {
+        if (events === stream && generation === current) {
+          const buffered = pending;
+          pending = null;
+          buffered.forEach(applyAccessoryEvent);
+        }
+      }
+    });
+    stream.addEventListener("log", (event) => appendLogLine(JSON.parse(event.data)));
+    stream.addEventListener("asset", (event) => applyAsset(JSON.parse(event.data)));
   }
   /// Live web files (HOMESWIFT_WEB_ROOT): a stylesheet swaps in place, keeping what is open on the page; a
   /// script or a page of the UI reloads. Plugins' files are their pages' business.
@@ -857,6 +894,7 @@
     const groupingControls = HomeswiftGroups.mount({ all, layout,
       persist: async () => { clearTimeout(saveTimer); await api("/api/layout", { method: "PUT", body: layout }); }, refresh: render });
     window.homeswiftGroupEvent = groupingControls.event;
+    window.homeswiftGroupSnapshot = groupingControls.snapshot;
     const nodes = new Map();
     const actions = (accessory) => {
       const size = sizeOf(accessory), kind = kindOf(accessory);

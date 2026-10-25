@@ -5,8 +5,8 @@ a menu bar app on a Mac that reads Apple Home with HomeKit (which exists on the 
 serves it over TLS to the bridges paired with it. Homeswift can run anywhere, a Synology or a Linux container
 included: it reaches Wingman over the network.
 
-The accessories join the web UI's Accessories page (in Apple Home's rooms, with a house badge, and **Only from Apple
-Home** to see them alone), moods, scenes, automations and the MCP tools. Matter accessories that Homeswift cannot
+The accessories join the web UI's Accessories page (in Apple Home's rooms, with a house badge, and the **Apple Home icon switch**
+to see them alone), moods, scenes, automations and the MCP tools. Matter accessories that Homeswift cannot
 reach itself (Hue, IKEA) come too. They are **never published to HomeKit again**: the Home app has them already
 (`Accessory.mirroredFrom`, docs/plugins.md). Homeswift's own accessories, which Apple Home lists as well, are left out.
 
@@ -61,6 +61,13 @@ reachable shows No Response until it reports again. A Wingman that forgot the br
 
 The MCP tools are `Wingman_list_wingmen`, `Wingman_discover` and `Wingman_pair`.
 
+## Dashboard controls
+
+Wingman accessories can join [dashboard groups](../../docs/widgets.md#accessory-groups) with compatible native
+accessories. Only controls shared by every member appear; a group does not create another HomeKit accessory.
+Use No Response to find unavailable members. Removing a mirrored cached entry does not delete its device from
+Apple Home: the next Wingman discovery can bring it back. Use `exclude` to keep it out of Homeswift.
+
 ## Limits
 
 - Apple Adaptive Lighting remains managed in Apple Home. A separate **Homeswift Natural Lighting** sun toggle
@@ -72,4 +79,4 @@ The MCP tools are `Wingman_list_wingmen`, `Wingman_discover` and `Wingman_pair`.
   last written.
 
 Maintained by @mp-consulting. Tested against a fake Wingman (`Tests/FakeWingman.swift`) and, end to end, against a
-stand-in of Wingman's API over TLS and Bonjour; not yet against Wingman on a signed build.
+stand-in of Wingman's API over TLS and Bonjour. Local signed-build testing is environment-specific; the automated tests do not require an Apple Home account.

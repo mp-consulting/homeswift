@@ -22,6 +22,11 @@ jobs:
         run: |
           node Scripts/site-languages.mjs --check
           node Scripts/design-system.mjs --check
+      - name: Check browser control regressions
+        run: |
+          node Scripts/test-reconnect.mjs
+          node Scripts/test-accessory-groups.mjs
+          node Scripts/test-adaptive-indicator.mjs
 
   macos:
     runs-on: macos-26
