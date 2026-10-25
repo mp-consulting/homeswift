@@ -938,18 +938,18 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chips:empty { display: none; }
 .widget .chip { font-size: 0.8125rem; padding: 6px 12px; transition: background-color var(--normal) var(--ease-out), color var(--normal) var(--ease-out), transform var(--fast) var(--ease-out); }
-.widget .chip[aria-pressed="true"] { background: var(--accent-fill); border-color: transparent; color: var(--accent-text); }
+.widget .chip[aria-pressed="true"], .widget .chip.external-active { background: var(--accent-fill); border-color: transparent; color: var(--accent-text); }
 .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
 .swatches.grid { display: grid; grid-template-columns: repeat(4, 30px); gap: 10px; }
 /* Adaptive Lighting: the day's whites, a sun on them; dimmed until the Home app has sent a schedule to resume. */
 .widget .swatch.adaptive { display: grid; place-items: center; color: #5c3b00; background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); }
 .widget .swatch.adaptive svg, .widget .round.adaptive svg, .adaptive-chip svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .size-large .swatch.adaptive svg { width: 13px; height: 13px; }
-.widget .round.adaptive[aria-pressed="true"] { background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); color: #5c3b00; border-color: transparent; }
+.widget .round.adaptive[aria-pressed="true"], .widget .round.adaptive.external-active { background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); color: #5c3b00; border-color: transparent; }
 .widget .adaptive-chip { display: inline-flex; align-items: center; gap: 6px; }
 .widget .adaptive.unset { opacity: 0.55; }
 .widget .swatch { width: 30px; height: 30px; padding: 0; border-radius: 50%; background: var(--swatch); border: 2px solid var(--edge); }
-.widget .swatch[aria-checked="true"] { outline: 2px solid var(--text); outline-offset: 1px; }
+.widget .swatch[aria-checked="true"], .widget .swatch.external-active { outline: 2px solid var(--text); outline-offset: 1px; }
 /* Room for that ring: a box that clips (a fixed widget's body) would cut it. */
 .widget .swatches { padding: 3px; }
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; background: var(--material-thin); border: 1px solid var(--edge); }

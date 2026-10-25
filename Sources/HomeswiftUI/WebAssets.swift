@@ -6487,6 +6487,9 @@ enum WebAssets {
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Adaptive Lighting: status unavailable; check in Apple Home": "Iluminación adaptativa: estado no disponible; compruébalo en Casa",
+  "Adaptive Lighting: on; managed in Apple Home": "Iluminación adaptativa: activada; gestionada en Casa",
+  "Adaptive Lighting: off; managed in Apple Home": "Iluminación adaptativa: desactivada; gestionada en Casa",
   "-100… or @channel": "-100… o @canal",
   "\"{0}\" is in several caches; pass cacheFile ({1})": "\"{0}\" está en varias cachés; indica cacheFile ({1})",
   "(done)": "(hecho)",
@@ -8326,6 +8329,9 @@ HomeswiftI18n.add("es", {
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "Adaptive Lighting: status unavailable; check in Apple Home": "Éclairage adaptatif : état indisponible ; vérifiez dans Maison",
+  "Adaptive Lighting: on; managed in Apple Home": "Éclairage adaptatif : activé ; géré dans Maison",
+  "Adaptive Lighting: off; managed in Apple Home": "Éclairage adaptatif : désactivé ; géré dans Maison",
   "-100… or @channel": "-100… ou @canal",
   "\"{0}\" is in several caches; pass cacheFile ({1})": "« {0} » figure dans plusieurs caches ; indiquez cacheFile ({1})",
   "(done)": "(terminé)",
@@ -10165,6 +10171,9 @@ HomeswiftI18n.add("fr", {
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "Adaptive Lighting: status unavailable; check in Apple Home": "Iluminação adaptativa: estado indisponível; consulte a app Casa",
+  "Adaptive Lighting: on; managed in Apple Home": "Iluminação adaptativa: ativada; gerida na app Casa",
+  "Adaptive Lighting: off; managed in Apple Home": "Iluminação adaptativa: desativada; gerida na app Casa",
   "-100… or @channel": "-100… ou @canal",
   "\"{0}\" is in several caches; pass cacheFile ({1})": "«{0}» está em várias caches; indique cacheFile ({1})",
   "(done)": "(concluído)",
@@ -13721,18 +13730,18 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chips:empty { display: none; }
 .widget .chip { font-size: 0.8125rem; padding: 6px 12px; transition: background-color var(--normal) var(--ease-out), color var(--normal) var(--ease-out), transform var(--fast) var(--ease-out); }
-.widget .chip[aria-pressed="true"] { background: var(--accent-fill); border-color: transparent; color: var(--accent-text); }
+.widget .chip[aria-pressed="true"], .widget .chip.external-active { background: var(--accent-fill); border-color: transparent; color: var(--accent-text); }
 .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
 .swatches.grid { display: grid; grid-template-columns: repeat(4, 30px); gap: 10px; }
 /* Adaptive Lighting: the day's whites, a sun on them; dimmed until the Home app has sent a schedule to resume. */
 .widget .swatch.adaptive { display: grid; place-items: center; color: #5c3b00; background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); }
 .widget .swatch.adaptive svg, .widget .round.adaptive svg, .adaptive-chip svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .size-large .swatch.adaptive svg { width: 13px; height: 13px; }
-.widget .round.adaptive[aria-pressed="true"] { background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); color: #5c3b00; border-color: transparent; }
+.widget .round.adaptive[aria-pressed="true"], .widget .round.adaptive.external-active { background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); color: #5c3b00; border-color: transparent; }
 .widget .adaptive-chip { display: inline-flex; align-items: center; gap: 6px; }
 .widget .adaptive.unset { opacity: 0.55; }
 .widget .swatch { width: 30px; height: 30px; padding: 0; border-radius: 50%; background: var(--swatch); border: 2px solid var(--edge); }
-.widget .swatch[aria-checked="true"] { outline: 2px solid var(--text); outline-offset: 1px; }
+.widget .swatch[aria-checked="true"], .widget .swatch.external-active { outline: 2px solid var(--text); outline-offset: 1px; }
 /* Room for that ring: a box that clips (a fixed widget's body) would cut it. */
 .widget .swatches { padding: 3px; }
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; background: var(--material-thin); border: 1px solid var(--edge); }
@@ -15403,9 +15412,13 @@ self.addEventListener("notificationclick", (event) => {
   function lightParts(ctx, service) {
     const brightness = ctx.take(service, "Brightness"), hue = ctx.take(service, "Hue"), saturation = ctx.take(service, "Saturation");
     const temperature = ctx.take(service, "Color Temperature");
-    // Adaptive Lighting (a controller on the bridge): on while a schedule runs, which its transition count says.
+    // Apple Home owns mirrored schedules. A missing transition count means unknown, not off.
     const transitions = ctx.char(service, "Characteristic Value Active Transition Count");
-    const adaptive = service.adaptiveLighting ? { resumable: !!service.adaptiveLighting.resumable } : null;
+    const externalAdaptive = ctx.accessory.mirroredFrom === "Apple Home" && !!temperature && !!brightness;
+    const adaptive = service.adaptiveLighting ? { resumable: !!service.adaptiveLighting.resumable } : externalAdaptive ? { external: true } : null;
+    const externalLabel = () => transitions?.value == null
+      ? t("Adaptive Lighting: status unavailable; check in Apple Home")
+      : numberOf(transitions) > 0 ? t("Adaptive Lighting: on; managed in Apple Home") : t("Adaptive Lighting: off; managed in Apple Home");
     const adaptiveOn = () => !!adaptive && numberOf(transitions) > 0;
     const setAdaptive = async (on) => {
       const before = transitions?.value;
@@ -15426,8 +15439,20 @@ self.addEventListener("notificationclick", (event) => {
       const node = kind === "chip"
         ? el("button", { type: "button", class: "chip adaptive-chip", "aria-pressed": "false" }, icon("sun"), el("span", { text: t("Adaptive") }))
         : el("button", { type: "button", class: kind === "swatch" ? "swatch adaptive" : "round adaptive", role: kind === "swatch" ? "radio" : null, "aria-label": label, title: label }, icon("sun"));
-      node.addEventListener("click", () => setAdaptive(!adaptiveOn()));
+      // Keep the information button focusable and tappable, but never write a mirrored schedule.
+      if (adaptive.external) {
+        node.removeAttribute("role");
+        node.removeAttribute("aria-pressed");
+        node.addEventListener("click", () => ctx.flash(externalLabel()));
+      } else node.addEventListener("click", () => setAdaptive(!adaptiveOn()));
       ctx.watch(() => {
+        if (adaptive.external) {
+          node.setAttribute("aria-label", externalLabel());
+          node.title = externalLabel();
+          node.classList.toggle("unset", transitions?.value == null);
+          node.classList.toggle("external-active", adaptiveOn());
+          return;
+        }
         node.setAttribute(kind === "swatch" ? "aria-checked" : "aria-pressed", String(adaptiveOn()));
         node.classList.toggle("unset", !adaptive.resumable && !adaptiveOn());
         node.title = adaptiveOn() ? t("Adaptive Lighting: on") : adaptive.resumable ? t("Adaptive Lighting: resume the Home app's schedule") : t("Adaptive Lighting: turn it on once in the Home app");

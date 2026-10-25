@@ -78,6 +78,12 @@ widget shows. An accessory no widget knows gets those rows, so nothing a plugin 
   times of day. A light whose Adaptive Lighting was never turned on in the Home app says so when the swatch is
   pressed. Picking a colour or a white turns it off, as in the Home app.
 
+  For Apple Home lights mirrored through Wingman, the sun is an information button: manage the schedule in Apple
+  Home. Without an exposed transition count, its status is explicitly unavailable, not off. Colour-temperature
+  support alone does not prove Adaptive Lighting support.
+
+  ![An Apple Home light with an Adaptive Lighting information button](images/widgets/wingman-adaptive.png)
+
   ![A light with Adaptive Lighting on](images/widgets/adaptive.png)
 
 - **Security.** Opening a gate or a garage door, unlocking a lock, turning an alarm off, and turning on a switch a

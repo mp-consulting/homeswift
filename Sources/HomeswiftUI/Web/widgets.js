@@ -612,9 +612,13 @@
   function lightParts(ctx, service) {
     const brightness = ctx.take(service, "Brightness"), hue = ctx.take(service, "Hue"), saturation = ctx.take(service, "Saturation");
     const temperature = ctx.take(service, "Color Temperature");
-    // Adaptive Lighting (a controller on the bridge): on while a schedule runs, which its transition count says.
+    // Apple Home owns mirrored schedules. A missing transition count means unknown, not off.
     const transitions = ctx.char(service, "Characteristic Value Active Transition Count");
-    const adaptive = service.adaptiveLighting ? { resumable: !!service.adaptiveLighting.resumable } : null;
+    const externalAdaptive = ctx.accessory.mirroredFrom === "Apple Home" && !!temperature && !!brightness;
+    const adaptive = service.adaptiveLighting ? { resumable: !!service.adaptiveLighting.resumable } : externalAdaptive ? { external: true } : null;
+    const externalLabel = () => transitions?.value == null
+      ? t("Adaptive Lighting: status unavailable; check in Apple Home")
+      : numberOf(transitions) > 0 ? t("Adaptive Lighting: on; managed in Apple Home") : t("Adaptive Lighting: off; managed in Apple Home");
     const adaptiveOn = () => !!adaptive && numberOf(transitions) > 0;
     const setAdaptive = async (on) => {
       const before = transitions?.value;
@@ -635,8 +639,20 @@
       const node = kind === "chip"
         ? el("button", { type: "button", class: "chip adaptive-chip", "aria-pressed": "false" }, icon("sun"), el("span", { text: t("Adaptive") }))
         : el("button", { type: "button", class: kind === "swatch" ? "swatch adaptive" : "round adaptive", role: kind === "swatch" ? "radio" : null, "aria-label": label, title: label }, icon("sun"));
-      node.addEventListener("click", () => setAdaptive(!adaptiveOn()));
+      // Keep the information button focusable and tappable, but never write a mirrored schedule.
+      if (adaptive.external) {
+        node.removeAttribute("role");
+        node.removeAttribute("aria-pressed");
+        node.addEventListener("click", () => ctx.flash(externalLabel()));
+      } else node.addEventListener("click", () => setAdaptive(!adaptiveOn()));
       ctx.watch(() => {
+        if (adaptive.external) {
+          node.setAttribute("aria-label", externalLabel());
+          node.title = externalLabel();
+          node.classList.toggle("unset", transitions?.value == null);
+          node.classList.toggle("external-active", adaptiveOn());
+          return;
+        }
         node.setAttribute(kind === "swatch" ? "aria-checked" : "aria-pressed", String(adaptiveOn()));
         node.classList.toggle("unset", !adaptive.resumable && !adaptiveOn());
         node.title = adaptiveOn() ? t("Adaptive Lighting: on") : adaptive.resumable ? t("Adaptive Lighting: resume the Home app's schedule") : t("Adaptive Lighting: turn it on once in the Home app");
