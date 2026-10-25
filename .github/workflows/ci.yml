@@ -28,7 +28,9 @@ jobs:
           swift --version
 
       - name: Test
-        run: swift test
+        # A watchdog prints the test process's stacks and fails when the tests stall, rather than waiting for the job.
+        timeout-minutes: 25
+        run: Scripts/ci-test.sh
 
       - name: Build
         run: swift build -c release
