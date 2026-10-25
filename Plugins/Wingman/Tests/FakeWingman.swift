@@ -90,6 +90,7 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
             let body = (try? JSONSerialization.jsonObject(with: request.body ?? Data())) as? [String: Any] ?? [:]
             let write = Write(accessory: body["accessory"] as? String ?? "", characteristic: body["characteristic"] as? String ?? "", value: "\(body["value"] ?? "")")
             state.withLockedValue { $0.writes.append(write) }
+            if write.characteristic == "light-saturation" { return HTTPResponse(status: 500, body: Data()) }
             if write.characteristic == "lock-target" {
                 return json(["error": "Lock Target State is a security control; not written through Wingman"], status: 422)
             }

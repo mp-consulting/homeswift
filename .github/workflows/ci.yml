@@ -45,7 +45,8 @@ jobs:
         run: apt-get update && apt-get install -y --no-install-recommends libavahi-compat-libdnssd-dev
 
       - name: Test
-        run: swift test
+        timeout-minutes: 25
+        run: Scripts/ci-test.sh
 
       - name: Build
         run: swift build -c release

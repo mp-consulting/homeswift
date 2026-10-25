@@ -7,14 +7,12 @@ enum WingmanAPI {
     struct Info: Decodable, Sendable, Equatable {
         var id: String
         var version: String?
-        var fingerprint: String?
         var pairing: Bool?
     }
 
     struct Paired: Decodable, Sendable {
         var token: String
         var wingman: String?
-        var fingerprint: String?
     }
 
     struct Homes: Decodable, Sendable {
@@ -22,13 +20,11 @@ enum WingmanAPI {
     }
 
     struct Home: Decodable, Sendable {
-        var id: String
         var name: String
         var accessories: [Accessory]
     }
 
     struct Bridge: Decodable, Sendable, Equatable {
-        var id: String
         var name: String
         var manufacturer: String?
         var model: String?
@@ -43,7 +39,6 @@ enum WingmanAPI {
         var manufacturer: String?
         var model: String?
         var firmware: String?
-        var matter: Bool?
         var services: [Service]
     }
 
@@ -81,11 +76,11 @@ enum WingmanAPI {
         var seq: Int?
         var accessoryID: String?
         var characteristicID: String?
-        var type: String?
         var value: JSONValue?
     }
 
-    struct WriteResult: Decodable, Sendable {
+    /// An error answer's body.
+    struct Failure: Decodable, Sendable {
         var error: String?
     }
 }
@@ -156,13 +151,10 @@ struct WingmanClient: Sendable {
         try decode(WingmanAPI.Events.self, try await send("GET", "events?since=\(since)&wait=\(wait)", timeout: .seconds(Int64(wait) + 15)))
     }
 
-    /// Writes a characteristic by its id; Wingman answers once HomeKit has.
+    /// Writes a characteristic by its id; Wingman answers once HomeKit has (a refusal comes back as an error status).
     func write(accessory: String, characteristic: String, value: JSONValue) async throws {
         let body = try JSONEncoder().encode(["accessory": .string(accessory), "characteristic": .string(characteristic), "value": value] as JSONValue)
-        let response = try await send("POST", "write", body: body, timeout: .seconds(15))
-        if let error = (try? JSONDecoder().decode(WingmanAPI.WriteResult.self, from: response.body))?.error {
-            throw WingmanError.refused(status: response.status, message: error)
-        }
+        _ = try await send("POST", "write", body: body, timeout: .seconds(15))
     }
 
     private func send(_ method: String, _ path: String, body: Data? = nil, timeout: Duration) async throws -> HTTPResponse {
@@ -181,8 +173,8 @@ struct WingmanClient: Sendable {
             throw WingmanError.unreachable("\(error)")
         }
         if response.status == 401 { throw WingmanError.unauthorized }
-        guard response.isSuccess || path == "write" else {
-            let message = (try? JSONDecoder().decode(WingmanAPI.WriteResult.self, from: response.body))?.error ?? "HTTP \(response.status)"
+        guard response.isSuccess else {
+            let message = (try? JSONDecoder().decode(WingmanAPI.Failure.self, from: response.body))?.error ?? "HTTP \(response.status)"
             throw WingmanError.refused(status: response.status, message: message)
         }
         return response

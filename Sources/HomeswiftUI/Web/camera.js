@@ -29,15 +29,6 @@
   }
   const button = (name, label, onclick) => el("button", { type: "button", class: "camera-button", "aria-label": label, title: label, onclick }, glyph(name));
 
-  /// "just now", "4 min ago", "2 h ago", or the date.
-  function ago(date) {
-    const seconds = (Date.now() - date) / 1000;
-    if (seconds < 45) return t("just now");
-    if (seconds < 3600) return t("{minutes} min ago", { minutes: Math.round(seconds / 60) });
-    if (seconds < 86400) return t("{hours} h ago", { hours: Math.round(seconds / 3600) });
-    return date.toLocaleDateString(HomeswiftI18n.locale, { month: "short", day: "numeric" });
-  }
-
   // Every view on the page, for the accessory events and the page's visibility.
   const views = new Set();
   const observer = "IntersectionObserver" in window ? new IntersectionObserver((entries) => {
@@ -298,7 +289,7 @@
       element, camera,
       setVisible(visible) { state.visible = visible; update(); },
       update,
-      tick() { if (state.lastRing) ringBadge.textContent = t("Rang {when}", { when: ago(state.lastRing) }); },
+      tick() { if (state.lastRing) ringBadge.textContent = t("Rang {when}", { when: HomeswiftCommon.ago(state.lastRing) }); },
       motion(on) { motionBadge.classList.toggle("hidden", !on); element.classList.toggle("motion", !!on); },
       recording(on) { recordingBadge.classList.toggle("hidden", !on); },
       ring(date = new Date()) {

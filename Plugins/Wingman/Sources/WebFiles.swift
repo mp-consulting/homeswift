@@ -14,44 +14,27 @@ extension WingmanPlugin {
 (() => {
   "use strict";
   const { t } = HomeswiftI18n;
-  const { $, el, tile, fact, request, explain, assistant, act, readBlock, updateBlock, poll, renderKeyed } = homeswift;
+  const { $, el, tile, fact, request, explain, assistant, act, updateDevices, poll, renderKeyed } = homeswift;
+  const { ago } = HomeswiftCommon;
 
   const list = $("#wingmen");
   const discoverBox = $("#discovered");
   const addBox = $("#add-wingman");
 
-  /// "just now", "4 min ago", "2 h ago": how fresh what the card shows is.
-  function ago(iso) {
-    const seconds = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
-    if (seconds < 45) return t("just now");
-    if (seconds < 3600) return t("{n} min ago", { n: Math.round(seconds / 60) });
-    return t("{n} h ago", { n: Math.round(seconds / 3600) });
-  }
-
   /// AB:CD:… for people: the first `bytes` bytes, as Wingman's window shows them.
-  const formatFingerprint = (hex, bytes = 32) => (hex || "").replace(/[^0-9a-f]/gi, "").toUpperCase().slice(0, bytes * 2).replace(/(..)(?!$)/g, "$1:");
+  const formatFingerprint = (hex, bytes) => (hex || "").replace(/[^0-9a-f]/gi, "").toUpperCase().slice(0, bytes * 2).replace(/(..)(?!$)/g, "$1:");
 
-  // MARK: config.json: the block's `devices`, one entry per Wingman by its id.
+  // MARK: config.json: the block's `devices`, one entry per Wingman by its id (plugin.js keeps the list).
 
-  let configured = [];
+  const putEntry = (entry) => updateDevices((devices) => {
+    const index = devices.findIndex((d) => d.id === entry.id);
+    if (index >= 0) devices[index] = { ...devices[index], ...entry }; else devices.push(entry);
+  });
 
-  async function putEntry(entry) {
-    await updateBlock((block) => {
-      const devices = block.devices || [];
-      const index = devices.findIndex((d) => d.id === entry.id);
-      if (index >= 0) devices[index] = { ...devices[index], ...entry }; else devices.push(entry);
-      block.devices = devices;
-      configured = devices;
-    });
-  }
-
-  async function removeEntry(id) {
-    await updateBlock((block) => {
-      const devices = (block.devices || []).filter((d) => d.id !== id);
-      if (devices.length) block.devices = devices; else delete block.devices;
-      configured = devices;
-    });
-  }
+  const removeEntry = (id) => updateDevices((devices) => {
+    const index = devices.findIndex((d) => d.id === id);
+    if (index >= 0) devices.splice(index, 1);
+  });
 
   // MARK: The paired Wingmen
 
@@ -198,6 +181,11 @@ extension WingmanPlugin {
 
   let pairing = null;
 
+  function closePairing(panel) {
+    panel.remove();
+    if (pairing === panel) pairing = null;
+  }
+
   function openPairing(wingman, anchor) {
     pairing?.remove();
     const code = el("input", { class: "code-input", type: "text", inputmode: "numeric", autocomplete: "one-time-code", enterkeyhint: "done", maxLength: 7, placeholder: "000 000", "aria-label": t("Pairing code") });
@@ -205,7 +193,7 @@ extension WingmanPlugin {
     const status = el("p", { class: "status-line muted", "aria-live": "polite" });
     const submit = el("button", { class: "primary", type: "submit", text: t("Pair") });
     const panel = el("div", { class: "pair" });
-    const close = () => { panel.remove(); if (pairing === panel) pairing = null; };
+    const close = () => closePairing(panel);
     const report = (message) => { status.className = "status-line error"; status.textContent = message; code.select(); };
     const form = el("form", { class: "pair-form", onsubmit: (event) => { event.preventDefault(); act(submit, () => pair(wingman, code.value, label.value, panel), report); } },
       el("label", { class: "field" }, el("span", { class: "field-title", text: t("Name") }), label),
@@ -242,7 +230,7 @@ extension WingmanPlugin {
     const { device } = await request("pair", { method: "POST", body: { host: wingman.host, port: wingman.port, code: digits, fingerprint: wingman.fingerprint, name: name.trim() } });
     await putEntry(device);
     panel.replaceChildren(el("p", { class: "status-line ok", text: t("Paired with {name}. Its Apple Home accessories appear on the Accessories page in a moment.", { name: device.name || wingman.name }) }));
-    setTimeout(() => { panel.remove(); if (pairing === panel) pairing = null; if (!discoverBox.classList.contains("hidden")) renderDiscovered(); }, 4000);
+    setTimeout(() => { closePairing(panel); if (!discoverBox.classList.contains("hidden")) renderDiscovered(); }, 4000);
     setTimeout(refresh, 800);
   }
 
@@ -250,7 +238,6 @@ extension WingmanPlugin {
   $("#assistant-hint").replaceChildren(tipBefore, el("strong", { text: "HomeswiftAiKit" }), tipAfter);
   assistant().then((state) => $("#assistant-hint").classList.toggle("hidden", Boolean(state.enabled)));
 
-  readBlock().then((block) => { configured = block.devices || []; }).catch(() => {});
   poll(refresh);
 })();
 
@@ -269,9 +256,6 @@ HomeswiftI18n.add({
     "Not reachable": "Injoignable",
     "Apple Home": "l'app Maison",
     "updated {when}": "mis à jour {when}",
-    "just now": "à l'instant",
-    "{n} min ago": "il y a {n} min",
-    "{n} h ago": "il y a {n} h",
     "Accessories": "Accessoires",
     "Not responding": "Ne répondent pas",
     "Left out": "Laissés de côté",
@@ -324,9 +308,6 @@ HomeswiftI18n.add({
     "Not reachable": "Inaccesible",
     "Apple Home": "la app Casa",
     "updated {when}": "actualizado {when}",
-    "just now": "ahora mismo",
-    "{n} min ago": "hace {n} min",
-    "{n} h ago": "hace {n} h",
     "Accessories": "Accesorios",
     "Not responding": "No responden",
     "Left out": "Excluidos",
@@ -379,9 +360,6 @@ HomeswiftI18n.add({
     "Not reachable": "Inacessível",
     "Apple Home": "a app Casa",
     "updated {when}": "atualizado {when}",
-    "just now": "agora mesmo",
-    "{n} min ago": "há {n} min",
-    "{n} h ago": "há {n} h",
     "Accessories": "Acessórios",
     "Not responding": "Não respondem",
     "Left out": "Excluídos",
@@ -486,7 +464,7 @@ HomeswiftI18n.add({
   <div id="discovered" class="card add-box hidden"></div>
   <div id="add-wingman" class="card add-box hidden"></div>
   <div id="wingmen" class="grid"></div>
-  <p id="assistant-hint" class="hint hidden">Tip: add a <strong>HomeswiftAiKit</strong> block to config.json to get the Assistant, which explains connection problems here.</p>
+  <p id="assistant-hint" class="hint hidden"></p>
 </main>
 <script src="/common.js"></script>
 <script src="/plugin.js"></script>

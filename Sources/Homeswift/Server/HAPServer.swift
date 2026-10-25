@@ -172,6 +172,12 @@ public final class HAPServer: @unchecked Sendable {
     /// Adds a bridged accessory, before or while running. Once running, HomeKit picks it up from the new
     /// configuration number; before, `start()` hashes the whole database once.
     public func add(_ accessory: Accessory) throws {
+        // A mirrored accessory gets its aid and iids for the web UI and the MCP server, but HomeKit's database, its
+        // configuration number and the advertisement stay as they are: no bump, no write, no new TXT record.
+        if accessory.mirroredFrom != nil {
+            state.withLockedValue { _ = assign(accessory, aid: nil, in: &$0) }
+            return
+        }
         let (running, changed) = state.withLockedValue { state -> (Bool, Bool) in
             let before = (state.persisted.configurationNumber, state.persisted.databaseHash)
             let previous = state.persisted.aids[accessory.id].flatMap { state.accessories[$0] }

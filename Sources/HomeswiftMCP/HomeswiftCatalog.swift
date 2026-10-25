@@ -174,25 +174,9 @@ public struct HomeswiftCatalog: Sendable {
         }
     }
 
-    public static func json(_ value: HAPValue) -> JSONValue {
-        switch value {
-        case .bool(let bool): .bool(bool)
-        case .int(let int): .number(Double(int))
-        case .double(let double): .number(double)
-        case .string(let string): .string(string)
-        case .null: .null
-        }
-    }
+    public static func json(_ value: HAPValue) -> JSONValue { JSONValue(value) }
 
-    public static func hapValue(_ value: JSONValue) -> HAPValue? {
-        switch value {
-        case .bool(let bool): .bool(bool)
-        case .number(let number): Int(exactly: number).map(HAPValue.int) ?? .double(number)
-        case .string(let string): .string(string)
-        case .null: .null
-        default: nil
-        }
-    }
+    public static func hapValue(_ value: JSONValue) -> HAPValue? { HAPValue(value) }
 
     /// `"Target Lock State"`, `"targetLockState"` and `"target-lock-state"` name the same characteristic.
     static func normalized(_ name: String) -> String {

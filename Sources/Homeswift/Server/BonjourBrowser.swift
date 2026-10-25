@@ -48,6 +48,13 @@ public struct BonjourService: Sendable, Hashable {
     }
 }
 
+extension BonjourService {
+    /// Where to reach the service: an IPv4 address first, then IPv6, then the host name when the lookup gave none.
+    public var preferredAddress: String {
+        addresses.first { !$0.contains(":") } ?? addresses.first ?? hostName
+    }
+}
+
 /// Discovers services on the LAN through dns_sd (built in on macOS, Avahi's compatibility library on
 /// Linux), so device plugins can find their hardware by Bonjour.
 public enum BonjourBrowser {

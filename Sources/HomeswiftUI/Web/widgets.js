@@ -1620,7 +1620,7 @@
   function statusPainter(ctx, built, status) {
     return () => {
       const paused = ctx.accessory.paused ? [ctx.accessory.platformName ? t("Paused · {plugin}", { plugin: ctx.accessory.platformName }) : t("Paused · its plugin"), "warn"] : null;
-      const unavailable = !paused && ctx.accessory.unavailable ? [t("No Response"), "bad"] : null;
+      const unavailable = ctx.accessory.unavailable ? [t("No Response"), "bad"] : null;
       const [text, tone] = ctx.flashing ? [ctx.flashing, "bad"] : paused ?? unavailable ?? (built.status ? built.status() : [""]);
       status.textContent = text;
       if (tone) status.dataset.tone = tone; else delete status.dataset.tone;
