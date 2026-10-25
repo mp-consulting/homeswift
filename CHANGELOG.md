@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A calm mood (candlelight, focus…) can be undone for 12 hours: **Undo** on the Scenes page, or `stop_mood`, puts
+  every light back as it was, its colour temperature as well as its hue and saturation. A mood started on some of its
+  lights takes only those; the rest stay to undo.
+
 ## [0.9.0] - 2026-10-25
 
 ### Added
