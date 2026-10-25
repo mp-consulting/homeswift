@@ -378,7 +378,7 @@ extension HomeswiftCatalog {
         public func matches(_ located: Located) -> Bool {
             let accessory = located.accessory
             if let platform, located.platform?.platform != platform { return false }
-            if let room, located.layout?.room?.caseInsensitiveCompare(room) != .orderedSame { return false }
+            if let room, located.room?.caseInsensitiveCompare(room) != .orderedSame { return false }
             if let type {
                 let wanted = HomeswiftCatalog.normalized(type)
                 let services = accessory.services.filter { $0.type.uuid != ServiceType.accessoryInformation.uuid }

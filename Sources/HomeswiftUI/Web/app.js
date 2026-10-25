@@ -723,14 +723,18 @@
     ];
   }
 
-  // /accessories?group=room|plugin&hidden=1: sections per room (once there are rooms) or per plugin; hidden
-  // accessories only with hidden=1.
+  // /accessories?group=room|plugin&hidden=1&from=<source>: sections per room (once there are rooms) or per plugin; hidden
+  // accessories only with hidden=1; only another controller's (Apple Home's, through Wingman) with from=.
   views.accessories = async (main) => {
     const [list, saved, home] = await Promise.all([api("/api/accessories"), api("/api/layout").catch(() => null), api("/api/rooms").catch(() => ({ rooms: [] }))]);
     const all = withSlugs(list, "accessory");
+    const params = new URLSearchParams(location.search);
     // Hidden accessories (an accessory's ⋯ menu) only with ?hidden=1.
-    const showHidden = new URLSearchParams(location.search).get("hidden") === "1";
-    const accessories = showHidden ? all : all.filter((accessory) => !accessory.hidden);
+    const showHidden = params.get("hidden") === "1";
+    // The controllers some accessories mirror (Apple Home, through Wingman): each gets a filter.
+    const sources = [...new Set(all.map((accessory) => accessory.mirroredFrom).filter(Boolean))];
+    const from = sources.includes(params.get("from")) ? params.get("from") : null;
+    const accessories = all.filter((accessory) => (showHidden || !accessory.hidden) && (!from || accessory.mirroredFrom === from));
     const hiddenCount = all.filter((accessory) => accessory.hidden).length;
     const rooms = home.rooms.map((room) => room.name);
     const servers = new Set(accessories.map((accessory) => accessory.bridge)).size;
@@ -971,14 +975,20 @@
       if (event.target.checked) next.set("hidden", "1"); else next.delete("hidden");
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
     } }), el("span", { text: t("Show hidden ({count})", { count: hiddenCount }) })) : null;
+    const sourceToggles = sources.map((source) => el("label", { class: "toggle compact" }, el("input", { type: "checkbox", checked: from === source, onchange: (event) => {
+      const next = new URLSearchParams(location.search);
+      if (event.target.checked) next.set("from", source); else next.delete("from");
+      navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
+    } }), el("span", { text: t("Only from {source} ({count})", { source: t(source), count: all.filter((accessory) => accessory.mirroredFrom === source).length }) })));
     const suggest = isAdmin() && window.HomeswiftChat?.available() && all.length
       ? el("button", { class: "ai-button icon-on-phone", title: t("Suggest rooms"), "aria-label": t("Suggest rooms"), onclick: () => HomeswiftHome.suggestRooms(content, all) }, sparkle(), el("span", { text: t("Suggest rooms") })) : null;
 
     render();
     show(main,
-      pageHead(t("Accessories"), accessories.length ? (servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
-        : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers })) : "",
-        ...(accessories.length ? [search, grouping, edit] : []), hiddenToggle, suggest),
+      pageHead(t("Accessories"), !accessories.length ? "" : from ? t("{count} from {source}, which HomeKit has already. Changes here reach your devices.", { count: accessories.length, source: t(from) })
+        : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
+        : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers }),
+        ...(accessories.length ? [search, grouping, edit] : []), ...sourceToggles, hiddenToggle, suggest),
       note,
       accessories.length ? [content, none] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") })));
   };

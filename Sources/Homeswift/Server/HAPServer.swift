@@ -467,8 +467,9 @@ public final class HAPServer: @unchecked Sendable {
         return database(accessories: accessories, includeValues: includeValues)
     }
 
+    /// Mirrored accessories (`Accessory.mirroredFrom`) stay out: HomeKit has them already.
     private func database(accessories: [Int: Accessory], includeValues: Bool) -> AccessoryDatabase {
-        AccessoryDatabase(accessories: accessories.sorted { $0.key < $1.key }.map { aid, accessory in
+        AccessoryDatabase(accessories: accessories.filter { $0.value.mirroredFrom == nil }.sorted { $0.key < $1.key }.map { aid, accessory in
             AccessoryDatabase.AccessoryJSON(aid: aid, services: accessory.services.map { service in
                 AccessoryDatabase.ServiceJSON(
                     iid: service.iid,
@@ -484,12 +485,13 @@ public final class HAPServer: @unchecked Sendable {
         })
     }
 
+    /// The accessory a controller names; never a mirrored one, which HomeKit does not see.
     func accessory(aid: Int) -> Accessory? {
-        state.withLockedValue { $0.accessories[aid] }
+        state.withLockedValue { $0.accessories[aid] }.flatMap { $0.mirroredFrom == nil ? $0 : nil }
     }
 
     func characteristic(aid: Int, iid: Int) -> Characteristic? {
-        guard let accessory = state.withLockedValue({ $0.accessories[aid] }) else { return nil }
+        guard let accessory = accessory(aid: aid) else { return nil }
         for service in accessory.services {
             if let match = service.characteristics.first(where: { $0.iid == iid }) { return match }
         }

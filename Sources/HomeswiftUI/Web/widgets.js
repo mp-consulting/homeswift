@@ -1610,10 +1610,18 @@
       glyph.style.setProperty("--glow", color?.glow ?? "");
     }];
   }
+  /// Another controller's accessory (`mirroredFrom`, Apple Home's through Wingman): a small house badge on its tile's
+  /// corner, the same at every size, since HomeKit has it already and Homeswift does not publish it again.
+  function mirrorMark(accessory) {
+    if (!accessory.mirroredFrom) return null;
+    const label = t("From {source}: Homeswift does not add it to HomeKit again", { source: t(accessory.mirroredFrom) });
+    return el("span", { class: "mirror-mark", title: label, "aria-label": label, role: "img" }, icon("bridge"));
+  }
   function statusPainter(ctx, built, status) {
     return () => {
       const paused = ctx.accessory.paused ? [ctx.accessory.platformName ? t("Paused · {plugin}", { plugin: ctx.accessory.platformName }) : t("Paused · its plugin"), "warn"] : null;
-      const [text, tone] = ctx.flashing ? [ctx.flashing, "bad"] : paused ?? (built.status ? built.status() : [""]);
+      const unavailable = !paused && ctx.accessory.unavailable ? [t("No Response"), "bad"] : null;
+      const [text, tone] = ctx.flashing ? [ctx.flashing, "bad"] : paused ?? unavailable ?? (built.status ? built.status() : [""]);
       status.textContent = text;
       if (tone) status.dataset.tone = tone; else delete status.dataset.tone;
     };
@@ -1634,6 +1642,8 @@
     const [glyph, paintGlyph] = glyphFor(ctx, widget, built, primary);
     const status = el("span", { class: "status" });
     const who = el("div", { class: "who" }, el("strong", { text: accessory.displayName || accessory.name, title: accessory.displayName ? t("{name} in the Home app", { name: accessory.name }) : null }), status);
+    const mark = mirrorMark(accessory);
+    if (mark) glyph.append(mark);
     const menu = actionsButton(ctx, false);
     const node = el("article", { class: `card widget size-${size} widget-${widget.name}`, "data-search": searchText(accessory), "data-id": accessory.id });
     if (size === "small") {

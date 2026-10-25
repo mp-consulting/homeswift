@@ -22,6 +22,7 @@ public final class Accessory: @unchecked Sendable {
     public var services: [Service] { servicesBox.withLockedValue { $0 } }
 
     let aidBox = NIOLockedValueBox(0)
+    private let mirrorBox = NIOLockedValueBox<(source: String?, room: String?)>((nil, nil))
     /// The camera that answers snapshot requests (`configureController`).
     let cameraControllerBox = NIOLockedValueBox<CameraController?>(nil)
     public var aid: Int { aidBox.withLockedValue { $0 } }
@@ -84,6 +85,21 @@ public final class Accessory: @unchecked Sendable {
     public var isUnavailable: Bool {
         get { services.contains { $0.characteristics.contains(where: \.isUnavailable) } }
         set { for service in services { for characteristic in service.characteristics { characteristic.isUnavailable = newValue } } }
+    }
+
+    /// The controller this accessory mirrors, for an accessory HomeKit already has another way ("Apple Home": the
+    /// Wingman plugin shows the Home app's accessories). The bridge keeps a mirrored accessory out of HomeKit (it
+    /// is not in `GET /accessories`, and controllers cannot read, write or subscribe to it) while the web UI, the MCP
+    /// server, scenes and moods use it as any other; the UI says where it comes from. Set before `context.add`.
+    public var mirroredFrom: String? {
+        get { mirrorBox.withLockedValue { $0.source } }
+        set { mirrorBox.withLockedValue { $0.source = newValue } }
+    }
+
+    /// The room the mirrored controller puts it in: the web UI's until the user gives it one of its own.
+    public var suggestedRoom: String? {
+        get { mirrorBox.withLockedValue { $0.room } }
+        set { mirrorBox.withLockedValue { $0.room = newValue } }
     }
 
     func identify() async {

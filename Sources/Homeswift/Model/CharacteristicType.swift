@@ -129,3 +129,18 @@ public struct ServiceType: Sendable, Hashable {
         self.optional = optional
     }
 }
+
+extension CharacteristicType {
+    private static let byUUID = Dictionary(all.map { ($0.uuid, $0) }, uniquingKeysWith: { first, _ in first })
+
+    /// Apple's type with this UUID, from `Definitions.swift`: for plugins that learn types from another controller
+    /// (Wingman reads them from HomeKit) and want the names and props Homeswift's own accessories have.
+    public static func known(uuid: HAPUUID) -> CharacteristicType? { byUUID[uuid] }
+}
+
+extension ServiceType {
+    private static let byUUID = Dictionary(all.map { ($0.uuid, $0) }, uniquingKeysWith: { first, _ in first })
+
+    /// Apple's service with this UUID, from `Definitions.swift`.
+    public static func known(uuid: HAPUUID) -> ServiceType? { byUUID[uuid] }
+}

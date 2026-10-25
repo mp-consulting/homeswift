@@ -63,6 +63,7 @@ lines.push("// swiftlint:disable all");
 lines.push("");
 lines.push("extension CharacteristicType {");
 const constants = [];
+const charNames = [];
 for (const key of charKeys) {
   const Cls = hap.Characteristic[key];
   let c;
@@ -80,10 +81,14 @@ for (const key of charKeys) {
   if (Array.isArray(p.validValues) && p.validValues.length) args.push(`validValues: [${p.validValues.join(", ")}]`);
   if (Array.isArray(p.validValueRanges)) args.push(`validValueRange: ${p.validValueRanges[0]}...${p.validValueRanges[1]}`);
   lines.push(`    public static let ${name} = CharacteristicType(${args.join(", ")})`);
+  charNames.push(name);
 
   const statics = Object.keys(Cls).filter((s) => s !== "UUID" && typeof Cls[s] === "number");
   if (statics.length) constants.push({ key, statics: statics.map((s) => [constantName(s), Cls[s]]) });
 }
+lines.push("");
+lines.push("    /// Every type above, to find one by its UUID (`known(uuid:)`).");
+lines.push(`    public static let all: [CharacteristicType] = [${charNames.map((n) => "." + n).join(", ")}]`);
 lines.push("}");
 lines.push("");
 lines.push("/// Named values for enumerated characteristics, e.g. `HAPConstants.LockCurrentState.secured`.");
@@ -101,6 +106,7 @@ for (const { key, statics } of constants) {
 lines.push("}");
 lines.push("");
 lines.push("extension ServiceType {");
+const serviceNames = [];
 for (const key of serviceKeys) {
   const Cls = hap.Service[key];
   let s;
@@ -109,6 +115,10 @@ for (const key of serviceKeys) {
   const opt = s.optionalCharacteristics.map((c) => byUUID.get(c.UUID)).filter(Boolean);
   const args = [`name: ${JSON.stringify(key)}`, `uuid: ${uuidLiteral(Cls.UUID)}`, `required: [${req.map((n) => "." + n).join(", ")}]`, `optional: [${opt.map((n) => "." + n).join(", ")}]`];
   lines.push(`    public static let ${camel(key)} = ServiceType(${args.join(", ")})`);
+  serviceNames.push(camel(key));
 }
+lines.push("");
+lines.push("    /// Every type above, to find one by its UUID (`known(uuid:)`).");
+lines.push(`    public static let all: [ServiceType] = [${serviceNames.map((n) => "." + n).join(", ")}]`);
 lines.push("}");
 console.log(lines.join("\n"));
