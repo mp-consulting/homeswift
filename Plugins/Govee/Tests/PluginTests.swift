@@ -187,12 +187,13 @@ extension PluginHost {
         let host = try await environment.start()
         defer { Task { await host.stop() } }
         let plugin = try #require(environment.plugin)
+        // AWS connects in the background after the start: its status request says it is there.
+        #expect(await eventually { environment.mqtt.published.contains { $0.payload["msg"]?["cmd"] == "status" } })
         try await plugin.sendDeviceUpdate(id: lightID, .state(true))
         #expect(environment.lan.sent.last?.json == ["msg": ["cmd": "turn", "data": ["value": 1]]])
         environment.lan.failing = true
         try await plugin.sendDeviceUpdate(id: lightID, .state(false))
-        #expect(environment.mqtt.published.last?.payload["msg"]?["cmd"] == "turn")
-        #expect(environment.mqtt.published.last?.payload["msg"]?["data"] == ["val": 0])
+        #expect(environment.mqtt.published.last { $0.payload["msg"]?["cmd"] == "turn" }?.payload["msg"]?["data"] == ["val": 0])
         environment.mqtt.hangs = true
         try await plugin.sendDeviceUpdate(id: lightID, .brightness(50))
         #expect(await environment.central.written.map(Array.init) == [Govee.codeBytes([0x33, 0x04, 127])])
