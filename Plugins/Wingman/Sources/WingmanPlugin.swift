@@ -339,18 +339,19 @@ actor Link {
                 built[accessory.id] = mirror
             }
         }
-        mirrors = built
-        loaded = true
-        for mirror in built.values { await plugin.publish(mirror.accessory) }
-        await plugin.prune()
-        homeNames = homes.map(\.name)
-        skipped = left
+        // The status first: whoever sees the accessories sees the state they came with.
         if state != "connected" {
             logger.info("Mirroring Apple Home through Wingman", metadata: ["wingman": "\(name)", "accessories": "\(built.count)", "left out": "\(left)"])
         }
+        mirrors = built
+        loaded = true
+        homeNames = homes.map(\.name)
+        skipped = left
         state = "connected"
         lastError = nil
         lastContact = Date()
+        for mirror in built.values { await plugin.publish(mirror.accessory) }
+        await plugin.prune()
     }
 
     /// Waits for value changes and applies them. Answers whether the homes must be read again (Wingman restarted, or
