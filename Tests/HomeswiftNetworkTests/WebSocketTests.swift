@@ -72,6 +72,18 @@ struct WebSocketTests {
         }
     }
 
+    /// A reset (a peer gone with frames in flight) ends the stream as a drop does, not with the I/O error: which of the
+    /// two a client sees depends on timing.
+    @Test func aResetConnectionIsADropToo() async throws {
+        let server = try await TestSocketServer(mode: .webSocket)
+        defer { Task { await server.stop() } }
+        let socket = try await WebSocket.connect(to: URL(string: "ws://127.0.0.1:\(server.port)/")!)
+        try await socket.send(text: "reset")
+        await #expect(throws: WebSocketError.connectionLost) {
+            for try await _ in socket.messages {}
+        }
+    }
+
     @Test func heartbeatDetectsASilentServer() async throws {
         let server = try await TestSocketServer(mode: .webSocket)
         defer { Task { await server.stop() } }
