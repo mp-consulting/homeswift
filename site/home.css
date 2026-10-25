@@ -15,16 +15,19 @@ h1, h2, h3, .ask q, .way h3, .who strong, .plugin strong, .plugin span, .brain s
 .home-hero .wrap { grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr); }
 .chat-stage { container-type: inline-size; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 
-.house { --gap: 8px; --u: calc((100cqw - 7 * var(--gap)) / 8); display: grid; grid-template-columns: repeat(8, var(--u)); grid-auto-rows: calc(var(--u) * 1.15); gap: var(--gap); }
-@container (max-width: 560px) { .house { --u: calc((100cqw - 3 * var(--gap)) / 4); grid-template-columns: repeat(4, var(--u)); grid-auto-rows: minmax(calc(var(--u) * 0.72), auto); } .house .w-head { gap: 4px; } .house .w .pct { font-size: 0.75rem; }
-  /* “Allumé · 80 %” is wider than a quarter of a phone: the status takes a second line rather than an ellipsis. */
-  .house .status { white-space: normal; overflow-wrap: break-word; } }
+/* A miniature of the same two-column compact tiles shown in the bridge. */
+.house { --gap: 8px; --u: calc((100cqw - 3 * var(--gap)) / 4); display: grid; grid-template-columns: repeat(4, var(--u)); grid-auto-rows: max(64px, calc(var(--u) * 0.36)); gap: var(--gap); }
+@container (max-width: 560px) { .house { --u: calc((100cqw - var(--gap)) / 2); grid-template-columns: repeat(2, var(--u)); } }
+.house .w.small { flex-direction: row; align-items: center; gap: 8px; }
+.house .w-head { flex: none; }
+.house .w .pct { display: none; }
+.house .who strong { white-space: nowrap; }
 @container (max-width: 330px) { .house .w .pct { display: none; } }
 .house .w { padding: 8px; border-radius: 16px; gap: 4px; box-shadow: var(--shadow-small); transition: background-color 280ms var(--ease-out), color 280ms var(--ease-out), box-shadow 280ms var(--ease-out), transform 400ms var(--spring); }
-.house .icon { width: 26px; height: 26px; border-radius: 8px; }
-.house .icon svg { width: 15px; height: 15px; }
-.house .who strong { font-size: 0.6875rem; line-height: 1.2; }
-.house .status { font-size: 0.625rem; }
+.house .icon { width: 34px; height: 34px; border-radius: 50%; }
+.house .icon svg { width: 19px; height: 19px; }
+.house .who strong { font-size: 0.875rem; line-height: 1.2; }
+.house .status { font-size: 0.75rem; }
 .house .pct { margin-left: auto; font-size: 0.8125rem; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .house .w.touched { box-shadow: 0 0 0 2px var(--accent), var(--shadow); transform: translateY(-3px); }
 .icon.tv { background: var(--tile-off-icon); }

@@ -1,5 +1,6 @@
 // Portuguese (Portugal) catalog for homeswift.dev (i18n.js): the English text is the key; keys with "|" are the words a typed request is matched on.
 HomeswiftI18n.add("pt", {
+ "Design system": "Sistema de design",
   "Tell your house what you want. Homeswift puts every device in the Home app, then lets you run it in plain words, from its web UI, Claude or a terminal, and asks before anything that matters.": "Diga à sua casa o que quer. O Homeswift põe todos os dispositivos na app Casa e permite-lhe comandá-los com palavras simples, a partir da interface web, do Claude ou de um terminal, e pede confirmação antes de qualquer ação importante.",
   "Sections": "Secções",
   "Ways to ask": "Como pedir",

@@ -9,7 +9,7 @@ import NIOConcurrencyHelpers
 ///
 ///     { "order": ["Govee:…", …], "sizes": { "Govee:…": "small" }, "defaults": { "climate": "large" }, "grouping": "none" }
 final class AccessoryLayout: Sendable {
-    static let sizes: Set<String> = ["small", "medium", "large"]
+    static let sizes: Set<String> = ["small", "medium", "large", "xlarge"]
     static let groupings: Set<String> = ["plugin", "room", "none"]
     /// Far more than a bridge has: what keeps a page from filling the disk.
     static let maximumAccessories = 5000
@@ -38,7 +38,7 @@ final class AccessoryLayout: Sendable {
 
     struct Invalid: Error, CustomStringConvertible { let description: String }
 
-    /// The layout in `body` with nothing else: accessory ids as strings of a sane length, sizes of the three, kinds
+    /// The layout in `body` with nothing else: accessory ids as strings of a sane length, one of the four sizes, kinds
     /// as short lower-case names. Each part may be left out (it is then empty).
     static func checked(_ body: JSONValue) throws -> JSONValue {
         guard let object = body.objectValue else { throw Invalid(description: "the layout must be a JSON object") }
@@ -49,12 +49,12 @@ final class AccessoryLayout: Sendable {
             if seen.insert(id).inserted { order.append(.string(id)) }
         }
         let sizes = try (object["sizes"]?.objectValue ?? [:]).mapValues { value -> JSONValue in
-            guard let size = value.stringValue, Self.sizes.contains(size) else { throw Invalid(description: "a size is small, medium or large") }
+            guard let size = value.stringValue, Self.sizes.contains(size) else { throw Invalid(description: "a size is small, medium, large or xlarge") }
             return .string(size)
         }
         guard sizes.keys.allSatisfy(isID) else { throw Invalid(description: "sizes are by accessory id") }
         let defaults = try (object["defaults"]?.objectValue ?? [:]).mapValues { value -> JSONValue in
-            guard let size = value.stringValue, Self.sizes.contains(size) else { throw Invalid(description: "a size is small, medium or large") }
+            guard let size = value.stringValue, Self.sizes.contains(size) else { throw Invalid(description: "a size is small, medium, large or xlarge") }
             return .string(size)
         }
         guard defaults.keys.allSatisfy({ !$0.isEmpty && $0.count <= 40 && $0.allSatisfy { $0.isLowercase || $0 == "-" } }) else {

@@ -1245,7 +1245,7 @@ enum WebAssets {
   // else the kind's own; in the order chosen, on one wall or a wall per plugin. The bridge keeps the layout
   // (/api/layout), the same for every user: a widget's menu sets its size, Edit sets sizes and order.
 
-  const sizeNames = { small: t("Small"), medium: t("Medium"), large: t("Large") };
+  const sizeNames = { small: t("Small"), medium: t("Medium"), large: t("Large"), xlarge: t("Extra large") };
   // A kind of widget as the menu names it: "Medium for every light".
   const kindNames = {
     climate: t("air conditioner and thermostat"), "air-purifier": t("air purifier"), fan: t("fan"), light: t("light"), cover: t("shutter"), toggle: t("switch"),
@@ -1319,7 +1319,8 @@ enum WebAssets {
     const actions = (accessory) => {
       const size = sizeOf(accessory), kind = kindOf(accessory);
       return [
-        ...HomeswiftWidgets.sizes.map((one) => ({ label: sizeNames[one], checked: one === size, onSelect: () => resize(accessory, one) })),
+        { label: t("Size"), choices: HomeswiftWidgets.sizes.map((one) => ({ label: sizeNames[one],
+          badge: one === "xlarge" ? t("XL") : sizeNames[one][0].toUpperCase(), checked: one === size, onSelect: () => resize(accessory, one) })) },
         { label: kindNames[kind] ? t("{size} for every {kind}", { size: sizeNames[size], kind: kindNames[kind] }) : t("{size} for every accessory like it", { size: sizeNames[size] }), icon: "edit", onSelect: () => resizeKind(kind, size) },
         { separator: true },
         ...accessoryActions(accessory),
@@ -1366,7 +1367,7 @@ enum WebAssets {
       const size = sizeOf(accessory);
       node.append(el("div", { class: "edit-bar", role: "group", "aria-label": t("Size and place of {name}", { name: accessory.name }) },
         el("button", { type: "button", "aria-label": t("Move earlier"), title: t("Move earlier"), text: "‹", "data-step": "-1", onclick: () => step(accessory, -1) }),
-        HomeswiftWidgets.sizes.map((one) => el("button", { type: "button", text: sizeNames[one][0].toUpperCase(), title: sizeNames[one], "aria-label": sizeNames[one], "aria-pressed": String(one === size), onclick: () => resize(accessory, one) })),
+        HomeswiftWidgets.sizes.map((one) => el("button", { type: "button", text: one === "xlarge" ? t("XL") : sizeNames[one][0].toUpperCase(), title: sizeNames[one], "aria-label": sizeNames[one], "aria-pressed": String(one === size), onclick: () => resize(accessory, one) })),
         el("button", { type: "button", "aria-label": t("Move later"), title: t("Move later"), text: "›", "data-step": "1", onclick: () => step(accessory, 1) })));
       node.addEventListener("pointerdown", (event) => drag(event, node));
     }
@@ -5092,7 +5093,8 @@ enum WebAssets {
   let openMenu = null;
 
   /// Opens a menu under `trigger`. Each item: { label, icon (a name or a node), href or onSelect, danger }, or
-  /// { separator: true }; `checked` (true or false) makes it one of a set of choices, the chosen one ticked.
+  /// { separator: true }; `checked` makes a ticked choice. { label, choices: [{ label, badge, checked, onSelect }] }
+  /// draws a labelled row of square choices, such as the widget sizes.
   /// Opened from the keyboard, its first item takes the focus; from a click, the menu does, so no item looks
   /// chosen before the pointer or an arrow key gets to it.
   function menu(trigger, items, { keyboard = false } = {}) {
@@ -5100,6 +5102,16 @@ enum WebAssets {
     openMenu?.close(true);
     const nodes = items.filter(Boolean).map((item) => {
       if (item.separator) return el("hr", { class: "menu-separator", role: "separator" });
+      if (item.choices) {
+        const choices = item.choices.map((choice) => {
+          const button = el("button", { type: "button", role: "menuitemradio", class: "menu-choice-badge", tabIndex: -1,
+            "aria-label": choice.label, title: choice.label, "aria-checked": String(!!choice.checked), text: choice.badge });
+          button.addEventListener("click", () => { close(); choice.onSelect?.(); });
+          return button;
+        });
+        return el("div", { class: "menu-choices", role: "group", "aria-label": item.label },
+          el("span", { class: "menu-choice-label", text: item.label }), el("div", { class: "menu-choice-row" }, choices));
+      }
       // Who the menu is about (the header's account menu): a name and a line under it, not an action.
       if (item.heading !== undefined) return el("div", { class: "menu-heading" }, el("strong", { text: item.heading }), item.detail ? el("span", { text: item.detail }) : null);
       const glyph = typeof item.icon === "string" ? icon(item.icon) : item.icon ?? null;
@@ -5112,7 +5124,8 @@ enum WebAssets {
       node.addEventListener("click", () => { close(); item.onSelect?.(); });
       return node;
     });
-    const entries = nodes.filter((node) => node.getAttribute("role")?.startsWith("menuitem"));
+    const entries = nodes.flatMap((node) => node.getAttribute("role")?.startsWith("menuitem")
+      ? [node] : [...node.querySelectorAll('[role^="menuitem"]')]);
     // On a phone a card's menu is an action sheet over a dimmed page, at the bottom within the thumb's reach, as
     // iOS's; the header's (the account) still drops down from its button.
     const sheet = matchMedia("(max-width: 640px)").matches && !trigger.closest("header");
@@ -5139,6 +5152,12 @@ enum WebAssets {
     const onKey = (event) => {
       const index = entries.indexOf(document.activeElement);
       if (event.key === "Escape") { event.preventDefault(); close(); }
+      else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && document.activeElement.closest(".menu-choice-row")) {
+        event.preventDefault();
+        const choices = [...document.activeElement.parentElement.children];
+        const next = choices.indexOf(document.activeElement) + (event.key === "ArrowRight" ? 1 : -1);
+        choices[(next + choices.length) % choices.length].focus();
+      }
       else if (event.key === "ArrowDown") { event.preventDefault(); focusAt(index + 1); }
       else if (event.key === "ArrowUp") { event.preventDefault(); focusAt(index < 0 ? -1 : index - 1); }
       else if (event.key === "Home") { event.preventDefault(); focusAt(0); }
@@ -6651,7 +6670,7 @@ HomeswiftI18n.add("es", {
   "A scene needs 1 to {0} actions": "Una escena necesita de 1 a {0} acciones",
   "A scheduled restart (a cron expression), the daily backup (its folder and how long it is kept) and the reverse proxies trusted for X-Forwarded-For and X-Forwarded-Proto are settings of the HomeswiftUI block.": "Un reinicio programado (una expresión cron), la copia de seguridad diaria (su carpeta y cuánto tiempo se conserva) y los proxies inversos de confianza para X-Forwarded-For y X-Forwarded-Proto son ajustes del bloque HomeswiftUI.",
   "a security control: use set_security_accessory, one at a time": "un control de seguridad: usa set_security_accessory, de uno en uno",
-  "a size is small, medium or large": "un tamaño es small, medium o large",
+  "a size is small, medium, large or xlarge": "un tamaño es small, medium, large o xlarge",
   "a token expires after 1 to {0} days, or never": "un token caduca al cabo de entre 1 y {0} días, o nunca",
   "A slow fade to a dim red over fifteen minutes.": "Un lento fundido a un rojo tenue en quince minutos.",
   "A topic on ntfy.sh or your own ntfy server; the app shows it on a phone.": "Un tema en ntfy.sh o en tu propio servidor ntfy; la app lo muestra en el móvil.",
@@ -7286,6 +7305,8 @@ HomeswiftI18n.add("es", {
   "Kept {file} ({size}).": "Se ha guardado {file} ({size}).",
   "Kept backups": "Copias de seguridad guardadas",
   "Language": "Idioma",
+  "Extra large": "Extragrande",
+  "XL": "XL",
   "Large": "Grande",
   "Last 24 hours": "Últimas 24 horas",
   "Last 30 days": "Últimos 30 días",
@@ -7829,6 +7850,7 @@ HomeswiftI18n.add("es", {
   "Slats": "Lamas",
   "Sleep Interval": "Intervalo de reposo",
   "Slow animations": "Animaciones lentas",
+  "Size": "Tamaño",
   "Small": "Pequeño",
   "Smart Speaker": "Altavoz inteligente",
   "Smoke": "Humo",
@@ -8487,7 +8509,7 @@ HomeswiftI18n.add("fr", {
   "A scene needs 1 to {0} actions": "Une scène nécessite de 1 à {0} actions",
   "A scheduled restart (a cron expression), the daily backup (its folder and how long it is kept) and the reverse proxies trusted for X-Forwarded-For and X-Forwarded-Proto are settings of the HomeswiftUI block.": "Un redémarrage planifié (une expression cron), la sauvegarde quotidienne (son dossier et sa durée de conservation) et les proxys inverses de confiance pour X-Forwarded-For et X-Forwarded-Proto sont des réglages du bloc HomeswiftUI.",
   "a security control: use set_security_accessory, one at a time": "une commande de sécurité : utilisez set_security_accessory, une à la fois",
-  "a size is small, medium or large": "une taille vaut small, medium ou large",
+  "a size is small, medium, large or xlarge": "une taille vaut small, medium, large ou xlarge",
   "a token expires after 1 to {0} days, or never": "un jeton expire après 1 à {0} jours, ou jamais",
   "A slow fade to a dim red over fifteen minutes.": "Un lent fondu vers un rouge tamisé en quinze minutes.",
   "A topic on ntfy.sh or your own ntfy server; the app shows it on a phone.": "Un sujet sur ntfy.sh ou votre propre serveur ntfy ; l'app l'affiche sur un téléphone.",
@@ -9122,6 +9144,8 @@ HomeswiftI18n.add("fr", {
   "Kept {file} ({size}).": "{file} conservé ({size}).",
   "Kept backups": "Sauvegardes conservées",
   "Language": "Langue",
+  "Extra large": "Très grand",
+  "XL": "XL",
   "Large": "Grand",
   "Last 24 hours": "24 dernières heures",
   "Last 30 days": "30 derniers jours",
@@ -9665,6 +9689,7 @@ HomeswiftI18n.add("fr", {
   "Slats": "Lamelles",
   "Sleep Interval": "Intervalle de veille",
   "Slow animations": "Animations lentes",
+  "Size": "Taille",
   "Small": "Petit",
   "Smart Speaker": "Enceinte connectée",
   "Smoke": "Fumée",
@@ -10323,7 +10348,7 @@ HomeswiftI18n.add("pt", {
   "A scene needs 1 to {0} actions": "Uma cena precisa de 1 a {0} ações",
   "A scheduled restart (a cron expression), the daily backup (its folder and how long it is kept) and the reverse proxies trusted for X-Forwarded-For and X-Forwarded-Proto are settings of the HomeswiftUI block.": "Um reinício agendado (uma expressão cron), a cópia de segurança diária (a sua pasta e durante quanto tempo é guardada) e os proxies inversos de confiança para X-Forwarded-For e X-Forwarded-Proto são definições do bloco HomeswiftUI.",
   "a security control: use set_security_accessory, one at a time": "um controlo de segurança: use set_security_accessory, um de cada vez",
-  "a size is small, medium or large": "um tamanho é small, medium ou large",
+  "a size is small, medium, large or xlarge": "um tamanho é small, medium, large ou xlarge",
   "a token expires after 1 to {0} days, or never": "um token expira após 1 a {0} dias, ou nunca",
   "A slow fade to a dim red over fifteen minutes.": "Um desvanecer lento até um vermelho ténue em quinze minutos.",
   "A topic on ntfy.sh or your own ntfy server; the app shows it on a phone.": "Um tópico em ntfy.sh ou no seu próprio servidor ntfy; a app mostra-o num telemóvel.",
@@ -10958,6 +10983,8 @@ HomeswiftI18n.add("pt", {
   "Kept {file} ({size}).": "{file} guardado ({size}).",
   "Kept backups": "Cópias de segurança guardadas",
   "Language": "Idioma",
+  "Extra large": "Extra grande",
+  "XL": "XL",
   "Large": "Grande",
   "Last 24 hours": "Últimas 24 horas",
   "Last 30 days": "Últimos 30 dias",
@@ -11501,6 +11528,7 @@ HomeswiftI18n.add("pt", {
   "Slats": "Lâminas",
   "Sleep Interval": "Intervalo de repouso",
   "Slow animations": "Animações lentas",
+  "Size": "Tamanho",
   "Small": "Pequeno",
   "Smart Speaker": "Altifalante inteligente",
   "Smoke": "Fumo",
@@ -12097,7 +12125,12 @@ HomeswiftI18n.add("pt", {
   window.HomeswiftI18n = { languages, names, flags, language, locale, t, tn, message, add, translate, resolve, choose };
 
   // The catalog before the page's other scripts: a parser-inserted script written here runs before the next one.
-  if (language !== "en" && document.readyState === "loading") document.write(`<script src="/i18n-${language}.js"><\/script>`);
+  if (language !== "en" && document.readyState === "loading") {
+    const own = new URL(document.currentScript.src);
+    const catalogURL = new URL(`i18n-${language}.js`, own);
+    catalogURL.search = own.search;
+    document.write(`<script src="${catalogURL.pathname}${catalogURL.search}"><\/script>`);
+  }
   if (language !== "en") {
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => translate());
     else translate();
@@ -13373,20 +13406,19 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .card > .card-foot, .server.catalog > .actions { margin-top: auto; }
 .accessory-section + .accessory-section { margin-top: 8px; }
 
-/* The wall (widgets.js, the Accessories page): widgets on a grid of square units, packed with no gaps; a small
-   widget takes one unit, a medium two side by side, a large two by two. The unit shrinks on a narrow phone so two
-   always fit. A widget's box is fixed; every control is a tap away in its sheet. */
+/* Apple Home proportions: compact rows and taller tiles in the same column width. A medium tile spans two
+   compact rows; large and extra large keep two columns and fit their controls into as many rows as they need. */
 :root {
   --heat: #f2711c; --cool: #1f7fe8; --auto: #1f9d55; --track: rgba(120, 128, 142, 0.2);
   --tile-on: #ffffff; --tile-on-text: #15171c; --tile-on-muted: rgba(21, 23, 28, 0.6); --knob: #ffffff;
-  --unit: 160px; --unit-gap: 12px;
+  --unit: 176px; --unit-gap: 10px; --tile-row: max(64px, calc(var(--unit) * 0.36));
 }
 @media (prefers-color-scheme: dark) {
   :root { --heat: #ff8d3a; --cool: #4aa3ff; --auto: #3ccf7a; --track: rgba(255, 255, 255, 0.12); --tile-on: rgba(255, 255, 255, 0.92); --knob: #f3f4f7; }
 }
 .accessory-walls { container-type: inline-size; }
 /* --unit until widgets.js sets each wall's from its width (the columns that fit, widened to fill it). */
-.wall { --unit: min(160px, calc((100cqw - var(--unit-gap)) / 2)); display: grid; grid-template-columns: repeat(auto-fill, var(--unit)); grid-auto-rows: var(--unit);
+.wall { --tile-row: max(64px, calc(var(--unit) * 0.36)); --unit: min(176px, calc((100cqw - var(--unit-gap)) / 2)); display: grid; grid-template-columns: repeat(auto-fill, var(--unit)); grid-auto-rows: var(--tile-row);
   grid-auto-flow: row dense; gap: var(--unit-gap); }
 .wall > .widget { width: auto; height: auto; }
 /* A phone: two columns that fill the width. */
@@ -13396,16 +13428,18 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
   .page-head .tools:has(> .search) { flex-wrap: wrap; width: 100%; }
   .page-head .tools > .search { flex: 1 1 100%; width: 100%; }
 }
-.wall > .size-medium { grid-column: span 2; }
-.wall > .size-large { grid-column: span 2; grid-row: span 2; }
+.wall > .size-medium { grid-row: span 2; }
+.wall > .size-large { grid-column: span 2; grid-row: span var(--card-rows, 3); }
+.wall > .size-xlarge { grid-column: span 2; grid-row: span var(--card-rows, 5); }
 /* A control a widget hides (Close while the door is closed) stays hidden whatever its display. */
 .widget [hidden] { display: none !important; }
 
 .widget:not(.widget-full) { position: relative; margin: 0; padding: 12px; min-width: 0; display: flex; flex-direction: column; gap: 8px; overflow: hidden; border-radius: var(--radius); }
-.widget.size-small { width: var(--unit); height: var(--unit); justify-content: space-between; gap: 6px;
+.widget.size-small { width: var(--unit); height: var(--tile-row); justify-content: space-between; gap: 6px;
   transition: background-color var(--normal) var(--ease-out), color var(--normal) var(--ease-out), transform var(--fast) var(--ease-out); }
-.widget.size-medium { width: calc(var(--unit) * 2 + var(--unit-gap)); height: var(--unit); }
-.widget.size-large { width: calc(var(--unit) * 2 + var(--unit-gap)); height: calc(var(--unit) * 2 + var(--unit-gap)); }
+.widget.size-medium { width: var(--unit); height: calc(var(--tile-row) * 2 + var(--unit-gap)); }
+.widget.size-large { width: calc(var(--unit) * 2 + var(--unit-gap)); height: calc(var(--tile-row) * var(--card-rows, 3) + var(--unit-gap) * (var(--card-rows, 3) - 1)); }
+.widget.size-xlarge { width: calc(var(--unit) * 2 + var(--unit-gap)); height: calc(var(--tile-row) * var(--card-rows, 5) + var(--unit-gap) * (var(--card-rows, 5) - 1)); }
 .widget .tile { transition: background var(--normal) var(--ease-out), box-shadow var(--normal) var(--ease-out), color var(--normal) var(--ease-out); }
 .widget:not(.widget-full) .tile { width: 34px; height: 34px; border-radius: 10px; }
 .widget:not(.widget-full) .tile svg { width: 19px; height: 19px; }
@@ -13417,7 +13451,18 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .w-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .w-head .who, .w-bottom .who { flex: 1; min-width: 0; display: grid; }
 .widget:not(.widget-full) .who strong { font-size: 0.875rem; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.widget.size-small:not(.widget-full) .who strong { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.widget.size-medium:not(.widget-full) .who strong { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+/* Compact: icon and name in one row; tall: icon above the name, as in Apple Home. */
+.widget.widget-summary { border-radius: 22px; }
+.widget.size-small { flex-direction: row; align-items: center; padding: 10px; gap: 10px; }
+.size-small .w-top { flex: none; }
+.size-small .w-bottom { flex: 1; align-items: center; min-width: 0; }
+.size-small .w-hero { display: none; }
+.widget.size-small .tile { width: 40px; height: 40px; border-radius: 50%; }
+.widget.size-medium { justify-content: space-between; }
+.widget.size-medium .tile { width: 40px; height: 40px; border-radius: 50%; }
+.size-small .w-bottom .menu-button { position: absolute; right: -6px; bottom: -6px; width: 24px; height: 24px; margin: 0; opacity: 0; }
+.size-small:hover .w-bottom .menu-button, .size-small:focus-within .w-bottom .menu-button { opacity: 1; }
 /* Another controller's accessory (Apple Home's, through Wingman): a house badge on the tile's corner, ringed with the
    card's material so it reads as sitting on the tile. */
 .widget .tile { position: relative; }
@@ -13434,15 +13479,15 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 /* Each part keeps its height; a large body that holds more scrolls rather than squeezing them. */
 .w-body > * { flex-shrink: 0; }
 .widget:not(.widget-full) .seg > button { white-space: nowrap; padding-inline: 2px; }
-.size-medium .w-body { padding-right: 26px; overflow: hidden; justify-content: safe center; }
-/* A medium light's swatches on one line, as large as the line allows for the eight colours and the sun. */
-.size-medium .swatches { gap: 5px; flex-wrap: nowrap; }
-.widget.size-medium .swatch { width: min(28px, calc((100% - 40px) / 9)); height: auto; aspect-ratio: 1; }
-.size-large .w-body { justify-content: flex-start; overflow-y: auto; scrollbar-width: none; }
-.size-large .w-body > :last-child { margin-right: 26px; }
+.size-large .w-body { padding-right: 26px; overflow: hidden; justify-content: safe center; }
+/* A large light's swatches on one line, as large as the line allows for the eight colours and the sun. */
+.size-large .swatches { gap: 5px; flex-wrap: nowrap; }
+.widget.size-large .swatch { width: min(28px, calc((100% - 40px) / 9)); height: auto; aspect-ratio: 1; }
+.size-xlarge .w-body { justify-content: safe center; gap: 8px; overflow-y: auto; scrollbar-width: none; }
+.size-xlarge .w-body > :last-child { margin-right: 26px; }
 /* A large box's chips on one line, swiped sideways when there are more than fit. */
-.widget.size-large .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 2px; margin: -2px; }
-.widget.size-large .chips > * { flex: none; }
+.widget.size-xlarge .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 2px; margin: -2px; }
+.widget.size-xlarge .chips > * { flex: none; }
 .head-only { justify-content: center; }
 .powered-off .w-body, .powered-off .w-main { opacity: 0.55; transition: opacity var(--normal) var(--ease-out); }
 /* The menu at the bottom right of the box, over its content's corner. */
@@ -13460,10 +13505,10 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
   .edit-bar button { min-width: 36px; height: 36px; }
 }
 
-/* Small: a tap anywhere acts (or a hold confirms); the whole tile lights up when on, as the Home app's do. */
-.size-small.on { background-color: var(--tile-on); background-image: none; color: var(--tile-on-text); }
-.size-small.on .status, .size-small.on .w-hero small { color: var(--tile-on-muted); }
-.size-small:has(> .w-hit:active) { transform: scale(0.97); }
+/* Summary tiles: a tap anywhere acts (or a hold confirms); the whole tile lights up when on, as the Home app's do. */
+.widget-summary.on { background-color: var(--tile-on); background-image: none; color: var(--tile-on-text); }
+.widget-summary.on .status, .widget-summary.on .w-hero small { color: var(--tile-on-muted); }
+.widget-summary:has(> .w-hit:active) { transform: scale(0.97); }
 .w-hit { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; padding: 0; border: 0; border-radius: inherit; background: none; box-shadow: none; }
 .widget .w-hit:hover, .widget .w-hit:active:not(:disabled) { transform: none; }
 .w-hit:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -13482,14 +13527,14 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .w-veil { position: absolute; inset: 0; z-index: 0; pointer-events: none; background: color-mix(in srgb, var(--warn) 30%, transparent); clip-path: inset(0 100% 0 0); transition: clip-path 200ms var(--ease-out); }
 .holding > .w-veil { clip-path: inset(0 0 0 0); transition: clip-path 900ms linear; }
 /* A shutter's tile slid: the shade follows the pointer one to one; held on a phone, it lifts a little first. */
-.size-small.sliding > .w-shade { transition: none; }
-.size-small.slide-ready, .size-small.sliding { transform: scale(1.02); box-shadow: var(--shadow-thick); }
-.widget-cover.size-small > .w-hit { cursor: ns-resize; user-select: none; -webkit-user-select: none; }
+.widget-summary.sliding > .w-shade { transition: none; }
+.widget-summary.slide-ready, .widget-summary.sliding { transform: scale(1.02); box-shadow: var(--shadow-thick); }
+.widget-cover.widget-summary > .w-hit { cursor: ns-resize; user-select: none; -webkit-user-select: none; }
 
 /* A paused plugin's accessory: quiet and striped, its controls out of reach; the menu stays to resume it. */
 .widget.paused { background-image: repeating-linear-gradient(135deg, transparent 0 10px, color-mix(in srgb, var(--muted) 9%, transparent) 10px 20px); }
 .widget.paused > :not(.w-corner):not(.w-bottom):not(.w-head), .widget.paused .w-bottom .who, .widget.paused .w-head > .tile, .widget.paused .w-head > .switch { opacity: 0.45; filter: grayscale(1); }
-.widget.paused.size-small.on { background-color: var(--material); color: var(--text); }
+.widget.paused.widget-summary.on { background-color: var(--material); color: var(--text); }
 .widget.paused .w-hit { cursor: default; }
 
 /* Medium and large bodies */
@@ -13509,6 +13554,10 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .big-state b { font-size: 1.625rem; letter-spacing: -0.02em; line-height: 1.1; }
 .widget .w-button { width: 100%; border-radius: 12px; padding: 9px 14px; font-weight: 600; }
 .light-large, .cover-large { flex: 1; min-height: 0; display: flex; gap: 16px; align-items: stretch; }
+/* A useful drag distance without stretching simple controls to an otherwise empty XL card. */
+.size-xlarge .light-large, .size-xlarge .cover-large { min-height: 144px; }
+.widget.widget-measuring { position: absolute; visibility: hidden; pointer-events: none; }
+.widget-measuring .w-body { flex: none; overflow: visible; }
 .light-large > .level.vertical { width: 96px; flex: none; }
 .light-tall { display: flex; flex-direction: column; gap: 8px; flex: none; width: 96px; }
 .light-tall > .level { flex: 1; }
@@ -13574,9 +13623,9 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .wall.editing > .widget { cursor: grab; }
 .wall.editing > .widget > :not(.edit-bar) { pointer-events: none; }
 .wall.editing > .widget::after { content: ""; position: absolute; inset: 0; z-index: 2; border-radius: inherit; background: color-mix(in srgb, var(--bg) 40%, transparent); pointer-events: none; }
-.edit-bar { position: absolute; z-index: 3; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; gap: 2px; padding: 4px; border-radius: 999px;
+.edit-bar { position: absolute; z-index: 3; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; gap: 0; padding: 4px; border-radius: 999px; max-width: calc(100% - 8px); width: max-content;
   background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
-.edit-bar button { min-width: 28px; height: 28px; padding: 0 7px; border: 0; background: none; box-shadow: none; border-radius: 999px; font-size: 0.75rem; font-weight: 600; color: var(--muted); }
+.edit-bar button { min-width: 0; width: 26px; flex: 1 1 26px; height: 28px; padding: 0 2px; border: 0; background: none; box-shadow: none; border-radius: 999px; font-size: 0.75rem; font-weight: 600; color: var(--muted); }
 .edit-bar button:hover { transform: none; color: var(--text); }
 .edit-bar button[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); }
 /* Dragged: the widget lifts over the page and follows the pointer; a dashed slot shows where it will land. In
@@ -13678,7 +13727,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 /* Adaptive Lighting: the day's whites, a sun on them; dimmed until the Home app has sent a schedule to resume. */
 .widget .swatch.adaptive { display: grid; place-items: center; color: #5c3b00; background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); }
 .widget .swatch.adaptive svg, .widget .round.adaptive svg, .adaptive-chip svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-.size-medium .swatch.adaptive svg { width: 13px; height: 13px; }
+.size-large .swatch.adaptive svg { width: 13px; height: 13px; }
 .widget .round.adaptive[aria-pressed="true"] { background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); color: #5c3b00; border-color: transparent; }
 .widget .adaptive-chip { display: inline-flex; align-items: center; gap: 6px; }
 .widget .adaptive.unset { opacity: 0.55; }
@@ -13713,7 +13762,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .seg-thumb, .level-fill, .widget .tile, .widget.size-small, .w-shade, .valve-button .ring { transition-duration: 0ms !important; }
-  .size-small:has(> .w-hit:active) { transform: none; }
+  .widget-summary:has(> .w-hit:active) { transform: none; }
   .widget-sheet[open] { animation-name: fade; }
 }
 @media (prefers-contrast: more) { .tile.is-off { background: #687284; } }
@@ -13767,7 +13816,15 @@ textarea.short { min-height: 220px; }
 .menu-check { margin-left: auto; font-weight: 700; color: var(--accent-ink); }
 .menu [role="menuitemradio"]:hover .menu-check, .menu [role="menuitemradio"]:focus-visible .menu-check { color: inherit; }
 /* Choices without a glyph (Small, Medium) line up with the items that have one. */
-.menu:has([role="menuitem"] svg) [role="menuitemradio"]:not(:has(svg))::before { content: ""; flex: none; width: 17px; }
+.menu:has([role="menuitem"] svg) [role="menuitemradio"]:not(.menu-choice-badge):not(:has(svg))::before { content: ""; flex: none; width: 17px; }
+/* Widget sizes sit together as square badges rather than four separate menu rows. */
+.menu-choices { display: grid; gap: 8px; padding: 8px 12px; }
+.menu-choice-label { font-size: 0.75rem; font-weight: 600; color: var(--muted); }
+.menu-choice-row { display: flex; gap: 8px; }
+.menu .menu-choice-badge { display: grid; place-items: center; flex: 0 0 40px; width: 40px; height: 40px; min-height: 40px;
+  padding: 0; border: 1px solid var(--line); border-radius: 9px; background: var(--material-thin); font-weight: 650; text-align: center; }
+.menu .menu-choice-badge[aria-checked="true"] { background: var(--accent-fill); border-color: transparent; color: var(--accent-text); }
+.menu .menu-choice-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .menu-separator { border: 0; border-top: 1px solid var(--line); margin: 4px 8px; }
 .menu [role="menuitem"].danger { color: var(--error); }
 .menu [role="menuitem"].danger:hover, .menu [role="menuitem"].danger:focus-visible { background: var(--error); color: #fff; }
@@ -14736,8 +14793,8 @@ self.addEventListener("notificationclick", (event) => {
 // chosen from its primary service (an air conditioner's gauge and modes, a light's brightness and colours, a
 // shutter's tile, a gate held to open), all built from the same few controls. The services an accessory links
 // to its main one become the widget's facets (chips, readouts, meters), and what no widget shows stays
-// reachable under More, as rows. On the wall a widget is a fixed box: small (1×1, a tile a tap acts on), medium
-// (2×1, its main control) or large (2×2); its ⋯ menu opens every control in a sheet. Loaded after common.js,
+// reachable under More, as rows. On the wall a widget is a fixed box: small (a compact row), medium
+// (one column, two rows), large (two columns, fitted to its main controls), or extra large (two columns, fitted to its controls); its ⋯ menu opens every control in a sheet. Loaded after common.js,
 // remote.js and camera.js.
 //
 //   HomeswiftWidgets.card(accessory, { size, actions })   an accessory of /api/accessories at a size
@@ -15682,7 +15739,7 @@ self.addEventListener("notificationclick", (event) => {
 
   const widgets = [];
   const register = (widget) => widgets.push(widget);
-  const sizes = ["small", "medium", "large"];
+  const sizes = ["small", "medium", "large", "xlarge"];
 
   // Which service an accessory is drawn by, when none says it is primary: the first of these.
   const rank = ["Television", "HeaterCooler", "Thermostat", "AirPurifier", "SecuritySystem", "GarageDoorOpener", "LockMechanism", "WindowCovering",
@@ -15745,7 +15802,7 @@ self.addEventListener("notificationclick", (event) => {
   });
 
   register({
-    name: "television", types: ["Television"], icon: "tv", tone: "blue", size: "large",
+    name: "television", types: ["Television"], icon: "tv", tone: "blue", size: "xlarge",
     build(ctx, primary, size) {
       const active = ctx.take(primary, "Active");
       const remoteKey = ctx.take(primary, "Remote Key");
@@ -15787,7 +15844,7 @@ self.addEventListener("notificationclick", (event) => {
   });
 
   register({
-    name: "climate", types: ["HeaterCooler", "Thermostat"], icon: "thermo", size: "large",
+    name: "climate", types: ["HeaterCooler", "Thermostat"], icon: "thermo", size: "xlarge",
     build(ctx, primary, size) {
       const parts = climateParts(ctx, primary);
       const now = () => typeof parts.current?.value === "number" ? parts.current.value : null;
@@ -15856,7 +15913,7 @@ self.addEventListener("notificationclick", (event) => {
   });
 
   register({
-    name: "air-purifier", types: ["AirPurifier"], icon: "wind", tone: "teal", size: "large",
+    name: "air-purifier", types: ["AirPurifier"], icon: "wind", tone: "teal", size: "xlarge",
     build(ctx, primary, size) {
       const active = ctx.take(primary, "Active"), state = ctx.take(primary, "Current Air Purifier State");
       const target = ctx.char(primary, "Target Air Purifier State"), speed = ctx.take(primary, "Rotation Speed");
@@ -16257,7 +16314,7 @@ self.addEventListener("notificationclick", (event) => {
 
   /// The kind of widget an accessory gets, and its default size there: what the page keeps defaults by.
   function kindOf(accessory) {
-    if (accessory.camera && window.HomeswiftCamera) return { kind: "camera", size: "medium" };
+    if (accessory.camera && window.HomeswiftCamera) return { kind: "camera", size: "large" };
     const ctx = context(accessory);
     const { widget, primary } = resolve(ctx);
     return { kind: widget.name, size: defaultOf(widget, ctx, primary) };
@@ -16276,17 +16333,19 @@ self.addEventListener("notificationclick", (event) => {
   /// What the search box looks in: the names, the room, the plugin and the model.
   const searchText = (accessory) => [accessory.name, accessory.displayName, accessory.room, accessory.platformName, accessory.model].filter(Boolean).join(" ").toLowerCase();
 
-  /// The widget for `accessory` at `size` ("small", "medium", "large"; the kind's default when left out), a box
-  /// of the wall's grid: 1×1, 2×1, 2×2.
+  /// The widget for `accessory` at `size` ("small", "medium", "large", "xlarge"; the kind's default when left out), a box
+  /// of the wall's grid: 1×1, 1×2, then two columns with an automatic row count for large and extra large.
   function card(accessory, options = {}) {
     const ctx = context(accessory, options);
     ctx.openFull = () => open(accessory, options);
     let node;
-    if (accessory.camera && window.HomeswiftCamera) node = cameraTile(ctx, sizes.includes(options.size) ? options.size : "medium");
+    if (accessory.camera && window.HomeswiftCamera) node = cameraTile(ctx, sizes.includes(options.size) ? options.size : "large");
     else {
       const { widget, primary } = resolve(ctx);
       const size = sizes.includes(options.size) ? options.size : defaultOf(widget, ctx, primary);
-      node = frame(ctx, ...built(ctx, widget, primary, size), primary, size);
+      // Reuse the builders' compact, main-control and expanded variants at the four wall sizes.
+      const contentSize = { small: "small", medium: "small", large: "medium", xlarge: "large" }[size];
+      node = frame(ctx, ...built(ctx, widget, primary, contentSize), primary, size);
     }
     ctx.node = node;
     if (Date.now() - swept > 5000) sweep();
@@ -16374,8 +16433,8 @@ self.addEventListener("notificationclick", (event) => {
     return control.node;
   }
 
-  /// A fixed box of the wall: a small tile (a tap acts, or a hold confirms), or a medium or large card with its
-  /// header and body; the ⋯ menu at the bottom right.
+  /// Compact and tall summary tiles share their tap/hold actions; large and extra-large cards keep inline controls.
+  /// The ⋯ menu opens all controls at every size.
   function frame(ctx, widget, built, primary, size) {
     const { accessory } = ctx;
     const [glyph, paintGlyph] = glyphFor(ctx, widget, built, primary);
@@ -16385,30 +16444,39 @@ self.addEventListener("notificationclick", (event) => {
     if (mark) glyph.append(mark);
     const menu = actionsButton(ctx, false);
     const node = el("article", { class: `card widget size-${size} widget-${widget.name}`, "data-search": searchText(accessory), "data-id": accessory.id });
-    if (size === "small") {
+    if (size === "small" || size === "medium") {
+      node.classList.add("widget-summary");
       const hero = el("span", { class: "w-hero" });
       const hit = el("button", { type: "button", class: "w-hit" });
       const shade = built.shade ? el("span", { class: "w-shade", "aria-hidden": "true" }) : null;
       if (built.hold) {
         // Held to confirm: the tile fills; let go early and nothing happens. Tapped, the safe action.
-        let timer = null;
+        let timer = null, confirmed = false;
         const cancel = () => { clearTimeout(timer); timer = null; node.classList.remove("holding"); };
         hit.addEventListener("pointerdown", (event) => {
-          if (event.button !== 0 || !built.hold.armed()) return;
+          if (event.button !== 0) return;
+          confirmed = false;
+          if (!built.hold.armed()) return;
           hit.setPointerCapture(event.pointerId);
           node.classList.add("holding");
-          timer = setTimeout(() => { cancel(); built.hold.confirm(); }, HOLD_MS);
+          timer = setTimeout(() => { cancel(); confirmed = true; built.hold.confirm(); }, HOLD_MS);
         });
         for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) hit.addEventListener(type, cancel);
         hit.addEventListener("keydown", (event) => {
-          if ((event.key === " " || event.key === "Enter") && !event.repeat && built.hold.armed()) {
+          if ((event.key === " " || event.key === "Enter") && !event.repeat) {
+            confirmed = false;
+            if (!built.hold.armed()) return;
             event.preventDefault();
             node.classList.add("holding");
-            timer = setTimeout(() => { cancel(); built.hold.confirm(); }, HOLD_MS);
+            timer = setTimeout(() => { cancel(); confirmed = true; built.hold.confirm(); }, HOLD_MS);
           }
         });
         hit.addEventListener("keyup", (event) => { if (event.key === " " || event.key === "Enter") cancel(); });
-        hit.addEventListener("click", () => { if (!built.hold.armed()) built.hold.tap(); });
+        hit.addEventListener("click", () => {
+          // Releasing a completed hold also fires click: do not immediately reverse the action.
+          if (confirmed) { confirmed = false; return; }
+          if (!built.hold.armed()) built.hold.tap();
+        });
         node.append(el("span", { class: "w-veil", "aria-hidden": "true" }));
       } else hit.addEventListener("click", () => {
         if (slid) { slid = false; return; }
@@ -16476,6 +16544,13 @@ self.addEventListener("notificationclick", (event) => {
     }
     ctx.watch(paintGlyph);
     ctx.watch(statusPainter(ctx, built, status));
+    // A compact sensor puts its main reading beside its name, where a taller tile has a hero value.
+    if (size === "small" && widget.name === "sensor") ctx.watch(() => {
+      if (!accessory.paused && !accessory.unavailable && !ctx.flashing && built.hero) {
+        const value = built.hero();
+        status.textContent = typeof value === "string" ? value : value.textContent;
+      }
+    });
     paused(node, ctx);
     return node;
   }
@@ -16564,10 +16639,54 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   // ---- The wall's unit -------------------------------------------------------------------------------------------
-  // The wall's columns are squares of 160 px at least (two on a phone, which fill it): as many as fit, widened so the
-  // row ends at the wall's right edge instead of leaving a strip. CSS cannot size a square track to a share of the
-  // width, so each wall gets its --unit from its width, when it appears and when it resizes.
-  const unitMinimum = 160;
+  // Each column is at least 176 px (two on a phone), widened to fill the wall. Compact rows are 36% of
+  // a column, at least 64 px; a tall tile spans two rows, so two compact tiles align beside it.
+  // Large and XL fit their main or expanded controls instead of reserving empty rows.
+  // Measure an inert offscreen copy at the same width, then round its natural height up to grid rows. The
+  // copy has no event handlers and never becomes a card context. Measurements are batched once per frame.
+  const expandedPending = new Set();
+  let expandedFrame = null;
+  function queueExpanded(node) {
+    if (!node?.matches(".size-large, .size-xlarge") || node.matches(".widget-measuring, .widget-camera, .drag-slot")) return;
+    expandedPending.add(node);
+    if (expandedFrame !== null) return;
+    expandedFrame = requestAnimationFrame(() => {
+      expandedFrame = null;
+      const pending = [...expandedPending];
+      expandedPending.clear();
+      for (const card of pending) fitExpanded(card);
+    });
+  }
+  function fitExpanded(node) {
+    const wall = node.closest(".wall");
+    if (!wall || !node.isConnected || node.classList.contains("lifted")) return;
+    const width = node.getBoundingClientRect().width;
+    if (!width) return;
+    const style = getComputedStyle(wall);
+    const row = parseFloat(style.gridAutoRows), gap = parseFloat(style.rowGap) || 0;
+    if (!Number.isFinite(row) || row <= 0) return;
+    const copy = node.cloneNode(true);
+    copy.classList.add("widget-measuring");
+    copy.inert = true;
+    copy.setAttribute("aria-hidden", "true");
+    Object.assign(copy.style, { width: `${width}px`, height: "auto", minHeight: "0", maxHeight: "none", left: "-10000px", top: "0", transform: "none" });
+    // No duplicate DOM ids, even during the synchronous measurement.
+    copy.removeAttribute("id");
+    for (const child of copy.querySelectorAll("[id]")) child.removeAttribute("id");
+    wall.append(copy);
+    const height = copy.getBoundingClientRect().height;
+    copy.remove();
+    const minimum = node.classList.contains("size-xlarge") ? 3 : 2;
+    const rows = Math.max(minimum, Math.min(8, Math.ceil((height + gap - 0.5) / (row + gap))));
+    if (node.style.getPropertyValue("--card-rows") !== String(rows)) node.style.setProperty("--card-rows", rows);
+  }
+  function expandedIn(node) {
+    if (node.nodeType !== 1 || node.classList.contains("widget-measuring")) return [];
+    return node.matches(".size-large, .size-xlarge") ? [node] : [...node.querySelectorAll(".size-large, .size-xlarge")];
+  }
+  const expandedResized = new ResizeObserver((entries) => { for (const entry of entries) queueExpanded(entry.target); });
+  const watchExpanded = (node) => { if (node.matches(".widget-camera, .drag-slot")) return; expandedResized.observe(node); queueExpanded(node); };
+  const unitMinimum = 176;
   const fitted = new WeakMap();
   function fitWall(wall) {
     const width = wall.clientWidth;
@@ -16576,6 +16695,7 @@ self.addEventListener("notificationclick", (event) => {
     const gap = parseFloat(getComputedStyle(wall).columnGap) || 12;
     const columns = width <= 520 ? 2 : Math.max(2, Math.floor((width + gap) / (unitMinimum + gap)));
     wall.style.setProperty("--unit", `${Math.floor(((width - gap * (columns - 1)) / columns) * 100) / 100}px`);
+    for (const node of wall.querySelectorAll(":scope > .size-large, :scope > .size-xlarge")) queueExpanded(node);
   }
   const resized = new ResizeObserver((entries) => { for (const entry of entries) fitWall(entry.target); });
   // A new wall is sized at once, before it is first drawn at the default unit, then again whenever its width changes.
@@ -16591,14 +16711,31 @@ self.addEventListener("notificationclick", (event) => {
   const view = document.getElementById("view")?.parentElement ?? document.documentElement;
   new MutationObserver((records) => {
     for (const record of records) {
-      for (const node of record.addedNodes) for (const wall of walls(node)) watch(wall);
-      for (const node of record.removedNodes) for (const wall of walls(node)) resized.unobserve(wall);
+      // Optional controls can appear or disappear while a device is running.
+      if (record.target.nodeType === 1) queueExpanded(record.target.closest(".size-large, .size-xlarge"));
+      for (const node of record.addedNodes) {
+        for (const wall of walls(node)) watch(wall);
+        for (const card of expandedIn(node)) watchExpanded(card);
+      }
+      for (const node of record.removedNodes) {
+        for (const wall of walls(node)) resized.unobserve(wall);
+        for (const card of expandedIn(node)) { expandedResized.unobserve(card); expandedPending.delete(card); }
+      }
     }
-  }).observe(view, { childList: true, subtree: true });
+  }).observe(view, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden"] });
   for (const wall of walls(view)) watch(wall);
+  for (const node of expandedIn(view)) watchExpanded(node);
 
   window.HomeswiftWidgets = {
     card, open, kindOf, sizes, event, listen, describeModel, labelFor, enumLabels,
+    /// The same fallback characteristic row used under All controls, for live documentation and plugin pages.
+    characteristicRow(accessory, service, characteristic) {
+      const ctx = context(accessory);
+      const node = el("div", { class: "controls" }, rows(ctx, { ...service, characteristics: [characteristic] }));
+      ctx.node = node;
+      cards.add(ctx);
+      return node;
+    },
     /// A page's own widget, tried before the built-in ones: { name, types, match?, icon, tone, size, build }.
     register: (widget) => widgets.unshift(widget),
     /// The controls the widgets are made of, for a page's own widget.

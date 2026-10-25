@@ -2,7 +2,7 @@
 
 The web UI's Accessories page draws every accessory with the widget of its kind: an air conditioner gets a
 gauge, its setpoints and modes; a light its brightness, colours and white temperature; a shutter a tile you
-slide; a gate a button you hold. Widgets sit on a wall of square units, packed with no gaps, in the size you
+slide; a gate a button you hold. Widgets sit on a wall of compact rows, packed with no gaps, in the size you
 choose for each one. They are built from what HomeKit already knows about an accessory (its services, their
 characteristics, formats and ranges), so a plugin gets them without writing a line of web code.
 
@@ -11,30 +11,37 @@ characteristics, formats and ranges), so a plugin gets them without writing a li
 The page is `Sources/HomeswiftUI/Web/widgets.js` (the widgets) and `app.js` (the wall). The screenshots on this
 page use demonstration names; [Screenshots](#screenshots) says how they are taken.
 
+Explore the real widgets and every characteristic in the [interactive design system](https://homeswift.dev/design/).
+Its [maintainer guide](design-system.md) explains the catalog, isolated demo transport and sync checks.
+
 ## On the page
 
-### Three sizes
+### Four sizes
 
-A widget is a fixed box of the wall's grid:
+Small and Medium use fixed boxes; Large and Extra large fit their controls to the grid:
 
 | Size | Box | What it shows |
 |---|---|---|
-| **Small** | 1×1 | A tile a tap acts on (on and off, open and close, run and stop), lit while the accessory is on, with one figure: a temperature, a brightness, a position. What opens or unlocks is held instead. |
-| **Medium** | 2×1 | The main control: a brightness and the colours, a setpoint, a position with its buttons. |
-| **Large** | 2×2 | Everything the kind has: the gauge and modes of a climate, a purifier's readings, a TV's remote. |
+| **Small** | 1×1 | A compact horizontal tile: icon, name and status. A tap acts (on and off, open and close, run and stop); opening or unlocking requires a hold. |
+| **Medium** | 1×2 | A taller tile: icon and main figure above the name and status, with the same tap and hold actions. Two compact tiles fit beside it. |
+| **Large** | 2×automatic | The main controls: a brightness slider and colours, a setpoint, or a position and its buttons. |
+| **Extra large** | 2×automatic | Expanded controls: the gauge and modes of a climate, a purifier's readings, a TV's remote. |
 
-![One accessory in its three sizes](images/widgets/sizes.png)
+![One accessory in its four sizes](images/widgets/sizes.png)
 
-Every kind has the three sizes, and a default: large for climate, purifiers and televisions, medium for lights
-with colour, valves, gates and groups of switches, small for switches, shutters and sensors. A unit is 160
-points at least: the wall takes as many columns as fit and widens them a little so the row fills the width, two
-on a phone.
+Every kind has the four sizes, and a default: extra large for climate, purifiers and televisions, medium for lights
+with colour, valves, gates and groups of switches, small for switches, shutters and sensors. Columns are at
+least 176 CSS pixels, widened to fill each row; a phone always has two columns. Compact rows are 36% of a column's width, at least 64 pixels, with a 10-pixel gap.
+At a 393-pixel phone width and 16-pixel page margins, a compact tile is about 176×64 pixels and a medium tile
+176×138 pixels. Large and Extra large span both phone columns. Their heights follow the controls, rounded up to whole grid rows
+(two to eight for Large, three to eight for Extra large), so sparse cards do not reserve empty space. The full controls remain available through **All controls**.
 
-![A purifier, a valve and a gate in their three sizes](images/widgets/sizes-more.png)
+![A purifier, a valve and a gate in their four sizes](images/widgets/sizes-more.png)
 
 ### Choosing sizes and places
 
-A widget's **⋯** menu (a right click on a small tile) sets its size, makes its size the one of every accessory
+A widget's **⋯** menu (revealed on hover or keyboard focus on a compact tile; also a right click) offers S, M, L and XL as square badges in one row,
+makes its size the one of every accessory
 of the kind ("Medium for every light"), and opens **All controls**. **Edit** shows the sizes and ‹ › arrows on
 every widget, and lets them be dragged: the widget lifts and follows the pointer or the finger, the others make
 room as it passes, and it lands where it is let go. Near the window's top or bottom the page scrolls. **One wall**
@@ -42,7 +49,7 @@ room as it passes, and it lands where it is let go. Near the window's top or bot
 
 ![The ⋯ menu of a light](images/widgets/menu.png)
 
-![Edit: a widget dragged over the wall, its place shown dashed](images/widgets/edit.png)
+![Edit: the size and position controls over each widget](images/widgets/edit.png)
 
 The bridge keeps the layout in `ui-layout.json` next to config.json, the same for every user of the web UI: the
 order, the size of each accessory you sized, the size of each kind, and the grouping. An accessory the layout
@@ -50,7 +57,7 @@ does not list yet goes at the end, by plugin and name.
 
 ### All controls
 
-A fixed box shows what fits. **All controls** opens every control of the accessory in a sheet: the widget's
+A compact box shows what fits; Large and Extra large adjust their heights to the controls. **All controls** opens every control of the accessory in a sheet: the widget's
 own, the services linked to it as chips, readouts, meters and blocks, and under **More**, as rows, whatever no
 widget shows. An accessory no widget knows gets those rows, so nothing a plugin exposes is out of reach.
 
@@ -91,23 +98,23 @@ the Plugins page…"), as is one to a device that does not answer.
 The widget is chosen from the accessory's primary service (the one marked `isPrimary`, else the first of the
 list below that it has):
 
-| Primary service | Widget | Small | Medium | Large |
-|---|---|---|---|---|
-| Television | Television | power | input, volume, mute | remote, input |
-| HeaterCooler, Thermostat | Climate | temperature, mode by colour | inside and the mode's setpoint | gauge, setpoints, modes, fan speed, swing |
-| AirPurifier | Air purifier | air quality | speed, readings on a line | mode, speed, four readings, filter, switches |
-| SecuritySystem | Alarm | hold to turn off | state, arm, hold to turn off | the same, larger |
-| GarageDoorOpener | Gate | hold to open | state, hold to open or close | with its locks and sensors |
-| LockMechanism | Lock | hold to unlock | state, hold to unlock or lock | the same |
-| WindowCovering, Door, Window | Shutter | slide, tap | position, open, stop, close | a window to slide, tilt |
-| Valve | Valve | run or stop, time left | ring and duration | larger ring |
-| Fanv2, Fan | Fan | speed | speed | speed, modes, direction, swing |
-| Lightbulb | Light | on and off, brightness | brightness, colours or white | tall brightness, colours, white |
-| Switch, Outlet (one) | Switch | on and off | a big switch | a power button, its facets |
-| Switch, Outlet (several) | Group of switches | how many are on | chips | a tile each |
-| Sensors | Sensor | the reading | the readings | the readings, battery |
-| (a camera) | Camera | the picture | the picture | the picture with its buttons |
-| anything else | Rows | power | its first rows | more rows |
+| Primary service | Widget | Small | Medium | Large | Extra large |
+|---|---|---|---|---|---|
+| Television | Television | power | power, status | input, volume, mute | remote, input |
+| HeaterCooler, Thermostat | Climate | temperature, mode by colour | temperature, setpoint status | inside and setpoint | gauge, setpoints, modes, fan speed, swing |
+| AirPurifier | Air purifier | air quality | air quality, status | speed and readings | mode, speed, four readings, filter, switches |
+| SecuritySystem | Alarm | hold to turn off | state, hold to turn off | state and arm controls | the same, larger |
+| GarageDoorOpener | Gate | hold to open | state, hold to open | state, hold to open or close | with its locks and sensors |
+| LockMechanism | Lock | hold to unlock | state, hold to unlock | state, hold to unlock or lock | the same |
+| WindowCovering, Door, Window | Shutter | slide, tap | position, slide to set | position, open, stop, close | a window to slide, tilt |
+| Valve | Valve | run or stop, time left | run or stop, time left | ring and duration | larger ring |
+| Fanv2, Fan | Fan | speed | speed, on and off | speed | speed, modes, direction, swing |
+| Lightbulb | Light | on and off, brightness | brightness, on and off | brightness, colours or white | tall brightness, colours, white |
+| Switch, Outlet (one) | Switch | on and off | on and off | a big switch | a power button, its facets |
+| Switch, Outlet (several) | Group of switches | how many are on | how many are on | chips | a tile each |
+| Sensors | Sensor | the reading | the main reading | the readings | the readings, battery |
+| (a camera) | Camera | the picture | the picture | the picture | the picture with its buttons |
+| anything else | Rows | power | power, status | its first rows | more rows |
 
 What a widget does not show of the primary service, and the accessory's other services, become **facets**:
 switches as chips, sensors as readouts, a filter or a battery as a meter, a secondary light, fan, thermostat or
@@ -253,7 +260,7 @@ A plugin page (see [ui.md](ui.md)) can draw accessories as the Accessories page 
 </script>
 ```
 
-`HomeswiftWidgets.card(accessory, { size, actions })` answers the widget (`small`, `medium` or `large`; the kind's
+`HomeswiftWidgets.card(accessory, { size, actions })` answers the widget (`small`, `medium`, `large` or `xlarge`; the kind's
 own size when left out; `actions(accessory)` the items of its ⋯ menu after All controls).
 `HomeswiftWidgets.open(accessory)` opens All controls in a sheet. `HomeswiftWidgets.kindOf(accessory)` answers
 `{ kind, size }`, its kind of widget and that kind's size.
@@ -261,7 +268,9 @@ own size when left out; `actions(accessory)` the items of its ⋯ menu after All
 ### A widget of your own
 
 For an accessory the built-in widgets draw poorly, a page can register its own, tried before them. `build`
-answers the parts the frame draws, for `small`, `medium`, `large` and `full` (the sheet):
+answers the parts the frame draws. Compact and tall tiles both use `small` parts (their icon, figure, status
+and tap/hold actions). A large tile uses `medium` parts (main controls), extra large uses `large` parts
+(expanded controls), and `full` draws the sheet:
 
 ```js
 const { level, chip } = HomeswiftWidgets.controls;
@@ -289,7 +298,18 @@ reason when the device refuses), `ctx.watch(paint)` repaints after every change 
 
 ## Screenshots
 
-`wall.png`, `phone.png` and `paused.png` come from `Scripts/docs-screenshots.mjs`, run against a throwaway bridge with real
+The checked-in images use demonstration accessories and the production widget code. Retake them with:
+
+```bash
+node Scripts/widget-screenshots.mjs
+```
+
+This starts a throwaway localhost fixture server and headless Chrome in light mode at 2x, captures the wall,
+phone, sizes, paused state, menus, Edit, Adaptive Lighting, shutter slide and full sheet, and checks the tile
+alignment and tap/hold actions. It does not connect to devices or read any real names. The demonstration data
+is in `Scripts/fixtures/widgets.js`.
+
+To take screenshots against a running throwaway bridge instead, `wall.png`, `phone.png` and `paused.png` can use `Scripts/docs-screenshots.mjs`, run against a throwaway bridge with real
 accessories: a copy of a configuration directory with a new identity (no `username` or `pin` in `bridge`, another port,
 no `homeswift.json`, no `external/`), every plugin block `_paused` so nothing reaches a device or a cloud, the web UI on
 `127.0.0.1` with `auth: none`, and its `accessories/` cache, which brings the accessories back with their last values.
@@ -310,7 +330,7 @@ images (sizes, menus, the sheet, a slide, Adaptive Lighting, Edit) are close-ups
 | Request | What it does |
 |---|---|
 | `GET /api/layout` | The wall: `{ order, sizes, defaults, grouping }`. |
-| `PUT /api/layout` | Keeps it, checked: ids in `order` and `sizes`, sizes `small`, `medium` or `large`, `defaults` by kind (`climate`, `light`…), `grouping` `none`, `plugin` or `room` (the rooms of `/api/rooms`). |
+| `PUT /api/layout` | Keeps it, checked: ids in `order` and `sizes`, sizes `small`, `medium`, `large` or `xlarge`, `defaults` by kind (`climate`, `light`…), `grouping` `none`, `plugin` or `room` (the rooms of `/api/rooms`). |
 | `PUT /api/accessories/<id>/adaptive-lighting` | `{ "on": true }` resumes the Home app's last schedule, `false` turns it off; `service` picks the lightbulb when there are several. 409 with what to do when there is no schedule. |
 
 In `/api/accessories`, a light with Adaptive Lighting has `adaptiveLighting: { active, resumable }` on its

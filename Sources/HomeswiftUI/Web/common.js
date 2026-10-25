@@ -258,7 +258,8 @@
   let openMenu = null;
 
   /// Opens a menu under `trigger`. Each item: { label, icon (a name or a node), href or onSelect, danger }, or
-  /// { separator: true }; `checked` (true or false) makes it one of a set of choices, the chosen one ticked.
+  /// { separator: true }; `checked` makes a ticked choice. { label, choices: [{ label, badge, checked, onSelect }] }
+  /// draws a labelled row of square choices, such as the widget sizes.
   /// Opened from the keyboard, its first item takes the focus; from a click, the menu does, so no item looks
   /// chosen before the pointer or an arrow key gets to it.
   function menu(trigger, items, { keyboard = false } = {}) {
@@ -266,6 +267,16 @@
     openMenu?.close(true);
     const nodes = items.filter(Boolean).map((item) => {
       if (item.separator) return el("hr", { class: "menu-separator", role: "separator" });
+      if (item.choices) {
+        const choices = item.choices.map((choice) => {
+          const button = el("button", { type: "button", role: "menuitemradio", class: "menu-choice-badge", tabIndex: -1,
+            "aria-label": choice.label, title: choice.label, "aria-checked": String(!!choice.checked), text: choice.badge });
+          button.addEventListener("click", () => { close(); choice.onSelect?.(); });
+          return button;
+        });
+        return el("div", { class: "menu-choices", role: "group", "aria-label": item.label },
+          el("span", { class: "menu-choice-label", text: item.label }), el("div", { class: "menu-choice-row" }, choices));
+      }
       // Who the menu is about (the header's account menu): a name and a line under it, not an action.
       if (item.heading !== undefined) return el("div", { class: "menu-heading" }, el("strong", { text: item.heading }), item.detail ? el("span", { text: item.detail }) : null);
       const glyph = typeof item.icon === "string" ? icon(item.icon) : item.icon ?? null;
@@ -278,7 +289,8 @@
       node.addEventListener("click", () => { close(); item.onSelect?.(); });
       return node;
     });
-    const entries = nodes.filter((node) => node.getAttribute("role")?.startsWith("menuitem"));
+    const entries = nodes.flatMap((node) => node.getAttribute("role")?.startsWith("menuitem")
+      ? [node] : [...node.querySelectorAll('[role^="menuitem"]')]);
     // On a phone a card's menu is an action sheet over a dimmed page, at the bottom within the thumb's reach, as
     // iOS's; the header's (the account) still drops down from its button.
     const sheet = matchMedia("(max-width: 640px)").matches && !trigger.closest("header");
@@ -305,6 +317,12 @@
     const onKey = (event) => {
       const index = entries.indexOf(document.activeElement);
       if (event.key === "Escape") { event.preventDefault(); close(); }
+      else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && document.activeElement.closest(".menu-choice-row")) {
+        event.preventDefault();
+        const choices = [...document.activeElement.parentElement.children];
+        const next = choices.indexOf(document.activeElement) + (event.key === "ArrowRight" ? 1 : -1);
+        choices[(next + choices.length) % choices.length].focus();
+      }
       else if (event.key === "ArrowDown") { event.preventDefault(); focusAt(index + 1); }
       else if (event.key === "ArrowUp") { event.preventDefault(); focusAt(index < 0 ? -1 : index - 1); }
       else if (event.key === "Home") { event.preventDefault(); focusAt(0); }

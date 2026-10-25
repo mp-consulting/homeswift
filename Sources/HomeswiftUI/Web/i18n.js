@@ -121,7 +121,12 @@
   window.HomeswiftI18n = { languages, names, flags, language, locale, t, tn, message, add, translate, resolve, choose };
 
   // The catalog before the page's other scripts: a parser-inserted script written here runs before the next one.
-  if (language !== "en" && document.readyState === "loading") document.write(`<script src="/i18n-${language}.js"><\/script>`);
+  if (language !== "en" && document.readyState === "loading") {
+    const own = new URL(document.currentScript.src);
+    const catalogURL = new URL(`i18n-${language}.js`, own);
+    catalogURL.search = own.search;
+    document.write(`<script src="${catalogURL.pathname}${catalogURL.search}"><\/script>`);
+  }
   if (language !== "en") {
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => translate());
     else translate();

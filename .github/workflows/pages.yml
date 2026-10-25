@@ -5,7 +5,7 @@ name: Pages
 on:
   push:
     branches: [main]
-    paths: ["site/**", "Scripts/site-languages.mjs", ".github/workflows/pages.yml"]
+    paths: ["site/**", "Scripts/site-languages.mjs", "Scripts/design-system.mjs", "Sources/HomeswiftUI/Web/**", "Sources/Homeswift/Model/Definitions.swift", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
 permissions:
@@ -31,6 +31,9 @@ jobs:
       # fr/, es/ and pt/index.html are generated from index.html and the catalogs: a stale copy stops the deploy.
       - name: Check the translated home pages
         run: node Scripts/site-languages.mjs --check
+
+      - name: Check the design system catalog and production controls
+        run: node Scripts/design-system.mjs --check
 
       # Cloudflare, in front of Pages, keeps stylesheets and scripts for 4 hours and fetches HTML every time: a deploy
       # would pair new pages with the previous deploy's site.css and site.js. Each page's own .css and .js addresses

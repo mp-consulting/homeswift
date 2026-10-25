@@ -699,7 +699,7 @@
   // else the kind's own; in the order chosen, on one wall or a wall per plugin. The bridge keeps the layout
   // (/api/layout), the same for every user: a widget's menu sets its size, Edit sets sizes and order.
 
-  const sizeNames = { small: t("Small"), medium: t("Medium"), large: t("Large") };
+  const sizeNames = { small: t("Small"), medium: t("Medium"), large: t("Large"), xlarge: t("Extra large") };
   // A kind of widget as the menu names it: "Medium for every light".
   const kindNames = {
     climate: t("air conditioner and thermostat"), "air-purifier": t("air purifier"), fan: t("fan"), light: t("light"), cover: t("shutter"), toggle: t("switch"),
@@ -773,7 +773,8 @@
     const actions = (accessory) => {
       const size = sizeOf(accessory), kind = kindOf(accessory);
       return [
-        ...HomeswiftWidgets.sizes.map((one) => ({ label: sizeNames[one], checked: one === size, onSelect: () => resize(accessory, one) })),
+        { label: t("Size"), choices: HomeswiftWidgets.sizes.map((one) => ({ label: sizeNames[one],
+          badge: one === "xlarge" ? t("XL") : sizeNames[one][0].toUpperCase(), checked: one === size, onSelect: () => resize(accessory, one) })) },
         { label: kindNames[kind] ? t("{size} for every {kind}", { size: sizeNames[size], kind: kindNames[kind] }) : t("{size} for every accessory like it", { size: sizeNames[size] }), icon: "edit", onSelect: () => resizeKind(kind, size) },
         { separator: true },
         ...accessoryActions(accessory),
@@ -820,7 +821,7 @@
       const size = sizeOf(accessory);
       node.append(el("div", { class: "edit-bar", role: "group", "aria-label": t("Size and place of {name}", { name: accessory.name }) },
         el("button", { type: "button", "aria-label": t("Move earlier"), title: t("Move earlier"), text: "‹", "data-step": "-1", onclick: () => step(accessory, -1) }),
-        HomeswiftWidgets.sizes.map((one) => el("button", { type: "button", text: sizeNames[one][0].toUpperCase(), title: sizeNames[one], "aria-label": sizeNames[one], "aria-pressed": String(one === size), onclick: () => resize(accessory, one) })),
+        HomeswiftWidgets.sizes.map((one) => el("button", { type: "button", text: one === "xlarge" ? t("XL") : sizeNames[one][0].toUpperCase(), title: sizeNames[one], "aria-label": sizeNames[one], "aria-pressed": String(one === size), onclick: () => resize(accessory, one) })),
         el("button", { type: "button", "aria-label": t("Move later"), title: t("Move later"), text: "›", "data-step": "1", onclick: () => step(accessory, 1) })));
       node.addEventListener("pointerdown", (event) => drag(event, node));
     }

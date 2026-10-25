@@ -623,20 +623,19 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .card > .card-foot, .server.catalog > .actions { margin-top: auto; }
 .accessory-section + .accessory-section { margin-top: 8px; }
 
-/* The wall (widgets.js, the Accessories page): widgets on a grid of square units, packed with no gaps; a small
-   widget takes one unit, a medium two side by side, a large two by two. The unit shrinks on a narrow phone so two
-   always fit. A widget's box is fixed; every control is a tap away in its sheet. */
+/* Apple Home proportions: compact rows and taller tiles in the same column width. A medium tile spans two
+   compact rows; large and extra large keep two columns and fit their controls into as many rows as they need. */
 :root {
   --heat: #f2711c; --cool: #1f7fe8; --auto: #1f9d55; --track: rgba(120, 128, 142, 0.2);
   --tile-on: #ffffff; --tile-on-text: #15171c; --tile-on-muted: rgba(21, 23, 28, 0.6); --knob: #ffffff;
-  --unit: 160px; --unit-gap: 12px;
+  --unit: 176px; --unit-gap: 10px; --tile-row: max(64px, calc(var(--unit) * 0.36));
 }
 @media (prefers-color-scheme: dark) {
   :root { --heat: #ff8d3a; --cool: #4aa3ff; --auto: #3ccf7a; --track: rgba(255, 255, 255, 0.12); --tile-on: rgba(255, 255, 255, 0.92); --knob: #f3f4f7; }
 }
 .accessory-walls { container-type: inline-size; }
 /* --unit until widgets.js sets each wall's from its width (the columns that fit, widened to fill it). */
-.wall { --unit: min(160px, calc((100cqw - var(--unit-gap)) / 2)); display: grid; grid-template-columns: repeat(auto-fill, var(--unit)); grid-auto-rows: var(--unit);
+.wall { --tile-row: max(64px, calc(var(--unit) * 0.36)); --unit: min(176px, calc((100cqw - var(--unit-gap)) / 2)); display: grid; grid-template-columns: repeat(auto-fill, var(--unit)); grid-auto-rows: var(--tile-row);
   grid-auto-flow: row dense; gap: var(--unit-gap); }
 .wall > .widget { width: auto; height: auto; }
 /* A phone: two columns that fill the width. */
@@ -646,16 +645,18 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
   .page-head .tools:has(> .search) { flex-wrap: wrap; width: 100%; }
   .page-head .tools > .search { flex: 1 1 100%; width: 100%; }
 }
-.wall > .size-medium { grid-column: span 2; }
-.wall > .size-large { grid-column: span 2; grid-row: span 2; }
+.wall > .size-medium { grid-row: span 2; }
+.wall > .size-large { grid-column: span 2; grid-row: span var(--card-rows, 3); }
+.wall > .size-xlarge { grid-column: span 2; grid-row: span var(--card-rows, 5); }
 /* A control a widget hides (Close while the door is closed) stays hidden whatever its display. */
 .widget [hidden] { display: none !important; }
 
 .widget:not(.widget-full) { position: relative; margin: 0; padding: 12px; min-width: 0; display: flex; flex-direction: column; gap: 8px; overflow: hidden; border-radius: var(--radius); }
-.widget.size-small { width: var(--unit); height: var(--unit); justify-content: space-between; gap: 6px;
+.widget.size-small { width: var(--unit); height: var(--tile-row); justify-content: space-between; gap: 6px;
   transition: background-color var(--normal) var(--ease-out), color var(--normal) var(--ease-out), transform var(--fast) var(--ease-out); }
-.widget.size-medium { width: calc(var(--unit) * 2 + var(--unit-gap)); height: var(--unit); }
-.widget.size-large { width: calc(var(--unit) * 2 + var(--unit-gap)); height: calc(var(--unit) * 2 + var(--unit-gap)); }
+.widget.size-medium { width: var(--unit); height: calc(var(--tile-row) * 2 + var(--unit-gap)); }
+.widget.size-large { width: calc(var(--unit) * 2 + var(--unit-gap)); height: calc(var(--tile-row) * var(--card-rows, 3) + var(--unit-gap) * (var(--card-rows, 3) - 1)); }
+.widget.size-xlarge { width: calc(var(--unit) * 2 + var(--unit-gap)); height: calc(var(--tile-row) * var(--card-rows, 5) + var(--unit-gap) * (var(--card-rows, 5) - 1)); }
 .widget .tile { transition: background var(--normal) var(--ease-out), box-shadow var(--normal) var(--ease-out), color var(--normal) var(--ease-out); }
 .widget:not(.widget-full) .tile { width: 34px; height: 34px; border-radius: 10px; }
 .widget:not(.widget-full) .tile svg { width: 19px; height: 19px; }
@@ -667,7 +668,18 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .w-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .w-head .who, .w-bottom .who { flex: 1; min-width: 0; display: grid; }
 .widget:not(.widget-full) .who strong { font-size: 0.875rem; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.widget.size-small:not(.widget-full) .who strong { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.widget.size-medium:not(.widget-full) .who strong { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+/* Compact: icon and name in one row; tall: icon above the name, as in Apple Home. */
+.widget.widget-summary { border-radius: 22px; }
+.widget.size-small { flex-direction: row; align-items: center; padding: 10px; gap: 10px; }
+.size-small .w-top { flex: none; }
+.size-small .w-bottom { flex: 1; align-items: center; min-width: 0; }
+.size-small .w-hero { display: none; }
+.widget.size-small .tile { width: 40px; height: 40px; border-radius: 50%; }
+.widget.size-medium { justify-content: space-between; }
+.widget.size-medium .tile { width: 40px; height: 40px; border-radius: 50%; }
+.size-small .w-bottom .menu-button { position: absolute; right: -6px; bottom: -6px; width: 24px; height: 24px; margin: 0; opacity: 0; }
+.size-small:hover .w-bottom .menu-button, .size-small:focus-within .w-bottom .menu-button { opacity: 1; }
 /* Another controller's accessory (Apple Home's, through Wingman): a house badge on the tile's corner, ringed with the
    card's material so it reads as sitting on the tile. */
 .widget .tile { position: relative; }
@@ -684,15 +696,15 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 /* Each part keeps its height; a large body that holds more scrolls rather than squeezing them. */
 .w-body > * { flex-shrink: 0; }
 .widget:not(.widget-full) .seg > button { white-space: nowrap; padding-inline: 2px; }
-.size-medium .w-body { padding-right: 26px; overflow: hidden; justify-content: safe center; }
-/* A medium light's swatches on one line, as large as the line allows for the eight colours and the sun. */
-.size-medium .swatches { gap: 5px; flex-wrap: nowrap; }
-.widget.size-medium .swatch { width: min(28px, calc((100% - 40px) / 9)); height: auto; aspect-ratio: 1; }
-.size-large .w-body { justify-content: flex-start; overflow-y: auto; scrollbar-width: none; }
-.size-large .w-body > :last-child { margin-right: 26px; }
+.size-large .w-body { padding-right: 26px; overflow: hidden; justify-content: safe center; }
+/* A large light's swatches on one line, as large as the line allows for the eight colours and the sun. */
+.size-large .swatches { gap: 5px; flex-wrap: nowrap; }
+.widget.size-large .swatch { width: min(28px, calc((100% - 40px) / 9)); height: auto; aspect-ratio: 1; }
+.size-xlarge .w-body { justify-content: safe center; gap: 8px; overflow-y: auto; scrollbar-width: none; }
+.size-xlarge .w-body > :last-child { margin-right: 26px; }
 /* A large box's chips on one line, swiped sideways when there are more than fit. */
-.widget.size-large .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 2px; margin: -2px; }
-.widget.size-large .chips > * { flex: none; }
+.widget.size-xlarge .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 2px; margin: -2px; }
+.widget.size-xlarge .chips > * { flex: none; }
 .head-only { justify-content: center; }
 .powered-off .w-body, .powered-off .w-main { opacity: 0.55; transition: opacity var(--normal) var(--ease-out); }
 /* The menu at the bottom right of the box, over its content's corner. */
@@ -710,10 +722,10 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
   .edit-bar button { min-width: 36px; height: 36px; }
 }
 
-/* Small: a tap anywhere acts (or a hold confirms); the whole tile lights up when on, as the Home app's do. */
-.size-small.on { background-color: var(--tile-on); background-image: none; color: var(--tile-on-text); }
-.size-small.on .status, .size-small.on .w-hero small { color: var(--tile-on-muted); }
-.size-small:has(> .w-hit:active) { transform: scale(0.97); }
+/* Summary tiles: a tap anywhere acts (or a hold confirms); the whole tile lights up when on, as the Home app's do. */
+.widget-summary.on { background-color: var(--tile-on); background-image: none; color: var(--tile-on-text); }
+.widget-summary.on .status, .widget-summary.on .w-hero small { color: var(--tile-on-muted); }
+.widget-summary:has(> .w-hit:active) { transform: scale(0.97); }
 .w-hit { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; padding: 0; border: 0; border-radius: inherit; background: none; box-shadow: none; }
 .widget .w-hit:hover, .widget .w-hit:active:not(:disabled) { transform: none; }
 .w-hit:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -732,14 +744,14 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .w-veil { position: absolute; inset: 0; z-index: 0; pointer-events: none; background: color-mix(in srgb, var(--warn) 30%, transparent); clip-path: inset(0 100% 0 0); transition: clip-path 200ms var(--ease-out); }
 .holding > .w-veil { clip-path: inset(0 0 0 0); transition: clip-path 900ms linear; }
 /* A shutter's tile slid: the shade follows the pointer one to one; held on a phone, it lifts a little first. */
-.size-small.sliding > .w-shade { transition: none; }
-.size-small.slide-ready, .size-small.sliding { transform: scale(1.02); box-shadow: var(--shadow-thick); }
-.widget-cover.size-small > .w-hit { cursor: ns-resize; user-select: none; -webkit-user-select: none; }
+.widget-summary.sliding > .w-shade { transition: none; }
+.widget-summary.slide-ready, .widget-summary.sliding { transform: scale(1.02); box-shadow: var(--shadow-thick); }
+.widget-cover.widget-summary > .w-hit { cursor: ns-resize; user-select: none; -webkit-user-select: none; }
 
 /* A paused plugin's accessory: quiet and striped, its controls out of reach; the menu stays to resume it. */
 .widget.paused { background-image: repeating-linear-gradient(135deg, transparent 0 10px, color-mix(in srgb, var(--muted) 9%, transparent) 10px 20px); }
 .widget.paused > :not(.w-corner):not(.w-bottom):not(.w-head), .widget.paused .w-bottom .who, .widget.paused .w-head > .tile, .widget.paused .w-head > .switch { opacity: 0.45; filter: grayscale(1); }
-.widget.paused.size-small.on { background-color: var(--material); color: var(--text); }
+.widget.paused.widget-summary.on { background-color: var(--material); color: var(--text); }
 .widget.paused .w-hit { cursor: default; }
 
 /* Medium and large bodies */
@@ -759,6 +771,10 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .big-state b { font-size: 1.625rem; letter-spacing: -0.02em; line-height: 1.1; }
 .widget .w-button { width: 100%; border-radius: 12px; padding: 9px 14px; font-weight: 600; }
 .light-large, .cover-large { flex: 1; min-height: 0; display: flex; gap: 16px; align-items: stretch; }
+/* A useful drag distance without stretching simple controls to an otherwise empty XL card. */
+.size-xlarge .light-large, .size-xlarge .cover-large { min-height: 144px; }
+.widget.widget-measuring { position: absolute; visibility: hidden; pointer-events: none; }
+.widget-measuring .w-body { flex: none; overflow: visible; }
 .light-large > .level.vertical { width: 96px; flex: none; }
 .light-tall { display: flex; flex-direction: column; gap: 8px; flex: none; width: 96px; }
 .light-tall > .level { flex: 1; }
@@ -824,9 +840,9 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .wall.editing > .widget { cursor: grab; }
 .wall.editing > .widget > :not(.edit-bar) { pointer-events: none; }
 .wall.editing > .widget::after { content: ""; position: absolute; inset: 0; z-index: 2; border-radius: inherit; background: color-mix(in srgb, var(--bg) 40%, transparent); pointer-events: none; }
-.edit-bar { position: absolute; z-index: 3; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; gap: 2px; padding: 4px; border-radius: 999px;
+.edit-bar { position: absolute; z-index: 3; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; gap: 0; padding: 4px; border-radius: 999px; max-width: calc(100% - 8px); width: max-content;
   background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
-.edit-bar button { min-width: 28px; height: 28px; padding: 0 7px; border: 0; background: none; box-shadow: none; border-radius: 999px; font-size: 0.75rem; font-weight: 600; color: var(--muted); }
+.edit-bar button { min-width: 0; width: 26px; flex: 1 1 26px; height: 28px; padding: 0 2px; border: 0; background: none; box-shadow: none; border-radius: 999px; font-size: 0.75rem; font-weight: 600; color: var(--muted); }
 .edit-bar button:hover { transform: none; color: var(--text); }
 .edit-bar button[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); }
 /* Dragged: the widget lifts over the page and follows the pointer; a dashed slot shows where it will land. In
@@ -928,7 +944,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 /* Adaptive Lighting: the day's whites, a sun on them; dimmed until the Home app has sent a schedule to resume. */
 .widget .swatch.adaptive { display: grid; place-items: center; color: #5c3b00; background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); }
 .widget .swatch.adaptive svg, .widget .round.adaptive svg, .adaptive-chip svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-.size-medium .swatch.adaptive svg { width: 13px; height: 13px; }
+.size-large .swatch.adaptive svg { width: 13px; height: 13px; }
 .widget .round.adaptive[aria-pressed="true"] { background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); color: #5c3b00; border-color: transparent; }
 .widget .adaptive-chip { display: inline-flex; align-items: center; gap: 6px; }
 .widget .adaptive.unset { opacity: 0.55; }
@@ -963,7 +979,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .seg-thumb, .level-fill, .widget .tile, .widget.size-small, .w-shade, .valve-button .ring { transition-duration: 0ms !important; }
-  .size-small:has(> .w-hit:active) { transform: none; }
+  .widget-summary:has(> .w-hit:active) { transform: none; }
   .widget-sheet[open] { animation-name: fade; }
 }
 @media (prefers-contrast: more) { .tile.is-off { background: #687284; } }
@@ -1017,7 +1033,15 @@ textarea.short { min-height: 220px; }
 .menu-check { margin-left: auto; font-weight: 700; color: var(--accent-ink); }
 .menu [role="menuitemradio"]:hover .menu-check, .menu [role="menuitemradio"]:focus-visible .menu-check { color: inherit; }
 /* Choices without a glyph (Small, Medium) line up with the items that have one. */
-.menu:has([role="menuitem"] svg) [role="menuitemradio"]:not(:has(svg))::before { content: ""; flex: none; width: 17px; }
+.menu:has([role="menuitem"] svg) [role="menuitemradio"]:not(.menu-choice-badge):not(:has(svg))::before { content: ""; flex: none; width: 17px; }
+/* Widget sizes sit together as square badges rather than four separate menu rows. */
+.menu-choices { display: grid; gap: 8px; padding: 8px 12px; }
+.menu-choice-label { font-size: 0.75rem; font-weight: 600; color: var(--muted); }
+.menu-choice-row { display: flex; gap: 8px; }
+.menu .menu-choice-badge { display: grid; place-items: center; flex: 0 0 40px; width: 40px; height: 40px; min-height: 40px;
+  padding: 0; border: 1px solid var(--line); border-radius: 9px; background: var(--material-thin); font-weight: 650; text-align: center; }
+.menu .menu-choice-badge[aria-checked="true"] { background: var(--accent-fill); border-color: transparent; color: var(--accent-text); }
+.menu .menu-choice-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .menu-separator { border: 0; border-top: 1px solid var(--line); margin: 4px 8px; }
 .menu [role="menuitem"].danger { color: var(--error); }
 .menu [role="menuitem"].danger:hover, .menu [role="menuitem"].danger:focus-visible { background: var(--error); color: #fff; }
