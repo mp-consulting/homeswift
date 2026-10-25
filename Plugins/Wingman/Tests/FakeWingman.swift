@@ -125,6 +125,7 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
                 "bridge": ["id": "hue-bridge", "name": "Hue Bridge", "manufacturer": "Signify"],
                 "services": [
                     ["id": "info-1", "type": "0000003E-0000-1000-8000-0026BB765291", "characteristics": [
+                        ["id": "light-identify", "type": "00000014-0000-1000-8000-0026BB765291", "properties": ["write"], "format": "bool"],
                         ["id": "c-name", "type": "00000023-0000-1000-8000-0026BB765291", "properties": ["read"], "value": "Plafonnier", "format": "string"],
                     ]],
                     ["id": "bulb-1", "name": "Plafonnier", "type": lightbulb, "primary": true, "characteristics": [

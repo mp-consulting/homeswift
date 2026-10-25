@@ -175,13 +175,13 @@
     return new Promise((resolve) => {
       const dialog = el("dialog", { class: "restart-overlay restart-confirm", "aria-labelledby": "restart-confirm-title", "aria-describedby": "restart-confirm-description" });
       const finish = (accepted) => { dialog.close(); dialog.remove(); resolve(accepted); };
-      const cancel = el("button", { text: t("Cancel"), onclick: () => finish(false) });
+      const cancel = el("button", { actionIcon: "close", text: t("Cancel"), onclick: () => finish(false) });
       dialog.append(
         el("div", { class: "restart-confirm-icon", "aria-hidden": "true" }, HomeswiftCommon.icon("power")),
         el("h2", { id: "restart-confirm-title", text: t("Restart Homeswift?") }),
         el("p", { id: "restart-confirm-description", text: t("Your accessories will disconnect briefly. This page will reconnect automatically when Homeswift is ready.") }),
         el("div", { class: "restart-confirm-actions" }, cancel,
-          el("button", { class: "primary", text: t("Restart"), onclick: () => finish(true) })));
+          el("button", { actionIcon: "power", class: "primary", text: t("Restart"), onclick: () => finish(true) })));
       dialog.addEventListener("cancel", (event) => { event.preventDefault(); finish(false); });
       document.body.append(dialog); dialog.showModal(); cancel.focus();
     });
@@ -272,7 +272,7 @@
         overlay.querySelector(".spinner")?.remove();
         overlay.querySelector("#restart-heading").textContent = t("homeswift did not come back; check its log.");
         overlay.querySelector("#restart-message").textContent = "";
-        overlay.append(el("button", { class: "primary", text: t("Try again"), onclick: () => {
+        overlay.append(el("button", { actionIcon: "restore", class: "primary", text: t("Try again"), onclick: () => {
           overlay.close(); overlay.remove(); restartOverlay = null;
           waitForRestart(started);
         } }));
@@ -480,13 +480,7 @@
     // The page is widgets the user can hide and order (Customise, at the bottom; Glass UI's dashboard layout),
     // drawn only when shown: the activity charts load nothing while hidden.
     const widgets = {
-      overview: () => [el("div", { class: "card hero" },
-        el("img", { src: "/icon.svg", class: "logo large", alt: "" }),
-        el("div", { class: "who" },
-          el("h1", { text: "Homeswift" }),
-          el("p", { class: `health ${healthKind}`, text: health }),
-          el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }))),
-      updateCard(status.update),
+      overview: () => [updateCard(status.update),
       // Each figure with its glyph; on a phone the four share one row, "Home app controllers" shortened.
       el("div", { class: "stats" },
         el("a", { class: "stat", href: "/accessories" }, HomeswiftCommon.icon("bulb"), el("b", { text: status.bridges.reduce((sum, bridge) => sum + bridge.accessories, 0) }), el("span", { text: t("Accessories") })),
@@ -515,9 +509,47 @@
           el("a", { class: "link", href: "/notifications" }, HomeswiftCommon.icon("bell"), el("span", { text: t("Notifications") }))) : null)],
     };
     const sections = new Map();
-    const footer = el("div", { class: "actions page-foot" },
+    let footerUpdate = status.update;
+    const updateState = () => footerUpdate?.error ? "error" : footerUpdate?.available ? "available" : footerUpdate?.checkedAt ? "current" : "idle";
+    const updateLabel = () => footerUpdate?.error ? t("Try again") : footerUpdate?.available ? t("Update available") : footerUpdate?.checkedAt ? t("Up to date") : t("Check for updates");
+    const updateLabels = [t("Check for updates"), t("Checking…"), t("Up to date"), t("Update available"), t("Try again")];
+    const updateContent = (state, label) => [
+      HomeswiftCommon.icon(({ current: "check", available: "download", error: "warning" })[state] || "restore"),
+      el("span", { class: "footer-update-label" },
+        el("span", { text: label }),
+        ...updateLabels.map((text) => el("span", { class: "footer-update-sizer", "aria-hidden": "true", text }))),
+    ];
+    const showUpdate = () => openSheet((done) => el("div", {},
+      el("h2", { id: "update-check-title", text: t("Updates") }), updateCard(footerUpdate),
+      el("button", { actionIcon: "close", type: "button", text: t("Close"), onclick: () => done() })), "update-check-title", { returnFocus: checkUpdates });
+    const checkUpdates = el("button", { type: "button", class: "link footer-update-check", "data-update-state": updateState(), "aria-live": "polite", text: updateLabel(), onclick: async () => {
+      if (footerUpdate?.available && !footerUpdate.error) { showUpdate(); return; }
+      checkUpdates.disabled = true;
+      checkUpdates.dataset.updateState = "checking";
+      checkUpdates.replaceChildren(...updateContent("checking", t("Checking…")));
+      try {
+        footerUpdate = await api("/api/updates/check", { method: "POST", body: {} });
+        if (!footerUpdate || footerUpdate.error) throw new Error();
+        checkUpdates.removeAttribute("title");
+        if (footerUpdate.available) showUpdate();
+      } catch {
+        footerUpdate = { error: true };
+        checkUpdates.title = t("Could not check for updates. Try again.");
+      } finally {
+        checkUpdates.disabled = false;
+        checkUpdates.replaceChildren(...updateContent(updateState(), updateLabel()));
+        checkUpdates.dataset.updateState = updateState();
+      }
+    } });
+    checkUpdates.replaceChildren(...updateContent(updateState(), updateLabel()));
+    const footer = el("footer", { class: "actions page-foot status-footer" },
+      el("div", { class: "status-footer-summary" },
+        el("p", { class: `health ${healthKind}` }, el("strong", { text: health })),
+        el("div", { class: "status-footer-meta" },
+          el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }),
+          isAdmin() ? checkUpdates : null)),
       el("button", { type: "button", class: "link", "aria-label": t("Customise the Status page"), "aria-haspopup": "menu", "aria-expanded": "false",
-        onclick: (event) => customiseDashboard(event.currentTarget, renderDashboard, event.detail === 0) }, HomeswiftCommon.icon("sliders"), " ", t("Customise this page…")));
+        onclick: (event) => customiseDashboard(event.currentTarget, renderDashboard, event.detail === 0) }, HomeswiftCommon.icon("sliders"), el("span", { class: "status-footer-action-label", text: t("Customise this page…") })));
     function renderDashboard(layout) {
       const position = { left: scrollX, top: scrollY };
       for (const id of layout.order) {
@@ -634,13 +666,13 @@
       controller = new AbortController();
       const own = controller;
       const live = el("div", {}, el("p", { class: "ai-thinking", text: t("Reading the day…") }));
-      body.replaceChildren(live, el("button", { class: "link", text: t("Stop"), onclick: () => own.abort() }));
+      body.replaceChildren(live, el("button", { actionIcon: "pause", class: "link", text: t("Stop"), onclick: () => own.abort() }));
       card.classList.add("writing");
       note.textContent = "";
       try {
         shown(await HomeswiftCommon.assistantRequest("/api/assistant/digest", {}, { signal: own.signal, onChunk: streamInto(live) }));
       } catch (e) {
-        if (own.signal.aborted) offer(); else body.replaceChildren(el("p", { class: "error", text: e.message }), el("button", { class: "link", text: t("Try again"), onclick: () => write() }));
+        if (own.signal.aborted) offer(); else body.replaceChildren(el("p", { class: "error", text: e.message }), el("button", { actionIcon: "restore", class: "link", text: t("Try again"), onclick: () => write() }));
       } finally {
         card.classList.remove("writing");
         if (controller === own) controller = null;
@@ -658,7 +690,7 @@
     const released = update.publishedAt ? new Date(update.publishedAt).toLocaleDateString(HomeswiftI18n.locale) : null;
     let command = null;
     if (update.command) {
-      const copy = el("button", { type: "button", text: t("Copy"), onclick: async () => {
+      const copy = el("button", { actionIcon: "copy", type: "button", text: t("Copy"), onclick: async () => {
         try { await copyText(update.command); copy.textContent = t("Copied"); } catch { copy.textContent = t("Not copied"); }
         setTimeout(() => { copy.textContent = t("Copy"); }, 1800);
       } });
@@ -710,7 +742,7 @@
     table.addEventListener("toggle", () => { if (table.open) fillTable(); });
     const section = el("section", { class: "activity" },
       el("h2", { text: t("Activity") }),
-      el("div", { class: "filter-bar" }, range.picker, sources.picker, range.customRow),
+      el("div", { class: "filter-bar" }, range.picker, sources.picker, HomeswiftCommon.clearFilters([[range.picker, "1h"], [sources.picker, ""]]), range.customRow),
       el("div", { class: "chart-grid" }, charts.map((chart) => chart.card)),
       table);
     let shown = null;   // the last history loaded, for the table
@@ -831,7 +863,7 @@
   /// What the menu of an accessory's widget offers, after its sizes.
   function accessoryActions(accessory) {
     return [
-      { label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) },
+      accessory.supportsIdentify ? { label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) } : null,
       isAdmin() ? { label: t("Show its log"), icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
       window.HomeswiftChat?.available() ? { label: t("Ask the Assistant"), icon: sparkle(), onSelect: () => HomeswiftChat.ask(t("About {name}: ", { name: accessory.name })) } : null,
       accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
@@ -863,7 +895,7 @@
     const layout = { order: [], sizes: {}, defaults: {}, grouping: "none", ...saved };
     const kinds = new Map(accessories.map((accessory) => [accessory.id, HomeswiftWidgets.kindOf(accessory)]));
     const kindOf = (accessory) => kinds.get(accessory.id).kind;
-    const sizeOf = (accessory) => layout.sizes[accessory.id] || layout.defaults[kindOf(accessory)] || kinds.get(accessory.id).size;
+    const sizeOf = (accessory) => layout.sizes[accessory.id] || (accessory.members ? "large" : layout.defaults[kindOf(accessory)] || kinds.get(accessory.id).size);
     // The order kept first; accessories it does not list yet after them, by plugin and name.
     const rank = new Map(layout.order.map((id, index) => [id, index]));
     const ordered = groupByPlugin(accessories).flatMap(([, group]) => group)
@@ -877,7 +909,12 @@
     const note = el("p", { class: "error hidden", role: "status" });
     let saveTimer = null;
     const save = () => {
-      layout.order = ordered.map((accessory) => accessory.id);
+      // Merge visible widget positions without dropping filtered accessories or group IDs.
+      const visible = [...content.querySelectorAll(".wall > [data-id]")].map((node) => node.dataset.id);
+      const visibleIDs = new Set(visible);
+      const complete = [...new Set([...layout.order, ...ordered.map((accessory) => accessory.id), ...layout.groups.map((group) => group.id)])];
+      let index = 0;
+      layout.order = complete.map((id) => visibleIDs.has(id) ? visible[index++] : id);
       clearTimeout(saveTimer);
       saveTimer = setTimeout(async () => {
         try {
@@ -891,7 +928,12 @@
       }, 300);
     };
 
-    const groupingControls = HomeswiftGroups.mount({ all, layout,
+    const groupingControls = HomeswiftGroups.mount({ all, layout, rooms,
+      setGroupRoom: isAdmin() ? async (ids, room) => {
+        await api("/api/rooms", { method: "PUT", body: { accessories: Object.fromEntries(ids.map((id) => [id, { room }])) } });
+        for (const accessory of all) if (ids.includes(accessory.id)) accessory.room = room;
+      } : null,
+      moveToRoom: isAdmin() ? (group) => HomeswiftHome.moveGroupToRoom(group, all) : null,
       persist: async () => { clearTimeout(saveTimer); await api("/api/layout", { method: "PUT", body: layout }); }, refresh: render });
     window.homeswiftGroupEvent = groupingControls.event;
     window.homeswiftGroupSnapshot = groupingControls.snapshot;
@@ -907,7 +949,7 @@
       ];
     };
     function widget(accessory) {
-      const node = HomeswiftWidgets.card(accessory, { size: sizeOf(accessory), actions });
+      const node = accessory.members ? groupingControls.card(accessory, editing) : HomeswiftWidgets.card(accessory, { size: sizeOf(accessory), actions });
       if (editing) editable(node, accessory);
       nodes.set(accessory.id, node);
       return node;
@@ -954,19 +996,31 @@
       if (accessory === target || (layout.grouping !== "none" && section(accessory) !== section(target))) return;
       ordered.splice(ordered.indexOf(accessory), 1);
       ordered.splice(ordered.indexOf(target) + (after ? 1 : 0), 0, accessory);
+      const node = nodes.get(accessory.id), targetNode = nodes.get(target.id);
+      if (node && targetNode) { if (after) targetNode.after(node); else targetNode.before(node); }
       save();
       animateLayout(render);
     }
     function step(accessory, delta) {
-      const wall = ordered.filter((one) => layout.grouping === "none" || section(one) === section(accessory));
-      const target = wall[wall.indexOf(accessory) + delta];
+      const node = nodes.get(accessory.id), wall = node?.parentElement;
+      if (!wall) return;
+      const siblings = [...wall.children].filter((child) => child.dataset.id && !child.classList.contains("hidden"));
+      const target = siblings[siblings.indexOf(node) + delta];
       if (!target) return;
-      place(accessory, target, delta > 0);
+      if (delta > 0) target.after(node); else target.before(node);
+      save();
+      const ids = [...wall.children].map((child) => child.dataset.id).filter((id) => ordered.some((one) => one.id === id));
+      const places = ordered.flatMap((one, index) => ids.includes(one.id) ? [index] : []);
+      const byID = new Map(ordered.map((one) => [one.id, one]));
+      ids.forEach((id, index) => { ordered[places[index]] = byID.get(id); });
+      animateLayout(render);
       nodes.get(accessory.id)?.querySelector(`.edit-bar [data-step="${delta}"]`)?.focus();
     }
     /// In Edit: the sizes and the arrows over the widget, and the widget dragged into place.
     function editable(node, accessory) {
       const size = sizeOf(accessory);
+      node.append(el("div", { class: "edit-caption", "aria-hidden": "true" },
+        el("span", { class: "edit-grip", text: "⠿" }), el("span", { text: accessory.displayName || accessory.name })));
       node.append(el("div", { class: "edit-bar", role: "group", "aria-label": t("Size and place of {name}", { name: accessory.name }) },
         el("button", { type: "button", "aria-label": t("Move earlier"), title: t("Move earlier"), text: "‹", "data-step": "-1", onclick: () => step(accessory, -1) }),
         HomeswiftWidgets.sizes.map((one) => el("button", { type: "button", text: one === "xlarge" ? t("XL") : sizeNames[one][0].toUpperCase(), title: sizeNames[one], "aria-label": sizeNames[one], "aria-pressed": String(one === size), onclick: () => resize(accessory, one) })),
@@ -1045,7 +1099,7 @@
     /// Let go, it lands in the slot, and the wall's order is kept. A finger drags at once: in Edit the widgets do not
     /// scroll the page.
     function drag(event, node) {
-      if (event.button !== 0 || event.target.closest(".edit-bar, .resize-handle")) return;
+      if (event.button !== 0 || event.target.closest(".edit-bar, .resize-handle, .menu-button")) return;
       // A press that drags selects no text.
       event.preventDefault();
       getSelection()?.removeAllRanges();
@@ -1053,7 +1107,13 @@
       const start = { x: event.clientX, y: event.clientY };
       const originalStyle = node.style.cssText, originalNext = node.nextElementSibling;
       let slot = null, pointer = event, scroller = null;
-      let groupTarget = null, groupSince = 0;
+      let groupTarget = null;
+      const touchDrag = event.pointerType === "touch" || matchMedia("(max-width: 640px)").matches;
+      const clearGroupTarget = () => {
+        groupTarget?.classList.remove("group-drop-target");
+        groupTarget?.removeAttribute("data-drop-label");
+        groupTarget = null;
+      };
       node.setPointerCapture(event.pointerId);
       const lift = () => {
         const box = node.getBoundingClientRect();
@@ -1063,6 +1123,7 @@
         node.classList.add("lifted");
         Object.assign(node.style, { left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px` });
         scroller = setInterval(() => {
+          if (groupTarget) return;
           const edge = 80, speed = 14;
           if (pointer.clientY < edge) scrollBy(0, -speed);
           else if (pointer.clientY > innerHeight - edge) scrollBy(0, speed);
@@ -1072,16 +1133,24 @@
       };
       // The widget under the pointer: the slot goes before it, or after it past its middle.
       const hover = () => {
-        const under = document.elementFromPoint(pointer.clientX, pointer.clientY)?.closest(".wall > .widget");
-        if (!under || under === slot || under.parentElement !== wall) { groupTarget?.classList.remove("group-drop-target"); groupTarget = null; return; }
+        // Ignore the lifted card and its controls when locating the actual drop target.
+        const under = document.elementsFromPoint(pointer.clientX, pointer.clientY)
+          .map((element) => element.closest(".wall > .widget"))
+          .find((candidate) => candidate && candidate !== node && candidate !== slot && candidate.parentElement === wall);
+        if (!under || under === slot || under.parentElement !== wall) { clearGroupTarget(); return; }
         const box = under.getBoundingClientRect();
-        const center = pointer.clientX > box.left + box.width * .25 && pointer.clientX < box.right - box.width * .25 && pointer.clientY > box.top + box.height * .2 && pointer.clientY < box.bottom - box.height * .2;
+        // On compact/touch layouts leave only a narrow edge for reordering. Otherwise a
+        // small tile moves away before the finger can reach its old central drop zone.
+        const insetX = touchDrag ? Math.min(8, box.width * .08) : box.width * .2;
+        const insetY = touchDrag ? Math.min(6, box.height * .08) : box.height * .15;
+        const center = pointer.clientX > box.left + insetX && pointer.clientX < box.right - insetX && pointer.clientY > box.top + insetY && pointer.clientY < box.bottom - insetY;
         if (center && groupingControls.canJoin(node.dataset.id, under.dataset.id)) {
-          if (groupTarget !== under) { groupTarget?.classList.remove("group-drop-target"); groupTarget = under; groupSince = Date.now(); }
+          if (groupTarget !== under) { clearGroupTarget(); groupTarget = under; }
           under.classList.add("group-drop-target");
+          under.dataset.dropLabel = t("Release to group");
           return;
         }
-        groupTarget?.classList.remove("group-drop-target"); groupTarget = null;
+        clearGroupTarget();
         const after = pointer.clientY > box.top + box.height * .75 ||
           (pointer.clientY >= box.top + box.height * .25 && pointer.clientX > box.left + box.width / 2);
         if ((after ? under.nextElementSibling : under.previousElementSibling) === slot) return;
@@ -1103,8 +1172,9 @@
         node.removeEventListener("pointercancel", end);
         node.removeEventListener("lostpointercapture", end);
         clearInterval(scroller);
-        const joinTarget = ended.type === "pointerup" && groupTarget && Date.now() - groupSince >= 450 ? groupTarget.dataset.id : null;
-        groupTarget?.classList.remove("group-drop-target");
+        if (ended.type === "pointerup" && slot) { pointer = ended; hover(); }
+        const joinTarget = ended.type === "pointerup" && groupTarget ? groupTarget.dataset.id : null;
+        clearGroupTarget();
         if (!slot || !slot.isConnected) return;
         if (ended.type !== "pointerup") {
           if (originalNext?.parentElement === wall) originalNext.before(slot); else wall.append(slot);
@@ -1136,7 +1206,27 @@
 
     const content = el("div", { class: "accessory-walls" });
     const none = el("p", { class: "muted hidden", text: t("No accessory matches.") });
+    async function saveRoomOrder(order) {
+      try {
+        await api("/api/rooms", { method: "PUT", body: { rooms: order } });
+        rooms.splice(0, rooms.length, ...order);
+        note.classList.add("hidden");
+        render();
+      } catch (e) {
+        note.textContent = t("The layout was not kept: {error}", { error: e.message });
+        note.classList.remove("hidden");
+      }
+      return [...rooms];
+    }
+    const roomOrderButton = el("button", { type: "button", class: "hidden", "aria-label": t("Reorder rooms"), "aria-haspopup": "menu",
+      onclick: (event) => HomeswiftCommon.menu(roomOrderButton, [
+        ...rooms.map((name) => ({ key: name, label: name, icon: "room", keepOpen: true })),
+        { separator: true },
+        { label: t("Reset room order"), icon: "restore", disabled: () => rooms.every((name, index) => index === 0 || rooms[index - 1].localeCompare(name, HomeswiftI18n.locale) <= 0), onSelect: () => saveRoomOrder([...rooms].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale))) },
+      ], { keyboard: event.detail === 0, onReorder: saveRoomOrder }) }, HomeswiftCommon.icon("room"), el("span", { text: t("Reorder rooms") }));
+
     function render() {
+      roomOrderButton.classList.toggle("hidden", !editing || !isAdmin() || layout.grouping !== "room" || rooms.length < 2);
       nodes.clear();
       // By plugin or by room: a section each (by plugin in the order of their names, those of no plugin last; by room
       // in the rooms' order, those in none last); else one wall.
@@ -1147,12 +1237,21 @@
       content.replaceChildren(...groups.map(([name, group]) => el("section", { class: "accessory-section" },
         name ? el("div", { class: "section-head" }, el("h2", { text: name }), el("span", { class: "muted", text: tn("{n} accessory", "{n} accessories", group.length) })) : null,
         el("div", { class: `wall${editing ? " editing" : ""}` }, group.filter((a) => !memberIDs.has(a.id) || noResponse).map(widget)))));
-      const visibleGroups = layout.groups.filter((g) => g.members.some((id) => accessories.some((a) => a.id === id)));
-      if (!noResponse && visibleGroups.length) {
-        const wall = el("div", { class: `wall${editing ? " editing" : ""}` }, visibleGroups.map((g) => groupingControls.card(g, editing)));
-        // Keep groups in the same drag surface as individual tiles.
-        const firstWall = content.querySelector(".wall");
-        if (firstWall) firstWall.prepend(...wall.children); else content.prepend(el("section", { class: "accessory-section" }, wall));
+      if (!noResponse) {
+        const walls = [...content.querySelectorAll(".wall")];
+        const cardsBySection = groups.map(() => []);
+        for (const group of layout.groups) {
+          const index = HomeswiftGroups.sectionIndex(group, groups);
+          if (index !== -1) cardsBySection[index].push(widget(group));
+        }
+        // Keep each group beside its members, including rooms other than the first one.
+        walls.forEach((wall, index) => wall.prepend(...cardsBySection[index]));
+      }
+      const widgetRank = new Map(layout.order.map((id, index) => [id, index]));
+      for (const wall of content.querySelectorAll(".wall")) {
+        const children = [...wall.children];
+        const rankOf = (node) => widgetRank.get(node.dataset.id) ?? (node.classList.contains("accessory-group") ? -1 : layout.order.length + children.indexOf(node));
+        wall.append(...[...children].sort((a, b) => rankOf(a) - rankOf(b)));
       }
       filter();
     }
@@ -1175,7 +1274,7 @@
     }
     search.addEventListener("input", filter);
     // Each with its glyph; a phone shows the glyphs alone.
-    const groupings = [["none", t("One wall"), "grid"], ...(rooms.length ? [["room", t("By room"), "room"]] : []), ["plugin", t("By plugin"), "plugin"]];
+    const groupings = [["none", t("One wall"), "wall"], ...(rooms.length ? [["room", t("By room"), "room"]] : []), ["plugin", t("By plugin"), "plugin"]];
     const grouping = el("div", { class: "group with-icons", role: "group", "aria-label": t("Group the accessories") }, groupings.map(([value, text, glyph]) =>
       el("button", { type: "button", title: text, "aria-label": text, class: layout.grouping === value ? "on" : "", "aria-pressed": String(layout.grouping === value), onclick: (event) => {
         layout.grouping = value;
@@ -1183,7 +1282,7 @@
         save();
         render();
       } }, HomeswiftCommon.icon(glyph), el("span", { text }))));
-    const edit = el("button", { type: "button", text: t("Edit"), "aria-pressed": "false", title: t("Sizes and order of the widgets"), onclick: () => {
+    const edit = el("button", { actionIcon: "sliders", type: "button", text: t("Edit"), "aria-pressed": "false", title: t("Sizes and order of the widgets"), onclick: () => {
       editing = !editing;
       edit.textContent = editing ? t("Done") : t("Edit");
       edit.classList.toggle("primary", editing);
@@ -1223,15 +1322,25 @@
       if (enabled) next.set(key, value); else next.delete(key);
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
     };
+    const searchCount = (predicate) => all.filter((accessory) => predicate(accessory) && HomeswiftWidgets.searchText(accessory).includes(search.value.trim().toLowerCase())).length;
     const activeFilters = Number(Boolean(from)) + Number(showHidden) + Number(noResponse);
     const filters = el("button", { type: "button", class: activeFilters ? "on" : "", "aria-haspopup": "menu" },
       HomeswiftCommon.icon("sliders"), el("span", { text: t("Filters") }), activeFilters ? el("span", { class: "toolbar-count", text: activeFilters }) : null);
     filters.addEventListener("click", () => HomeswiftCommon.menu(filters, [
-      ...sources.map((source) => ({ label: t("Only from {source}", { source: t(source) }), checked: from === source, checkbox: true, toggle: true,
+      ...sources.map((source) => ({ label: t("Only from {source}", { source: t(source) }), count: searchCount((accessory) => accessory.mirroredFrom === source), checked: from === source, checkbox: true, toggle: true,
         icon: source === "Apple Home" ? el("img", { src: "/apple-home.png", width: 20, height: 20, alt: "" }) : null,
         onSelect: () => changeFilter("from", source, from !== source) })),
-      { label: t("No Response"), checked: noResponse, checkbox: true, toggle: true, onSelect: () => changeFilter("unavailable", "1", !noResponse) },
-      ...(hiddenCount ? [{ label: t("Show hidden ({count})", { count: hiddenCount }), checked: showHidden, checkbox: true, toggle: true, onSelect: () => changeFilter("hidden", "1", !showHidden) }] : [])
+      { label: t("No Response"), icon: "warning", tone: "error", count: searchCount((accessory) => accessory.unavailable || accessory.paused), checked: noResponse, checkbox: true, toggle: true, onSelect: () => changeFilter("unavailable", "1", !noResponse) },
+      ...(hiddenCount ? [{ label: t("Show hidden"), count: searchCount((accessory) => accessory.hidden), icon: "eye", tone: "warn", checked: showHidden, checkbox: true, toggle: true, onSelect: () => changeFilter("hidden", "1", !showHidden) }] : []),
+      { separator: true },
+      { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: !search.value && activeFilters === 0, onSelect: () => {
+        search.value = "";
+        if (activeFilters) {
+          const next = new URLSearchParams(location.search);
+          for (const key of ["from", "hidden", "unavailable"]) next.delete(key);
+          navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
+        } else filter();
+      } },
     ]));
     const more = menuButton(t("Accessory options"), () => [
       { label: t("Create group"), icon: "group", onSelect: () => groupingControls.edit() },
@@ -1246,7 +1355,7 @@
       pageHead(t("Accessories"), !accessories.length ? "" : from ? t("{count} from {source}, which HomeKit has already. Changes here reach your devices.", { count: accessories.length, source: t(from) })
         : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
         : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers }),
-        el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, more)),
+        el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more)),
       note,
       accessories.length ? [content, none] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") })));
   };
@@ -1337,6 +1446,7 @@
       }
     }
 
+    const catalogCount = el("span", { class: "pill", text: String(plugins.plugins.length) });
     const catalogSearch = el("input", { type: "search", class: "search", placeholder: t("Filter text"), "aria-label": t("Add a plugin") });
     const noMatches = el("p", { class: "card empty", hidden: true, text: t("Nothing in this range matches.") });
     const catalogEntries = [...catalog.children].map((card, index) => ({ card, plugin: plugins.plugins[index], used: plugins.blocks.some((block) => block.platform === plugins.plugins[index].platform) }));
@@ -1364,13 +1474,14 @@
         card.hidden = !`${plugin.name} ${plugin.platform}`.toLocaleLowerCase().includes(query);
         if (!card.hidden) visible++;
       });
+      catalogCount.textContent = String(visible);
       noMatches.hidden = visible > 0;
     });
     show(main,
       pageHead(t("Plugins"), t("The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.")),
       plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: t("No plugin provides {platforms}: those blocks are ignored.", { platforms: plugins.unknownPlatforms.join(", ") }) })) : null,
       plugins.blocks.length ? el("div", { class: "grid plugin-instances" }, plugins.blocks.map(blockCard)) : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("plugin")), el("p", { class: "muted", text: t("No plugin yet. Add one below.") })),
-      el("div", { class: "section-head" }, el("h2", { text: t("Add a plugin") }), el("span", { class: "muted", text: t("compiled into this homeswift") }), catalogSearch, sort),
+      el("div", { class: "section-head" }, el("h2", { text: t("Add a plugin") }), el("span", { class: "muted", text: t("compiled into this homeswift") }), catalogSearch, catalogCount, sort, HomeswiftCommon.clearFilters([[catalogSearch, ""]])),
       catalog, noMatches);
   };
 
@@ -1428,12 +1539,12 @@
       try { schema = JSON.parse(await api(`/api/plugins/${encodeURIComponent(platform)}/schema`, { raw: true })); } catch {}
     }
     if (platform === "HomeswiftUI" && schema) {
-      const advanced = (schema.layout || []).filter((item) => typeof item === "object");
+      const advanced = (schema.layout || []).filter((item) => typeof item === "object").map((item) => ({ ...item, icon: item.title === "Schedules" ? "history" : "system" }));
       schema.layout = [
-        { type: "fieldset", title: t("Connection"), items: ["port", "host", "allowedHosts"] },
-        { type: "fieldset", title: t("Sign-in"), items: ["auth", "sessionDays"] },
-        { type: "fieldset", title: "HTTPS", expandable: true, expanded: Boolean(current.https), items: ["https", { items: ["certificate", "privateKey"] }] },
-        { type: "fieldset", title: t("Updates"), expandable: true, expanded: false, items: ["checkForUpdates"] },
+        { type: "fieldset", title: t("Connection"), icon: "system", items: ["port", "host", "allowedHosts"] },
+        { type: "fieldset", title: t("Sign-in"), icon: "user", items: ["auth", "sessionDays"] },
+        { type: "fieldset", title: "HTTPS", icon: "lock", expandable: true, expanded: Boolean(current.https), items: ["https", { items: ["certificate", "privateKey"] }] },
+        { type: "fieldset", title: t("Updates"), icon: "download", expandable: true, expanded: false, items: ["checkForUpdates"] },
         ...advanced
       ];
     }
@@ -1452,7 +1563,7 @@
       const jsonView = el("div", { class: mode === "json" ? "" : "hidden" }, el("p", { class: "muted", text: t("The block as config.json keeps it.") }), editor);
       const switchError = el("p", { class: "error" });
       const tabs = el("div", { class: "group view-switch", role: "tablist", "aria-label": t("Edit as") },
-        [["form", t("Form")], ["json", "JSON"]].map(([value, text]) => el("button", { type: "button", role: "tab", text, "data-mode": value, class: value === mode ? "on" : "", "aria-selected": String(value === mode), onclick: () => {
+        [["form", t("Form")], ["json", "JSON"]].map(([value, text]) => el("button", { type: "button", role: "tab", "data-mode": value, class: value === mode ? "on" : "", "aria-selected": String(value === mode), onclick: () => {
           if (value === mode) return;
           switchError.textContent = "";
           try {
@@ -1468,7 +1579,7 @@
           formView.classList.toggle("hidden", mode !== "form");
           jsonView.classList.toggle("hidden", mode !== "json");
           for (const tab of tabs.children) { tab.classList.toggle("on", tab.dataset.mode === mode); tab.setAttribute("aria-selected", String(tab.dataset.mode === mode)); }
-        } })));
+        } }, HomeswiftCommon.icon(value === "form" ? "sliders" : "code"), el("span", { text }))));
       body = el("div", { class: "card form-card" }, tabs, switchError, formView, jsonView);
       if (platform === "HomeswiftUI") body.classList.add("local-ui-settings");
       getValue = () => (mode === "form" ? form.getValue() : fromJSON());
@@ -1492,9 +1603,9 @@
     let saved = isNew ? null : snapshot();
     const dirty = () => snapshot() !== saved;
     const message = el("span", { class: "muted" });
-    const save = el("button", { class: "primary", text: isNew ? t("Add") : t("Save") });
+    const save = el("button", { class: "primary settings-action" }, HomeswiftCommon.icon("check"), el("span", { text: isNew ? t("Add") : t("Save") }));
     const force = el("button", { class: "hidden", text: isNew ? t("Add anyway") : t("Save anyway"), title: t("Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list") });
-    const revert = el("button", { text: isNew ? t("Cancel") : t("Revert") });
+    const revert = el("button", { class: "settings-action" }, HomeswiftCommon.icon("restore"), el("span", { text: isNew ? t("Cancel") : t("Revert") }));
     // The JSON on screen is checked as it is typed: a syntax error marks its line, and Save waits for it.
     const jsonShown = () => textarea.isConnected && !textarea.closest(".hidden");
     const update = () => {
@@ -1596,7 +1707,7 @@
     const remove = !isNew && !block.system ? el("div", { class: "card danger-zone" },
       el("div", {}, el("strong", { text: t("Remove this plugin") }),
         el("p", { class: "muted", text: t("Takes the block out of config.json. Its accessories leave the Home app, with their rooms, scenes and automations.") })),
-      el("button", { class: "danger", text: t("Remove"), onclick: () => removeBlock(block, () => navigate("/plugins")) })) : null;
+      el("button", { actionIcon: "trash", class: "danger", text: t("Remove"), onclick: () => removeBlock(block, () => navigate("/plugins")) })) : null;
 
     leaveGuard = () => !dirty() || isNew || confirm(t("Leave without saving your changes?"));
     leaveGuard.quiet = () => isNew || !dirty();
@@ -1649,7 +1760,7 @@
       save = null;
     }
     const result = el("p", { class: "muted test-result", role: "status" });
-    const test = el("button", { text: t("Test connection"), onclick: async () => {
+    const test = el("button", { actionIcon: "send", text: t("Test connection"), onclick: async () => {
       test.disabled = true;
       result.className = "muted test-result";
       result.textContent = t("Asking the provider…");
@@ -1709,7 +1820,7 @@
     const editor = el("details", { class: "more budget-editor" },
       el("summary", { text: t("Edit the budgets") }),
       el("div", { class: "fields" }, limits.map(([key, label]) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), inputs[key]))),
-      el("div", { class: "actions" }, budgetMessage, el("button", { class: "primary", text: t("Save the budgets"), onclick: () => {
+      el("div", { class: "actions" }, budgetMessage, el("button", { actionIcon: "check", class: "primary", text: t("Save the budgets"), onclick: () => {
         if (dirty() && !confirm(t("The form below has other unsaved changes: save them with the budgets?"))) return;
         const budget = {};
         for (const [key] of limits) if (inputs[key].value !== "" && Number(inputs[key].value) > 0) budget[key] = Number(inputs[key].value);
@@ -1776,7 +1887,7 @@
     const card = el("details", { class: "card describe-setup hidden" });
     api("/api/assistant").then((state) => { if (state && state.enabled) card.classList.remove("hidden"); }).catch(() => {});
     const request = el("textarea", { class: "short", rows: 3, placeholder: t("What should {plugin} do? For example: \"add my second light at 192.168.1.40, and poll every 5 seconds\".", { plugin: pluginName }), "aria-label": t("Your setup, in your words") });
-    const ask = el("button", { class: "primary", text: t("Suggest") });
+    const ask = el("button", { actionIcon: "sparkle", class: "primary", text: t("Suggest") });
     const result = el("div", { class: "describe-result" });
     ask.addEventListener("click", async () => {
       if (!request.value.trim()) { request.focus(); return; }
@@ -1794,8 +1905,8 @@
           changed ? el("pre", { class: "diff" }, lines.map((line) => el("span", { class: `diff-${line.kind}`, text: `${line.kind === "add" ? "+ " : line.kind === "remove" ? "- " : "  "}${line.text}\n` })))
             : el("p", { class: "muted", text: t("No change to the block.") }),
           changed ? el("div", { class: "actions" },
-            el("button", { class: "primary", text: t("Use it"), onclick: () => { use(after); result.replaceChildren(el("p", { class: "ok", text: t("In the form: review it, then Save.") })); } }),
-            el("button", { text: t("Discard"), onclick: () => result.replaceChildren() })) : null,
+            el("button", { actionIcon: "check", class: "primary", text: t("Use it"), onclick: () => { use(after); result.replaceChildren(el("p", { class: "ok", text: t("In the form: review it, then Save.") })); } }),
+            el("button", { actionIcon: "close", text: t("Discard"), onclick: () => result.replaceChildren() })) : null,
           el("p", { class: "muted", text: t("Written by {model}. Passwords and tokens never reach it; check addresses and names before saving.", { model: reply.model }) })].filter(Boolean));
       } catch (e) {
         result.replaceChildren(el("p", { class: "error", text: e.message }));
@@ -2079,7 +2190,7 @@
               detail.textContent = [value.ip || value.host, value.mac].filter(Boolean).join(" · ");
             };
             const row = el("details", { class: "entry", open: itemValue === undefined },
-              el("summary", {}, name, detail, el("button", { class: "link danger", text: t("Remove"), onclick: (event) => {
+              el("summary", {}, name, detail, el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: (event) => {
                 event.preventDefault();
                 row.remove();
                 rows.splice(rows.indexOf(entry), 1);
@@ -2094,7 +2205,7 @@
             return;
           }
           const row = el("div", { class: "item" });
-          const remove = el("button", { class: "link danger", text: t("Remove"), onclick: () => { row.remove(); rows.splice(rows.indexOf(entry), 1); } });
+          const remove = el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: () => { row.remove(); rows.splice(rows.indexOf(entry), 1); } });
           {
             const f = field("", items, itemValue, false);
             row.append(el("div", { class: "item-head" }, f.element, remove));
@@ -2105,7 +2216,7 @@
         };
         for (const item of Array.isArray(current) ? current : []) addRow(item);
         const element = el("fieldset", {}, el("legend", { text: title }), help, list,
-          el("button", { text: t("Add {item}", { item: title.replace(/s$/, "").toLowerCase() }), onclick: () => addRow(undefined) }));
+          el("button", { actionIcon: "plus", text: t("Add {item}", { item: title.replace(/s$/, "").toLowerCase() }), onclick: () => addRow(undefined) }));
         return { element, get: () => { const v = rows.map((r) => r.get()).filter((x) => x !== undefined); return v.length ? v : undefined; } };
       }
       const input = el("input", { type: property["x-schema-form"] && property["x-schema-form"].type === "password" ? "password" : "text", value: current ?? "", placeholder: property.placeholder ?? property.default ?? "", required });
@@ -2159,7 +2270,7 @@
         const inner = item.items.map(layoutItem).flat().filter(Boolean);
         if (!inner.length) return null;
         const node = item.type === "fieldset" || item.title
-          ? el("details", { class: "group-box", "data-section": slug(item.title || ""), open: !item.expandable || item.expanded !== false }, el("summary", { text: item.title || t("More") }), el("div", { class: "fields" }, ...inner))
+          ? el("details", { class: "group-box", "data-section": slug(item.title || ""), open: !item.expandable || item.expanded !== false }, el("summary", {}, item.icon ? HomeswiftCommon.icon(item.icon) : null, el("span", { text: item.title || t("More") })), el("div", { class: "fields" }, ...inner))
           : el("div", { class: "fields" }, ...inner);
         watch(node, item.condition);
         return node;
@@ -2284,7 +2395,7 @@
     const again = el("input", { type: "password", autocomplete: "new-password", required: true, minLength: passwordPolicy.minimumLength });
     const gauge = strengthGauge(next, () => state.username || "");
     const message = el("p", { class: "status-line muted", role: "status" });
-    const submit = el("button", { class: "primary", type: "submit", text: t("Change password") });
+    const submit = el("button", { actionIcon: "key", class: "primary", type: "submit", text: t("Change password") });
     const fail = (text) => { message.className = "status-line error"; message.textContent = text; };
     const days = state.sessionDays ?? 7;
     const form = el("form", { class: "card account-form", onsubmit: async (event) => {
@@ -2320,7 +2431,7 @@
         el("h2", { text: state.username }),
         el("p", { class: "muted", text: tn("Signed in on this browser. Logins last {n} day without activity; changing the password, or turning two-factor authentication on or off, signs the others out.",
           "Signed in on this browser. Logins last {n} days without activity; changing the password, or turning two-factor authentication on or off, signs the others out.", days) })),
-      el("button", { text: t("Sign out"), onclick: signOut }));
+      el("button", { actionIcon: "logout", text: t("Sign out"), onclick: signOut }));
     show(main, pageHead(t("Account"), state.admin ? t("Your sign-in to this bridge's web UI, as an administrator.") : t("Your sign-in to this bridge's web UI.")),
       el("div", { class: "account" }, profile, form, twoFactorCard(state), connectedAppsCard(apps),
         state.admin ? el("div", { class: "card" }, el("h2", { text: t("Users and API tokens") }),
@@ -2364,7 +2475,7 @@
     const reload = () => route();
     if (state.twoFactor) {
       const password = el("input", { type: "password", autocomplete: "current-password", required: true });
-      const submit = el("button", { type: "submit", text: t("Turn off [setting]") });
+      const submit = el("button", { actionIcon: "power", type: "submit", text: t("Turn off [setting]") });
       card.append(el("h2", {}, t("Two-factor authentication"), " ", el("span", { class: "pill status on", text: t("On [setting]") })),
         el("p", { class: "muted", text: t("Signing in asks for the code your authenticator app shows, after the password.") }),
         el("form", { onsubmit: async (event) => {
@@ -2375,7 +2486,7 @@
         } }, field(t("Password, to turn it off"), password), el("div", { class: "actions" }, submit)), message);
       return card;
     }
-    const start = el("button", { class: "primary", text: t("Set up") });
+    const start = el("button", { actionIcon: "plus", class: "primary", text: t("Set up") });
     card.append(el("h2", {}, t("Two-factor authentication"), " ", el("span", { class: "pill status standby", text: t("Off [setting]") })),
       el("p", { class: "muted", text: t("Ask for a code from an authenticator app (Passwords on iPhone and Mac, Google Authenticator, 1Password…) after the password, so a password alone no longer signs in.") }),
       el("div", { class: "actions" }, start), message);
@@ -2385,7 +2496,7 @@
       try { setup = await api("/api/account/otp/setup", { method: "POST", body: {} }); }
       catch (e) { say(e.message); start.disabled = false; return; }
       const code = el("input", { inputMode: "numeric", autocomplete: "one-time-code", required: true, maxLength: 9, placeholder: "123 456", spellcheck: false });
-      const confirmButton = el("button", { class: "primary", type: "submit", text: t("Turn on") });
+      const confirmButton = el("button", { actionIcon: "power", class: "primary", type: "submit", text: t("Turn on") });
       const secret = el("code", { class: "mono secret", text: setup.secret.replace(/(.{4})/g, "$1 ").trim() });
       start.closest(".actions").replaceWith(
         el("div", { class: "setup" },
@@ -2460,7 +2571,7 @@
   /// A Copy button for `text` that says it worked ("Copied", for two seconds), or, when the browser refuses,
   /// selects `field` so it can be copied by hand.
   function copyButton(text, field) {
-    const button = el("button", { type: "button", class: "link", text: t("Copy") });
+    const button = el("button", { actionIcon: "copy", type: "button", class: "link", text: t("Copy") });
     let timer = null;
     button.addEventListener("click", async () => {
       clearTimeout(timer);
@@ -2543,7 +2654,7 @@
         el("label", { class: "field" }, el("span", { class: "field-title", text: user ? t("New password") : t("Password") }), password,
           user ? el("span", { class: "help", text: t("Leave empty to keep theirs. A new one signs them out everywhere.") }) : null, gaugeBox),
         roleLabel, roleNote,
-        message, el("div", { class: "actions" }, el("button", { type: "button", text: t("Cancel"), onclick: () => done() }), submit));
+        message, el("div", { class: "actions" }, el("button", { actionIcon: "close", type: "button", text: t("Cancel"), onclick: () => done() }), submit));
       return form;
     }
 
@@ -2599,7 +2710,7 @@
     describeScope();
     const expiry = el("select", {}, ...[["", t("Never")], ["30", t("In 30 days")], ["90", t("In 90 days")], ["365", t("In a year")]].map(([value, text]) => el("option", { value, text })));
     const message = el("p", { class: "status-line muted", role: "status" });
-    const submit = el("button", { class: "primary", type: "submit", text: t("Create token") });
+    const submit = el("button", { actionIcon: "plus", class: "primary", type: "submit", text: t("Create token") });
     const grid = el("div", { class: "grid" });
     let close = () => {};
     let made = null;   // the token made in the panel: the list is drawn again with it once the panel closes
@@ -2614,7 +2725,7 @@
           el("h2", { id: "token-form-title", text: t("Token “{name}”", { name: token.name }) }),
           el("p", { class: "help" }, withNodes(t("Copy it now: it is shown once. Send it as {header}."), { header: el("code", { text: "Authorization: Bearer <token>" }) })),
           el("p", {}, secret, " ", copyButton(token.token, secret)),
-          el("div", { class: "actions" }, el("button", { type: "button", class: "primary", text: t("Done"), onclick: () => close() }))));
+          el("div", { class: "actions" }, el("button", { actionIcon: "check", type: "button", class: "primary", text: t("Done"), onclick: () => close() }))));
       } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
       submit.disabled = false;
     } },
@@ -2623,7 +2734,7 @@
         el("label", { class: "field" }, el("span", { class: "field-title", text: t("Name") }), name, el("span", { class: "help", text: t("What uses it, to know it again.") })),
         el("label", { class: "field" }, el("span", { class: "field-title", text: t("Scope") }), scope, scopeHelp),
         el("label", { class: "field" }, el("span", { class: "field-title", text: t("Expires") }), expiry)),
-      message, el("div", { class: "actions" }, el("button", { type: "button", text: t("Cancel"), onclick: () => close() }), submit));
+      message, el("div", { class: "actions" }, el("button", { actionIcon: "close", type: "button", text: t("Cancel"), onclick: () => close() }), submit));
     const openTokenForm = (event) => {
       const opener = event?.currentTarget;
       form.reset();
@@ -2718,7 +2829,7 @@
                 el("span", { class: "wallpaper-swatch", "data-swatch": value }), el("span", { text })))),
           el("div", { class: "actions" },
             el("button", { text: own ? t("Choose another image…") : t("Use an image of your own…"), onclick: () => picker.click() }),
-            own ? el("button", { class: "link danger", text: t("Remove your image"), onclick: async () => {
+            own ? el("button", { actionIcon: "trash", class: "link danger", text: t("Remove your image"), onclick: async () => {
               try { preferences = HomeswiftCommon.applyPreferences(await api("/api/preferences/wallpaper", { method: "DELETE" })); draw(); } catch (e) { alert(e.message); }
             } }) : null),
           picker),
@@ -2764,10 +2875,10 @@
     const textarea = el("textarea", { value: saved, spellcheck: false, "aria-label": "config.json" });
     const check = el("span", { class: "muted" });
     const message = el("p", { class: "status-line muted" });
-    const save = el("button", { class: "primary", text: t("Save"), disabled: true });
-    const force = el("button", { class: "hidden", text: t("Save anyway"), title: t("Save what the plugins' schemas refuse: for a value a plugin accepts that its schema does not list") });
-    const revert = el("button", { text: t("Revert"), disabled: true });
-    const format = el("button", { class: "link", text: t("Format") });
+    const save = el("button", { class: "primary settings-action", disabled: true }, HomeswiftCommon.icon("check"), el("span", { text: t("Save") }));
+    const force = el("button", { actionIcon: "check", class: "hidden", text: t("Save anyway"), title: t("Save what the plugins' schemas refuse: for a value a plugin accepts that its schema does not list") });
+    const revert = el("button", { class: "settings-action", disabled: true }, HomeswiftCommon.icon("restore"), el("span", { text: t("Revert") }));
+    const format = el("button", { class: "link settings-action" }, HomeswiftCommon.icon("code"), el("span", { text: t("Format") }));
     // Validity and the unsaved state follow every keystroke, so Save is only offered when it can work; a syntax
     // error marks its line.
     const update = () => {
@@ -2853,7 +2964,7 @@
     const toInput = el("input", { type: "datetime-local", "aria-label": t("To"), value: params.get("to") ?? localInput(new Date()) });
     const customRow = el("div", { class: `log-range ${since === "custom" ? "" : "hidden"}` },
       el("label", {}, t("From"), fromInput), el("label", {}, t("To"), toInput),
-      el("button", { text: t("Show"), onclick: () => changed() }));
+      el("button", { actionIcon: "eye", text: t("Show"), onclick: () => changed() }));
     picker.addEventListener("change", () => {
       customRow.classList.toggle("hidden", picker.value !== "custom");
       picker.classList.toggle("chosen", picker.value !== fallback);
@@ -2970,7 +3081,19 @@
         render();
         keepAddress();
       } })));
+    const updateLevelCounts = () => {
+      const needle = filter.value.toLowerCase();
+      for (const [index, button] of [...levels.children].entries()) {
+        const [level, label] = levelChoices[index];
+        const count = logState.lines.filter((line) => visible(line, needle, level)).length;
+        button.textContent = `${label} (${count})`;
+        button.disabled = count === 0 && level !== "trace" && level !== logState.level;
+        button.title = button.disabled ? t("No log lines match the current search.") : "";
+      }
+    };
+    logState.updateCounts = updateLevelCounts;
     const render = () => {
+      updateLevelCounts();
       const shown = shownLines();
       output.replaceChildren(...(shown.length ? shown.map(lineNode) : [el("p", { class: "muted empty-log", text: t("No line matches.") })]));
       count.textContent = logState.capped ? tn("{shown} of {n} line (the latest of the range)", "{shown} of {n} lines (the latest of the range)", logState.lines.length, { shown: shown.length })
@@ -3050,7 +3173,7 @@
       const level = line.level === "info" || line.level === "notice" ? "" : ` [${line.level.toUpperCase()}]`;
       return `${line.time} [${line.label}]${level} ${line.text}`;
     };
-    const copy = el("button", { text: t("Copy"), title: t("Copy the lines shown"), onclick: async () => {
+    const copy = el("button", { actionIcon: "copy", text: t("Copy"), title: t("Copy the lines shown"), onclick: async () => {
       const shown = shownLines();
       const text = shown.map(asText).join("\n");
       try {
@@ -3089,7 +3212,17 @@
       pageHead(t("Logs"), t("This homeswift's log, live, and up to a week back.")),
       el("div", { class: "card log-card" },
         el("div", { class: "log-filter-panel" },
-          el("div", { class: "log-level-row" }, levels, filter),
+          el("div", { class: "log-level-row" }, levels, filter, HomeswiftCommon.clearFilters([[filter, ""], [range.picker, "latest"], [sources.picker, ""]], {
+            active: () => logState.level !== "info", events: [[levels, "click"]],
+            reset: () => {
+              clearTimeout(typing);
+              logState.level = "info";
+              for (const [index, button] of [...levels.children].entries()) {
+                const selected = levelChoices[index][0] === "info";
+                button.classList.toggle("on", selected); button.setAttribute("aria-pressed", String(selected));
+              }
+            },
+          })),
           el("div", { class: "log-scope-row" },
             el("label", {}, el("span", { text: t("Time range") }), range.picker),
             el("label", {}, el("span", { text: t("What the lines are about") }), sources.picker)),
@@ -3116,7 +3249,7 @@
       const own = controller = new AbortController();
       let closed = false;
       const live = el("div", { class: "ai-live" }, el("p", { class: "ai-thinking", text: tn("Reading {n} line…", "Reading {n} lines…", picked.length) }));
-      const stop = el("button", { class: "link", text: t("Stop"), onclick: () => own.abort() });
+      const stop = el("button", { actionIcon: "pause", class: "link", text: t("Stop"), onclick: () => own.abort() });
       const close = el("button", { class: "ai-close", title: t("Close"), "aria-label": t("Close the diagnosis"), text: "×", onclick: () => { closed = true; own.abort(); card.classList.add("hidden"); } });
       const head = el("div", { class: "ai-head" }, sparkle(), el("span", { class: "ai-label", text: t("Log Doctor") }), el("span", { class: "spacer" }), close);
       card.className = "ai-card log-doctor thinking";
@@ -3142,8 +3275,8 @@
   }
 
   /// Whether a prepared line passes the level, the text (`needle`, in lower case) and the accessory.
-  function visible(line, needle = logState.filter.value.toLowerCase()) {
-    return levelShown(line.level, logState.level) && (!needle || line.haystack.includes(needle))
+  function visible(line, needle = logState.filter.value.toLowerCase(), level = logState.level) {
+    return levelShown(line.level, level) && (!needle || line.haystack.includes(needle))
       && (!logState.accessory || logState.accessory.some((term) => line.haystack.includes(term)))
       && (!logState.bridge || logState.bridge(line));
   }
@@ -3182,6 +3315,7 @@
     if ($(".log-loading", logState.output)) return;
     logState.lines.push(prepared(line));
     if (logState.lines.length > logState.cap) logState.lines.splice(0, logState.lines.length - logState.cap);
+    logState.updateCounts?.();
     if (!visible(line)) return;
     const output = logState.output;
     // Follow only when the reader is at the bottom: scrolling up to read stops it without a click.

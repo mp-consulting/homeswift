@@ -58,7 +58,7 @@ extension PhilipsAmbilightTVPlugin {
         extra: [
           tv.on
             ? keyButton(tv, "Standby", t("Turn off"))
-            : el("button", { class: "primary", text: t("Wake"), onclick: (event) => act(event.currentTarget, () => request(`wake?mac=${encodeURIComponent(tv.mac)}`, { method: "POST" })) }),
+            : el("button", { actionIcon: "power", class: "primary", text: t("Wake"), onclick: (event) => act(event.currentTarget, () => request(`wake?mac=${encodeURIComponent(tv.mac)}`, { method: "POST" })) }),
           keyButton(tv, "AmbilightOnOff", "Ambilight"),
         ],
       }),
@@ -160,8 +160,8 @@ extension PhilipsAmbilightTVPlugin {
         el("div", {}, el("h2", { text: t("Inputs of {name}", { name: editing.tv.name }) }),
           el("p", { class: "muted", text: editing.note ?? t("The order of the input wheel in the Home app. Drag a row by its handle, or press Alt and an arrow key. Click a name to rename it.") })),
         el("div", { class: "head-actions" },
-          el("button", { class: "link", text: t("Refresh from TV"), title: t("Read the TV's apps again"), onclick: (event) => act(event.currentTarget, refreshSources) }),
-          el("button", { class: "link", text: t("Close"), onclick: closeSources }))),
+          el("button", { actionIcon: "restore", class: "link", text: t("Refresh from TV"), title: t("Read the TV's apps again"), onclick: (event) => act(event.currentTarget, refreshSources) }),
+          el("button", { actionIcon: "close", class: "link", text: t("Close"), onclick: closeSources }))),
       el("div", { class: "panel-columns" },
         el("section", {}, el("div", { class: "column-head" }, el("span", { class: "pill status on", text: t("Shown · {n}", { n: shown.length }) }), el("span", { class: "muted", text: t("drag to reorder") })),
           shown.length ? shownList : el("p", { class: "muted empty-list", text: t("No input is shown.") })),
@@ -169,9 +169,9 @@ extension PhilipsAmbilightTVPlugin {
           hidden.length ? hiddenList : el("p", { class: "muted empty-list", text: t("Every input is shown.") }))),
       el("div", { class: `save-bar ${dirty ? "dirty" : ""}` },
         el("span", { class: "muted", text: dirty ? t("Unsaved changes") : t("Saved. The Home app shows this order.") }),
-        el("button", { class: "link", text: t("Reset to the TV's order"), onclick: (event) => act(event.currentTarget, resetSources) }),
-        el("button", { text: t("Discard"), disabled: !dirty, onclick: () => { editing.sources = JSON.parse(editing.saved); renderSources(); } }),
-        el("button", { class: "primary", text: t("Save"), disabled: !dirty, onclick: (event) => act(event.currentTarget, saveSources) })));
+        el("button", { actionIcon: "restore", class: "link", text: t("Reset to the TV's order"), onclick: (event) => act(event.currentTarget, resetSources) }),
+        el("button", { actionIcon: "close", text: t("Discard"), disabled: !dirty, onclick: () => { editing.sources = JSON.parse(editing.saved); renderSources(); } }),
+        el("button", { actionIcon: "check", class: "primary", text: t("Save"), disabled: !dirty, onclick: (event) => act(event.currentTarget, saveSources) })));
     if (shown.length) enableSorting(shownList);
   }
 
@@ -362,7 +362,7 @@ extension PhilipsAmbilightTVPlugin {
   /// "Get MAC" next to a MAC address field: the plugin asks the TV when it is configured, else reads this
   /// machine's ARP table, which has the TV once it answered on the network.
   function macButton(ipOf, input, report) {
-    return el("button", { type: "button", text: t("Get MAC"), onclick: (event) => {
+    return el("button", { actionIcon: "search", type: "button", text: t("Get MAC"), onclick: (event) => {
       event.preventDefault();
       act(event.currentTarget, async () => {
         const ip = (ipOf() ?? "").trim();
@@ -437,8 +437,8 @@ extension PhilipsAmbilightTVPlugin {
     const { tv, schema, draft } = editorState;
     const message = el("span", { class: "muted" });
     const report = (text) => { message.className = "error"; message.textContent = text; };
-    const save = el("button", { class: "primary", text: t("Save"), onclick: (event) => act(event.currentTarget, saveEditor, report) });
-    const discard = el("button", { text: t("Discard"), onclick: () => { editorState.draft = JSON.parse(editorState.saved); renderEditor(); } });
+    const save = el("button", { actionIcon: "check", class: "primary", text: t("Save"), onclick: (event) => act(event.currentTarget, saveEditor, report) });
+    const discard = el("button", { actionIcon: "close", text: t("Discard"), onclick: () => { editorState.draft = JSON.parse(editorState.saved); renderEditor(); } });
     const changed = () => {
       const dirty = JSON.stringify(editorState.draft) !== editorState.saved;
       save.disabled = !dirty;
@@ -476,7 +476,7 @@ extension PhilipsAmbilightTVPlugin {
         el("div", { class: "repair" },
           el("div", {}, el("strong", { text: t("Pairing") }),
             el("p", { class: "help", text: tv.pinned ? t("Paired, with the TV's certificate pinned. Pair again after a reset of the TV, when it refuses Homeswift.") : t("Paired without a pinned certificate. Pair again to pin it.") })),
-          el("button", { text: t("Pair again"), onclick: () => { if (closeEditor()) repair(tv); } })));
+          el("button", { actionIcon: "restore", text: t("Pair again"), onclick: () => { if (closeEditor()) repair(tv); } })));
       break;
     }
     case "remote":
@@ -495,7 +495,7 @@ extension PhilipsAmbilightTVPlugin {
     editorCard.replaceChildren(
       el("div", { class: "panel-head" },
         el("div", {}, el("h2", { text: t("Edit {name}", { name: tv.name }) }), el("p", { class: "muted", text: t("Saving applies at once: the TV keeps its place in the Home app.") })),
-        el("button", { class: "link", text: t("Close"), onclick: closeEditor })),
+        el("button", { actionIcon: "close", class: "link", text: t("Close"), onclick: closeEditor })),
       tabs, el("div", { class: "editor-body" }, body),
       el("div", { class: "save-bar" }, message, discard, save));
     changed();
@@ -508,7 +508,7 @@ extension PhilipsAmbilightTVPlugin {
     const packageName = el("input", { type: "text", placeholder: "com.ug.eon.android.tv", spellcheck: false });
     const className = el("input", { type: "text", placeholder: t("Found by the plugin when left empty"), spellcheck: false });
     const status = el("p", { class: "status-line muted" });
-    const detect = el("button", { text: t("Detect from TV"), onclick: (event) => act(event.currentTarget, async () => {
+    const detect = el("button", { actionIcon: "search", text: t("Detect from TV"), onclick: (event) => act(event.currentTarget, async () => {
       status.className = "status-line muted";
       status.textContent = t("Asking the TV which app is open…");
       const { app } = await request(`current-app?mac=${encodeURIComponent(editorState.tv.mac)}`);
@@ -518,7 +518,7 @@ extension PhilipsAmbilightTVPlugin {
       status.className = "status-line ok";
       status.textContent = t("Found {name}.", { name: app.packageName });
     }, (text) => { status.className = "status-line error"; status.replaceChildren(text); }) });
-    const add = el("button", { class: "primary", text: t("Add app"), onclick: () => {
+    const add = el("button", { actionIcon: "plus", class: "primary", text: t("Add app"), onclick: () => {
       if (!appName.value.trim() || !packageName.value.trim()) { status.className = "status-line error"; status.textContent = t("An app needs a name and a package name."); return; }
       const app = { name: appName.value.trim(), packageName: packageName.value.trim() };
       if (className.value.trim()) app.className = className.value.trim();
@@ -529,7 +529,7 @@ extension PhilipsAmbilightTVPlugin {
       el("p", { class: "help", text: schema.customApps.description }),
       apps.length ? el("ul", { class: "entries" }, apps.map((app) => el("li", {},
         el("div", {}, el("strong", { text: app.name }), el("div", { class: "muted mono", text: [app.packageName, app.className].filter(Boolean).join(" / ") })),
-        el("button", { class: "link danger", text: t("Remove"), onclick: () => { setKey(draft, "customApps", apps.filter((a) => a !== app).length ? apps.filter((a) => a !== app) : undefined); changed(); } }))))
+        el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: () => { setKey(draft, "customApps", apps.filter((a) => a !== app).length ? apps.filter((a) => a !== app) : undefined); changed(); } }))))
         : el("p", { class: "muted empty-list", text: t("No custom app.") }),
       el("div", { class: "add-box" },
         el("strong", { text: t("Add an app") }),
@@ -545,7 +545,7 @@ extension PhilipsAmbilightTVPlugin {
     const buttonName = el("input", { type: "text", placeholder: t("Power menu"), maxLength: 64 });
     const key = el("select", {}, keys.filter((k) => !used.has(k)).map((k) => el("option", { value: k, text: k.replace(/([a-z])([A-Z0-9])/g, "$1 $2") })));
     const status = el("p", { class: "status-line muted" });
-    const add = el("button", { class: "primary", text: t("Add button"), disabled: key.options.length === 0, onclick: () => {
+    const add = el("button", { actionIcon: "plus", class: "primary", text: t("Add button"), disabled: key.options.length === 0, onclick: () => {
       if (!buttonName.value.trim()) { status.className = "status-line error"; status.textContent = t("A button needs a name."); return; }
       draft.customButtons = [...buttons, { name: buttonName.value.trim(), key: key.value }];
       changed();
@@ -554,7 +554,7 @@ extension PhilipsAmbilightTVPlugin {
       el("p", { class: "help", text: schema.customButtons.description }),
       buttons.length ? el("ul", { class: "entries" }, buttons.map((button) => el("li", {},
         el("div", {}, el("strong", { text: button.name }), el("div", { class: "muted", text: t("Sends {key}", { key: button.key }) })),
-        el("button", { class: "link danger", text: t("Remove"), onclick: () => { setKey(draft, "customButtons", buttons.filter((b) => b !== button).length ? buttons.filter((b) => b !== button) : undefined); changed(); } }))))
+        el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: () => { setKey(draft, "customButtons", buttons.filter((b) => b !== button).length ? buttons.filter((b) => b !== button) : undefined); changed(); } }))))
         : el("p", { class: "muted empty-list", text: t("No custom button.") }),
       el("div", { class: "add-box" },
         el("strong", { text: t("Add a button") }),
@@ -629,7 +629,7 @@ extension PhilipsAmbilightTVPlugin {
     const known = attempt && tvs.find((tv) => tv.ip === attempt.ip);
     const sleeper = known ?? (attempt ? { name: attempt.name ?? attempt.ip, ip: attempt.ip } : null);
     status.append(
-      sleeper ? el("button", { class: "link", text: t("Wake {name}", { name: sleeper.name }), onclick: (event) => act(event.currentTarget, async () => {
+      sleeper ? el("button", { actionIcon: "power", class: "link", text: t("Wake {name}", { name: sleeper.name }), onclick: (event) => act(event.currentTarget, async () => {
         const address = sleeper.mac ?? (await request(`mac?ip=${encodeURIComponent(sleeper.ip)}`)).mac;
         await request("wake", { method: "POST", body: { mac: address, ip: sleeper.ip } });
         say(t("Sent. Give {name} a few seconds to start, then pair again.", { name: sleeper.name }), "ok");
@@ -640,22 +640,22 @@ extension PhilipsAmbilightTVPlugin {
   // Step 1: find the TV, or type its address.
   const found = el("div", { class: "found" });
   const address = el("input", { type: "text", placeholder: "192.168.1.20", inputmode: "decimal", autocomplete: "off", spellcheck: false, "aria-label": t("TV address") });
-  const findButton = el("button", { text: t("Find TVs"), onclick: (event) => act(event.currentTarget, discover, fail) });
+  const findButton = el("button", { actionIcon: "search", text: t("Find TVs"), onclick: (event) => act(event.currentTarget, discover, fail) });
   const find = el("div", { class: "step" },
     el("p", { class: "muted", text: t("Switch the TV on: it has to be on and on this network. Homeswift looks for it for five seconds.") }),
     findButton, found,
     el("div", { class: "or", text: t("or enter its address") }),
     el("form", { class: "manual", onsubmit: (event) => { event.preventDefault(); act(event.submitter ?? manualPair, () => pair({ ip: address.value.trim() }), fail); } },
-      address, el("button", { type: "submit", text: t("Pair") })));
+      address, el("button", { actionIcon: "key", type: "submit", text: t("Pair") })));
   const manualPair = find.querySelector(".manual button");
 
   // Step 2: the PIN the TV shows, a box per digit.
   const digits = [0, 1, 2, 3].map((i) => el("input", { type: "text", inputmode: "numeric", maxlength: 1, autocomplete: i === 0 ? "one-time-code" : "off", "aria-label": t("PIN digit {n}", { n: i + 1 }) }));
   const pinPrompt = el("p", {});
-  const confirmPin = el("button", { class: "primary", text: t("Confirm PIN"), onclick: (event) => act(event.currentTarget, grant, fail) });
+  const confirmPin = el("button", { actionIcon: "check", class: "primary", text: t("Confirm PIN"), onclick: (event) => act(event.currentTarget, grant, fail) });
   const pinStep = el("div", { class: "step" },
     pinPrompt, el("div", { class: "pin" }, digits),
-    el("div", { class: "actions" }, confirmPin, el("button", { class: "link", text: t("Cancel"), onclick: reset })));
+    el("div", { class: "actions" }, confirmPin, el("button", { actionIcon: "close", class: "link", text: t("Cancel"), onclick: reset })));
 
   // Step 3: the details of the TV's entry.
   const tvName = el("input", { type: "text", maxlength: 64, autocomplete: "off", placeholder: t("Living Room TV") });
@@ -685,20 +685,20 @@ extension PhilipsAmbilightTVPlugin {
     el("div", { class: "check" }, el("label", { class: "switch" }, onStart, el("span", {})), el("label", { htmlFor: "ambilight-on-start", text: t("Switch Ambilight on whenever the TV comes on") })),
     moreOptions,
     el("div", { class: "actions" },
-      el("button", { class: "primary", text: t("Add TV"), onclick: (event) => act(event.currentTarget, addToConfiguration, fail) }),
-      el("button", { class: "link", text: t("Cancel"), onclick: reset })),
+      el("button", { actionIcon: "plus", class: "primary", text: t("Add TV"), onclick: (event) => act(event.currentTarget, addToConfiguration, fail) }),
+      el("button", { actionIcon: "close", class: "link", text: t("Cancel"), onclick: reset })),
     el("details", {}, el("summary", { text: t("The entry for config.json") }), entryText,
-      el("button", { class: "link", text: t("Copy"), onclick: (event) => act(event.currentTarget, async () => { await HomeswiftCommon.copyText(entryText.textContent); say(t("Copied."), "ok"); }, fail) })));
+      el("button", { actionIcon: "copy", class: "link", text: t("Copy"), onclick: (event) => act(event.currentTarget, async () => { await HomeswiftCommon.copyText(entryText.textContent); say(t("Copied."), "ok"); }, fail) })));
 
   // After saving: the plugin reloads with the TV at once.
   const doneText = el("p", {});
   const done = el("div", { class: "step" },
     doneText,
-    el("div", { class: "actions" }, el("button", { class: "primary", text: t("Done"), onclick: closePairing }), el("button", { text: t("Add another TV"), onclick: reset })));
+    el("div", { class: "actions" }, el("button", { actionIcon: "check", class: "primary", text: t("Done"), onclick: closePairing }), el("button", { actionIcon: "plus", text: t("Add another TV"), onclick: reset })));
 
   const bodies = [find, pinStep, confirmStep, done];
   pairing.replaceChildren(
-    el("div", { class: "panel-head" }, el("h2", { id: "add-title", text: t("Add a TV") }), el("button", { class: "link", text: t("Close"), onclick: closePairing })),
+    el("div", { class: "panel-head" }, el("h2", { id: "add-title", text: t("Add a TV") }), el("button", { actionIcon: "close", class: "link", text: t("Close"), onclick: closePairing })),
     steps, ...bodies, status);
 
   function show(step) {
@@ -729,7 +729,7 @@ extension PhilipsAmbilightTVPlugin {
     say(fresh.length ? "" : answer.tvs.length ? t("Every TV that answered is already added.") : t("No TV announced itself. Check it is on, or enter its address."));
     found.replaceChildren(...fresh.map((tv) => el("div", { class: "item" },
       el("div", {}, el("strong", { text: tv.name }), el("div", { class: "muted", text: tv.host })),
-      el("button", { class: "primary", text: t("Pair"), onclick: (event) => act(event.currentTarget, () => pair({ ip: tv.host, name: tv.name }), fail) }))));
+      el("button", { actionIcon: "key", class: "primary", text: t("Pair"), onclick: (event) => act(event.currentTarget, () => pair({ ip: tv.host, name: tv.name }), fail) }))));
   }
 
   /// Pairs a configured TV again (after a reset of the TV, or to pin its certificate): its entry keeps its
@@ -1558,7 +1558,7 @@ HomeswiftI18n.add({
     </div>
   </div>
 
-  <div class="section-head"><h2 data-i18n>Your TVs</h2><button id="add-tv" class="primary" data-i18n aria-expanded="false" aria-controls="pairing">Add a TV</button></div>
+  <div class="section-head"><h2 data-i18n>Your TVs</h2><button id="add-tv" class="primary" data-i18n aria-expanded="false" aria-controls="pairing" data-action-icon="plus">Add a TV</button></div>
   <section id="pairing" class="card pairing hidden" aria-labelledby="add-title"></section>
   <div id="tvs" class="tvs"></div>
   <div id="sources" class="card panel hidden"></div>

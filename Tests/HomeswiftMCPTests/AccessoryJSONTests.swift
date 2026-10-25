@@ -18,6 +18,7 @@ import Testing
         object["id"] = .string(accessory.id)
         object["aid"] = .number(Double(accessory.aid))
         object["name"] = .string(accessory.name)
+        object["supportsIdentify"] = .bool(accessory.supportsIdentify)
         object["category"] = .string("\(accessory.category)")
         object["bridge"] = .string(located.bridge.name)
         object["manufacturer"] = HomeswiftCatalog.json(information[.manufacturer]?.value ?? .null)

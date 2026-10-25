@@ -332,12 +332,12 @@ extension LGThinQPlugin {
         const addButton = (button = {}) => {
           const label = el("input", { type: "text", placeholder: t("Name"), value: button.name || "" });
           const mode = el("select", {}, AC_OP_MODES.map(([value, title]) => el("option", { value: String(value), text: title, selected: Number(button.op_mode ?? 0) === value })));
-          const row = el("div", { class: "button-row" }, label, mode, el("button", { class: "link danger", text: t("Remove"), onclick: () => row.remove() }));
+          const row = el("div", { class: "button-row" }, label, mode, el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: () => row.remove() }));
           buttonsList.append(row);
         };
         (overrides.ac_buttons || []).forEach(addButton);
         typeSection.push(el("div", { class: "buttons-editor" },
-          el("div", { class: "list-head" }, el("h3", { class: "group-title", text: t("AC buttons") }), el("button", { text: t("Add button"), onclick: () => addButton() })),
+          el("div", { class: "list-head" }, el("h3", { class: "group-title", text: t("AC buttons") }), el("button", { actionIcon: "plus", text: t("Add button"), onclick: () => addButton() })),
           el("p", { class: "help", text: t("Custom HomeKit switches that select an operation mode.") }), buttonsList));
       }
     }
@@ -360,12 +360,12 @@ extension LGThinQPlugin {
     breadcrumb(overrides.name || device.name, closeDevice);
     panel.classList.remove("hidden");
     panel.replaceChildren(
-      el("div", { class: "panel-head" }, el("h3", { text: overrides.name || device.name }), el("button", { class: "link", text: t("Close"), onclick: closeDevice })),
+      el("div", { class: "panel-head" }, el("h3", { text: overrides.name || device.name }), el("button", { actionIcon: "close", class: "link", text: t("Close"), onclick: closeDevice })),
       el("div", { class: "columns" },
         fieldRow(t("Display name"), nameInput, t("Its name in HomeKit; empty uses the device's name.")),
         fieldRow(t("Serial number (optional)"), serialInput)),
       typeSection,
-      el("div", { class: "save-bar" }, el("span", { class: "muted", text: "" }), el("button", { text: t("Cancel"), onclick: closeDevice }), el("button", { class: "primary", text: t("Apply"), onclick: apply })));
+      el("div", { class: "save-bar" }, el("span", { class: "muted", text: "" }), el("button", { actionIcon: "close", text: t("Cancel"), onclick: closeDevice }), el("button", { actionIcon: "check", class: "primary", text: t("Apply"), onclick: apply })));
     panel.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest" });
   }
 
@@ -1258,7 +1258,7 @@ HomeswiftI18n.add({
       <label class="field"><span class="field-title" data-i18n>Email</span><input type="email" id="username" placeholder="your@email.com" autocomplete="username" autocapitalize="none" spellcheck="false"><span class="help" data-i18n>Your LG ThinQ account's email.</span></label>
       <label class="field"><span class="field-title" data-i18n>Password</span><input type="password" id="password" autocomplete="current-password" enterkeyhint="go"></label>
       <label class="toggle"><span class="switch"><input type="checkbox" id="remember"><span></span></span><span><span class="field-title" data-i18n>Remember the email and password</span><span class="help" data-i18n>Optional: the sign-in keeps only a refresh token otherwise.</span></span></label>
-      <div class="actions"><button type="submit" id="login" class="primary" data-i18n>Connect account</button></div>
+      <div class="actions"><button type="submit" id="login" class="primary" data-i18n data-action-icon="key">Connect account</button></div>
       <p class="wiki muted">Signing in to LG with Google, Apple, Facebook or Amazon? <a href="https://github.com/mp-consulting/homebridge-lg-thinq/wiki/Plugin-Authorization-Setting" target="_blank" rel="noopener" data-i18n>See the authorization guide</a>, or use LG's own sign-in page below.</p>
     </form>
     <div id="third-party" class="card form">
@@ -1275,21 +1275,21 @@ HomeswiftI18n.add({
     <div class="step-head"><span class="step-number">2</span><h2 data-i18n>Your devices</h2></div>
     <div class="group tabs" role="tablist">
       <button id="tab-devices" role="tab" class="on" aria-selected="true" aria-controls="pane-devices" data-i18n>Devices</button>
-      <button id="tab-settings" role="tab" aria-selected="false" aria-controls="pane-settings" data-i18n>Settings</button>
+      <button id="tab-settings" role="tab" aria-selected="false" aria-controls="pane-settings" data-i18n data-action-icon="sliders">Settings</button>
     </div>
 
     <div id="pane-devices" role="tabpanel" aria-labelledby="tab-devices">
       <div class="card">
         <div class="list-head">
           <h3 data-i18n>Devices in your account <span id="device-count" class="pill count">0</span></h3>
-          <div class="actions"><button id="select-all" data-i18n>Select all</button><button id="refresh" data-i18n>Refresh</button></div>
+          <div class="actions"><button id="select-all" data-i18n>Select all</button><button id="refresh" data-i18n data-action-icon="restore">Refresh</button></div>
         </div>
         <div id="devices-problem" class="problem hidden"></div>
         <ul id="device-list" class="devices"></ul>
         <p class="list-foot muted" data-i18n>Checked devices are added to HomeKit (none checked: all of them). ⚙ sets a device's options.</p>
       </div>
       <div id="device-panel" class="card panel hidden"></div>
-      <div class="save-bar"><span id="devices-status" class="muted"></span><button id="save" class="primary" data-i18n>Save configuration</button></div>
+      <div class="save-bar"><span id="devices-status" class="muted"></span><button id="save" class="primary" data-i18n data-action-icon="check">Save configuration</button></div>
     </div>
 
     <div id="pane-settings" class="settings hidden" role="tabpanel" aria-labelledby="tab-settings">
@@ -1312,7 +1312,7 @@ HomeswiftI18n.add({
         <label class="toggle"><span class="switch"><input type="checkbox" id="thinq1"><span></span></span><span><span class="field-title" data-i18n>ThinQ1 support</span><span class="help" data-i18n>Adds the account's older ThinQ v1 devices, which are polled.</span></span></label>
         <label class="field"><span class="field-title" data-i18n>Refresh interval (seconds)</span><input type="number" id="refresh-interval" min="1" inputmode="numeric" class="number"><span class="help" data-i18n>How often ThinQ1 devices are polled. Default: 60.</span></label>
       </div>
-      <div class="save-bar"><span class="muted" data-i18n>ThinQ2 devices are pushed by LG and need no polling.</span><button id="save-settings" class="primary" data-i18n>Save configuration</button></div>
+      <div class="save-bar"><span class="muted" data-i18n>ThinQ2 devices are pushed by LG and need no polling.</span><button id="save-settings" class="primary" data-i18n data-action-icon="check">Save configuration</button></div>
     </div>
   </section>
 
@@ -1320,7 +1320,7 @@ HomeswiftI18n.add({
     <div class="step-head"><span class="step-number done">✓</span><h2 data-i18n>Configuration saved</h2></div>
     <div class="card">
       <p id="complete-text" data-i18n>The plugin restarted with the new settings.</p>
-      <div class="done-actions"><button id="restart" class="hidden" data-i18n>Restart Homeswift</button><button id="back" data-i18n>Back to the devices</button></div>
+      <div class="done-actions"><button id="restart" class="hidden" data-i18n data-action-icon="power">Restart Homeswift</button><button id="back" data-i18n data-action-icon="restore">Back to the devices</button></div>
     </div>
   </section>
 </main>

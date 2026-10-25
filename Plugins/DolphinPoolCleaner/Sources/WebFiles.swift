@@ -149,8 +149,8 @@ extension DolphinPoolCleanerPlugin {
       ...head(t("Your Dolphin Robots"), t("Manage your configured pool robots. A robot's card opens its settings.")),
       account, list,
       el("div", { class: "actions" },
-        el("button", { text: t("Add Another Robot"), onclick: () => showLogin({ cancellable: true }) }),
-        el("button", { class: "primary", text: t("Reconfigure"), onclick: () => showLogin({ cancellable: true }) })));
+        el("button", { actionIcon: "plus", text: t("Add Another Robot"), onclick: () => showLogin({ cancellable: true }) }),
+        el("button", { actionIcon: "sliders", class: "primary", text: t("Reconfigure"), onclick: () => showLogin({ cancellable: true }) })));
     if (focused >= 0) wizard.querySelectorAll(".robot")[focused]?.focus({ preventScroll: true });
   }
 
@@ -211,12 +211,12 @@ extension DolphinPoolCleanerPlugin {
   function showLogin({ cancellable = false } = {}) {
     const email = el("input", { type: "email", name: "email", placeholder: t("your@email.com"), required: true, autocomplete: "email", autofocus: true, value: state.saved?.email || "" });
     const line = statusLine();
-    const send = el("button", { class: "primary", type: "submit", text: t("Send Verification Code") });
+    const send = el("button", { actionIcon: "send", class: "primary", type: "submit", text: t("Send Verification Code") });
     const form = el("form", { class: "narrow", onsubmit: (event) => { event.preventDefault(); act(send, () => login(email.value.trim(), line), (message) => loginProblem(line, message)); } },
       el("label", { class: "field" }, el("span", { class: "field-title", text: t("Email") }), email,
         el("span", { class: "help", text: t("The email associated with your MyDolphin Plus account") })),
       line,
-      el("div", { class: "actions" }, cancellable ? el("button", { type: "button", text: t("Cancel"), onclick: showConfigured }) : null, send));
+      el("div", { class: "actions" }, cancellable ? el("button", { actionIcon: "close", type: "button", text: t("Cancel"), onclick: showConfigured }) : null, send));
     // Without an Assistant, a tip on how to get one, as the Homebridge plugin's wizard shows.
     // One sentence to translate, the block's name in bold where the language puts it.
     const [tipBefore, tipAfter = ""] = t("Tip: add a {block} block to config.json to get the Assistant, which explains sign-in errors here.").split("{block}");
@@ -246,12 +246,12 @@ extension DolphinPoolCleanerPlugin {
     const code = el("input", { class: "code-input", type: "text", name: "otpCode", placeholder: t("Enter code"), required: true, autocomplete: "one-time-code", inputMode: "numeric", pattern: "[0-9]*", maxLength: 6, autofocus: true });
     const line = statusLine();
     const prompt = el("p", { class: "muted", text: message || t("Please enter the verification code sent to your email.") });
-    const verify = el("button", { class: "primary", type: "submit", text: t("Verify") });
+    const verify = el("button", { actionIcon: "check", class: "primary", type: "submit", text: t("Verify") });
     const form = el("form", { class: "narrow", onsubmit: (event) => { event.preventDefault(); act(verify, () => verifyCode(code, prompt, line), (text) => codeProblem(line, text)); } },
       el("label", { class: "field" }, el("span", { class: "field-title", text: t("Verification Code") }), code,
         el("span", { class: "help", text: t("Check your email or phone for the verification code") })),
       line,
-      el("div", { class: "actions" }, el("button", { type: "button", text: t("Back"), onclick: () => showLogin({ cancellable: Boolean(state.saved?.devices?.length) }) }), verify));
+      el("div", { class: "actions" }, el("button", { actionIcon: "restore", type: "button", text: t("Back"), onclick: () => showLogin({ cancellable: Boolean(state.saved?.devices?.length) }) }), verify));
     show("otp", el("div", { class: "step-head" }, el("h2", { text: t("Verification Required") })), prompt, form);
   }
 
@@ -320,7 +320,7 @@ extension DolphinPoolCleanerPlugin {
     const toggle = (input, title) => el("label", { class: "toggle" }, el("span", { class: "switch" }, input, el("span")), el("span", {}, el("span", { class: "field-title", text: title })));
     const detail = (label, value) => el("div", {}, el("span", { text: label }), el("b", { text: value }));
     const line = statusLine();
-    const save = el("button", { class: "primary", text: t("Save Configuration") });
+    const save = el("button", { actionIcon: "check", class: "primary", text: t("Save Configuration") });
     save.addEventListener("click", () => act(save, () => saveRobot({
       name: displayName.value.trim() || data.robotName, cleaningMode: mode.value, pollingInterval: Number(polling.value),
       enableTemperature: temperature.checked, enableFilterStatus: filter.checked,
@@ -345,7 +345,7 @@ extension DolphinPoolCleanerPlugin {
           toggle(temperature, t("Enable Water Temperature Sensor")),
           toggle(filter, t("Enable Filter Status")))),
       line,
-      el("div", { class: "actions" }, el("button", { text: t("Back"), onclick: () => (editing ? showConfigured() : showLogin({ cancellable: Boolean(state.saved?.devices?.length) })) }), save));
+      el("div", { class: "actions" }, el("button", { actionIcon: "restore", text: t("Back"), onclick: () => (editing ? showConfigured() : showLogin({ cancellable: Boolean(state.saved?.devices?.length) })) }), save));
   }
 
   /// Writes the robot into the block as the Homebridge wizard does: the account (email, region, refresh token)
@@ -394,7 +394,7 @@ extension DolphinPoolCleanerPlugin {
         el("ul", { class: "done-list" },
           el("li", { text: t("Turn cleaning on/off with the switch") }), el("li", { text: t("View water temperature") }),
           el("li", { text: t("Check filter status") }), el("li", { text: t("Use Siri voice commands") }))),
-      el("div", { class: "actions" }, el("button", { class: "primary", text: t("Done"), onclick: () => { setTimeout(refreshLive, 1500); showConfigured(); } })));
+      el("div", { class: "actions" }, el("button", { actionIcon: "check", class: "primary", text: t("Done"), onclick: () => { setTimeout(refreshLive, 1500); showConfigured(); } })));
   }
 
   // MARK: The plugin's view of its robots, refreshed while the list shows.

@@ -65,10 +65,20 @@ struct Mirror {
             services.append(Service(type, name: service.name, subtype: service.id ?? "\(index)", extra: extra, isPrimary: index == primary))
         }
         guard !services.isEmpty else { return nil }
+        let identify = source.services.first { HAPUUID($0.type) == ServiceType.accessoryInformation.uuid }?
+            .characteristics.first { HAPUUID($0.type) == CharacteristicType.identify.uuid && $0.properties.contains("write") && $0.id != nil }
+        let onIdentify: (@Sendable () async throws -> Void)?
+        let identifyID = source.supportsIdentify == true ? "Identify" : source.supportsIdentify == false ? nil : identify?.id
+        if let id = identifyID {
+            onIdentify = {
+                do { try await write(source.id, id, .bool(true)) }
+                catch { throw HAPStatusError(.serviceCommunicationFailure) }
+            }
+        } else { onIdentify = nil }
         let accessory = Accessory(
             id: "\(WingmanPlugin.platform):\(source.id)", name: source.name, manufacturer: source.manufacturer ?? Self.source,
             model: source.model ?? "Accessory", serialNumber: source.id, firmwareRevision: source.firmware ?? "1.0.0",
-            category: Self.category(of: (services.first(where: \.isPrimary) ?? services[0]).type), services: services)
+            category: Self.category(of: (services.first(where: \.isPrimary) ?? services[0]).type), services: services, onIdentify: onIdentify)
         accessory.mirroredFrom = Self.source
         accessory.suggestedRoom = source.room
         accessory.isUnavailable = source.reachable == false
@@ -80,7 +90,7 @@ struct Mirror {
     /// What decides the accessory's objects: its name, room, services and their characteristics with their props.
     /// Values and reachability are not in it: `update(from:)` takes those.
     static func signature(of source: WingmanAPI.Accessory) -> String {
-        var parts = [source.name, source.room ?? "", source.manufacturer ?? "", source.model ?? ""]
+        var parts = [source.name, source.room ?? "", source.manufacturer ?? "", source.model ?? "", source.supportsIdentify.map(String.init) ?? "legacy"]
         for service in source.services {
             parts.append("\(service.id ?? "")/\(service.type)/\(service.name ?? "")/\(service.primary == true)")
             for item in service.characteristics {

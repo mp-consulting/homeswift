@@ -179,10 +179,44 @@ try {
   await open("wall");
   await evaluate(`(() => {
     const layout = {groups: []};
-    window.releaseGroups = HomeswiftGroups.mount({all: previewAccessories, layout, persist: async () => {}, refresh: () => {}});
+    window.releaseGroups = HomeswiftGroups.mount({all: previewAccessories.map(a => ({...a, room: "Living room"})), rooms: ["Living room", "Bedroom"], layout, persist: async () => {}, refresh: () => {}, setGroupRoom: async () => {}});
+    const card = releaseGroups.card({id:'group:preview',name:'Living room lights',members:['spots','pendant']}, false);
+    document.querySelector('main').replaceChildren(HomeswiftCommon.el('div', {class:'wall'}, card));
+  })()`);
+  await shot("group-controls", ".accessory-group");
+  const groupSliders = await evaluate("[...document.querySelectorAll('.accessory-group [role=slider]')].map(n=>({label:n.getAttribute('aria-label'),text:n.getAttribute('aria-valuetext'),track:n.classList.contains('track')}))");
+  if (!groupSliders.some(s=>s.label==='Brightness') || !groupSliders.some(s=>s.track)) throw new Error('Group sliders must reuse brightness and temperature tracks');
+  const groupWriteStart = writes.length;
+  await evaluate(`(async () => {
+    const sliders = [...document.querySelectorAll('.accessory-group [role=slider]')];
+    const white = sliders.find(n=>n.classList.contains('track'));
+    white.dispatchEvent(new KeyboardEvent('keydown', {key:'End', bubbles:true}));
+    await new Promise(resolve=>setTimeout(resolve, 600));
+  })()`);
+  const groupWrites = writes.slice(groupWriteStart);
+  if (groupWrites.length !== 2 || groupWrites.some(w=>w.body.characteristic !== 'Color Temperature' || !Number.isFinite(w.body.value) || w.body.value > 200)) throw new Error('Group temperature must write cool-end mired values to both lights');
+  console.log('PASS: group temperature slider writes converted mired values to both lights');
+  await evaluate(`(() => {
     releaseGroups.edit(['spots', 'pendant']);
   })()`);
   await shot("group-picker", "dialog");
+  await open("wall");
+  await evaluate(`(() => {
+    const accessory = previewAccessories.find(a=>a.id==='pendant');
+    accessory.supportsIdentify = false;
+    document.querySelector('main').replaceChildren(HomeswiftWidgets.card(accessory));
+    document.querySelector('.menu-button').click();
+  })()`);
+  if (await evaluate("[...document.querySelectorAll('[role=menuitem]')].some(n=>n.textContent==='Identify')")) throw new Error('Unsupported accessory exposes Identify');
+  await evaluate(`(() => {
+    document.body.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape',bubbles:true}));
+    const accessory = previewAccessories.find(a=>a.id==='pendant');
+    accessory.supportsIdentify = true;
+    document.querySelector('main').replaceChildren(HomeswiftWidgets.card(accessory));
+    document.querySelector('.menu-button').click();
+  })()`);
+  if (!await evaluate("[...document.querySelectorAll('[role=menuitem]')].some(n=>n.textContent==='Identify')")) throw new Error('Supported accessory is missing Identify');
+  console.log('PASS: Identify is offered only for accessories with a handler');
   await open("phone", 393);
   await viewport(393, 852);
   await evaluate("HomeswiftCommon.tabBar({active:'/accessories'}); document.querySelector('.mobile-nav-toggle').click()");

@@ -36,6 +36,7 @@ enum WingmanAPI {
         var name: String
         var room: String?
         var reachable: Bool?
+        var supportsIdentify: Bool? = nil
         var bridge: Bridge?
         var manufacturer: String?
         var model: String?

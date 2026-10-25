@@ -161,6 +161,7 @@ public struct HomeswiftCatalog: Sendable {
 
     /// Makes the accessory identify itself (a light blinks, a speaker chimes).
     public func identify(_ located: Located) async throws {
+        guard located.accessory.supportsIdentify else { throw CatalogError("This accessory does not support Identify") }
         do {
             try await located.accessory.information.characteristic(.identify).write(.bool(true))
         } catch let error as HAPStatusError {
@@ -247,6 +248,7 @@ public struct HomeswiftCatalog: Sendable {
                     writeService(service, detailed: detailed, to: &json)
                 }
             }
+            json.field("supportsIdentify", .bool(accessory.supportsIdentify))
             // The device does not answer (a paused plugin says so with `paused`): the web UI shows No Response.
             if accessory.isUnavailable, located.platform?.paused != true { json.field("unavailable", true) }
         }

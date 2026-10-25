@@ -416,6 +416,8 @@ extension UniFiProtectPlugin {
   }
 
   function updateModifiedSummary(count) {
+    $("#modifiedOnlyToggle").disabled = count === 0 && !$("#modifiedOnlyToggle").checked;
+    $("#modifiedOnlyToggle").closest("label").title = $("#modifiedOnlyToggle").disabled ? t("No modified options match the current search.") : "";
     const summary = $("#modifiedSummary");
     summary.textContent = count ? `(${count})` : "";
     summary.className = count ? "warn" : "";
@@ -701,6 +703,7 @@ extension UniFiProtectPlugin {
     $("#addControllerBtn").addEventListener("click", () => showDiscovery(controllers().length > 0));
     $("#supportBtn").addEventListener("click", () => showScreen("supportScreen"));
     $("#backFromSupportBtn").addEventListener("click", () => { showScreen("controllersScreen"); renderControllers(); });
+    $("#optionsSearch").parentElement.append(HomeswiftCommon.clearFilters([[$("#optionsSearch"), ""], [$("#modifiedOnlyToggle"), false]]));
     let searchTimer = null;
     $("#optionsSearch").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(renderOptions, 300); });
     $("#scopeSelect").addEventListener("change", renderOptions);
@@ -1627,7 +1630,7 @@ HomeswiftI18n.add({
     <p id="noControllers" class="card muted hidden" data-i18n>No controllers configured yet. Add one to get started.</p>
     <div id="controllersList" class="controllers"></div>
     <div class="actions row-actions">
-      <button id="addControllerBtn" class="primary" data-i18n>Add controller</button>
+      <button id="addControllerBtn" class="primary" data-i18n data-action-icon="plus">Add controller</button>
       <button id="supportBtn" data-i18n>Support</button>
     </div>
   </section>
@@ -1639,9 +1642,9 @@ HomeswiftI18n.add({
       <p class="muted" data-i18n>Scan your network for UniFi Protect controllers, or enter the address manually.</p>
       <p class="note" data-i18n>Make sure your UniFi console is powered on and connected to the same network.</p>
       <div class="actions row-actions">
-        <button id="discoverBtn" class="primary" data-i18n>Discover controllers</button>
+        <button id="discoverBtn" class="primary" data-i18n data-action-icon="search">Discover controllers</button>
         <button id="manualEntryBtn" data-i18n>Manual entry</button>
-        <button id="cancelDiscoveryBtn" class="link hidden" data-i18n>Cancel</button>
+        <button id="cancelDiscoveryBtn" class="link hidden" data-i18n data-action-icon="close">Cancel</button>
       </div>
       <div id="deviceList" class="found"></div>
     </div>
@@ -1671,15 +1674,15 @@ HomeswiftI18n.add({
       <p class="note"><strong data-i18n>Local account required.</strong> <span data-i18n>Ubiquiti.com/UI.com accounts are not supported.</span> <span data-i18n>Create one in the</span> <em>Admins &amp; Users</em> <span data-i18n>tab of your UniFi console.</span></p>
       <div class="save-bar">
         <span class="muted"></span>
-        <button id="cancelSetupBtn" type="button" data-i18n>Cancel</button>
-        <button id="saveControllerBtn" class="primary" type="submit" data-i18n>Save controller</button>
+        <button id="cancelSetupBtn" type="button" data-i18n data-action-icon="close">Cancel</button>
+        <button id="saveControllerBtn" class="primary" type="submit" data-i18n data-action-icon="check">Save controller</button>
       </div>
     </form>
   </section>
 
   <!-- Feature options: scope on the side, options by category. -->
   <section id="featureOptionsScreen" class="screen hidden">
-    <div class="section-head"><h2 data-i18n>Feature options</h2><button id="backFromOptionsBtn" class="link" data-i18n>Back</button></div>
+    <div class="section-head"><h2 data-i18n>Feature options</h2><button id="backFromOptionsBtn" class="link" data-i18n data-action-icon="restore">Back</button></div>
     <div class="options-layout">
       <aside class="scope-side">
         <div class="card compact-card">
@@ -1726,7 +1729,7 @@ HomeswiftI18n.add({
               <label class="field"><span class="field-title" data-i18n>Password</span><input id="thirdPartyOnvifPass" type="password" autocomplete="off"></label>
               <label class="field wide"><span class="field-title" data-i18n>Service path <span class="muted" data-i18n>(optional, /onvif/device_service by default)</span></span><input id="thirdPartyOnvifPath" type="text" placeholder="/onvif/device_service" autocomplete="off" spellcheck="false"></label>
             </div>
-            <div class="row-actions"><span id="thirdPartyDiscoverStatus" class="status-line"></span><button id="thirdPartyDiscoverBtn" class="primary" type="button" data-i18n>Discover URLs</button></div>
+            <div class="row-actions"><span id="thirdPartyDiscoverStatus" class="status-line"></span><button id="thirdPartyDiscoverBtn" class="primary" type="button" data-i18n data-action-icon="search">Discover URLs</button></div>
             <div id="thirdPartyDiscoverAssistant"></div>
             <div id="thirdPartyProfileSelectorWrap" class="hidden profile-picker">
               <label class="field"><span class="field-title" data-i18n>Stream profile</span><select id="thirdPartyProfileSelect"></select></label>
@@ -1742,8 +1745,8 @@ HomeswiftI18n.add({
         <div id="optionsContainer"></div>
         <div id="unsavedChanges" class="card save-bar hidden">
           <span class="dirty" data-i18n>You have unsaved changes. Saving applies them: the plugin restarts with them.</span>
-          <button id="discardOptionsBtn" data-i18n>Discard</button>
-          <button id="saveOptionsBtn" class="primary" data-i18n>Save</button>
+          <button id="discardOptionsBtn" data-i18n data-action-icon="close">Discard</button>
+          <button id="saveOptionsBtn" class="primary" data-i18n data-action-icon="check">Save</button>
         </div>
       </div>
     </div>
@@ -1751,7 +1754,7 @@ HomeswiftI18n.add({
 
   <!-- Support. -->
   <section id="supportScreen" class="screen hidden">
-    <div class="section-head"><h2 data-i18n>Support</h2><button id="backFromSupportBtn" class="link" data-i18n>Back</button></div>
+    <div class="section-head"><h2 data-i18n>Support</h2><button id="backFromSupportBtn" class="link" data-i18n data-action-icon="restore">Back</button></div>
     <div class="card support">
       <h3 data-i18n>About this plugin</h3>
       <p><span data-i18n>The Homeswift port of</span> <a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-protect">homebridge-unifi-protect</a>. <span data-i18n>Its documentation applies here: the options, feature options and MQTT topics are the same.</span></p>

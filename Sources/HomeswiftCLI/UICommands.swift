@@ -21,9 +21,9 @@ enum UICommands {
             if let root = ProcessInfo.processInfo.environment["HOMESWIFT_WEB_ROOT"], !root.isEmpty {
                 options.webRoot = URL(fileURLWithPath: NSString(string: root).expandingTildeInPath)
             }
+            options.releases = releases
             if ui.checkForUpdates {
                 releases.start()
-                options.releases = releases
             } else {
                 releases.stop()
             }

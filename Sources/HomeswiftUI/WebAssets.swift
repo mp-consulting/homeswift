@@ -41,7 +41,7 @@ enum WebAssets {
     return new Promise((resolve) => {
       const input = typed ? el("input", { type: "text", autocomplete: "off", spellcheck: false, "aria-label": t("Type {text} to confirm", { text: typed }) }) : null;
       const ok = el("button", { class: danger ? "danger" : "primary", text: confirmLabel, disabled: Boolean(typed), value: "ok" });
-      const cancel = el("button", { text: t("Cancel"), value: "cancel", type: "button" });
+      const cancel = el("button", { actionIcon: "close", text: t("Cancel"), value: "cancel", type: "button" });
       // The sentence around the word to type, in the page's language: the word goes where {text} stands.
       const [typeBefore, typeAfter = ""] = t("Type {text} to confirm").split("{text}");
       const dialog = el("dialog", { class: "admin-dialog card", "aria-labelledby": "confirm-title" },
@@ -104,7 +104,7 @@ enum WebAssets {
     };
     const field = (title, control, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: title }), control, help ? el("span", { class: "help", text: help }) : null);
     const message = el("p", { class: "status-line muted", role: "status" });
-    const save = el("button", { class: "primary", type: "submit", text: t("Save and restart") });
+    const save = el("button", { actionIcon: "check", class: "primary", type: "submit", text: t("Save and restart") });
     const read = () => Object.fromEntries(Object.entries(fields).map(([key, control]) => {
       const value = control.value.trim();
       return [key, value === "" ? null : key === "port" ? Number(value) : value];
@@ -232,9 +232,56 @@ enum WebAssets {
     const reset = menuButton(t("Actions for every cache"), () => [
       { label: t("Reset every cache…"), icon: "trash", danger: true, onSelect: resetCaches },
     ]);
+    const search = el("input", { type: "search", class: "search", placeholder: t("Search cached accessories"), "aria-label": t("Search cached accessories") });
+    const totalText = tn("{count} in {n} cache file", "{count} in {n} cache files", new Set(list.map((c) => c.cacheFile)).size, { count: list.length });
+    const matchCount = el("span", { class: "muted", role: "status", "aria-live": "polite", text: totalText });
+    const results = el("div", { class: "card rows cached-search-results" });
+    const empty = el("p", { class: "card empty muted cached-search-empty", role: "status", text: t("No accessory matches."), hidden: true });
+    const normalize = (value) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase();
+    const selectedStatuses = new Set();
+    const entries = list.map((cached) => ({
+      status: cached.orphaned ? "orphaned" : cached.restoredOnly ? "stale" : "current",
+      node: row(cached),
+      text: normalize([cached.name, cached.id, cached.instance, cached.platform, cached.bridge, cached.manufacturer, cached.model, cached.mirroredFrom].filter(Boolean).join(" ")),
+    }));
+    results.append(...entries.map((entry) => entry.node));
+    const filter = () => {
+      const terms = normalize(search.value).trim().split(/\s+/).filter(Boolean);
+      let count = 0;
+      for (const entry of entries) {
+        entry.node.hidden = (selectedStatuses.size > 0 && !selectedStatuses.has(entry.status)) || !terms.every((term) => entry.text.includes(term));
+        if (!entry.node.hidden) count++;
+      }
+      matchCount.textContent = terms.length || selectedStatuses.size ?  t("{count} of {total} match", { count, total: list.length }) : totalText;
+      results.hidden = count === 0;
+      empty.hidden = count !== 0;
+    };
+    const statuses = [["current", t("Current"), "check"], ["stale", t("Stale"), "history"], ["orphaned", t("No block"), "warning"]];
+    const filters = el("button", { type: "button", "aria-haspopup": "menu", "aria-label": t("Filters"), onclick: () => HomeswiftCommon.menu(filters, [
+      ...statuses.map(([value, label, icon]) => ({ label, icon, tone: { current: "ok", stale: "warn", orphaned: "error" }[value], count: entries.filter((entry) => entry.status === value && normalize(search.value).trim().split(/\s+/).filter(Boolean).every((term) => entry.text.includes(term))).length, checkbox: true, toggle: true, checked: selectedStatuses.has(value), onSelect: () => {
+        if (selectedStatuses.has(value)) selectedStatuses.delete(value); else selectedStatuses.add(value);
+        filters.classList.toggle("on", selectedStatuses.size > 0);
+        filterCount.textContent = selectedStatuses.size ? String(selectedStatuses.size) : "";
+        filter();
+      } })),
+      { separator: true },
+      { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: !search.value && selectedStatuses.size === 0, onSelect: () => {
+        search.value = "";
+        selectedStatuses.clear();
+        filters.classList.remove("on");
+        filterCount.textContent = "";
+        filter();
+      } },
+    ]) }, HomeswiftCommon.icon("sliders"), el("span", { text: t("Filters") }));
+    const filterCount = el("span", { class: "cached-filter-count" });
+    filters.append(filterCount);
+    search.addEventListener("input", filter);
+    search.addEventListener("search", filter);
     return el("section", {},
-      sectionHead(t("Cached accessories"), tn("{count} in {n} cache file", "{count} in {n} cache files", new Set(list.map((c) => c.cacheFile)).size, { count: list.length }), reset),
-      list.length ? el("div", { class: "card rows" }, list.map(row)) : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("accessory")), el("p", { class: "muted", text: t("No cached accessory.") })));
+      sectionHead(t("Cached accessories"), null, matchCount,
+        el("div", { class: "cached-search-tools" }, list.length ? [search, filters] : null, reset)),
+      list.length ? [results, empty] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("accessory")), el("p", { class: "muted", text: t("No cached accessory.") })));
+
   }
 
   async function removeCached(cached) {
@@ -264,7 +311,7 @@ enum WebAssets {
       sectionHead(t("Schedules and proxy"), t("In the web UI's settings")),
       el("div", { class: "card page-note" },
         el("p", { text: t("A scheduled restart (a cron expression), the daily backup (its folder and how long it is kept) and the reverse proxies trusted for X-Forwarded-For and X-Forwarded-Proto are settings of the HomeswiftUI block.") }),
-        uiBlock ? el("a", { class: "button", href: `/plugins/${uiBlock.slug}?section=proxy`, text: t("Open its settings") }) : null));
+        uiBlock ? el("a", { actionIcon: "sliders", class: "button", href: `/plugins/${uiBlock.slug}?section=proxy`, text: t("Open its settings") }) : null));
   }
 
   // ---- Child bridges -------------------------------------------------------------------------------------
@@ -303,7 +350,7 @@ enum WebAssets {
         el("div", { class: "card rows" }, plugins.blocks.filter((block) => !["HomeswiftUI", "HomeswiftAiKit"].includes(block.platform)).map((block) =>
           el("div", { class: "row" }, tile("child", "blue"),
             el("div", { class: "who" }, el("strong", { text: block.name }), el("div", { class: "muted", text: block.childBridge ? t("Child bridge") : t("Main bridge") })),
-            el("button", { text: t("Configure"), onclick: () => editChildBridge(block) }))))),
+            el("button", { actionIcon: "sliders", text: t("Configure"), onclick: () => editChildBridge(block) }))))),
       childBridges.length ? el("div", { class: "servers" }, childBridges.map(card))
         : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("child")), el("p", { class: "muted", text: t("No child bridges yet. Configure a plugin above to give it its own bridge.") })));
   }
@@ -321,8 +368,8 @@ enum WebAssets {
     const update = () => { name.disabled = port.disabled = !enabled.checked; fields.hidden = !enabled.checked; };
     enabled.addEventListener("change", update); update();
     const result = el("p", { class: "error", role: "status" });
-    const cancel = el("button", { type: "button", text: t("Cancel"), onclick: () => dialog.close() });
-    const save = el("button", { type: "submit", class: "primary", text: t("Save") });
+    const cancel = el("button", { actionIcon: "close", type: "button", text: t("Cancel"), onclick: () => dialog.close() });
+    const save = el("button", { actionIcon: "check", type: "submit", class: "primary", text: t("Save") });
     const form = el("form", {}, el("h2", { text: entry.name }),
       el("label", { class: "child-bridge-toggle" }, enabled, el("span", { text: t("Run on its own HomeKit bridge") })), fields,
       el("p", { class: "muted", text: t("Moving a plugin between bridges changes where its accessories appear in Apple Home. You may need to pair the new bridge and recreate room assignments or automations. Saving reloads the plugin.") }),
@@ -355,7 +402,7 @@ enum WebAssets {
     const [backups, configBackups] = await Promise.all([api("/api/backups"), api("/api/config/backups")]);
     const message = el("p", { class: "status-line muted", role: "status" });
     const report = (e) => { message.className = "status-line error"; message.textContent = e.message; };
-    const now = el("button", { class: "primary", text: t("Back up now"), onclick: (event) => busy(event.currentTarget, async () => {
+    const now = el("button", { actionIcon: "archive", class: "primary", text: t("Back up now"), onclick: (event) => busy(event.currentTarget, async () => {
       const result = await api("/api/backups", { method: "POST" });
       message.className = "status-line ok";
       message.textContent = t("Kept {file} ({size}).", { file: result.backup.fileName, size: size(result.backup.bytes) });
@@ -371,7 +418,7 @@ enum WebAssets {
         fact(t("Scheduled restart"), backups.restartCron ? (backups.nextRestart ? t("{cron} · next {date}", { cron: backups.restartCron, date: when(backups.nextRestart) }) : backups.restartCron) : t("None"))),
       el("div", { class: "fact wide" }, el("span", { text: t("Folder") }), el("b", { class: "mono", text: backups.folder, title: backups.folder })),
       el("div", { class: "actions" },
-        now, el("a", { class: "button", href: "/api/backups/download", download: "", text: t("Download a backup") })),
+        now, el("a", { actionIcon: "download", class: "button", href: "/api/backups/download", download: "", text: t("Download a backup") })),
       message);
     app().show(main,
       app().pageHead(t("Backups"), t("The whole instance, to move it or start over, and each saved config.json.")),
@@ -479,7 +526,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return el("div", { class: "row-block" },
       el("div", { class: "row" },
         el("div", { class: "who" }, el("strong", { text: backup.date ? fullDate.format(new Date(backup.date)) : backup.name }), el("div", { class: "muted mono", text: backup.name })),
-        el("button", { class: "link", text: t("Compare"), onclick: compare }),
+        el("button", { actionIcon: "code", class: "link", text: t("Compare"), onclick: compare }),
         menuButton(t("Actions for {name}", { name: backup.name }), () => [
           { label: t("Compare with config.json"), icon: "code", onSelect: compare },
           { label: t("Restore…"), icon: "restore", danger: true, onSelect: restore },
@@ -515,8 +562,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const select = (choices, value, label) => {
       const control = el("button", { class: "audit-picker", type: "button", "aria-label": label, "aria-haspopup": "menu" });
       control.value = value;
-      const paint = () => control.replaceChildren(el("span", { text: choices.find(([v]) => v === control.value)?.[1] ?? label }), el("span", { text: "⌄", "aria-hidden": "true" }));
-      control.addEventListener("click", () => HomeswiftCommon.menu(control, choices.map(([v, text]) => ({ label: text, checked: control.value === v, onSelect: () => { control.value = v; paint(); control.dispatchEvent(new Event("change")); } }))));
+      control.counts = new Map();
+      const counted = (v, label) => control.counts.has(v) ? `${label} (${control.counts.get(v)})` : label;
+      const paint = () => control.replaceChildren(el("span", { text: counted(control.value, choices.find(([v]) => v === control.value)?.[1] ?? label) }), el("span", { text: "⌄", "aria-hidden": "true" }));
+      control.addEventListener("click", () => HomeswiftCommon.menu(control, choices.map(([v, text]) => ({ label: text, count: control.counts.get(v), disabledReason: t("No audit entries match the current filters."), checked: control.value === v, onSelect: () => { control.value = v; paint(); control.dispatchEvent(new Event("change")); } }))));
+      control.paint = paint;
+      control.addEventListener("change", paint);
       paint();
       return control;
     };
@@ -535,6 +586,21 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       window.history.replaceState(null, "", `/settings/audit?${query}`);
       if (!since.value) query.delete("since");
       count.textContent = t("Loading…");
+      // Count each alternative against the current text and the other selected filter.
+      for (const [control, choices, key] of [[outcome, outcomes, "outcome"], [since, spans, "since"]]) {
+        control.counts.clear(); control.paint();
+        Promise.all(choices.map(async ([value]) => {
+          const candidate = new URLSearchParams(query);
+          if (value) candidate.set(key, value); else candidate.delete(key);
+          candidate.set("limit", "1");
+          try { return [value, (await api(`/api/audit?${candidate}`)).total]; }
+          catch { return [value, null]; }
+        })).then((counts) => {
+          if (own !== loads) return;
+          control.counts = new Map(counts.filter(([, count]) => count != null));
+          control.paint();
+        });
+      }
       let found;
       try { found = await api(`/api/audit?${query}`); } catch (e) { if (own === loads) count.textContent = e.message; return; }
       if (own !== loads) return;
@@ -551,7 +617,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     }
     let typing = null;
     for (const input of [tool, client]) input.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(load, 250); });
-    for (const choice of [outcome, since]) choice.addEventListener("change", load);
+    for (const choice of [outcome, since]) choice.addEventListener("change", () => { clearTimeout(typing); typing = setTimeout(load, 0); });
     app().show(main,
       app().pageHead(t("Audit log"), t("Every change made through the MCP server, the Assistant's chat and this web UI, with who made it.")),
       subnav("audit"),
@@ -562,7 +628,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("label", {}, el("span", { text: t("Tool or route") }), tool),
           el("label", {}, el("span", { text: t("Client or user") }), client)),
         el("div", { class: "audit-filter-footer" }, count,
-          el("button", { class: "link", text: t("Reset filters"), onclick: () => { clearTimeout(typing); tool.value = ""; client.value = ""; location.href = "/settings/audit?since=7d"; } }))),
+          HomeswiftCommon.clearFilters([[tool, ""], [client, ""], [outcome, ""], [since, "7d"]], { reset: () => clearTimeout(typing) }))),
       body);
     await load();
   }
@@ -599,10 +665,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         for (const button of group.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
         load();
       } })));
-    const close = el("button", { type: "button", text: t("Done"), class: "primary" });
+    const close = el("button", { actionIcon: "check", type: "button", text: t("Done"), class: "primary" });
     const dialog = el("dialog", { class: "admin-dialog card wide", "aria-labelledby": "history-title" },
       el("div", { class: "page-head" }, el("div", { class: "who" }, el("h2", { id: "history-title", text: accessory.name }), el("p", { class: "muted", text: t("Recorded values, as Eve shows them") })),
-        el("div", { class: "tools" }, group)),
+        el("div", { class: "tools" }, group, HomeswiftCommon.clearFilters([], { active: () => hours !== 24, events: [[group, "click"]], reset: () => group.firstElementChild.click() }))),
       charts, note, el("div", { class: "actions" }, close));
     close.addEventListener("click", () => dialog.close());
     dialog.addEventListener("close", () => dialog.remove());
@@ -823,13 +889,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return new Promise((resolve) => {
       const dialog = el("dialog", { class: "restart-overlay restart-confirm", "aria-labelledby": "restart-confirm-title", "aria-describedby": "restart-confirm-description" });
       const finish = (accepted) => { dialog.close(); dialog.remove(); resolve(accepted); };
-      const cancel = el("button", { text: t("Cancel"), onclick: () => finish(false) });
+      const cancel = el("button", { actionIcon: "close", text: t("Cancel"), onclick: () => finish(false) });
       dialog.append(
         el("div", { class: "restart-confirm-icon", "aria-hidden": "true" }, HomeswiftCommon.icon("power")),
         el("h2", { id: "restart-confirm-title", text: t("Restart Homeswift?") }),
         el("p", { id: "restart-confirm-description", text: t("Your accessories will disconnect briefly. This page will reconnect automatically when Homeswift is ready.") }),
         el("div", { class: "restart-confirm-actions" }, cancel,
-          el("button", { class: "primary", text: t("Restart"), onclick: () => finish(true) })));
+          el("button", { actionIcon: "power", class: "primary", text: t("Restart"), onclick: () => finish(true) })));
       dialog.addEventListener("cancel", (event) => { event.preventDefault(); finish(false); });
       document.body.append(dialog); dialog.showModal(); cancel.focus();
     });
@@ -920,7 +986,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         overlay.querySelector(".spinner")?.remove();
         overlay.querySelector("#restart-heading").textContent = t("homeswift did not come back; check its log.");
         overlay.querySelector("#restart-message").textContent = "";
-        overlay.append(el("button", { class: "primary", text: t("Try again"), onclick: () => {
+        overlay.append(el("button", { actionIcon: "restore", class: "primary", text: t("Try again"), onclick: () => {
           overlay.close(); overlay.remove(); restartOverlay = null;
           waitForRestart(started);
         } }));
@@ -1128,13 +1194,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // The page is widgets the user can hide and order (Customise, at the bottom; Glass UI's dashboard layout),
     // drawn only when shown: the activity charts load nothing while hidden.
     const widgets = {
-      overview: () => [el("div", { class: "card hero" },
-        el("img", { src: "/icon.svg", class: "logo large", alt: "" }),
-        el("div", { class: "who" },
-          el("h1", { text: "Homeswift" }),
-          el("p", { class: `health ${healthKind}`, text: health }),
-          el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }))),
-      updateCard(status.update),
+      overview: () => [updateCard(status.update),
       // Each figure with its glyph; on a phone the four share one row, "Home app controllers" shortened.
       el("div", { class: "stats" },
         el("a", { class: "stat", href: "/accessories" }, HomeswiftCommon.icon("bulb"), el("b", { text: status.bridges.reduce((sum, bridge) => sum + bridge.accessories, 0) }), el("span", { text: t("Accessories") })),
@@ -1163,9 +1223,47 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("a", { class: "link", href: "/notifications" }, HomeswiftCommon.icon("bell"), el("span", { text: t("Notifications") }))) : null)],
     };
     const sections = new Map();
-    const footer = el("div", { class: "actions page-foot" },
+    let footerUpdate = status.update;
+    const updateState = () => footerUpdate?.error ? "error" : footerUpdate?.available ? "available" : footerUpdate?.checkedAt ? "current" : "idle";
+    const updateLabel = () => footerUpdate?.error ? t("Try again") : footerUpdate?.available ? t("Update available") : footerUpdate?.checkedAt ? t("Up to date") : t("Check for updates");
+    const updateLabels = [t("Check for updates"), t("Checking…"), t("Up to date"), t("Update available"), t("Try again")];
+    const updateContent = (state, label) => [
+      HomeswiftCommon.icon(({ current: "check", available: "download", error: "warning" })[state] || "restore"),
+      el("span", { class: "footer-update-label" },
+        el("span", { text: label }),
+        ...updateLabels.map((text) => el("span", { class: "footer-update-sizer", "aria-hidden": "true", text }))),
+    ];
+    const showUpdate = () => openSheet((done) => el("div", {},
+      el("h2", { id: "update-check-title", text: t("Updates") }), updateCard(footerUpdate),
+      el("button", { actionIcon: "close", type: "button", text: t("Close"), onclick: () => done() })), "update-check-title", { returnFocus: checkUpdates });
+    const checkUpdates = el("button", { type: "button", class: "link footer-update-check", "data-update-state": updateState(), "aria-live": "polite", text: updateLabel(), onclick: async () => {
+      if (footerUpdate?.available && !footerUpdate.error) { showUpdate(); return; }
+      checkUpdates.disabled = true;
+      checkUpdates.dataset.updateState = "checking";
+      checkUpdates.replaceChildren(...updateContent("checking", t("Checking…")));
+      try {
+        footerUpdate = await api("/api/updates/check", { method: "POST", body: {} });
+        if (!footerUpdate || footerUpdate.error) throw new Error();
+        checkUpdates.removeAttribute("title");
+        if (footerUpdate.available) showUpdate();
+      } catch {
+        footerUpdate = { error: true };
+        checkUpdates.title = t("Could not check for updates. Try again.");
+      } finally {
+        checkUpdates.disabled = false;
+        checkUpdates.replaceChildren(...updateContent(updateState(), updateLabel()));
+        checkUpdates.dataset.updateState = updateState();
+      }
+    } });
+    checkUpdates.replaceChildren(...updateContent(updateState(), updateLabel()));
+    const footer = el("footer", { class: "actions page-foot status-footer" },
+      el("div", { class: "status-footer-summary" },
+        el("p", { class: `health ${healthKind}` }, el("strong", { text: health })),
+        el("div", { class: "status-footer-meta" },
+          el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }),
+          isAdmin() ? checkUpdates : null)),
       el("button", { type: "button", class: "link", "aria-label": t("Customise the Status page"), "aria-haspopup": "menu", "aria-expanded": "false",
-        onclick: (event) => customiseDashboard(event.currentTarget, renderDashboard, event.detail === 0) }, HomeswiftCommon.icon("sliders"), " ", t("Customise this page…")));
+        onclick: (event) => customiseDashboard(event.currentTarget, renderDashboard, event.detail === 0) }, HomeswiftCommon.icon("sliders"), el("span", { class: "status-footer-action-label", text: t("Customise this page…") })));
     function renderDashboard(layout) {
       const position = { left: scrollX, top: scrollY };
       for (const id of layout.order) {
@@ -1282,13 +1380,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       controller = new AbortController();
       const own = controller;
       const live = el("div", {}, el("p", { class: "ai-thinking", text: t("Reading the day…") }));
-      body.replaceChildren(live, el("button", { class: "link", text: t("Stop"), onclick: () => own.abort() }));
+      body.replaceChildren(live, el("button", { actionIcon: "pause", class: "link", text: t("Stop"), onclick: () => own.abort() }));
       card.classList.add("writing");
       note.textContent = "";
       try {
         shown(await HomeswiftCommon.assistantRequest("/api/assistant/digest", {}, { signal: own.signal, onChunk: streamInto(live) }));
       } catch (e) {
-        if (own.signal.aborted) offer(); else body.replaceChildren(el("p", { class: "error", text: e.message }), el("button", { class: "link", text: t("Try again"), onclick: () => write() }));
+        if (own.signal.aborted) offer(); else body.replaceChildren(el("p", { class: "error", text: e.message }), el("button", { actionIcon: "restore", class: "link", text: t("Try again"), onclick: () => write() }));
       } finally {
         card.classList.remove("writing");
         if (controller === own) controller = null;
@@ -1306,7 +1404,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const released = update.publishedAt ? new Date(update.publishedAt).toLocaleDateString(HomeswiftI18n.locale) : null;
     let command = null;
     if (update.command) {
-      const copy = el("button", { type: "button", text: t("Copy"), onclick: async () => {
+      const copy = el("button", { actionIcon: "copy", type: "button", text: t("Copy"), onclick: async () => {
         try { await copyText(update.command); copy.textContent = t("Copied"); } catch { copy.textContent = t("Not copied"); }
         setTimeout(() => { copy.textContent = t("Copy"); }, 1800);
       } });
@@ -1358,7 +1456,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     table.addEventListener("toggle", () => { if (table.open) fillTable(); });
     const section = el("section", { class: "activity" },
       el("h2", { text: t("Activity") }),
-      el("div", { class: "filter-bar" }, range.picker, sources.picker, range.customRow),
+      el("div", { class: "filter-bar" }, range.picker, sources.picker, HomeswiftCommon.clearFilters([[range.picker, "1h"], [sources.picker, ""]]), range.customRow),
       el("div", { class: "chart-grid" }, charts.map((chart) => chart.card)),
       table);
     let shown = null;   // the last history loaded, for the table
@@ -1479,7 +1577,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// What the menu of an accessory's widget offers, after its sizes.
   function accessoryActions(accessory) {
     return [
-      { label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) },
+      accessory.supportsIdentify ? { label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) } : null,
       isAdmin() ? { label: t("Show its log"), icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
       window.HomeswiftChat?.available() ? { label: t("Ask the Assistant"), icon: sparkle(), onSelect: () => HomeswiftChat.ask(t("About {name}: ", { name: accessory.name })) } : null,
       accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
@@ -1511,7 +1609,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const layout = { order: [], sizes: {}, defaults: {}, grouping: "none", ...saved };
     const kinds = new Map(accessories.map((accessory) => [accessory.id, HomeswiftWidgets.kindOf(accessory)]));
     const kindOf = (accessory) => kinds.get(accessory.id).kind;
-    const sizeOf = (accessory) => layout.sizes[accessory.id] || layout.defaults[kindOf(accessory)] || kinds.get(accessory.id).size;
+    const sizeOf = (accessory) => layout.sizes[accessory.id] || (accessory.members ? "large" : layout.defaults[kindOf(accessory)] || kinds.get(accessory.id).size);
     // The order kept first; accessories it does not list yet after them, by plugin and name.
     const rank = new Map(layout.order.map((id, index) => [id, index]));
     const ordered = groupByPlugin(accessories).flatMap(([, group]) => group)
@@ -1525,7 +1623,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const note = el("p", { class: "error hidden", role: "status" });
     let saveTimer = null;
     const save = () => {
-      layout.order = ordered.map((accessory) => accessory.id);
+      // Merge visible widget positions without dropping filtered accessories or group IDs.
+      const visible = [...content.querySelectorAll(".wall > [data-id]")].map((node) => node.dataset.id);
+      const visibleIDs = new Set(visible);
+      const complete = [...new Set([...layout.order, ...ordered.map((accessory) => accessory.id), ...layout.groups.map((group) => group.id)])];
+      let index = 0;
+      layout.order = complete.map((id) => visibleIDs.has(id) ? visible[index++] : id);
       clearTimeout(saveTimer);
       saveTimer = setTimeout(async () => {
         try {
@@ -1539,7 +1642,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }, 300);
     };
 
-    const groupingControls = HomeswiftGroups.mount({ all, layout,
+    const groupingControls = HomeswiftGroups.mount({ all, layout, rooms,
+      setGroupRoom: isAdmin() ? async (ids, room) => {
+        await api("/api/rooms", { method: "PUT", body: { accessories: Object.fromEntries(ids.map((id) => [id, { room }])) } });
+        for (const accessory of all) if (ids.includes(accessory.id)) accessory.room = room;
+      } : null,
+      moveToRoom: isAdmin() ? (group) => HomeswiftHome.moveGroupToRoom(group, all) : null,
       persist: async () => { clearTimeout(saveTimer); await api("/api/layout", { method: "PUT", body: layout }); }, refresh: render });
     window.homeswiftGroupEvent = groupingControls.event;
     window.homeswiftGroupSnapshot = groupingControls.snapshot;
@@ -1555,7 +1663,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       ];
     };
     function widget(accessory) {
-      const node = HomeswiftWidgets.card(accessory, { size: sizeOf(accessory), actions });
+      const node = accessory.members ? groupingControls.card(accessory, editing) : HomeswiftWidgets.card(accessory, { size: sizeOf(accessory), actions });
       if (editing) editable(node, accessory);
       nodes.set(accessory.id, node);
       return node;
@@ -1602,19 +1710,31 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (accessory === target || (layout.grouping !== "none" && section(accessory) !== section(target))) return;
       ordered.splice(ordered.indexOf(accessory), 1);
       ordered.splice(ordered.indexOf(target) + (after ? 1 : 0), 0, accessory);
+      const node = nodes.get(accessory.id), targetNode = nodes.get(target.id);
+      if (node && targetNode) { if (after) targetNode.after(node); else targetNode.before(node); }
       save();
       animateLayout(render);
     }
     function step(accessory, delta) {
-      const wall = ordered.filter((one) => layout.grouping === "none" || section(one) === section(accessory));
-      const target = wall[wall.indexOf(accessory) + delta];
+      const node = nodes.get(accessory.id), wall = node?.parentElement;
+      if (!wall) return;
+      const siblings = [...wall.children].filter((child) => child.dataset.id && !child.classList.contains("hidden"));
+      const target = siblings[siblings.indexOf(node) + delta];
       if (!target) return;
-      place(accessory, target, delta > 0);
+      if (delta > 0) target.after(node); else target.before(node);
+      save();
+      const ids = [...wall.children].map((child) => child.dataset.id).filter((id) => ordered.some((one) => one.id === id));
+      const places = ordered.flatMap((one, index) => ids.includes(one.id) ? [index] : []);
+      const byID = new Map(ordered.map((one) => [one.id, one]));
+      ids.forEach((id, index) => { ordered[places[index]] = byID.get(id); });
+      animateLayout(render);
       nodes.get(accessory.id)?.querySelector(`.edit-bar [data-step="${delta}"]`)?.focus();
     }
     /// In Edit: the sizes and the arrows over the widget, and the widget dragged into place.
     function editable(node, accessory) {
       const size = sizeOf(accessory);
+      node.append(el("div", { class: "edit-caption", "aria-hidden": "true" },
+        el("span", { class: "edit-grip", text: "⠿" }), el("span", { text: accessory.displayName || accessory.name })));
       node.append(el("div", { class: "edit-bar", role: "group", "aria-label": t("Size and place of {name}", { name: accessory.name }) },
         el("button", { type: "button", "aria-label": t("Move earlier"), title: t("Move earlier"), text: "‹", "data-step": "-1", onclick: () => step(accessory, -1) }),
         HomeswiftWidgets.sizes.map((one) => el("button", { type: "button", text: one === "xlarge" ? t("XL") : sizeNames[one][0].toUpperCase(), title: sizeNames[one], "aria-label": sizeNames[one], "aria-pressed": String(one === size), onclick: () => resize(accessory, one) })),
@@ -1693,7 +1813,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     /// Let go, it lands in the slot, and the wall's order is kept. A finger drags at once: in Edit the widgets do not
     /// scroll the page.
     function drag(event, node) {
-      if (event.button !== 0 || event.target.closest(".edit-bar, .resize-handle")) return;
+      if (event.button !== 0 || event.target.closest(".edit-bar, .resize-handle, .menu-button")) return;
       // A press that drags selects no text.
       event.preventDefault();
       getSelection()?.removeAllRanges();
@@ -1701,7 +1821,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const start = { x: event.clientX, y: event.clientY };
       const originalStyle = node.style.cssText, originalNext = node.nextElementSibling;
       let slot = null, pointer = event, scroller = null;
-      let groupTarget = null, groupSince = 0;
+      let groupTarget = null;
+      const touchDrag = event.pointerType === "touch" || matchMedia("(max-width: 640px)").matches;
+      const clearGroupTarget = () => {
+        groupTarget?.classList.remove("group-drop-target");
+        groupTarget?.removeAttribute("data-drop-label");
+        groupTarget = null;
+      };
       node.setPointerCapture(event.pointerId);
       const lift = () => {
         const box = node.getBoundingClientRect();
@@ -1711,6 +1837,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         node.classList.add("lifted");
         Object.assign(node.style, { left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px` });
         scroller = setInterval(() => {
+          if (groupTarget) return;
           const edge = 80, speed = 14;
           if (pointer.clientY < edge) scrollBy(0, -speed);
           else if (pointer.clientY > innerHeight - edge) scrollBy(0, speed);
@@ -1720,16 +1847,24 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       };
       // The widget under the pointer: the slot goes before it, or after it past its middle.
       const hover = () => {
-        const under = document.elementFromPoint(pointer.clientX, pointer.clientY)?.closest(".wall > .widget");
-        if (!under || under === slot || under.parentElement !== wall) { groupTarget?.classList.remove("group-drop-target"); groupTarget = null; return; }
+        // Ignore the lifted card and its controls when locating the actual drop target.
+        const under = document.elementsFromPoint(pointer.clientX, pointer.clientY)
+          .map((element) => element.closest(".wall > .widget"))
+          .find((candidate) => candidate && candidate !== node && candidate !== slot && candidate.parentElement === wall);
+        if (!under || under === slot || under.parentElement !== wall) { clearGroupTarget(); return; }
         const box = under.getBoundingClientRect();
-        const center = pointer.clientX > box.left + box.width * .25 && pointer.clientX < box.right - box.width * .25 && pointer.clientY > box.top + box.height * .2 && pointer.clientY < box.bottom - box.height * .2;
+        // On compact/touch layouts leave only a narrow edge for reordering. Otherwise a
+        // small tile moves away before the finger can reach its old central drop zone.
+        const insetX = touchDrag ? Math.min(8, box.width * .08) : box.width * .2;
+        const insetY = touchDrag ? Math.min(6, box.height * .08) : box.height * .15;
+        const center = pointer.clientX > box.left + insetX && pointer.clientX < box.right - insetX && pointer.clientY > box.top + insetY && pointer.clientY < box.bottom - insetY;
         if (center && groupingControls.canJoin(node.dataset.id, under.dataset.id)) {
-          if (groupTarget !== under) { groupTarget?.classList.remove("group-drop-target"); groupTarget = under; groupSince = Date.now(); }
+          if (groupTarget !== under) { clearGroupTarget(); groupTarget = under; }
           under.classList.add("group-drop-target");
+          under.dataset.dropLabel = t("Release to group");
           return;
         }
-        groupTarget?.classList.remove("group-drop-target"); groupTarget = null;
+        clearGroupTarget();
         const after = pointer.clientY > box.top + box.height * .75 ||
           (pointer.clientY >= box.top + box.height * .25 && pointer.clientX > box.left + box.width / 2);
         if ((after ? under.nextElementSibling : under.previousElementSibling) === slot) return;
@@ -1751,8 +1886,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         node.removeEventListener("pointercancel", end);
         node.removeEventListener("lostpointercapture", end);
         clearInterval(scroller);
-        const joinTarget = ended.type === "pointerup" && groupTarget && Date.now() - groupSince >= 450 ? groupTarget.dataset.id : null;
-        groupTarget?.classList.remove("group-drop-target");
+        if (ended.type === "pointerup" && slot) { pointer = ended; hover(); }
+        const joinTarget = ended.type === "pointerup" && groupTarget ? groupTarget.dataset.id : null;
+        clearGroupTarget();
         if (!slot || !slot.isConnected) return;
         if (ended.type !== "pointerup") {
           if (originalNext?.parentElement === wall) originalNext.before(slot); else wall.append(slot);
@@ -1784,7 +1920,27 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     const content = el("div", { class: "accessory-walls" });
     const none = el("p", { class: "muted hidden", text: t("No accessory matches.") });
+    async function saveRoomOrder(order) {
+      try {
+        await api("/api/rooms", { method: "PUT", body: { rooms: order } });
+        rooms.splice(0, rooms.length, ...order);
+        note.classList.add("hidden");
+        render();
+      } catch (e) {
+        note.textContent = t("The layout was not kept: {error}", { error: e.message });
+        note.classList.remove("hidden");
+      }
+      return [...rooms];
+    }
+    const roomOrderButton = el("button", { type: "button", class: "hidden", "aria-label": t("Reorder rooms"), "aria-haspopup": "menu",
+      onclick: (event) => HomeswiftCommon.menu(roomOrderButton, [
+        ...rooms.map((name) => ({ key: name, label: name, icon: "room", keepOpen: true })),
+        { separator: true },
+        { label: t("Reset room order"), icon: "restore", disabled: () => rooms.every((name, index) => index === 0 || rooms[index - 1].localeCompare(name, HomeswiftI18n.locale) <= 0), onSelect: () => saveRoomOrder([...rooms].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale))) },
+      ], { keyboard: event.detail === 0, onReorder: saveRoomOrder }) }, HomeswiftCommon.icon("room"), el("span", { text: t("Reorder rooms") }));
+
     function render() {
+      roomOrderButton.classList.toggle("hidden", !editing || !isAdmin() || layout.grouping !== "room" || rooms.length < 2);
       nodes.clear();
       // By plugin or by room: a section each (by plugin in the order of their names, those of no plugin last; by room
       // in the rooms' order, those in none last); else one wall.
@@ -1795,12 +1951,21 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       content.replaceChildren(...groups.map(([name, group]) => el("section", { class: "accessory-section" },
         name ? el("div", { class: "section-head" }, el("h2", { text: name }), el("span", { class: "muted", text: tn("{n} accessory", "{n} accessories", group.length) })) : null,
         el("div", { class: `wall${editing ? " editing" : ""}` }, group.filter((a) => !memberIDs.has(a.id) || noResponse).map(widget)))));
-      const visibleGroups = layout.groups.filter((g) => g.members.some((id) => accessories.some((a) => a.id === id)));
-      if (!noResponse && visibleGroups.length) {
-        const wall = el("div", { class: `wall${editing ? " editing" : ""}` }, visibleGroups.map((g) => groupingControls.card(g, editing)));
-        // Keep groups in the same drag surface as individual tiles.
-        const firstWall = content.querySelector(".wall");
-        if (firstWall) firstWall.prepend(...wall.children); else content.prepend(el("section", { class: "accessory-section" }, wall));
+      if (!noResponse) {
+        const walls = [...content.querySelectorAll(".wall")];
+        const cardsBySection = groups.map(() => []);
+        for (const group of layout.groups) {
+          const index = HomeswiftGroups.sectionIndex(group, groups);
+          if (index !== -1) cardsBySection[index].push(widget(group));
+        }
+        // Keep each group beside its members, including rooms other than the first one.
+        walls.forEach((wall, index) => wall.prepend(...cardsBySection[index]));
+      }
+      const widgetRank = new Map(layout.order.map((id, index) => [id, index]));
+      for (const wall of content.querySelectorAll(".wall")) {
+        const children = [...wall.children];
+        const rankOf = (node) => widgetRank.get(node.dataset.id) ?? (node.classList.contains("accessory-group") ? -1 : layout.order.length + children.indexOf(node));
+        wall.append(...[...children].sort((a, b) => rankOf(a) - rankOf(b)));
       }
       filter();
     }
@@ -1823,7 +1988,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     }
     search.addEventListener("input", filter);
     // Each with its glyph; a phone shows the glyphs alone.
-    const groupings = [["none", t("One wall"), "grid"], ...(rooms.length ? [["room", t("By room"), "room"]] : []), ["plugin", t("By plugin"), "plugin"]];
+    const groupings = [["none", t("One wall"), "wall"], ...(rooms.length ? [["room", t("By room"), "room"]] : []), ["plugin", t("By plugin"), "plugin"]];
     const grouping = el("div", { class: "group with-icons", role: "group", "aria-label": t("Group the accessories") }, groupings.map(([value, text, glyph]) =>
       el("button", { type: "button", title: text, "aria-label": text, class: layout.grouping === value ? "on" : "", "aria-pressed": String(layout.grouping === value), onclick: (event) => {
         layout.grouping = value;
@@ -1831,7 +1996,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         save();
         render();
       } }, HomeswiftCommon.icon(glyph), el("span", { text }))));
-    const edit = el("button", { type: "button", text: t("Edit"), "aria-pressed": "false", title: t("Sizes and order of the widgets"), onclick: () => {
+    const edit = el("button", { actionIcon: "sliders", type: "button", text: t("Edit"), "aria-pressed": "false", title: t("Sizes and order of the widgets"), onclick: () => {
       editing = !editing;
       edit.textContent = editing ? t("Done") : t("Edit");
       edit.classList.toggle("primary", editing);
@@ -1871,15 +2036,25 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (enabled) next.set(key, value); else next.delete(key);
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
     };
+    const searchCount = (predicate) => all.filter((accessory) => predicate(accessory) && HomeswiftWidgets.searchText(accessory).includes(search.value.trim().toLowerCase())).length;
     const activeFilters = Number(Boolean(from)) + Number(showHidden) + Number(noResponse);
     const filters = el("button", { type: "button", class: activeFilters ? "on" : "", "aria-haspopup": "menu" },
       HomeswiftCommon.icon("sliders"), el("span", { text: t("Filters") }), activeFilters ? el("span", { class: "toolbar-count", text: activeFilters }) : null);
     filters.addEventListener("click", () => HomeswiftCommon.menu(filters, [
-      ...sources.map((source) => ({ label: t("Only from {source}", { source: t(source) }), checked: from === source, checkbox: true, toggle: true,
+      ...sources.map((source) => ({ label: t("Only from {source}", { source: t(source) }), count: searchCount((accessory) => accessory.mirroredFrom === source), checked: from === source, checkbox: true, toggle: true,
         icon: source === "Apple Home" ? el("img", { src: "/apple-home.png", width: 20, height: 20, alt: "" }) : null,
         onSelect: () => changeFilter("from", source, from !== source) })),
-      { label: t("No Response"), checked: noResponse, checkbox: true, toggle: true, onSelect: () => changeFilter("unavailable", "1", !noResponse) },
-      ...(hiddenCount ? [{ label: t("Show hidden ({count})", { count: hiddenCount }), checked: showHidden, checkbox: true, toggle: true, onSelect: () => changeFilter("hidden", "1", !showHidden) }] : [])
+      { label: t("No Response"), icon: "warning", tone: "error", count: searchCount((accessory) => accessory.unavailable || accessory.paused), checked: noResponse, checkbox: true, toggle: true, onSelect: () => changeFilter("unavailable", "1", !noResponse) },
+      ...(hiddenCount ? [{ label: t("Show hidden"), count: searchCount((accessory) => accessory.hidden), icon: "eye", tone: "warn", checked: showHidden, checkbox: true, toggle: true, onSelect: () => changeFilter("hidden", "1", !showHidden) }] : []),
+      { separator: true },
+      { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: !search.value && activeFilters === 0, onSelect: () => {
+        search.value = "";
+        if (activeFilters) {
+          const next = new URLSearchParams(location.search);
+          for (const key of ["from", "hidden", "unavailable"]) next.delete(key);
+          navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
+        } else filter();
+      } },
     ]));
     const more = menuButton(t("Accessory options"), () => [
       { label: t("Create group"), icon: "group", onSelect: () => groupingControls.edit() },
@@ -1894,7 +2069,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       pageHead(t("Accessories"), !accessories.length ? "" : from ? t("{count} from {source}, which HomeKit has already. Changes here reach your devices.", { count: accessories.length, source: t(from) })
         : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
         : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers }),
-        el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, more)),
+        el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more)),
       note,
       accessories.length ? [content, none] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") })));
   };
@@ -1985,6 +2160,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
     }
 
+    const catalogCount = el("span", { class: "pill", text: String(plugins.plugins.length) });
     const catalogSearch = el("input", { type: "search", class: "search", placeholder: t("Filter text"), "aria-label": t("Add a plugin") });
     const noMatches = el("p", { class: "card empty", hidden: true, text: t("Nothing in this range matches.") });
     const catalogEntries = [...catalog.children].map((card, index) => ({ card, plugin: plugins.plugins[index], used: plugins.blocks.some((block) => block.platform === plugins.plugins[index].platform) }));
@@ -2012,13 +2188,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         card.hidden = !`${plugin.name} ${plugin.platform}`.toLocaleLowerCase().includes(query);
         if (!card.hidden) visible++;
       });
+      catalogCount.textContent = String(visible);
       noMatches.hidden = visible > 0;
     });
     show(main,
       pageHead(t("Plugins"), t("The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.")),
       plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: t("No plugin provides {platforms}: those blocks are ignored.", { platforms: plugins.unknownPlatforms.join(", ") }) })) : null,
       plugins.blocks.length ? el("div", { class: "grid plugin-instances" }, plugins.blocks.map(blockCard)) : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("plugin")), el("p", { class: "muted", text: t("No plugin yet. Add one below.") })),
-      el("div", { class: "section-head" }, el("h2", { text: t("Add a plugin") }), el("span", { class: "muted", text: t("compiled into this homeswift") }), catalogSearch, sort),
+      el("div", { class: "section-head" }, el("h2", { text: t("Add a plugin") }), el("span", { class: "muted", text: t("compiled into this homeswift") }), catalogSearch, catalogCount, sort, HomeswiftCommon.clearFilters([[catalogSearch, ""]])),
       catalog, noMatches);
   };
 
@@ -2076,12 +2253,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       try { schema = JSON.parse(await api(`/api/plugins/${encodeURIComponent(platform)}/schema`, { raw: true })); } catch {}
     }
     if (platform === "HomeswiftUI" && schema) {
-      const advanced = (schema.layout || []).filter((item) => typeof item === "object");
+      const advanced = (schema.layout || []).filter((item) => typeof item === "object").map((item) => ({ ...item, icon: item.title === "Schedules" ? "history" : "system" }));
       schema.layout = [
-        { type: "fieldset", title: t("Connection"), items: ["port", "host", "allowedHosts"] },
-        { type: "fieldset", title: t("Sign-in"), items: ["auth", "sessionDays"] },
-        { type: "fieldset", title: "HTTPS", expandable: true, expanded: Boolean(current.https), items: ["https", { items: ["certificate", "privateKey"] }] },
-        { type: "fieldset", title: t("Updates"), expandable: true, expanded: false, items: ["checkForUpdates"] },
+        { type: "fieldset", title: t("Connection"), icon: "system", items: ["port", "host", "allowedHosts"] },
+        { type: "fieldset", title: t("Sign-in"), icon: "user", items: ["auth", "sessionDays"] },
+        { type: "fieldset", title: "HTTPS", icon: "lock", expandable: true, expanded: Boolean(current.https), items: ["https", { items: ["certificate", "privateKey"] }] },
+        { type: "fieldset", title: t("Updates"), icon: "download", expandable: true, expanded: false, items: ["checkForUpdates"] },
         ...advanced
       ];
     }
@@ -2100,7 +2277,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const jsonView = el("div", { class: mode === "json" ? "" : "hidden" }, el("p", { class: "muted", text: t("The block as config.json keeps it.") }), editor);
       const switchError = el("p", { class: "error" });
       const tabs = el("div", { class: "group view-switch", role: "tablist", "aria-label": t("Edit as") },
-        [["form", t("Form")], ["json", "JSON"]].map(([value, text]) => el("button", { type: "button", role: "tab", text, "data-mode": value, class: value === mode ? "on" : "", "aria-selected": String(value === mode), onclick: () => {
+        [["form", t("Form")], ["json", "JSON"]].map(([value, text]) => el("button", { type: "button", role: "tab", "data-mode": value, class: value === mode ? "on" : "", "aria-selected": String(value === mode), onclick: () => {
           if (value === mode) return;
           switchError.textContent = "";
           try {
@@ -2116,7 +2293,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           formView.classList.toggle("hidden", mode !== "form");
           jsonView.classList.toggle("hidden", mode !== "json");
           for (const tab of tabs.children) { tab.classList.toggle("on", tab.dataset.mode === mode); tab.setAttribute("aria-selected", String(tab.dataset.mode === mode)); }
-        } })));
+        } }, HomeswiftCommon.icon(value === "form" ? "sliders" : "code"), el("span", { text }))));
       body = el("div", { class: "card form-card" }, tabs, switchError, formView, jsonView);
       if (platform === "HomeswiftUI") body.classList.add("local-ui-settings");
       getValue = () => (mode === "form" ? form.getValue() : fromJSON());
@@ -2140,9 +2317,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     let saved = isNew ? null : snapshot();
     const dirty = () => snapshot() !== saved;
     const message = el("span", { class: "muted" });
-    const save = el("button", { class: "primary", text: isNew ? t("Add") : t("Save") });
+    const save = el("button", { class: "primary settings-action" }, HomeswiftCommon.icon("check"), el("span", { text: isNew ? t("Add") : t("Save") }));
     const force = el("button", { class: "hidden", text: isNew ? t("Add anyway") : t("Save anyway"), title: t("Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list") });
-    const revert = el("button", { text: isNew ? t("Cancel") : t("Revert") });
+    const revert = el("button", { class: "settings-action" }, HomeswiftCommon.icon("restore"), el("span", { text: isNew ? t("Cancel") : t("Revert") }));
     // The JSON on screen is checked as it is typed: a syntax error marks its line, and Save waits for it.
     const jsonShown = () => textarea.isConnected && !textarea.closest(".hidden");
     const update = () => {
@@ -2244,7 +2421,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const remove = !isNew && !block.system ? el("div", { class: "card danger-zone" },
       el("div", {}, el("strong", { text: t("Remove this plugin") }),
         el("p", { class: "muted", text: t("Takes the block out of config.json. Its accessories leave the Home app, with their rooms, scenes and automations.") })),
-      el("button", { class: "danger", text: t("Remove"), onclick: () => removeBlock(block, () => navigate("/plugins")) })) : null;
+      el("button", { actionIcon: "trash", class: "danger", text: t("Remove"), onclick: () => removeBlock(block, () => navigate("/plugins")) })) : null;
 
     leaveGuard = () => !dirty() || isNew || confirm(t("Leave without saving your changes?"));
     leaveGuard.quiet = () => isNew || !dirty();
@@ -2297,7 +2474,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       save = null;
     }
     const result = el("p", { class: "muted test-result", role: "status" });
-    const test = el("button", { text: t("Test connection"), onclick: async () => {
+    const test = el("button", { actionIcon: "send", text: t("Test connection"), onclick: async () => {
       test.disabled = true;
       result.className = "muted test-result";
       result.textContent = t("Asking the provider…");
@@ -2357,7 +2534,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const editor = el("details", { class: "more budget-editor" },
       el("summary", { text: t("Edit the budgets") }),
       el("div", { class: "fields" }, limits.map(([key, label]) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), inputs[key]))),
-      el("div", { class: "actions" }, budgetMessage, el("button", { class: "primary", text: t("Save the budgets"), onclick: () => {
+      el("div", { class: "actions" }, budgetMessage, el("button", { actionIcon: "check", class: "primary", text: t("Save the budgets"), onclick: () => {
         if (dirty() && !confirm(t("The form below has other unsaved changes: save them with the budgets?"))) return;
         const budget = {};
         for (const [key] of limits) if (inputs[key].value !== "" && Number(inputs[key].value) > 0) budget[key] = Number(inputs[key].value);
@@ -2424,7 +2601,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const card = el("details", { class: "card describe-setup hidden" });
     api("/api/assistant").then((state) => { if (state && state.enabled) card.classList.remove("hidden"); }).catch(() => {});
     const request = el("textarea", { class: "short", rows: 3, placeholder: t("What should {plugin} do? For example: \"add my second light at 192.168.1.40, and poll every 5 seconds\".", { plugin: pluginName }), "aria-label": t("Your setup, in your words") });
-    const ask = el("button", { class: "primary", text: t("Suggest") });
+    const ask = el("button", { actionIcon: "sparkle", class: "primary", text: t("Suggest") });
     const result = el("div", { class: "describe-result" });
     ask.addEventListener("click", async () => {
       if (!request.value.trim()) { request.focus(); return; }
@@ -2442,8 +2619,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           changed ? el("pre", { class: "diff" }, lines.map((line) => el("span", { class: `diff-${line.kind}`, text: `${line.kind === "add" ? "+ " : line.kind === "remove" ? "- " : "  "}${line.text}\n` })))
             : el("p", { class: "muted", text: t("No change to the block.") }),
           changed ? el("div", { class: "actions" },
-            el("button", { class: "primary", text: t("Use it"), onclick: () => { use(after); result.replaceChildren(el("p", { class: "ok", text: t("In the form: review it, then Save.") })); } }),
-            el("button", { text: t("Discard"), onclick: () => result.replaceChildren() })) : null,
+            el("button", { actionIcon: "check", class: "primary", text: t("Use it"), onclick: () => { use(after); result.replaceChildren(el("p", { class: "ok", text: t("In the form: review it, then Save.") })); } }),
+            el("button", { actionIcon: "close", text: t("Discard"), onclick: () => result.replaceChildren() })) : null,
           el("p", { class: "muted", text: t("Written by {model}. Passwords and tokens never reach it; check addresses and names before saving.", { model: reply.model }) })].filter(Boolean));
       } catch (e) {
         result.replaceChildren(el("p", { class: "error", text: e.message }));
@@ -2727,7 +2904,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
               detail.textContent = [value.ip || value.host, value.mac].filter(Boolean).join(" · ");
             };
             const row = el("details", { class: "entry", open: itemValue === undefined },
-              el("summary", {}, name, detail, el("button", { class: "link danger", text: t("Remove"), onclick: (event) => {
+              el("summary", {}, name, detail, el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: (event) => {
                 event.preventDefault();
                 row.remove();
                 rows.splice(rows.indexOf(entry), 1);
@@ -2742,7 +2919,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             return;
           }
           const row = el("div", { class: "item" });
-          const remove = el("button", { class: "link danger", text: t("Remove"), onclick: () => { row.remove(); rows.splice(rows.indexOf(entry), 1); } });
+          const remove = el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: () => { row.remove(); rows.splice(rows.indexOf(entry), 1); } });
           {
             const f = field("", items, itemValue, false);
             row.append(el("div", { class: "item-head" }, f.element, remove));
@@ -2753,7 +2930,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         };
         for (const item of Array.isArray(current) ? current : []) addRow(item);
         const element = el("fieldset", {}, el("legend", { text: title }), help, list,
-          el("button", { text: t("Add {item}", { item: title.replace(/s$/, "").toLowerCase() }), onclick: () => addRow(undefined) }));
+          el("button", { actionIcon: "plus", text: t("Add {item}", { item: title.replace(/s$/, "").toLowerCase() }), onclick: () => addRow(undefined) }));
         return { element, get: () => { const v = rows.map((r) => r.get()).filter((x) => x !== undefined); return v.length ? v : undefined; } };
       }
       const input = el("input", { type: property["x-schema-form"] && property["x-schema-form"].type === "password" ? "password" : "text", value: current ?? "", placeholder: property.placeholder ?? property.default ?? "", required });
@@ -2807,7 +2984,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const inner = item.items.map(layoutItem).flat().filter(Boolean);
         if (!inner.length) return null;
         const node = item.type === "fieldset" || item.title
-          ? el("details", { class: "group-box", "data-section": slug(item.title || ""), open: !item.expandable || item.expanded !== false }, el("summary", { text: item.title || t("More") }), el("div", { class: "fields" }, ...inner))
+          ? el("details", { class: "group-box", "data-section": slug(item.title || ""), open: !item.expandable || item.expanded !== false }, el("summary", {}, item.icon ? HomeswiftCommon.icon(item.icon) : null, el("span", { text: item.title || t("More") })), el("div", { class: "fields" }, ...inner))
           : el("div", { class: "fields" }, ...inner);
         watch(node, item.condition);
         return node;
@@ -2932,7 +3109,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const again = el("input", { type: "password", autocomplete: "new-password", required: true, minLength: passwordPolicy.minimumLength });
     const gauge = strengthGauge(next, () => state.username || "");
     const message = el("p", { class: "status-line muted", role: "status" });
-    const submit = el("button", { class: "primary", type: "submit", text: t("Change password") });
+    const submit = el("button", { actionIcon: "key", class: "primary", type: "submit", text: t("Change password") });
     const fail = (text) => { message.className = "status-line error"; message.textContent = text; };
     const days = state.sessionDays ?? 7;
     const form = el("form", { class: "card account-form", onsubmit: async (event) => {
@@ -2968,7 +3145,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("h2", { text: state.username }),
         el("p", { class: "muted", text: tn("Signed in on this browser. Logins last {n} day without activity; changing the password, or turning two-factor authentication on or off, signs the others out.",
           "Signed in on this browser. Logins last {n} days without activity; changing the password, or turning two-factor authentication on or off, signs the others out.", days) })),
-      el("button", { text: t("Sign out"), onclick: signOut }));
+      el("button", { actionIcon: "logout", text: t("Sign out"), onclick: signOut }));
     show(main, pageHead(t("Account"), state.admin ? t("Your sign-in to this bridge's web UI, as an administrator.") : t("Your sign-in to this bridge's web UI.")),
       el("div", { class: "account" }, profile, form, twoFactorCard(state), connectedAppsCard(apps),
         state.admin ? el("div", { class: "card" }, el("h2", { text: t("Users and API tokens") }),
@@ -3012,7 +3189,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const reload = () => route();
     if (state.twoFactor) {
       const password = el("input", { type: "password", autocomplete: "current-password", required: true });
-      const submit = el("button", { type: "submit", text: t("Turn off [setting]") });
+      const submit = el("button", { actionIcon: "power", type: "submit", text: t("Turn off [setting]") });
       card.append(el("h2", {}, t("Two-factor authentication"), " ", el("span", { class: "pill status on", text: t("On [setting]") })),
         el("p", { class: "muted", text: t("Signing in asks for the code your authenticator app shows, after the password.") }),
         el("form", { onsubmit: async (event) => {
@@ -3023,7 +3200,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         } }, field(t("Password, to turn it off"), password), el("div", { class: "actions" }, submit)), message);
       return card;
     }
-    const start = el("button", { class: "primary", text: t("Set up") });
+    const start = el("button", { actionIcon: "plus", class: "primary", text: t("Set up") });
     card.append(el("h2", {}, t("Two-factor authentication"), " ", el("span", { class: "pill status standby", text: t("Off [setting]") })),
       el("p", { class: "muted", text: t("Ask for a code from an authenticator app (Passwords on iPhone and Mac, Google Authenticator, 1Password…) after the password, so a password alone no longer signs in.") }),
       el("div", { class: "actions" }, start), message);
@@ -3033,7 +3210,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       try { setup = await api("/api/account/otp/setup", { method: "POST", body: {} }); }
       catch (e) { say(e.message); start.disabled = false; return; }
       const code = el("input", { inputMode: "numeric", autocomplete: "one-time-code", required: true, maxLength: 9, placeholder: "123 456", spellcheck: false });
-      const confirmButton = el("button", { class: "primary", type: "submit", text: t("Turn on") });
+      const confirmButton = el("button", { actionIcon: "power", class: "primary", type: "submit", text: t("Turn on") });
       const secret = el("code", { class: "mono secret", text: setup.secret.replace(/(.{4})/g, "$1 ").trim() });
       start.closest(".actions").replaceWith(
         el("div", { class: "setup" },
@@ -3108,7 +3285,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// A Copy button for `text` that says it worked ("Copied", for two seconds), or, when the browser refuses,
   /// selects `field` so it can be copied by hand.
   function copyButton(text, field) {
-    const button = el("button", { type: "button", class: "link", text: t("Copy") });
+    const button = el("button", { actionIcon: "copy", type: "button", class: "link", text: t("Copy") });
     let timer = null;
     button.addEventListener("click", async () => {
       clearTimeout(timer);
@@ -3191,7 +3368,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("label", { class: "field" }, el("span", { class: "field-title", text: user ? t("New password") : t("Password") }), password,
           user ? el("span", { class: "help", text: t("Leave empty to keep theirs. A new one signs them out everywhere.") }) : null, gaugeBox),
         roleLabel, roleNote,
-        message, el("div", { class: "actions" }, el("button", { type: "button", text: t("Cancel"), onclick: () => done() }), submit));
+        message, el("div", { class: "actions" }, el("button", { actionIcon: "close", type: "button", text: t("Cancel"), onclick: () => done() }), submit));
       return form;
     }
 
@@ -3247,7 +3424,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     describeScope();
     const expiry = el("select", {}, ...[["", t("Never")], ["30", t("In 30 days")], ["90", t("In 90 days")], ["365", t("In a year")]].map(([value, text]) => el("option", { value, text })));
     const message = el("p", { class: "status-line muted", role: "status" });
-    const submit = el("button", { class: "primary", type: "submit", text: t("Create token") });
+    const submit = el("button", { actionIcon: "plus", class: "primary", type: "submit", text: t("Create token") });
     const grid = el("div", { class: "grid" });
     let close = () => {};
     let made = null;   // the token made in the panel: the list is drawn again with it once the panel closes
@@ -3262,7 +3439,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("h2", { id: "token-form-title", text: t("Token “{name}”", { name: token.name }) }),
           el("p", { class: "help" }, withNodes(t("Copy it now: it is shown once. Send it as {header}."), { header: el("code", { text: "Authorization: Bearer <token>" }) })),
           el("p", {}, secret, " ", copyButton(token.token, secret)),
-          el("div", { class: "actions" }, el("button", { type: "button", class: "primary", text: t("Done"), onclick: () => close() }))));
+          el("div", { class: "actions" }, el("button", { actionIcon: "check", type: "button", class: "primary", text: t("Done"), onclick: () => close() }))));
       } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
       submit.disabled = false;
     } },
@@ -3271,7 +3448,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("label", { class: "field" }, el("span", { class: "field-title", text: t("Name") }), name, el("span", { class: "help", text: t("What uses it, to know it again.") })),
         el("label", { class: "field" }, el("span", { class: "field-title", text: t("Scope") }), scope, scopeHelp),
         el("label", { class: "field" }, el("span", { class: "field-title", text: t("Expires") }), expiry)),
-      message, el("div", { class: "actions" }, el("button", { type: "button", text: t("Cancel"), onclick: () => close() }), submit));
+      message, el("div", { class: "actions" }, el("button", { actionIcon: "close", type: "button", text: t("Cancel"), onclick: () => close() }), submit));
     const openTokenForm = (event) => {
       const opener = event?.currentTarget;
       form.reset();
@@ -3366,7 +3543,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
                 el("span", { class: "wallpaper-swatch", "data-swatch": value }), el("span", { text })))),
           el("div", { class: "actions" },
             el("button", { text: own ? t("Choose another image…") : t("Use an image of your own…"), onclick: () => picker.click() }),
-            own ? el("button", { class: "link danger", text: t("Remove your image"), onclick: async () => {
+            own ? el("button", { actionIcon: "trash", class: "link danger", text: t("Remove your image"), onclick: async () => {
               try { preferences = HomeswiftCommon.applyPreferences(await api("/api/preferences/wallpaper", { method: "DELETE" })); draw(); } catch (e) { alert(e.message); }
             } }) : null),
           picker),
@@ -3412,10 +3589,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const textarea = el("textarea", { value: saved, spellcheck: false, "aria-label": "config.json" });
     const check = el("span", { class: "muted" });
     const message = el("p", { class: "status-line muted" });
-    const save = el("button", { class: "primary", text: t("Save"), disabled: true });
-    const force = el("button", { class: "hidden", text: t("Save anyway"), title: t("Save what the plugins' schemas refuse: for a value a plugin accepts that its schema does not list") });
-    const revert = el("button", { text: t("Revert"), disabled: true });
-    const format = el("button", { class: "link", text: t("Format") });
+    const save = el("button", { class: "primary settings-action", disabled: true }, HomeswiftCommon.icon("check"), el("span", { text: t("Save") }));
+    const force = el("button", { actionIcon: "check", class: "hidden", text: t("Save anyway"), title: t("Save what the plugins' schemas refuse: for a value a plugin accepts that its schema does not list") });
+    const revert = el("button", { class: "settings-action", disabled: true }, HomeswiftCommon.icon("restore"), el("span", { text: t("Revert") }));
+    const format = el("button", { class: "link settings-action" }, HomeswiftCommon.icon("code"), el("span", { text: t("Format") }));
     // Validity and the unsaved state follow every keystroke, so Save is only offered when it can work; a syntax
     // error marks its line.
     const update = () => {
@@ -3501,7 +3678,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const toInput = el("input", { type: "datetime-local", "aria-label": t("To"), value: params.get("to") ?? localInput(new Date()) });
     const customRow = el("div", { class: `log-range ${since === "custom" ? "" : "hidden"}` },
       el("label", {}, t("From"), fromInput), el("label", {}, t("To"), toInput),
-      el("button", { text: t("Show"), onclick: () => changed() }));
+      el("button", { actionIcon: "eye", text: t("Show"), onclick: () => changed() }));
     picker.addEventListener("change", () => {
       customRow.classList.toggle("hidden", picker.value !== "custom");
       picker.classList.toggle("chosen", picker.value !== fallback);
@@ -3618,7 +3795,19 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         render();
         keepAddress();
       } })));
+    const updateLevelCounts = () => {
+      const needle = filter.value.toLowerCase();
+      for (const [index, button] of [...levels.children].entries()) {
+        const [level, label] = levelChoices[index];
+        const count = logState.lines.filter((line) => visible(line, needle, level)).length;
+        button.textContent = `${label} (${count})`;
+        button.disabled = count === 0 && level !== "trace" && level !== logState.level;
+        button.title = button.disabled ? t("No log lines match the current search.") : "";
+      }
+    };
+    logState.updateCounts = updateLevelCounts;
     const render = () => {
+      updateLevelCounts();
       const shown = shownLines();
       output.replaceChildren(...(shown.length ? shown.map(lineNode) : [el("p", { class: "muted empty-log", text: t("No line matches.") })]));
       count.textContent = logState.capped ? tn("{shown} of {n} line (the latest of the range)", "{shown} of {n} lines (the latest of the range)", logState.lines.length, { shown: shown.length })
@@ -3698,7 +3887,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const level = line.level === "info" || line.level === "notice" ? "" : ` [${line.level.toUpperCase()}]`;
       return `${line.time} [${line.label}]${level} ${line.text}`;
     };
-    const copy = el("button", { text: t("Copy"), title: t("Copy the lines shown"), onclick: async () => {
+    const copy = el("button", { actionIcon: "copy", text: t("Copy"), title: t("Copy the lines shown"), onclick: async () => {
       const shown = shownLines();
       const text = shown.map(asText).join("\n");
       try {
@@ -3737,7 +3926,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       pageHead(t("Logs"), t("This homeswift's log, live, and up to a week back.")),
       el("div", { class: "card log-card" },
         el("div", { class: "log-filter-panel" },
-          el("div", { class: "log-level-row" }, levels, filter),
+          el("div", { class: "log-level-row" }, levels, filter, HomeswiftCommon.clearFilters([[filter, ""], [range.picker, "latest"], [sources.picker, ""]], {
+            active: () => logState.level !== "info", events: [[levels, "click"]],
+            reset: () => {
+              clearTimeout(typing);
+              logState.level = "info";
+              for (const [index, button] of [...levels.children].entries()) {
+                const selected = levelChoices[index][0] === "info";
+                button.classList.toggle("on", selected); button.setAttribute("aria-pressed", String(selected));
+              }
+            },
+          })),
           el("div", { class: "log-scope-row" },
             el("label", {}, el("span", { text: t("Time range") }), range.picker),
             el("label", {}, el("span", { text: t("What the lines are about") }), sources.picker)),
@@ -3764,7 +3963,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const own = controller = new AbortController();
       let closed = false;
       const live = el("div", { class: "ai-live" }, el("p", { class: "ai-thinking", text: tn("Reading {n} line…", "Reading {n} lines…", picked.length) }));
-      const stop = el("button", { class: "link", text: t("Stop"), onclick: () => own.abort() });
+      const stop = el("button", { actionIcon: "pause", class: "link", text: t("Stop"), onclick: () => own.abort() });
       const close = el("button", { class: "ai-close", title: t("Close"), "aria-label": t("Close the diagnosis"), text: "×", onclick: () => { closed = true; own.abort(); card.classList.add("hidden"); } });
       const head = el("div", { class: "ai-head" }, sparkle(), el("span", { class: "ai-label", text: t("Log Doctor") }), el("span", { class: "spacer" }), close);
       card.className = "ai-card log-doctor thinking";
@@ -3790,8 +3989,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   /// Whether a prepared line passes the level, the text (`needle`, in lower case) and the accessory.
-  function visible(line, needle = logState.filter.value.toLowerCase()) {
-    return levelShown(line.level, logState.level) && (!needle || line.haystack.includes(needle))
+  function visible(line, needle = logState.filter.value.toLowerCase(), level = logState.level) {
+    return levelShown(line.level, level) && (!needle || line.haystack.includes(needle))
       && (!logState.accessory || logState.accessory.some((term) => line.haystack.includes(term)))
       && (!logState.bridge || logState.bridge(line));
   }
@@ -3830,6 +4029,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if ($(".log-loading", logState.output)) return;
     logState.lines.push(prepared(line));
     if (logState.lines.length > logState.cap) logState.lines.splice(0, logState.lines.length - logState.cap);
+    logState.updateCounts?.();
     if (!visible(line)) return;
     const output = logState.output;
     // Follow only when the reader is at the bottom: scrolling up to read stops it without a click.
@@ -3900,7 +4100,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       <p class="error" id="consent-error" role="alert"></p>
       <div class="actions">
         <button type="button" id="deny" data-i18n>Deny</button>
-        <button type="submit" class="primary" id="allow" data-i18n>Allow</button>
+        <button type="submit" class="primary" id="allow" data-i18n data-action-icon="check">Allow</button>
       </div>
       <button type="button" class="link switch-user" id="switch-user" data-i18n>Not you? Sign in as someone else</button>
     </form>
@@ -4957,7 +5157,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     });
     list.replaceChildren(el("h2", { text: t("Earlier chats") }),
       rows.length ? el("div", { class: "chat-history-list" }, rows) : el("p", { class: "muted", text: t("No chat yet. Each one you start is kept here, the last ten.") }),
-      el("button", { type: "button", class: "link", text: t("Back to the chat"), onclick: closeHistory }));
+      el("button", { actionIcon: "restore", type: "button", class: "link", text: t("Back to the chat"), onclick: closeHistory }));
   }
 
   async function openChat(chat) {
@@ -5065,8 +5265,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       changes,
       details,
       pending ? el("div", { class: "chat-confirm-actions" },
-        el("button", { type: "button", text: t("Don't allow"), onclick: answer(false) }),
-        el("button", { type: "button", class: "primary", text: t("Allow"), onclick: answer(true) })) : null);
+        el("button", { actionIcon: "close", type: "button", text: t("Don't allow"), onclick: answer(false) }),
+        el("button", { actionIcon: "check", type: "button", class: "primary", text: t("Allow"), onclick: answer(true) })) : null);
   }
 
   /// What a config dry run would change, a line per setting with its new value; null for other previews.
@@ -5314,6 +5514,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const el = (tag, attrs = {}, ...children) => {
     const node = document.createElement(tag);
     for (const [key, value] of Object.entries(attrs)) {
+      if (key === "actionIcon") continue;
       if (key === "class") node.className = value;
       else if (key === "text") node.textContent = value;
       else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
@@ -5322,6 +5523,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       else if (key.startsWith("data-") || key.startsWith("aria-")) node.setAttribute(key, value);
       else node[key] = value;
     }
+    // A CSS mask keeps the decorative icon when async actions replace their text.
+    if (attrs.actionIcon) decorateAction(node, attrs.actionIcon);
     for (const child of children.flat()) if (child != null) node.append(child.nodeType ? child : document.createTextNode(String(child)));
     // A search field as iOS's: no capitals or corrections, a Search key, and on a touch screen that key puts the
     // keyboard away (the results are already there).
@@ -5339,12 +5542,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const icons = {
     wingman: '<g transform="translate(0 4.32) scale(.048)"><g fill="currentColor" stroke="none"><path d="M8 12C65 48 155 88 180 110C198 121 204 136 195 148L165 177C180 144 170 131 149 121C47 95 6 88 8 12Z M36 112L150 152L132 177C64 163 42 161 36 112Z M58 177L121 193L109 221C77 220 63 203 58 177Z"/><g transform="translate(500 0) scale(-1 1)"><path d="M8 12C65 48 155 88 180 110C198 121 204 136 195 148L165 177C180 144 170 131 149 121C47 95 6 88 8 12Z M36 112L150 152L132 177C64 163 42 161 36 112Z M58 177L121 193L109 221C77 220 63 203 58 177Z"/></g></g><path d="M136 220L250 104L364 220M153 205V305H347V205" fill="none" stroke="currentColor" stroke-width="29" stroke-linecap="round" stroke-linejoin="round"/></g>',
     power: '<path d="M12 3v9M6.3 5.8a8 8 0 1 0 11.4 0"/>',
+    ungroup: '<rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><path d="M3 9V3h6M3 3l5 5M15 21h6v-6M21 21l-5-5"/>',
     group: '<rect x="3" y="8" width="13" height="13" rx="3"/><path d="M8 8V6a3 3 0 0 1 3-3h7a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3h-2M7 14.5h5M9.5 12v5"/>',
     bridge: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/>',
     child: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/>',
     accessory: '<rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/>',
     system: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
+    wall: '<rect x="3" y="3" width="11" height="10" rx="1.5"/><rect x="17" y="3" width="4" height="6" rx="1.2"/><rect x="17" y="12" width="4" height="9" rx="1.2"/><rect x="3" y="16" width="5" height="5" rx="1.2"/><rect x="11" y="16" width="3" height="5" rx="1"/>',
     grid: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/>',
+    blind: '<path d="M4 4h16M5 4v13h14V4M5 8h14M5 12h14M5 16h14M21 4v15"/><circle cx="21" cy="20" r="1"/>',
     bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/>',
     switch: '<rect x="6" y="3" width="12" height="18" rx="3"/><circle cx="12" cy="9" r="2"/>',
     outlet: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M10 9v2M14 9v2M10 15h4"/>',
@@ -5368,8 +5574,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     inputs: '<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/>',
     update: '<path d="M12 3.5v11"/><path d="m7.5 10 4.5 4.5 4.5-4.5"/><path d="M5 20.5h14"/>',
     camera: '<rect x="2.5" y="6" width="13.5" height="12" rx="2.5"/><path d="m16 10.5 5.5-3.5v10L16 13.5"/>',
-    identify: '<circle cx="12" cy="12" r="2.5"/><path d="M7.5 7.5a6.4 6.4 0 0 0 0 9M16.5 7.5a6.4 6.4 0 0 1 0 9"/>',
-    room: '<path d="M4 21V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v16M2 21h20M15 12h.01"/>',
+    identify: '<path d="M9 17v-1.5a5 5 0 1 1 6 0V17zM9 20h6M11 23h2M12 1v2M3.5 4.5 5 6M1 11h2M20.5 4.5 19 6M21 11h2"/>',
+    room: '<path d="M5 21V4a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v17M5 4l8 3v11l-8 3M3 21h18"/><path d="M10 12.5v1"/>',
     star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>',
     eye: '<path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7z"/><circle cx="12" cy="12" r="2.5"/>',
     bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/>',
@@ -5380,6 +5586,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     archive: '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/>',
     key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l2 2M15 8l2 2"/>',
     shield: '<path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/><path d="m9 12 2 2 4-4"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    close: '<path d="m6 6 12 12M18 6 6 18"/>',
+    search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
+    copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"/>',
+    send: '<path d="m3 3 18 9-18 9 4-9zM7 12h14"/>',
+    location: '<path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 0 1 14 0z"/><circle cx="12" cy="10" r="2"/>',
+    check: '<path d="m5 12 4.5 4.5L19 7"/>',
+    warning: '<path d="m12 3 10 18H2zM12 9v5M12 17h.01"/>',
     download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
     restore: '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/>',
     history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6M3.5 4.5V9H8"/><path d="M12 7.5V12l3 2"/>',
@@ -5390,6 +5604,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   };
 
   /// An icon as an SVG element.
+  function decorateAction(node, name) {
+    node.classList.add("action-with-icon");
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icons[name] ?? icons.generic}</svg>`;
+    node.style.setProperty("--action-icon", `url("data:image/svg+xml,${encodeURIComponent(svg)}")`);
+  }
+
   function icon(name) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 24 24");
@@ -5573,6 +5793,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (openMenu?.trigger === trigger) { openMenu.close(); return; }
     openMenu?.close(true);
     let pending = false, cancelDrag = null;
+    const refreshDisabled = [];
     const nodes = items.filter(Boolean).map((item) => {
       if (item.separator) return el("hr", { class: "menu-separator", role: "separator" });
       if (item.choices) {
@@ -5592,9 +5813,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const role = choice ? (item.checkbox ? "menuitemcheckbox" : "menuitemradio") : "menuitem";
       const tick = item.toggle ? el("span", { class: "menu-toggle", "aria-hidden": "true" }, el("span"))
         : choice ? el("span", { class: "menu-check", "aria-hidden": "true", text: item.checked ? "✓" : "" }) : null;
+      const count = item.count === undefined ? null : el("span", { class: "menu-item-count", text: String(item.count) });
       const node = item.href
-        ? el("a", { role, href: item.href, class: item.danger ? "danger" : "", tabIndex: -1 }, glyph, el("span", { text: item.label }), tick)
-        : el("button", { type: "button", role, class: item.danger ? "danger" : "", tabIndex: -1, "aria-checked": choice ? String(item.checked) : null }, glyph, el("span", { text: item.label }), tick);
+        ? el("a", { role, href: item.href, class: item.danger ? "danger" : "", tabIndex: -1 }, glyph, el("span", { class: "menu-item-label", text: item.label }), count, tick)
+        : el("button", { type: "button", role, class: item.danger ? "danger" : "", tabIndex: -1, "aria-checked": choice ? String(item.checked) : null }, glyph, el("span", { class: "menu-item-label", text: item.label }), count, tick);
+      if (item.clearFilters) node.classList.add("clear-filters-menu");
+      const isDisabled = () => (typeof item.disabled === "function" ? item.disabled() : Boolean(item.disabled)) || (item.count === 0 && item.checked === false);
+      const updateDisabled = () => {
+        if (isDisabled()) node.setAttribute("aria-disabled", "true"); else node.removeAttribute("aria-disabled");
+        if (node.tagName === "BUTTON") node.disabled = isDisabled();
+        node.title = isDisabled() && item.count === 0 ? (item.disabledReason || t("No accessories match the current search.")) : "";
+      };
+      updateDisabled();
+      refreshDisabled.push(updateDisabled);
+      if (["ok", "warn", "error"].includes(item.tone)) node.dataset.tone = item.tone;
       if (onReorder && item.key) {
         node.dataset.menuKey = item.key;
         const handle = el("span", { class: "menu-drag-handle", title: t("Drag to reorder"), "aria-hidden": "true", text: "⠿" });
@@ -5630,6 +5862,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             pending = true;
             try {
               const saved = await onReorder(rows().map((row) => row.dataset.menuKey));
+              refreshDisabled.forEach((update) => update());
               if (saved) restore(saved.map((id) => before.find((row) => row.dataset.menuKey === id)).filter(Boolean));
             } catch { restore(before); }
             finally { pending = false; }
@@ -5643,6 +5876,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         node.prepend(handle);
       }
       node.addEventListener("click", async (event) => {
+        if (isDisabled()) { event.preventDefault(); return; }
         if (pending || event.target.closest(".menu-drag-handle")) return;
         if (!item.keepOpen) { close(); item.onSelect?.(); return; }
         pending = true;
@@ -5654,7 +5888,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       });
       return node;
     });
-    const entries = () => [...list.querySelectorAll('[role^="menuitem"]')];
+    const entries = () => [...list.querySelectorAll('[role^="menuitem"]:not([aria-disabled="true"])')];
     // On a phone a card's menu is an action sheet over a dimmed page, at the bottom within the thumb's reach, as
     // iOS's; the header's (the account) still drops down from its button.
     const sheet = matchMedia("(max-width: 640px)").matches && !trigger.closest("header");
@@ -6210,14 +6444,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
   document.addEventListener("pointerdown", (event) => {
     const select = event.target.closest("select");
-    if (!select || select.disabled || select.multiple || select.size > 1 || event.button !== 0) return;
+    if (!select || select.disabled || select.multiple || select.size > 1 || event.button !== 0 || select.closest("dialog[open]")) return;
     event.preventDefault();
     select.focus();
     openSelectMenu(select);
   });
   document.addEventListener("keydown", (event) => {
     const select = event.target.closest("select");
-    if (!select || select.disabled || select.multiple || select.size > 1) return;
+    if (!select || select.disabled || select.multiple || select.size > 1 || select.closest("dialog[open]")) return;
     if ([" ", "Enter", "ArrowDown", "ArrowUp"].includes(event.key)) {
       event.preventDefault(); openSelectMenu(select, true);
     }
@@ -6244,8 +6478,71 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   new MutationObserver(updateSaveBarPosition).observe(document.body, { childList: true, subtree: true });
   updateSaveBarPosition();
 
+  const decorateStaticActions = () => document.querySelectorAll("[data-action-icon]").forEach((node) => decorateAction(node, node.dataset.actionIcon));
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", decorateStaticActions);
+  else decorateStaticActions();
+
+  // Controls declare their neutral value; reset all before notifying their listeners.
+  function clearFilters(controls, { active = () => false, reset = () => {}, events = [] } = {}) {
+    const value = (control) => control.type === "checkbox" ? control.checked : control.value;
+    const button = el("button", { type: "button", class: "clear-filters", actionIcon: "restore", text: t("Clear filters"), onclick: () => {
+      for (const [control, initial] of controls) {
+        if (control.type === "checkbox") control.checked = initial; else control.value = initial;
+      }
+      reset();
+      for (const [control] of controls) control.dispatchEvent(new Event(control.type === "search" ? "input" : "change"));
+      update();
+    } });
+    const update = () => { button.disabled = !active() && controls.every(([control, initial]) => value(control) === initial); };
+    for (const [control] of controls) for (const event of ["input", "change"]) control.addEventListener(event, update);
+    for (const [control, event] of events) control.addEventListener(event, update);
+    update();
+    return button;
+  }
+
+  // Native disabled buttons suppress click events. Pointer events still let a tap
+  // explain the disabled state without enabling the control or running its action.
+  let filterTip = null, filterTipTimer = null, filterTap = null;
+  function hideFilterTip() {
+    clearTimeout(filterTipTimer);
+    filterTip?.remove(); filterTip = null;
+  }
+  function disabledFilterAt(x, y) {
+    const target = document.elementFromPoint(x, y);
+    const control = target?.closest('[aria-disabled="true"][title], button:disabled[title], label.toggle[title]');
+    if (!control?.title || (control.matches('label') && !control.querySelector('input:disabled'))) return null;
+    return control;
+  }
+  document.addEventListener("pointerdown", (event) => {
+    hideFilterTip();
+    const control = disabledFilterAt(event.clientX, event.clientY);
+    filterTap = control ? { control, x: event.clientX, y: event.clientY, id: event.pointerId } : null;
+  }, true);
+  document.addEventListener("pointerup", (event) => {
+    const tap = filterTap; filterTap = null;
+    if (!tap || tap.id !== event.pointerId || Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > 8
+      || disabledFilterAt(event.clientX, event.clientY) !== tap.control) return;
+    event.preventDefault();
+    event.stopPropagation();
+    filterTip = el("div", { class: "disabled-filter-tip", role: "status", popover: "manual", text: tap.control.title });
+    (tap.control.closest("dialog[open]") || document.body).append(filterTip);
+    filterTip.showPopover();
+    const rect = tap.control.getBoundingClientRect();
+    const bounds = filterTip.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const left = viewport?.offsetLeft || 0, top = viewport?.offsetTop || 0;
+    const width = viewport?.width || innerWidth, height = viewport?.height || innerHeight;
+    filterTip.style.left = `${Math.max(left + 12, Math.min(rect.left, left + width - bounds.width - 12))}px`;
+    filterTip.style.top = `${Math.max(top + 12, Math.min(rect.bottom + 8, top + height - bounds.height - 12))}px`;
+    filterTipTimer = setTimeout(hideFilterTip, 4500);
+  }, true);
+  document.addEventListener("pointercancel", () => { filterTap = null; }, true);
+  document.addEventListener("scroll", () => { filterTap = null; hideFilterTip(); }, true);
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape") hideFilterTip(); });
+  window.addEventListener("resize", hideFilterTip);
+
   window.HomeswiftCommon = {
-    $, el, icon, tile, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
+    $, el, icon, tile, clearFilters, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
 })();
@@ -6259,7 +6556,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const allowed = new Set(['Lightbulb', 'Switch', 'Outlet', 'Fan', 'Fanv2', 'WindowCovering']);
   const deviceTypes = [
     ['Lightbulb', 'bulb', t('Lights')], ['Switch', 'switch', t('Switches')],
-    ['Outlet', 'outlet', t('Outlets')], ['Fan', 'fan', t('Fans')], ['WindowCovering', 'accessory', t('Blinds')]
+    ['Outlet', 'outlet', t('Outlets')], ['Fan', 'fan', t('Fans')], ['WindowCovering', 'blind', t('Blinds')]
   ];
   const deviceType = (a) => deviceTypes.find(([type]) => a.services.some((s) => s.type === type || (type === 'Fan' && s.type === 'Fanv2'))) || ['', 'accessory', t('Accessories')];
   const types = ['On', 'Active', 'Brightness', 'Color Temperature', 'Hue', 'Saturation', 'Rotation Speed', 'Target Position'];
@@ -6276,7 +6573,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   };
   const shared = (members) => types.filter((type) => members.length && members.every((a) => controls(a).has(type)));
   const compatible = (members) => shared(members).some((type) => ['On', 'Active', 'Target Position'].includes(type));
-  function mount({ all, layout, persist, refresh }) {
+  // Follow the first visible member in saved member order, not the first wall on the page.
+  // This also gives mixed-room/plugin groups a stable home without moving any accessories.
+  function sectionIndex(group, sections) {
+    for (const id of group.members) {
+      const index = sections.findIndex(([, accessories]) => accessories.some((a) => a.id === id));
+      if (index !== -1) return index;
+    }
+    return -1;
+  }
+  function mount({ all, layout, persist, refresh, moveToRoom, rooms = [], setGroupRoom }) {
     layout.groups ||= [];
     const byID = new Map(all.map((a) => [a.id, a]));
     const members = (id) => layout.groups.find((g) => g.id === id)?.members || [id];
@@ -6284,16 +6590,24 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     async function edit(ids = [], existing = null) {
       const selected = new Set(existing?.members || ids);
       const name = el('input', { value: existing?.name || t('Accessory group'), maxLength: 64, required: true });
+      const initialRooms = [...selected].map((id) => byID.get(id)?.room || '');
+      const initialRoom = initialRooms.length && initialRooms.every((room) => room === initialRooms[0]) ? initialRooms[0] : '__keep__';
+      const roomSelect = el('select', {},
+        el('option', { value: '__keep__', text: t('Keep current rooms') }),
+        el('option', { value: '', text: t('No room') }),
+        [...new Set([...rooms, ...all.map((a) => a.room).filter(Boolean)])].map((room) => el('option', { value: room, text: room })));
+      roomSelect.value = initialRoom;
       const message = el('p', { role: 'status', class: 'error' });
       const occupied = new Set(layout.groups.filter((g) => g !== existing && !ids.includes(g.id)).flatMap((g) => g.members));
       const choices = all.filter((a) => selected.has(a.id) || (!occupied.has(a.id) && controls(a).size));
+      const roomLabels = new Map([...roomSelect.options].map((option) => [option.value, option.textContent]));
       const list = el('div', { class: 'group-member-list', 'aria-label': t('Available') });
       const selectedList = el('div', { class: 'group-member-list', 'aria-label': t('Selected') });
       const selectedCount = el('span', { class: 'pill status on' });
       const selectedEmpty = el('p', { class: 'muted', text: t('Choose at least two accessories with shared controls.') });
       const rows = choices.map((a) => {
         const button = el('button', { type: 'button', class: 'group-transfer' });
-        const row = el('div', { class: 'group-member-row', 'data-search': (a.displayName || a.name).toLowerCase(), 'data-type': deviceType(a)[0] },
+        const row = el('div', { class: 'group-member-row', 'data-search': (a.displayName || a.name).toLowerCase(), 'data-type': deviceType(a)[0], 'data-room': a.room || '' },
           el('span', { class: 'group-device-icon', title: deviceType(a)[2], 'aria-hidden': 'true' }, HomeswiftCommon.icon(deviceType(a)[1])),
           el('span', { class: 'group-member-name', text: a.displayName || a.name }), button);
         const update = () => {
@@ -6315,24 +6629,53 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const dialog = el('dialog', { class: 'admin-dialog accessory-group-dialog', 'aria-label': t('Accessory group') });
       const search = el('input', { type: 'search', class: 'search', placeholder: t('Search accessories'), 'aria-label': t('Search accessories') });
       let activeType = '';
+      const clearFilters = el('button', { type: 'button', class: 'clear-filters group-clear-filters', actionIcon: 'restore', text: t('Clear filters'), onclick: () => {
+        search.value = '';
+        activeType = '';
+        roomSelect.value = '__keep__';
+        for (const [index, button] of [...typeFilter.children].entries()) button.setAttribute('aria-pressed', String(index === 0));
+        applyFilter();
+      } });
       const empty = el('p', { class: 'muted', hidden: true, text: t('No accessory matches.') });
       const applyFilter = () => {
-        for (const row of list.children) row.hidden = (activeType && row.dataset.type !== activeType) || !row.dataset.search.includes(search.value.trim().toLowerCase());
+        clearFilters.disabled = !search.value && !activeType && roomSelect.value === '__keep__';
+        const query = search.value.trim().toLowerCase();
+        for (const button of typeFilter.children) {
+          const count = [...list.children].filter((row) => (!button.dataset.type || row.dataset.type === button.dataset.type) && (roomSelect.value === '__keep__' || row.dataset.room === roomSelect.value) && row.dataset.search.includes(query)).length;
+          button.querySelector('.filter-count').textContent = String(count);
+          button.disabled = count === 0 && Boolean(button.dataset.type) && button.dataset.type !== activeType;
+          button.title = button.disabled ? t("No accessories match the current search.") : "";
+        }
+        const matching = [...list.children].filter((row) => (!activeType || row.dataset.type === activeType) && row.dataset.search.includes(query));
+        const matches = new Set(matching);
+        for (const row of list.children) row.hidden = !matches.has(row) || (roomSelect.value !== '__keep__' && row.dataset.room !== roomSelect.value);
+        for (const option of roomSelect.options) {
+          const count = matching.filter((row) => option.value === '__keep__' || row.dataset.room === option.value).length;
+          option.textContent = `${roomLabels.get(option.value)} (${count})`;
+          option.disabled = option.value !== '__keep__' && option.value !== roomSelect.value && count === 0;
+          option.title = option.disabled ? t("No accessories match the current search.") : "";
+        }
         empty.hidden = [...list.children].some((row) => !row.hidden);
       };
       const typeFilter = el('div', { class: 'group-type-filter', role: 'group', 'aria-label': t('Device type') },
         [['', 'grid', t('All')], ...deviceTypes.filter(([type]) => choices.some((a) => deviceType(a)[0] === type))].map(([type, glyph, label]) =>
-          el('button', { type: 'button', 'aria-pressed': String(type === activeType), onclick: (event) => {
+          el('button', { type: 'button', 'data-type': type, 'aria-pressed': String(type === activeType), onclick: (event) => {
             activeType = type;
             for (const button of typeFilter.children) button.setAttribute('aria-pressed', String(button === event.currentTarget));
             applyFilter();
-          } }, HomeswiftCommon.icon(glyph), el('span', { text: label }))));
+          } }, HomeswiftCommon.icon(glyph), el('span', { text: label }), el('span', { class: 'filter-count' }))));
       search.addEventListener('input', applyFilter);
-      const form = el('form', {}, el('div', { class: 'group-dialog-head' }, HomeswiftCommon.tile('grid', 'blue'), el('h2', { text: t('Accessory group') })), el('label', { class: 'group-name-field' }, el('span', { text: t('Name') }), name),
+      roomSelect.addEventListener('change', applyFilter);
+      applyFilter();
+      const form = el('form', {}, el('div', { class: 'group-dialog-head' }, HomeswiftCommon.tile('group', 'blue'), el('h2', { text: t('Accessory group') })), el('label', { class: 'group-name-field' }, el('span', { text: t('Name') }), name),
+        setGroupRoom ? el('label', { class: 'group-room-field' }, el('span', { text: t('Room') }), roomSelect, el('span', { class: 'help', text: t('Moves the selected accessories in Homeswift only. HomeKit rooms stay unchanged.') })) : null,
         el('div', { class: 'group-picker-columns' },
-          el('section', {}, el('h3', { text: t('Available') }), search, typeFilter, list, empty),
+          el('section', {}, el('h3', { text: t('Available') }), search, typeFilter, clearFilters, list, empty),
           el('section', {}, el('div', { class: 'group-selected-heading' }, el('h3', { text: t('Selected') }), selectedCount), selectedList, selectedEmpty)), message,
         el('div', { class: 'actions' }, el('button', { type: 'button', text: t('Cancel'), onclick: () => dialog.close() }), save));
+      const content = el('div', { class: 'group-dialog-content' });
+      while (form.children.length > 1) content.append(form.firstElementChild);
+      form.prepend(content);
       form.addEventListener('submit', async (event) => {
         event.preventDefault();
         if (selected.size < 2 || !compatible([...selected].map((id) => byID.get(id)))) { message.textContent = t('Choose at least two accessories with shared controls.'); return; }
@@ -6340,46 +6683,90 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const before = layout.groups;
         layout.groups = before.filter((g) => g !== existing && !g.members.some((id) => selected.has(id)));
         layout.groups.push({ id: existing?.id || `group:${crypto.randomUUID()}`, name: name.value.trim(), members: [...selected] });
-        try { await persist(); dialog.close(); refresh(); } catch (error) { layout.groups = before; message.textContent = error.message; save.disabled = false; }
+        let saved = false;
+        try {
+          await persist(); saved = true;
+          if (setGroupRoom && roomSelect.value !== '__keep__') await setGroupRoom([...selected], roomSelect.value);
+          dialog.close(); refresh();
+        } catch (error) {
+          if (!saved) layout.groups = before;
+          message.textContent = error.message; save.disabled = false;
+        }
       });
       dialog.append(form); document.body.append(dialog); dialog.addEventListener('close', () => dialog.remove(), { once: true }); dialog.showModal();
     }
     const cards = new Set();
     function card(group, editing) {
       const people = group.members.map((id) => byID.get(id));
+      const memberTypes = people.map((accessory) => accessory ? deviceType(accessory) : null);
+      const matchingType = memberTypes[0]?.[0] && memberTypes.every((type) => type?.[0] === memberTypes[0][0]);
+      const groupIcon = matchingType ? memberTypes[0][1] : 'group';
+      const groupTone = matchingType ? ({ Lightbulb: 'orange', Switch: 'green', Outlet: 'green', Fan: 'teal' }[memberTypes[0][0]] || 'blue') : 'blue';
+      const glyph = HomeswiftCommon.tile(groupIcon, groupTone);
       const result = el('p', { class: 'group-feedback', role: 'status' });
       const body = el('div', { class: 'group-controls' });
       const draw = () => {
+        const states = people.flatMap((accessory) => (accessory?.services || []).filter((service) => allowed.has(service.type)).flatMap((service) => {
+          const state = service.characteristics.find((c) => c.type === 'On')
+            || service.characteristics.find((c) => c.type === 'Active')
+            || service.characteristics.find((c) => c.type === 'Current Position');
+          return state && state.value != null ? [Number(state.value) > 0] : [];
+        }));
+        glyph.classList.toggle('is-off', states.length > 0 && !states.some(Boolean));
         if (body.contains(document.activeElement)) return;
         body.replaceChildren(...shared(people).map((type) => {
           const targets = people.map((a) => controls(a).get(type));
           const values = targets.map(({ c }) => c.value);
           const mixed = values.some((v) => v !== values[0]);
           const isBool = type === 'On' || type === 'Active';
-          const low = Math.max(...targets.map(({ c }) => c.minValue ?? 0));
-          const high = Math.min(...targets.map(({ c }) => c.maxValue ?? (type === 'Hue' ? 360 : 100)));
+          const temperature = type === 'Color Temperature';
+          const low = Math.max(...targets.map(({ c }) => c.minValue ?? (temperature ? 140 : 0)));
+          const high = Math.min(...targets.map(({ c }) => c.maxValue ?? (temperature ? 500 : type === 'Hue' ? 360 : 100)));
           if (!isBool && low > high) return null;
-          const input = el('input', isBool ? { type: 'checkbox', checked: Boolean(values[0]), disabled: editing } : { type: 'range', min: low, max: high, step: Math.max(...targets.map(({ c }) => c.minStep || 1)), value: values[0] ?? low, disabled: editing });
-          input.setAttribute('aria-label', HomeswiftI18n.message(type)); if (isBool) input.indeterminate = mixed;
-          const state = el('span', { class: 'muted', text: mixed ? t('Mixed') : String(values[0] ?? '—') });
-          input.addEventListener('change', async () => {
-            input.disabled = true;
-            const value = isBool ? (type === 'Active' ? Number(input.checked) : input.checked) : Number(input.value);
+          let input, busy = false;
+          const commit = async (value) => {
+            if (editing || busy) return;
+            busy = true; input.inert = true; input.setAttribute('aria-disabled', 'true');
             const outcomes = await Promise.allSettled(people.map((a, i) => api(`/api/accessories/${encodeURIComponent(a.id)}`, { method: 'PUT', body: { service: targets[i].service, characteristic: type, value } })));
             outcomes.forEach((outcome, i) => { if (outcome.status === 'fulfilled') targets[i].c.value = value; });
             const failed = outcomes.flatMap((outcome, i) => outcome.status === 'rejected' ? [people[i].displayName || people[i].name] : []);
             result.textContent = failed.length ? t('Could not update: {names}', { names: failed.join(', ') }) : '';
-            input.disabled = editing; input.blur(); draw();
-          });
-          return el('label', {}, el('span', { text: HomeswiftI18n.message(type) }), input, state);
+            busy = false; input.inert = editing; input.blur(); draw();
+          };
+          if (isBool) {
+            input = el('input', { type: 'checkbox', checked: Boolean(values[0]), disabled: editing });
+            input.setAttribute('aria-label', HomeswiftI18n.message(type)); input.indeterminate = mixed;
+            input.addEventListener('change', () => commit(type === 'Active' ? Number(input.checked) : input.checked));
+            return el('label', {}, el('span', { text: HomeswiftI18n.message(type) }), input,
+              mixed ? el('span', { class: 'muted', text: t('Mixed') }) : null);
+          }
+          const { level, kelvin, whiteColor } = HomeswiftWidgets.controls;
+          const min = temperature ? kelvin(high) : low, max = temperature ? kelvin(low) : high;
+          const step = Math.max(...targets.map(({ c }) => c.minStep || 1));
+          const control = level({ label: HomeswiftI18n.message(type), min, max, step: temperature ? 50 : step,
+            format: (value) => temperature ? `${value} K` : type === 'Hue' ? `${value}°` : `${value} %`,
+            gradient: temperature ? `linear-gradient(90deg, ${whiteColor(min, 72)}, ${whiteColor((min + max) / 2, 88)}, ${whiteColor(max, 84)})` : undefined },
+          (value) => commit(temperature ? Math.min(high, Math.max(low, Math.round((1e6 / value - low) / step) * step + low)) : value));
+          input = control.node;
+          input.inert = editing;
+          input.setAttribute('aria-disabled', String(editing));
+          control.set(temperature ? kelvin(values[0] || high) : values[0] ?? low);
+          if (mixed) {
+            input.querySelector('.level-text').textContent = t('Mixed');
+            input.setAttribute('aria-valuetext', t('Mixed'));
+          }
+          return input;
         }).filter(Boolean));
         if (people.some((a) => !a)) result.textContent = t('Some group members are unavailable.');
       };
-      const node = el('div', { class: 'widget size-large accessory-group', 'data-id': group.id, 'data-search': [group.name, ...people.map((a) => a?.name || '')].join(' ').toLowerCase() },
-        el('div', { class: 'server-head' }, HomeswiftCommon.tile('grid', 'blue'), el('div', { class: 'who' }, el('strong', { text: group.name }), el('div', { class: 'muted', text: people.map((a) => a?.displayName || a?.name || '—').join(', ') })),
+      const node = el('div', { class: `widget size-${layout.sizes?.[group.id] || 'large'} accessory-group`, 'data-id': group.id, 'data-search': [group.name, ...people.map((a) => a?.name || '')].join(' ').toLowerCase() },
+        el('div', { class: 'server-head' }, glyph, el('div', { class: 'who' }, el('strong', { text: group.name }), el('div', { class: 'muted', text: people.map((a) => a?.displayName || a?.name || '—').join(', ') })),
           menuButton(t('Actions for {name}', { name: group.name }), () => [
+            ...(moveToRoom ? [{ label: t('Move to room…'), icon: 'room', onSelect: async () => {
+              try { await moveToRoom(group); } catch (error) { result.textContent = error.message; }
+            } }] : []),
             { label: t('Edit group'), icon: 'edit', onSelect: () => edit([], group) },
-            { label: t('Ungroup'), icon: 'grid', onSelect: async () => {
+            { label: t('Ungroup'), icon: 'ungroup', onSelect: async () => {
               const before = layout.groups; layout.groups = before.filter((g) => g !== group);
               try { await persist(); refresh(); } catch (error) { layout.groups = before; result.textContent = error.message; }
             } }
@@ -6400,7 +6787,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       for (const item of cards) { if (!item.node.isConnected) cards.delete(item); else item.draw(); }
     } };
   }
-  window.HomeswiftGroups = { mount };
+  window.HomeswiftGroups = { mount, sectionIndex };
 })();
 
 """#),
@@ -6448,13 +6835,23 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     ];
   }
 
-  async function chooseRoom(accessory, change) {
+  async function chooseRoom(accessory, change, note = "") {
     let rooms = [];
     try { rooms = (await app.api("/api/rooms")).rooms.map((room) => room.name); } catch {}
-    const room = prompt(rooms.length
+    const room = prompt((rooms.length
       ? t("The room of {name}. Rooms: {rooms}. A new name adds the room; empty takes it out of its room.", { name: displayName(accessory), rooms: rooms.join(", ") })
-      : t("The room of {name}. A new name adds the room; empty takes it out of its room.", { name: displayName(accessory) }), accessory.room || "");
-    if (room !== null) change({ room: room.trim() || null });
+      : t("The room of {name}. A new name adds the room; empty takes it out of its room.", { name: displayName(accessory) })) + (note ? `\n\n${note}` : ""), accessory.room || "");
+    if (room !== null) await change({ room: room.trim() || null });
+  }
+
+  async function moveGroupToRoom(group, accessories) {
+    const members = group.members.map((id) => accessories.find((a) => a.id === id));
+    const room = members.every((a) => a && a.room === members[0]?.room) ? members[0]?.room : "";
+    await chooseRoom({ name: group.name, room }, async (fields) => {
+      // One metadata-only update for every member; no device or HomeKit writes.
+      await changeLayout({ accessories: Object.fromEntries(group.members.map((id) => [id, fields])) });
+      await app.route();
+    }, t("Moves every member of this group in Homeswift only. HomeKit rooms stay unchanged."));
   }
 
   /// The Accessories page's accessories by room, in the layout's order; those in no room last.
@@ -6477,7 +6874,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     try {
       result = await app.api("/api/rooms/suggest", { method: "POST", body: {} });
     } catch (e) {
-      panel.replaceChildren(el("p", { class: "error", text: e.message }), el("div", { class: "actions" }, el("button", { text: t("Close"), onclick: () => panel.remove() })));
+      panel.replaceChildren(el("p", { class: "error", text: e.message }), el("div", { class: "actions" }, el("button", { actionIcon: "close", text: t("Close"), onclick: () => panel.remove() })));
       return;
     } finally { panel.classList.remove("ai-busy"); }
     const byID = new Map(accessories.map((a) => [a.id, a]));
@@ -6497,7 +6894,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const renames = result.renames.map((rename) => check({ id: rename.id, name: rename.name }, `${rename.current} → ${rename.name}`, rename.reason));
     const orphans = result.orphans.map((orphan) => el("li", {}, el("strong", { text: orphan.name }), ` ${orphan.reason}`));
     const line = statusLine();
-    const apply = el("button", { class: "primary", text: t("Apply what is ticked"), onclick: async () => {
+    const apply = el("button", { actionIcon: "check", class: "primary", text: t("Apply what is ticked"), onclick: async () => {
       const changes = {};
       for (const { input, data } of checks) {
         if (!input.checked) continue;
@@ -6510,7 +6907,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("div", { class: "panel-head" },
         el("div", {}, el("h2", {}, sparkle(), " ", t("Suggested rooms")),
           el("p", { class: "muted", text: t("From {model}. Untick what you do not want; nothing changes until you apply. Names show on these pages only: the Home app keeps its own.", { model: result.model }) })),
-        el("button", { class: "link", text: t("Dismiss"), onclick: () => panel.remove() })),
+        el("button", { actionIcon: "close", class: "link", text: t("Dismiss"), onclick: () => panel.remove() })),
       rooms.length ? el("div", { class: "suggest-rooms" }, rooms) : el("p", { class: "muted", text: t("No room to suggest.") }),
       renames.length ? el("div", {}, el("div", { class: "service-name", text: t("Clearer names") }), renames) : null,
       orphans.length ? el("div", {}, el("div", { class: "service-name", text: t("Worth a look") }), el("ul", { class: "help" }, orphans)) : null,
@@ -6711,7 +7108,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           say(line, "");
         } else if (result.ok) {
           say(line, tn("{mood} is set on {n} light.", "{mood} is set on {n} lights.", count, { mood: shown }));
-          line.append(" ", el("button", { type: "button", class: "link", text: t("Save as a scene"), onclick: () => saveAsScene(body.mood ? { mood: body.mood } : { plan: result.mood }, shown) }));
+          line.append(" ", el("button", { actionIcon: "check", type: "button", class: "link", text: t("Save as a scene"), onclick: () => saveAsScene(body.mood ? { mood: body.mood } : { plan: result.mood }, shown) }));
         } else {
           const failures = result.failed.map((f) => `${f.name}: ${HomeswiftI18n.message(f.error)}`).join("; ");
           say(line, t("{mood} is set, but not on every light: {failures}", { mood: shown, failures }), "error");
@@ -6804,7 +7201,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const more = scene.actions.length > 4 ? el("p", { class: "muted note", text: tn("and {n} more", "and {n} more", scene.actions.length - 4) }) : null;
       const lastVars = scene.lastRun ? { date: dateTimeFormat.format(new Date(scene.lastRun.at)), trigger: scene.lastRun.trigger } : null;
       const last = scene.lastRun ? (scene.lastRun.ok ? t("Last run {date} ({trigger})", lastVars) : t("Last run {date} ({trigger}), with errors", lastVars)) : t("Never run");
-      const run = el("button", { class: "primary", text: t("Run") });
+      const run = el("button", { actionIcon: "play", class: "primary", text: t("Run") });
       run.addEventListener("click", async () => { await runScene(scene, run); });
       return el("div", { class: "card server scene-card" },
         el("div", { class: "server-head" }, tile("play", scene.security ? "violet" : "orange"),
@@ -6823,20 +7220,22 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             } },
           ])));
     };
+    const sceneCount = el("span", { class: "pill", text: String(data.scenes.length) });
     const sceneCards = data.scenes.map((scene) => ({ scene, node: card(scene) }));
     const search = el("input", { type: "search", class: "search", placeholder: t("Filter text"), "aria-label": t("Your scenes") });
     const noMatches = el("p", { class: "card empty", hidden: true, text: t("Nothing in this range matches.") });
     search.addEventListener("input", () => {
       const query = search.value.trim().toLocaleLowerCase();
       for (const { scene, node } of sceneCards) node.hidden = !scene.name.toLocaleLowerCase().includes(query);
+      sceneCount.textContent = String(sceneCards.filter(({ node }) => !node.hidden).length);
       noMatches.hidden = sceneCards.some(({ node }) => !node.hidden);
     });
     app.show(main,
       app.pageHead(t("Scenes"), t("Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them."),
         data.scenes.length ? el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") }) : null),
-      el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") }), data.scenes.length ? search : null),
+      el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") }), sceneCount, data.scenes.length ? [search, HomeswiftCommon.clearFilters([[search, ""]])] : null),
       data.scenes.length ? el("div", { class: "grid scene-grid" }, sceneCards.map(({ node }) => node))
-        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") }), el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
+        : el("div", { class: "card empty scenes-empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") }), el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
       noMatches, moodsSection(accessories), locationCard(data));
   }
 
@@ -6851,7 +7250,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const save = async (body) => {
       try { await app.api("/api/scenes/location", { method: "PUT", body }); app.route(); } catch (e) { say(line, e.message, "error"); }
     };
-    const here = el("button", { text: t("Use this device's location"), onclick: () => {
+    const here = el("button", { actionIcon: "location", text: t("Use this device's location"), onclick: () => {
       if (!navigator.geolocation) return say(line, t("This browser cannot tell its location."), "error");
       say(line, t("Asking the browser…"));
       navigator.geolocation.getCurrentPosition(
@@ -6864,8 +7263,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("p", { class: "muted", text: next }),
       el("div", { class: "fields" }, field(t("Latitude"), lat), field(t("Longitude"), lon), field(t("Name"), name, t("Only for you to recognise it."))),
       el("div", { class: "actions" },
-        el("button", { class: "primary", text: t("Save"), onclick: () => save({ lat: Number(lat.value), lon: Number(lon.value), name: name.value }) }),
-        here, location ? el("button", { class: "link", text: t("Forget it"), onclick: () => save(null) }) : null),
+        el("button", { actionIcon: "check", class: "primary", text: t("Save"), onclick: () => save({ lat: Number(lat.value), lon: Number(lon.value), name: name.value }) }),
+        here, location ? el("button", { actionIcon: "trash", class: "link", text: t("Forget it"), onclick: () => save(null) }) : null),
       line);
   }
 
@@ -7142,9 +7541,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       });
       return panel;
     };
-    node(t("Triggers"), "play", [el("p", { class: "muted", text: data.location ? t("Run it automatically. Sunrise and sunset are for {place}.", { place: data.location.name || `${data.location.lat}, ${data.location.lon}` }) : t("Run it automatically. Sunrise and sunset need a location: set it on the Scenes page.") }), triggerList, el("button", { type: "button", text: t("Add a trigger"), onclick: () => addTrigger() })]);
-    node(t("Conditions"), "shield", [el("p", { class: "muted", text: t("An automatic run goes ahead only when all of these hold. Running it by hand ignores them.") }), conditionList, el("button", { type: "button", text: t("Add a condition"), onclick: () => addCondition() })]);
-    node(t("Actions"), "bulb", [el("p", { class: "muted", text: t("The values to set, in this order.") }), actionList, el("button", { type: "button", text: t("Add an action"), onclick: () => addAction() }), capture]);
+    node(t("Triggers"), "play", [el("p", { class: "muted", text: data.location ? t("Run it automatically. Sunrise and sunset are for {place}.", { place: data.location.name || `${data.location.lat}, ${data.location.lon}` }) : t("Run it automatically. Sunrise and sunset need a location: set it on the Scenes page.") }), triggerList, el("button", { actionIcon: "plus", type: "button", text: t("Add a trigger"), onclick: () => addTrigger() })]);
+    node(t("Conditions"), "shield", [el("p", { class: "muted", text: t("An automatic run goes ahead only when all of these hold. Running it by hand ignores them.") }), conditionList, el("button", { actionIcon: "plus", type: "button", text: t("Add a condition"), onclick: () => addCondition() })]);
+    node(t("Actions"), "bulb", [el("p", { class: "muted", text: t("The values to set, in this order.") }), actionList, el("button", { actionIcon: "plus", type: "button", text: t("Add an action"), onclick: () => addAction() }), capture]);
     const zoomLabel = el("span", { text: "100%" });
     const changeZoom = (delta) => { zoom = Math.max(.5, Math.min(1.5, zoom + delta)); canvas.style.zoom = zoom; zoomLabel.textContent = `${Math.round(zoom * 100)}%`; };
     const flow = el("div", { class: "scene-flow" }, el("div", { class: "scene-flow-toolbar" },
@@ -7175,7 +7574,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       flow,
       el("div", { class: "save-bar" }, save, el("a", { class: "button", href: "/scenes", text: t("Cancel") }),
         isNew ? null : el("span", { class: "spacer" }),
-        isNew ? null : el("button", { type: "button", class: "danger", text: t("Delete"), onclick: async () => {
+        isNew ? null : el("button", { actionIcon: "trash", type: "button", class: "danger", text: t("Delete"), onclick: async () => {
           if (!confirm(t("Delete the scene {name}?", { name: scene.name }))) return;
           try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.navigate("/scenes"); } catch (e) { say(line, e.message, "error"); }
         } })),
@@ -7271,7 +7670,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         } };
         rows.push(field(t("Authentication"), authButton), bearer, basic,
           el("div", { class: "webhook-headers" }, el("strong", { text: t("Custom headers") }), headerRows,
-            el("button", { type: "button", class: "link", text: t("Add header"), onclick: () => addHeader() }),
+            el("button", { actionIcon: "plus", type: "button", class: "link", text: t("Add header"), onclick: () => addHeader() }),
             el("p", { class: "help", text: t("Saved credentials and header values are masked. Leave the mask unchanged to keep them.") })));
       }
       const state = el("span", { class: `notification-state${values.enabled ? " active" : ""}`, text: values.enabled ? t("On [setting]") : t("Off [setting]") });
@@ -7301,7 +7700,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     });
     const digestTime = el("input", { type: "time", value: settings.dailyDigestTime, "aria-label": t("Daily digest time") });
-    const save = el("button", { class: "primary", text: t("Save") });
+    const save = el("button", { actionIcon: "check", class: "primary", text: t("Save") });
     save.addEventListener("click", async () => {
       const channels = {};
       try {
@@ -7328,7 +7727,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("div", { class: "notification-digest" }, field(t("Daily digest at"), digestTime)),
           el("p", { class: "muted notification-limit", text: t("The same event about the same thing goes out once per 15 minutes at most, and 12 notifications an hour at most.") }))),
       el("div", { class: "save-bar notification-save" }, line,
-        el("button", { text: t("Send a test to every channel that is on"), onclick: () => test() }), save));
+        el("button", { actionIcon: "send", text: t("Send a test to every channel that is on"), onclick: () => test() }), save));
   }
 
   /// This browser's subscription and the others'.
@@ -7337,14 +7736,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const line = statusLine();
     const others = el("div", {}, settings.subscriptions.map((sub) => el("div", { class: "control" },
       el("span", { text: `${sub.label}${sub.username ? ` · ${sub.username}` : ""}` }),
-      el("button", { class: "link", text: t("Remove"), onclick: async () => {
+      el("button", { actionIcon: "trash", class: "link", text: t("Remove"), onclick: async () => {
         try { await app.api(`/api/notifications/push/subscriptions/${encodeURIComponent(sub.id)}`, { method: "DELETE" }); app.route(); } catch (e) { say(line, e.message, "error"); }
       } }))));
     if (!pushSupported()) {
       box.append(el("p", { class: "muted note", text: window.isSecureContext ? t("This browser cannot receive push notifications.") : t("Open this page over HTTPS (the HomeswiftUI block's https) or on localhost to turn them on here.") }), others);
       return box;
     }
-    const toggle = el("button", { text: t("Checking…"), disabled: true });
+    const toggle = el("button", { actionIcon: "restore", text: t("Checking…"), disabled: true });
     const draw = (subscription) => {
       toggle.disabled = false;
       toggle.textContent = subscription ? t("Turn off on this browser") : t("Turn on for this browser");
@@ -7367,7 +7766,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       };
     };
     currentSubscription().then(draw).catch(() => draw(null));
-    const testHere = el("button", { class: "link", text: t("Send a test here"), onclick: async () => {
+    const testHere = el("button", { actionIcon: "send", class: "link", text: t("Send a test here"), onclick: async () => {
       const subscription = await currentSubscription();
       if (!subscription) return say(line, t("This browser is not subscribed."), "error");
       try {
@@ -7389,7 +7788,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       app.views.notifications = notificationsView;
       app.views.quick = async (main) => app.show(main, app.pageHead(t("Quick controls"), t("Your favourite accessories and the scenes, at hand.")), quickSection(null, { standalone: true }));
     },
-    layoutActions, groupByRoom, suggestRooms, quickSection, displayName,
+    layoutActions, moveGroupToRoom, groupByRoom, suggestRooms, quickSection, displayName,
   };
 })();
 
@@ -7397,6 +7796,28 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "No accessories match the current search.": "Ningún accesorio coincide con la búsqueda actual.",
+  "No log lines match the current search.": "Ninguna línea del registro coincide con la búsqueda actual.",
+  "No audit entries match the current filters.": "Ninguna entrada de auditoría coincide con los filtros actuales.",
+  "No modified options match the current search.": "Ninguna opción modificada coincide con la búsqueda actual.",
+
+  "Keep current rooms": "Mantener las habitaciones actuales",
+  "Moves the selected accessories in Homeswift only. HomeKit rooms stay unchanged.": "Mueve los accesorios seleccionados solo en Homeswift. Las habitaciones de HomeKit no cambian.",
+  "Release to group": "Suelta para agrupar",
+  "Reset room order": "Restablecer el orden de las habitaciones",
+  "Reorder rooms": "Reordenar habitaciones",
+  "Show hidden": "Mostrar ocultos",
+  "Clear filters": "Borrar filtros",
+  "{count} of {total} match": "{count} de {total} coinciden",
+  "Search cached accessories": "Buscar accesorios en caché",
+  "Up to date": "Actualizado",
+  "Update available": "Actualización disponible",
+  "Check for updates": "Buscar actualizaciones",
+  "Homeswift is up to date.": "Homeswift está actualizado.",
+  "Could not check for updates. Try again.": "No se pudieron buscar actualizaciones. Inténtalo de nuevo.",
+  "Move to room…": "Mover a una habitación…",
+  "Moves every member of this group in Homeswift only. HomeKit rooms stay unchanged.": "Mueve todos los miembros de este grupo solo en Homeswift. Las habitaciones de HomeKit no cambian.",
+
   "Sign-in": "Inicio de sesión",
   "Increase port": "Aumentar el puerto",
   "Decrease port": "Reducir el puerto",
@@ -9318,6 +9739,28 @@ HomeswiftI18n.add("es", {
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "No accessories match the current search.": "Aucun accessoire ne correspond à la recherche actuelle.",
+  "No log lines match the current search.": "Aucune ligne du journal ne correspond à la recherche actuelle.",
+  "No audit entries match the current filters.": "Aucune entrée d’audit ne correspond aux filtres actuels.",
+  "No modified options match the current search.": "Aucune option modifiée ne correspond à la recherche actuelle.",
+
+  "Keep current rooms": "Conserver les pièces actuelles",
+  "Moves the selected accessories in Homeswift only. HomeKit rooms stay unchanged.": "Déplace les accessoires sélectionnés dans Homeswift uniquement. Les pièces HomeKit restent inchangées.",
+  "Release to group": "Relâchez pour grouper",
+  "Reset room order": "Réinitialiser l’ordre des pièces",
+  "Reorder rooms": "Réorganiser les pièces",
+  "Show hidden": "Afficher les accessoires masqués",
+  "Clear filters": "Effacer les filtres",
+  "{count} of {total} match": "{count} sur {total} correspondent",
+  "Search cached accessories": "Rechercher des accessoires en cache",
+  "Up to date": "À jour",
+  "Update available": "Mise à jour disponible",
+  "Check for updates": "Rechercher des mises à jour",
+  "Homeswift is up to date.": "Homeswift est à jour.",
+  "Could not check for updates. Try again.": "Impossible de rechercher des mises à jour. Réessayez.",
+  "Move to room…": "Déplacer dans une pièce…",
+  "Moves every member of this group in Homeswift only. HomeKit rooms stay unchanged.": "Déplace tous les membres de ce groupe uniquement dans Homeswift. Les pièces HomeKit restent inchangées.",
+
   "Sign-in": "Connexion",
   "Increase port": "Augmenter le port",
   "Decrease port": "Diminuer le port",
@@ -11239,6 +11682,28 @@ HomeswiftI18n.add("fr", {
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "No accessories match the current search.": "Nenhum acessório corresponde à pesquisa atual.",
+  "No log lines match the current search.": "Nenhuma linha do registo corresponde à pesquisa atual.",
+  "No audit entries match the current filters.": "Nenhuma entrada de auditoria corresponde aos filtros atuais.",
+  "No modified options match the current search.": "Nenhuma opção modificada corresponde à pesquisa atual.",
+
+  "Keep current rooms": "Manter as divisões atuais",
+  "Moves the selected accessories in Homeswift only. HomeKit rooms stay unchanged.": "Move os acessórios selecionados apenas no Homeswift. As divisões do HomeKit não são alteradas.",
+  "Release to group": "Solte para agrupar",
+  "Reset room order": "Repor a ordem das divisões",
+  "Reorder rooms": "Reordenar divisões",
+  "Show hidden": "Mostrar ocultos",
+  "Clear filters": "Limpar filtros",
+  "{count} of {total} match": "{count} de {total} correspondem",
+  "Search cached accessories": "Pesquisar acessórios em cache",
+  "Up to date": "Atualizado",
+  "Update available": "Atualização disponível",
+  "Check for updates": "Procurar atualizações",
+  "Homeswift is up to date.": "O Homeswift está atualizado.",
+  "Could not check for updates. Try again.": "Não foi possível procurar atualizações. Tente novamente.",
+  "Move to room…": "Mover para uma divisão…",
+  "Moves every member of this group in Homeswift only. HomeKit rooms stay unchanged.": "Move todos os membros deste grupo apenas no Homeswift. As divisões do HomeKit mantêm-se inalteradas.",
+
   "Sign-in": "Início de sessão",
   "Increase port": "Aumentar a porta",
   "Decrease port": "Diminuir a porta",
@@ -13363,7 +13828,7 @@ HomeswiftI18n.add("pt", {
     <span class="spacer"></span>
     <button id="user" type="button" class="user-button" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu" data-i18n><span class="user-avatar" aria-hidden="true"></span><span class="user-name"></span></button>
   </header>
-  <div id="banner" class="banner hidden" data-i18n>Some changes need a restart of homeswift. <button id="restart" class="link" data-i18n>Restart now</button></div>
+  <div id="banner" class="banner hidden" data-i18n>Some changes need a restart of homeswift. <button id="restart" class="link" data-i18n data-action-icon="power">Restart now</button></div>
   <main id="view"></main>
 </div>
 <script src="/common.js"></script>
@@ -13555,13 +14020,13 @@ HomeswiftI18n.add("pt", {
           card.classList.add("failed");
           card.replaceChildren(el("div", { class: "ai-inner" }, head(t("Assistant")),
             el("p", { class: "error", text: entry.failed }),
-            el("button", { class: "link", text: t("Try again"), onclick: () => { explanations.delete(error); explainNow(); } })));
+            el("button", { actionIcon: "restore", class: "link", text: t("Try again"), onclick: () => { explanations.delete(error); explainNow(); } })));
           return;
         }
         card.classList.add("answered");
         const body = markdown(entry.text);
         body.classList.add("ai-body");
-        const more = el("button", { class: "link ai-more", text: t("Show more"), onclick: () => {
+        const more = el("button", { actionIcon: "eye", class: "link ai-more", text: t("Show more"), onclick: () => {
           body.classList.toggle("clamped");
           more.textContent = body.classList.contains("clamped") ? t("Show more") : t("Show less");
         } });
@@ -13701,7 +14166,7 @@ HomeswiftI18n.add("pt", {
       if (instance.paused) {
         main.querySelector(".breadcrumb").after(el("div", { class: "card page-note paused-note" },
           el("p", {}, el("strong", { text: t("Paused.") }), " ", t("The plugin makes no calls to its devices, and they show No Response in the Home app. This page needs it running.")),
-          el("button", { class: "primary", text: t("Resume"), onclick: (event) => act(event.currentTarget, () => HomeswiftCommon.setPaused(platform, name, false).then(() => location.reload())) })));
+          el("button", { actionIcon: "play", class: "primary", text: t("Resume"), onclick: (event) => act(event.currentTarget, () => HomeswiftCommon.setPaused(platform, name, false).then(() => location.reload())) })));
       }
     }).catch(() => {});
     // Expert, last on the page once the page's own script has laid it out: the whole block as config.json
@@ -13711,7 +14176,7 @@ HomeswiftI18n.add("pt", {
       el("div", { class: "section-head" }, el("h2", { id: "expert-title", text: t("Expert") })),
       el("div", { class: "card page-note" },
         el("p", { class: "muted", text: t("Every setting of this plugin's block, as config.json keeps it, including what this page does not show.") }),
-        el("div", { class: "expert-links" }, el("a", { class: "button", href: expert("form"), text: t("Form") }), el("a", { class: "button", href: expert("json"), text: "JSON" }))));
+        el("div", { class: "expert-links" }, el("a", { class: "button", href: expert("form") }, HomeswiftCommon.icon("sliders"), el("span", { text: t("Form") })), el("a", { class: "button", href: expert("json") }, HomeswiftCommon.icon("code"), el("span", { text: "JSON" })))));
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => main.append(section));
     else main.append(section);
   }
@@ -14402,6 +14867,7 @@ label > input, label > select { margin-top: 5px; }
 .grid > .card { margin: 0; min-width: 0; }
 .card.empty { text-align: center; padding: 28px 20px; grid-column: 1 / -1; }
 .card.empty p { margin: 0; }
+.scenes-empty > .button { margin-top: 12px; }
 /* An empty state's glyph: what would be here, in a soft disc above the words. */
 .empty-glyph { display: grid; place-items: center; width: 52px; height: 52px; margin: 0 auto 12px; border-radius: 50%; color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .empty-glyph svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -16237,7 +16703,7 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .accessory-group .group-controls { display: grid; gap: 10px; margin-top: 16px; }
 .group-controls label { display: flex; align-items: center; gap: 10px; font-size: .8125rem; }
 .group-controls label > span:first-child { flex: 1; }
-.group-controls input[type=range] { width: 100px; }
+.group-controls > .level { width: 100%; }
 .group-feedback { font-size: .75rem; color: var(--danger); }
 .group-feedback:empty { display: none; }
 .wall .widget.group-drop-target { outline: 3px solid var(--accent); outline-offset: 3px; }
@@ -16265,7 +16731,7 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .group-picker-columns h3 { font-size: .875rem; margin: 0 0 14px; }
 .group-selected-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .group-selected-heading h3 { margin: 0; }
-.group-transfer { width: 30px; height: 30px; padding: 0; flex: none; font-size: 20px; border-radius: 50%; }
+.group-transfer { width: 32px; min-width: 32px; height: 32px; min-height: 32px; padding: 0; flex: 0 0 32px; display: grid; place-items: center; font-size: 20px; line-height: 1; border-radius: 50%; }
 .accessories-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .accessories-toolbar > button:not(.menu-button) { display: inline-flex; align-items: center; gap: 7px; }
 .accessories-toolbar button > svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; }
@@ -16401,6 +16867,308 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   .mobile-nav-toggle, .mobile-nav-toggle[aria-expanded="true"] { background: var(--accent-fill); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+
+/* Keep dashboard content constrained while the footer spans the page. */
+#app:has(> main > .status-footer) { min-height: 100dvh; display: flex; flex-direction: column; }
+#app:has(> main > .status-footer) > header,
+#app:has(> main > .status-footer) > .banner { flex-shrink: 0; }
+main:has(> .status-footer) { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: none; margin: 0; padding-inline: 0; padding-bottom: 0; }
+main:has(> .status-footer) > .dash-widget { flex-shrink: 0; }
+main:has(> .status-footer) > .dash-widget:last-of-type { margin-bottom: 20px; }
+main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% - 24px); margin-inline: auto; }
+/* Status details remain visible even when the Overview widget is hidden. */
+/* A quiet utility bar: status first, metadata second, one compact action. */
+.status-footer {
+  --text: #edf0f5; --muted: #adb6c4; --accent-ink: #f4c49e; --warn: #f1c084; --ok: #75d5a0; --error: #ff9999;
+  display: flex; justify-content: space-between; align-items: center; flex-wrap: nowrap; gap: 20px;
+  width: 100%; flex-shrink: 0; margin: auto 0 0;
+  padding: 12px max(16px, calc((100% - 1076px) / 2));
+  border: 0; border-top: 1px solid rgba(255,255,255,.08); border-radius: 0;
+  background: #222833; color: var(--text);
+}
+.status-footer-summary { min-width: 0; flex: 1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 24px; font-size: .75rem; line-height: 1.5; }
+.status-footer-summary p { margin: 0; overflow-wrap: anywhere; }
+.status-footer-summary .health { gap: 8px; }
+.status-footer-summary .health strong { font-weight: 500; }
+.status-footer-summary .health::before { width: 6px; height: 6px; margin-top: calc(.75em - 3px); }
+.status-footer-summary .muted { font-variant-numeric: tabular-nums; }
+.status-footer > .link {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 36px; margin: 0; padding: 8px 10px; font-size: .75rem; line-height: 1.5;
+  color: var(--text); border: 1px solid rgba(255,255,255,.14); border-radius: 6px;
+  background: rgba(255,255,255,.04); white-space: nowrap;
+}
+.status-footer > .link:hover, .status-footer > .link[aria-expanded="true"] { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.28); }
+.status-footer > .link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
+@media (max-width: 640px) {
+  .status-footer { gap: 12px; padding: 12px 88px 12px 16px; }
+  .status-footer-summary { display: block; }
+  .status-footer-summary .muted { margin-top: 4px; padding-left: 14px; }
+  .status-footer > .link { width: 40px; min-height: 40px; padding: 10px; }
+  .status-footer-action-label { display: none; }
+}
+
+.status-footer-meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
+.status-footer .footer-update-check { margin: 0; padding: 0; min-height: 24px; font-size: inherit; line-height: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; }
+.footer-update-result:empty { display: none; }
+.footer-update-result { color: var(--muted); }
+@media (max-width: 640px) {
+  .status-footer-meta { margin-top: 4px; padding-left: 14px; }
+  .status-footer-summary .status-footer-meta .muted { margin: 0; padding: 0; }
+}
+
+/* Keep the version and its update action on one row, even on narrow screens. */
+.status-footer-meta > .muted { flex: 0 1 auto; max-width: calc(100% - 125px); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-footer .footer-update-check { flex: none; white-space: nowrap; }
+.footer-update-result { flex-basis: 100%; }
+@media (max-width: 640px) {
+  .status-footer { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: 4px 12px; }
+  .status-footer-summary { display: contents; }
+  .status-footer-summary .health { grid-column: 1; grid-row: 1; }
+  .status-footer > .link { grid-column: 2; grid-row: 1; }
+  .status-footer-meta { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
+}
+
+.status-footer-meta { flex-wrap: nowrap; }
+.status-footer-meta > .muted { max-width: none; }
+.status-footer .footer-update-check {
+  padding: 3px 8px; min-height: 28px; border: 1px solid rgba(255,255,255,.2); border-radius: 5px;
+  background: rgba(255,255,255,.05); text-decoration: none;
+}
+.status-footer .footer-update-check:hover { background: rgba(255,255,255,.12); }
+.status-footer .footer-update-check:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
+
+.status-footer .footer-update-check[data-update-state="current"] { --update-tone: var(--ok); }
+.status-footer .footer-update-check[data-update-state="available"] { --update-tone: var(--warn); }
+.status-footer .footer-update-check[data-update-state="error"] { --update-tone: var(--error); }
+.status-footer .footer-update-check {
+  color: var(--update-tone, var(--text));
+  border-color: color-mix(in srgb, var(--update-tone, var(--muted)) 45%, transparent);
+  background: color-mix(in srgb, var(--update-tone, var(--muted)) 10%, transparent);
+}
+.status-footer .footer-update-check:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--update-tone, var(--muted)) 20%, transparent);
+}
+
+.status-footer .footer-update-check { display: inline-flex; align-items: center; gap: 5px; }
+.status-footer .footer-update-check svg { width: 14px; height: 14px; flex: none; }
+.status-footer .footer-update-check[data-update-state="checking"] svg {
+  transform-origin: center;
+  animation: spin .8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-footer .footer-update-check[data-update-state="checking"] svg { animation: none; }
+}
+
+/* Reserve the widest translated status without exposing sizing text to assistive technology. */
+.footer-update-label { display: inline-grid; text-align: center; }
+.footer-update-label > span { grid-area: 1 / 1; }
+.footer-update-sizer { visibility: hidden; pointer-events: none; }
+
+.group-box > summary > svg { width: 18px; height: 18px; margin-right: 8px; vertical-align: -3px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+.view-switch > button { display: inline-flex; align-items: center; gap: 6px; }
+.view-switch > button > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+.expert-links > .button { display: inline-flex; align-items: center; gap: 6px; }
+.expert-links > .button > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+.settings-action { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.settings-action > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Decorative action icons survive loading/success label changes. */
+.action-with-icon { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.action-with-icon::before { content: ""; display: inline-block; width: 16px; height: 16px; flex: none; background: currentColor; mask: var(--action-icon) center / contain no-repeat; -webkit-mask: var(--action-icon) center / contain no-repeat; }
+
+.cached-search-results[hidden], .cached-search-results > [hidden], .cached-search-empty[hidden] { display: none !important; }
+
+.cached-search-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; min-width: 0; }
+.cached-search-tools .search { width: 220px; max-width: 100%; min-width: 0; }
+.cached-search-tools > button { flex-shrink: 0; }
+@media (max-width: 640px) {
+  .cached-search-tools { flex: 1 1 100%; }
+  .cached-search-tools .search { flex: 1; width: auto; }
+}
+
+.cached-search-tools > button { display: inline-flex; align-items: center; gap: 6px; }
+.cached-search-tools > button > svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.cached-filter-count:empty { display: none; }
+.section-head:has(.cached-search-tools) { flex-wrap: wrap; align-items: center; }
+
+.menu-item-label { min-width: 0; flex: 1; }
+.menu-item-count { flex: none; min-width: 2ch; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-size: .8125rem; }
+.menu-item-count + .menu-toggle { margin-left: 8px; }
+.menu [role]:hover > .menu-item-count, .menu [role]:focus-visible > .menu-item-count { color: inherit; }
+/* Keep the search and both menu triggers aligned when the header wraps. */
+.section-head:has(.cached-search-tools) { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+.cached-search-tools { grid-column: 1 / -1; width: 100%; margin-left: 0; }
+.cached-search-tools .search { flex: 1; width: auto; }
+.cached-search-tools > .menu-button { display: inline-flex; align-items: center; justify-content: center; }
+@media (min-width: 1000px) {
+  .section-head:has(.cached-search-tools) { grid-template-columns: auto auto minmax(0, 1fr); }
+  .cached-search-tools { grid-column: auto; justify-content: flex-end; }
+  .cached-search-tools .search { flex: 0 1 220px; }
+}
+
+.menu [data-tone="ok"] { --menu-status-color: var(--ok); }
+.menu [data-tone="warn"] { --menu-status-color: var(--warn); }
+.menu [data-tone="error"] { --menu-status-color: var(--error); }
+.menu [data-tone] > :is(svg, .menu-item-label, .menu-item-count) { color: var(--menu-status-color); }
+.menu [data-tone]:hover > :is(svg, .menu-item-label, .menu-item-count),
+.menu [data-tone]:focus-visible > :is(svg, .menu-item-label, .menu-item-count) { color: inherit; }
+.menu [data-tone][aria-checked="true"] > .menu-toggle { background: var(--menu-status-color); }
+
+.menu [role][aria-disabled="true"], .menu [role][aria-disabled="true"]:hover {
+  opacity: .45; cursor: default; background: transparent; color: var(--muted); transform: none;
+}
+
+/* Dim the whole filter, so icons, counts and switch tracks share its disabled state. */
+.menu [role][aria-disabled="true"] {
+  filter: grayscale(1);
+  box-shadow: none;
+}
+.menu [role][aria-disabled="true"] > :is(svg, .menu-item-label, .menu-item-count) {
+  color: var(--muted);
+}
+.group-type-filter button:disabled,
+.log-level-row .group button:disabled {
+  opacity: .4;
+  filter: grayscale(1);
+  box-shadow: none;
+  cursor: default;
+}
+.toggle:has(input:disabled) {
+  opacity: .4;
+  filter: grayscale(1);
+  cursor: default;
+}
+.toggle:has(input:disabled) .switch { cursor: default; }
+select option:disabled { color: var(--muted); }
+
+/* Editing is a layout preview with its own quiet header and bottom control strip. */
+.wall.editing > .widget:not(.lifted):not(.drag-slot) { outline: 1px solid color-mix(in srgb, var(--accent) 25%, var(--edge)); outline-offset: -1px; }
+.wall.editing > .widget::after { background: color-mix(in srgb, var(--bg) 65%, transparent); }
+.edit-caption { position: absolute; inset: 9px 12px auto; z-index: 3; display: flex; align-items: center; gap: 7px; font-size: .8125rem; font-weight: 600; color: var(--text); pointer-events: none; }
+.edit-caption > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.edit-grip { flex: none; color: var(--muted); font-size: 19px; line-height: 1; }
+.wall.editing .edit-bar { left: 8px; right: 37px; top: auto; bottom: 7px; transform: none; width: auto; max-width: none; padding: 3px; border-radius: 10px; background: var(--material-solid); box-shadow: var(--shadow-control); }
+.wall.editing .edit-bar button { width: auto; height: 26px; flex: 1 1 0; border-radius: 7px; font-size: .6875rem; }
+.wall.editing .edit-bar button[data-step] { flex: .7 1 0; font-size: 18px; }
+.wall.editing .edit-bar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.wall.editing .resize-handle { right: 4px; bottom: 8px; width: 29px; height: 29px; background: transparent; box-shadow: none; color: var(--accent-ink); }
+.wall.editing .resize-handle::after { left: 8px; top: 11px; }
+.wall.editing > .widget.size-small .edit-caption { top: 5px; font-size: .6875rem; }
+.wall.editing > .widget.size-small .edit-bar { bottom: 3px; padding: 2px; }
+.wall.editing > .widget.size-small .edit-bar button { height: 22px; }
+.wall.editing > .widget.size-small .resize-handle { bottom: 3px; }
+.wall.editing > .widget-summary > .w-bottom { visibility: hidden; }
+.wall.editing > .widget-summary > .w-top { position: absolute; left: 12px; right: 12px; top: 50%; transform: translateY(-50%); }
+.wall.editing > .widget.size-small > .w-top { visibility: hidden; }
+.wall.editing > .widget:not(.widget-summary) > .w-head { visibility: hidden; }
+
+.wall.editing > .accessory-group { cursor: default; }
+.wall.editing > .accessory-group > .server-head { visibility: hidden; }
+.edit-caption > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; color: var(--muted); }
+.wall.editing .group-edit-bar { right: 8px; gap: 4px; }
+.wall.editing .group-edit-bar button { height: 30px; flex: 1; padding: 0 8px; }
+.wall.editing > .accessory-group .group-feedback:not(:empty) { position: relative; z-index: 3; margin-bottom: 42px; }
+/* A corner grip leaves more of the bottom edge for the size controls. */
+.wall.editing .edit-bar:not(.group-edit-bar) { right: 24px; }
+.wall.editing .resize-handle,
+.wall.editing > .widget.size-small .resize-handle {
+  right: 0; bottom: 0; width: 28px; height: 28px; border-radius: 0 0 var(--radius) 0;
+  background: transparent; box-shadow: none;
+}
+.wall.editing .resize-handle::after {
+  left: auto; top: auto; right: 6px; bottom: 6px; width: 11px; height: 11px;
+  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+  border-radius: 0 0 3px 0; background: none; box-shadow: none; transform: none;
+}
+.wall.editing .resize-handle:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+
+/* Group cards share widget sizes and the same rounded corner resize target. */
+.accessory-group { min-height: 0; }
+.accessory-group.size-small .group-controls, .accessory-group.size-small .server-head .muted { display: none; }
+.accessory-group.size-small { padding: 8px 12px; }
+.accessory-group.size-small .server-head { margin: 0; }
+.accessory-group.size-medium { padding: 12px; }
+.accessory-group.size-medium .server-head .muted { display: none; }
+.wall.editing > .accessory-group { overflow: hidden; }
+.wall.editing > .accessory-group .edit-caption { right: 44px; }
+.wall.editing > .accessory-group > .server-head .menu-button {
+  visibility: visible; pointer-events: auto; position: absolute; top: 4px; right: 5px; z-index: 4;
+  width: 28px; height: 28px; min-height: 0; padding: 4px;
+}
+.wall.editing .resize-handle,
+.wall.editing > .widget.size-small .resize-handle { border-bottom-right-radius: 18px; }
+.wall.editing .resize-handle::after { width: 12px; height: 12px; border-bottom-right-radius: 9px; }
+
+.wall.editing > .accessory-group { cursor: grab; }
+.wall.editing > .accessory-group.lifted { cursor: grabbing; }
+
+/* Medium groups fit their compact controls inside the same footprint as other M tiles. */
+.accessory-group.size-medium { padding: 8px 10px; }
+.accessory-group.size-medium .server-head { gap: 8px; margin: 0; min-height: 30px; }
+.accessory-group.size-medium .server-head .tile { width: 28px; height: 28px; border-radius: 9px; }
+.accessory-group.size-medium .server-head .who { flex: 1; }
+.accessory-group.size-medium .server-head strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .75rem; }
+.accessory-group.size-medium .server-head .menu-button { width: 26px; height: 26px; min-height: 0; padding: 3px; }
+.accessory-group.size-medium .group-controls { gap: 4px; margin-top: 5px; }
+.accessory-group.size-medium .group-controls > label { min-height: 24px; font-size: .6875rem; gap: 5px; }
+.accessory-group.size-medium .group-controls input[type="checkbox"] { width: 36px; height: 22px; flex: none; }
+.accessory-group.size-medium .group-controls > .level { height: 26px; min-height: 26px; border-radius: 8px; }
+.accessory-group.size-medium .level-label, .accessory-group.size-medium .level-text { font-size: .625rem; }
+.accessory-group.size-medium .level-label { left: 7px; max-width: 58%; overflow: hidden; white-space: nowrap; }
+.accessory-group.size-medium .level-text { right: 7px; }
+.accessory-group.size-medium .group-feedback:empty { display: none; }
+/* Scale the complete switch, including its minimum width and thumb travel. */
+.accessory-group.size-medium .group-controls input[type="checkbox"] { width: 36px; min-width: 36px; height: 22px; border-radius: 11px; }
+.accessory-group.size-medium .group-controls input[type="checkbox"]::before { width: 16px; height: 16px; left: 2px; top: 2px; }
+.accessory-group.size-medium .group-controls input[type="checkbox"]:checked::before { transform: translateX(14px); }
+.accessory-group.size-medium .group-controls input[type="checkbox"]:indeterminate::before { transform: translateX(7px); }
+
+.wall.editing > .widget.lifted, .wall.editing > .widget.lifted * { pointer-events: none !important; }
+.wall.editing > .widget.group-drop-target { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wall.editing > .widget.group-drop-target::after { background: var(--accent); z-index: 5; }
+
+.wall.editing > .widget.group-drop-target { outline: 3px solid var(--accent); outline-offset: 3px; box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 20%, transparent); }
+.wall.editing > .widget.group-drop-target::after {
+  content: "+ " attr(data-drop-label); inset: 4px; border-radius: calc(var(--radius) - 4px);
+  background: color-mix(in srgb, var(--accent) 92%, var(--material-solid)); color: var(--accent-text);
+  font-size: .875rem; font-weight: 700; text-align: center; padding: 8px; line-height: 1.3;
+  display: flex; align-items: center; justify-content: center; z-index: 6;
+}
+.wall.editing > .widget.lifted { opacity: .65; }
+@media (max-width: 640px) {
+  .wall.editing > .widget.group-drop-target::after { font-size: .75rem; }
+}
+
+.group-room-field { display: grid; gap: 6px; margin: 12px 0 16px; }
+.group-room-field select { width: 100%; }
+
+.disabled-filter-tip {
+  position: fixed; inset: auto; margin: 0; width: max-content;
+  max-width: min(300px, calc(100vw - 24px)); padding: 10px 14px;
+  border: 1px solid var(--edge); border-radius: 12px;
+  background: var(--material-solid); color: var(--text);
+  box-shadow: var(--shadow-control); font-size: .8125rem; line-height: 1.4;
+  pointer-events: none;
+}
+
+/* Give reset actions breathing room in both wrapped toolbars and stacked pickers. */
+.clear-filters { margin-block: 12px; margin-inline-start: 12px; }
+.group-clear-filters { margin-inline-start: 0; }
+.menu .clear-filters-menu { margin-block: 12px; }
+
+@media (max-width: 650px) {
+  .accessory-group-dialog { padding: 0; overflow: hidden; }
+  .accessory-group-dialog > form { display: flex; flex-direction: column; max-height: calc(100dvh - 42px); }
+  .group-dialog-content { min-height: 0; overflow-y: auto; padding: 24px; overscroll-behavior: contain; }
+  .accessory-group-dialog > form > .actions {
+    flex: none; margin: 0; padding: 14px 24px max(14px, env(safe-area-inset-bottom));
+    background: var(--material-solid); border-top: 1px solid var(--line);
+  }
 }
 
 """#),
@@ -16654,6 +17422,7 @@ self.addEventListener("notificationclick", (event) => {
     accessory.unavailable = !latest || Boolean(latest.unavailable);
     if (!latest) return;
     accessory.paused = Boolean(latest.paused);
+    accessory.supportsIdentify = Boolean(latest.supportsIdentify);
     accessory.naturalLighting = latest.naturalLighting || {};
     for (const service of accessory.services) {
       const fresh = latest.services.find(s => serviceKey(s) === serviceKey(service));
@@ -17399,7 +18168,7 @@ self.addEventListener("notificationclick", (event) => {
     const current = ctx.take(service, "Lock Current State"), target = ctx.take(service, "Lock Target State");
     const state = pill();
     const unlock = canWrite(target) ? hold(t("Hold to unlock"), () => ctx.write(service, target, 0, { held: true })) : null;
-    const lock = canWrite(target) ? el("button", { type: "button", class: "w-button", text: t("Lock"), onclick: () => ctx.write(service, target, 1, { held: true }) }) : null;
+    const lock = canWrite(target) ? el("button", { actionIcon: "lock", type: "button", class: "w-button", text: t("Lock"), onclick: () => ctx.write(service, target, 1, { held: true }) }) : null;
     ctx.watch(() => {
       const value = numberOf(current, numberOf(target, 3));
       state.textContent = labelFor(current.type, value);
@@ -17780,7 +18549,7 @@ self.addEventListener("notificationclick", (event) => {
       const big = el("b", { class: "w-state" });
       const warning = pill(t("Obstructed"), "bad");
       const open = canWrite(target) ? hold(t("Hold to open"), openIt) : null;
-      const close = canWrite(target) ? el("button", { type: "button", class: "w-button", text: t("Close"), onclick: closeIt }) : null;
+      const close = canWrite(target) ? el("button", { actionIcon: "close", type: "button", class: "w-button", text: t("Close"), onclick: closeIt }) : null;
       ctx.watch(() => {
         big.textContent = labelFor(current.type, doorState());
         warning.hidden = !isOn(obstruction);
@@ -17917,7 +18686,7 @@ self.addEventListener("notificationclick", (event) => {
         const built = { on: () => isOn(on), status, hold: { armed: () => !isOn(on), confirm: () => turn(true), tap: () => { if (isOn(on)) turn(false); }, verb: () => isOn(on) ? t("turn off") : t("hold to turn on") } };
         if (size === "small") return built;
         const turnOn = hold(t("Hold to turn on"), () => turn(true));
-        const turnOff = el("button", { type: "button", class: "w-button", text: t("Turn off"), onclick: () => turn(false) });
+        const turnOff = el("button", { actionIcon: "power", type: "button", class: "w-button", text: t("Turn off"), onclick: () => turn(false) });
         ctx.watch(() => { turnOn.node.hidden = isOn(on); turnOff.hidden = !isOn(on); });
         built.body = [turnOn.node, turnOff];
         if (size === "full") built.facets = facets(ctx, [primary]);
@@ -18013,7 +18782,7 @@ self.addEventListener("notificationclick", (event) => {
       full ? null : { label: t("All controls"), icon: "edit", onSelect: () => open(ctx.accessory, ctx.options) },
       full ? null : { separator: true },
       ...(ctx.options.actions ? ctx.options.actions(ctx.accessory)
-        : [{ label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(ctx.accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) }]),
+        : ctx.accessory.supportsIdentify ? [{ label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(ctx.accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) }] : []),
     ];
     return menuButton(t("Actions for {name}", { name: ctx.accessory.name }), items);
   }
@@ -18060,7 +18829,7 @@ self.addEventListener("notificationclick", (event) => {
     }
     ctx.node = node;
     cards.add(ctx);
-    const done = el("button", { type: "button", class: "link", text: t("Done") });
+    const done = el("button", { actionIcon: "check", type: "button", class: "link", text: t("Done") });
     const dialog = el("dialog", { class: "widget-sheet", "aria-label": accessory.name }, el("div", { class: "sheet-bar" }, done), node);
     done.addEventListener("click", () => dialog.close());
     // On a phone a swipe down from the grabber or the name puts the sheet away, from where the finger left it.
@@ -18414,7 +19183,7 @@ self.addEventListener("notificationclick", (event) => {
   for (const node of expandedIn(view)) watchExpanded(node);
 
   window.HomeswiftWidgets = {
-    card, open, kindOf, sizes, event, snapshot, reconcileAccessory, listen, describeModel, labelFor, enumLabels,
+    card, open, kindOf, sizes, searchText, event, snapshot, reconcileAccessory, listen, describeModel, labelFor, enumLabels,
     /// The same fallback characteristic row used under All controls, for live documentation and plugin pages.
     characteristicRow(accessory, service, characteristic) {
       const ctx = context(accessory);
@@ -18426,7 +19195,7 @@ self.addEventListener("notificationclick", (event) => {
     /// A page's own widget, tried before the built-in ones: { name, types, match?, icon, tone, size, build }.
     register: (widget) => widgets.unshift(widget),
     /// The controls the widgets are made of, for a page's own widget.
-    controls: { toggle, segmented, level, steps, setpoint, gauge, readout, meter, chip, hold, pill, icon },
+    controls: { toggle, segmented, level, kelvin, whiteColor, steps, setpoint, gauge, readout, meter, chip, hold, pill, icon },
   };
 })();
 

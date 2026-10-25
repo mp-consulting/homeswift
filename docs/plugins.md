@@ -346,3 +346,24 @@ Settings pages: a plugin ships `config.schema.json`, and the Homeswift UI render
 does. A custom page (`homebridge-ui/public`) goes in `Plugins/<Name>/Web/`, served by the UI, with its server-side
 routes in the plugin's `handleWebRequest` (see [ui.md](ui.md)); the Assistant's "Explain" is the runtime's, for
 every plugin.
+
+### Identifying a physical accessory
+
+Pass an `onIdentify` handler when creating an `Accessory`. Homeswift exposes `supportsIdentify`
+from that handler and shows **Identify** in the web UI only for supported accessories.
+
+```swift
+Accessory(id: "MyPlugin:device", name: "Desk light", services: [light], onIdentify: {
+    try await client.identify()
+})
+```
+
+Implement `client.identify()` using the device's documented identification command (blink, beep or
+another visible signal). There is no universal request across manufacturers. Use the plugin's existing
+transport and authentication, propagate failures, and test against a fake transport. Do not advertise
+support if the model cannot identify itself. Avoid simulating identification by toggling power unless
+the device requires it and its original state can be restored reliably.
+
+Wingman reports HomeKit's `supportsIdentify` flag and invokes its native `identify()` action through
+the authenticated `/write` endpoint (`characteristic: "Identify"`, `value: true`). Older Wingman
+versions fall back to a writable Identify characteristic in Accessory Information. Wingman's changes permission and certificate pinning still apply.

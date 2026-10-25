@@ -21,7 +21,7 @@
 
   <div class="group tabs main-tabs" role="tablist">
     <button role="tab" data-tab="devices" class="on" aria-selected="true" aria-controls="tab-devices" data-i18n>Devices</button>
-    <button role="tab" data-tab="settings" aria-selected="false" aria-controls="tab-settings" data-i18n>Settings</button>
+    <button role="tab" data-tab="settings" aria-selected="false" aria-controls="tab-settings" data-i18n data-action-icon="sliders">Settings</button>
     <button role="tab" data-tab="tools" aria-selected="false" aria-controls="tab-tools" data-i18n>Tools</button>
   </div>
 
@@ -29,7 +29,7 @@
     <div class="card discover">
       <div class="discover-head">
         <p id="discover-intro" class="muted">Discover all devices linked to your Govee account and add them to the lists below. Enter your credentials in the <strong>Settings</strong> tab first.</p>
-        <button id="discover" class="primary" data-i18n>Discover Devices</button>
+        <button id="discover" class="primary" data-i18n data-action-icon="search">Discover Devices</button>
       </div>
       <div id="discover-result"></div>
     </div>
@@ -45,7 +45,7 @@
           <input type="email" id="username" data-i18n placeholder="your-email@example.com" autocomplete="username">
           <span class="help" data-i18n>The email address you use to log in to the Govee app. Required for cloud control and device discovery.</span></label>
         <label class="field"><span class="field-title" data-i18n>Password</span>
-          <span class="password"><input type="password" id="password" autocomplete="current-password"><button type="button" id="toggle-password" data-i18n>Show</button></span>
+          <span class="password"><input type="password" id="password" autocomplete="current-password"><button type="button" id="toggle-password" data-i18n data-action-icon="eye">Show</button></span>
           <span class="help" data-i18n>Your Govee account password. Stored in config.json and used only to authenticate with Govee's servers.</span></label>
         <label class="field"><span class="field-title" data-i18n>Verification Code</span>
           <input type="text" id="code" data-i18n placeholder="e.g. 1234" autocomplete="one-time-code" inputmode="numeric">
@@ -74,7 +74,7 @@
     <div class="card">
       <h2 data-i18n>Cache Management</h2>
       <p class="muted" data-i18n>Clear the plugin's cache if device discovery misbehaves or data looks stale: the saved login and IoT certificate, the discovered devices, the devices' saved state. Restart Homeswift afterwards.</p>
-      <div class="actions"><button id="clear-cache" class="danger" data-i18n>Clear Cache</button><button id="restart" class="hidden" data-i18n>Restart Homeswift</button></div>
+      <div class="actions"><button id="clear-cache" class="danger" data-i18n data-action-icon="trash">Clear Cache</button><button id="restart" class="hidden" data-i18n data-action-icon="power">Restart Homeswift</button></div>
       <div id="clear-result"></div>
     </div>
     <div class="card">
@@ -89,7 +89,7 @@
   </section>
 
   <div class="card save-card">
-    <div class="save-bar"><span id="save-state" class="muted" data-i18n>Changes are kept once you save.</span><button id="save" class="primary" data-i18n>Save Configuration</button></div>
+    <div class="save-bar"><span id="save-state" class="muted" data-i18n>Changes are kept once you save.</span><button id="save" class="primary" data-i18n data-action-icon="check">Save Configuration</button></div>
   </div>
 </main>
 <script src="/common.js"></script>
