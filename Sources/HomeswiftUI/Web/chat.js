@@ -356,7 +356,7 @@
     });
     list.replaceChildren(el("h2", { text: t("Earlier chats") }),
       rows.length ? el("div", { class: "chat-history-list" }, rows) : el("p", { class: "muted", text: t("No chat yet. Each one you start is kept here, the last ten.") }),
-      el("button", { type: "button", class: "link", text: t("Back to the chat"), onclick: closeHistory }));
+      el("button", { actionIcon: "restore", type: "button", class: "link", text: t("Back to the chat"), onclick: closeHistory }));
   }
 
   async function openChat(chat) {
@@ -464,8 +464,8 @@
       changes,
       details,
       pending ? el("div", { class: "chat-confirm-actions" },
-        el("button", { type: "button", text: t("Don't allow"), onclick: answer(false) }),
-        el("button", { type: "button", class: "primary", text: t("Allow"), onclick: answer(true) })) : null);
+        el("button", { actionIcon: "close", type: "button", text: t("Don't allow"), onclick: answer(false) }),
+        el("button", { actionIcon: "check", type: "button", class: "primary", text: t("Allow"), onclick: answer(true) })) : null);
   }
 
   /// What a config dry run would change, a line per setting with its new value; null for other previews.

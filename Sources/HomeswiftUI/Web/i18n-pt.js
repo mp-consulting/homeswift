@@ -1,5 +1,27 @@
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "No accessories match the current search.": "Nenhum acessório corresponde à pesquisa atual.",
+  "No log lines match the current search.": "Nenhuma linha do registo corresponde à pesquisa atual.",
+  "No audit entries match the current filters.": "Nenhuma entrada de auditoria corresponde aos filtros atuais.",
+  "No modified options match the current search.": "Nenhuma opção modificada corresponde à pesquisa atual.",
+
+  "Keep current rooms": "Manter as divisões atuais",
+  "Moves the selected accessories in Homeswift only. HomeKit rooms stay unchanged.": "Move os acessórios selecionados apenas no Homeswift. As divisões do HomeKit não são alteradas.",
+  "Release to group": "Solte para agrupar",
+  "Reset room order": "Repor a ordem das divisões",
+  "Reorder rooms": "Reordenar divisões",
+  "Show hidden": "Mostrar ocultos",
+  "Clear filters": "Limpar filtros",
+  "{count} of {total} match": "{count} de {total} correspondem",
+  "Search cached accessories": "Pesquisar acessórios em cache",
+  "Up to date": "Atualizado",
+  "Update available": "Atualização disponível",
+  "Check for updates": "Procurar atualizações",
+  "Homeswift is up to date.": "O Homeswift está atualizado.",
+  "Could not check for updates. Try again.": "Não foi possível procurar atualizações. Tente novamente.",
+  "Move to room…": "Mover para uma divisão…",
+  "Moves every member of this group in Homeswift only. HomeKit rooms stay unchanged.": "Move todos os membros deste grupo apenas no Homeswift. As divisões do HomeKit mantêm-se inalteradas.",
+
   "Sign-in": "Início de sessão",
   "Increase port": "Aumentar a porta",
   "Decrease port": "Diminuir a porta",

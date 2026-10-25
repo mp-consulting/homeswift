@@ -464,6 +464,8 @@
       cards.push(el("p", { class: "muted", text: modifiedOnly ? t("No modified options") : search ? t("No options match your search") : t("No options available") }));
     }
     container.replaceChildren(...cards);
+    $("#modified-only").disabled = totalModified === 0 && !$("#modified-only").checked;
+    $("#modified-only").closest("label").title = $("#modified-only").disabled ? t("No modified options match the current search.") : "";
     $("#modified-count").textContent = totalModified ? `(${totalModified})` : "";
     $("#modified-count").className = totalModified ? "modified" : "";
   }
@@ -524,7 +526,7 @@
           el("span", { class: `badge ${opt.default ? "default-on" : ""}`, text: opt.default ? t("default: on") : t("default: off") }), badge),
         el("div", { class: "description", text: opt.description }),
         valueRow),
-      state.explicit ? el("button", { class: "reset", text: t("Reset"), title: t("Reset to the inherited value"), onclick: () => { removeOption(key, scope); renderOptions(); } }) : null);
+      state.explicit ? el("button", { actionIcon: "restore", class: "reset", text: t("Reset"), title: t("Reset to the inherited value"), onclick: () => { removeOption(key, scope); renderOptions(); } }) : null);
     return row;
   }
 
@@ -559,6 +561,7 @@
     return true;
   }
 
+  $("#search").parentElement.append(HomeswiftCommon.clearFilters([[$("#search"), ""], [$("#modified-only"), false]]));
   let searchTimer = null;
   $("#search").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(renderOptions, 300); });
   $("#scope").addEventListener("change", renderOptions);

@@ -76,6 +76,51 @@ struct WingmanTests {
         try await #require(plugin).handleWebRequest(PluginWebRequest(method: method, path: path, query: query, body: body, user: "admin"))
     }
 
+    @Test func identifyIsForwardedOnlyWhenAppleHomeExposesIt() async throws {
+        let host = try await environment.start()
+        let light = try await accessory(host, "light-1")
+        #expect(light.supportsIdentify)
+        try await light.information.characteristic(.identify).write(.bool(true))
+        #expect(environment.wingman.writes.contains { $0.accessory == "light-1" && $0.characteristic == "light-identify" && $0.value == "1" })
+        #expect(!Accessory(id: "unsupported", name: "Unsupported", services: []).supportsIdentify)
+        await host.stop()
+    }
+
+    @Test func identifyRequiresWritableMetadataAndPropagatesFailure() async throws {
+        let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: FakeWingman.home))
+        var source = try #require(home.accessories.first { $0.id == "light-1" })
+        let failingMirror = Mirror(source, write: { _, _, _ in throw HAPStatusError(.serviceCommunicationFailure) })
+        let mirror = try #require(failingMirror)
+        await #expect(throws: HAPStatusError.self) { try await mirror.accessory.information.characteristic(.identify).write(.bool(true)) }
+        let before = Mirror.signature(of: source)
+        let service = try #require(source.services.firstIndex { $0.id == "info-1" })
+        let identify = try #require(source.services[service].characteristics.firstIndex { $0.id == "light-identify" })
+        source.services[service].characteristics[identify].properties = ["read"]
+        let unsupportedMirror = Mirror(source, write: { _, _, _ in Issue.record("Unexpected Identify write") })
+        let unsupported = try #require(unsupportedMirror)
+        #expect(!unsupported.accessory.supportsIdentify)
+        #expect(Mirror.signature(of: source) != before)
+    }
+
+    @Test func nativeIdentifyDoesNotRequireACharacteristic() async throws {
+        let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: FakeWingman.home))
+        var source = try #require(home.accessories.first { $0.id == "light-1" })
+        source.services.removeAll { $0.id == "info-1" }
+        source.supportsIdentify = true
+        let calls = NIOLockedValueBox<[String]>([])
+        let supportedMirror = Mirror(source, write: { accessory, characteristic, value in
+            #expect(accessory == "light-1" && value == .bool(true))
+            calls.withLockedValue { $0.append(characteristic) }
+        })
+        let supported = try #require(supportedMirror)
+        #expect(supported.accessory.supportsIdentify)
+        try await supported.accessory.information.characteristic(.identify).write(.bool(true))
+        #expect(calls.withLockedValue { $0 } == ["Identify"])
+        source.supportsIdentify = false
+        let disabled = Mirror(source, write: { _, _, _ in })
+        #expect(disabled?.accessory.supportsIdentify == false)
+    }
+
     @Test func aMinimalBlockDecodes() throws {
         let configuration = try JSONDecoder().decode(WingmanPlugin.Configuration.self, from: Data(#"{"platform":"Wingman"}"#.utf8))
         #expect(configuration.devices == nil)

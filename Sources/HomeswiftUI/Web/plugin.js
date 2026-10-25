@@ -54,13 +54,13 @@
           card.classList.add("failed");
           card.replaceChildren(el("div", { class: "ai-inner" }, head(t("Assistant")),
             el("p", { class: "error", text: entry.failed }),
-            el("button", { class: "link", text: t("Try again"), onclick: () => { explanations.delete(error); explainNow(); } })));
+            el("button", { actionIcon: "restore", class: "link", text: t("Try again"), onclick: () => { explanations.delete(error); explainNow(); } })));
           return;
         }
         card.classList.add("answered");
         const body = markdown(entry.text);
         body.classList.add("ai-body");
-        const more = el("button", { class: "link ai-more", text: t("Show more"), onclick: () => {
+        const more = el("button", { actionIcon: "eye", class: "link ai-more", text: t("Show more"), onclick: () => {
           body.classList.toggle("clamped");
           more.textContent = body.classList.contains("clamped") ? t("Show more") : t("Show less");
         } });
@@ -200,7 +200,7 @@
       if (instance.paused) {
         main.querySelector(".breadcrumb").after(el("div", { class: "card page-note paused-note" },
           el("p", {}, el("strong", { text: t("Paused.") }), " ", t("The plugin makes no calls to its devices, and they show No Response in the Home app. This page needs it running.")),
-          el("button", { class: "primary", text: t("Resume"), onclick: (event) => act(event.currentTarget, () => HomeswiftCommon.setPaused(platform, name, false).then(() => location.reload())) })));
+          el("button", { actionIcon: "play", class: "primary", text: t("Resume"), onclick: (event) => act(event.currentTarget, () => HomeswiftCommon.setPaused(platform, name, false).then(() => location.reload())) })));
       }
     }).catch(() => {});
     // Expert, last on the page once the page's own script has laid it out: the whole block as config.json
@@ -210,7 +210,7 @@
       el("div", { class: "section-head" }, el("h2", { id: "expert-title", text: t("Expert") })),
       el("div", { class: "card page-note" },
         el("p", { class: "muted", text: t("Every setting of this plugin's block, as config.json keeps it, including what this page does not show.") }),
-        el("div", { class: "expert-links" }, el("a", { class: "button", href: expert("form"), text: t("Form") }), el("a", { class: "button", href: expert("json"), text: "JSON" }))));
+        el("div", { class: "expert-links" }, el("a", { class: "button", href: expert("form") }, HomeswiftCommon.icon("sliders"), el("span", { text: t("Form") })), el("a", { class: "button", href: expert("json") }, HomeswiftCommon.icon("code"), el("span", { text: "JSON" })))));
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => main.append(section));
     else main.append(section);
   }

@@ -498,7 +498,7 @@
         if (result.message?.includes("Not authenticated")) {
           list.replaceChildren(el("div", { class: "card empty" },
             el("p", { text: t("Please authenticate first.") }),
-            el("p", { class: "muted" }, ...around(t("Go to the {tab} tab to connect."), "tab", el("button", { class: "link", text: t("Authentication"), onclick: () => switchTab("auth") })))));
+            el("p", { class: "muted" }, ...around(t("Go to the {tab} tab to connect."), "tab", el("button", { actionIcon: "key", class: "link", text: t("Authentication"), onclick: () => switchTab("auth") })))));
         } else {
           list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "error", text: said(result.message) })));
           offerExplain($("#devices-problem"), result.message, "Loading the device list (GET /v1/gateway-devices on the Daikin Onecta API) on the plugin's page failed.");

@@ -80,3 +80,10 @@ Apple Home: the next Wingman discovery can bring it back. Use `exclude` to keep 
 
 Maintained by @mp-consulting. Tested against a fake Wingman (`Tests/FakeWingman.swift`) and, end to end, against a
 stand-in of Wingman's API over TLS and Bonjour. Local signed-build testing is environment-specific; the automated tests do not require an Apple Home account.
+
+### Identify
+
+The accessory menu offers Identify when HomeKit reports support. It invokes HomeKit’s native identify
+action through Wingman’s authenticated `/write` route (`characteristic: "Identify"`, `value: true`).
+Older Wingman versions use a writable Identify characteristic when available; “Let bridges change accessories” must
+be enabled. The physical response depends on the device. No room assignments are changed.

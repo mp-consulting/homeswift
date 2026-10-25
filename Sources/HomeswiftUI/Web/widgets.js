@@ -220,6 +220,7 @@
     accessory.unavailable = !latest || Boolean(latest.unavailable);
     if (!latest) return;
     accessory.paused = Boolean(latest.paused);
+    accessory.supportsIdentify = Boolean(latest.supportsIdentify);
     accessory.naturalLighting = latest.naturalLighting || {};
     for (const service of accessory.services) {
       const fresh = latest.services.find(s => serviceKey(s) === serviceKey(service));
@@ -965,7 +966,7 @@
     const current = ctx.take(service, "Lock Current State"), target = ctx.take(service, "Lock Target State");
     const state = pill();
     const unlock = canWrite(target) ? hold(t("Hold to unlock"), () => ctx.write(service, target, 0, { held: true })) : null;
-    const lock = canWrite(target) ? el("button", { type: "button", class: "w-button", text: t("Lock"), onclick: () => ctx.write(service, target, 1, { held: true }) }) : null;
+    const lock = canWrite(target) ? el("button", { actionIcon: "lock", type: "button", class: "w-button", text: t("Lock"), onclick: () => ctx.write(service, target, 1, { held: true }) }) : null;
     ctx.watch(() => {
       const value = numberOf(current, numberOf(target, 3));
       state.textContent = labelFor(current.type, value);
@@ -1346,7 +1347,7 @@
       const big = el("b", { class: "w-state" });
       const warning = pill(t("Obstructed"), "bad");
       const open = canWrite(target) ? hold(t("Hold to open"), openIt) : null;
-      const close = canWrite(target) ? el("button", { type: "button", class: "w-button", text: t("Close"), onclick: closeIt }) : null;
+      const close = canWrite(target) ? el("button", { actionIcon: "close", type: "button", class: "w-button", text: t("Close"), onclick: closeIt }) : null;
       ctx.watch(() => {
         big.textContent = labelFor(current.type, doorState());
         warning.hidden = !isOn(obstruction);
@@ -1483,7 +1484,7 @@
         const built = { on: () => isOn(on), status, hold: { armed: () => !isOn(on), confirm: () => turn(true), tap: () => { if (isOn(on)) turn(false); }, verb: () => isOn(on) ? t("turn off") : t("hold to turn on") } };
         if (size === "small") return built;
         const turnOn = hold(t("Hold to turn on"), () => turn(true));
-        const turnOff = el("button", { type: "button", class: "w-button", text: t("Turn off"), onclick: () => turn(false) });
+        const turnOff = el("button", { actionIcon: "power", type: "button", class: "w-button", text: t("Turn off"), onclick: () => turn(false) });
         ctx.watch(() => { turnOn.node.hidden = isOn(on); turnOff.hidden = !isOn(on); });
         built.body = [turnOn.node, turnOff];
         if (size === "full") built.facets = facets(ctx, [primary]);
@@ -1579,7 +1580,7 @@
       full ? null : { label: t("All controls"), icon: "edit", onSelect: () => open(ctx.accessory, ctx.options) },
       full ? null : { separator: true },
       ...(ctx.options.actions ? ctx.options.actions(ctx.accessory)
-        : [{ label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(ctx.accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) }]),
+        : ctx.accessory.supportsIdentify ? [{ label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(ctx.accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) }] : []),
     ];
     return menuButton(t("Actions for {name}", { name: ctx.accessory.name }), items);
   }
@@ -1626,7 +1627,7 @@
     }
     ctx.node = node;
     cards.add(ctx);
-    const done = el("button", { type: "button", class: "link", text: t("Done") });
+    const done = el("button", { actionIcon: "check", type: "button", class: "link", text: t("Done") });
     const dialog = el("dialog", { class: "widget-sheet", "aria-label": accessory.name }, el("div", { class: "sheet-bar" }, done), node);
     done.addEventListener("click", () => dialog.close());
     // On a phone a swipe down from the grabber or the name puts the sheet away, from where the finger left it.
@@ -1980,7 +1981,7 @@
   for (const node of expandedIn(view)) watchExpanded(node);
 
   window.HomeswiftWidgets = {
-    card, open, kindOf, sizes, event, snapshot, reconcileAccessory, listen, describeModel, labelFor, enumLabels,
+    card, open, kindOf, sizes, searchText, event, snapshot, reconcileAccessory, listen, describeModel, labelFor, enumLabels,
     /// The same fallback characteristic row used under All controls, for live documentation and plugin pages.
     characteristicRow(accessory, service, characteristic) {
       const ctx = context(accessory);
@@ -1992,6 +1993,6 @@
     /// A page's own widget, tried before the built-in ones: { name, types, match?, icon, tone, size, build }.
     register: (widget) => widgets.unshift(widget),
     /// The controls the widgets are made of, for a page's own widget.
-    controls: { toggle, segmented, level, steps, setpoint, gauge, readout, meter, chip, hold, pill, icon },
+    controls: { toggle, segmented, level, kelvin, whiteColor, steps, setpoint, gauge, readout, meter, chip, hold, pill, icon },
   };
 })();

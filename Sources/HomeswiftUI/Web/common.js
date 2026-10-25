@@ -11,6 +11,7 @@
   const el = (tag, attrs = {}, ...children) => {
     const node = document.createElement(tag);
     for (const [key, value] of Object.entries(attrs)) {
+      if (key === "actionIcon") continue;
       if (key === "class") node.className = value;
       else if (key === "text") node.textContent = value;
       else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
@@ -19,6 +20,8 @@
       else if (key.startsWith("data-") || key.startsWith("aria-")) node.setAttribute(key, value);
       else node[key] = value;
     }
+    // A CSS mask keeps the decorative icon when async actions replace their text.
+    if (attrs.actionIcon) decorateAction(node, attrs.actionIcon);
     for (const child of children.flat()) if (child != null) node.append(child.nodeType ? child : document.createTextNode(String(child)));
     // A search field as iOS's: no capitals or corrections, a Search key, and on a touch screen that key puts the
     // keyboard away (the results are already there).
@@ -36,12 +39,15 @@
   const icons = {
     wingman: '<g transform="translate(0 4.32) scale(.048)"><g fill="currentColor" stroke="none"><path d="M8 12C65 48 155 88 180 110C198 121 204 136 195 148L165 177C180 144 170 131 149 121C47 95 6 88 8 12Z M36 112L150 152L132 177C64 163 42 161 36 112Z M58 177L121 193L109 221C77 220 63 203 58 177Z"/><g transform="translate(500 0) scale(-1 1)"><path d="M8 12C65 48 155 88 180 110C198 121 204 136 195 148L165 177C180 144 170 131 149 121C47 95 6 88 8 12Z M36 112L150 152L132 177C64 163 42 161 36 112Z M58 177L121 193L109 221C77 220 63 203 58 177Z"/></g></g><path d="M136 220L250 104L364 220M153 205V305H347V205" fill="none" stroke="currentColor" stroke-width="29" stroke-linecap="round" stroke-linejoin="round"/></g>',
     power: '<path d="M12 3v9M6.3 5.8a8 8 0 1 0 11.4 0"/>',
+    ungroup: '<rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><path d="M3 9V3h6M3 3l5 5M15 21h6v-6M21 21l-5-5"/>',
     group: '<rect x="3" y="8" width="13" height="13" rx="3"/><path d="M8 8V6a3 3 0 0 1 3-3h7a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3h-2M7 14.5h5M9.5 12v5"/>',
     bridge: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/>',
     child: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/>',
     accessory: '<rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/>',
     system: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
+    wall: '<rect x="3" y="3" width="11" height="10" rx="1.5"/><rect x="17" y="3" width="4" height="6" rx="1.2"/><rect x="17" y="12" width="4" height="9" rx="1.2"/><rect x="3" y="16" width="5" height="5" rx="1.2"/><rect x="11" y="16" width="3" height="5" rx="1"/>',
     grid: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/>',
+    blind: '<path d="M4 4h16M5 4v13h14V4M5 8h14M5 12h14M5 16h14M21 4v15"/><circle cx="21" cy="20" r="1"/>',
     bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/>',
     switch: '<rect x="6" y="3" width="12" height="18" rx="3"/><circle cx="12" cy="9" r="2"/>',
     outlet: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M10 9v2M14 9v2M10 15h4"/>',
@@ -65,8 +71,8 @@
     inputs: '<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/>',
     update: '<path d="M12 3.5v11"/><path d="m7.5 10 4.5 4.5 4.5-4.5"/><path d="M5 20.5h14"/>',
     camera: '<rect x="2.5" y="6" width="13.5" height="12" rx="2.5"/><path d="m16 10.5 5.5-3.5v10L16 13.5"/>',
-    identify: '<circle cx="12" cy="12" r="2.5"/><path d="M7.5 7.5a6.4 6.4 0 0 0 0 9M16.5 7.5a6.4 6.4 0 0 1 0 9"/>',
-    room: '<path d="M4 21V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v16M2 21h20M15 12h.01"/>',
+    identify: '<path d="M9 17v-1.5a5 5 0 1 1 6 0V17zM9 20h6M11 23h2M12 1v2M3.5 4.5 5 6M1 11h2M20.5 4.5 19 6M21 11h2"/>',
+    room: '<path d="M5 21V4a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v17M5 4l8 3v11l-8 3M3 21h18"/><path d="M10 12.5v1"/>',
     star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>',
     eye: '<path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7z"/><circle cx="12" cy="12" r="2.5"/>',
     bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/>',
@@ -77,6 +83,14 @@
     archive: '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/>',
     key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l2 2M15 8l2 2"/>',
     shield: '<path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/><path d="m9 12 2 2 4-4"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    close: '<path d="m6 6 12 12M18 6 6 18"/>',
+    search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
+    copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"/>',
+    send: '<path d="m3 3 18 9-18 9 4-9zM7 12h14"/>',
+    location: '<path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 0 1 14 0z"/><circle cx="12" cy="10" r="2"/>',
+    check: '<path d="m5 12 4.5 4.5L19 7"/>',
+    warning: '<path d="m12 3 10 18H2zM12 9v5M12 17h.01"/>',
     download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
     restore: '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/>',
     history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6M3.5 4.5V9H8"/><path d="M12 7.5V12l3 2"/>',
@@ -87,6 +101,12 @@
   };
 
   /// An icon as an SVG element.
+  function decorateAction(node, name) {
+    node.classList.add("action-with-icon");
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icons[name] ?? icons.generic}</svg>`;
+    node.style.setProperty("--action-icon", `url("data:image/svg+xml,${encodeURIComponent(svg)}")`);
+  }
+
   function icon(name) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 24 24");
@@ -270,6 +290,7 @@
     if (openMenu?.trigger === trigger) { openMenu.close(); return; }
     openMenu?.close(true);
     let pending = false, cancelDrag = null;
+    const refreshDisabled = [];
     const nodes = items.filter(Boolean).map((item) => {
       if (item.separator) return el("hr", { class: "menu-separator", role: "separator" });
       if (item.choices) {
@@ -289,9 +310,20 @@
       const role = choice ? (item.checkbox ? "menuitemcheckbox" : "menuitemradio") : "menuitem";
       const tick = item.toggle ? el("span", { class: "menu-toggle", "aria-hidden": "true" }, el("span"))
         : choice ? el("span", { class: "menu-check", "aria-hidden": "true", text: item.checked ? "✓" : "" }) : null;
+      const count = item.count === undefined ? null : el("span", { class: "menu-item-count", text: String(item.count) });
       const node = item.href
-        ? el("a", { role, href: item.href, class: item.danger ? "danger" : "", tabIndex: -1 }, glyph, el("span", { text: item.label }), tick)
-        : el("button", { type: "button", role, class: item.danger ? "danger" : "", tabIndex: -1, "aria-checked": choice ? String(item.checked) : null }, glyph, el("span", { text: item.label }), tick);
+        ? el("a", { role, href: item.href, class: item.danger ? "danger" : "", tabIndex: -1 }, glyph, el("span", { class: "menu-item-label", text: item.label }), count, tick)
+        : el("button", { type: "button", role, class: item.danger ? "danger" : "", tabIndex: -1, "aria-checked": choice ? String(item.checked) : null }, glyph, el("span", { class: "menu-item-label", text: item.label }), count, tick);
+      if (item.clearFilters) node.classList.add("clear-filters-menu");
+      const isDisabled = () => (typeof item.disabled === "function" ? item.disabled() : Boolean(item.disabled)) || (item.count === 0 && item.checked === false);
+      const updateDisabled = () => {
+        if (isDisabled()) node.setAttribute("aria-disabled", "true"); else node.removeAttribute("aria-disabled");
+        if (node.tagName === "BUTTON") node.disabled = isDisabled();
+        node.title = isDisabled() && item.count === 0 ? (item.disabledReason || t("No accessories match the current search.")) : "";
+      };
+      updateDisabled();
+      refreshDisabled.push(updateDisabled);
+      if (["ok", "warn", "error"].includes(item.tone)) node.dataset.tone = item.tone;
       if (onReorder && item.key) {
         node.dataset.menuKey = item.key;
         const handle = el("span", { class: "menu-drag-handle", title: t("Drag to reorder"), "aria-hidden": "true", text: "⠿" });
@@ -327,6 +359,7 @@
             pending = true;
             try {
               const saved = await onReorder(rows().map((row) => row.dataset.menuKey));
+              refreshDisabled.forEach((update) => update());
               if (saved) restore(saved.map((id) => before.find((row) => row.dataset.menuKey === id)).filter(Boolean));
             } catch { restore(before); }
             finally { pending = false; }
@@ -340,6 +373,7 @@
         node.prepend(handle);
       }
       node.addEventListener("click", async (event) => {
+        if (isDisabled()) { event.preventDefault(); return; }
         if (pending || event.target.closest(".menu-drag-handle")) return;
         if (!item.keepOpen) { close(); item.onSelect?.(); return; }
         pending = true;
@@ -351,7 +385,7 @@
       });
       return node;
     });
-    const entries = () => [...list.querySelectorAll('[role^="menuitem"]')];
+    const entries = () => [...list.querySelectorAll('[role^="menuitem"]:not([aria-disabled="true"])')];
     // On a phone a card's menu is an action sheet over a dimmed page, at the bottom within the thumb's reach, as
     // iOS's; the header's (the account) still drops down from its button.
     const sheet = matchMedia("(max-width: 640px)").matches && !trigger.closest("header");
@@ -907,14 +941,14 @@
   }
   document.addEventListener("pointerdown", (event) => {
     const select = event.target.closest("select");
-    if (!select || select.disabled || select.multiple || select.size > 1 || event.button !== 0) return;
+    if (!select || select.disabled || select.multiple || select.size > 1 || event.button !== 0 || select.closest("dialog[open]")) return;
     event.preventDefault();
     select.focus();
     openSelectMenu(select);
   });
   document.addEventListener("keydown", (event) => {
     const select = event.target.closest("select");
-    if (!select || select.disabled || select.multiple || select.size > 1) return;
+    if (!select || select.disabled || select.multiple || select.size > 1 || select.closest("dialog[open]")) return;
     if ([" ", "Enter", "ArrowDown", "ArrowUp"].includes(event.key)) {
       event.preventDefault(); openSelectMenu(select, true);
     }
@@ -941,8 +975,71 @@
   new MutationObserver(updateSaveBarPosition).observe(document.body, { childList: true, subtree: true });
   updateSaveBarPosition();
 
+  const decorateStaticActions = () => document.querySelectorAll("[data-action-icon]").forEach((node) => decorateAction(node, node.dataset.actionIcon));
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", decorateStaticActions);
+  else decorateStaticActions();
+
+  // Controls declare their neutral value; reset all before notifying their listeners.
+  function clearFilters(controls, { active = () => false, reset = () => {}, events = [] } = {}) {
+    const value = (control) => control.type === "checkbox" ? control.checked : control.value;
+    const button = el("button", { type: "button", class: "clear-filters", actionIcon: "restore", text: t("Clear filters"), onclick: () => {
+      for (const [control, initial] of controls) {
+        if (control.type === "checkbox") control.checked = initial; else control.value = initial;
+      }
+      reset();
+      for (const [control] of controls) control.dispatchEvent(new Event(control.type === "search" ? "input" : "change"));
+      update();
+    } });
+    const update = () => { button.disabled = !active() && controls.every(([control, initial]) => value(control) === initial); };
+    for (const [control] of controls) for (const event of ["input", "change"]) control.addEventListener(event, update);
+    for (const [control, event] of events) control.addEventListener(event, update);
+    update();
+    return button;
+  }
+
+  // Native disabled buttons suppress click events. Pointer events still let a tap
+  // explain the disabled state without enabling the control or running its action.
+  let filterTip = null, filterTipTimer = null, filterTap = null;
+  function hideFilterTip() {
+    clearTimeout(filterTipTimer);
+    filterTip?.remove(); filterTip = null;
+  }
+  function disabledFilterAt(x, y) {
+    const target = document.elementFromPoint(x, y);
+    const control = target?.closest('[aria-disabled="true"][title], button:disabled[title], label.toggle[title]');
+    if (!control?.title || (control.matches('label') && !control.querySelector('input:disabled'))) return null;
+    return control;
+  }
+  document.addEventListener("pointerdown", (event) => {
+    hideFilterTip();
+    const control = disabledFilterAt(event.clientX, event.clientY);
+    filterTap = control ? { control, x: event.clientX, y: event.clientY, id: event.pointerId } : null;
+  }, true);
+  document.addEventListener("pointerup", (event) => {
+    const tap = filterTap; filterTap = null;
+    if (!tap || tap.id !== event.pointerId || Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > 8
+      || disabledFilterAt(event.clientX, event.clientY) !== tap.control) return;
+    event.preventDefault();
+    event.stopPropagation();
+    filterTip = el("div", { class: "disabled-filter-tip", role: "status", popover: "manual", text: tap.control.title });
+    (tap.control.closest("dialog[open]") || document.body).append(filterTip);
+    filterTip.showPopover();
+    const rect = tap.control.getBoundingClientRect();
+    const bounds = filterTip.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const left = viewport?.offsetLeft || 0, top = viewport?.offsetTop || 0;
+    const width = viewport?.width || innerWidth, height = viewport?.height || innerHeight;
+    filterTip.style.left = `${Math.max(left + 12, Math.min(rect.left, left + width - bounds.width - 12))}px`;
+    filterTip.style.top = `${Math.max(top + 12, Math.min(rect.bottom + 8, top + height - bounds.height - 12))}px`;
+    filterTipTimer = setTimeout(hideFilterTip, 4500);
+  }, true);
+  document.addEventListener("pointercancel", () => { filterTap = null; }, true);
+  document.addEventListener("scroll", () => { filterTap = null; hideFilterTip(); }, true);
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape") hideFilterTip(); });
+  window.addEventListener("resize", hideFilterTip);
+
   window.HomeswiftCommon = {
-    $, el, icon, tile, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
+    $, el, icon, tile, clearFilters, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
 })();

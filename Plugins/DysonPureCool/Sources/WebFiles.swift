@@ -100,20 +100,20 @@ extension DysonPureCoolPlugin {
 
   // Step 0: the devices already set up.
   const existingList = el("div", { class: "devices" });
-  const resyncButton = el("button", { text: t("Re-sync from Dyson Cloud"), title: t("Sign in again to add devices or refresh their credentials"), onclick: () => {
+  const resyncButton = el("button", { actionIcon: "restore", text: t("Re-sync from Dyson Cloud"), title: t("Sign in again to add devices or refresh their credentials"), onclick: () => {
     state.isResync = true;
     go(1);
     setTimeout(() => email.focus(), 50);
   } });
   const stepExisting = el("div", { class: "step" },
     el("div", { class: "section-head" }, el("h2", { text: t("Your Dyson devices") }),
-      el("div", { class: "actions", style: "margin:0" }, resyncButton, el("button", { text: t("Edit options"), onclick: () => go(3) }))),
+      el("div", { class: "actions", style: "margin:0" }, resyncButton, el("button", { actionIcon: "sliders", text: t("Edit options"), onclick: () => go(3) }))),
     existingList);
 
   // Step 1: the Dyson account.
   const email = el("input", { type: "email", placeholder: t("your@email.com"), autocomplete: "email", id: "email" });
   const password = el("input", { type: "password", placeholder: t("Your Dyson password"), autocomplete: "current-password", id: "password" });
-  const showPassword = el("button", { type: "button", class: "link", text: t("Show"), "aria-label": t("Toggle password visibility"), onclick: () => {
+  const showPassword = el("button", { actionIcon: "eye", type: "button", class: "link", text: t("Show"), "aria-label": t("Toggle password visibility"), onclick: () => {
     const hidden = password.type === "password";
     password.type = hidden ? "text" : "password";
     showPassword.textContent = hidden ? t("Hide") : t("Show");
@@ -123,8 +123,8 @@ extension DysonPureCoolPlugin {
   country.value = "US";
   const loginProblem = el("div", {});
   const resyncHint = el("p", { class: "hint hidden", text: t("Re-enter your credentials to re-sync devices from Dyson Cloud.") });
-  const cancelResync = el("button", { class: "hidden", text: t("Cancel"), onclick: () => { state.isResync = false; go(0); } });
-  const connectButton = el("button", { class: "primary", text: t("Connect Account"), onclick: (event) => act(event.currentTarget, connect) });
+  const cancelResync = el("button", { actionIcon: "close", class: "hidden", text: t("Cancel"), onclick: () => { state.isResync = false; go(0); } });
+  const connectButton = el("button", { actionIcon: "key", class: "primary", text: t("Connect Account"), onclick: (event) => act(event.currentTarget, connect) });
   const assistantHint = el("p", { class: "hint hidden" }, ...around(t("Tip: add a {block} block to config.json to get the Assistant, which explains sign-in and device connection errors here."),
     "block", el("strong", { text: "HomeswiftAiKit" })));
   const stepAccount = el("div", { class: "step" },
@@ -142,14 +142,14 @@ extension DysonPureCoolPlugin {
   // Step 1b: the emailed code.
   const code = el("input", { type: "text", class: "code-input", placeholder: "000000", maxlength: 6, inputmode: "numeric", autocomplete: "one-time-code", "aria-label": t("Verification code") });
   const codeProblem = el("div", {});
-  const verifyButton = el("button", { class: "primary", text: t("Verify"), onclick: (event) => act(event.currentTarget, verify) });
+  const verifyButton = el("button", { actionIcon: "check", class: "primary", text: t("Verify"), onclick: (event) => act(event.currentTarget, verify) });
   const stepCode = el("div", { class: "step" },
     el("h2", { text: t("Verify your identity") }),
     el("p", { class: "muted", text: t("We've sent a verification code to your email. Enter it below.") }),
     el("p", { class: "hint", text: t("Check your inbox for an email from Dyson with your verification code.") }),
     el("div", { class: "field" }, el("label", { class: "field-title", text: t("Verification code") }), code),
     codeProblem,
-    el("div", { class: "actions" }, el("button", { text: t("Back"), onclick: () => go(1) }), verifyButton));
+    el("div", { class: "actions" }, el("button", { actionIcon: "restore", text: t("Back"), onclick: () => go(1) }), verifyButton));
 
   // Step 2: the account's devices.
   const deviceList = el("div", { class: "devices" });
@@ -158,8 +158,8 @@ extension DysonPureCoolPlugin {
     el("p", { class: "muted", text: t("Choose which devices to add to HomeKit. You can customize the name for each device.") }),
     deviceList,
     el("div", { class: "actions" },
-      el("button", { text: t("Back"), onclick: () => go(state.existingConfig ? 0 : 1) }),
-      el("button", { class: "primary", text: t("Continue"), onclick: () => {
+      el("button", { actionIcon: "restore", text: t("Back"), onclick: () => go(state.existingConfig ? 0 : 1) }),
+      el("button", { actionIcon: "check", class: "primary", text: t("Continue"), onclick: () => {
         if (state.selected.size === 0) return toast(t("Please select at least one device"), "error");
         go(3);
       } })));
@@ -179,7 +179,7 @@ extension DysonPureCoolPlugin {
     filterStatus: option("opt-filter-status", t("Filter status indicator"), false),
   };
   const polling = el("input", { type: "number", class: "polling", value: 60, min: 10, max: 300, id: "opt-polling" });
-  const saveButton = el("button", { class: "primary", text: t("Save"), onclick: (event) => act(event.currentTarget, saveFromWizard) });
+  const saveButton = el("button", { actionIcon: "check", class: "primary", text: t("Save"), onclick: (event) => act(event.currentTarget, saveFromWizard) });
   const stepOptions = el("div", { class: "step options" },
     el("h2", { text: t("Configure options") }),
     el("p", { class: "muted", text: t("Customize how your devices appear in HomeKit.") }),
@@ -189,16 +189,16 @@ extension DysonPureCoolPlugin {
     el("div", { class: "field" }, el("label", { class: "field-title", htmlFor: "opt-polling", text: t("Polling interval (seconds)") }), polling,
       el("p", { class: "help", text: t("How often to check device status (10-300 seconds)") })),
     el("div", { class: "actions" },
-      el("button", { text: t("Back"), onclick: () => go(state.existingConfig && !state.authToken ? 0 : 2) }), saveButton));
+      el("button", { actionIcon: "restore", text: t("Back"), onclick: () => go(state.existingConfig && !state.authToken ? 0 : 2) }), saveButton));
 
   // Done.
   const doneText = el("p", { class: "muted center" });
-  const restartButton = el("button", { class: "primary hidden", text: t("Restart Homeswift"), onclick: (event) => act(event.currentTarget, restart) });
+  const restartButton = el("button", { actionIcon: "power", class: "primary hidden", text: t("Restart Homeswift"), onclick: (event) => act(event.currentTarget, restart) });
   const stepDone = el("div", { class: "step center" },
     el("div", { class: "done-icon", text: "✓" }),
     el("h2", { text: t("Configuration complete!") }),
     doneText,
-    el("div", { class: "actions", style: "justify-content:center" }, restartButton, el("button", { text: t("Close"), onclick: () => { location.href = home; } })));
+    el("div", { class: "actions", style: "justify-content:center" }, restartButton, el("button", { actionIcon: "close", text: t("Close"), onclick: () => { location.href = home; } })));
 
   const bodies = { 0: stepExisting, 1: stepAccount, "1b": stepCode, 2: stepDevices, 3: stepOptions, success: stepDone };
   wizard.replaceChildren(progress, ...Object.values(bodies), statusLine);
@@ -243,7 +243,7 @@ extension DysonPureCoolPlugin {
       device.newVersionAvailable ? el("span", { class: "badge update", text: t("Update available") }) : null);
 
     const settings = el("div", { class: "settings hidden", onclick: (event) => event.stopPropagation() });
-    const gear = el("button", { class: "link", text: t("Settings"), title: t("Device settings"), onclick: (event) => {
+    const gear = el("button", { actionIcon: "sliders", class: "link", text: t("Settings"), title: t("Device settings"), onclick: (event) => {
       event.stopPropagation();
       settings.classList.toggle("hidden");
     } });
@@ -252,7 +252,7 @@ extension DysonPureCoolPlugin {
     let action;
     if (removable) {
       status = live ? el("span", { class: `pill status ${live.connected ? "on" : live.retrying ? "away" : "standby"}`, text: liveText(live) }) : null;
-      action = el("button", { class: "link danger", text: t("Remove"), title: t("Remove device"), onclick: () => {
+      action = el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), title: t("Remove device"), onclick: () => {
         state.devices = state.devices.filter((d) => d.serial !== device.serial);
         state.selected.delete(device.serial);
         renderExisting();

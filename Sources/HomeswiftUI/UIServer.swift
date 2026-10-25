@@ -762,6 +762,11 @@ public final class UIServer: Sendable {
                 return .json(result)
             }
         case .POST:
+            if route == ["updates", "check"] {
+                guard let releases = options.releases else { return .error(503, "update checking is unavailable") }
+                await releases.check()
+                return .json(releases.json() ?? .null)
+            }
             if route == ["config", "check-port"] {
                 guard let candidate = body["port"]?.intValue, (1...65535).contains(candidate) else {
                     return .error(400, "port must be an integer from 1 to 65535")

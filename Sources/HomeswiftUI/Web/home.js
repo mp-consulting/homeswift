@@ -41,13 +41,23 @@
     ];
   }
 
-  async function chooseRoom(accessory, change) {
+  async function chooseRoom(accessory, change, note = "") {
     let rooms = [];
     try { rooms = (await app.api("/api/rooms")).rooms.map((room) => room.name); } catch {}
-    const room = prompt(rooms.length
+    const room = prompt((rooms.length
       ? t("The room of {name}. Rooms: {rooms}. A new name adds the room; empty takes it out of its room.", { name: displayName(accessory), rooms: rooms.join(", ") })
-      : t("The room of {name}. A new name adds the room; empty takes it out of its room.", { name: displayName(accessory) }), accessory.room || "");
-    if (room !== null) change({ room: room.trim() || null });
+      : t("The room of {name}. A new name adds the room; empty takes it out of its room.", { name: displayName(accessory) })) + (note ? `\n\n${note}` : ""), accessory.room || "");
+    if (room !== null) await change({ room: room.trim() || null });
+  }
+
+  async function moveGroupToRoom(group, accessories) {
+    const members = group.members.map((id) => accessories.find((a) => a.id === id));
+    const room = members.every((a) => a && a.room === members[0]?.room) ? members[0]?.room : "";
+    await chooseRoom({ name: group.name, room }, async (fields) => {
+      // One metadata-only update for every member; no device or HomeKit writes.
+      await changeLayout({ accessories: Object.fromEntries(group.members.map((id) => [id, fields])) });
+      await app.route();
+    }, t("Moves every member of this group in Homeswift only. HomeKit rooms stay unchanged."));
   }
 
   /// The Accessories page's accessories by room, in the layout's order; those in no room last.
@@ -70,7 +80,7 @@
     try {
       result = await app.api("/api/rooms/suggest", { method: "POST", body: {} });
     } catch (e) {
-      panel.replaceChildren(el("p", { class: "error", text: e.message }), el("div", { class: "actions" }, el("button", { text: t("Close"), onclick: () => panel.remove() })));
+      panel.replaceChildren(el("p", { class: "error", text: e.message }), el("div", { class: "actions" }, el("button", { actionIcon: "close", text: t("Close"), onclick: () => panel.remove() })));
       return;
     } finally { panel.classList.remove("ai-busy"); }
     const byID = new Map(accessories.map((a) => [a.id, a]));
@@ -90,7 +100,7 @@
     const renames = result.renames.map((rename) => check({ id: rename.id, name: rename.name }, `${rename.current} → ${rename.name}`, rename.reason));
     const orphans = result.orphans.map((orphan) => el("li", {}, el("strong", { text: orphan.name }), ` ${orphan.reason}`));
     const line = statusLine();
-    const apply = el("button", { class: "primary", text: t("Apply what is ticked"), onclick: async () => {
+    const apply = el("button", { actionIcon: "check", class: "primary", text: t("Apply what is ticked"), onclick: async () => {
       const changes = {};
       for (const { input, data } of checks) {
         if (!input.checked) continue;
@@ -103,7 +113,7 @@
       el("div", { class: "panel-head" },
         el("div", {}, el("h2", {}, sparkle(), " ", t("Suggested rooms")),
           el("p", { class: "muted", text: t("From {model}. Untick what you do not want; nothing changes until you apply. Names show on these pages only: the Home app keeps its own.", { model: result.model }) })),
-        el("button", { class: "link", text: t("Dismiss"), onclick: () => panel.remove() })),
+        el("button", { actionIcon: "close", class: "link", text: t("Dismiss"), onclick: () => panel.remove() })),
       rooms.length ? el("div", { class: "suggest-rooms" }, rooms) : el("p", { class: "muted", text: t("No room to suggest.") }),
       renames.length ? el("div", {}, el("div", { class: "service-name", text: t("Clearer names") }), renames) : null,
       orphans.length ? el("div", {}, el("div", { class: "service-name", text: t("Worth a look") }), el("ul", { class: "help" }, orphans)) : null,
@@ -304,7 +314,7 @@
           say(line, "");
         } else if (result.ok) {
           say(line, tn("{mood} is set on {n} light.", "{mood} is set on {n} lights.", count, { mood: shown }));
-          line.append(" ", el("button", { type: "button", class: "link", text: t("Save as a scene"), onclick: () => saveAsScene(body.mood ? { mood: body.mood } : { plan: result.mood }, shown) }));
+          line.append(" ", el("button", { actionIcon: "check", type: "button", class: "link", text: t("Save as a scene"), onclick: () => saveAsScene(body.mood ? { mood: body.mood } : { plan: result.mood }, shown) }));
         } else {
           const failures = result.failed.map((f) => `${f.name}: ${HomeswiftI18n.message(f.error)}`).join("; ");
           say(line, t("{mood} is set, but not on every light: {failures}", { mood: shown, failures }), "error");
@@ -397,7 +407,7 @@
       const more = scene.actions.length > 4 ? el("p", { class: "muted note", text: tn("and {n} more", "and {n} more", scene.actions.length - 4) }) : null;
       const lastVars = scene.lastRun ? { date: dateTimeFormat.format(new Date(scene.lastRun.at)), trigger: scene.lastRun.trigger } : null;
       const last = scene.lastRun ? (scene.lastRun.ok ? t("Last run {date} ({trigger})", lastVars) : t("Last run {date} ({trigger}), with errors", lastVars)) : t("Never run");
-      const run = el("button", { class: "primary", text: t("Run") });
+      const run = el("button", { actionIcon: "play", class: "primary", text: t("Run") });
       run.addEventListener("click", async () => { await runScene(scene, run); });
       return el("div", { class: "card server scene-card" },
         el("div", { class: "server-head" }, tile("play", scene.security ? "violet" : "orange"),
@@ -416,20 +426,22 @@
             } },
           ])));
     };
+    const sceneCount = el("span", { class: "pill", text: String(data.scenes.length) });
     const sceneCards = data.scenes.map((scene) => ({ scene, node: card(scene) }));
     const search = el("input", { type: "search", class: "search", placeholder: t("Filter text"), "aria-label": t("Your scenes") });
     const noMatches = el("p", { class: "card empty", hidden: true, text: t("Nothing in this range matches.") });
     search.addEventListener("input", () => {
       const query = search.value.trim().toLocaleLowerCase();
       for (const { scene, node } of sceneCards) node.hidden = !scene.name.toLocaleLowerCase().includes(query);
+      sceneCount.textContent = String(sceneCards.filter(({ node }) => !node.hidden).length);
       noMatches.hidden = sceneCards.some(({ node }) => !node.hidden);
     });
     app.show(main,
       app.pageHead(t("Scenes"), t("Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them."),
         data.scenes.length ? el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") }) : null),
-      el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") }), data.scenes.length ? search : null),
+      el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") }), sceneCount, data.scenes.length ? [search, HomeswiftCommon.clearFilters([[search, ""]])] : null),
       data.scenes.length ? el("div", { class: "grid scene-grid" }, sceneCards.map(({ node }) => node))
-        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") }), el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
+        : el("div", { class: "card empty scenes-empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") }), el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
       noMatches, moodsSection(accessories), locationCard(data));
   }
 
@@ -444,7 +456,7 @@
     const save = async (body) => {
       try { await app.api("/api/scenes/location", { method: "PUT", body }); app.route(); } catch (e) { say(line, e.message, "error"); }
     };
-    const here = el("button", { text: t("Use this device's location"), onclick: () => {
+    const here = el("button", { actionIcon: "location", text: t("Use this device's location"), onclick: () => {
       if (!navigator.geolocation) return say(line, t("This browser cannot tell its location."), "error");
       say(line, t("Asking the browser…"));
       navigator.geolocation.getCurrentPosition(
@@ -457,8 +469,8 @@
       el("p", { class: "muted", text: next }),
       el("div", { class: "fields" }, field(t("Latitude"), lat), field(t("Longitude"), lon), field(t("Name"), name, t("Only for you to recognise it."))),
       el("div", { class: "actions" },
-        el("button", { class: "primary", text: t("Save"), onclick: () => save({ lat: Number(lat.value), lon: Number(lon.value), name: name.value }) }),
-        here, location ? el("button", { class: "link", text: t("Forget it"), onclick: () => save(null) }) : null),
+        el("button", { actionIcon: "check", class: "primary", text: t("Save"), onclick: () => save({ lat: Number(lat.value), lon: Number(lon.value), name: name.value }) }),
+        here, location ? el("button", { actionIcon: "trash", class: "link", text: t("Forget it"), onclick: () => save(null) }) : null),
       line);
   }
 
@@ -735,9 +747,9 @@
       });
       return panel;
     };
-    node(t("Triggers"), "play", [el("p", { class: "muted", text: data.location ? t("Run it automatically. Sunrise and sunset are for {place}.", { place: data.location.name || `${data.location.lat}, ${data.location.lon}` }) : t("Run it automatically. Sunrise and sunset need a location: set it on the Scenes page.") }), triggerList, el("button", { type: "button", text: t("Add a trigger"), onclick: () => addTrigger() })]);
-    node(t("Conditions"), "shield", [el("p", { class: "muted", text: t("An automatic run goes ahead only when all of these hold. Running it by hand ignores them.") }), conditionList, el("button", { type: "button", text: t("Add a condition"), onclick: () => addCondition() })]);
-    node(t("Actions"), "bulb", [el("p", { class: "muted", text: t("The values to set, in this order.") }), actionList, el("button", { type: "button", text: t("Add an action"), onclick: () => addAction() }), capture]);
+    node(t("Triggers"), "play", [el("p", { class: "muted", text: data.location ? t("Run it automatically. Sunrise and sunset are for {place}.", { place: data.location.name || `${data.location.lat}, ${data.location.lon}` }) : t("Run it automatically. Sunrise and sunset need a location: set it on the Scenes page.") }), triggerList, el("button", { actionIcon: "plus", type: "button", text: t("Add a trigger"), onclick: () => addTrigger() })]);
+    node(t("Conditions"), "shield", [el("p", { class: "muted", text: t("An automatic run goes ahead only when all of these hold. Running it by hand ignores them.") }), conditionList, el("button", { actionIcon: "plus", type: "button", text: t("Add a condition"), onclick: () => addCondition() })]);
+    node(t("Actions"), "bulb", [el("p", { class: "muted", text: t("The values to set, in this order.") }), actionList, el("button", { actionIcon: "plus", type: "button", text: t("Add an action"), onclick: () => addAction() }), capture]);
     const zoomLabel = el("span", { text: "100%" });
     const changeZoom = (delta) => { zoom = Math.max(.5, Math.min(1.5, zoom + delta)); canvas.style.zoom = zoom; zoomLabel.textContent = `${Math.round(zoom * 100)}%`; };
     const flow = el("div", { class: "scene-flow" }, el("div", { class: "scene-flow-toolbar" },
@@ -768,7 +780,7 @@
       flow,
       el("div", { class: "save-bar" }, save, el("a", { class: "button", href: "/scenes", text: t("Cancel") }),
         isNew ? null : el("span", { class: "spacer" }),
-        isNew ? null : el("button", { type: "button", class: "danger", text: t("Delete"), onclick: async () => {
+        isNew ? null : el("button", { actionIcon: "trash", type: "button", class: "danger", text: t("Delete"), onclick: async () => {
           if (!confirm(t("Delete the scene {name}?", { name: scene.name }))) return;
           try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.navigate("/scenes"); } catch (e) { say(line, e.message, "error"); }
         } })),
@@ -864,7 +876,7 @@
         } };
         rows.push(field(t("Authentication"), authButton), bearer, basic,
           el("div", { class: "webhook-headers" }, el("strong", { text: t("Custom headers") }), headerRows,
-            el("button", { type: "button", class: "link", text: t("Add header"), onclick: () => addHeader() }),
+            el("button", { actionIcon: "plus", type: "button", class: "link", text: t("Add header"), onclick: () => addHeader() }),
             el("p", { class: "help", text: t("Saved credentials and header values are masked. Leave the mask unchanged to keep them.") })));
       }
       const state = el("span", { class: `notification-state${values.enabled ? " active" : ""}`, text: values.enabled ? t("On [setting]") : t("Off [setting]") });
@@ -894,7 +906,7 @@
 
     });
     const digestTime = el("input", { type: "time", value: settings.dailyDigestTime, "aria-label": t("Daily digest time") });
-    const save = el("button", { class: "primary", text: t("Save") });
+    const save = el("button", { actionIcon: "check", class: "primary", text: t("Save") });
     save.addEventListener("click", async () => {
       const channels = {};
       try {
@@ -921,7 +933,7 @@
           el("div", { class: "notification-digest" }, field(t("Daily digest at"), digestTime)),
           el("p", { class: "muted notification-limit", text: t("The same event about the same thing goes out once per 15 minutes at most, and 12 notifications an hour at most.") }))),
       el("div", { class: "save-bar notification-save" }, line,
-        el("button", { text: t("Send a test to every channel that is on"), onclick: () => test() }), save));
+        el("button", { actionIcon: "send", text: t("Send a test to every channel that is on"), onclick: () => test() }), save));
   }
 
   /// This browser's subscription and the others'.
@@ -930,14 +942,14 @@
     const line = statusLine();
     const others = el("div", {}, settings.subscriptions.map((sub) => el("div", { class: "control" },
       el("span", { text: `${sub.label}${sub.username ? ` · ${sub.username}` : ""}` }),
-      el("button", { class: "link", text: t("Remove"), onclick: async () => {
+      el("button", { actionIcon: "trash", class: "link", text: t("Remove"), onclick: async () => {
         try { await app.api(`/api/notifications/push/subscriptions/${encodeURIComponent(sub.id)}`, { method: "DELETE" }); app.route(); } catch (e) { say(line, e.message, "error"); }
       } }))));
     if (!pushSupported()) {
       box.append(el("p", { class: "muted note", text: window.isSecureContext ? t("This browser cannot receive push notifications.") : t("Open this page over HTTPS (the HomeswiftUI block's https) or on localhost to turn them on here.") }), others);
       return box;
     }
-    const toggle = el("button", { text: t("Checking…"), disabled: true });
+    const toggle = el("button", { actionIcon: "restore", text: t("Checking…"), disabled: true });
     const draw = (subscription) => {
       toggle.disabled = false;
       toggle.textContent = subscription ? t("Turn off on this browser") : t("Turn on for this browser");
@@ -960,7 +972,7 @@
       };
     };
     currentSubscription().then(draw).catch(() => draw(null));
-    const testHere = el("button", { class: "link", text: t("Send a test here"), onclick: async () => {
+    const testHere = el("button", { actionIcon: "send", class: "link", text: t("Send a test here"), onclick: async () => {
       const subscription = await currentSubscription();
       if (!subscription) return say(line, t("This browser is not subscribed."), "error");
       try {
@@ -982,6 +994,6 @@
       app.views.notifications = notificationsView;
       app.views.quick = async (main) => app.show(main, app.pageHead(t("Quick controls"), t("Your favourite accessories and the scenes, at hand.")), quickSection(null, { standalone: true }));
     },
-    layoutActions, groupByRoom, suggestRooms, quickSection, displayName,
+    layoutActions, moveGroupToRoom, groupByRoom, suggestRooms, quickSection, displayName,
   };
 })();

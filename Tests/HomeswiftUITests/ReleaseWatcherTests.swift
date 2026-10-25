@@ -22,6 +22,25 @@ final class CannedGitHub: HTTPSending, Sendable {
 }
 
 @Suite struct ReleaseWatcherTests {
+    @Test func manualCheckFetchesFreshReleaseWithoutStartingWatcher() async throws {
+        let github = CannedGitHub(json: Self.release)
+        let releases = watcher(github, install: .source)
+        let environment = try UITestEnvironment(auth: .none, options: { $0.releases = releases })
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let browser = Browser(base: base)
+        browser.origin = base.absoluteString
+        let result = try await browser.send("POST", "/api/updates/check", body: "{}")
+        #expect(result.status == 200)
+        #expect(result.json?["latest"]?.stringValue == "0.4.0")
+        #expect(result.json?["available"]?.boolValue == true)
+        #expect(github.requests.withLockedValue { $0.count } == 1)
+        github.reply.withLockedValue { $0 = HomeswiftNetwork.HTTPResponse(status: 503, body: Data()) }
+        let failed = try await browser.send("POST", "/api/updates/check", body: "{}")
+        #expect(failed.json?["error"]?.stringValue != nil)
+        #expect(github.requests.withLockedValue { $0.count } == 2)
+    }
+
     static let release = """
         {
           "tag_name": "v0.4.0", "html_url": "https://github.com/mp-consulting/homeswift/releases/tag/v0.4.0",

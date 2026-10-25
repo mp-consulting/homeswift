@@ -407,6 +407,8 @@
   }
 
   function updateModifiedSummary(count) {
+    $("#modifiedOnlyToggle").disabled = count === 0 && !$("#modifiedOnlyToggle").checked;
+    $("#modifiedOnlyToggle").closest("label").title = $("#modifiedOnlyToggle").disabled ? t("No modified options match the current search.") : "";
     const summary = $("#modifiedSummary");
     summary.textContent = count ? `(${count})` : "";
     summary.className = count ? "warn" : "";
@@ -692,6 +694,7 @@
     $("#addControllerBtn").addEventListener("click", () => showDiscovery(controllers().length > 0));
     $("#supportBtn").addEventListener("click", () => showScreen("supportScreen"));
     $("#backFromSupportBtn").addEventListener("click", () => { showScreen("controllersScreen"); renderControllers(); });
+    $("#optionsSearch").parentElement.append(HomeswiftCommon.clearFilters([[$("#optionsSearch"), ""], [$("#modifiedOnlyToggle"), false]]));
     let searchTimer = null;
     $("#optionsSearch").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(renderOptions, 300); });
     $("#scopeSelect").addEventListener("change", renderOptions);

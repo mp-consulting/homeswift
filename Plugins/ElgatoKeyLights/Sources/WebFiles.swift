@@ -193,7 +193,7 @@ extension ElgatoKeyLightsPlugin {
     const { light, draft } = editing;
     const set = (key, value, fallback) => { setKey(draft, key, value, fallback); changed(); };
     const message = el("span", { class: "muted" });
-    const save = el("button", { class: "primary", text: t("Save"), onclick: (event) => act(event.currentTarget, saveSettings, (text) => { message.className = "error"; message.textContent = text; }) });
+    const save = el("button", { actionIcon: "check", class: "primary", text: t("Save"), onclick: (event) => act(event.currentTarget, saveSettings, (text) => { message.className = "error"; message.textContent = text; }) });
     const changed = () => {
       const dirty = JSON.stringify(editing.draft) !== editing.saved;
       save.disabled = !dirty;
@@ -221,7 +221,7 @@ extension ElgatoKeyLightsPlugin {
       el("label", { class: "field" }, el("span", { class: "field-title", text: t("Default colour temperature") }), slider("powerOnTemperature", 2900, 7000, 50, 4500, (v) => `${v} K`)));
 
     const test = el("p", { class: "status-line muted" });
-    const testButton = el("button", { text: t("Test connection"), onclick: (event) => act(event.currentTarget, async () => {
+    const testButton = el("button", { actionIcon: "send", text: t("Test connection"), onclick: (event) => act(event.currentTarget, async () => {
       test.className = "status-line muted";
       test.textContent = t("Asking {host}:{port}…", { host: light.host, port: String(light.port) });
       try {
@@ -237,7 +237,7 @@ extension ElgatoKeyLightsPlugin {
     panel.replaceChildren(
       el("div", { class: "panel-head" },
         el("div", {}, el("h2", { text: light.name }), el("p", { class: "muted", text: t("Saving applies at once: the light keeps its place in the Home app.") })),
-        el("button", { class: "link", text: t("Close"), onclick: closeSettings })),
+        el("button", { actionIcon: "close", class: "link", text: t("Close"), onclick: closeSettings })),
       el("div", { class: "panel-columns" },
         el("div", {},
           el("label", { class: "toggle" }, el("span", { class: "switch" }, enabled, el("span")),
@@ -251,8 +251,8 @@ extension ElgatoKeyLightsPlugin {
               .filter(([, value]) => value !== undefined && value !== "").map(([label, value]) => el("div", { class: "fact" }, el("span", { text: label }), el("b", { text: String(value), title: String(value) })))),
           light.host ? el("div", { class: "actions" }, testButton) : null, test)),
       el("div", { class: "save-bar" }, message,
-        editing.exists ? el("button", { class: "link danger", text: t("Remove from config.json"), onclick: (event) => act(event.currentTarget, removeEntry) }) : null,
-        el("button", { text: t("Cancel"), onclick: () => { editing.draft = JSON.parse(editing.saved); closeSettings(); } }), save));
+        editing.exists ? el("button", { actionIcon: "trash", class: "link danger", text: t("Remove from config.json"), onclick: (event) => act(event.currentTarget, removeEntry) }) : null,
+        el("button", { actionIcon: "close", text: t("Cancel"), onclick: () => { editing.draft = JSON.parse(editing.saved); closeSettings(); } }), save));
     changed();
   }
 
@@ -303,7 +303,7 @@ extension ElgatoKeyLightsPlugin {
       el("div", { class: "who" }, el("strong", { text: light.name }),
         el("div", { class: "muted", text: [light.model, light.address || light.host, light.mac].filter(Boolean).join(" · ") })),
       el("span", { class: `pill status ${kind}`, text: state }),
-      entry ? null : el("button", { text: t("Add to config.json"), onclick: (event) => act(event.currentTarget, () => addDiscovered(light)) }));
+      entry ? null : el("button", { actionIcon: "plus", text: t("Add to config.json"), onclick: (event) => act(event.currentTarget, () => addDiscovered(light)) }));
   }
 
   function renderDiscovered() {
@@ -347,7 +347,7 @@ extension ElgatoKeyLightsPlugin {
     el("form", { class: "add-form", onsubmit: (event) => { event.preventDefault(); act(event.submitter, addByAddress, addFailed); } },
       el("label", { class: "field" }, el("span", { class: "field-title", text: t("IP address or host name") }), host),
       el("label", { class: "field port" }, el("span", { class: "field-title", text: t("Port") }), port),
-      el("button", { class: "primary", type: "submit", text: t("Add light") })),
+      el("button", { actionIcon: "plus", class: "primary", type: "submit", text: t("Add light") })),
     addStatus);
   $("#add-toggle").addEventListener("click", () => {
     const open = addBox.classList.toggle("hidden") === false;
@@ -658,7 +658,7 @@ HomeswiftI18n.add({
       <p class="muted" data-i18n>The lights this instance knows, as it sees them right now. Identify flashes a light so you can tell which is which.</p>
     </div>
   </div>
-  <div class="section-head"><h2 data-i18n>Your lights</h2><div class="actions"><button id="discover-toggle" aria-expanded="false" aria-controls="discovered" data-i18n>On the network</button><button id="add-toggle" aria-expanded="false" aria-controls="add-light" data-i18n>Add by address</button></div></div>
+  <div class="section-head"><h2 data-i18n>Your lights</h2><div class="actions"><button id="discover-toggle" aria-expanded="false" aria-controls="discovered" data-i18n>On the network</button><button id="add-toggle" aria-expanded="false" aria-controls="add-light" data-i18n data-action-icon="plus">Add by address</button></div></div>
   <div id="discovered" class="card add-box hidden"></div>
   <div id="add-light" class="card add-box hidden"></div>
   <div id="lights" class="grid"></div>

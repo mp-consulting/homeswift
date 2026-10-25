@@ -349,8 +349,8 @@
                   el("strong", {}, label, device.ignoreDevice ? el("span", { class: "pill", text: t("Ignored") }) : null, transportsOf(device)),
                   device.deviceId ? el("span", { class: "mono", text: device.deviceId }) : null),
                 el("span", { class: "links" },
-                  el("button", { class: "link", text: t("Edit"), "aria-label": t("Edit {name}", { name: label }), onclick: () => edit(type, index) }),
-                  el("button", { class: "link danger", text: t("Remove"), "aria-label": t("Remove {name}", { name: label }), onclick: () => remove(type, index) })));
+                  el("button", { actionIcon: "sliders", class: "link", text: t("Edit"), "aria-label": t("Edit {name}", { name: label }), onclick: () => edit(type, index) }),
+                  el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), "aria-label": t("Remove {name}", { name: label }), onclick: () => remove(type, index) })));
             }))
             : el("p", { class: "muted note", text: t("No devices configured.") }),
           el("button", { text: `+ ${names.add}`, onclick: () => add(type) }),
@@ -524,7 +524,7 @@
     editor.replaceChildren(
       el("div", { class: "editor-head" },
         el("div", {}, el("h2", { text: displayName(type, index, device) }), el("p", { class: "muted note", text: `${typeNames[type].badge}${deviceMeta[device.deviceId]?.model ? ` · ${deviceMeta[device.deviceId].model}` : ""}` })),
-        el("button", { class: "link", text: t("Back"), onclick: closeEditor })),
+        el("button", { actionIcon: "restore", class: "link", text: t("Back"), onclick: closeEditor })),
       tabs, el("div", {}, body));
     if (editing.tab === "scenes" && typeConfig.tabs) loadPicker(type, index);
   }
@@ -593,7 +593,7 @@
     return el("div", { class: "scene-panel" },
       el("div", { class: "scene-panel-head" },
         el("div", {}, el("strong", { text: t("Selected scenes") }), el("p", { class: "muted", text: summary })),
-        chosen.length ? el("button", { class: "danger", text: t("Clear all"), onclick: () => { delete config[type][index].scenes; refreshSelection(); } }) : null),
+        chosen.length ? el("button", { actionIcon: "trash", class: "danger", text: t("Clear all"), onclick: () => { delete config[type][index].scenes; refreshSelection(); } }) : null),
       el("div", { class: "scene-panel-body" }, body));
   }
 

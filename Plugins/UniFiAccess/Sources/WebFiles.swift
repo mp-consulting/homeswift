@@ -473,6 +473,8 @@ extension UniFiAccessPlugin {
       cards.push(el("p", { class: "muted", text: modifiedOnly ? t("No modified options") : search ? t("No options match your search") : t("No options available") }));
     }
     container.replaceChildren(...cards);
+    $("#modified-only").disabled = totalModified === 0 && !$("#modified-only").checked;
+    $("#modified-only").closest("label").title = $("#modified-only").disabled ? t("No modified options match the current search.") : "";
     $("#modified-count").textContent = totalModified ? `(${totalModified})` : "";
     $("#modified-count").className = totalModified ? "modified" : "";
   }
@@ -533,7 +535,7 @@ extension UniFiAccessPlugin {
           el("span", { class: `badge ${opt.default ? "default-on" : ""}`, text: opt.default ? t("default: on") : t("default: off") }), badge),
         el("div", { class: "description", text: opt.description }),
         valueRow),
-      state.explicit ? el("button", { class: "reset", text: t("Reset"), title: t("Reset to the inherited value"), onclick: () => { removeOption(key, scope); renderOptions(); } }) : null);
+      state.explicit ? el("button", { actionIcon: "restore", class: "reset", text: t("Reset"), title: t("Reset to the inherited value"), onclick: () => { removeOption(key, scope); renderOptions(); } }) : null);
     return row;
   }
 
@@ -568,6 +570,7 @@ extension UniFiAccessPlugin {
     return true;
   }
 
+  $("#search").parentElement.append(HomeswiftCommon.clearFilters([[$("#search"), ""], [$("#modified-only"), false]]));
   let searchTimer = null;
   $("#search").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(renderOptions, 300); });
   $("#scope").addEventListener("change", renderOptions);
@@ -1186,7 +1189,7 @@ HomeswiftI18n.add({
     <div class="section-head"><h2 data-i18n>Configured controllers</h2><span class="muted" id="controllers-note"></span></div>
     <div id="controllers" class="controllers"></div>
     <div class="actions" style="margin-top: 14px">
-      <button class="primary" id="add-controller" data-i18n>Add controller</button>
+      <button class="primary" id="add-controller" data-i18n data-action-icon="plus">Add controller</button>
       <button id="open-support" data-i18n>Support</button>
     </div>
   </section>
@@ -1198,9 +1201,9 @@ HomeswiftI18n.add({
       <p class="muted" data-i18n>Scan your network for UniFi Access controllers, or enter the address manually.</p>
       <p class="note-box" data-i18n>Make sure your UniFi console is powered on and connected to the same network.</p>
       <div class="actions" style="margin-top: 14px">
-        <button class="primary" id="discover" data-i18n>Discover controllers</button>
+        <button class="primary" id="discover" data-i18n data-action-icon="search">Discover controllers</button>
         <button id="manual-entry" data-i18n>Manual entry</button>
-        <button class="link" id="cancel-discovery" data-i18n>Cancel</button>
+        <button class="link" id="cancel-discovery" data-i18n data-action-icon="close">Cancel</button>
       </div>
       <div id="discovered"></div>
     </div>
@@ -1239,15 +1242,15 @@ HomeswiftI18n.add({
       <div id="setup-explain"></div>
       <div class="save-bar">
         <span class="muted" data-i18n>Homeswift logs in to check the details before saving them.</span>
-        <button type="button" id="cancel-setup" data-i18n>Cancel</button>
-        <button type="submit" class="primary" id="save-controller" data-i18n>Save controller</button>
+        <button type="button" id="cancel-setup" data-i18n data-action-icon="close">Cancel</button>
+        <button type="submit" class="primary" id="save-controller" data-i18n data-action-icon="check">Save controller</button>
       </div>
     </form>
   </section>
 
   <!-- Feature options -->
   <section id="options-screen" class="screen hidden">
-    <div class="section-head"><h2 id="options-title" data-i18n>Feature options</h2><button class="link" id="back-from-options" data-i18n>Back</button></div>
+    <div class="section-head"><h2 id="options-title" data-i18n>Feature options</h2><button class="link" id="back-from-options" data-i18n data-action-icon="restore">Back</button></div>
     <div class="options-layout">
       <aside class="scope-side">
         <div class="card"><label for="scope" data-i18n>Scope</label><select id="scope"></select></div>
@@ -1277,8 +1280,8 @@ HomeswiftI18n.add({
         <div id="options"></div>
         <div class="card save-bar hidden" id="options-save">
           <span class="dirty" data-i18n>Unsaved changes to the feature options.</span>
-          <button id="discard-options" data-i18n>Discard</button>
-          <button class="primary" id="save-options" data-i18n>Save</button>
+          <button id="discard-options" data-i18n data-action-icon="close">Discard</button>
+          <button class="primary" id="save-options" data-i18n data-action-icon="check">Save</button>
         </div>
       </div>
     </div>
@@ -1286,7 +1289,7 @@ HomeswiftI18n.add({
 
   <!-- Support -->
   <section id="support-screen" class="screen hidden">
-    <div class="section-head"><h2 data-i18n>Support</h2><button class="link" id="back-from-support" data-i18n>Back</button></div>
+    <div class="section-head"><h2 data-i18n>Support</h2><button class="link" id="back-from-support" data-i18n data-action-icon="restore">Back</button></div>
     <div class="card support">
       <h2 style="margin-top: 0" data-i18n>About this plugin</h2>
       <p id="support-about">A port of <a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homebridge-unifi-access">homebridge-unifi-access</a> to <a target="_blank" rel="noopener noreferrer" href="https://github.com/mp-consulting/homeswift">Homeswift</a>. If you find it useful, consider starring the projects on GitHub.</p>

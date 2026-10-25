@@ -360,8 +360,16 @@ service, and an accessory of a paused plugin `paused: true`.
 
 ### Accessory groups
 
-Use **Create group** on Accessories, or in Edit mode drag a compatible accessory onto the center of another tile, hold briefly, and drop. Confirm the group name and members before saving. A group's menu lets you edit its members or ungroup them. Groups are dashboard controls, not new HomeKit accessories; member tiles return when ungrouped.
+Use **Create group** on Accessories, or in Edit mode drag a compatible accessory onto the highlighted center of another tile and drop. Confirm the group name and members before saving. A group's menu lets you edit its members or ungroup them. Administrators can also use **Move to room…** to move every member together in Homeswift; Apple Home/HomeKit room assignments stay unchanged. Enter a new room name to create it, or leave it empty to remove the members from their Homeswift rooms. Groups are dashboard controls, not new HomeKit accessories; member tiles return when ungrouped.
+
+When the wall is split by room or plugin, a group appears in the section of its first visible member in saved selection order. By default, grouping keeps the members’ room assignments. Choosing a room in the group editor moves the selected members in Homeswift only. The room selector and device-type filters show available counts that follow the search. Clear filters restores all rooms and device types; selected members stay selected. On small screens, Cancel and Save remain visible while the picker scrolls.
 
 Groups offer only shared writable controls for lights, switches/outlets, fans and window coverings. Mixed values are labeled, and partial failures identify the devices that could not be updated. Locks and alarm controls are excluded. Membership is saved in `ui-layout.json`. The **No Response** filter shows individual unavailable or paused accessories, including group members.
 
+Group brightness and colour-temperature controls use the same pill sliders as individual lights, with temperature shown in kelvin and differing values marked **Mixed**.
+
+![Grouped light controls](images/widgets/group-controls.png)
+
 ![Accessory group picker with available and selected devices](images/widgets/group-picker.png)
+
+When grouped by room, Edit shows **Reorder rooms**. Drag the handles in its menu to arrange rooms, just like the Status page’s customisation menu. **Reset room order** restores alphabetical order. The order is saved in Homeswift; HomeKit rooms are unchanged.

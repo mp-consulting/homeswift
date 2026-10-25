@@ -15,6 +15,8 @@ public enum AccessoryCategory: Int, Sendable, Codable {
 /// to keep the accessory's aid, and each service's iids, the same so HomeKit keeps rooms and scenes.
 public final class Accessory: @unchecked Sendable {
     public let id: String
+    /// Whether this accessory provides a physical identification action.
+    public let supportsIdentify: Bool
     public let category: AccessoryCategory
     public let information: Service
     private let servicesBox: NIOLockedValueBox<[Service]>
@@ -36,8 +38,9 @@ public final class Accessory: @unchecked Sendable {
         firmwareRevision: String = "1.0.0",
         category: AccessoryCategory = .other,
         services: [Service],
-        onIdentify: (@Sendable () async -> Void)? = nil
+        onIdentify: (@Sendable () async throws -> Void)? = nil
     ) {
+        self.supportsIdentify = onIdentify != nil
         self.id = id
         self.category = category
         let information = Service(.accessoryInformation, name: name)
@@ -45,7 +48,7 @@ public final class Accessory: @unchecked Sendable {
         information.characteristic(.model).value = .string(model)
         information.characteristic(.serialNumber).value = .string(serialNumber ?? id)
         information.characteristic(.firmwareRevision).value = .string(firmwareRevision)
-        information.characteristic(.identify).onWrite { _ in await onIdentify?() }
+        information.characteristic(.identify).onWrite { _ in try await onIdentify?() }
         self.information = information
         servicesBox = NIOLockedValueBox([information] + services)
     }

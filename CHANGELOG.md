@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+- Improve accessory and group editing with room ordering, resize handles, move arrows, and clearer drag-to-group targets.
+- Add search-aware filter counts, disabled-state explanations, and consistent Clear filters controls across the UI.
+- Keep group-editor actions visible on small screens and filter available members by room and device type.
+- Add a compact Status footer with manual update checks and status icons; align action icons across plugin pages.
+
+- Forward Identify through Wingman for supported devices and hide the action on accessories without an identification handler.
+
+- Add an administrator-only Move to room action for groups, updating all members in Homeswift without changing HomeKit rooms.
+
+- Use the light widgets’ pill sliders for accessory groups, with a warm-to-cool Kelvin track for colour temperature.
+
+- Keep accessory groups in their members’ room or plugin section instead of moving them to the first section.
+
 - Use Wingman’s winged-house icon on its plugin page, plugin cards and website listing.
 
 ### Fixed

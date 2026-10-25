@@ -323,12 +323,12 @@
         const addButton = (button = {}) => {
           const label = el("input", { type: "text", placeholder: t("Name"), value: button.name || "" });
           const mode = el("select", {}, AC_OP_MODES.map(([value, title]) => el("option", { value: String(value), text: title, selected: Number(button.op_mode ?? 0) === value })));
-          const row = el("div", { class: "button-row" }, label, mode, el("button", { class: "link danger", text: t("Remove"), onclick: () => row.remove() }));
+          const row = el("div", { class: "button-row" }, label, mode, el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: () => row.remove() }));
           buttonsList.append(row);
         };
         (overrides.ac_buttons || []).forEach(addButton);
         typeSection.push(el("div", { class: "buttons-editor" },
-          el("div", { class: "list-head" }, el("h3", { class: "group-title", text: t("AC buttons") }), el("button", { text: t("Add button"), onclick: () => addButton() })),
+          el("div", { class: "list-head" }, el("h3", { class: "group-title", text: t("AC buttons") }), el("button", { actionIcon: "plus", text: t("Add button"), onclick: () => addButton() })),
           el("p", { class: "help", text: t("Custom HomeKit switches that select an operation mode.") }), buttonsList));
       }
     }
@@ -351,12 +351,12 @@
     breadcrumb(overrides.name || device.name, closeDevice);
     panel.classList.remove("hidden");
     panel.replaceChildren(
-      el("div", { class: "panel-head" }, el("h3", { text: overrides.name || device.name }), el("button", { class: "link", text: t("Close"), onclick: closeDevice })),
+      el("div", { class: "panel-head" }, el("h3", { text: overrides.name || device.name }), el("button", { actionIcon: "close", class: "link", text: t("Close"), onclick: closeDevice })),
       el("div", { class: "columns" },
         fieldRow(t("Display name"), nameInput, t("Its name in HomeKit; empty uses the device's name.")),
         fieldRow(t("Serial number (optional)"), serialInput)),
       typeSection,
-      el("div", { class: "save-bar" }, el("span", { class: "muted", text: "" }), el("button", { text: t("Cancel"), onclick: closeDevice }), el("button", { class: "primary", text: t("Apply"), onclick: apply })));
+      el("div", { class: "save-bar" }, el("span", { class: "muted", text: "" }), el("button", { actionIcon: "close", text: t("Cancel"), onclick: closeDevice }), el("button", { actionIcon: "check", class: "primary", text: t("Apply"), onclick: apply })));
     panel.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest" });
   }
 

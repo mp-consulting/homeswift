@@ -1,5 +1,27 @@
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "No accessories match the current search.": "Aucun accessoire ne correspond à la recherche actuelle.",
+  "No log lines match the current search.": "Aucune ligne du journal ne correspond à la recherche actuelle.",
+  "No audit entries match the current filters.": "Aucune entrée d’audit ne correspond aux filtres actuels.",
+  "No modified options match the current search.": "Aucune option modifiée ne correspond à la recherche actuelle.",
+
+  "Keep current rooms": "Conserver les pièces actuelles",
+  "Moves the selected accessories in Homeswift only. HomeKit rooms stay unchanged.": "Déplace les accessoires sélectionnés dans Homeswift uniquement. Les pièces HomeKit restent inchangées.",
+  "Release to group": "Relâchez pour grouper",
+  "Reset room order": "Réinitialiser l’ordre des pièces",
+  "Reorder rooms": "Réorganiser les pièces",
+  "Show hidden": "Afficher les accessoires masqués",
+  "Clear filters": "Effacer les filtres",
+  "{count} of {total} match": "{count} sur {total} correspondent",
+  "Search cached accessories": "Rechercher des accessoires en cache",
+  "Up to date": "À jour",
+  "Update available": "Mise à jour disponible",
+  "Check for updates": "Rechercher des mises à jour",
+  "Homeswift is up to date.": "Homeswift est à jour.",
+  "Could not check for updates. Try again.": "Impossible de rechercher des mises à jour. Réessayez.",
+  "Move to room…": "Déplacer dans une pièce…",
+  "Moves every member of this group in Homeswift only. HomeKit rooms stay unchanged.": "Déplace tous les membres de ce groupe uniquement dans Homeswift. Les pièces HomeKit restent inchangées.",
+
   "Sign-in": "Connexion",
   "Increase port": "Augmenter le port",
   "Decrease port": "Diminuer le port",

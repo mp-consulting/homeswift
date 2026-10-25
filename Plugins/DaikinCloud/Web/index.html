@@ -25,14 +25,14 @@
 
   <div class="group tabs" role="tablist" id="tabs">
     <button role="tab" aria-controls="tab-devices" data-tab="devices" class="on" aria-selected="true" data-i18n>Devices</button>
-    <button role="tab" aria-controls="tab-settings" data-tab="settings" aria-selected="false" data-i18n>Settings</button>
-    <button role="tab" aria-controls="tab-auth" data-tab="auth" aria-selected="false" data-i18n>Authentication</button>
+    <button role="tab" aria-controls="tab-settings" data-tab="settings" aria-selected="false" data-i18n data-action-icon="sliders">Settings</button>
+    <button role="tab" aria-controls="tab-auth" data-tab="auth" aria-selected="false" data-i18n data-action-icon="key">Authentication</button>
     <button role="tab" aria-controls="tab-help" data-tab="help" aria-selected="false" data-i18n>Help</button>
   </div>
 
   <!-- Devices -->
   <section class="tab-pane" id="tab-devices" role="tabpanel">
-    <div class="section-head"><h2 data-i18n>Discovered devices</h2><span class="tools"><span id="devices-fetched" class="muted"></span><button id="btn-refresh-devices" data-i18n>Refresh</button></span></div>
+    <div class="section-head"><h2 data-i18n>Discovered devices</h2><span class="tools"><span id="devices-fetched" class="muted"></span><button id="btn-refresh-devices" data-i18n data-action-icon="restore">Refresh</button></span></div>
     <p id="session-line" class="muted note hidden"></p>
     <div id="devices-list" class="grid"></div>
     <div id="devices-problem"></div>
@@ -84,7 +84,7 @@
       </div>
 
       <div class="save-bar" id="settings-bar"><span id="settings-status" class="muted" role="status" aria-live="polite" data-i18n>Saving applies at once: the plugin reloads with the new settings.</span>
-        <button id="btn-settings-discard" disabled data-i18n>Discard</button><button id="btn-settings-save" class="primary" disabled data-i18n>Save</button></div>
+        <button id="btn-settings-discard" disabled data-i18n data-action-icon="close">Discard</button><button id="btn-settings-save" class="primary" disabled data-i18n data-action-icon="check">Save</button></div>
     </div>
   </section>
 
@@ -107,9 +107,9 @@
         <div class="fact hidden" id="expires-row"><span data-i18n>Expires</span><b id="auth-token-expires">—</b></div>
       </div>
       <div class="actions">
-        <button id="btn-test" data-i18n>Test connection</button>
+        <button id="btn-test" data-i18n data-action-icon="send">Test connection</button>
         <button id="btn-authenticate" class="primary" data-i18n>Authenticate</button>
-        <button id="btn-authenticate-mobile" class="primary hidden" data-i18n>Configure credentials</button>
+        <button id="btn-authenticate-mobile" class="primary hidden" data-i18n data-action-icon="sliders">Configure credentials</button>
         <button id="btn-revoke" class="danger hidden" data-i18n>Revoke access</button>
       </div>
       <p id="test-result" class="status-line" role="status" aria-live="polite"></p>
@@ -124,7 +124,7 @@
       </div>
       <p id="mobile-auth-result" class="status-line" role="status" aria-live="polite"></p>
       <div id="mobile-auth-problem"></div>
-      <div class="actions end"><button id="btn-mobile-cancel" data-i18n>Cancel</button><button id="btn-test-mobile-auth" class="primary" data-i18n>Test & save credentials</button></div>
+      <div class="actions end"><button id="btn-mobile-cancel" data-i18n data-action-icon="close">Cancel</button><button id="btn-test-mobile-auth" class="primary" data-i18n>Test & save credentials</button></div>
     </div>
 
     <div class="card hidden" id="wizard">
@@ -144,7 +144,7 @@
         </div>
         <div id="validation-errors" class="error-list"></div>
         <div id="wizard-start-problem"></div>
-        <div class="actions end"><button id="btn-wizard-cancel" data-i18n>Cancel</button><button id="btn-wizard-continue" class="primary" data-i18n>Continue</button></div>
+        <div class="actions end"><button id="btn-wizard-cancel" data-i18n data-action-icon="close">Cancel</button><button id="btn-wizard-continue" class="primary" data-i18n data-action-icon="check">Continue</button></div>
       </div>
 
       <div class="step hidden" id="content-2">
@@ -154,7 +154,7 @@
           <div class="url-box mono" id="auth-url"></div>
           <span class="help" data-i18n>If the button does not work, copy this URL into your browser.</span>
         </div>
-        <div class="actions"><button id="btn-wizard-back" data-i18n>Back</button><button id="btn-open-auth" class="primary" data-i18n>Open Daikin login</button></div>
+        <div class="actions"><button id="btn-wizard-back" data-i18n data-action-icon="restore">Back</button><button id="btn-open-auth" class="primary" data-i18n>Open Daikin login</button></div>
         <div id="wizard-auth-problem"></div>
         <p id="callback-server-status" class="status-line waiting hidden" role="status" aria-live="polite" data-i18n>Waiting for authentication… Complete the login in the new window. This page will update automatically.</p>
         <details id="manual-callback">
@@ -170,7 +170,7 @@
         <div class="success"><span class="check" aria-hidden="true">✓</span><h3 data-i18n>Authentication successful</h3><p id="success-message" class="muted" data-i18n>Your Daikin Cloud account is now connected.</p></div>
         <div class="info-box"><strong data-i18n>Next steps</strong>
           <ol><li data-i18n>Your settings are saved, and the plugin reloads with them.</li><li data-i18n>Your Daikin devices appear in HomeKit within a minute.</li></ol></div>
-        <div class="actions end"><button id="btn-wizard-done" class="primary" data-i18n>Done</button></div>
+        <div class="actions end"><button id="btn-wizard-done" class="primary" data-i18n data-action-icon="check">Done</button></div>
       </div>
     </div>
   </section>

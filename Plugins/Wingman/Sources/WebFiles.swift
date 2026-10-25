@@ -131,7 +131,7 @@ extension WingmanPlugin {
         el("p", { class: "muted", text: t("The Wingman apps Bonjour finds on this network. Pairing needs the Mac at hand: Wingman shows the code.") }),
         ...(wingmen.length ? wingmen.map(foundRow)
           : [el("p", { class: "muted", text: t("No Wingman announces itself. Is Homeswift Wingman running, with Advertise over Bonjour on? Across networks or from a container, add it by its address.") })]),
-        el("div", { class: "actions" }, el("button", { text: t("Look again"), onclick: (event) => act(event.currentTarget, renderDiscovered) })));
+        el("div", { class: "actions" }, el("button", { actionIcon: "restore", text: t("Look again"), onclick: (event) => act(event.currentTarget, renderDiscovered) })));
     } catch (e) {
       discoverBox.replaceChildren(el("p", { class: "error", text: e.message }));
     }
@@ -158,7 +158,7 @@ extension WingmanPlugin {
     el("form", { class: "add-form", onsubmit: (event) => { event.preventDefault(); act(event.submitter, probe, (message) => { addStatus.className = "status-line error"; addStatus.textContent = message; }); } },
       el("label", { class: "field" }, el("span", { class: "field-title", text: t("IP address or host name") }), host),
       el("label", { class: "field port" }, el("span", { class: "field-title", text: t("Port") }), port),
-      el("button", { class: "primary", type: "submit", text: t("Find") })),
+      el("button", { actionIcon: "search", class: "primary", type: "submit", text: t("Find") })),
     addStatus);
   $("#add-toggle").addEventListener("click", () => {
     const open = addBox.classList.toggle("hidden") === false;
@@ -191,7 +191,7 @@ extension WingmanPlugin {
     const code = el("input", { class: "code-input", type: "text", inputmode: "numeric", autocomplete: "one-time-code", enterkeyhint: "done", maxLength: 7, placeholder: "000 000", "aria-label": t("Pairing code") });
     const label = el("input", { type: "text", value: wingman.name, maxLength: 64, "aria-label": t("Name") });
     const status = el("p", { class: "status-line muted", "aria-live": "polite" });
-    const submit = el("button", { class: "primary", type: "submit", text: t("Pair") });
+    const submit = el("button", { actionIcon: "key", class: "primary", type: "submit", text: t("Pair") });
     const panel = el("div", { class: "pair" });
     const close = () => closePairing(panel);
     const report = (message) => { status.className = "status-line error"; status.textContent = message; code.select(); };
@@ -200,7 +200,7 @@ extension WingmanPlugin {
       el("div", { class: "code-row" },
         el("label", { class: "field" }, el("span", { class: "field-title", text: t("Pairing code") }), code),
         submit,
-        el("button", { type: "button", text: t("Cancel"), onclick: close })));
+        el("button", { actionIcon: "close", type: "button", text: t("Cancel"), onclick: close })));
     // The code as Wingman shows it, 482 913; the sixth digit pairs, as a one-time code does on a phone.
     code.addEventListener("input", () => {
       const digits = code.value.replace(/\D/g, "").slice(0, 6);
@@ -460,7 +460,7 @@ HomeswiftI18n.add({
       <p class="muted" data-i18n>The Home app's accessories in Homeswift, through Homeswift Wingman on a Mac. They join the Accessories page, moods, scenes and the Assistant, and stay out of HomeKit, which has them already.</p>
     </div>
   </div>
-  <div class="section-head"><h2 data-i18n>Your Wingmen</h2><div class="actions"><button id="discover-toggle" aria-expanded="false" aria-controls="discovered" data-i18n>On the network</button><button id="add-toggle" aria-expanded="false" aria-controls="add-wingman" data-i18n>Add by address</button></div></div>
+  <div class="section-head"><h2 data-i18n>Your Wingmen</h2><div class="actions"><button id="discover-toggle" aria-expanded="false" aria-controls="discovered" data-i18n>On the network</button><button id="add-toggle" aria-expanded="false" aria-controls="add-wingman" data-i18n data-action-icon="plus">Add by address</button></div></div>
   <div id="discovered" class="card add-box hidden"></div>
   <div id="add-wingman" class="card add-box hidden"></div>
   <div id="wingmen" class="grid"></div>

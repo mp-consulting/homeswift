@@ -119,7 +119,7 @@
             <option data-i18n value="+27">South Africa (+27)</option>
           </optgroup>
         </select></label>
-      <div class="actions"><button id="connect" class="primary" type="submit" data-i18n>Connect account</button></div>
+      <div class="actions"><button id="connect" class="primary" type="submit" data-i18n data-action-icon="key">Connect account</button></div>
     </form>
     <div id="login-problem" class="problem hidden" role="alert"></div>
   </section>
@@ -128,23 +128,23 @@
     <div class="step-head"><span class="step-number">2</span><h2 data-i18n>Your devices</h2></div>
     <div id="session" class="card session hidden">
       <div><strong data-i18n>Active session detected</strong><p class="muted" data-i18n>Using the session the plugin logged in with.</p></div>
-      <button id="new-login" data-i18n>Log in with another account</button>
+      <button id="new-login" data-i18n data-action-icon="key">Log in with another account</button>
     </div>
     <div class="group tabs" role="tablist">
       <button id="tab-devices" role="tab" class="on" aria-selected="true" aria-controls="pane-devices" data-i18n>Devices</button>
-      <button id="tab-settings" role="tab" aria-selected="false" aria-controls="pane-settings" data-i18n>Settings</button>
+      <button id="tab-settings" role="tab" aria-selected="false" aria-controls="pane-settings" data-i18n data-action-icon="sliders">Settings</button>
     </div>
     <div id="save-problem" class="problem hidden" role="alert"></div>
     <div id="pane-devices" class="card" role="tabpanel">
       <div id="status" class="facts status-facts"></div>
       <div class="list-head">
         <h3 data-i18n>Discovered devices <span id="device-count" class="count">0</span></h3>
-        <button id="refresh" data-i18n>Refresh</button>
+        <button id="refresh" data-i18n data-action-icon="restore">Refresh</button>
       </div>
       <div id="devices-problem" class="problem hidden"></div>
       <ul id="devices" class="devices"></ul>
       <div class="save-bar"><span class="muted" data-i18n>Saving writes the account and settings to this instance's block; the plugin reloads with them.</span>
-        <button id="save" class="primary" data-i18n>Save configuration</button></div>
+        <button id="save" class="primary" data-i18n data-action-icon="check">Save configuration</button></div>
     </div>
     <div id="pane-settings" class="card hidden" role="tabpanel">
       <label class="field"><span class="field-title" data-i18n>Connection mode</span>
@@ -155,7 +155,7 @@
       <label class="toggle"><span class="switch"><input id="offline-as-off" type="checkbox"><span></span></span>
         <span><span class="field-title" data-i18n>Show offline devices as off</span><span class="help" data-i18n>Instead of "No Response" in the Home app.</span></span></label>
       <div class="save-bar"><span class="muted" data-i18n>The other options (per-device settings, simulations, RF sub-devices) are in Settings.</span>
-        <button id="save-settings" class="primary" data-i18n>Save configuration</button></div>
+        <button id="save-settings" class="primary" data-i18n data-action-icon="check">Save configuration</button></div>
     </div>
   </section>
 
@@ -164,8 +164,8 @@
     <div class="card">
       <p id="complete-text"><strong>All done!</strong> The plugin reloaded with the new configuration.</p>
       <div class="actions">
-        <button id="back" data-i18n>Back to the devices</button>
-        <button id="restart" class="hidden" data-i18n>Restart Homeswift</button>
+        <button id="back" data-i18n data-action-icon="restore">Back to the devices</button>
+        <button id="restart" class="hidden" data-i18n data-action-icon="power">Restart Homeswift</button>
       </div>
       <p id="restart-status" class="status-line"></p>
     </div>

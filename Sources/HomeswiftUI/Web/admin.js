@@ -32,7 +32,7 @@
     return new Promise((resolve) => {
       const input = typed ? el("input", { type: "text", autocomplete: "off", spellcheck: false, "aria-label": t("Type {text} to confirm", { text: typed }) }) : null;
       const ok = el("button", { class: danger ? "danger" : "primary", text: confirmLabel, disabled: Boolean(typed), value: "ok" });
-      const cancel = el("button", { text: t("Cancel"), value: "cancel", type: "button" });
+      const cancel = el("button", { actionIcon: "close", text: t("Cancel"), value: "cancel", type: "button" });
       // The sentence around the word to type, in the page's language: the word goes where {text} stands.
       const [typeBefore, typeAfter = ""] = t("Type {text} to confirm").split("{text}");
       const dialog = el("dialog", { class: "admin-dialog card", "aria-labelledby": "confirm-title" },
@@ -95,7 +95,7 @@
     };
     const field = (title, control, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: title }), control, help ? el("span", { class: "help", text: help }) : null);
     const message = el("p", { class: "status-line muted", role: "status" });
-    const save = el("button", { class: "primary", type: "submit", text: t("Save and restart") });
+    const save = el("button", { actionIcon: "check", class: "primary", type: "submit", text: t("Save and restart") });
     const read = () => Object.fromEntries(Object.entries(fields).map(([key, control]) => {
       const value = control.value.trim();
       return [key, value === "" ? null : key === "port" ? Number(value) : value];
@@ -223,9 +223,56 @@
     const reset = menuButton(t("Actions for every cache"), () => [
       { label: t("Reset every cache…"), icon: "trash", danger: true, onSelect: resetCaches },
     ]);
+    const search = el("input", { type: "search", class: "search", placeholder: t("Search cached accessories"), "aria-label": t("Search cached accessories") });
+    const totalText = tn("{count} in {n} cache file", "{count} in {n} cache files", new Set(list.map((c) => c.cacheFile)).size, { count: list.length });
+    const matchCount = el("span", { class: "muted", role: "status", "aria-live": "polite", text: totalText });
+    const results = el("div", { class: "card rows cached-search-results" });
+    const empty = el("p", { class: "card empty muted cached-search-empty", role: "status", text: t("No accessory matches."), hidden: true });
+    const normalize = (value) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase();
+    const selectedStatuses = new Set();
+    const entries = list.map((cached) => ({
+      status: cached.orphaned ? "orphaned" : cached.restoredOnly ? "stale" : "current",
+      node: row(cached),
+      text: normalize([cached.name, cached.id, cached.instance, cached.platform, cached.bridge, cached.manufacturer, cached.model, cached.mirroredFrom].filter(Boolean).join(" ")),
+    }));
+    results.append(...entries.map((entry) => entry.node));
+    const filter = () => {
+      const terms = normalize(search.value).trim().split(/\s+/).filter(Boolean);
+      let count = 0;
+      for (const entry of entries) {
+        entry.node.hidden = (selectedStatuses.size > 0 && !selectedStatuses.has(entry.status)) || !terms.every((term) => entry.text.includes(term));
+        if (!entry.node.hidden) count++;
+      }
+      matchCount.textContent = terms.length || selectedStatuses.size ?  t("{count} of {total} match", { count, total: list.length }) : totalText;
+      results.hidden = count === 0;
+      empty.hidden = count !== 0;
+    };
+    const statuses = [["current", t("Current"), "check"], ["stale", t("Stale"), "history"], ["orphaned", t("No block"), "warning"]];
+    const filters = el("button", { type: "button", "aria-haspopup": "menu", "aria-label": t("Filters"), onclick: () => HomeswiftCommon.menu(filters, [
+      ...statuses.map(([value, label, icon]) => ({ label, icon, tone: { current: "ok", stale: "warn", orphaned: "error" }[value], count: entries.filter((entry) => entry.status === value && normalize(search.value).trim().split(/\s+/).filter(Boolean).every((term) => entry.text.includes(term))).length, checkbox: true, toggle: true, checked: selectedStatuses.has(value), onSelect: () => {
+        if (selectedStatuses.has(value)) selectedStatuses.delete(value); else selectedStatuses.add(value);
+        filters.classList.toggle("on", selectedStatuses.size > 0);
+        filterCount.textContent = selectedStatuses.size ? String(selectedStatuses.size) : "";
+        filter();
+      } })),
+      { separator: true },
+      { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: !search.value && selectedStatuses.size === 0, onSelect: () => {
+        search.value = "";
+        selectedStatuses.clear();
+        filters.classList.remove("on");
+        filterCount.textContent = "";
+        filter();
+      } },
+    ]) }, HomeswiftCommon.icon("sliders"), el("span", { text: t("Filters") }));
+    const filterCount = el("span", { class: "cached-filter-count" });
+    filters.append(filterCount);
+    search.addEventListener("input", filter);
+    search.addEventListener("search", filter);
     return el("section", {},
-      sectionHead(t("Cached accessories"), tn("{count} in {n} cache file", "{count} in {n} cache files", new Set(list.map((c) => c.cacheFile)).size, { count: list.length }), reset),
-      list.length ? el("div", { class: "card rows" }, list.map(row)) : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("accessory")), el("p", { class: "muted", text: t("No cached accessory.") })));
+      sectionHead(t("Cached accessories"), null, matchCount,
+        el("div", { class: "cached-search-tools" }, list.length ? [search, filters] : null, reset)),
+      list.length ? [results, empty] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("accessory")), el("p", { class: "muted", text: t("No cached accessory.") })));
+
   }
 
   async function removeCached(cached) {
@@ -255,7 +302,7 @@
       sectionHead(t("Schedules and proxy"), t("In the web UI's settings")),
       el("div", { class: "card page-note" },
         el("p", { text: t("A scheduled restart (a cron expression), the daily backup (its folder and how long it is kept) and the reverse proxies trusted for X-Forwarded-For and X-Forwarded-Proto are settings of the HomeswiftUI block.") }),
-        uiBlock ? el("a", { class: "button", href: `/plugins/${uiBlock.slug}?section=proxy`, text: t("Open its settings") }) : null));
+        uiBlock ? el("a", { actionIcon: "sliders", class: "button", href: `/plugins/${uiBlock.slug}?section=proxy`, text: t("Open its settings") }) : null));
   }
 
   // ---- Child bridges -------------------------------------------------------------------------------------
@@ -294,7 +341,7 @@
         el("div", { class: "card rows" }, plugins.blocks.filter((block) => !["HomeswiftUI", "HomeswiftAiKit"].includes(block.platform)).map((block) =>
           el("div", { class: "row" }, tile("child", "blue"),
             el("div", { class: "who" }, el("strong", { text: block.name }), el("div", { class: "muted", text: block.childBridge ? t("Child bridge") : t("Main bridge") })),
-            el("button", { text: t("Configure"), onclick: () => editChildBridge(block) }))))),
+            el("button", { actionIcon: "sliders", text: t("Configure"), onclick: () => editChildBridge(block) }))))),
       childBridges.length ? el("div", { class: "servers" }, childBridges.map(card))
         : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("child")), el("p", { class: "muted", text: t("No child bridges yet. Configure a plugin above to give it its own bridge.") })));
   }
@@ -312,8 +359,8 @@
     const update = () => { name.disabled = port.disabled = !enabled.checked; fields.hidden = !enabled.checked; };
     enabled.addEventListener("change", update); update();
     const result = el("p", { class: "error", role: "status" });
-    const cancel = el("button", { type: "button", text: t("Cancel"), onclick: () => dialog.close() });
-    const save = el("button", { type: "submit", class: "primary", text: t("Save") });
+    const cancel = el("button", { actionIcon: "close", type: "button", text: t("Cancel"), onclick: () => dialog.close() });
+    const save = el("button", { actionIcon: "check", type: "submit", class: "primary", text: t("Save") });
     const form = el("form", {}, el("h2", { text: entry.name }),
       el("label", { class: "child-bridge-toggle" }, enabled, el("span", { text: t("Run on its own HomeKit bridge") })), fields,
       el("p", { class: "muted", text: t("Moving a plugin between bridges changes where its accessories appear in Apple Home. You may need to pair the new bridge and recreate room assignments or automations. Saving reloads the plugin.") }),
@@ -346,7 +393,7 @@
     const [backups, configBackups] = await Promise.all([api("/api/backups"), api("/api/config/backups")]);
     const message = el("p", { class: "status-line muted", role: "status" });
     const report = (e) => { message.className = "status-line error"; message.textContent = e.message; };
-    const now = el("button", { class: "primary", text: t("Back up now"), onclick: (event) => busy(event.currentTarget, async () => {
+    const now = el("button", { actionIcon: "archive", class: "primary", text: t("Back up now"), onclick: (event) => busy(event.currentTarget, async () => {
       const result = await api("/api/backups", { method: "POST" });
       message.className = "status-line ok";
       message.textContent = t("Kept {file} ({size}).", { file: result.backup.fileName, size: size(result.backup.bytes) });
@@ -362,7 +409,7 @@
         fact(t("Scheduled restart"), backups.restartCron ? (backups.nextRestart ? t("{cron} · next {date}", { cron: backups.restartCron, date: when(backups.nextRestart) }) : backups.restartCron) : t("None"))),
       el("div", { class: "fact wide" }, el("span", { text: t("Folder") }), el("b", { class: "mono", text: backups.folder, title: backups.folder })),
       el("div", { class: "actions" },
-        now, el("a", { class: "button", href: "/api/backups/download", download: "", text: t("Download a backup") })),
+        now, el("a", { actionIcon: "download", class: "button", href: "/api/backups/download", download: "", text: t("Download a backup") })),
       message);
     app().show(main,
       app().pageHead(t("Backups"), t("The whole instance, to move it or start over, and each saved config.json.")),
@@ -470,7 +517,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return el("div", { class: "row-block" },
       el("div", { class: "row" },
         el("div", { class: "who" }, el("strong", { text: backup.date ? fullDate.format(new Date(backup.date)) : backup.name }), el("div", { class: "muted mono", text: backup.name })),
-        el("button", { class: "link", text: t("Compare"), onclick: compare }),
+        el("button", { actionIcon: "code", class: "link", text: t("Compare"), onclick: compare }),
         menuButton(t("Actions for {name}", { name: backup.name }), () => [
           { label: t("Compare with config.json"), icon: "code", onSelect: compare },
           { label: t("Restore…"), icon: "restore", danger: true, onSelect: restore },
@@ -506,8 +553,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const select = (choices, value, label) => {
       const control = el("button", { class: "audit-picker", type: "button", "aria-label": label, "aria-haspopup": "menu" });
       control.value = value;
-      const paint = () => control.replaceChildren(el("span", { text: choices.find(([v]) => v === control.value)?.[1] ?? label }), el("span", { text: "⌄", "aria-hidden": "true" }));
-      control.addEventListener("click", () => HomeswiftCommon.menu(control, choices.map(([v, text]) => ({ label: text, checked: control.value === v, onSelect: () => { control.value = v; paint(); control.dispatchEvent(new Event("change")); } }))));
+      control.counts = new Map();
+      const counted = (v, label) => control.counts.has(v) ? `${label} (${control.counts.get(v)})` : label;
+      const paint = () => control.replaceChildren(el("span", { text: counted(control.value, choices.find(([v]) => v === control.value)?.[1] ?? label) }), el("span", { text: "⌄", "aria-hidden": "true" }));
+      control.addEventListener("click", () => HomeswiftCommon.menu(control, choices.map(([v, text]) => ({ label: text, count: control.counts.get(v), disabledReason: t("No audit entries match the current filters."), checked: control.value === v, onSelect: () => { control.value = v; paint(); control.dispatchEvent(new Event("change")); } }))));
+      control.paint = paint;
+      control.addEventListener("change", paint);
       paint();
       return control;
     };
@@ -526,6 +577,21 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       window.history.replaceState(null, "", `/settings/audit?${query}`);
       if (!since.value) query.delete("since");
       count.textContent = t("Loading…");
+      // Count each alternative against the current text and the other selected filter.
+      for (const [control, choices, key] of [[outcome, outcomes, "outcome"], [since, spans, "since"]]) {
+        control.counts.clear(); control.paint();
+        Promise.all(choices.map(async ([value]) => {
+          const candidate = new URLSearchParams(query);
+          if (value) candidate.set(key, value); else candidate.delete(key);
+          candidate.set("limit", "1");
+          try { return [value, (await api(`/api/audit?${candidate}`)).total]; }
+          catch { return [value, null]; }
+        })).then((counts) => {
+          if (own !== loads) return;
+          control.counts = new Map(counts.filter(([, count]) => count != null));
+          control.paint();
+        });
+      }
       let found;
       try { found = await api(`/api/audit?${query}`); } catch (e) { if (own === loads) count.textContent = e.message; return; }
       if (own !== loads) return;
@@ -542,7 +608,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     }
     let typing = null;
     for (const input of [tool, client]) input.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(load, 250); });
-    for (const choice of [outcome, since]) choice.addEventListener("change", load);
+    for (const choice of [outcome, since]) choice.addEventListener("change", () => { clearTimeout(typing); typing = setTimeout(load, 0); });
     app().show(main,
       app().pageHead(t("Audit log"), t("Every change made through the MCP server, the Assistant's chat and this web UI, with who made it.")),
       subnav("audit"),
@@ -553,7 +619,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("label", {}, el("span", { text: t("Tool or route") }), tool),
           el("label", {}, el("span", { text: t("Client or user") }), client)),
         el("div", { class: "audit-filter-footer" }, count,
-          el("button", { class: "link", text: t("Reset filters"), onclick: () => { clearTimeout(typing); tool.value = ""; client.value = ""; location.href = "/settings/audit?since=7d"; } }))),
+          HomeswiftCommon.clearFilters([[tool, ""], [client, ""], [outcome, ""], [since, "7d"]], { reset: () => clearTimeout(typing) }))),
       body);
     await load();
   }
@@ -590,10 +656,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         for (const button of group.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
         load();
       } })));
-    const close = el("button", { type: "button", text: t("Done"), class: "primary" });
+    const close = el("button", { actionIcon: "check", type: "button", text: t("Done"), class: "primary" });
     const dialog = el("dialog", { class: "admin-dialog card wide", "aria-labelledby": "history-title" },
       el("div", { class: "page-head" }, el("div", { class: "who" }, el("h2", { id: "history-title", text: accessory.name }), el("p", { class: "muted", text: t("Recorded values, as Eve shows them") })),
-        el("div", { class: "tools" }, group)),
+        el("div", { class: "tools" }, group, HomeswiftCommon.clearFilters([], { active: () => hours !== 24, events: [[group, "click"]], reset: () => group.firstElementChild.click() }))),
       charts, note, el("div", { class: "actions" }, close));
     close.addEventListener("click", () => dialog.close());
     dialog.addEventListener("close", () => dialog.remove());

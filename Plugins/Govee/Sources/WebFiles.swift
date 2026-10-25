@@ -460,8 +460,8 @@ details.type.empty > summary .entry-name { color: var(--muted); }
                   el("strong", {}, label, device.ignoreDevice ? el("span", { class: "pill", text: t("Ignored") }) : null, transportsOf(device)),
                   device.deviceId ? el("span", { class: "mono", text: device.deviceId }) : null),
                 el("span", { class: "links" },
-                  el("button", { class: "link", text: t("Edit"), "aria-label": t("Edit {name}", { name: label }), onclick: () => edit(type, index) }),
-                  el("button", { class: "link danger", text: t("Remove"), "aria-label": t("Remove {name}", { name: label }), onclick: () => remove(type, index) })));
+                  el("button", { actionIcon: "sliders", class: "link", text: t("Edit"), "aria-label": t("Edit {name}", { name: label }), onclick: () => edit(type, index) }),
+                  el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), "aria-label": t("Remove {name}", { name: label }), onclick: () => remove(type, index) })));
             }))
             : el("p", { class: "muted note", text: t("No devices configured.") }),
           el("button", { text: `+ ${names.add}`, onclick: () => add(type) }),
@@ -635,7 +635,7 @@ details.type.empty > summary .entry-name { color: var(--muted); }
     editor.replaceChildren(
       el("div", { class: "editor-head" },
         el("div", {}, el("h2", { text: displayName(type, index, device) }), el("p", { class: "muted note", text: `${typeNames[type].badge}${deviceMeta[device.deviceId]?.model ? ` · ${deviceMeta[device.deviceId].model}` : ""}` })),
-        el("button", { class: "link", text: t("Back"), onclick: closeEditor })),
+        el("button", { actionIcon: "restore", class: "link", text: t("Back"), onclick: closeEditor })),
       tabs, el("div", {}, body));
     if (editing.tab === "scenes" && typeConfig.tabs) loadPicker(type, index);
   }
@@ -704,7 +704,7 @@ details.type.empty > summary .entry-name { color: var(--muted); }
     return el("div", { class: "scene-panel" },
       el("div", { class: "scene-panel-head" },
         el("div", {}, el("strong", { text: t("Selected scenes") }), el("p", { class: "muted", text: summary })),
-        chosen.length ? el("button", { class: "danger", text: t("Clear all"), onclick: () => { delete config[type][index].scenes; refreshSelection(); } }) : null),
+        chosen.length ? el("button", { actionIcon: "trash", class: "danger", text: t("Clear all"), onclick: () => { delete config[type][index].scenes; refreshSelection(); } }) : null),
       el("div", { class: "scene-panel-body" }, body));
   }
 
@@ -1832,7 +1832,7 @@ HomeswiftI18n.add({
 
   <div class="group tabs main-tabs" role="tablist">
     <button role="tab" data-tab="devices" class="on" aria-selected="true" aria-controls="tab-devices" data-i18n>Devices</button>
-    <button role="tab" data-tab="settings" aria-selected="false" aria-controls="tab-settings" data-i18n>Settings</button>
+    <button role="tab" data-tab="settings" aria-selected="false" aria-controls="tab-settings" data-i18n data-action-icon="sliders">Settings</button>
     <button role="tab" data-tab="tools" aria-selected="false" aria-controls="tab-tools" data-i18n>Tools</button>
   </div>
 
@@ -1840,7 +1840,7 @@ HomeswiftI18n.add({
     <div class="card discover">
       <div class="discover-head">
         <p id="discover-intro" class="muted">Discover all devices linked to your Govee account and add them to the lists below. Enter your credentials in the <strong>Settings</strong> tab first.</p>
-        <button id="discover" class="primary" data-i18n>Discover Devices</button>
+        <button id="discover" class="primary" data-i18n data-action-icon="search">Discover Devices</button>
       </div>
       <div id="discover-result"></div>
     </div>
@@ -1856,7 +1856,7 @@ HomeswiftI18n.add({
           <input type="email" id="username" data-i18n placeholder="your-email@example.com" autocomplete="username">
           <span class="help" data-i18n>The email address you use to log in to the Govee app. Required for cloud control and device discovery.</span></label>
         <label class="field"><span class="field-title" data-i18n>Password</span>
-          <span class="password"><input type="password" id="password" autocomplete="current-password"><button type="button" id="toggle-password" data-i18n>Show</button></span>
+          <span class="password"><input type="password" id="password" autocomplete="current-password"><button type="button" id="toggle-password" data-i18n data-action-icon="eye">Show</button></span>
           <span class="help" data-i18n>Your Govee account password. Stored in config.json and used only to authenticate with Govee's servers.</span></label>
         <label class="field"><span class="field-title" data-i18n>Verification Code</span>
           <input type="text" id="code" data-i18n placeholder="e.g. 1234" autocomplete="one-time-code" inputmode="numeric">
@@ -1885,7 +1885,7 @@ HomeswiftI18n.add({
     <div class="card">
       <h2 data-i18n>Cache Management</h2>
       <p class="muted" data-i18n>Clear the plugin's cache if device discovery misbehaves or data looks stale: the saved login and IoT certificate, the discovered devices, the devices' saved state. Restart Homeswift afterwards.</p>
-      <div class="actions"><button id="clear-cache" class="danger" data-i18n>Clear Cache</button><button id="restart" class="hidden" data-i18n>Restart Homeswift</button></div>
+      <div class="actions"><button id="clear-cache" class="danger" data-i18n data-action-icon="trash">Clear Cache</button><button id="restart" class="hidden" data-i18n data-action-icon="power">Restart Homeswift</button></div>
       <div id="clear-result"></div>
     </div>
     <div class="card">
@@ -1900,7 +1900,7 @@ HomeswiftI18n.add({
   </section>
 
   <div class="card save-card">
-    <div class="save-bar"><span id="save-state" class="muted" data-i18n>Changes are kept once you save.</span><button id="save" class="primary" data-i18n>Save Configuration</button></div>
+    <div class="save-bar"><span id="save-state" class="muted" data-i18n>Changes are kept once you save.</span><button id="save" class="primary" data-i18n data-action-icon="check">Save Configuration</button></div>
   </div>
 </main>
 <script src="/common.js"></script>

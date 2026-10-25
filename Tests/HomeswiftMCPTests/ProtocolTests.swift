@@ -89,6 +89,8 @@ struct ProtocolTests {
         let accessories = try await client.tool("list_accessories")["structuredContent"]?["accessories"]?.arrayValue ?? []
         #expect(accessories.map { $0["id"] } == ["Devices:lamp", "Devices:lock"])
         #expect(accessories[0]["platform"] == "Devices")
+        #expect(accessories[0]["supportsIdentify"] == true)
+        #expect(accessories[1]["supportsIdentify"] == false)
         #expect(accessories[0]["services"]?[0]?["values"]?["Brightness"] == 40)
 
         let detailed = try await client.tool("get_accessory", ["id": "Devices:lamp"])["structuredContent"]
@@ -147,6 +149,7 @@ struct ProtocolTests {
         #expect(bulk["isError"] == nil)
         #expect(try await controller.tool("identify_accessory", ["id": "Devices:lamp"])["isError"] == nil)
         #expect(environment.written.contains { $0.0 == "lamp.identify" })
+        #expect(try await controller.tool("identify_accessory", ["id": "Devices:lock"])["isError"] == true)
 
         // Admin tools stay out of reach.
         #expect(try await controller.tool("update_config", ["config": [:]])["isError"] == true)
