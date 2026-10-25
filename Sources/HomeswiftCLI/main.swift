@@ -189,10 +189,15 @@ let restarted = ProcessInfo.processInfo.environment[restartMarker] == "1"
 unsetenv(restartMarker)
 /// Stops the servers, then the plugins and bridges: the signal handler exits afterwards, a restart execs.
 let shutdown: @Sendable () async -> Void = { [host, mcpServer, uiServer] in
+    logger.info("Shutdown: stopping home tasks")
     await homeCatalog.withLockedValue { $0 }?.stopHome(restarting: getenv(restartMarker) != nil)
+    logger.info("Shutdown: stopping web server")
     await uiServer.withLockedValue { $0 }?.stop()
+    logger.info("Shutdown: stopping MCP server")
     await mcpServer.withLockedValue { $0 }?.stop()
+    logger.info("Shutdown: stopping plugins and bridges")
     await host.stop()
+    logger.info("Shutdown: flushing metrics and logs")
     metrics.stop()
     logBuffer.archive?.flush()
 }
@@ -211,7 +216,7 @@ let main = Task {
     let uiConfiguration = NIOLockedValueBox(configuration)
     let catalog = HomeswiftCatalog(
         host: host, logs: logBuffer, metrics: metrics, configURL: configURL, allowSecrets: (ProcessInfo.processInfo.environment["HOMESWIFT_ALLOW_SECRETS"] ?? ProcessInfo.processInfo.environment["HOMEBRIDGE_ALLOW_SECRETS"]) == "true",
-        restart: { Task.detached { setenv(restartMarker, "1", 1); await shutdown(); Restart.exec() } },
+        restart: { Task.detached { setenv(restartMarker, "1", 1); await Restart.perform(shutdown: shutdown) } },
         reloadServices: { [mcpServer, uiServer] next, platforms in
             guard let catalog = catalogBox.withLockedValue({ $0 }) else { return }
             let settings = MCPCommands.mcpBlock(next)?["mcp"]

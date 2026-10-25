@@ -109,15 +109,58 @@ enum WebAssets {
       const value = control.value.trim();
       return [key, value === "" ? null : key === "port" ? Number(value) : value];
     }));
+    const portStatus = el("span", { class: "help", role: "status", "aria-live": "polite" });
+    const checkPort = async () => {
+      if (!fields.port.value.trim()) return "";
+      const port = Number(fields.port.value);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(t("Choose a port between 1 and 65535."));
+      if (port === settings.listeningPort) return "";
+      const answer = await api("/api/config/check-port", { method: "POST", body: { port, host: "0.0.0.0", service: "bridge" } });
+      if (!answer.available) throw new Error(t("Port {port} is in use or cannot be opened on this address. Choose another port.", { port: String(port) }));
+      return t("Port {port} is available.", { port: String(port) });
+    };
+    let portTimer, portVersion = 0;
+    const schedulePortCheck = () => {
+      clearTimeout(portTimer);
+      const version = ++portVersion;
+      portStatus.className = "help muted";
+      portStatus.textContent = fields.port.value ? t("Checking port…") : "";
+      portTimer = setTimeout(async () => {
+        try { const text = await checkPort(); if (version === portVersion) { portStatus.className = "help ok"; portStatus.textContent = text; } }
+        catch (error) { if (version === portVersion) { portStatus.className = "help error"; portStatus.textContent = error.message; } }
+      }, 400);
+    };
+    fields.port.addEventListener("input", schedulePortCheck);
+    fields.port.addEventListener("change", schedulePortCheck);
+    const stepPort = (direction) => {
+      const current = fields.port.value === "" ? (settings.listeningPort || 1) : Number(fields.port.value);
+      fields.port.value = String(Math.min(65535, Math.max(1, (Number.isFinite(current) ? current : 1) + direction)));
+      fields.port.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    fields.port.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+        event.preventDefault(); stepPort(event.key === "ArrowUp" ? 1 : -1);
+      }
+    });
+    const portControl = el("div", { class: "port-stepper" }, fields.port,
+      el("div", { class: "port-stepper-buttons" },
+        ...[[1, t("Increase port")], [-1, t("Decrease port")]].map(([direction, label]) => {
+          const button = el("button", { type: "button", title: label, "aria-label": label, onclick: () => stepPort(direction) });
+          button.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="${direction === 1 ? "M4 10l4-4 4 4" : "M4 6l4 4 4-4"}"/></svg>`;
+          return button;
+        })));
     const initial = JSON.stringify(read());
     const form = el("form", { class: "card form-card", onsubmit: async (event) => {
       event.preventDefault();
       const next = read();
       if (JSON.stringify(next) === initial) { message.className = "status-line muted"; message.textContent = t("Nothing changed."); return; }
+      try { await checkPort(); }
+      catch (error) { portStatus.className = "help error"; portStatus.textContent = error.message; fields.port.focus(); return; }
       if (!(await confirmAction({ title: t("Restart homeswift with these settings?"), danger: false, confirmLabel: t("Save and restart"),
         text: [t("The bridge block is the bridge's HomeKit identity: homeswift restarts to apply it, and every connection drops for a few seconds."),
           next.pin !== (bridge.pin ?? null) ? t("A new setup code applies to new pairings only: the Home app keeps the bridge.") : ""] }))) return;
       await busy(save, async () => {
+        await checkPort();
         const result = await api("/api/settings/bridge", { method: "PUT", body: { settings: next } });
         message.className = "status-line ok";
         message.textContent = app().savedText(result);
@@ -129,11 +172,13 @@ enum WebAssets {
         fact(t("Home app"), main?.paired ? t("Paired · {count}", { count: main.controllers }) : t("Not paired"))),
       el("div", { class: "fields" },
         field(t("Name"), fields.name, t("What the Home app calls the bridge when it is added.")),
-        field(t("Port"), fields.port, t("The HomeKit server's port; empty picks a free one and keeps it.")),
+        field(t("Port"), portControl, t("The HomeKit server's port; empty picks a free one and keeps it.")),
         field(t("Setup code"), fields.pin, t("The code the Home app asks for, as XXX-XX-XXX. It is never logged.")),
         field(t("Manufacturer"), fields.manufacturer), field(t("Model"), fields.model), field(t("Firmware revision"), fields.firmwareRevision)),
       el("p", { class: "help", text: t("The device ID stays: a new one is a new bridge to the Home app. To pair again from scratch, reset the bridge's pairings below.") }),
       el("div", { class: "actions" }, save), message);
+    portStatus.style.display = "block";
+    portControl.parentElement.append(portStatus);
     return form;
   }
 
@@ -219,7 +264,7 @@ enum WebAssets {
       sectionHead(t("Schedules and proxy"), t("In the web UI's settings")),
       el("div", { class: "card page-note" },
         el("p", { text: t("A scheduled restart (a cron expression), the daily backup (its folder and how long it is kept) and the reverse proxies trusted for X-Forwarded-For and X-Forwarded-Proto are settings of the HomeswiftUI block.") }),
-        uiBlock ? el("a", { class: "button", href: `/plugins/${uiBlock.slug}`, text: t("Open its settings") }) : null));
+        uiBlock ? el("a", { class: "button", href: `/plugins/${uiBlock.slug}?section=proxy`, text: t("Open its settings") }) : null));
   }
 
   // ---- Child bridges -------------------------------------------------------------------------------------
@@ -724,31 +769,35 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // Its menu: who is signed in and as what, their account and appearance, the users for an administrator, signing out.
   $("#user").addEventListener("click", (event) => {
     event.stopPropagation();
+    openUserMenu(event.currentTarget, event.detail === 0);
+  });
+  document.addEventListener("homeswift-account-menu", (event) => openUserMenu(event.detail.trigger, event.detail.keyboard));
+  function openUserMenu(trigger, keyboard = false) {
     const form = auth.mode === "form";
-    HomeswiftCommon.menu($("#user"), [
+    HomeswiftCommon.menu(trigger, [
       form ? { heading: shownName(), detail: isAdmin() ? t("{username} · Administrator", { username: auth.username }) : auth.username } : { heading: t("No sign-in"), detail: t("Anyone who opens this web UI uses it") },
       { label: form ? t("Your account") : t("Account"), icon: "user", href: "/account" },
       { label: t("Appearance"), icon: "sliders", href: "/appearance" },
       form && isAdmin() ? { label: t("Users and tokens"), icon: "users", href: "/users" } : null,
       // A phone's tab bar has no room for Settings: it is here, as the header holds it on a wider window.
       isAdmin() && matchMedia("(max-width: 640px)").matches ? { label: t("Settings"), icon: "gear", href: "/settings" } : null,
-      { label: t("Language"), icon: flag(HomeswiftI18n.language), onSelect: () => setTimeout(languageMenu) },
+      { label: t("Language"), icon: flag(HomeswiftI18n.language), onSelect: () => setTimeout(() => languageMenu(trigger)) },
       form ? { separator: true } : null,
       form ? { label: t("Sign out"), icon: "logout", onSelect: signOut } : null,
-    ], { keyboard: event.detail === 0 });
-  });
+    ], { keyboard });
+  }
 
   const flag = (code) => el("span", { class: "menu-flag", "aria-hidden": "true", text: code ? HomeswiftI18n.flags[code] : "🌐" });
 
   /// The language, from the account menu: Automatic (the browser's) or one of the four, each in its own name. Saved
   /// with the user's preferences, which opens the page again in it.
-  function languageMenu() {
+  function languageMenu(trigger = $("#user")) {
     const current = HomeswiftCommon.preferences().language || "auto";
     const choose = async (code) => {
       if (code === current) return;
       try { HomeswiftCommon.applyPreferences(await api("/api/preferences", { method: "PUT", body: { language: code } })); } catch (e) { alert(e.message); }
     };
-    HomeswiftCommon.menu($("#user"), [
+    HomeswiftCommon.menu(trigger, [
       { label: t("Automatic"), icon: flag(null), checked: current === "auto", onSelect: () => choose("auto") },
       ...HomeswiftI18n.languages.map((code) => ({ label: HomeswiftI18n.names[code], icon: flag(code), checked: current === code, onSelect: () => choose(code) })),
     ]);
@@ -770,38 +819,111 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   // ---- Restart -------------------------------------------------------------
 
-  async function restartBridge(event) {
-    if (!confirm(t("Restart homeswift now? Every connection drops for a few seconds."))) return;
-    const button = event.target;
-    button.disabled = true;
-    try {
-      await api("/api/restart", { method: "POST" });
-    } catch (e) {
-      alert(e.message);
-      button.disabled = false;
-      return;
-    }
-    waitForRestart();
+  function confirmRestart() {
+    return new Promise((resolve) => {
+      const dialog = el("dialog", { class: "restart-overlay restart-confirm", "aria-labelledby": "restart-confirm-title", "aria-describedby": "restart-confirm-description" });
+      const finish = (accepted) => { dialog.close(); dialog.remove(); resolve(accepted); };
+      const cancel = el("button", { text: t("Cancel"), onclick: () => finish(false) });
+      dialog.append(
+        el("div", { class: "restart-confirm-icon", "aria-hidden": "true" }, HomeswiftCommon.icon("power")),
+        el("h2", { id: "restart-confirm-title", text: t("Restart Homeswift?") }),
+        el("p", { id: "restart-confirm-description", text: t("Your accessories will disconnect briefly. This page will reconnect automatically when Homeswift is ready.") }),
+        el("div", { class: "restart-confirm-actions" }, cancel,
+          el("button", { class: "primary", text: t("Restart"), onclick: () => finish(true) })));
+      dialog.addEventListener("cancel", (event) => { event.preventDefault(); finish(false); });
+      document.body.append(dialog); dialog.showModal(); cancel.focus();
+    });
   }
 
-  /// Shows the restart in the banner and reloads the page once a younger process answers.
-  function waitForRestart() {
-    closeEvents();
-    const banner = $("#banner");
-    banner.classList.remove("hidden");
-    banner.replaceChildren(t("Restarting homeswift…"));
+  async function restartBridge(event) {
+    const button = event.currentTarget;
+    if (!await confirmRestart()) return;
+    button.disabled = true;
+    showRestartOverlay();
     const started = Date.now();
-    // Back when a status answers from a process younger than this restart; the login survives it.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    try {
+      const response = await fetch("/api/restart", { method: "POST", credentials: "same-origin", signal: controller.signal });
+      if (!response.ok) throw new ApiError(response.status, `HTTP ${response.status}`);
+      // The process may exit before completing the response body. Headers are enough.
+    } catch (e) {
+      if (e instanceof ApiError) {
+        restartOverlay?.close(); restartOverlay?.remove(); restartOverlay = null;
+        alert(e.message); button.disabled = false; return;
+      }
+      // A disconnected or aborted request can mean the restart already began.
+    } finally { clearTimeout(timeout); }
+    waitForRestart(started);
+  }
+
+  let restartOverlay = null;
+  let restartPolling = false;
+  function showRestartOverlay() {
+    if (restartOverlay?.isConnected) return restartOverlay;
+    restartOverlay = el("dialog", { class: "restart-overlay", "aria-labelledby": "restart-heading", "aria-describedby": "restart-message" },
+      el("span", { class: "spinner", "aria-hidden": "true" }),
+      el("h2", { id: "restart-heading", text: t("Restarting homeswift…") }),
+      el("p", { id: "restart-message", role: "status", "aria-live": "polite", text: t("Please wait. This page will reconnect automatically.") }));
+    restartOverlay.addEventListener("cancel", (event) => event.preventDefault());
+    document.body.append(restartOverlay); restartOverlay.showModal();
+    return restartOverlay;
+  }
+
+  async function finishRestart() {
+    const overlay = restartOverlay;
+    if (overlay?.isConnected && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      overlay.classList.add("restart-leaving");
+      await new Promise((resolve) => setTimeout(resolve, 220));
+    }
+    overlay?.close();
+    overlay?.remove();
+    restartOverlay = null;
+    restartPolling = false;
+    const restartButton = $("#restart");
+    if (restartButton) restartButton.disabled = false;
+    // Keep the current DOM, scroll position, filters and unsaved edits intact.
+    try {
+      auth = await api("/api/auth/state");
+      if (!auth.authenticated) { showAuth(); return; }
+      showSections();
+      openEvents();
+      $("#banner").classList.add("hidden");
+      document.querySelectorAll(".dashboard-quick-actions button").forEach((button) => { button.disabled = false; });
+    } catch (error) { console.error("Could not reconnect after restart", error); }
+  }
+
+  /// A modal blocks controls until a younger process answers, with recovery if the restart times out.
+  function waitForRestart(started = Date.now()) {
+    if (restartPolling) return;
+    restartPolling = true;
+    closeEvents();
+    const overlay = showRestartOverlay();
+    let wasOffline = false;
+    let healthyReplies = 0;
     const poll = async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
       try {
-        const response = await fetch("/api/status", { credentials: "same-origin" });
+        const response = await fetch("/api/status", { credentials: "same-origin", cache: "no-store", signal: controller.signal });
         if (response.ok) {
           const status = await response.json();
-          if (status.uptimeSeconds < (Date.now() - started) / 1000 + 5) { location.reload(); return; }
-        } else if (response.status === 401) { location.reload(); return; }
-      } catch {}
+          healthyReplies++;
+          const younger = Number.isFinite(status.uptimeSeconds) && status.uptimeSeconds < (Date.now() - started) / 1000 + 5;
+          if (younger || (wasOffline && healthyReplies >= 2)) { await finishRestart(); return; }
+        } else if (response.status === 401) { await finishRestart(); return; }
+      } catch { wasOffline = true; healthyReplies = 0; } finally { clearTimeout(timeout); }
       if (Date.now() - started < 90000) setTimeout(poll, 1000);
-      else banner.replaceChildren(t("homeswift did not come back; check its log."));
+      else {
+        restartPolling = false;
+        overlay.querySelector(".spinner")?.remove();
+        overlay.querySelector("#restart-heading").textContent = t("homeswift did not come back; check its log.");
+        overlay.querySelector("#restart-message").textContent = "";
+        overlay.append(el("button", { class: "primary", text: t("Try again"), onclick: () => {
+          overlay.close(); overlay.remove(); restartOverlay = null;
+          waitForRestart(started);
+        } }));
+      }
     };
     setTimeout(poll, 1500);
   }
@@ -998,8 +1120,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           fact(t("Machine up"), formatDuration(status.system.systemUptimeSeconds ?? 0))),
         el("div", { class: "fact wide" }, el("span", { text: t("Configuration") }), el("b", { class: "mono", text: status.configPath, title: status.configPath })),
         // Changes apply without one; this is for a plugin that misbehaves.
-        isAdmin() ? el("div", { class: "actions" }, el("button", { class: "link", text: t("Restart homeswift…"), onclick: restartBridge }),
-          el("a", { class: "link", href: "/settings", text: t("Settings, pairings and backups") }), el("a", { class: "link", href: "/notifications", text: t("Notifications") })) : null)],
+        isAdmin() ? el("div", { class: "actions dashboard-quick-actions" },
+          el("button", { class: "link", onclick: restartBridge }, HomeswiftCommon.icon("power"), el("span", { text: t("Restart homeswift…") })),
+          el("a", { class: "link", href: "/settings" }, HomeswiftCommon.icon("sliders"), el("span", { text: t("Settings, pairings and backups") })),
+          el("a", { class: "link", href: "/notifications" }, HomeswiftCommon.icon("bell"), el("span", { text: t("Notifications") }))) : null)],
     };
     const sections = new Map();
     const footer = el("div", { class: "actions page-foot" },
@@ -1339,10 +1463,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const params = new URLSearchParams(location.search);
     // Hidden accessories (an accessory's ⋯ menu) only with ?hidden=1.
     const showHidden = params.get("hidden") === "1";
+    const noResponse = params.get("unavailable") === "1";
     // The controllers some accessories mirror (Apple Home, through Wingman): each gets a filter.
     const sources = [...new Set(all.map((accessory) => accessory.mirroredFrom).filter(Boolean))];
     const from = sources.includes(params.get("from")) ? params.get("from") : null;
-    const accessories = all.filter((accessory) => (showHidden || !accessory.hidden) && (!from || accessory.mirroredFrom === from));
+    const accessories = all.filter((accessory) => (showHidden || !accessory.hidden) && (!from || accessory.mirroredFrom === from) && (!noResponse || accessory.unavailable || accessory.paused));
     const hiddenCount = all.filter((accessory) => accessory.hidden).length;
     const rooms = home.rooms.map((room) => room.name);
     const servers = new Set(accessories.map((accessory) => accessory.bridge)).size;
@@ -1377,6 +1502,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }, 300);
     };
 
+    const groupingControls = HomeswiftGroups.mount({ all, layout,
+      persist: async () => { clearTimeout(saveTimer); await api("/api/layout", { method: "PUT", body: layout }); }, refresh: render });
+    window.homeswiftGroupEvent = groupingControls.event;
     const nodes = new Map();
     const actions = (accessory) => {
       const size = sizeOf(accessory), kind = kindOf(accessory);
@@ -1535,6 +1663,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const start = { x: event.clientX, y: event.clientY };
       const originalStyle = node.style.cssText, originalNext = node.nextElementSibling;
       let slot = null, pointer = event, scroller = null;
+      let groupTarget = null, groupSince = 0;
       node.setPointerCapture(event.pointerId);
       const lift = () => {
         const box = node.getBoundingClientRect();
@@ -1554,8 +1683,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // The widget under the pointer: the slot goes before it, or after it past its middle.
       const hover = () => {
         const under = document.elementFromPoint(pointer.clientX, pointer.clientY)?.closest(".wall > .widget");
-        if (!under || under === slot || under.parentElement !== wall) return;
+        if (!under || under === slot || under.parentElement !== wall) { groupTarget?.classList.remove("group-drop-target"); groupTarget = null; return; }
         const box = under.getBoundingClientRect();
+        const center = pointer.clientX > box.left + box.width * .25 && pointer.clientX < box.right - box.width * .25 && pointer.clientY > box.top + box.height * .2 && pointer.clientY < box.bottom - box.height * .2;
+        if (center && groupingControls.canJoin(node.dataset.id, under.dataset.id)) {
+          if (groupTarget !== under) { groupTarget?.classList.remove("group-drop-target"); groupTarget = under; groupSince = Date.now(); }
+          under.classList.add("group-drop-target");
+          return;
+        }
+        groupTarget?.classList.remove("group-drop-target"); groupTarget = null;
         const after = pointer.clientY > box.top + box.height * .75 ||
           (pointer.clientY >= box.top + box.height * .25 && pointer.clientX > box.left + box.width / 2);
         if ((after ? under.nextElementSibling : under.previousElementSibling) === slot) return;
@@ -1577,6 +1713,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         node.removeEventListener("pointercancel", end);
         node.removeEventListener("lostpointercapture", end);
         clearInterval(scroller);
+        const joinTarget = ended.type === "pointerup" && groupTarget && Date.now() - groupSince >= 450 ? groupTarget.dataset.id : null;
+        groupTarget?.classList.remove("group-drop-target");
         if (!slot || !slot.isConnected) return;
         if (ended.type !== "pointerup") {
           if (originalNext?.parentElement === wall) originalNext.before(slot); else wall.append(slot);
@@ -1593,11 +1731,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         node.style.transition = reducedMotion.matches ? "none" : "transform 220ms var(--ease-out)";
         node.style.transform = "";
         // The wall's accessories take the places they had in the order, in the order they now stand.
-        const ids = [...wall.children].map((child) => child.dataset.id).filter(Boolean);
+        const ids = [...wall.children].map((child) => child.dataset.id).filter((id) => ordered.some((a) => a.id === id));
         const places = ordered.flatMap((accessory, index) => ids.includes(accessory.id) ? [index] : []);
         const byID = new Map(ordered.map((accessory) => [accessory.id, accessory]));
         ids.forEach((id, index) => { ordered[places[index]] = byID.get(id); });
         save();
+        if (joinTarget) groupingControls.join(node.dataset.id, joinTarget);
       };
       node.addEventListener("pointermove", move);
       node.addEventListener("pointerup", end);
@@ -1614,9 +1753,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const sections = layout.grouping === "plugin" ? groupByPlugin(accessories)
         : layout.grouping === "room" && rooms.length ? HomeswiftHome.groupByRoom(accessories, rooms) : null;
       const groups = sections ? sections.map(([name, group]) => [name, ordered.filter((accessory) => group.includes(accessory))]) : [["", ordered]];
+      const memberIDs = new Set(layout.groups.flatMap((g) => g.members));
       content.replaceChildren(...groups.map(([name, group]) => el("section", { class: "accessory-section" },
         name ? el("div", { class: "section-head" }, el("h2", { text: name }), el("span", { class: "muted", text: tn("{n} accessory", "{n} accessories", group.length) })) : null,
-        el("div", { class: `wall${editing ? " editing" : ""}` }, group.map(widget)))));
+        el("div", { class: `wall${editing ? " editing" : ""}` }, group.filter((a) => !memberIDs.has(a.id) || noResponse).map(widget)))));
+      const visibleGroups = layout.groups.filter((g) => g.members.some((id) => accessories.some((a) => a.id === id)));
+      if (!noResponse && visibleGroups.length) {
+        const wall = el("div", { class: `wall${editing ? " editing" : ""}` }, visibleGroups.map((g) => groupingControls.card(g, editing)));
+        // Keep groups in the same drag surface as individual tiles.
+        const firstWall = content.querySelector(".wall");
+        if (firstWall) firstWall.prepend(...wall.children); else content.prepend(el("section", { class: "accessory-section" }, wall));
+      }
       filter();
     }
 
@@ -1681,12 +1828,35 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const suggest = isAdmin() && window.HomeswiftChat?.available() && all.length
       ? el("button", { class: "ai-button icon-on-phone", title: t("Suggest rooms"), "aria-label": t("Suggest rooms"), onclick: () => HomeswiftHome.suggestRooms(content, all) }, sparkle(), el("span", { text: t("Suggest rooms") })) : null;
 
+    const changeFilter = (key, value, enabled) => {
+      const next = new URLSearchParams(location.search);
+      if (enabled) next.set(key, value); else next.delete(key);
+      navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
+    };
+    const activeFilters = Number(Boolean(from)) + Number(showHidden) + Number(noResponse);
+    const filters = el("button", { type: "button", class: activeFilters ? "on" : "", "aria-haspopup": "menu" },
+      HomeswiftCommon.icon("sliders"), el("span", { text: t("Filters") }), activeFilters ? el("span", { class: "toolbar-count", text: activeFilters }) : null);
+    filters.addEventListener("click", () => HomeswiftCommon.menu(filters, [
+      ...sources.map((source) => ({ label: t("Only from {source}", { source: t(source) }), checked: from === source, checkbox: true, toggle: true,
+        icon: source === "Apple Home" ? el("img", { src: "/apple-home.png", width: 20, height: 20, alt: "" }) : null,
+        onSelect: () => changeFilter("from", source, from !== source) })),
+      { label: t("No Response"), checked: noResponse, checkbox: true, toggle: true, onSelect: () => changeFilter("unavailable", "1", !noResponse) },
+      ...(hiddenCount ? [{ label: t("Show hidden ({count})", { count: hiddenCount }), checked: showHidden, checkbox: true, toggle: true, onSelect: () => changeFilter("hidden", "1", !showHidden) }] : [])
+    ]));
+    const more = menuButton(t("Accessory options"), () => [
+      { label: t("Create group"), icon: "group", onSelect: () => groupingControls.edit() },
+      { separator: true },
+      ...groupings.map(([value, label, icon], index) => ({ label, icon, checked: layout.grouping === value, onSelect: () => grouping.children[index].click() })),
+      ...(suggest ? [{ separator: true }, { label: t("Suggest rooms"), icon: "sparkle", onSelect: () => suggest.click() }] : [])
+    ]);
+    more.replaceChildren(HomeswiftCommon.icon("sliders"));
+    more.classList.add("accessory-options-button");
     render();
     show(main,
       pageHead(t("Accessories"), !accessories.length ? "" : from ? t("{count} from {source}, which HomeKit has already. Changes here reach your devices.", { count: accessories.length, source: t(from) })
         : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
         : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers }),
-        ...(accessories.length ? [search, grouping, edit] : []), ...sourceToggles, hiddenToggle, suggest),
+        el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, more)),
       note,
       accessories.length ? [content, none] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") })));
   };
@@ -1701,6 +1871,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function applyAccessoryEvent(event) {
     window.HomeswiftCamera?.event(event);
     HomeswiftWidgets.event(event);
+    if (location.pathname === "/accessories") window.homeswiftGroupEvent?.(event);
   }
 
   // ---- Plugins and settings forms -----------------------------------------
@@ -1866,6 +2037,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if ((plugin && plugin.hasSchema) || block.system) {
       try { schema = JSON.parse(await api(`/api/plugins/${encodeURIComponent(platform)}/schema`, { raw: true })); } catch {}
     }
+    if (platform === "HomeswiftUI" && schema) {
+      const advanced = (schema.layout || []).filter((item) => typeof item === "object");
+      schema.layout = [
+        { type: "fieldset", title: t("Connection"), items: ["port", "host", "allowedHosts"] },
+        { type: "fieldset", title: t("Sign-in"), items: ["auth", "sessionDays"] },
+        { type: "fieldset", title: "HTTPS", expandable: true, expanded: Boolean(current.https), items: ["https", { items: ["certificate", "privateKey"] }] },
+        { type: "fieldset", title: t("Updates"), expandable: true, expanded: false, items: ["checkForUpdates"] },
+        ...advanced
+      ];
+    }
     let getValue;
     let body;
     let useSuggestion = null;
@@ -1899,6 +2080,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           for (const tab of tabs.children) { tab.classList.toggle("on", tab.dataset.mode === mode); tab.setAttribute("aria-selected", String(tab.dataset.mode === mode)); }
         } })));
       body = el("div", { class: "card form-card" }, tabs, switchError, formView, jsonView);
+      if (platform === "HomeswiftUI") body.classList.add("local-ui-settings");
       getValue = () => (mode === "form" ? form.getValue() : fromJSON());
       // The Assistant's suggestion goes into the view on screen, as unsaved changes to review and save.
       useSuggestion = (value) => {
@@ -1946,6 +2128,39 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     body.addEventListener("change", () => { message.className = ""; update(); });
     body.addEventListener("click", () => setTimeout(update, 0));   // the array editors add and remove rows by click
 
+    const portNotice = el("p", { class: "muted", role: "status", "aria-live": "polite" });
+    let portCheckVersion = 0;
+    let portCheckTimer;
+    const checkPort = async (value) => {
+      const port = Number(value.port ?? 8581);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(t("Choose a port between 1 and 65535."));
+      const result = await api("/api/config/check-port", { method: "POST", body: { port, host: value.host || "0.0.0.0" } });
+      if (!result.available) throw new Error(t("Port {port} is in use or cannot be opened on this address. Choose another port.", { port: String(port) }));
+      return t("Port {port} is available.", { port: String(port) });
+    };
+    if (platform === "HomeswiftUI") {
+      body.append(portNotice);
+      let previousBinding = JSON.stringify([current.host, current.port]);
+      body.addEventListener("input", () => {
+        let value; try { value = getValue(); } catch { return; }
+        const binding = JSON.stringify([value.host, value.port]);
+        if (binding === previousBinding) return;
+        previousBinding = binding;
+        const version = ++portCheckVersion;
+        clearTimeout(portCheckTimer);
+        portNotice.className = "muted";
+        portNotice.textContent = t("Checking port…");
+        portCheckTimer = setTimeout(async () => {
+          try {
+            const text = await checkPort(value);
+            if (version === portCheckVersion) { portNotice.className = "ok"; portNotice.textContent = text; }
+          } catch (error) {
+            if (version === portCheckVersion) { portNotice.className = "error"; portNotice.textContent = error.message; }
+          }
+        }, 400);
+      });
+    }
+
     const doSave = async (anyway) => {
       save.disabled = true;
       force.classList.add("hidden");
@@ -1954,6 +2169,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       try {
         const value = getValue();
         value.platform = platform;
+        if (platform === "HomeswiftUI") await checkPort(value);
         const result = await api(`/api/config/platforms/${block.index}${anyway ? "?force=true" : ""}`, { method: "PUT", body: value });
         saved = snapshot();
         message.className = "ok";
@@ -2015,6 +2231,21 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("div", { class: "settings-bar" }, message, revert, force, save),
       remove);
     update();
+    if (platform === "HomeswiftUI") {
+      const section = new URLSearchParams(location.search).get("section");
+      if (["proxy", "schedules"].includes(section)) {
+        const target = body.querySelector(`[data-section="${section}"]`);
+        if (target) {
+          target.open = true;
+          target.style.scrollMarginTop = "90px";
+          requestAnimationFrame(() => {
+            if (!target.isConnected) return;
+            target.scrollIntoView({ block: "start" });
+            target.querySelector("summary")?.focus({ preventScroll: true });
+          });
+        }
+      }
+    }
   };
 
   /// The Assistant's settings card (Glass UI's): Test connection, and what the Assistant used today and this month
@@ -2538,7 +2769,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const inner = item.items.map(layoutItem).flat().filter(Boolean);
         if (!inner.length) return null;
         const node = item.type === "fieldset" || item.title
-          ? el("details", { class: "group-box", open: !item.expandable || item.expanded !== false }, el("summary", { text: item.title || t("More") }), el("div", { class: "fields" }, ...inner))
+          ? el("details", { class: "group-box", "data-section": slug(item.title || ""), open: !item.expandable || item.expanded !== false }, el("summary", { text: item.title || t("More") }), el("div", { class: "fields" }, ...inner))
           : el("div", { class: "fields" }, ...inner);
         watch(node, item.condition);
         return node;
@@ -2651,8 +2882,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   views.account = async (main) => {
     const [state, apps] = await Promise.all([api("/api/auth/state"), api("/api/account/apps").catch(() => null)]);
     if (state.mode !== "form") {
+      const plugins = await api("/api/plugins");
+      const ui = plugins.blocks.find((block) => block.platform === "HomeswiftUI");
       show(main, pageHead(t("Account"), t("This web UI has no sign-in: its HomeswiftUI block says auth none, so there is no password to change.")),
-        el("div", { class: "card" }, el("p", { class: "muted", text: t("Plugins › HomeswiftUI › Settings turns sign-in on.") })), appearanceLink());
+        el("div", { class: "card" }, el("p", { class: "muted" }, el("a", { class: "account-settings-link", href: ui ? settingsLink(ui) : "/plugins", text: t("Plugins › HomeswiftUI › Settings") }), " ", t("turns sign-in on."))), appearanceLink());
       return;
     }
     const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);
@@ -5066,6 +5299,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   // Line icons: 24-unit boxes, round caps, the current colour.
   const icons = {
+    power: '<path d="M12 3v9M6.3 5.8a8 8 0 1 0 11.4 0"/>',
+    group: '<rect x="3" y="8" width="13" height="13" rx="3"/><path d="M8 8V6a3 3 0 0 1 3-3h7a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3h-2M7 14.5h5M9.5 12v5"/>',
     bridge: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/>',
     child: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/>',
     accessory: '<rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/>',
@@ -5081,7 +5316,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     thermo: '<path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"/>',
     door: '<path d="M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17M3 21h18M14 12h.01"/>',
     generic: '<rect x="4" y="4" width="16" height="16" rx="4"/>',
-    plugin: '<path d="M4 7h4a2 2 0 1 1 4 0h4v4a2 2 0 1 1 0 4v4H4z"/>',
+    plugin: '<g transform="translate(12 12) scale(1.18) rotate(45) translate(-12 -12)" fill="currentColor" stroke="none"><rect x="8" y="4" width="1.8" height="6" rx=".9"/><rect x="14.2" y="4" width="1.8" height="6" rx=".9"/><path d="M7 9h10v3a5 5 0 0 1-10 0Z"/><rect x="10.9" y="15" width="2.2" height="5" rx="1"/></g>',
     gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
     more: '<circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/>',
     logs: '<path d="M8 6h12M8 12h12M8 18h8M4 6h.01M4 12h.01M4 18h.01"/>',
@@ -5746,7 +5981,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   // ---- The sections, and the tab bar a phone shows them in -----------------------------------------------
 
-  const sections = [["/status", t("Status"), "bridge"], ["/accessories", t("Accessories"), "bulb"], ["/scenes", t("Scenes"), "play"], ["/plugins", t("Plugins"), "plugin"], ["/config", t("Config"), "code"], ["/logs", t("Logs"), "logs"]];
+  const sections = [["/status", t("Status"), "bridge"], ["/accessories", t("Accessories"), "bulb"], ["/scenes", t("Scenes"), "play"], ["/plugins", t("Plugins"), "plugin"], ["/config", t("Config"), "code"], ["/logs", t("Logs"), "logs"], ["/settings", t("Settings"), "gear"]];
 
   /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
   /// a label each, the current one in the accent. `parent` is what hides it with the app (the sign-in screen has
@@ -5754,8 +5989,27 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function tabBar({ active, parent = document.body } = {}) {
     const existing = document.querySelector("nav.tabbar");
     if (existing) return existing;
-    const bar = el("nav", { class: "tabbar", "aria-label": t("Sections") }, sections.map(([path, text, glyph]) =>
+    const panel = el("div", { class: "mobile-nav-panel", id: "mobile-nav-panel", hidden: true }, sections.map(([path, text, glyph]) =>
       el("a", { href: path, class: path === active ? "active" : "", "aria-current": path === active ? "page" : null }, icon(glyph), el("span", { text }))));
+    const toggle = el("button", { type: "button", class: "mobile-nav-toggle", "aria-label": t("Sections"), "aria-expanded": "false", "aria-controls": "mobile-nav-panel" });
+    toggle.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14"/></svg>';
+    const setOpen = (open) => { panel.hidden = !open; toggle.setAttribute("aria-expanded", String(open)); };
+    panel.append(el("hr", { class: "mobile-nav-divider" }));
+    panel.append(el("button", { type: "button", class: "mobile-nav-account", onclick: (event) => {
+      event.stopPropagation();
+      setOpen(false);
+      document.dispatchEvent(new CustomEvent("homeswift-account-menu", { detail: { trigger: toggle, keyboard: event.detail === 0 } }));
+    } }, icon("user"), el("span", { text: t("Account") })));
+    toggle.addEventListener("click", () => setOpen(panel.hidden));
+    panel.addEventListener("click", (event) => { if (event.target.closest("a")) setOpen(false); });
+    const bar = el("nav", { class: "tabbar", "aria-label": t("Sections") }, panel, toggle);
+    document.addEventListener("pointerdown", (event) => { if (!bar.contains(event.target)) setOpen(false); });
+    bar.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") { setOpen(false); toggle.focus(); }
+      if (event.target === toggle && event.key === "ArrowUp") {
+        event.preventDefault(); setOpen(true); panel.querySelector("a:not(.hidden)")?.focus();
+      }
+    });
     parent.append(bar);
     return bar;
   }
@@ -5930,10 +6184,180 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     }
   });
 
+  // Reserve horizontal space only when a sticky save bar shares the floating menu's height.
+  let saveBarFrame = 0;
+  function updateSaveBarPosition() {
+    if (saveBarFrame) return;
+    saveBarFrame = requestAnimationFrame(() => {
+      saveBarFrame = 0;
+      const toggle = document.querySelector(".mobile-nav-toggle");
+      const mobile = matchMedia("(max-width: 640px)").matches;
+      const menuRect = mobile && toggle ? toggle.getBoundingClientRect() : null;
+      document.querySelectorAll(".settings-bar").forEach((bar) => {
+        const rect = bar.getBoundingClientRect();
+        const beside = menuRect && menuRect.height > 0 && rect.bottom > menuRect.top && rect.top < menuRect.bottom;
+        bar.classList.toggle("beside-mobile-menu", Boolean(beside));
+      });
+    });
+  }
+  document.addEventListener("scroll", updateSaveBarPosition, { passive: true, capture: true });
+  window.addEventListener("resize", updateSaveBarPosition, { passive: true });
+  new MutationObserver(updateSaveBarPosition).observe(document.body, { childList: true, subtree: true });
+  updateSaveBarPosition();
+
   window.HomeswiftCommon = {
     $, el, icon, tile, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
+})();
+
+"""#),
+        "groups.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
+// Dashboard groups retain original accessories and send controls to their shared capabilities.
+(() => {
+  const { el, api, menuButton } = HomeswiftCommon;
+  const { t } = HomeswiftI18n;
+  const allowed = new Set(['Lightbulb', 'Switch', 'Outlet', 'Fan', 'Fanv2', 'WindowCovering']);
+  const deviceTypes = [
+    ['Lightbulb', 'bulb', t('Lights')], ['Switch', 'switch', t('Switches')],
+    ['Outlet', 'outlet', t('Outlets')], ['Fan', 'fan', t('Fans')], ['WindowCovering', 'accessory', t('Blinds')]
+  ];
+  const deviceType = (a) => deviceTypes.find(([type]) => a.services.some((s) => s.type === type || (type === 'Fan' && s.type === 'Fanv2'))) || ['', 'accessory', t('Accessories')];
+  const types = ['On', 'Active', 'Brightness', 'Color Temperature', 'Hue', 'Saturation', 'Rotation Speed', 'Target Position'];
+  const controls = (a) => {
+    const result = new Map();
+    for (const s of a?.services || []) if (allowed.has(s.type)) {
+      for (const c of s.characteristics) if (types.includes(c.type) && c.permissions.includes('pw')) {
+        // Ambiguous multi-service accessories are not grouped.
+        if (result.has(c.type)) return new Map();
+        result.set(c.type, { service: s.subtype || s.type, c });
+      }
+    }
+    return result;
+  };
+  const shared = (members) => types.filter((type) => members.length && members.every((a) => controls(a).has(type)));
+  const compatible = (members) => shared(members).some((type) => ['On', 'Active', 'Target Position'].includes(type));
+  function mount({ all, layout, persist, refresh }) {
+    layout.groups ||= [];
+    const byID = new Map(all.map((a) => [a.id, a]));
+    const members = (id) => layout.groups.find((g) => g.id === id)?.members || [id];
+    const canJoin = (a, b) => a !== b && compatible([...new Set([...members(a), ...members(b)])].map((id) => byID.get(id)));
+    async function edit(ids = [], existing = null) {
+      const selected = new Set(existing?.members || ids);
+      const name = el('input', { value: existing?.name || t('Accessory group'), maxLength: 64, required: true });
+      const message = el('p', { role: 'status', class: 'error' });
+      const occupied = new Set(layout.groups.filter((g) => g !== existing && !ids.includes(g.id)).flatMap((g) => g.members));
+      const choices = all.filter((a) => selected.has(a.id) || (!occupied.has(a.id) && controls(a).size));
+      const list = el('div', { class: 'group-member-list', 'aria-label': t('Available') });
+      const selectedList = el('div', { class: 'group-member-list', 'aria-label': t('Selected') });
+      const selectedCount = el('span', { class: 'pill status on' });
+      const selectedEmpty = el('p', { class: 'muted', text: t('Choose at least two accessories with shared controls.') });
+      const rows = choices.map((a) => {
+        const button = el('button', { type: 'button', class: 'group-transfer' });
+        const row = el('div', { class: 'group-member-row', 'data-search': (a.displayName || a.name).toLowerCase(), 'data-type': deviceType(a)[0] },
+          el('span', { class: 'group-device-icon', title: deviceType(a)[2], 'aria-hidden': 'true' }, HomeswiftCommon.icon(deviceType(a)[1])),
+          el('span', { class: 'group-member-name', text: a.displayName || a.name }), button);
+        const update = () => {
+          const chosen = selected.has(a.id);
+          button.textContent = chosen ? '−' : '+';
+          button.setAttribute('aria-label', `${chosen ? t('Remove') : t('Add')}: ${a.displayName || a.name}`);
+          (chosen ? selectedList : list).append(row);
+          row.hidden = false;
+          selectedCount.textContent = String(selected.size);
+          selectedEmpty.hidden = selected.size > 0;
+        };
+        button.addEventListener('click', () => {
+          if (selected.has(a.id)) selected.delete(a.id); else selected.add(a.id);
+          update(); applyFilter(); button.focus();
+        });
+        update(); return row;
+      });
+      const save = el('button', { type: 'submit', class: 'primary', text: t('Save') });
+      const dialog = el('dialog', { class: 'admin-dialog accessory-group-dialog', 'aria-label': t('Accessory group') });
+      const search = el('input', { type: 'search', class: 'search', placeholder: t('Search accessories'), 'aria-label': t('Search accessories') });
+      let activeType = '';
+      const empty = el('p', { class: 'muted', hidden: true, text: t('No accessory matches.') });
+      const applyFilter = () => {
+        for (const row of list.children) row.hidden = (activeType && row.dataset.type !== activeType) || !row.dataset.search.includes(search.value.trim().toLowerCase());
+        empty.hidden = [...list.children].some((row) => !row.hidden);
+      };
+      const typeFilter = el('div', { class: 'group-type-filter', role: 'group', 'aria-label': t('Device type') },
+        [['', 'grid', t('All')], ...deviceTypes.filter(([type]) => choices.some((a) => deviceType(a)[0] === type))].map(([type, glyph, label]) =>
+          el('button', { type: 'button', 'aria-pressed': String(type === activeType), onclick: (event) => {
+            activeType = type;
+            for (const button of typeFilter.children) button.setAttribute('aria-pressed', String(button === event.currentTarget));
+            applyFilter();
+          } }, HomeswiftCommon.icon(glyph), el('span', { text: label }))));
+      search.addEventListener('input', applyFilter);
+      const form = el('form', {}, el('div', { class: 'group-dialog-head' }, HomeswiftCommon.tile('grid', 'blue'), el('h2', { text: t('Accessory group') })), el('label', { class: 'group-name-field' }, el('span', { text: t('Name') }), name),
+        el('div', { class: 'group-picker-columns' },
+          el('section', {}, el('h3', { text: t('Available') }), search, typeFilter, list, empty),
+          el('section', {}, el('div', { class: 'group-selected-heading' }, el('h3', { text: t('Selected') }), selectedCount), selectedList, selectedEmpty)), message,
+        el('div', { class: 'actions' }, el('button', { type: 'button', text: t('Cancel'), onclick: () => dialog.close() }), save));
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (selected.size < 2 || !compatible([...selected].map((id) => byID.get(id)))) { message.textContent = t('Choose at least two accessories with shared controls.'); return; }
+        save.disabled = true;
+        const before = layout.groups;
+        layout.groups = before.filter((g) => g !== existing && !g.members.some((id) => selected.has(id)));
+        layout.groups.push({ id: existing?.id || `group:${crypto.randomUUID()}`, name: name.value.trim(), members: [...selected] });
+        try { await persist(); dialog.close(); refresh(); } catch (error) { layout.groups = before; message.textContent = error.message; save.disabled = false; }
+      });
+      dialog.append(form); document.body.append(dialog); dialog.addEventListener('close', () => dialog.remove(), { once: true }); dialog.showModal();
+    }
+    const cards = new Set();
+    function card(group, editing) {
+      const people = group.members.map((id) => byID.get(id));
+      const result = el('p', { class: 'group-feedback', role: 'status' });
+      const body = el('div', { class: 'group-controls' });
+      const draw = () => {
+        if (body.contains(document.activeElement)) return;
+        body.replaceChildren(...shared(people).map((type) => {
+          const targets = people.map((a) => controls(a).get(type));
+          const values = targets.map(({ c }) => c.value);
+          const mixed = values.some((v) => v !== values[0]);
+          const isBool = type === 'On' || type === 'Active';
+          const low = Math.max(...targets.map(({ c }) => c.minValue ?? 0));
+          const high = Math.min(...targets.map(({ c }) => c.maxValue ?? (type === 'Hue' ? 360 : 100)));
+          if (!isBool && low > high) return null;
+          const input = el('input', isBool ? { type: 'checkbox', checked: Boolean(values[0]), disabled: editing } : { type: 'range', min: low, max: high, step: Math.max(...targets.map(({ c }) => c.minStep || 1)), value: values[0] ?? low, disabled: editing });
+          input.setAttribute('aria-label', type); if (isBool) input.indeterminate = mixed;
+          const state = el('span', { class: 'muted', text: mixed ? t('Mixed') : String(values[0] ?? '—') });
+          input.addEventListener('change', async () => {
+            input.disabled = true;
+            const value = isBool ? (type === 'Active' ? Number(input.checked) : input.checked) : Number(input.value);
+            const outcomes = await Promise.allSettled(people.map((a, i) => api(`/api/accessories/${encodeURIComponent(a.id)}`, { method: 'PUT', body: { service: targets[i].service, characteristic: type, value } })));
+            outcomes.forEach((outcome, i) => { if (outcome.status === 'fulfilled') targets[i].c.value = value; });
+            const failed = outcomes.flatMap((outcome, i) => outcome.status === 'rejected' ? [people[i].displayName || people[i].name] : []);
+            result.textContent = failed.length ? t('Could not update: {names}', { names: failed.join(', ') }) : '';
+            input.disabled = editing; input.blur(); draw();
+          });
+          return el('label', {}, el('span', { text: type }), input, state);
+        }).filter(Boolean));
+        if (people.some((a) => !a)) result.textContent = t('Some group members are unavailable.');
+      };
+      const node = el('div', { class: 'widget size-large accessory-group', 'data-id': group.id, 'data-search': [group.name, ...people.map((a) => a?.name || '')].join(' ').toLowerCase() },
+        el('div', { class: 'server-head' }, HomeswiftCommon.tile('grid', 'blue'), el('div', { class: 'who' }, el('strong', { text: group.name }), el('div', { class: 'muted', text: people.map((a) => a?.displayName || a?.name || '—').join(', ') })),
+          menuButton(t('Actions for {name}', { name: group.name }), () => [
+            { label: t('Edit group'), icon: 'edit', onSelect: () => edit([], group) },
+            { label: t('Ungroup'), icon: 'grid', onSelect: async () => {
+              const before = layout.groups; layout.groups = before.filter((g) => g !== group);
+              try { await persist(); refresh(); } catch (error) { layout.groups = before; result.textContent = error.message; }
+            } }
+          ])), body, result);
+      draw(); cards.add({ node, draw }); return node;
+    }
+    return { card, edit, canJoin, join: (a, b) => {
+      const target = layout.groups.find((g) => g.id === b) || layout.groups.find((g) => g.id === a);
+      const ids = [...new Set([...members(a), ...members(b)])];
+      return edit(ids, target ? { ...target, members: ids } : null);
+    }, event: (event) => {
+      const a = byID.get(event.id); if (!a) return;
+      for (const s of a.services) if ((s.subtype || s.type) === (event.subtype || event.service)) for (const c of s.characteristics) if (c.type === event.characteristic) c.value = event.value;
+      for (const item of cards) { if (!item.node.isConnected) cards.delete(item); else item.draw(); }
+    } };
+  }
+  window.HomeswiftGroups = { mount };
 })();
 
 """#),
@@ -6417,6 +6841,25 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// An input for a characteristic's value: a menu for booleans and enumerations, a number within its range,
   /// else text. `.read()` gives the value to save.
   function valueInput(characteristic, value) {
+    if (["Brightness", "Color Temperature"].includes(characteristic?.type)) {
+      const temperature = characteristic.type === "Color Temperature";
+      const min = characteristic.minValue ?? (temperature ? 140 : 0);
+      const max = characteristic.maxValue ?? (temperature ? 500 : 100);
+      const slider = el("input", { type: "range", min, max, step: characteristic.minStep || 1,
+        value: value ?? characteristic.value ?? min, "aria-label": temperature ? t("Color Temperature") : t("Brightness") });
+      const output = el("output", { class: "scene-slider-value" });
+      const format = new Intl.NumberFormat(HomeswiftI18n.locale, { maximumFractionDigits: 0 });
+      const paint = () => {
+        const raw = Number(slider.value);
+        const text = temperature ? `${format.format(Math.round(1000000 / raw))} K` : `${format.format(raw)} %`;
+        output.textContent = text;
+        slider.setAttribute("aria-valuetext", text);
+      };
+      slider.addEventListener("input", paint); paint();
+      const wrap = el("span", { class: `scene-value-slider${temperature ? " temperature" : " brightness"}` }, output, slider);
+      wrap.read = () => Number(slider.value);
+      return wrap;
+    }
     const labels = app.enumLabels[characteristic?.type];
     let input;
     if (characteristic?.format === "bool") {
@@ -6450,9 +6893,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const fill = (keepType, keepValue) => {
       const found = options.find((a) => a.id === accessory.value);
       const chars = found ? list(found) : [];
-      kind.replaceChildren(...chars.map((c, index) => el("option", { value: index, text: chars.filter((x) => x.type === c.type).length > 1 ? `${c.type} (${c.serviceName})` : c.type })));
+      const controlName = (type) => type === "On" ? t("Power") : type;
+      kind.replaceChildren(...chars.map((c, index) => el("option", { value: index, text: chars.filter((x) => x.type === c.type).length > 1 ? `${controlName(c.type)} (${c.serviceName})` : controlName(c.type) })));
       // An accessory that is gone keeps the characteristic it was saved with.
-      if (!chars.length && (keepType ?? characteristic)) kind.append(el("option", { value: 0, text: keepType ?? characteristic }));
+      if (!chars.length && (keepType ?? characteristic)) kind.append(el("option", { value: 0, text: controlName(keepType ?? characteristic) }));
       const index = Math.max(0, chars.findIndex((c) => c.type === keepType));
       kind.value = String(index);
       current = chars[index] || null;
@@ -6517,7 +6961,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     const addAction = (action = {}) => {
       const pick = {};
-      const row = rowShell(...characteristicPicker(choices, pick, { id: action.id, characteristic: action.characteristic, value: action.value }));
+      const [accessory, control, value] = characteristicPicker(choices, pick, { id: action.id, characteristic: action.characteristic, value: action.value });
+      control.setAttribute("aria-label", t("Control"));
+      const row = rowShell(field(t("Accessory"), accessory), field(t("Control"), control), field(t("Value"), value));
       row.read = () => ({ ...pick.read(), value: pick.value.read() });
       const remove = removeButton(row, actions);
       remove.className = "danger scene-condition-remove";
@@ -6908,6 +7354,34 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Sign-in": "Inicio de sesión",
+  "Increase port": "Aumentar el puerto",
+  "Decrease port": "Reducir el puerto",
+  "Choose a port between 1 and 65535.": "Elige un puerto entre 1 y 65535.",
+  "Port {port} is in use or cannot be opened on this address. Choose another port.": "El puerto {port} está ocupado o no se puede abrir en esta dirección. Elige otro puerto.",
+  "Port {port} is available.": "El puerto {port} está disponible.",
+  "Checking port…": "Comprobando el puerto…",
+  "Please wait. This page will reconnect automatically.": "Espera un momento. Esta página se volverá a conectar automáticamente.",
+  "Connection": "Conexión",
+  "Updates": "Actualizaciones",
+  "Filters": "Filtros",
+  "Accessory options": "Opciones de accesorios",
+  "Available": "Disponibles",
+  "Selected": "Seleccionados",
+  "Lights": "Luces",
+  "Switches": "Interruptores",
+  "Outlets": "Enchufes",
+  "Fans": "Ventiladores",
+  "Blinds": "Persianas",
+  "Device type": "Tipo de dispositivo",
+  "Accessory group": "Grupo de accesorios",
+  "Choose at least two accessories with shared controls.": "Elige al menos dos accesorios con controles comunes.",
+  "Mixed": "Mixto",
+  "Could not update: {names}": "No se pudo actualizar: {names}",
+  "Some group members are unavailable.": "Algunos miembros del grupo no están disponibles.",
+  "Edit group": "Editar grupo",
+  "Ungroup": "Desagrupar",
+  "Create group": "Crear grupo",
   "Delete action": "Eliminar acción",
   "Delete trigger": "Eliminar activador",
   "Delete condition": "Eliminar condición",
@@ -8076,6 +8550,8 @@ HomeswiftI18n.add("es", {
   "Plugin device calls": "Llamadas de plugins a dispositivos",
   "Plugin settings": "Ajustes del plugin",
   "Plugins": "Plugins",
+  "Plugins › HomeswiftUI › Settings": "Plugins › HomeswiftUI › Ajustes",
+  "turns sign-in on.": "permite activar el inicio de sesión.",
   "Plugins › HomeswiftUI › Settings turns sign-in on.": "Plugins › HomeswiftUI › Ajustes activa el inicio de sesión.",
   "Plugins on HomeKit bridges of their own (a block with _bridge), inside this process: one can restart without the others.": "Plugins en sus propios puentes HomeKit (un bloque con _bridge), dentro de este proceso: cada uno puede reiniciarse sin los demás.",
   "PM10 Density": "PM10",
@@ -8160,6 +8636,8 @@ HomeswiftI18n.add("es", {
   "resetting the caches needs confirm: true": "restablecer las cachés requiere confirm: true",
   "Restart": "Reiniciar",
   "Restart {name}?": "¿Reiniciar {name}?",
+  "Restart Homeswift?": "¿Reiniciar Homeswift?",
+  "Your accessories will disconnect briefly. This page will reconnect automatically when Homeswift is ready.": "Tus accesorios se desconectarán brevemente. Esta página se reconectará automáticamente cuando Homeswift esté listo.",
   "Restart homeswift now? Every connection drops for a few seconds.": "¿Reiniciar homeswift ahora? Todas las conexiones se cortan unos segundos.",
   "Restart homeswift to apply the rest: {0}.": "Reinicia homeswift para aplicar el resto: {0}.",
   "Restart homeswift to apply the restore: it is applied before anything else at the next start.": "Reinicia homeswift para aplicar la restauración: se aplica antes que nada en el próximo arranque.",
@@ -8797,6 +9275,34 @@ HomeswiftI18n.add("es", {
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "Sign-in": "Connexion",
+  "Increase port": "Augmenter le port",
+  "Decrease port": "Diminuer le port",
+  "Choose a port between 1 and 65535.": "Choisissez un port entre 1 et 65535.",
+  "Port {port} is in use or cannot be opened on this address. Choose another port.": "Le port {port} est utilisé ou ne peut pas être ouvert sur cette adresse. Choisissez un autre port.",
+  "Port {port} is available.": "Le port {port} est disponible.",
+  "Checking port…": "Vérification du port…",
+  "Please wait. This page will reconnect automatically.": "Veuillez patienter. Cette page se reconnectera automatiquement.",
+  "Connection": "Connexion",
+  "Updates": "Mises à jour",
+  "Filters": "Filtres",
+  "Accessory options": "Options des accessoires",
+  "Available": "Disponibles",
+  "Selected": "Sélectionnés",
+  "Lights": "Lumières",
+  "Switches": "Interrupteurs",
+  "Outlets": "Prises",
+  "Fans": "Ventilateurs",
+  "Blinds": "Stores",
+  "Device type": "Type d’appareil",
+  "Accessory group": "Groupe d’accessoires",
+  "Choose at least two accessories with shared controls.": "Choisissez au moins deux accessoires avec des commandes communes.",
+  "Mixed": "Mixte",
+  "Could not update: {names}": "Mise à jour impossible : {names}",
+  "Some group members are unavailable.": "Certains membres du groupe sont indisponibles.",
+  "Edit group": "Modifier le groupe",
+  "Ungroup": "Dissocier",
+  "Create group": "Créer un groupe",
   "Delete action": "Supprimer l’action",
   "Delete trigger": "Supprimer le déclencheur",
   "Delete condition": "Supprimer la condition",
@@ -9965,6 +10471,8 @@ HomeswiftI18n.add("fr", {
   "Plugin device calls": "Appels des plugins aux appareils",
   "Plugin settings": "Réglages du plugin",
   "Plugins": "Plugins",
+  "Plugins › HomeswiftUI › Settings": "Plugins › HomeswiftUI › Réglages",
+  "turns sign-in on.": "permet d’activer la connexion.",
   "Plugins › HomeswiftUI › Settings turns sign-in on.": "Plugins › HomeswiftUI › Réglages active la connexion.",
   "Plugins on HomeKit bridges of their own (a block with _bridge), inside this process: one can restart without the others.": "Des plugins sur leurs propres ponts HomeKit (un bloc avec _bridge), dans ce processus : chacun peut redémarrer sans les autres.",
   "PM10 Density": "PM10",
@@ -10049,6 +10557,8 @@ HomeswiftI18n.add("fr", {
   "resetting the caches needs confirm: true": "réinitialiser les caches nécessite confirm: true",
   "Restart": "Redémarrer",
   "Restart {name}?": "Redémarrer {name} ?",
+  "Restart Homeswift?": "Redémarrer Homeswift ?",
+  "Your accessories will disconnect briefly. This page will reconnect automatically when Homeswift is ready.": "Vos accessoires seront brièvement déconnectés. Cette page se reconnectera automatiquement dès que Homeswift sera prêt.",
   "Restart homeswift now? Every connection drops for a few seconds.": "Redémarrer homeswift maintenant ? Toutes les connexions sont coupées quelques secondes.",
   "Restart homeswift to apply the rest: {0}.": "Redémarrez homeswift pour appliquer le reste : {0}.",
   "Restart homeswift to apply the restore: it is applied before anything else at the next start.": "Redémarrez homeswift pour appliquer la restauration : elle passe avant tout le reste au prochain démarrage.",
@@ -10686,6 +11196,34 @@ HomeswiftI18n.add("fr", {
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "Sign-in": "Início de sessão",
+  "Increase port": "Aumentar a porta",
+  "Decrease port": "Diminuir a porta",
+  "Choose a port between 1 and 65535.": "Escolha uma porta entre 1 e 65535.",
+  "Port {port} is in use or cannot be opened on this address. Choose another port.": "A porta {port} está ocupada ou não pode ser aberta neste endereço. Escolha outra porta.",
+  "Port {port} is available.": "A porta {port} está disponível.",
+  "Checking port…": "A verificar a porta…",
+  "Please wait. This page will reconnect automatically.": "Aguarde. Esta página voltará a ligar-se automaticamente.",
+  "Connection": "Ligação",
+  "Updates": "Atualizações",
+  "Filters": "Filtros",
+  "Accessory options": "Opções dos acessórios",
+  "Available": "Disponíveis",
+  "Selected": "Selecionados",
+  "Lights": "Luzes",
+  "Switches": "Interruptores",
+  "Outlets": "Tomadas",
+  "Fans": "Ventoinhas",
+  "Blinds": "Estores",
+  "Device type": "Tipo de dispositivo",
+  "Accessory group": "Grupo de acessórios",
+  "Choose at least two accessories with shared controls.": "Escolha pelo menos dois acessórios com controlos comuns.",
+  "Mixed": "Misto",
+  "Could not update: {names}": "Não foi possível atualizar: {names}",
+  "Some group members are unavailable.": "Alguns membros do grupo estão indisponíveis.",
+  "Edit group": "Editar grupo",
+  "Ungroup": "Desagrupar",
+  "Create group": "Criar grupo",
   "Delete action": "Eliminar ação",
   "Delete trigger": "Eliminar acionador",
   "Delete condition": "Eliminar condição",
@@ -11854,6 +12392,8 @@ HomeswiftI18n.add("pt", {
   "Plugin device calls": "Chamadas dos plugins aos dispositivos",
   "Plugin settings": "Definições do plugin",
   "Plugins": "Plugins",
+  "Plugins › HomeswiftUI › Settings": "Plugins › HomeswiftUI › Definições",
+  "turns sign-in on.": "permite ativar o início de sessão.",
   "Plugins › HomeswiftUI › Settings turns sign-in on.": "Plugins › HomeswiftUI › Definições ativa o início de sessão.",
   "Plugins on HomeKit bridges of their own (a block with _bridge), inside this process: one can restart without the others.": "Plugins em pontes HomeKit próprias (um bloco com _bridge), dentro deste processo: cada uma pode reiniciar sem as outras.",
   "PM10 Density": "PM10",
@@ -11938,6 +12478,8 @@ HomeswiftI18n.add("pt", {
   "resetting the caches needs confirm: true": "repor as caches requer confirm: true",
   "Restart": "Reiniciar",
   "Restart {name}?": "Reiniciar {name}?",
+  "Restart Homeswift?": "Reiniciar o Homeswift?",
+  "Your accessories will disconnect briefly. This page will reconnect automatically when Homeswift is ready.": "Os seus acessórios serão desligados brevemente. Esta página volta a ligar-se automaticamente quando o Homeswift estiver pronto.",
   "Restart homeswift now? Every connection drops for a few seconds.": "Reiniciar o homeswift agora? Todas as ligações caem durante alguns segundos.",
   "Restart homeswift to apply the rest: {0}.": "Reinicie o homeswift para aplicar o resto: {0}.",
   "Restart homeswift to apply the restore: it is applied before anything else at the next start.": "Reinicie o homeswift para aplicar o restauro: é aplicado antes de tudo no próximo arranque.",
@@ -12785,6 +13327,7 @@ HomeswiftI18n.add("pt", {
 <script src="/remote.js"></script>
 <script src="/camera.js"></script>
 <script src="/widgets.js"></script>
+<script src="/groups.js"></script>
 <script src="/charts.js"></script>
 <script src="/chat.js"></script>
 <script src="/home.js"></script>
@@ -13450,6 +13993,18 @@ header {
 .logo { width: 36px; height: 36px; border-radius: 10px; box-shadow: 0 2px 8px rgba(255, 122, 26, 0.35); }
 .logo.large { width: 72px; height: 72px; border-radius: 18px; margin-bottom: 4px; }
 nav { display: flex; gap: 2px; }
+/* Let navigation shrink before it can push the account control out of the header. */
+header .brand { flex: none; margin-inline-start: 4px; }
+header nav { min-width: 0; overflow-x: auto; scrollbar-width: none; }
+header nav::-webkit-scrollbar { display: none; }
+header nav a { flex: none; white-space: nowrap; }
+header .spacer { min-width: 0; }
+@media (min-width: 641px) and (max-width: 900px) {
+  header { gap: 8px; padding-left: 10px; }
+  header nav { flex: 1 1 auto; }
+  header .spacer { display: none; }
+  header .user-name { display: none; }
+}
 nav a {
   color: var(--text); text-decoration: none; padding: 7px 14px; border-radius: 999px; touch-action: manipulation;
   transition: background-color var(--fast) var(--ease-out), transform var(--fast) var(--ease-out);
@@ -14400,7 +14955,7 @@ textarea.short { min-height: 220px; }
 .menu-separator { border: 0; border-top: 1px solid var(--line); margin: 4px 8px; }
 .menu [role="menuitem"].danger { color: var(--error); }
 .menu [role="menuitem"].danger:hover, .menu [role="menuitem"].danger:focus-visible { background: var(--error); color: #fff; }
-.menu [role="menuitem"] svg { width: 17px; height: 17px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.menu :is([role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]) svg { width: 17px; height: 17px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 /* A phone's action sheet: across the bottom over a dimmed page, rising on the drawer curve and leaving faster;
    scrolls when it is taller than the window. */
 .menu-scrim { position: fixed; inset: 0; z-index: 29; background: rgba(10, 14, 24, 0.28); animation: sheet-dim 200ms var(--ease-out); }
@@ -14910,24 +15465,32 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   main { padding: 14px 12px calc(104px + env(safe-area-inset-bottom)); }
   .tabbar {
     position: fixed; z-index: 15; left: 10px; right: 10px; bottom: max(10px, env(safe-area-inset-bottom));
-    /* A column per section the user may open (six for an administrator, fewer otherwise); a long label widens its own. */
-    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(min-content, 1fr); padding: 6px 4px; border-radius: 28px;
+    /* Equal icon targets for each section the user may open. */
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); padding: 6px 4px; border-radius: 28px;
     background-color: var(--material-thick); background-image: var(--sheen);
     -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
     border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
   }
   .tabbar a {
-    display: grid; justify-items: center; gap: 2px; padding: 7px 0 6px; border-radius: 22px; min-height: 50px;
+    display: grid; place-items: center; padding: 10px 0; border-radius: 22px; min-height: 44px;
     color: var(--muted); text-decoration: none; font-size: 0.625rem; font-weight: 600; letter-spacing: -0.025em;
     touch-action: manipulation; -webkit-user-select: none; user-select: none;
     transition: transform var(--fast) var(--ease-out), background-color var(--fast) var(--ease-out), color var(--fast) var(--ease-out);
   }
-  .tabbar a span { white-space: nowrap; }
+  .tabbar a span { display: none; }
   .tabbar a svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .tabbar a.active { color: var(--accent-ink); background: var(--material-thin); }
   .tabbar a:active { transform: scale(0.92); transition-duration: 80ms; }
-  /* Bars that float at the bottom of a page float above the tab bar. */
-  .settings-bar { bottom: calc(86px + env(safe-area-inset-bottom)); padding-left: 16px; }
+  /* Align the save status with the floating navigation, leaving room for its 54px button. */
+  .settings-bar {
+    bottom: max(14px, env(safe-area-inset-bottom));
+    margin-right: 0;
+    min-height: 54px; padding: 6px 8px 6px 16px;
+    flex-wrap: wrap; border-radius: 27px;
+  }
+  .settings-bar.beside-mobile-menu { margin-right: calc(70px + env(safe-area-inset-right)); }
+  .settings-bar > span:first-child { flex-basis: 60px; }
+  .settings-bar > button { flex-shrink: 0; }
   /* Fields at 16px: smaller, and Safari zooms the page into them on focus. */
   input, select, textarea, .code-editor > .code-layer, .code-editor > .code-input { font-size: 16px; }
   /* Comfortable targets, near Apple's 44pt: every button at least 40px tall, a text button too (its hit area
@@ -15624,6 +16187,174 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 }
 
 .days .day { width: auto; min-width: 34px; padding: 0 7px; flex: none; }
+
+/* Accessory groups and their member picker. */
+.accessory-group { padding: 16px; overflow: auto; min-height: 200px; background: var(--material-solid); border: 1px solid var(--line); border-radius: 18px; }
+.accessory-group .server-head .who { min-width: 0; }
+.accessory-group .group-controls { display: grid; gap: 10px; margin-top: 16px; }
+.group-controls label { display: flex; align-items: center; gap: 10px; font-size: .8125rem; }
+.group-controls label > span:first-child { flex: 1; }
+.group-controls input[type=range] { width: 100px; }
+.group-feedback { font-size: .75rem; color: var(--danger); }
+.group-feedback:empty { display: none; }
+.wall .widget.group-drop-target { outline: 3px solid var(--accent); outline-offset: 3px; }
+.wall .widget.group-drop-target::after { content: "+"; position: absolute; inset: 35% 40%; border-radius: 50%; background: var(--accent); color: white; display: grid; place-items: center; font-size: 32px; pointer-events: none; }
+.accessory-group-dialog { width: min(940px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); padding: 24px; border-radius: 22px; border: 1px solid var(--edge); background: var(--material-solid); box-shadow: 0 24px 80px rgba(0,0,0,.25); }
+.group-dialog-head { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+.group-dialog-head h2 { margin: 0; font-size: 1.2rem; }
+.group-name-field { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.group-name-field > span { font-size: .8125rem; font-weight: 600; color: var(--muted); }
+.group-name-field input, .accessory-group-dialog .search { width: 100%; }
+.group-member-list { overflow: auto; margin: 16px 0; display: grid; gap: 0; max-height: 38vh; border: 1px solid var(--line); border-radius: 14px; background: var(--material-thin); overscroll-behavior: contain; }
+.group-member-list .group-member-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); font-size: .875rem; }
+.group-member-list .group-member-row[hidden] { display: none; }
+.group-member-list .group-member-row:last-child { border-bottom: 0; }
+.accessory-group-dialog .actions { padding-top: 16px; border-top: 1px solid var(--line); }
+.accessory-group-dialog p:empty { display: none; }
+.group-type-filter { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.group-type-filter button { display: flex; align-items: center; gap: 6px; padding: 7px 10px; font-size: .75rem; }
+.group-type-filter button[aria-pressed=true] { background: var(--accent-fill); color: var(--accent-text); border-color: var(--accent); }
+.group-type-filter svg, .group-device-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.group-device-icon { display: grid; place-items: center; width: 30px; height: 30px; flex: none; border-radius: 8px; background: var(--accent-fill); color: var(--accent-text); }
+.group-member-name { flex: 1; min-width: 0; }
+.group-picker-columns { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 24px; }
+.group-picker-columns > section { min-width: 0; }
+.group-picker-columns h3 { font-size: .875rem; margin: 0 0 14px; }
+.group-selected-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.group-selected-heading h3 { margin: 0; }
+.group-transfer { width: 30px; height: 30px; padding: 0; flex: none; font-size: 20px; border-radius: 50%; }
+.accessories-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.accessories-toolbar > button:not(.menu-button) { display: inline-flex; align-items: center; gap: 7px; }
+.accessories-toolbar button > svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.accessories-toolbar .search { width: clamp(180px, 22vw, 300px); }
+.toolbar-count { display: grid; place-items: center; min-width: 19px; height: 19px; border-radius: 10px; background: var(--accent-fill); color: var(--accent-text); font-size: .75rem; }
+.accessories-toolbar .accessory-options-button { width: 36px; height: 36px; color: var(--muted); background: var(--material-thin); box-shadow: none; }
+.accessories-toolbar .accessory-options-button svg { fill: none; stroke: currentColor; stroke-width: 1.6; width: 19px; height: 19px; }
+@media (max-width: 650px) { .group-picker-columns { grid-template-columns: 1fr; gap: 16px; } .group-picker-columns .group-member-list { max-height: 25vh; } }
+@media (max-width: 600px) { .accessories-toolbar { width: 100%; } .accessories-toolbar .search { flex: 1 1 100%; width: 100%; } }
+
+/* Toolbar glyphs stay lighter than their labels. */
+.accessories-toolbar button > svg,
+.accessories-toolbar .accessory-options-button svg {
+  color: var(--muted); stroke: currentColor; fill: none;
+  stroke-width: 1.5; opacity: .8;
+}
+.accessories-toolbar button > svg,
+.accessories-toolbar .accessory-options-button svg { width: 14px; height: 14px; }
+
+.local-ui-settings { padding: 20px; }
+.local-ui-settings .view-switch { margin-bottom: 20px; }
+.local-ui-settings .group-box { border: 1px solid var(--line); border-radius: 14px; margin: 0 0 14px; background: var(--material-thin); overflow: hidden; }
+.local-ui-settings .group-box > summary { padding: 16px 18px; font-size: .9375rem; font-weight: 600; cursor: pointer; }
+.local-ui-settings .group-box > .fields { padding: 4px 18px 18px; }
+.local-ui-settings .help { max-width: 680px; line-height: 1.55; }
+.local-ui-settings input:not([type=checkbox]), .local-ui-settings select { max-width: 560px; }
+.local-ui-settings .drop-zone { padding: 16px; margin-bottom: 18px; border-radius: 10px; }
+.local-ui-settings > .error:empty { display: none; }
+.local-ui-settings .group-box .group-box { background: transparent; }
+
+.local-ui-settings .group-box > .fields > .fields { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 600px) { .local-ui-settings .group-box > .fields > .fields { grid-template-columns: 1fr; } }
+.local-ui-settings .group-box > .fields > .fields { align-items: stretch; }
+.local-ui-settings .group-box > .fields > .fields > div { display: flex; flex-direction: column; min-width: 0; }
+.local-ui-settings .group-box > .fields > .fields > div > .drop-zone { margin-top: auto; }
+/* Separate section guidance from its actions. */
+.local-ui-settings .group-box fieldset > button,
+.local-ui-settings .group-box .help + button,
+.local-ui-settings .group-box p + button,
+.local-ui-settings .group-box .help + .actions { margin-top: 14px; }
+.local-ui-settings .group-box fieldset > .help { margin-bottom: 10px; }
+
+.scene-value-slider { display: flex; flex-direction: column; gap: 10px; width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--material-thin); }
+.scene-slider-value { align-self: flex-end; font-size: .9375rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.scene-value-slider input[type=range] { width: 100%; min-height: 24px; padding: 0; }
+.scene-value-slider.temperature input[type=range] { background: linear-gradient(90deg, #b9d9ff, #fff5df, #ffb64c); border-radius: 12px; }
+.scene-value-slider.brightness input[type=range] { accent-color: var(--accent); }
+
+/* Color belongs to the slider track, not the surrounding input box. */
+.scene-value-slider { --scene-track: linear-gradient(90deg, #665c45, #f6d77e, #fff6d7); }
+.scene-value-slider.temperature { --scene-track: linear-gradient(90deg, #a8ceff, #e1edff, #fff4de, #ffd180, #ff9f36); }
+.scene-value-slider input[type=range],
+.scene-value-slider.temperature input[type=range] {
+  -webkit-appearance: none; appearance: none; background: transparent; border: 0; box-shadow: none;
+  height: 32px; cursor: pointer;
+}
+.scene-value-slider input[type=range]::-webkit-slider-runnable-track { height: 12px; border-radius: 8px; background: var(--scene-track); box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+.scene-value-slider input[type=range]::-moz-range-track { height: 12px; border-radius: 8px; background: var(--scene-track); box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+.scene-value-slider input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 24px; height: 24px; margin-top: -6px; border-radius: 50%; border: 2px solid white; background: #fafafa; box-shadow: 0 1px 5px rgba(0,0,0,.3); }
+.scene-value-slider input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; border: 2px solid white; background: #fafafa; box-shadow: 0 1px 5px rgba(0,0,0,.3); }
+.scene-value-slider input[type=range]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
+
+.dashboard-quick-actions { gap: 12px 20px; flex-wrap: wrap; }
+.dashboard-quick-actions > .link { display: inline-flex; align-items: center; gap: 8px; }
+.dashboard-quick-actions svg { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+.restart-overlay { width: min(420px, calc(100vw - 40px)); padding: 36px 28px; border: 1px solid var(--edge); border-radius: 24px; background: var(--material-solid); color: var(--text); text-align: center; box-shadow: 0 24px 80px rgba(0,0,0,.25); }
+.restart-overlay::backdrop { background: rgba(20,25,35,.3); -webkit-backdrop-filter: blur(9px); backdrop-filter: blur(9px); }
+.restart-overlay .spinner { width: 32px; height: 32px; border-width: 3px; margin-bottom: 14px; }
+.restart-overlay h2 { font-size: 1.2rem; margin: 8px 0 12px; }
+.restart-overlay p { color: var(--muted); font-size: .875rem; line-height: 1.6; }
+@media (prefers-reduced-transparency: reduce) { .restart-overlay::backdrop { background: rgba(20,25,35,.8); backdrop-filter: none; -webkit-backdrop-filter: none; } }
+
+.restart-confirm-icon { display: grid; place-items: center; width: 60px; height: 60px; margin: 0 auto 18px; border-radius: 20px; background: var(--accent-soft, rgba(234,115,14,.12)); color: var(--accent); }
+.restart-confirm-icon svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.restart-confirm-actions { display: flex; gap: 12px; margin-top: 26px; }
+.restart-confirm-actions button { flex: 1; min-height: 42px; }
+
+.restart-overlay.restart-leaving { animation: restart-dialog-out 220ms ease-in forwards; }
+.restart-overlay.restart-leaving::backdrop { animation: restart-backdrop-out 220ms ease-in forwards; }
+@keyframes restart-dialog-out { to { opacity: 0; transform: translateY(6px) scale(.98); } }
+@keyframes restart-backdrop-out { to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .restart-overlay.restart-leaving, .restart-overlay.restart-leaving::backdrop { animation: none; }
+}
+
+/* Compact mobile navigation, anchored within thumb reach. */
+@media (max-width: 640px) {
+  .tabbar { left: auto; right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); display: block; padding: 0; border: 0; background: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .mobile-nav-toggle { display: grid; place-items: center; width: 54px; height: 54px; padding: 0; border-radius: 50%; color: var(--text); background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
+  .mobile-nav-toggle svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+  .mobile-nav-toggle[aria-expanded="true"] { color: var(--accent-ink); }
+  .mobile-nav-panel { position: absolute; bottom: 66px; right: 0; width: min(240px, calc(100vw - 28px)); max-height: calc(100dvh - 150px); overflow-y: auto; padding: 8px; border-radius: 22px; background: var(--material-solid); border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
+  .mobile-nav-panel[hidden] { display: none; }
+  .tabbar .mobile-nav-panel a { display: flex; align-items: center; justify-content: flex-start; gap: 12px; min-height: 44px; padding: 10px 12px; border-radius: 14px; font-size: .875rem; letter-spacing: normal; }
+  .tabbar .mobile-nav-panel a.hidden { display: none; }
+  .tabbar .mobile-nav-panel a span { display: inline; }
+  .tabbar .mobile-nav-panel a svg { width: 21px; height: 21px; flex: none; }
+}
+
+@media (max-width: 640px) {
+  .mobile-nav-toggle, .mobile-nav-toggle[aria-expanded="true"] { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border: 1px solid var(--edge-light); box-shadow: 0 6px 22px rgba(0,0,0,.28), 0 0 0 3px var(--material-solid); }
+  .mobile-nav-toggle svg { stroke-width: 2.2; }
+  .mobile-nav-account { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 10px 12px; margin-top: 0; border-radius: 14px; color: var(--muted); background: transparent; border: 0; box-shadow: none; text-align: start; font-size: .875rem; font-weight: 600; }
+  .mobile-nav-account svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+}
+
+@media (max-width: 640px) { header .user-button { display: none; } }
+
+@media (max-width: 640px) {
+  .tabbar .mobile-nav-panel a.active,
+  .tabbar .mobile-nav-panel a[aria-current="page"] {
+    background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill));
+    color: var(--accent-text);
+    box-shadow: inset 0 1px 0 var(--edge-light);
+  }
+}
+
+.mobile-nav-divider { border: 0; border-top: 1px solid var(--edge); margin: 8px 4px; }
+
+.mobile-nav-account:hover { transform: none; background: var(--material-thin); }
+
+.account-settings-link, .account-settings-link:visited { color: var(--accent-ink); text-decoration: none; }
+.account-settings-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+.port-stepper { position: relative; min-width: 0; }
+.port-stepper > input { width: 100%; padding-right: 46px; appearance: textfield; -moz-appearance: textfield; }
+.port-stepper > input::-webkit-inner-spin-button, .port-stepper > input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.port-stepper-buttons { position: absolute; inset: 4px 4px 4px auto; width: 34px; display: grid; grid-template-rows: 1fr 1fr; gap: 2px; }
+.port-stepper-buttons button { display: grid; place-items: center; min-height: 0; padding: 0; border: 0; border-radius: 6px; background: var(--material-thin); color: var(--muted); box-shadow: none; }
+.port-stepper-buttons button:hover { transform: none; background: var(--material-regular); color: var(--accent-ink); }
+.port-stepper-buttons svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""

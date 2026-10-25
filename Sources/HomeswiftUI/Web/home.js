@@ -477,6 +477,25 @@
   /// An input for a characteristic's value: a menu for booleans and enumerations, a number within its range,
   /// else text. `.read()` gives the value to save.
   function valueInput(characteristic, value) {
+    if (["Brightness", "Color Temperature"].includes(characteristic?.type)) {
+      const temperature = characteristic.type === "Color Temperature";
+      const min = characteristic.minValue ?? (temperature ? 140 : 0);
+      const max = characteristic.maxValue ?? (temperature ? 500 : 100);
+      const slider = el("input", { type: "range", min, max, step: characteristic.minStep || 1,
+        value: value ?? characteristic.value ?? min, "aria-label": temperature ? t("Color Temperature") : t("Brightness") });
+      const output = el("output", { class: "scene-slider-value" });
+      const format = new Intl.NumberFormat(HomeswiftI18n.locale, { maximumFractionDigits: 0 });
+      const paint = () => {
+        const raw = Number(slider.value);
+        const text = temperature ? `${format.format(Math.round(1000000 / raw))} K` : `${format.format(raw)} %`;
+        output.textContent = text;
+        slider.setAttribute("aria-valuetext", text);
+      };
+      slider.addEventListener("input", paint); paint();
+      const wrap = el("span", { class: `scene-value-slider${temperature ? " temperature" : " brightness"}` }, output, slider);
+      wrap.read = () => Number(slider.value);
+      return wrap;
+    }
     const labels = app.enumLabels[characteristic?.type];
     let input;
     if (characteristic?.format === "bool") {
@@ -510,9 +529,10 @@
     const fill = (keepType, keepValue) => {
       const found = options.find((a) => a.id === accessory.value);
       const chars = found ? list(found) : [];
-      kind.replaceChildren(...chars.map((c, index) => el("option", { value: index, text: chars.filter((x) => x.type === c.type).length > 1 ? `${c.type} (${c.serviceName})` : c.type })));
+      const controlName = (type) => type === "On" ? t("Power") : type;
+      kind.replaceChildren(...chars.map((c, index) => el("option", { value: index, text: chars.filter((x) => x.type === c.type).length > 1 ? `${controlName(c.type)} (${c.serviceName})` : controlName(c.type) })));
       // An accessory that is gone keeps the characteristic it was saved with.
-      if (!chars.length && (keepType ?? characteristic)) kind.append(el("option", { value: 0, text: keepType ?? characteristic }));
+      if (!chars.length && (keepType ?? characteristic)) kind.append(el("option", { value: 0, text: controlName(keepType ?? characteristic) }));
       const index = Math.max(0, chars.findIndex((c) => c.type === keepType));
       kind.value = String(index);
       current = chars[index] || null;
@@ -577,7 +597,9 @@
 
     const addAction = (action = {}) => {
       const pick = {};
-      const row = rowShell(...characteristicPicker(choices, pick, { id: action.id, characteristic: action.characteristic, value: action.value }));
+      const [accessory, control, value] = characteristicPicker(choices, pick, { id: action.id, characteristic: action.characteristic, value: action.value });
+      control.setAttribute("aria-label", t("Control"));
+      const row = rowShell(field(t("Accessory"), accessory), field(t("Control"), control), field(t("Value"), value));
       row.read = () => ({ ...pick.read(), value: pick.value.read() });
       const remove = removeButton(row, actions);
       remove.className = "danger scene-condition-remove";

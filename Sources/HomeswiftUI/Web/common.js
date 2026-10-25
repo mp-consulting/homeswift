@@ -34,6 +34,8 @@
 
   // Line icons: 24-unit boxes, round caps, the current colour.
   const icons = {
+    power: '<path d="M12 3v9M6.3 5.8a8 8 0 1 0 11.4 0"/>',
+    group: '<rect x="3" y="8" width="13" height="13" rx="3"/><path d="M8 8V6a3 3 0 0 1 3-3h7a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3h-2M7 14.5h5M9.5 12v5"/>',
     bridge: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/>',
     child: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/>',
     accessory: '<rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/>',
@@ -49,7 +51,7 @@
     thermo: '<path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"/>',
     door: '<path d="M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17M3 21h18M14 12h.01"/>',
     generic: '<rect x="4" y="4" width="16" height="16" rx="4"/>',
-    plugin: '<path d="M4 7h4a2 2 0 1 1 4 0h4v4a2 2 0 1 1 0 4v4H4z"/>',
+    plugin: '<g transform="translate(12 12) scale(1.18) rotate(45) translate(-12 -12)" fill="currentColor" stroke="none"><rect x="8" y="4" width="1.8" height="6" rx=".9"/><rect x="14.2" y="4" width="1.8" height="6" rx=".9"/><path d="M7 9h10v3a5 5 0 0 1-10 0Z"/><rect x="10.9" y="15" width="2.2" height="5" rx="1"/></g>',
     gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
     more: '<circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/>',
     logs: '<path d="M8 6h12M8 12h12M8 18h8M4 6h.01M4 12h.01M4 18h.01"/>',
@@ -714,7 +716,7 @@
 
   // ---- The sections, and the tab bar a phone shows them in -----------------------------------------------
 
-  const sections = [["/status", t("Status"), "bridge"], ["/accessories", t("Accessories"), "bulb"], ["/scenes", t("Scenes"), "play"], ["/plugins", t("Plugins"), "plugin"], ["/config", t("Config"), "code"], ["/logs", t("Logs"), "logs"]];
+  const sections = [["/status", t("Status"), "bridge"], ["/accessories", t("Accessories"), "bulb"], ["/scenes", t("Scenes"), "play"], ["/plugins", t("Plugins"), "plugin"], ["/config", t("Config"), "code"], ["/logs", t("Logs"), "logs"], ["/settings", t("Settings"), "gear"]];
 
   /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
   /// a label each, the current one in the accent. `parent` is what hides it with the app (the sign-in screen has
@@ -722,8 +724,27 @@
   function tabBar({ active, parent = document.body } = {}) {
     const existing = document.querySelector("nav.tabbar");
     if (existing) return existing;
-    const bar = el("nav", { class: "tabbar", "aria-label": t("Sections") }, sections.map(([path, text, glyph]) =>
+    const panel = el("div", { class: "mobile-nav-panel", id: "mobile-nav-panel", hidden: true }, sections.map(([path, text, glyph]) =>
       el("a", { href: path, class: path === active ? "active" : "", "aria-current": path === active ? "page" : null }, icon(glyph), el("span", { text }))));
+    const toggle = el("button", { type: "button", class: "mobile-nav-toggle", "aria-label": t("Sections"), "aria-expanded": "false", "aria-controls": "mobile-nav-panel" });
+    toggle.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14"/></svg>';
+    const setOpen = (open) => { panel.hidden = !open; toggle.setAttribute("aria-expanded", String(open)); };
+    panel.append(el("hr", { class: "mobile-nav-divider" }));
+    panel.append(el("button", { type: "button", class: "mobile-nav-account", onclick: (event) => {
+      event.stopPropagation();
+      setOpen(false);
+      document.dispatchEvent(new CustomEvent("homeswift-account-menu", { detail: { trigger: toggle, keyboard: event.detail === 0 } }));
+    } }, icon("user"), el("span", { text: t("Account") })));
+    toggle.addEventListener("click", () => setOpen(panel.hidden));
+    panel.addEventListener("click", (event) => { if (event.target.closest("a")) setOpen(false); });
+    const bar = el("nav", { class: "tabbar", "aria-label": t("Sections") }, panel, toggle);
+    document.addEventListener("pointerdown", (event) => { if (!bar.contains(event.target)) setOpen(false); });
+    bar.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") { setOpen(false); toggle.focus(); }
+      if (event.target === toggle && event.key === "ArrowUp") {
+        event.preventDefault(); setOpen(true); panel.querySelector("a:not(.hidden)")?.focus();
+      }
+    });
     parent.append(bar);
     return bar;
   }
@@ -897,6 +918,27 @@
       event.preventDefault(); openSelectMenu(select, true);
     }
   });
+
+  // Reserve horizontal space only when a sticky save bar shares the floating menu's height.
+  let saveBarFrame = 0;
+  function updateSaveBarPosition() {
+    if (saveBarFrame) return;
+    saveBarFrame = requestAnimationFrame(() => {
+      saveBarFrame = 0;
+      const toggle = document.querySelector(".mobile-nav-toggle");
+      const mobile = matchMedia("(max-width: 640px)").matches;
+      const menuRect = mobile && toggle ? toggle.getBoundingClientRect() : null;
+      document.querySelectorAll(".settings-bar").forEach((bar) => {
+        const rect = bar.getBoundingClientRect();
+        const beside = menuRect && menuRect.height > 0 && rect.bottom > menuRect.top && rect.top < menuRect.bottom;
+        bar.classList.toggle("beside-mobile-menu", Boolean(beside));
+      });
+    });
+  }
+  document.addEventListener("scroll", updateSaveBarPosition, { passive: true, capture: true });
+  window.addEventListener("resize", updateSaveBarPosition, { passive: true });
+  new MutationObserver(updateSaveBarPosition).observe(document.body, { childList: true, subtree: true });
+  updateSaveBarPosition();
 
   window.HomeswiftCommon = {
     $, el, icon, tile, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,

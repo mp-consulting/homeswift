@@ -100,15 +100,58 @@
       const value = control.value.trim();
       return [key, value === "" ? null : key === "port" ? Number(value) : value];
     }));
+    const portStatus = el("span", { class: "help", role: "status", "aria-live": "polite" });
+    const checkPort = async () => {
+      if (!fields.port.value.trim()) return "";
+      const port = Number(fields.port.value);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(t("Choose a port between 1 and 65535."));
+      if (port === settings.listeningPort) return "";
+      const answer = await api("/api/config/check-port", { method: "POST", body: { port, host: "0.0.0.0", service: "bridge" } });
+      if (!answer.available) throw new Error(t("Port {port} is in use or cannot be opened on this address. Choose another port.", { port: String(port) }));
+      return t("Port {port} is available.", { port: String(port) });
+    };
+    let portTimer, portVersion = 0;
+    const schedulePortCheck = () => {
+      clearTimeout(portTimer);
+      const version = ++portVersion;
+      portStatus.className = "help muted";
+      portStatus.textContent = fields.port.value ? t("Checking port…") : "";
+      portTimer = setTimeout(async () => {
+        try { const text = await checkPort(); if (version === portVersion) { portStatus.className = "help ok"; portStatus.textContent = text; } }
+        catch (error) { if (version === portVersion) { portStatus.className = "help error"; portStatus.textContent = error.message; } }
+      }, 400);
+    };
+    fields.port.addEventListener("input", schedulePortCheck);
+    fields.port.addEventListener("change", schedulePortCheck);
+    const stepPort = (direction) => {
+      const current = fields.port.value === "" ? (settings.listeningPort || 1) : Number(fields.port.value);
+      fields.port.value = String(Math.min(65535, Math.max(1, (Number.isFinite(current) ? current : 1) + direction)));
+      fields.port.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    fields.port.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+        event.preventDefault(); stepPort(event.key === "ArrowUp" ? 1 : -1);
+      }
+    });
+    const portControl = el("div", { class: "port-stepper" }, fields.port,
+      el("div", { class: "port-stepper-buttons" },
+        ...[[1, t("Increase port")], [-1, t("Decrease port")]].map(([direction, label]) => {
+          const button = el("button", { type: "button", title: label, "aria-label": label, onclick: () => stepPort(direction) });
+          button.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="${direction === 1 ? "M4 10l4-4 4 4" : "M4 6l4 4 4-4"}"/></svg>`;
+          return button;
+        })));
     const initial = JSON.stringify(read());
     const form = el("form", { class: "card form-card", onsubmit: async (event) => {
       event.preventDefault();
       const next = read();
       if (JSON.stringify(next) === initial) { message.className = "status-line muted"; message.textContent = t("Nothing changed."); return; }
+      try { await checkPort(); }
+      catch (error) { portStatus.className = "help error"; portStatus.textContent = error.message; fields.port.focus(); return; }
       if (!(await confirmAction({ title: t("Restart homeswift with these settings?"), danger: false, confirmLabel: t("Save and restart"),
         text: [t("The bridge block is the bridge's HomeKit identity: homeswift restarts to apply it, and every connection drops for a few seconds."),
           next.pin !== (bridge.pin ?? null) ? t("A new setup code applies to new pairings only: the Home app keeps the bridge.") : ""] }))) return;
       await busy(save, async () => {
+        await checkPort();
         const result = await api("/api/settings/bridge", { method: "PUT", body: { settings: next } });
         message.className = "status-line ok";
         message.textContent = app().savedText(result);
@@ -120,11 +163,13 @@
         fact(t("Home app"), main?.paired ? t("Paired · {count}", { count: main.controllers }) : t("Not paired"))),
       el("div", { class: "fields" },
         field(t("Name"), fields.name, t("What the Home app calls the bridge when it is added.")),
-        field(t("Port"), fields.port, t("The HomeKit server's port; empty picks a free one and keeps it.")),
+        field(t("Port"), portControl, t("The HomeKit server's port; empty picks a free one and keeps it.")),
         field(t("Setup code"), fields.pin, t("The code the Home app asks for, as XXX-XX-XXX. It is never logged.")),
         field(t("Manufacturer"), fields.manufacturer), field(t("Model"), fields.model), field(t("Firmware revision"), fields.firmwareRevision)),
       el("p", { class: "help", text: t("The device ID stays: a new one is a new bridge to the Home app. To pair again from scratch, reset the bridge's pairings below.") }),
       el("div", { class: "actions" }, save), message);
+    portStatus.style.display = "block";
+    portControl.parentElement.append(portStatus);
     return form;
   }
 
@@ -210,7 +255,7 @@
       sectionHead(t("Schedules and proxy"), t("In the web UI's settings")),
       el("div", { class: "card page-note" },
         el("p", { text: t("A scheduled restart (a cron expression), the daily backup (its folder and how long it is kept) and the reverse proxies trusted for X-Forwarded-For and X-Forwarded-Proto are settings of the HomeswiftUI block.") }),
-        uiBlock ? el("a", { class: "button", href: `/plugins/${uiBlock.slug}`, text: t("Open its settings") }) : null));
+        uiBlock ? el("a", { class: "button", href: `/plugins/${uiBlock.slug}?section=proxy`, text: t("Open its settings") }) : null));
   }
 
   // ---- Child bridges -------------------------------------------------------------------------------------
