@@ -53,9 +53,12 @@ struct HardeningTests {
         _ = try await environment.start()
         defer { Task { await environment.stop() } }
         let channel = try await ClientBootstrap(group: MultiThreadedEventLoopGroup.singleton).connect(host: "127.0.0.1", port: environment.server.port!).get()
-        // Half a request, then nothing.
-        try await channel.writeAndFlush(ByteBuffer(string: "GET /api/status HTTP/1.1\r\nHost: 127.0.0.1\r\n")).get()
         let started = ContinuousClock.now
+        // Half a request, then nothing. On a loaded runner the server may close the connection, silent until now, before
+        // the write goes out: that is the closing under test too.
+        do {
+            try await channel.writeAndFlush(ByteBuffer(string: "GET /api/status HTTP/1.1\r\nHost: 127.0.0.1\r\n")).get()
+        } catch where !channel.isActive {}
         try await channel.closeFuture.get()
         #expect(ContinuousClock.now - started < .seconds(10))
     }
