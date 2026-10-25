@@ -5894,7 +5894,7 @@ enum WebAssets {
         const lights = tn("{n} light", "{n} lights", run.lights.length);
         // The room shows only when it is not the one chosen above.
         const where = run.room && run.room !== room ? t("{room}, {lights}", { room: run.room, lights }) : lights;
-        return el("div", { class: "mood-run" }, swatch(run.swatch, true),
+        return el("div", { class: "mood-run" }, swatch(run.mood),
           el("div", { class: "mood-run-text" }, el("strong", { text: name }),
             el("span", { class: "muted", text: run.held ? t("{lights}, set at {time}", { lights: where, time: timeFormat.format(new Date(run.startedAt)) })
               : run.endsAt ? t("{lights}, until {time}", { lights: where, time: timeFormat.format(new Date(run.endsAt)) }) : where })),
@@ -5902,9 +5902,9 @@ enum WebAssets {
       }));
     }
 
-    function swatch(colours = [], animated = false) {
-      const fill = colours.length > 1 ? `linear-gradient(135deg, ${colours.join(", ")})` : colours[0] || "var(--accent)";
-      return el("span", { class: `mood-swatch${animated && colours.length > 1 ? " animated" : ""}`, style: `background: ${fill}`, "aria-hidden": "true" });
+    function swatch(id) {
+      const illustration = Object.hasOwn(moodTexts, id) ? id : "custom";
+      return el("img", { class: "mood-swatch", src: `/mood-${illustration}.svg`, alt: "", "aria-hidden": "true" });
     }
 
     async function start(body, name, button) {
@@ -5953,7 +5953,7 @@ enum WebAssets {
           el("div", { class: "mood-buttons" }, moods.map((mood) => {
             const name = moodName(mood.id, mood.name);
             const button = el("button", { type: "button", class: "mood-button", title: moodTexts[mood.id]?.[1] ?? mood.description ?? "", "aria-pressed": "false" },
-              swatch(mood.swatch, mood.animated), el("span", { text: name }));
+              swatch(mood.id), el("span", { text: name }));
             button.addEventListener("click", () => start({ mood: mood.id }, name, button));
             buttons.set(mood.id, button);
             return button;
@@ -12192,6 +12192,98 @@ HomeswiftI18n.add("pt", {
 }
 
 """#),
+        "mood-alert.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#503441"/><g stroke-linecap="round" stroke-linejoin="round"><path d="m32 11 24 41H8Z" fill="#f48d91"/><path d="M32 25v12m0 7v2" stroke="#503441" stroke-width="4"/></g></svg>
+
+"""#),
+        "mood-bedtime.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#39344f"/><g stroke-linecap="round" stroke-linejoin="round"><path d="M40 12C15 9 9 44 32 51C42 54 50 48 53 40C32 47 23 23 40 12" fill="#d4b8dd"/><path d="m46 12 1 4 4 1-4 2-1 4-2-4-4-2 4-1" fill="#ffe0af"/></g></svg>
+
+"""#),
+        "mood-breathing.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#314d50"/><g stroke-linecap="round" stroke-linejoin="round"><circle cx="32" cy="32" r="22" stroke="#80bdb7" fill="none" stroke-width="2"/><circle cx="32" cy="32" r="14" stroke="#9dd6c4" fill="none" stroke-width="3"/><circle cx="32" cy="32" r="6" fill="#c7e5d5"/></g></svg>
+
+"""#),
+        "mood-candle-flicker.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#392c38"/><g stroke-linecap="round" stroke-linejoin="round"><rect x="26" y="30" width="12" height="23" rx="3" fill="#ffe3ac"/><path d="M32 10C18 26 29 31 32 28C40 25 38 19 32 10Z" fill="#ffb444"/><path d="M32 23v9" stroke="#78523d"/><path d="M17 17l-3-4m33 4 3-4" stroke="#ffb444" stroke-width="2"/></g></svg>
+
+"""#),
+        "mood-candlelight.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#392c38"/><g stroke-linecap="round" stroke-linejoin="round"><rect x="26" y="30" width="12" height="23" rx="3" fill="#ffe3ac"/><path d="M32 10C18 26 29 31 32 28C40 25 38 19 32 10Z" fill="#ffb444"/><path d="M32 23v9" stroke="#78523d"/></g></svg>
+
+"""#),
+        "mood-christmas.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#314a43"/><g stroke-linecap="round" stroke-linejoin="round"><path d="m32 9-16 20h8L12 43h14v10h12V43h14L40 29h8Z" fill="#98c6a0"/><circle cx="28" cy="29" r="3" fill="#eb8c8d"/><circle cx="38" cy="39" r="3" fill="#ffda97"/></g></svg>
+
+"""#),
+        "mood-cinema.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#293449"/><g stroke-linecap="round" stroke-linejoin="round"><rect x="10" y="14" width="44" height="30" rx="4" fill="#8baad7"/><path d="m28 22 12 7-12 7" fill="#293449"/><path d="M22 51h20m-10-7v7" stroke="#8baad7" stroke-width="3"/></g></svg>
+
+"""#),
+        "mood-custom.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#3b4059"/><g stroke-linecap="round" stroke-linejoin="round"><path d="m32 10 6 16 16 6-16 6-6 16-6-16-16-6 16-6Z" fill="#c7b9ed"/></g></svg>
+
+"""#),
+        "mood-disco.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#34304f"/><g stroke-linecap="round" stroke-linejoin="round"><path d="M32 0v12" stroke="#c9bfe6" stroke-width="2"/><circle cx="32" cy="30" r="18" fill="#b7a1dd"/><path d="M16 23h32M14 32h36M18 41h28M26 13q-9 18 0 34m12-34q9 18 0 34M32 12v36" stroke="#635a9b" stroke-width="2" fill="none"/><path d="m9 48 3 5 5 1-5 2-2 5-2-5-5-1 5-2m45-43 2 4 4 1-4 2-1 4-2-4-4-1 4-2" fill="#ffcf74"/></g></svg>
+
+"""#),
+        "mood-fireplace.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#382b36"/><g stroke-linecap="round" stroke-linejoin="round"><path d="m18 52 28-9m-28 0 28 9" stroke="#ad7958" stroke-width="6"/><path d="M32 9C38 23 49 26 46 38C43 53 19 51 18 37C17 30 24 24 26 20C26 28 31 28 32 9" fill="#f47745"/><path d="M33 28C45 43 32 49 27 42C24 38 29 33 33 28" fill="#ffd17a"/></g></svg>
+
+"""#),
+        "mood-focus.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#304758"/><g stroke-linecap="round" stroke-linejoin="round"><path d="m20 12 23 7-14 18-15-7Z" fill="#bfdee9"/><path d="m29 37 12 14M28 53h25M20 12l-7 17" stroke="#bfdee9" stroke-width="3"/></g></svg>
+
+"""#),
+        "mood-golden-hour.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#5b4036"/><g stroke-linecap="round" stroke-linejoin="round"><circle cx="32" cy="33" r="12" fill="#ffba66"/><path d="M8 43h48M13 50h38M21 56h22" stroke="#f27b83" stroke-width="3"/></g></svg>
+
+"""#),
+        "mood-halloween.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#382e50"/><g stroke-linecap="round" stroke-linejoin="round"><path d="m32 21 4-9" stroke="#91b88a" stroke-width="4"/><ellipse cx="32" cy="38" rx="23" ry="18" fill="#f59852"/><path d="m19 35 8-6 1 9m17-3-8-6-1 9M22 44l6 4 4-3 4 3 6-4" fill="#513247"/></g></svg>
+
+"""#),
+        "mood-lightning.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#303c55"/><g stroke-linecap="round" stroke-linejoin="round"><path d="M16 34C2 29 12 14 23 20C28 6 47 12 47 23C60 22 62 37 50 38H16" fill="#9fb3ce"/><path d="m33 30-9 16h9l-4 14 16-21H34l6-9" fill="#ffe3a1"/></g></svg>
+
+"""#),
+        "mood-night-light.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#2d3551"/><g stroke-linecap="round" stroke-linejoin="round"><path d="M40 12C15 9 9 44 32 51C42 54 50 48 53 40C32 47 23 23 40 12" fill="#f5d89b"/></g></svg>
+
+"""#),
+        "mood-northern-lights.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#232d49"/><g stroke-linecap="round" stroke-linejoin="round"><path d="M8 41Q17 6 28 30T55 15" stroke="#6ae3b4" stroke-width="7" opacity=".85" fill="none"/><path d="M8 51Q24 14 34 37T57 26" stroke="#ad98ee" stroke-width="5" fill="none"/><path d="m9 57 13-10 12 10 12-7 10 7" fill="#151e35"/></g></svg>
+
+"""#),
+        "mood-ocean.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#193e59"/><g stroke-linecap="round" stroke-linejoin="round"><path d="M7 31Q15 20 23 31T39 31T57 31M7 42Q15 31 23 42T39 42T57 42M7 53Q15 42 23 53T39 53T57 53" stroke="#65ddd8" stroke-width="4" fill="none"/></g></svg>
+
+"""#),
+        "mood-police.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#29334d"/><g stroke-linecap="round" stroke-linejoin="round"><rect x="10" y="28" width="22" height="20" rx="6" fill="#f76b7e"/><rect x="34" y="28" width="20" height="20" rx="6" fill="#75afff"/><path d="M9 51h46M32 10v8M14 17l5 6m31-6-5 6" stroke="#d6dff4" stroke-width="3"/></g></svg>
+
+"""#),
+        "mood-rainbow-wave.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#33384e"/><g stroke-linecap="round" stroke-linejoin="round"><path d="M10 51a22 22 0 0 1 44 0" stroke="#ee8b91" stroke-width="5" fill="none"/><path d="M16 51a16 16 0 0 1 32 0" stroke="#f7c17c" stroke-width="5" fill="none"/><path d="M22 51a10 10 0 0 1 20 0" stroke="#9cd7ae" stroke-width="5" fill="none"/><path d="M28 51a4 4 0 0 1 8 0" stroke="#91bafa" stroke-width="5" fill="none"/></g></svg>
+
+"""#),
+        "mood-relax.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#314b4b"/><g stroke-linecap="round" stroke-linejoin="round"><path d="M16 32v15h32V32M21 37V24q0-7 11-7t11 7v13M12 51h40M20 47v6m24-6v6" stroke="#c0dbb1" stroke-width="4" fill="none"/></g></svg>
+
+"""#),
+        "mood-romantic.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#513347"/><g stroke-linecap="round" stroke-linejoin="round"><path d="M32 51 13 32C-1 15 24 8 32 23C40 8 65 15 51 32Z" fill="#f39aa9"/></g></svg>
+
+"""#),
+        "mood-sunrise.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#3c4562"/><g stroke-linecap="round" stroke-linejoin="round"><circle cx="32" cy="33" r="12" fill="#ffba66"/><path d="M8 43h48M13 50h38M21 56h22" stroke="#f27b83" stroke-width="3"/><path d="m32 8 0 6M13 19l4 4m34-4-4 4" stroke="#ffe3ac" stroke-width="3"/></g></svg>
+
+"""#),
+        "mood-sunset.svg": WebFile(contentType: "image/svg+xml", body: #"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#50364c"/><g stroke-linecap="round" stroke-linejoin="round"><circle cx="32" cy="33" r="12" fill="#ffba66"/><path d="M8 43h48M13 50h38M21 56h22" stroke="#f27b83" stroke-width="3"/></g></svg>
+
+"""#),
         "plugin.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // For a plugin's own pages, served at /plugins/<slug> after common.js: homeswift.request() talks to the plugin
 // instance the server names in the page (<meta name="homeswift-plugin">), with the session cookie; homeswift.el(), .$(), .tile() and .fact() are
@@ -14385,10 +14477,7 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .mood-button:active:not(:disabled), .mood-room:active { transform: scale(0.96); transition-duration: 80ms; }
 .mood-button.playing { box-shadow: 0 0 0 2px var(--accent), var(--shadow-control); }
 .mood-button.busy::after { margin-left: 0; }
-.mood-swatch { width: 32px; height: 32px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1px var(--line); }
-.mood-swatch.animated { background-size: 240% 240% !important; animation: mood-drift 6s ease-in-out infinite alternate; animation-play-state: paused; }
-.mood-button.playing .mood-swatch.animated, .mood-run .mood-swatch.animated { animation-play-state: running; }
-@keyframes mood-drift { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
+.mood-swatch { width: 32px; height: 32px; border-radius: 8px; flex: none; }
 .mood-group .service-name { margin: 0 0 8px; }
 .mood-collection { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .mood-describe { display: flex; gap: 8px; }
@@ -14419,7 +14508,7 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
   .mood-room, .mood-button { flex: none; scroll-snap-align: start; }
 }
 @media (pointer: coarse) { .mood-describe input { font-size: 16px; } }
-@media (prefers-reduced-motion: reduce) { .mood-swatch.animated { animation: none; } .mood-run { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .mood-run { transition: none; } }
 .location summary { cursor: pointer; }
 .location { margin-top: 14px; }
 .scene-editor h2 { margin: 22px 0 2px; font-size: 1.0625rem; }
