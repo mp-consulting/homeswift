@@ -63,11 +63,10 @@ The MCP tools are `Wingman_list_wingmen`, `Wingman_discover` and `Wingman_pair`.
 
 ## Limits
 
-- Adaptive Lighting remains managed in Apple Home. Mirrored lights with brightness and colour temperature show a
-  sun information button in Homeswift. It shows on/off only when HomeKit exposes an active transition count;
-  otherwise it says the status is unavailable. The button does not claim the light supports Adaptive Lighting
-  or change its schedule. Check support and enable it in Apple Home.
-
+- Apple Adaptive Lighting remains managed in Apple Home. A separate **Homeswift Natural Lighting** sun toggle
+  is available for lights with writable colour temperature (see [widgets](../../docs/widgets.md)). Their status
+  displays the latest colour temperature reported by Wingman, in kelvin, when available. This is a cached reading,
+  not confirmation that Adaptive Lighting is active. Manual colour changes may disable Apple's schedule.
 - Wingman runs only on Macs registered in its developer's team (HomeKit is not available to Developer ID apps).
 - HomeKit cannot read Matter accessories' values (error 74): theirs come from the changes they report, and the value
   last written.

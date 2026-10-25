@@ -214,8 +214,9 @@ public final class Characteristic: @unchecked Sendable {
     /// Writes a value the way a controller does: checks the permissions and the format, calls the write
     /// handler, stores the value and notifies subscribed controllers. For writes that come from outside
     /// HomeKit, such as an automation or an MCP tool. Timed writes are not enforced.
-    public func write(_ value: HAPValue) async throws {
-        try await write(value, origin: nil)
+    /// `context` lets a scheduler distinguish its own writes from manual changes in observers.
+    public func write(_ value: HAPValue, context: ObjectIdentifier? = nil) async throws {
+        try await write(value, origin: nil, context: context)
     }
 
     /// The write path, for controllers too: `origin` is the connection whose own event is skipped. Returns the

@@ -178,7 +178,7 @@ enum WebAssets {
     const list = [...caches.accessories].sort((a, b) => (b.orphaned || b.restoredOnly) - (a.orphaned || a.restoredOnly) || a.name.localeCompare(b.name));
     const row = (cached) => el("div", { class: "row" },
       el("div", { class: "who" }, el("strong", { text: cached.name }),
-        el("div", { class: "muted", text: [cached.instance ?? cached.platform ?? cached.cacheFile, cached.bridge, cached.manufacturer, cached.model].filter(Boolean).join(" · ") })),
+        el("div", { class: "muted", text: [cached.mirroredFrom ? t("Mirrored from {source}", { source: cached.mirroredFrom }) : null, cached.instance ?? cached.platform ?? cached.cacheFile, cached.mirroredFrom ? null : cached.bridge, cached.manufacturer, cached.model].filter(Boolean).join(" · ") })),
       cached.orphaned ? el("span", { class: "pill status away", text: t("No block"), title: t("Its block is no longer in config.json") })
         : cached.restoredOnly ? el("span", { class: "pill status away", text: t("Stale"), title: t("Back from the cache, not added again by its plugin") }) : el("span", { class: "pill status on", text: t("Current") }),
       menuButton(t("Actions for {name}", { name: cached.name }), () => [
@@ -195,7 +195,9 @@ enum WebAssets {
   async function removeCached(cached) {
     const ok = await confirmAction({
       title: t("Remove {name} from the cache?", { name: cached.name }), confirmLabel: t("Remove"),
-      text: t("It leaves HomeKit now. A plugin that still has the device adds it again, under the same ids, so rooms and automations come back with it."),
+      text: cached.mirroredFrom
+        ? t("This removes the local copy from Homeswift. The original accessory stays in {source}. The plugin can add the local copy again when it reconnects.", { source: cached.mirroredFrom })
+        : t("This removes the accessory from Homeswift and stops publishing it to Apple Home. If the plugin discovers the device again, it can return with the same ids. Devices that are no longer available will not return."),
     });
     if (!ok) return;
     await busy(null, async () => { await api("/api/cached-accessories/remove", { method: "POST", body: { id: cached.id, cacheFile: cached.cacheFile } }); app().route(); });
@@ -204,7 +206,7 @@ enum WebAssets {
   async function resetCaches() {
     const ok = await confirmAction({
       title: t("Reset every accessory cache?"), confirmLabel: t("Reset the caches"), typed: "RESET",
-      text: [t("Every plugin's accessories leave HomeKit, and the plugins start again on empty caches, adding the devices they reach."),
+      text: [t("Accessories published by Homeswift leave HomeKit while the plugins rebuild their caches. Mirrored accessories stay in their original home; only their local copies are cleared."),
         t("Their ids stay, so rooms and automations come back with the devices; accessories of devices that are gone do not.")],
     });
     if (!ok) return;
@@ -223,7 +225,7 @@ enum WebAssets {
   // ---- Child bridges -------------------------------------------------------------------------------------
 
   async function childBridgesPage(main) {
-    const [{ childBridges }, status] = await Promise.all([api("/api/child-bridges"), api("/api/status")]);
+    const [{ childBridges }, status, plugins] = await Promise.all([api("/api/child-bridges"), api("/api/status"), api("/api/plugins")]);
     const slugs = new Map(withSlugs(status.bridges, "bridge").map((bridge) => [bridge.deviceId, bridge.slug]));
     const tone = { ok: "on", degraded: "away", stopped: "paused" };
     const card = (bridge) => {
@@ -252,8 +254,48 @@ enum WebAssets {
     app().show(main,
       app().pageHead(t("Child bridges"), t("Plugins on HomeKit bridges of their own (a block with _bridge), inside this process: one can restart without the others.")),
       subnav("child-bridges"),
+      el("section", {}, sectionHead(t("Plugin bridges")),
+        el("div", { class: "card rows" }, plugins.blocks.filter((block) => !["HomeswiftUI", "HomeswiftAiKit"].includes(block.platform)).map((block) =>
+          el("div", { class: "row" }, tile("child", "blue"),
+            el("div", { class: "who" }, el("strong", { text: block.name }), el("div", { class: "muted", text: block.childBridge ? t("Child bridge") : t("Main bridge") })),
+            el("button", { text: t("Configure"), onclick: () => editChildBridge(block) }))))),
       childBridges.length ? el("div", { class: "servers" }, childBridges.map(card))
-        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("child")), el("p", { class: "muted", text: t("No child bridge. Give a plugin's block a \"_bridge\" object (its Expert JSON) to run it on a bridge of its own.") })));
+        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("child")), el("p", { class: "muted", text: t("No child bridges yet. Configure a plugin above to give it its own bridge.") })));
+  }
+
+  async function editChildBridge(entry) {
+    const path = `/api/config/block/${encodeURIComponent(entry.platform)}/${encodeURIComponent(entry.name)}`;
+    let block;
+    try { block = await api(path); } catch (error) { alert(error.message); return; }
+    const enabled = el("input", { type: "checkbox", checked: Boolean(block._bridge) });
+    const name = el("input", { value: block._bridge?.name ?? "", placeholder: entry.name });
+    const port = el("input", { type: "number", min: 1, max: 65535, value: block._bridge?.port ?? "", placeholder: t("Automatic") });
+    const fields = el("div", { class: "child-bridge-fields" },
+      el("label", {}, el("span", { text: t("Name") }), name),
+      el("label", {}, el("span", { text: t("Port") }), port));
+    const update = () => { name.disabled = port.disabled = !enabled.checked; fields.hidden = !enabled.checked; };
+    enabled.addEventListener("change", update); update();
+    const result = el("p", { class: "error", role: "status" });
+    const cancel = el("button", { type: "button", text: t("Cancel"), onclick: () => dialog.close() });
+    const save = el("button", { type: "submit", class: "primary", text: t("Save") });
+    const form = el("form", {}, el("h2", { text: entry.name }),
+      el("label", { class: "child-bridge-toggle" }, enabled, el("span", { text: t("Run on its own HomeKit bridge") })), fields,
+      el("p", { class: "muted", text: t("Moving a plugin between bridges changes where its accessories appear in Apple Home. You may need to pair the new bridge and recreate room assignments or automations. Saving reloads the plugin.") }),
+      result, el("div", { class: "actions" }, cancel, save));
+    const dialog = el("dialog", { class: "admin-dialog", "aria-label": entry.name }, form);
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault(); save.disabled = true; cancel.disabled = true;
+      const next = { ...block };
+      if (enabled.checked) {
+        next._bridge = { ...(block._bridge ?? {}) };
+        if (name.value.trim()) next._bridge.name = name.value.trim(); else delete next._bridge.name;
+        if (port.value) next._bridge.port = Number(port.value); else delete next._bridge.port;
+      } else delete next._bridge;
+      try { await api(path, { method: "PUT", body: next }); dialog.close(); app().route(); }
+      catch (error) { result.textContent = error.message; save.disabled = cancel.disabled = false; }
+    });
+    dialog.addEventListener("close", () => dialog.remove(), { once: true });
+    document.body.append(dialog); dialog.showModal();
   }
 
   async function control(bridge, action) {
@@ -268,13 +310,13 @@ enum WebAssets {
     const [backups, configBackups] = await Promise.all([api("/api/backups"), api("/api/config/backups")]);
     const message = el("p", { class: "status-line muted", role: "status" });
     const report = (e) => { message.className = "status-line error"; message.textContent = e.message; };
-    const now = el("button", { text: t("Back up now"), onclick: (event) => busy(event.currentTarget, async () => {
+    const now = el("button", { class: "primary", text: t("Back up now"), onclick: (event) => busy(event.currentTarget, async () => {
       const result = await api("/api/backups", { method: "POST" });
       message.className = "status-line ok";
       message.textContent = t("Kept {file} ({size}).", { file: result.backup.fileName, size: size(result.backup.bytes) });
       setTimeout(() => app().route(), 1200);
     }, report) });
-    const instance = el("div", { class: "card server" },
+    const instance = el("div", { class: "card server backup-create" },
       el("div", { class: "server-head" }, tile("archive", "green"),
         el("div", { class: "who" }, el("strong", { text: t("Back up this bridge") }),
           el("div", { class: "muted", text: t("config.json, each bridge's HomeKit identity and pairings, accessory caches, plugin files, the web UI's users") }))),
@@ -284,13 +326,12 @@ enum WebAssets {
         fact(t("Scheduled restart"), backups.restartCron ? (backups.nextRestart ? t("{cron} · next {date}", { cron: backups.restartCron, date: when(backups.nextRestart) }) : backups.restartCron) : t("None"))),
       el("div", { class: "fact wide" }, el("span", { text: t("Folder") }), el("b", { class: "mono", text: backups.folder, title: backups.folder })),
       el("div", { class: "actions" },
-        el("a", { class: "button primary", href: "/api/backups/download", download: "", text: t("Download a backup") }), now),
+        now, el("a", { class: "button", href: "/api/backups/download", download: "", text: t("Download a backup") })),
       message);
     app().show(main,
       app().pageHead(t("Backups"), t("The whole instance, to move it or start over, and each saved config.json.")),
       subnav("backups"),
-      instance,
-      restoreCard(backups),
+      el("div", { class: "backup-actions-grid" }, instance, restoreCard(backups)),
       sectionHead(t("Kept backups"), backups.backups.length ? t("{n}, newest first", { n: backups.backups.length }) : ""),
       backups.backups.length ? el("div", { class: "card rows" }, backups.backups.map(backupRow))
         : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("archive")), el("p", { class: "muted", text: t("None yet: the daily backup and Back up now keep them here.") })),
@@ -305,7 +346,8 @@ enum WebAssets {
     // The sentence around the link, in the page's language: the link goes where {choose} stands.
     const [dropBefore, dropAfter = ""] = t("Drop a backup (.tar) here, or {choose}").split("{choose}");
     const zone = el("div", { class: "drop-zone", role: "button", tabIndex: 0, "aria-label": t("Drop or choose a backup to restore") },
-      dropBefore, el("strong", { text: t("choose it") }), dropAfter, picker);
+      el("span", { class: "backup-drop-icon", "aria-hidden": "true" }, HomeswiftCommon.icon("restore")),
+      el("span", {}, dropBefore, el("strong", { text: t("choose it") }), dropAfter), picker);
     const result = el("div", {});
     const take = async (file) => {
       if (!file) return;
@@ -318,9 +360,10 @@ enum WebAssets {
     zone.addEventListener("dragover", (event) => { event.preventDefault(); zone.classList.add("over"); });
     zone.addEventListener("dragleave", () => zone.classList.remove("over"));
     zone.addEventListener("drop", (event) => { event.preventDefault(); zone.classList.remove("over"); take(event.dataTransfer.files[0]); });
-    return el("div", { class: "card" },
-      el("h2", { text: t("Restore a backup") }),
-      el("p", { class: "muted", text: t("A backup made by Download a backup or kept below replaces this bridge's files as homeswift restarts: its pairings, accessories and plugin settings come back; this machine's bridge and web UI ports stay. Files it does not have stay as they are.") }),
+    return el("div", { class: "card backup-restore" },
+      el("div", { class: "server-head" }, tile("restore", "violet"), el("h2", { text: t("Restore a backup") })),
+      el("details", { class: "backup-restore-help" }, el("summary", { text: t("What happens when you restore?") }),
+el("p", { class: "muted", text: t("A backup made by Download a backup or kept below replaces this bridge's files as homeswift restarts: its pairings, accessories and plugin settings come back; this machine's bridge and web UI ports stay. Files it does not have stay as they are.") })),
       backups.pendingRestore ? el("p", { class: "ok", text: t("A restore is staged: it applies when homeswift next starts.") }) : null,
       zone, result);
   }
@@ -424,10 +467,17 @@ enum WebAssets {
     const params = new URLSearchParams(location.search);
     const tool = el("input", { type: "search", class: "search", placeholder: t("Tool or route"), value: params.get("tool") ?? "", "aria-label": t("Filter by tool") });
     const client = el("input", { type: "search", class: "search", placeholder: t("Client or user"), value: params.get("client") ?? "", "aria-label": t("Filter by client") });
-    const select = (choices, value, label) => el("select", { class: "popup", "aria-label": label }, choices.map(([v, text]) => el("option", { value: v, text, selected: v === value })));
+    const select = (choices, value, label) => {
+      const control = el("button", { class: "audit-picker", type: "button", "aria-label": label, "aria-haspopup": "menu" });
+      control.value = value;
+      const paint = () => control.replaceChildren(el("span", { text: choices.find(([v]) => v === control.value)?.[1] ?? label }), el("span", { text: "⌄", "aria-hidden": "true" }));
+      control.addEventListener("click", () => HomeswiftCommon.menu(control, choices.map(([v, text]) => ({ label: text, checked: control.value === v, onSelect: () => { control.value = v; paint(); control.dispatchEvent(new Event("change")); } }))));
+      paint();
+      return control;
+    };
     const outcome = select(outcomes, params.get("outcome") ?? "", t("Outcome"));
     const since = select(spans, params.has("since") ? params.get("since") : "7d", t("Time range"));
-    const count = el("span", { class: "muted count" });
+    const count = el("span", { class: "muted count", role: "status", "aria-live": "polite" });
     const body = el("div", {});
     let loads = 0;   // the answer drawn is the last request's, however they arrive
     async function load() {
@@ -449,7 +499,7 @@ enum WebAssets {
         return;
       }
       count.textContent = t("{shown} of {total}", { shown: found.entries.length, total: found.total });
-      body.replaceChildren(found.entries.length ? el("div", { class: "card" }, el("div", { class: "table-scroll" }, el("table", { class: "data-table" },
+      body.replaceChildren(found.entries.length ? el("div", { class: "card audit-results" }, el("div", { class: "table-scroll" }, el("table", { class: "data-table" },
         el("thead", {}, el("tr", {}, [t("Time"), t("Who"), t("What"), t("Outcome"), t("Details")].map((text) => el("th", { text })))),
         el("tbody", {}, found.entries.map(auditRow)))), el("p", { class: "muted note", text: found.path }))
         : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("shield")), el("p", { class: "muted", text: t("Nothing in this range matches.") })));
@@ -460,7 +510,14 @@ enum WebAssets {
     app().show(main,
       app().pageHead(t("Audit log"), t("Every change made through the MCP server, the Assistant's chat and this web UI, with who made it.")),
       subnav("audit"),
-      el("div", { class: "filter-bar" }, since, outcome, tool, client, el("span", { class: "spacer" }), count),
+      el("div", { class: "card audit-filters" },
+        el("div", { class: "audit-filter-grid" },
+          el("label", {}, el("span", { text: t("Time range") }), since),
+          el("label", {}, el("span", { text: t("Outcome") }), outcome),
+          el("label", {}, el("span", { text: t("Tool or route") }), tool),
+          el("label", {}, el("span", { text: t("Client or user") }), client)),
+        el("div", { class: "audit-filter-footer" }, count,
+          el("button", { class: "link", text: t("Reset filters"), onclick: () => { clearTimeout(typing); tool.value = ""; client.value = ""; location.href = "/settings/audit?since=7d"; } }))),
       body);
     await load();
   }
@@ -473,7 +530,7 @@ enum WebAssets {
       el("td", {}, el("strong", { text: entry.principal ?? "?" }), el("div", { class: "muted", text: `${entry.client ?? "?"} · ${entry.scope ?? ""}` })),
       el("td", { class: "mono", text: entry.dryRun ? t("{tool} (dry run)", { tool: entry.tool }) : entry.tool }),
       el("td", {}, el("span", { class: `pill status ${kind}`, text })),
-      el("td", { class: "audit-details" }, entry.error ? el("div", { class: "error", text: entry.error }) : null, args ? el("code", { text: args, title: args }) : null));
+      el("td", { class: "audit-details" }, entry.error ? el("div", { class: "error", text: entry.error }) : null, args ? el("details", {}, el("summary", { text: t("Details") }), HomeswiftCommon.jsonView(entry.args)) : null));
   }
 
   // ---- An accessory's history -----------------------------------------------------------------------------
@@ -944,16 +1001,30 @@ enum WebAssets {
         isAdmin() ? el("div", { class: "actions" }, el("button", { class: "link", text: t("Restart homeswift…"), onclick: restartBridge }),
           el("a", { class: "link", href: "/settings", text: t("Settings, pairings and backups") }), el("a", { class: "link", href: "/notifications", text: t("Notifications") })) : null)],
     };
-    const layout = dashboardLayout();
-    show(main,
-      layout.order.filter((id) => !layout.hidden.includes(id)).map((id) => {
-        const nodes = [widgets[id]?.()].flat().filter(Boolean);
-        return nodes.length ? el("section", { class: "dash-widget", "data-widget": id }, nodes) : null;
-      }),
-      el("div", { class: "actions page-foot" },
-        el("button", { class: "link", onclick: () => customiseDashboard(main, { assistant: Boolean(status.assistant), scroll: true }) }, HomeswiftCommon.icon("sliders"), " ", t("Customise this page…"))));
-    // Open while the user changes it: the page is drawn again under it after each change.
-    if (customising) customiseDashboard(main, { assistant: Boolean(status.assistant) });
+    const sections = new Map();
+    const footer = el("div", { class: "actions page-foot" },
+      el("button", { type: "button", class: "link", "aria-label": t("Customise the Status page"), "aria-haspopup": "menu", "aria-expanded": "false",
+        onclick: (event) => customiseDashboard(event.currentTarget, renderDashboard, event.detail === 0) }, HomeswiftCommon.icon("sliders"), " ", t("Customise this page…")));
+    function renderDashboard(layout) {
+      const position = { left: scrollX, top: scrollY };
+      for (const id of layout.order) {
+        let section = sections.get(id);
+        if (!section && !layout.hidden.includes(id)) {
+          const nodes = [widgets[id]?.()].flat().filter(Boolean);
+          if (nodes.length) {
+            section = el("section", { class: "dash-widget", "data-widget": id }, nodes);
+            sections.set(id, section);
+          }
+        }
+        if (section) {
+          section.hidden = layout.hidden.includes(id);
+          main.insertBefore(section, footer);
+        }
+      }
+      scrollTo({ ...position, behavior: "instant" });
+    }
+    show(main, footer);
+    renderDashboard(dashboardLayout());
   };
 
   // ---- The Status page's widgets: which show, in which order ----------------------------------------------
@@ -970,44 +1041,35 @@ enum WebAssets {
     return { order, hidden: (saved.hidden || []).filter((id) => known.includes(id)) };
   }
 
-  let customising = false;
-
-  /// The Customise panel: a switch per widget and arrows to move it; each change is saved and the page redrawn.
-  function customiseDashboard(main, { assistant, scroll = false }) {
-    const existing = $(".customise", main);
-    if (existing) { existing.remove(); customising = false; return; }
-    customising = true;
+  /// The same pop-up as accessory actions: visibility choices, ordering, and reset.
+  function customiseDashboard(trigger, renderDashboard, keyboard = false) {
     let layout = dashboardLayout();
-    const list = el("div", { class: "customise-list" });
+    const nameOf = (id) => dashboardWidgets.find(([known]) => known === id)[1];
     const save = async (next) => {
+      const before = layout;
       layout = next;
-      draw();
+      renderDashboard(layout);
       try {
-        await HomeswiftCommon.applyPreferences(await api("/api/preferences", { method: "PUT", body: { dashboard: layout } }));
-        route();
-      } catch (e) { alert(e.message); }
+        HomeswiftCommon.applyPreferences(await api("/api/preferences", { method: "PUT", body: { dashboard: next } }));
+      } catch (e) {
+        layout = before;
+        renderDashboard(layout);
+        alert(e.message);
+      }
     };
-    const draw = () => list.replaceChildren(...layout.order.map((id, index) => {
-      const [, name, note] = dashboardWidgets.find(([known]) => known === id);
-      const shown = !layout.hidden.includes(id);
-      const toggle = el("input", { type: "checkbox", checked: shown, "aria-label": t("Show {name}", { name }), onchange: () =>
-        save({ order: layout.order, hidden: shown ? [...layout.hidden, id] : layout.hidden.filter((one) => one !== id) }) });
-      const move = (by) => () => { const order = [...layout.order]; order.splice(index + by, 0, order.splice(index, 1)[0]); save({ ...layout, order }); };
-      return el("div", { class: "customise-row" },
-        el("label", { class: "switch" }, toggle, el("span")),
-        el("div", { class: "who" }, el("strong", { text: name }), el("div", { class: "muted", text: id === "digest" && !assistant ? t("Needs the Assistant (a HomeswiftAiKit block)") : note })),
-        el("button", { type: "button", class: "icon-button", "aria-label": t("Move {name} up", { name }), disabled: index === 0, onclick: move(-1) }, HomeswiftCommon.icon("up")),
-        el("button", { type: "button", class: "icon-button", "aria-label": t("Move {name} down", { name }), disabled: index === layout.order.length - 1, onclick: move(1) }, HomeswiftCommon.icon("down")));
-    }));
-    draw();
-    const panel = el("div", { class: "card customise", role: "region", "aria-label": t("Customise the Status page") },
-      el("div", { class: "section-head" }, el("h2", { text: t("Customise this page") }), el("span", { class: "muted", text: t("Saved for you, on every browser") })),
-      list,
-      el("div", { class: "actions" },
-        el("button", { class: "link", text: t("Back to the usual layout"), onclick: () => save({ order: dashboardWidgets.map(([id]) => id), hidden: [] }) }),
-        el("button", { class: "primary", text: t("Done"), onclick: () => { panel.remove(); customising = false; } })));
-    main.prepend(panel);
-    if (scroll) panel.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    HomeswiftCommon.menu(trigger, [
+      ...layout.order.map((id) => ({ key: id, label: t("Show {name}", { name: nameOf(id) }),
+        checked: !layout.hidden.includes(id), checkbox: true, toggle: true, keepOpen: true,
+        onSelect: async () => {
+          await save({ ...layout, hidden: layout.hidden.includes(id) ? layout.hidden.filter((one) => one !== id) : [...layout.hidden, id] });
+          return !layout.hidden.includes(id);
+        } })),
+      { separator: true },
+      { label: t("Back to the usual layout"), onSelect: () => save({ order: dashboardWidgets.map(([id]) => id), hidden: [] }) },
+    ], { keyboard, onReorder: async (order) => {
+      await save({ ...layout, order });
+      return layout.order;
+    } });
   }
 
   // ---- The daily digest (Glass UI's assistant digest widget) ------------------------------------------------
@@ -1332,10 +1394,32 @@ enum WebAssets {
       nodes.set(accessory.id, node);
       return node;
     }
-    function resize(accessory, size) {
-      layout.sizes[accessory.id] = size;
-      nodes.get(accessory.id)?.replaceWith(widget(accessory));
-      save();
+    let layoutAnimation = 0;
+    function animateLayout(change) {
+      const before = new Map([...nodes].map(([id, node]) => [id, node.getBoundingClientRect()]));
+      change();
+      const revision = ++layoutAnimation;
+      // Expanded cards measure their controls on the next frame before settling onto whole grid rows.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (revision !== layoutAnimation || reducedMotion.matches) return;
+        for (const [id, node] of nodes) {
+          const was = before.get(id), now = node.getBoundingClientRect();
+          if (!was?.width || !now.width || !now.height) continue;
+          node.getAnimations().forEach((animation) => animation.cancel());
+          node.animate([
+            { transformOrigin: "top left", transform: `translate(${was.left - now.left}px, ${was.top - now.top}px) scale(${was.width / now.width}, ${was.height / now.height})` },
+            { transformOrigin: "top left", transform: "none" }
+          ], { duration: 220, easing: "cubic-bezier(.2,.8,.2,1)" });
+        }
+      }));
+    }
+    function resize(accessory, size, persist = true) {
+      if (size === sizeOf(accessory)) return;
+      animateLayout(() => {
+        layout.sizes[accessory.id] = size;
+        nodes.get(accessory.id)?.replaceWith(widget(accessory));
+      });
+      if (persist) save();
     }
     /// The size of a kind: every accessory of that kind takes it, those sized one by one included.
     function resizeKind(kind, size) {
@@ -1353,7 +1437,7 @@ enum WebAssets {
       ordered.splice(ordered.indexOf(accessory), 1);
       ordered.splice(ordered.indexOf(target) + (after ? 1 : 0), 0, accessory);
       save();
-      render();
+      animateLayout(render);
     }
     function step(accessory, delta) {
       const wall = ordered.filter((one) => layout.grouping === "none" || section(one) === section(accessory));
@@ -1369,7 +1453,54 @@ enum WebAssets {
         el("button", { type: "button", "aria-label": t("Move earlier"), title: t("Move earlier"), text: "‹", "data-step": "-1", onclick: () => step(accessory, -1) }),
         HomeswiftWidgets.sizes.map((one) => el("button", { type: "button", text: one === "xlarge" ? t("XL") : sizeNames[one][0].toUpperCase(), title: sizeNames[one], "aria-label": sizeNames[one], "aria-pressed": String(one === size), onclick: () => resize(accessory, one) })),
         el("button", { type: "button", "aria-label": t("Move later"), title: t("Move later"), text: "›", "data-step": "1", onclick: () => step(accessory, 1) })));
+      const handle = el("button", { type: "button", class: "resize-handle", text: "◢",
+        title: t("Drag to resize"), "aria-label": t("Resize {name}", { name: accessory.name }),
+        onkeydown: (event) => {
+          const delta = ["ArrowRight", "ArrowDown"].includes(event.key) ? 1 : ["ArrowLeft", "ArrowUp"].includes(event.key) ? -1 : 0;
+          if (!delta) return;
+          event.preventDefault();
+          const sizes = HomeswiftWidgets.sizes;
+          resize(accessory, sizes[Math.max(0, Math.min(sizes.length - 1, sizes.indexOf(sizeOf(accessory)) + delta))]);
+          nodes.get(accessory.id)?.querySelector(".resize-handle")?.focus();
+        } });
+      handle.addEventListener("pointerdown", (event) => resizeDrag(event, node, accessory));
+      node.append(handle);
       node.addEventListener("pointerdown", (event) => drag(event, node));
+    }
+
+    function resizeDrag(event, node, accessory) {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const initial = sizeOf(accessory), box = node.getBoundingClientRect(), wall = node.parentElement;
+      const style = getComputedStyle(wall), column = parseFloat(style.getPropertyValue("--unit")) || box.width;
+      const row = parseFloat(style.gridAutoRows) || 64, gap = parseFloat(style.rowGap) || 10;
+      const start = { x: event.clientX, y: event.clientY };
+      wall.classList.add("resizing");
+      // Capture on the stable wall: the card's contents are rebuilt as it crosses a size boundary.
+      wall.setPointerCapture(event.pointerId);
+      const move = (pointer) => {
+        if (pointer.pointerId !== event.pointerId || Math.hypot(pointer.clientX - start.x, pointer.clientY - start.y) < 8) return;
+        const width = box.width + pointer.clientX - start.x, height = box.height + pointer.clientY - start.y;
+        const size = width < column * 1.5 ? (height < row * 1.5 + gap ? "small" : "medium")
+          : (height < (row + gap) * 3.5 ? "large" : "xlarge");
+        resize(accessory, size, false);
+      };
+      const end = (pointer) => {
+        if (pointer.pointerId !== event.pointerId) return;
+        wall.removeEventListener("pointermove", move);
+        wall.removeEventListener("pointerup", end);
+        wall.removeEventListener("pointercancel", end);
+        wall.removeEventListener("lostpointercapture", end);
+        wall.classList.remove("resizing");
+        if (wall.hasPointerCapture(event.pointerId)) wall.releasePointerCapture(event.pointerId);
+        if (pointer.type !== "pointerup") resize(accessory, initial, false);
+        else save();
+      };
+      wall.addEventListener("pointermove", move);
+      wall.addEventListener("pointerup", end);
+      wall.addEventListener("pointercancel", end);
+      wall.addEventListener("lostpointercapture", end);
     }
 
     const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
@@ -1396,17 +1527,19 @@ enum WebAssets {
     /// Let go, it lands in the slot, and the wall's order is kept. A finger drags at once: in Edit the widgets do not
     /// scroll the page.
     function drag(event, node) {
-      if (event.button !== 0 || event.target.closest(".edit-bar")) return;
+      if (event.button !== 0 || event.target.closest(".edit-bar, .resize-handle")) return;
       // A press that drags selects no text.
       event.preventDefault();
       getSelection()?.removeAllRanges();
       const wall = node.parentElement;
       const start = { x: event.clientX, y: event.clientY };
+      const originalStyle = node.style.cssText, originalNext = node.nextElementSibling;
       let slot = null, pointer = event, scroller = null;
       node.setPointerCapture(event.pointerId);
       const lift = () => {
         const box = node.getBoundingClientRect();
         slot = el("div", { class: `${[...node.classList].filter((name) => name.startsWith("size-")).join(" ")} widget drag-slot`, "aria-hidden": "true" });
+        slot.style.setProperty("--card-rows", node.style.getPropertyValue("--card-rows"));
         node.before(slot);
         node.classList.add("lifted");
         Object.assign(node.style, { left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px` });
@@ -1423,7 +1556,8 @@ enum WebAssets {
         const under = document.elementFromPoint(pointer.clientX, pointer.clientY)?.closest(".wall > .widget");
         if (!under || under === slot || under.parentElement !== wall) return;
         const box = under.getBoundingClientRect();
-        const after = pointer.clientX > box.left + box.width / 2;
+        const after = pointer.clientY > box.top + box.height * .75 ||
+          (pointer.clientY >= box.top + box.height * .25 && pointer.clientX > box.left + box.width / 2);
         if ((after ? under.nextElementSibling : under.previousElementSibling) === slot) return;
         slide(wall, () => (after ? under.after(slot) : under.before(slot)), node);
       };
@@ -1437,18 +1571,21 @@ enum WebAssets {
         hover();
       };
       // Also when the capture is lost (the wall drawn again under the finger): the page stops scrolling.
-      const end = () => {
+      const end = (ended) => {
         node.removeEventListener("pointermove", move);
         node.removeEventListener("pointerup", end);
         node.removeEventListener("pointercancel", end);
         node.removeEventListener("lostpointercapture", end);
         clearInterval(scroller);
         if (!slot || !slot.isConnected) return;
+        if (ended.type !== "pointerup") {
+          if (originalNext?.parentElement === wall) originalNext.before(slot); else wall.append(slot);
+        }
         // Lands in the slot from where it was let go.
         const from = node.getBoundingClientRect();
         slot.replaceWith(node);
         node.classList.remove("lifted");
-        node.style.cssText = "";
+        node.style.cssText = originalStyle;
         const to = node.getBoundingClientRect();
         node.style.transition = "none";
         node.style.transform = `translate(${from.left - to.left}px, ${from.top - to.top}px)`;
@@ -1524,8 +1661,23 @@ enum WebAssets {
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
     } }), el("span", { text }));
     const hiddenToggle = hiddenCount ? queryToggle("hidden", "1", showHidden, t("Show hidden ({count})", { count: hiddenCount })) : null;
-    const sourceToggles = sources.map((source) => queryToggle("from", source, from === source,
-      t("Only from {source} ({count})", { source: t(source), count: all.filter((accessory) => accessory.mirroredFrom === source).length })));
+    const sourceToggles = sources.map((source) => {
+      const count = all.filter((accessory) => accessory.mirroredFrom === source).length;
+      const label = t("Only from {source}", { source: t(source) });
+      const explanation = source === "Apple Home"
+        ? t("Show only accessories shared by Apple Home through Wingman. Turn off to show all accessories.")
+        : t("Show only accessories from {source}. Turn off to show all accessories.", { source: t(source) });
+      const input = el("input", { type: "checkbox", role: "switch", checked: from === source, "aria-label": label, "aria-description": explanation, title: explanation,
+        onchange: (event) => {
+          const next = new URLSearchParams(location.search);
+          if (event.target.checked) next.set("from", source); else next.delete("from");
+          navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
+        } });
+      return el("label", { class: "source-toggle", title: explanation },
+        source === "Apple Home" ? el("img", { class: "source-home-icon", src: "/apple-home.png", alt: "", "aria-hidden": "true" }) : el("span", { class: "source-toggle-label", text: t(source) }),
+        el("span", { class: "source-count", text: String(count) }),
+        el("span", { class: "switch" }, input, el("span", { "aria-hidden": "true" })));
+    });
     const suggest = isAdmin() && window.HomeswiftChat?.available() && all.length
       ? el("button", { class: "ai-button icon-on-phone", title: t("Suggest rooms"), "aria-label": t("Suggest rooms"), onclick: () => HomeswiftHome.suggestRooms(content, all) }, sparkle(), el("span", { text: t("Suggest rooms") })) : null;
 
@@ -1566,7 +1718,7 @@ enum WebAssets {
       const opens = plugin && plugin.hasPages && instance && !instance.paused ? pluginPage(block) : block.system ? settingsLink(block) : expertLink(block);
       // Under the name, what it is when the name does not say it already: the plugin, else its platform.
       const kindName = [plugin?.name, block.platform].find((name) => name && name !== block.name);
-      return el("div", { class: "card server" },
+      return el("div", { class: "card server plugin-instance" },
         el("div", { class: "server-head" },
           tile(block.system ? "gear" : "plugin", block.system ? "grey" : "orange"),
           el("div", { class: "who" }, el("a", { class: "card-title", href: opens }, el("strong", { text: block.name })),
@@ -1579,7 +1731,7 @@ enum WebAssets {
         el("div", { class: "card-foot" },
           el("span", { class: "muted", text: instance?.paused ? t("No calls to its devices; they show No Response in the Home app.")
             : instance ? "" : block.system ? t("A block of the runtime itself.") : plugin ? t("It did not start: the log says why.") : t("No plugin compiled into this homeswift provides this platform.") }),
-          menuButton(t("Actions for {name}", { name: block.name }), () => blockActions(block, plugin, instance))));
+          el("div", { class: "plugin-card-actions" }, el("a", { class: "button", href: opens, text: plugin?.hasPages && instance && !instance.paused ? t("Open its page") : t("Settings") }), menuButton(t("Actions for {name}", { name: block.name }), () => blockActions(block, plugin, instance)))));
     };
 
     /// What the menu of a plugin's card offers: its page, the block as a form or as JSON (Expert), pause or
@@ -1599,7 +1751,7 @@ enum WebAssets {
       ];
     }
 
-    const catalog = el("div", { class: "grid" }, plugins.plugins.map((plugin) => {
+    const catalog = el("div", { class: "grid plugin-catalog" }, plugins.plugins.map((plugin) => {
       const used = plugins.blocks.some((block) => block.platform === plugin.platform);
       return el("div", { class: "card server catalog" },
         el("div", { class: "server-head" }, tile("plugin", "orange"),
@@ -1624,12 +1776,41 @@ enum WebAssets {
       }
     }
 
+    const catalogSearch = el("input", { type: "search", class: "search", placeholder: t("Filter text"), "aria-label": t("Add a plugin") });
+    const noMatches = el("p", { class: "card empty", hidden: true, text: t("Nothing in this range matches.") });
+    const catalogEntries = [...catalog.children].map((card, index) => ({ card, plugin: plugins.plugins[index], used: plugins.blocks.some((block) => block.platform === plugins.plugins[index].platform) }));
+    const sortOptions = [["name", t("Name A–Z")], ["used", t("In use first")], ["available", t("Available first")]];
+    const sort = el("select", { class: "popup", "aria-label": t("Sort plugins") }, sortOptions.map(([value, text]) => el("option", { value, text })));
+    const savedSort = new URLSearchParams(location.search).get("sort");
+    sort.value = sortOptions.some(([value]) => value === savedSort) ? savedSort : "name";
+    const arrange = () => {
+      const ordered = [...catalogEntries].sort((a, b) => {
+        const priority = sort.value === "used" ? Number(b.used) - Number(a.used) : sort.value === "available" ? Number(a.used) - Number(b.used) : 0;
+        return priority || a.plugin.name.localeCompare(b.plugin.name) || a.plugin.platform.localeCompare(b.plugin.platform);
+      });
+      catalog.append(...ordered.map(({ card }) => card));
+    };
+    sort.addEventListener("change", () => {
+      arrange();
+      const url = new URL(location.href); url.searchParams.set("sort", sort.value);
+      history.replaceState(null, "", url.pathname + url.search);
+    });
+    arrange();
+    catalogSearch.addEventListener("input", () => {
+      const query = catalogSearch.value.trim().toLocaleLowerCase();
+      let visible = 0;
+      catalogEntries.forEach(({ card, plugin }) => {
+        card.hidden = !`${plugin.name} ${plugin.platform}`.toLocaleLowerCase().includes(query);
+        if (!card.hidden) visible++;
+      });
+      noMatches.hidden = visible > 0;
+    });
     show(main,
       pageHead(t("Plugins"), t("The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.")),
       plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: t("No plugin provides {platforms}: those blocks are ignored.", { platforms: plugins.unknownPlatforms.join(", ") }) })) : null,
-      plugins.blocks.length ? el("div", { class: "grid" }, plugins.blocks.map(blockCard)) : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("plugin")), el("p", { class: "muted", text: t("No plugin yet. Add one below.") })),
-      el("div", { class: "section-head" }, el("h2", { text: t("Add a plugin") }), el("span", { class: "muted", text: t("compiled into this homeswift") })),
-      catalog);
+      plugins.blocks.length ? el("div", { class: "grid plugin-instances" }, plugins.blocks.map(blockCard)) : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("plugin")), el("p", { class: "muted", text: t("No plugin yet. Add one below.") })),
+      el("div", { class: "section-head" }, el("h2", { text: t("Add a plugin") }), el("span", { class: "muted", text: t("compiled into this homeswift") }), catalogSearch, sort),
+      catalog, noMatches);
   };
 
   /// A block's state pill: its label and tone.
@@ -1948,9 +2129,18 @@ enum WebAssets {
     const entry = plugins.blocks.find((one) => one.platform === "HomeswiftAiKit");
     const head = pageHead(t("Settings"), t("The Assistant: whether its provider answers, what it costs, and its budgets."));
     if (!entry) {
-      show(main, head, subnav, el("div", { class: "card empty" },
-        el("p", { class: "muted", text: t("The Assistant is off: config.json has no HomeswiftAiKit block. Add one on the Config page, {example}, or choose apple on a Mac with Apple Intelligence.", { example: "{ \"platform\": \"HomeswiftAiKit\", \"provider\": \"anthropic\", \"apiKey\": \"…\" }" }) }),
-        el("a", { class: "button primary", href: "/config", text: t("Open Config") })));
+      show(main, head, subnav, el("section", { class: "card assistant-welcome" },
+        el("span", { class: "tile tone-ai", "aria-hidden": "true" }, sparkle()),
+        el("h2", { text: t("Set up your Assistant") }),
+        el("p", { class: "muted", text: t("The Assistant is off until you connect an AI provider.") }),
+        el("div", { class: "assistant-setup-note" },
+          el("strong", { text: t("Choose how it runs") }),
+          el("p", { text: t("Use Anthropic with an API key, or Apple Intelligence on a supported Mac with Apple Intelligence enabled.") })),
+        el("a", { class: "button primary", href: "/config", text: t("Open Config") }),
+        el("details", { class: "assistant-setup-example" },
+          el("summary", { text: t("Configuration example") }),
+          el("p", { class: "muted", text: t("Add this block to platforms in config.json and replace the API key. For Apple Intelligence, set provider to apple and omit apiKey.") }),
+          jsonView({ platform: "HomeswiftAiKit", provider: "anthropic", apiKey: "…" }))));
       return;
     }
     const block = await api(`/api/config/block/${encodeURIComponent(entry.platform)}/${encodeURIComponent(entry.name)}`);
@@ -3275,10 +3465,15 @@ enum WebAssets {
     show(main,
       pageHead(t("Logs"), t("This homeswift's log, live, and up to a week back.")),
       el("div", { class: "card log-card" },
-        el("div", { class: "editor-bar" }, levels, range.picker, sources.picker, filter, el("span", { class: "spacer" }), count, doctor.button, copy,
-          el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
-          saveToggle, actions,
+        el("div", { class: "log-filter-panel" },
+          el("div", { class: "log-level-row" }, levels, filter),
+          el("div", { class: "log-scope-row" },
+            el("label", {}, el("span", { text: t("Time range") }), range.picker),
+            el("label", {}, el("span", { text: t("What the lines are about") }), sources.picker)),
           range.customRow),
+        el("div", { class: "editor-bar log-action-bar" }, count, el("span", { class: "spacer" }), doctor.button, copy,
+          el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
+          saveToggle, actions),
         output),
       doctor.card);
     await load();
@@ -3380,6 +3575,7 @@ enum WebAssets {
     if (!(auth && auth.authenticated)) return;
     if (document.hidden) { closeEvents(); return; }
     openEvents();
+    if (location.pathname === "/accessories" && document.querySelector(".wall.editing")) return;
     if (["/", "/status", "/accessories", "/quick"].includes(location.pathname)) route();
   });
 
@@ -3397,6 +3593,7 @@ enum WebAssets {
 })();
 
 """#),
+        "apple-home.png": WebFile(contentType: "image/png", base64: "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"),
         "apple-touch-icon.png": WebFile(contentType: "image/png", base64: "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"),
         "authorize.html": WebFile(contentType: "text/html; charset=utf-8", body: #"""
 <!doctype html>
@@ -4922,6 +5119,7 @@ enum WebAssets {
   function icon(name) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 24 24");
+    svg.classList.add(`icon-${name}`);
     svg.innerHTML = icons[name] ?? icons.generic;
     return svg;
   }
@@ -5097,9 +5295,10 @@ enum WebAssets {
   /// draws a labelled row of square choices, such as the widget sizes.
   /// Opened from the keyboard, its first item takes the focus; from a click, the menu does, so no item looks
   /// chosen before the pointer or an arrow key gets to it.
-  function menu(trigger, items, { keyboard = false } = {}) {
+  function menu(trigger, items, { keyboard = false, onReorder } = {}) {
     if (openMenu?.trigger === trigger) { openMenu.close(); return; }
     openMenu?.close(true);
+    let pending = false, cancelDrag = null;
     const nodes = items.filter(Boolean).map((item) => {
       if (item.separator) return el("hr", { class: "menu-separator", role: "separator" });
       if (item.choices) {
@@ -5116,16 +5315,72 @@ enum WebAssets {
       if (item.heading !== undefined) return el("div", { class: "menu-heading" }, el("strong", { text: item.heading }), item.detail ? el("span", { text: item.detail }) : null);
       const glyph = typeof item.icon === "string" ? icon(item.icon) : item.icon ?? null;
       const choice = typeof item.checked === "boolean";
-      const role = choice ? "menuitemradio" : "menuitem";
-      const tick = choice ? el("span", { class: "menu-check", "aria-hidden": "true", text: item.checked ? "✓" : "" }) : null;
+      const role = choice ? (item.checkbox ? "menuitemcheckbox" : "menuitemradio") : "menuitem";
+      const tick = item.toggle ? el("span", { class: "menu-toggle", "aria-hidden": "true" }, el("span"))
+        : choice ? el("span", { class: "menu-check", "aria-hidden": "true", text: item.checked ? "✓" : "" }) : null;
       const node = item.href
         ? el("a", { role, href: item.href, class: item.danger ? "danger" : "", tabIndex: -1 }, glyph, el("span", { text: item.label }), tick)
         : el("button", { type: "button", role, class: item.danger ? "danger" : "", tabIndex: -1, "aria-checked": choice ? String(item.checked) : null }, glyph, el("span", { text: item.label }), tick);
-      node.addEventListener("click", () => { close(); item.onSelect?.(); });
+      if (onReorder && item.key) {
+        node.dataset.menuKey = item.key;
+        const handle = el("span", { class: "menu-drag-handle", title: t("Drag to reorder"), "aria-hidden": "true", text: "⠿" });
+        handle.addEventListener("click", (event) => { event.preventDefault(); event.stopPropagation(); });
+        handle.addEventListener("pointerdown", (event) => {
+          if (event.button !== 0 || pending) return;
+          event.preventDefault(); event.stopPropagation();
+          const rows = () => [...list.querySelectorAll(":scope > [data-menu-key]")];
+          const before = rows(), anchor = before.at(-1).nextSibling;
+          const restore = (order) => order.forEach((row) => list.insertBefore(row, anchor));
+          node.classList.add("menu-dragging");
+          list.setPointerCapture(event.pointerId);
+          const move = (pointer) => {
+            if (pointer.pointerId !== event.pointerId) return;
+            const other = rows().find((row) => {
+              const box = row.getBoundingClientRect();
+              return row !== node && pointer.clientY >= box.top && pointer.clientY <= box.bottom;
+            });
+            if (!other) return;
+            const box = other.getBoundingClientRect();
+            if (pointer.clientY > box.top + box.height / 2) other.after(node); else other.before(node);
+          };
+          const finish = async (pointer) => {
+            if (pointer && pointer.pointerId !== event.pointerId) return;
+            list.removeEventListener("pointermove", move);
+            list.removeEventListener("pointerup", finish);
+            list.removeEventListener("pointercancel", finish);
+            list.removeEventListener("lostpointercapture", finish);
+            cancelDrag = null;
+            node.classList.remove("menu-dragging");
+            if (list.hasPointerCapture(event.pointerId)) list.releasePointerCapture(event.pointerId);
+            if (pointer?.type !== "pointerup") { restore(before); return; }
+            pending = true;
+            try {
+              const saved = await onReorder(rows().map((row) => row.dataset.menuKey));
+              if (saved) restore(saved.map((id) => before.find((row) => row.dataset.menuKey === id)).filter(Boolean));
+            } catch { restore(before); }
+            finally { pending = false; }
+          };
+          cancelDrag = () => finish();
+          list.addEventListener("pointermove", move);
+          list.addEventListener("pointerup", finish);
+          list.addEventListener("pointercancel", finish);
+          list.addEventListener("lostpointercapture", finish);
+        });
+        node.prepend(handle);
+      }
+      node.addEventListener("click", async (event) => {
+        if (pending || event.target.closest(".menu-drag-handle")) return;
+        if (!item.keepOpen) { close(); item.onSelect?.(); return; }
+        pending = true;
+        node.setAttribute("aria-busy", "true");
+        try {
+          const checked = await item.onSelect?.();
+          if (typeof checked === "boolean") node.setAttribute("aria-checked", String(checked));
+        } finally { pending = false; node.removeAttribute("aria-busy"); }
+      });
       return node;
     });
-    const entries = nodes.flatMap((node) => node.getAttribute("role")?.startsWith("menuitem")
-      ? [node] : [...node.querySelectorAll('[role^="menuitem"]')]);
+    const entries = () => [...list.querySelectorAll('[role^="menuitem"]')];
     // On a phone a card's menu is an action sheet over a dimmed page, at the bottom within the thumb's reach, as
     // iOS's; the header's (the account) still drops down from its button.
     const sheet = matchMedia("(max-width: 640px)").matches && !trigger.closest("header");
@@ -5148,9 +5403,9 @@ enum WebAssets {
       list.style.transformOrigin = `${box.right - parseFloat(list.style.left) - box.width / 2}px ${below ? "0" : "100%"}`;
     }
     trigger.setAttribute("aria-expanded", "true");
-    const focusAt = (index) => entries[(index + entries.length) % entries.length]?.focus();
+    const focusAt = (index) => entries()[(index + entries().length) % entries().length]?.focus();
     const onKey = (event) => {
-      const index = entries.indexOf(document.activeElement);
+      const index = entries().indexOf(document.activeElement);
       if (event.key === "Escape") { event.preventDefault(); close(); }
       else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && document.activeElement.closest(".menu-choice-row")) {
         event.preventDefault();
@@ -5167,6 +5422,7 @@ enum WebAssets {
     const onPointer = (event) => { if (!list.contains(event.target) && !trigger.contains(event.target)) close(true); };
     function close(quietly = false) {
       if (openMenu?.list !== list) return;
+      cancelDrag?.();
       openMenu = null;
       document.removeEventListener("keydown", onKey, true);
       document.removeEventListener("pointerdown", onPointer, true);
@@ -5638,6 +5894,42 @@ enum WebAssets {
   /// "21.5 °C" or "70.7 °F".
   const formatTemperature = (celsius) => { const { value, unit } = temperature(celsius); return `${value} ${unit}`; };
 
+  // Keep native select values and form validation, but present choices with the shared menu.
+  function openSelectMenu(select, keyboard = false) {
+    const items = [];
+    for (const child of select.children) {
+      if (child.tagName === "OPTGROUP") {
+        if (child.disabled) continue;
+        items.push({ heading: child.label });
+        for (const option of child.children) add(option);
+      } else add(child);
+    }
+    function add(option) {
+      if (option.tagName !== "OPTION" || option.hidden || option.disabled) return;
+      items.push({ label: option.label, checked: option.selected, onSelect: () => {
+        if (select.value === option.value) return;
+        select.value = option.value;
+        select.dispatchEvent(new Event("input", { bubbles: true }));
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      } });
+    }
+    if (items.length) menu(select, items, { keyboard });
+  }
+  document.addEventListener("pointerdown", (event) => {
+    const select = event.target.closest("select");
+    if (!select || select.disabled || select.multiple || select.size > 1 || event.button !== 0) return;
+    event.preventDefault();
+    select.focus();
+    openSelectMenu(select);
+  });
+  document.addEventListener("keydown", (event) => {
+    const select = event.target.closest("select");
+    if (!select || select.disabled || select.multiple || select.size > 1) return;
+    if ([" ", "Enter", "ArrowDown", "ArrowUp"].includes(event.key)) {
+      event.preventDefault(); openSelectMenu(select, true);
+    }
+  });
+
   window.HomeswiftCommon = {
     $, el, icon, tile, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
@@ -5655,9 +5947,14 @@ enum WebAssets {
   const { t, tn } = HomeswiftI18n;
   let app = null;
 
-  const weekdays = [t("Sun"), t("Mon"), t("Tue"), t("Wed"), t("Thu"), t("Fri"), t("Sat")];
-  // The days picker's two-letter labels.
-  const dayLetters = [t("Su"), t("Mo"), t("Tu"), t("We"), t("Th"), t("Fr"), t("Sa")];
+  // Stable Sunday-based ids for storage, localized labels and display order for people.
+  const weekdayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", timeZone: "UTC" });
+  const weekdayFullFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "long", timeZone: "UTC" });
+  const weekdays = Array.from({ length: 7 }, (_, day) => weekdayFormat.format(new Date(Date.UTC(2024, 0, 7 + day))));
+  const weekdayNames = Array.from({ length: 7 }, (_, day) => weekdayFullFormat.format(new Date(Date.UTC(2024, 0, 7 + day))));
+  const weekLocale = new Intl.Locale(HomeswiftI18n.locale);
+  const firstWeekday = (weekLocale.getWeekInfo?.() ?? weekLocale.weekInfo)?.firstDay ?? 1;
+  const weekdayOrder = Array.from({ length: 7 }, (_, offset) => (firstWeekday + offset) % 7);
   const operators = [["eq", t("is")], ["neq", t("is not")], ["gt", t("is above")], ["gte", t("is at least")], ["lt", t("is below")], ["lte", t("is at most")]];
   const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);
   const displayName = (accessory) => accessory.displayName || accessory.name;
@@ -6059,14 +6356,21 @@ enum WebAssets {
             } },
           ])));
     };
+    const sceneCards = data.scenes.map((scene) => ({ scene, node: card(scene) }));
+    const search = el("input", { type: "search", class: "search", placeholder: t("Filter text"), "aria-label": t("Your scenes") });
+    const noMatches = el("p", { class: "card empty", hidden: true, text: t("Nothing in this range matches.") });
+    search.addEventListener("input", () => {
+      const query = search.value.trim().toLocaleLowerCase();
+      for (const { scene, node } of sceneCards) node.hidden = !scene.name.toLocaleLowerCase().includes(query);
+      noMatches.hidden = sceneCards.some(({ node }) => !node.hidden);
+    });
     app.show(main,
       app.pageHead(t("Scenes"), t("Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them."),
-        el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
-      moodsSection(accessories),
-      el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") })),
-      data.scenes.length ? el("div", { class: "grid" }, data.scenes.map(card))
-        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") })),
-      locationCard(data));
+        data.scenes.length ? el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") }) : null),
+      el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") }), data.scenes.length ? search : null),
+      data.scenes.length ? el("div", { class: "grid scene-grid" }, sceneCards.map(({ node }) => node))
+        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") }), el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
+      noMatches, moodsSection(accessories), locationCard(data));
   }
 
   /// Where sunrise and sunset are computed for: Glass UI took its weather widget's city; here it is typed, or
@@ -6178,10 +6482,11 @@ enum WebAssets {
 
   function daysPicker(days) {
     const chosen = new Set(days && days.length ? days : [0, 1, 2, 3, 4, 5, 6]);
-    const node = el("span", { class: "days", role: "group", "aria-label": t("Days") }, weekdays.map((name, day) => {
+    const node = el("span", { class: "days", role: "group", "aria-label": t("Days") }, weekdayOrder.map((day) => {
+      const name = weekdayNames[day];
       const box = el("input", { type: "checkbox", checked: chosen.has(day), "aria-label": name });
       box.addEventListener("change", () => { if (box.checked) chosen.add(day); else chosen.delete(day); });
-      return el("label", { class: "day" }, box, el("span", { text: dayLetters[day] }));
+      return el("label", { class: "day", title: name }, box, el("span", { text: weekdays[day] }));
     }));
     node.read = () => chosen.size === 7 || chosen.size === 0 ? undefined : [...chosen].sort();
     return node;
@@ -6214,7 +6519,12 @@ enum WebAssets {
       const pick = {};
       const row = rowShell(...characteristicPicker(choices, pick, { id: action.id, characteristic: action.characteristic, value: action.value }));
       row.read = () => ({ ...pick.read(), value: pick.value.read() });
-      row.append(removeButton(row, actions));
+      const remove = removeButton(row, actions);
+      remove.className = "danger scene-condition-remove";
+      remove.append(el("span", { text: t("Delete action") }));
+      remove.title = t("Delete action");
+      remove.setAttribute("aria-label", t("Delete action"));
+      row.append(remove);
       actions.add(row);
       actionList.append(row);
     };
@@ -6257,7 +6567,12 @@ enum WebAssets {
       draw(trigger);
       type.addEventListener("change", () => draw({ type: type.value }));
       row.read = () => ({ type: type.value, ...(enabled.checked ? {} : { enabled: false }), ...row.readBody() });
-      row.append(removeButton(row, triggers));
+      const remove = removeButton(row, triggers);
+      remove.className = "danger scene-condition-remove";
+      remove.append(el("span", { text: t("Delete trigger") }));
+      remove.title = t("Delete trigger");
+      remove.setAttribute("aria-label", t("Delete trigger"));
+      row.append(remove);
       triggers.add(row);
       triggerList.append(row);
     };
@@ -6283,7 +6598,12 @@ enum WebAssets {
       draw(condition);
       type.addEventListener("change", () => draw({ type: type.value }));
       row.read = () => ({ type: type.value, ...row.readBody() });
-      row.append(removeButton(row, conditions));
+      const remove = removeButton(row, conditions);
+      remove.className = "danger scene-condition-remove";
+      remove.append(el("span", { text: t("Delete condition") }));
+      remove.title = t("Delete condition");
+      remove.setAttribute("aria-label", t("Delete condition"));
+      row.append(remove);
       conditions.add(row);
       conditionList.append(row);
     };
@@ -6301,6 +6621,48 @@ enum WebAssets {
       if (!accessory) return;
       for (const c of writable(accessory)) if (!c.security && c.value !== null && c.value !== undefined) addAction({ id: accessory.id, characteristic: c.type, value: c.value });
     });
+
+    const canvas = el("div", { class: "scene-flow-canvas" });
+    const viewport = el("div", { class: "scene-flow-viewport", tabIndex: 0, "aria-label": t("Scenes") }, canvas);
+    const links = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    links.classList.add("scene-flow-links"); links.setAttribute("aria-hidden", "true"); canvas.append(links);
+    let zoom = 1;
+    const nodes = [];
+    const connect = () => {
+      links.replaceChildren();
+      for (let i = 0; i < nodes.length - 1; i++) {
+        const a = nodes[i], b = nodes[i + 1];
+        const x1 = a.offsetLeft + a.offsetWidth, y1 = a.offsetTop + 36;
+        const x2 = b.offsetLeft, y2 = b.offsetTop + 36;
+        const path = document.createElementNS(links.namespaceURI, "path");
+        path.setAttribute("d", `M ${x1} ${y1} C ${x1 + 60} ${y1}, ${x2 - 60} ${y2}, ${x2} ${y2}`);
+        links.append(path);
+      }
+    };
+    const node = (title, glyph, content) => {
+      const handle = el("button", { type: "button", class: "scene-flow-handle", title: t("Drag to reorder") }, HomeswiftCommon.icon(glyph), el("strong", { text: title }), el("span", { text: "⠿", "aria-hidden": "true" }));
+      const panel = el("section", { class: "scene-flow-node", style: `left:${24 + nodes.length * 410}px;top:24px` }, handle, el("div", { class: "scene-flow-body" }, content));
+      nodes.push(panel); canvas.append(panel);
+      handle.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault(); handle.setPointerCapture(event.pointerId);
+        const x = event.clientX, y = event.clientY, left = panel.offsetLeft, top = panel.offsetTop;
+        const move = (e) => { panel.style.left = `${Math.max(8, Math.min(1200, left + (e.clientX - x) / zoom))}px`; panel.style.top = `${Math.max(8, top + (e.clientY - y) / zoom)}px`; connect(); };
+        const end = () => { handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", end); handle.removeEventListener("pointercancel", end); };
+        handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", end); handle.addEventListener("pointercancel", end);
+      });
+      return panel;
+    };
+    node(t("Triggers"), "play", [el("p", { class: "muted", text: data.location ? t("Run it automatically. Sunrise and sunset are for {place}.", { place: data.location.name || `${data.location.lat}, ${data.location.lon}` }) : t("Run it automatically. Sunrise and sunset need a location: set it on the Scenes page.") }), triggerList, el("button", { type: "button", text: t("Add a trigger"), onclick: () => addTrigger() })]);
+    node(t("Conditions"), "shield", [el("p", { class: "muted", text: t("An automatic run goes ahead only when all of these hold. Running it by hand ignores them.") }), conditionList, el("button", { type: "button", text: t("Add a condition"), onclick: () => addCondition() })]);
+    node(t("Actions"), "bulb", [el("p", { class: "muted", text: t("The values to set, in this order.") }), actionList, el("button", { type: "button", text: t("Add an action"), onclick: () => addAction() }), capture]);
+    const zoomLabel = el("span", { text: "100%" });
+    const changeZoom = (delta) => { zoom = Math.max(.5, Math.min(1.5, zoom + delta)); canvas.style.zoom = zoom; zoomLabel.textContent = `${Math.round(zoom * 100)}%`; };
+    const flow = el("div", { class: "scene-flow" }, el("div", { class: "scene-flow-toolbar" },
+      el("span", { text: `${t("Triggers")} → ${t("Conditions")} → ${t("Actions")}` }),
+      el("button", { type: "button", text: "−", "aria-label": "Zoom out", onclick: () => changeZoom(-.1) }), zoomLabel,
+      el("button", { type: "button", text: "+", "aria-label": "Zoom in", onclick: () => changeZoom(.1) })), viewport);
+    requestAnimationFrame(connect);
 
     const line = statusLine();
     const save = el("button", { class: "primary", type: "submit", text: isNew ? t("Create the scene") : t("Save") });
@@ -6321,12 +6683,7 @@ enum WebAssets {
       save.disabled = false;
     } },
       field(t("Name"), name),
-      el("h2", { text: t("Actions") }), el("p", { class: "muted", text: t("The values to set, in this order.") }), actionList,
-      el("div", { class: "actions" }, el("button", { type: "button", text: t("Add an action"), onclick: () => addAction() }), capture),
-      el("h2", { text: t("Triggers") }), el("p", { class: "muted", text: data.location ? t("Run it automatically. Sunrise and sunset are for {place}.", { place: data.location.name || `${data.location.lat}, ${data.location.lon}` }) : t("Run it automatically. Sunrise and sunset need a location: set it on the Scenes page.") }),
-      triggerList, el("div", { class: "actions" }, el("button", { type: "button", text: t("Add a trigger"), onclick: () => addTrigger() })),
-      el("h2", { text: t("Conditions") }), el("p", { class: "muted", text: t("An automatic run goes ahead only when all of these hold. Running it by hand ignores them.") }),
-      conditionList, el("div", { class: "actions" }, el("button", { type: "button", text: t("Add a condition"), onclick: () => addCondition() })),
+      flow,
       el("div", { class: "save-bar" }, save, el("a", { class: "button", href: "/scenes", text: t("Cancel") }),
         isNew ? null : el("span", { class: "spacer" }),
         isNew ? null : el("button", { type: "button", class: "danger", text: t("Delete"), onclick: async () => {
@@ -6375,7 +6732,7 @@ enum WebAssets {
         say(line, failed.length ? failed.map((r) => `${r.channel}: ${HomeswiftI18n.message(r.error)}`).join("; ") : t("Sent through {channels}.", { channels: answer.results.map((r) => r.channel).join(", ") }), failed.length ? "error" : "ok");
       } catch (e) { say(line, e.message, "error"); }
     };
-    const cards = Object.entries(channelInfo).map(([channel, [title, help, fields]]) => {
+    const cards = Object.entries(channelInfo).sort(([a], [b]) => Number(b === "browser") - Number(a === "browser")).map(([channel, [title, help, fields]]) => {
       const values = settings.channels[channel];
       const enabled = el("input", { type: "checkbox", checked: values.enabled, "aria-label": t("{channel} on", { channel: title }) });
       inputs[channel] = { enabled };
@@ -6384,41 +6741,105 @@ enum WebAssets {
         inputs[channel][key] = input;
         return field(label, input);
       });
-      return el("div", { class: "card server" },
+      if (channel === "webhook") {
+        const authOptions = [["none", t("No authentication")], ["bearer", t("Bearer token")], ["basic", t("Basic authentication")]];
+        const auth = { value: values.auth || "none" };
+        const authText = el("span", { text: authOptions.find(([value]) => value === auth.value)?.[1] || t("No authentication") });
+        const authButton = el("button", { type: "button", class: "webhook-auth-picker", "aria-label": t("Authentication"), "aria-haspopup": "menu", "aria-expanded": "false",
+          onclick: (event) => HomeswiftCommon.menu(authButton, authOptions.map(([value, label]) => ({ label, checked: auth.value === value,
+            onSelect: () => { auth.value = value; authText.textContent = label; showAuth(); }
+          })), { keyboard: event.detail === 0 }) }, authText, HomeswiftCommon.icon("down"));
+        inputs[channel].auth = auth;
+        const credential = (key, label) => {
+          const input = el("input", { type: "password", value: values[key] || "", autocomplete: "off", "aria-label": label });
+          inputs[channel][key] = input;
+          return field(label, input);
+        };
+        const bearer = credential("token", t("Bearer token"));
+        const basic = el("div", {}, credential("username", t("Username")), credential("password", t("Password")));
+        const showAuth = () => { bearer.hidden = auth.value !== "bearer"; basic.hidden = auth.value !== "basic"; };
+        showAuth();
+        const headerRows = el("div", { class: "webhook-header-rows" });
+        const addHeader = (name = "", value = "") => {
+          const key = el("input", { value: name, placeholder: t("Header name"), "aria-label": t("Header name"), autocomplete: "off", spellcheck: false });
+          const secret = el("input", { type: "password", value, placeholder: t("Header value"), "aria-label": t("Header value"), autocomplete: "off" });
+          const row = el("div", { class: "webhook-header-row" }, key, secret,
+            el("button", { type: "button", title: t("Remove header"), "aria-label": t("Remove header"), onclick: () => row.remove() }, HomeswiftCommon.icon("trash")));
+          headerRows.append(row);
+        };
+        Object.entries(values.headers || {}).forEach(([name, value]) => addHeader(name, value));
+        inputs[channel].headers = { type: "headers", get value() {
+          const result = {}, names = new Set();
+          for (const row of headerRows.children) {
+            const [key, secret] = row.querySelectorAll("input");
+            const name = key.value.trim();
+            if (!name && !secret.value) continue;
+            if (!name || names.has(name.toLowerCase())) throw new Error(t("Each header needs a unique name."));
+            names.add(name.toLowerCase());
+            Object.defineProperty(result, name, { value: secret.value, enumerable: true });
+          }
+          return result;
+        } };
+        rows.push(field(t("Authentication"), authButton), bearer, basic,
+          el("div", { class: "webhook-headers" }, el("strong", { text: t("Custom headers") }), headerRows,
+            el("button", { type: "button", class: "link", text: t("Add header"), onclick: () => addHeader() }),
+            el("p", { class: "help", text: t("Saved credentials and header values are masked. Leave the mask unchanged to keep them.") })));
+      }
+      const state = el("span", { class: `notification-state${values.enabled ? " active" : ""}`, text: values.enabled ? t("On [setting]") : t("Off [setting]") });
+      enabled.addEventListener("change", () => {
+        state.textContent = enabled.checked ? t("On [setting]") : t("Off [setting]");
+        state.classList.toggle("active", enabled.checked);
+      });
+      enabled.setAttribute("role", "switch");
+      return el("div", { class: `card server notification-channel${channel === "browser" ? " notification-browser" : ""}` },
         el("div", { class: "server-head" }, tile(channel === "browser" ? "accessory" : "bell", channel === "browser" ? "blue" : "orange"),
           el("div", { class: "who" }, el("strong", { text: title })),
           el("label", { class: "switch" }, enabled, el("span"))),
         el("p", { class: "muted note", text: help }),
-        rows.length ? el("div", {}, rows) : browserPanel(settings),
-        el("div", { class: "card-foot" }, el("span", { class: "muted", text: values.enabled ? t("On [setting]") : t("Off [setting]") }),
+        rows.length ? el("details", { class: "notification-setup", open: values.enabled },
+          el("summary", { text: t("Settings") }), el("div", { class: "notification-fields" }, rows)) : browserPanel(settings),
+        el("div", { class: "card-foot" }, state,
           menuButton(t("Actions for {name}", { name: title }), () => [{ label: t("Send a test"), icon: "bell", onSelect: () => test(channel) }])));
     });
     const events = settings.events.map((event) => {
-      const box = el("input", { type: "checkbox", checked: event.enabled });
+      const label = HomeswiftI18n.message(event.label);
+      const box = el("input", { type: "checkbox", role: "switch", checked: event.enabled, "aria-label": label });
       box.dataset.event = event.name;
-      return el("label", { class: "toggle" }, box, el("span", {}, el("span", { text: HomeswiftI18n.message(event.label) }),
-        event.name === "dailyDigest" && !settings.assistant ? el("span", { class: "help", text: t("Needs the Assistant (a HomeswiftAiKit block).") }) : null));
+      return el("label", { class: "notification-event" },
+        el("span", { class: "who" }, el("span", { text: label }),
+          event.name === "dailyDigest" && !settings.assistant ? el("span", { class: "help", text: t("Needs the Assistant (a HomeswiftAiKit block).") }) : null),
+        el("span", { class: "switch" }, box, el("span")));
+
     });
     const digestTime = el("input", { type: "time", value: settings.dailyDigestTime, "aria-label": t("Daily digest time") });
     const save = el("button", { class: "primary", text: t("Save") });
     save.addEventListener("click", async () => {
       const channels = {};
-      for (const [channel, fields] of Object.entries(inputs)) {
-        channels[channel] = {};
-        for (const [key, input] of Object.entries(fields)) channels[channel][key] = input.type === "checkbox" ? input.checked : input.value;
-      }
+      try {
+        for (const [channel, fields] of Object.entries(inputs)) {
+          channels[channel] = {};
+          for (const [key, input] of Object.entries(fields)) channels[channel][key] = input.type === "checkbox" ? input.checked : input.value;
+        }
+      } catch (error) { say(line, error.message, "error"); return; }
       const body = { channels, events: Object.fromEntries([...main.querySelectorAll("[data-event]")].map((box) => [box.dataset.event, box.checked])), dailyDigestTime: digestTime.value };
       save.disabled = true;
       try { await app.api("/api/notifications", { method: "PUT", body }); say(line, t("Saved."), "ok"); } catch (e) { say(line, e.message, "error"); }
       save.disabled = false;
     });
     app.show(main,
-      app.pageHead(t("Notifications"), t("What the bridge tells you when you are not looking: it started or stopped, a plugin reported an error, an accessory stopped responding, an automation failed.")),
-      el("div", { class: "grid" }, cards),
-      el("div", { class: "card" }, el("h2", { text: t("Events") }),
-        el("p", { class: "muted", text: t("The same event about the same thing goes out once per 15 minutes at most, and 12 notifications an hour at most.") }),
-        events, field(t("Daily digest at"), digestTime)),
-      el("div", { class: "save-bar" }, save, el("button", { text: t("Send a test to every channel that is on"), onclick: () => test() })), line);
+      app.pageHead(t("Notifications"), t("Choose where alerts arrive and which events matter to you.")),
+      el("div", { class: "notification-layout" },
+        el("section", { class: "notification-delivery", "aria-label": t("Delivery channels") },
+          el("div", { class: "section-head" }, el("h2", { text: t("Delivery channels") })),
+          el("div", { class: "notification-channels" }, cards)),
+        el("section", { class: "card notification-events", "aria-label": t("Events") },
+          el("h2", { text: t("Events") }),
+          el("p", { class: "muted", text: t("Choose what you want to hear about.") }),
+          el("div", { class: "notification-event-list" }, events),
+          el("div", { class: "notification-digest" }, field(t("Daily digest at"), digestTime)),
+          el("p", { class: "muted notification-limit", text: t("The same event about the same thing goes out once per 15 minutes at most, and 12 notifications an hour at most.") }))),
+      el("div", { class: "save-bar notification-save" }, line,
+        el("button", { text: t("Send a test to every channel that is on"), onclick: () => test() }), save));
   }
 
   /// This browser's subscription and the others'.
@@ -6487,9 +6908,56 @@ enum WebAssets {
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
-  "Adaptive Lighting: status unavailable; check in Apple Home": "Iluminación adaptativa: estado no disponible; compruébalo en Casa",
-  "Adaptive Lighting: on; managed in Apple Home": "Iluminación adaptativa: activada; gestionada en Casa",
-  "Adaptive Lighting: off; managed in Apple Home": "Iluminación adaptativa: desactivada; gestionada en Casa",
+  "Delete action": "Eliminar acción",
+  "Delete trigger": "Eliminar activador",
+  "Delete condition": "Eliminar condición",
+  "Name A\u2013Z": "Nombre A–Z",
+  "In use first": "En uso primero",
+  "Available first": "Disponibles primero",
+  "Sort plugins": "Ordenar plugins",
+  "Plugin bridges": "Puentes de plugins",
+  "Configure": "Configurar",
+  "Run on its own HomeKit bridge": "Usar su propio puente HomeKit",
+  "No child bridges yet. Configure a plugin above to give it its own bridge.": "Aún no hay puentes secundarios. Configura un plugin arriba para darle su propio puente.",
+  "Moving a plugin between bridges changes where its accessories appear in Apple Home. You may need to pair the new bridge and recreate room assignments or automations. Saving reloads the plugin.": "Mover un plugin entre puentes cambia dónde aparecen sus accesorios en Apple Home. Puede que tengas que enlazar el nuevo puente y recrear habitaciones o automatizaciones. Guardar recarga el plugin.",
+  "Reset filters": "Restablecer filtros",
+  "What happens when you restore?": "¿Qué ocurre al restaurar?",
+  "Set up your Assistant": "Configura tu Asistente",
+  "The Assistant is off until you connect an AI provider.": "El Asistente está desactivado hasta que conectes un proveedor de IA.",
+  "Choose how it runs": "Elige cómo funciona",
+  "Use Anthropic with an API key, or Apple Intelligence on a supported Mac with Apple Intelligence enabled.": "Usa Anthropic con una clave API, o Apple Intelligence en un Mac compatible con Apple Intelligence activado.",
+  "Configuration example": "Ejemplo de configuración",
+  "Add this block to platforms in config.json and replace the API key. For Apple Intelligence, set provider to apple and omit apiKey.": "Añade este bloque a platforms en config.json y sustituye la clave API. Para Apple Intelligence, establece provider en apple y omite apiKey.",
+  "This removes the accessory from Homeswift and stops publishing it to Apple Home. If the plugin discovers the device again, it can return with the same ids. Devices that are no longer available will not return.": "Esto elimina el accesorio de Homeswift y deja de publicarlo en Apple Home. Si el plugin vuelve a detectar el dispositivo, puede regresar con los mismos identificadores. Los dispositivos que ya no estén disponibles no volverán.",
+  "Mirrored from {source}": "Reflejado desde {source}",
+  "This removes the local copy from Homeswift. The original accessory stays in {source}. The plugin can add the local copy again when it reconnects.": "Esto elimina la copia local de Homeswift. El accesorio original permanece en {source}. El plugin puede volver a añadir la copia al reconectarse.",
+  "Accessories published by Homeswift leave HomeKit while the plugins rebuild their caches. Mirrored accessories stay in their original home; only their local copies are cleared.": "Los accesorios publicados por Homeswift salen de HomeKit mientras se reconstruyen las cachés. Los reflejados permanecen en su casa original; solo se borran sus copias locales.",
+  "Authentication": "Autenticación",
+  "No authentication": "Sin autenticación",
+  "Bearer token": "Token Bearer",
+  "Basic authentication": "Autenticación Basic",
+  "Header name": "Nombre de cabecera",
+  "Header value": "Valor de cabecera",
+  "Remove header": "Eliminar cabecera",
+  "Custom headers": "Cabeceras personalizadas",
+  "Add header": "Añadir cabecera",
+  "Each header needs a unique name.": "Cada cabecera necesita un nombre único.",
+  "Saved credentials and header values are masked. Leave the mask unchanged to keep them.": "Las credenciales y valores guardados están ocultos. Deja la máscara sin cambios para conservarlos.",
+  "Choose where alerts arrive and which events matter to you.": "Elige dónde recibir alertas y qué eventos te interesan.",
+  "Delivery channels": "Canales de entrega",
+  "Choose what you want to hear about.": "Elige sobre qué quieres recibir avisos.",
+  "Drag to reorder": "Arrastra para reordenar",
+  "Drag to resize": "Arrastra para cambiar el tamaño",
+  "Resize {name}": "Cambiar tamaño de {name}",
+  "Show only accessories shared by Apple Home through Wingman. Turn off to show all accessories.": "Mostrar solo los accesorios compartidos por Apple Casa a través de Wingman. Desactiva para ver todos los accesorios.",
+  "Show only accessories from {source}. Turn off to show all accessories.": "Mostrar solo los accesorios de {source}. Desactiva para ver todos los accesorios.",
+  "Homeswift Natural Lighting": "Iluminación natural de Homeswift",
+  "Natural": "Natural",
+  "Natural paused": "Natural en pausa",
+  "Homeswift Natural Lighting: on; click to turn off": "Iluminación natural de Homeswift: activada; pulsa para desactivar",
+  "Homeswift Natural Lighting: paused; click to resume": "Iluminación natural de Homeswift: en pausa; pulsa para reanudar",
+  "Homeswift Natural Lighting: warm evenings, cool days; click to enable": "Iluminación natural de Homeswift: luz cálida por la noche y fría durante el día; pulsa para activar",
+  "Only from {source}": "Solo desde {source}",
   "-100… or @channel": "-100… o @canal",
   "\"{0}\" is in several caches; pass cacheFile ({1})": "\"{0}\" está en varias cachés; indica cacheFile ({1})",
   "(done)": "(hecho)",
@@ -8329,9 +8797,56 @@ HomeswiftI18n.add("es", {
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
-  "Adaptive Lighting: status unavailable; check in Apple Home": "Éclairage adaptatif : état indisponible ; vérifiez dans Maison",
-  "Adaptive Lighting: on; managed in Apple Home": "Éclairage adaptatif : activé ; géré dans Maison",
-  "Adaptive Lighting: off; managed in Apple Home": "Éclairage adaptatif : désactivé ; géré dans Maison",
+  "Delete action": "Supprimer l’action",
+  "Delete trigger": "Supprimer le déclencheur",
+  "Delete condition": "Supprimer la condition",
+  "Name A\u2013Z": "Nom A–Z",
+  "In use first": "Utilisés en premier",
+  "Available first": "Disponibles en premier",
+  "Sort plugins": "Trier les plugins",
+  "Plugin bridges": "Ponts des plugins",
+  "Configure": "Configurer",
+  "Run on its own HomeKit bridge": "Utiliser son propre pont HomeKit",
+  "No child bridges yet. Configure a plugin above to give it its own bridge.": "Aucun pont enfant. Configurez un plugin ci-dessus pour lui attribuer son propre pont.",
+  "Moving a plugin between bridges changes where its accessories appear in Apple Home. You may need to pair the new bridge and recreate room assignments or automations. Saving reloads the plugin.": "Déplacer un plugin entre les ponts change l’emplacement de ses accessoires dans Apple Home. Vous devrez peut-être jumeler le nouveau pont et recréer les pièces ou automatisations. L’enregistrement recharge le plugin.",
+  "Reset filters": "Réinitialiser les filtres",
+  "What happens when you restore?": "Que se passe-t-il lors de la restauration ?",
+  "Set up your Assistant": "Configurez votre Assistant",
+  "The Assistant is off until you connect an AI provider.": "L’Assistant est désactivé tant que vous n’avez pas connecté de fournisseur d’IA.",
+  "Choose how it runs": "Choisissez son fonctionnement",
+  "Use Anthropic with an API key, or Apple Intelligence on a supported Mac with Apple Intelligence enabled.": "Utilisez Anthropic avec une clé API, ou Apple Intelligence sur un Mac compatible où Apple Intelligence est activé.",
+  "Configuration example": "Exemple de configuration",
+  "Add this block to platforms in config.json and replace the API key. For Apple Intelligence, set provider to apple and omit apiKey.": "Ajoutez ce bloc à platforms dans config.json et remplacez la clé API. Pour Apple Intelligence, définissez provider sur apple et omettez apiKey.",
+  "This removes the accessory from Homeswift and stops publishing it to Apple Home. If the plugin discovers the device again, it can return with the same ids. Devices that are no longer available will not return.": "Cet accessoire est supprimé de Homeswift et cesse d’être publié dans Apple Home. Si le plugin le détecte à nouveau, il peut revenir avec les mêmes identifiants. Les appareils qui ne sont plus disponibles ne reviendront pas.",
+  "Mirrored from {source}": "Copie de {source}",
+  "This removes the local copy from Homeswift. The original accessory stays in {source}. The plugin can add the local copy again when it reconnects.": "La copie locale est supprimée de Homeswift. L’accessoire original reste dans {source}. Le plugin peut recréer la copie à la reconnexion.",
+  "Accessories published by Homeswift leave HomeKit while the plugins rebuild their caches. Mirrored accessories stay in their original home; only their local copies are cleared.": "Les accessoires publiés par Homeswift quittent HomeKit pendant la reconstruction des caches. Les accessoires copiés restent dans leur maison d’origine ; seules les copies locales sont effacées.",
+  "Authentication": "Authentification",
+  "No authentication": "Sans authentification",
+  "Bearer token": "Jeton Bearer",
+  "Basic authentication": "Authentification Basic",
+  "Header name": "Nom de l’en-tête",
+  "Header value": "Valeur de l’en-tête",
+  "Remove header": "Supprimer l’en-tête",
+  "Custom headers": "En-têtes personnalisés",
+  "Add header": "Ajouter un en-tête",
+  "Each header needs a unique name.": "Chaque en-tête doit avoir un nom unique.",
+  "Saved credentials and header values are masked. Leave the mask unchanged to keep them.": "Les identifiants et valeurs enregistrés sont masqués. Conservez le masque pour les garder.",
+  "Choose where alerts arrive and which events matter to you.": "Choisissez où recevoir vos alertes et les événements qui vous intéressent.",
+  "Delivery channels": "Canaux de réception",
+  "Choose what you want to hear about.": "Choisissez les événements à suivre.",
+  "Drag to reorder": "Faire glisser pour réorganiser",
+  "Drag to resize": "Faire glisser pour redimensionner",
+  "Resize {name}": "Redimensionner {name}",
+  "Show only accessories shared by Apple Home through Wingman. Turn off to show all accessories.": "Afficher uniquement les accessoires partagés par Apple Maison via Wingman. Désactivez pour afficher tous les accessoires.",
+  "Show only accessories from {source}. Turn off to show all accessories.": "Afficher uniquement les accessoires de {source}. Désactivez pour afficher tous les accessoires.",
+  "Homeswift Natural Lighting": "Éclairage naturel Homeswift",
+  "Natural": "Naturel",
+  "Natural paused": "Naturel en pause",
+  "Homeswift Natural Lighting: on; click to turn off": "Éclairage naturel Homeswift : activé ; cliquez pour désactiver",
+  "Homeswift Natural Lighting: paused; click to resume": "Éclairage naturel Homeswift : en pause ; cliquez pour reprendre",
+  "Homeswift Natural Lighting: warm evenings, cool days; click to enable": "Éclairage naturel Homeswift : soirées chaudes, journées froides ; cliquez pour activer",
+  "Only from {source}": "Seulement depuis {source}",
   "-100… or @channel": "-100… ou @canal",
   "\"{0}\" is in several caches; pass cacheFile ({1})": "« {0} » figure dans plusieurs caches ; indiquez cacheFile ({1})",
   "(done)": "(terminé)",
@@ -10171,9 +10686,56 @@ HomeswiftI18n.add("fr", {
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
-  "Adaptive Lighting: status unavailable; check in Apple Home": "Iluminação adaptativa: estado indisponível; consulte a app Casa",
-  "Adaptive Lighting: on; managed in Apple Home": "Iluminação adaptativa: ativada; gerida na app Casa",
-  "Adaptive Lighting: off; managed in Apple Home": "Iluminação adaptativa: desativada; gerida na app Casa",
+  "Delete action": "Eliminar ação",
+  "Delete trigger": "Eliminar acionador",
+  "Delete condition": "Eliminar condição",
+  "Name A\u2013Z": "Nome A–Z",
+  "In use first": "Em uso primeiro",
+  "Available first": "Disponíveis primeiro",
+  "Sort plugins": "Ordenar plugins",
+  "Plugin bridges": "Bridges dos plugins",
+  "Configure": "Configurar",
+  "Run on its own HomeKit bridge": "Usar a sua própria bridge HomeKit",
+  "No child bridges yet. Configure a plugin above to give it its own bridge.": "Ainda não existem bridges secundárias. Configure um plugin acima para lhe atribuir a sua própria bridge.",
+  "Moving a plugin between bridges changes where its accessories appear in Apple Home. You may need to pair the new bridge and recreate room assignments or automations. Saving reloads the plugin.": "Mover um plugin entre bridges altera onde aparecem os acessórios no Apple Home. Poderá ter de emparelhar a nova bridge e recriar divisões ou automatizações. Guardar recarrega o plugin.",
+  "Reset filters": "Repor filtros",
+  "What happens when you restore?": "O que acontece ao restaurar?",
+  "Set up your Assistant": "Configure o seu Assistente",
+  "The Assistant is off until you connect an AI provider.": "O Assistente está desativado até ligar um fornecedor de IA.",
+  "Choose how it runs": "Escolha como funciona",
+  "Use Anthropic with an API key, or Apple Intelligence on a supported Mac with Apple Intelligence enabled.": "Use Anthropic com uma chave API, ou Apple Intelligence num Mac compatível com Apple Intelligence ativado.",
+  "Configuration example": "Exemplo de configuração",
+  "Add this block to platforms in config.json and replace the API key. For Apple Intelligence, set provider to apple and omit apiKey.": "Adicione este bloco a platforms em config.json e substitua a chave API. Para Apple Intelligence, defina provider como apple e omita apiKey.",
+  "This removes the accessory from Homeswift and stops publishing it to Apple Home. If the plugin discovers the device again, it can return with the same ids. Devices that are no longer available will not return.": "Isto remove o acessório do Homeswift e deixa de o publicar no Apple Home. Se o plugin detetar o dispositivo novamente, pode regressar com os mesmos identificadores. Os dispositivos que já não estejam disponíveis não regressarão.",
+  "Mirrored from {source}": "Espelhado de {source}",
+  "This removes the local copy from Homeswift. The original accessory stays in {source}. The plugin can add the local copy again when it reconnects.": "Isto remove a cópia local do Homeswift. O acessório original permanece em {source}. O plugin pode adicionar a cópia novamente ao restabelecer a ligação.",
+  "Accessories published by Homeswift leave HomeKit while the plugins rebuild their caches. Mirrored accessories stay in their original home; only their local copies are cleared.": "Os acessórios publicados pelo Homeswift saem do HomeKit enquanto os plugins reconstroem as caches. Os espelhados permanecem na casa original; apenas as cópias locais são removidas.",
+  "Authentication": "Autenticação",
+  "No authentication": "Sem autenticação",
+  "Bearer token": "Token Bearer",
+  "Basic authentication": "Autenticação Basic",
+  "Header name": "Nome do cabeçalho",
+  "Header value": "Valor do cabeçalho",
+  "Remove header": "Remover cabeçalho",
+  "Custom headers": "Cabeçalhos personalizados",
+  "Add header": "Adicionar cabeçalho",
+  "Each header needs a unique name.": "Cada cabeçalho precisa de um nome único.",
+  "Saved credentials and header values are masked. Leave the mask unchanged to keep them.": "As credenciais e valores guardados estão ocultos. Mantenha a máscara inalterada para os conservar.",
+  "Choose where alerts arrive and which events matter to you.": "Escolha onde receber alertas e quais os eventos que lhe interessam.",
+  "Delivery channels": "Canais de receção",
+  "Choose what you want to hear about.": "Escolha sobre o que pretende receber avisos.",
+  "Drag to reorder": "Arraste para reordenar",
+  "Drag to resize": "Arraste para redimensionar",
+  "Resize {name}": "Redimensionar {name}",
+  "Show only accessories shared by Apple Home through Wingman. Turn off to show all accessories.": "Mostrar apenas os acessórios partilhados pela Casa da Apple através do Wingman. Desative para mostrar todos os acessórios.",
+  "Show only accessories from {source}. Turn off to show all accessories.": "Mostrar apenas os acessórios de {source}. Desative para mostrar todos os acessórios.",
+  "Homeswift Natural Lighting": "Iluminação natural Homeswift",
+  "Natural": "Natural",
+  "Natural paused": "Natural em pausa",
+  "Homeswift Natural Lighting: on; click to turn off": "Iluminação natural Homeswift: ativa; clique para desativar",
+  "Homeswift Natural Lighting: paused; click to resume": "Iluminação natural Homeswift: em pausa; clique para retomar",
+  "Homeswift Natural Lighting: warm evenings, cool days; click to enable": "Iluminação natural Homeswift: luz quente à noite e fria de dia; clique para ativar",
+  "Only from {source}": "Só da {source}",
   "-100… or @channel": "-100… ou @canal",
   "\"{0}\" is in several caches; pass cacheFile ({1})": "«{0}» está em várias caches; indique cacheFile ({1})",
   "(done)": "(concluído)",
@@ -13630,7 +14192,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 
 /* Edit: each widget shows its sizes and arrows; the widget itself rests, and drags into place. */
 .wall.editing > .widget { cursor: grab; }
-.wall.editing > .widget > :not(.edit-bar) { pointer-events: none; }
+.wall.editing > .widget > :not(.edit-bar):not(.resize-handle) { pointer-events: none; }
 .wall.editing > .widget::after { content: ""; position: absolute; inset: 0; z-index: 2; border-radius: inherit; background: color-mix(in srgb, var(--bg) 40%, transparent); pointer-events: none; }
 .edit-bar { position: absolute; z-index: 3; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; gap: 0; padding: 4px; border-radius: 999px; max-width: calc(100% - 8px); width: max-content;
   background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
@@ -13730,18 +14292,18 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chips:empty { display: none; }
 .widget .chip { font-size: 0.8125rem; padding: 6px 12px; transition: background-color var(--normal) var(--ease-out), color var(--normal) var(--ease-out), transform var(--fast) var(--ease-out); }
-.widget .chip[aria-pressed="true"], .widget .chip.external-active { background: var(--accent-fill); border-color: transparent; color: var(--accent-text); }
+.widget .chip[aria-pressed="true"] { background: var(--accent-fill); border-color: transparent; color: var(--accent-text); }
 .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
 .swatches.grid { display: grid; grid-template-columns: repeat(4, 30px); gap: 10px; }
 /* Adaptive Lighting: the day's whites, a sun on them; dimmed until the Home app has sent a schedule to resume. */
 .widget .swatch.adaptive { display: grid; place-items: center; color: #5c3b00; background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); }
 .widget .swatch.adaptive svg, .widget .round.adaptive svg, .adaptive-chip svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .size-large .swatch.adaptive svg { width: 13px; height: 13px; }
-.widget .round.adaptive[aria-pressed="true"], .widget .round.adaptive.external-active { background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); color: #5c3b00; border-color: transparent; }
+.widget .round.adaptive[aria-pressed="true"] { background: linear-gradient(135deg, #ffb24d, #fff1d6 55%, #cfe3ff); color: #5c3b00; border-color: transparent; }
 .widget .adaptive-chip { display: inline-flex; align-items: center; gap: 6px; }
 .widget .adaptive.unset { opacity: 0.55; }
 .widget .swatch { width: 30px; height: 30px; padding: 0; border-radius: 50%; background: var(--swatch); border: 2px solid var(--edge); }
-.widget .swatch[aria-checked="true"], .widget .swatch.external-active { outline: 2px solid var(--text); outline-offset: 1px; }
+.widget .swatch[aria-checked="true"] { outline: 2px solid var(--text); outline-offset: 1px; }
 /* Room for that ring: a box that clips (a fixed widget's body) would cut it. */
 .widget .swatches { padding: 3px; }
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; background: var(--material-thin); border: 1px solid var(--edge); }
@@ -13812,15 +14374,16 @@ textarea.short { min-height: 220px; }
   border: 1px solid var(--edge); box-shadow: 0 18px 44px rgba(25, 34, 56, 0.24), inset 0 1px 0 var(--edge-light);
   animation: menu-in 180ms var(--ease-out);
 }
+.menu { max-height: min(480px, calc(100dvh - 24px)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; grid-auto-rows: max-content; touch-action: pan-y; }
 .menu:focus { outline: none; }
 .menu.closing { animation: menu-out 140ms var(--ease-out) forwards; pointer-events: none; }
 @keyframes menu-in { from { opacity: 0; transform: scale(0.92); } }
 @keyframes menu-out { to { opacity: 0; transform: scale(0.95); } }
-.menu [role="menuitem"], .menu [role="menuitemradio"] {
+.menu [role="menuitem"], .menu [role="menuitemradio"], .menu [role="menuitemcheckbox"] {
   display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 12px; border: 0; border-radius: 10px;
   background: none; box-shadow: none; color: var(--text); font: inherit; font-size: 0.875rem; text-align: left; text-decoration: none; cursor: pointer;
 }
-.menu [role="menuitem"]:hover, .menu [role="menuitem"]:focus-visible, .menu [role="menuitemradio"]:hover, .menu [role="menuitemradio"]:focus-visible { background: var(--accent-fill); color: var(--accent-text); outline: none; transform: none; }
+.menu [role="menuitem"]:hover, .menu [role="menuitem"]:focus-visible, .menu [role="menuitemradio"]:hover, .menu [role="menuitemradio"]:focus-visible, .menu [role="menuitemcheckbox"]:hover, .menu [role="menuitemcheckbox"]:focus-visible { background: var(--accent-fill); color: var(--accent-text); outline: none; transform: none; }
 /* A choice among several (a widget's size): the chosen one ticked at the right. */
 .menu-check { margin-left: auto; font-weight: 700; color: var(--accent-ink); }
 .menu [role="menuitemradio"]:hover .menu-check, .menu [role="menuitemradio"]:focus-visible .menu-check { color: inherit; }
@@ -14721,7 +15284,7 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .customise-row { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); }
 .customise-row .icon-button:disabled { opacity: 0.35; }
 .tile.tone-ai { background: var(--material-solid); border: 1px solid var(--line); }
-.tile.tone-ai .sparkle { width: 24px; height: 24px; }
+.tile.tone-ai .sparkle { width: 24px; height: 24px; stroke: none; }
 .digest-card { margin-bottom: 18px; }
 .digest-body { margin: 12px 0 4px; }
 .digest-body .md > :first-child { margin-top: 0; }
@@ -14768,6 +15331,299 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 }
 :root[data-wallpaper] main .page-head { width: auto; padding: 12px 14px 12px 20px; border-radius: 20px; align-items: center; }
 :root[data-wallpaper] main :is(h2, details.more > summary):not(:is(.card, .log, .banner, .section-head, .page-head, dialog, .menu) *) { padding: 5px 12px; border-radius: 12px; }
+
+/* Source filters use the same switch as accessory controls, with a separate count badge. */
+.source-toggle { display: inline-flex; align-items: center; gap: 10px; padding: 8px 12px; margin: 0; border: 1px solid var(--line); border-radius: 14px; cursor: pointer; background: var(--material); }
+.source-toggle-label { font-size: 13px; font-weight: 600; }
+.source-toggle .source-count { min-width: 24px; padding: 2px 6px; border-radius: 8px; font-size: 12px; text-align: center; background: var(--search-fill); color: var(--muted); }
+.source-toggle:has(input:checked) { border-color: var(--accent); }
+.source-toggle .switch { display: inline-block; }
+
+.source-home-icon { width: 32px; height: 32px; object-fit: contain; flex: none; }
+
+/* Quiet rounded slots and gutter dots: the pattern follows the real grid's responsive pitch. */
+.wall.editing {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='186' height='74' viewBox='0 0 186 74'%3E%3Crect x='1' y='1' width='174' height='62' rx='13' fill='%238392aa' fill-opacity='.11' stroke='%238392aa' stroke-opacity='.22' stroke-dasharray='2 4'/%3E%3Ccircle cx='181' cy='69' r='1.2' fill='%238392aa' fill-opacity='.38'/%3E%3C/svg%3E");
+  background-size: calc(var(--unit) + var(--unit-gap)) calc(var(--tile-row) + var(--unit-gap));
+  background-position: 0 0;
+  border-radius: var(--radius);
+  padding-bottom: calc(var(--tile-row) + var(--unit-gap));
+}
+.wall.editing > .widget:not(.lifted):not(.drag-slot) { outline: 1px solid var(--edge-light); outline-offset: -1px; }
+.wall > .drag-slot { border: 1.5px dashed var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--material-thin)); box-shadow: inset 0 0 0 4px color-mix(in srgb, var(--accent) 5%, transparent); }
+.resize-handle { position: absolute; right: 3px; bottom: 3px; z-index: 4; width: 32px; height: 32px; min-height: 0; padding: 0; border: 0; border-radius: 50%; background: var(--control); color: var(--muted); cursor: nwse-resize; touch-action: none; box-shadow: var(--shadow-control); font-size: 0; }
+.resize-handle::after { content: ""; position: absolute; width: 12px; height: 2px; left: 10px; top: 14px; border-radius: 2px; background: currentColor; box-shadow: 0 5px 0 -0.2px currentColor; transform: rotate(-45deg); }
+.resize-handle:hover, .resize-handle:focus-visible { transform: none; color: var(--accent-ink); background: var(--material-solid); }
+@media (prefers-contrast: more) {
+  .wall.editing { outline: 1px dashed var(--muted); }
+}
+.wall.resizing, .wall.resizing > .widget { cursor: nwse-resize; }
+
+.page-head .tools:has(> .search) { flex-wrap: wrap; }
+
+/* Switch choices inside the standard action menu. The menu item owns the accessible checked state. */
+.menu-toggle { position: relative; flex: 0 0 36px; width: 36px; height: 22px; margin-left: auto; border-radius: 12px; background: var(--track); box-shadow: inset 0 1px 2px rgba(0,0,0,.12); transition: background-color 160ms; }
+.menu-toggle > span { position: absolute; left: 2px; top: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); transition: transform 160ms; }
+.menu [aria-checked="true"] > .menu-toggle { background: var(--accent); }
+.menu [aria-checked="true"] > .menu-toggle > span { transform: translateX(14px); }
+@media (prefers-reduced-motion: reduce) { .menu-toggle, .menu-toggle > span { transition: none; } }
+
+.menu-drag-handle { flex: none; width: 24px; text-align: center; font-size: 23px; line-height: 24px; color: var(--muted); cursor: grab; touch-action: none; user-select: none; }
+.menu [role]:hover > .menu-drag-handle { color: inherit; }
+.menu .menu-dragging { background: var(--material-solid); outline: 1px solid var(--accent); cursor: grabbing; }
+
+/* Notifications: delivery setup and event preferences have distinct, scannable columns. */
+.notification-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(310px, 1fr); gap: 24px; align-items: start; }
+.notification-delivery { min-width: 0; }
+.notification-delivery > .section-head { margin: 0 0 14px; }
+.notification-channels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.notification-browser { grid-column: 1 / -1; }
+.notification-channel { min-width: 0; padding: 20px; }
+.notification-channel .server-head .tile { width: 40px; height: 40px; border-radius: 13px; }
+.notification-channel .note { font-size: 13px; line-height: 1.6; margin: 14px 0 18px; }
+.notification-channel .card-foot { margin-top: 16px; }
+.notification-state { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.notification-state::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .5; }
+.notification-state.active { color: var(--ok); }
+.notification-state.active::before { opacity: 1; }
+.notification-setup { border-top: 1px solid var(--line); padding-top: 12px; }
+.notification-setup summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text); padding: 4px 0; }
+.notification-fields { padding-top: 12px; }
+.notification-fields input { min-width: 0; width: 100%; }
+.notification-events { padding: 24px; }
+.notification-events > h2 { margin: 0 0 6px; }
+.notification-events > p { margin: 0 0 20px; font-size: 13px; line-height: 1.6; }
+.notification-event { display: flex; align-items: center; gap: 18px; padding: 15px 0; margin: 0; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 13px; line-height: 1.5; }
+.notification-event .who { flex: 1; min-width: 0; }
+.notification-event .help { display: block; margin-top: 4px; font-size: 12px; }
+.notification-event .switch { display: inline-block; width: 42px; height: 26px; }
+.notification-event .switch span::before { width: 20px; height: 20px; }
+.notification-event .switch input:checked + span::before { transform: translateX(16px); }
+.notification-digest { padding-top: 18px; }
+.notification-digest label { margin-bottom: 0; }
+.notification-events > .notification-limit { font-size: 12px; margin: 18px 0 0; }
+.notification-save { position: sticky; bottom: 16px; z-index: 5; margin-top: 24px; padding: 12px 16px; background: var(--material-thick); border: 1px solid var(--edge); border-radius: 18px; box-shadow: var(--shadow); backdrop-filter: blur(20px); display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.notification-save > :first-child { flex: 1; margin: 0; }
+@media (max-width: 960px) { .notification-layout { grid-template-columns: 1fr; } }
+@media (max-width: 540px) { .notification-channels { grid-template-columns: 1fr; } .notification-events { padding: 20px; } .notification-save { bottom: 84px; } .notification-save > button { flex: 1 1 auto; } }
+.notification-channel { gap: 0; }
+.notification-channel .push > p:empty { display: none; }
+.notification-channel .server-head strong { white-space: normal; }
+
+.notification-fields [hidden] { display: none !important; }
+.webhook-headers { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.webhook-headers > strong { font-size: 13px; }
+.webhook-header-rows { display: grid; gap: 8px; margin: 10px 0; }
+.webhook-header-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) 30px; gap: 6px; align-items: center; }
+.webhook-header-row > button { padding: 0; width: 30px; min-height: 32px; }
+.webhook-header-row input { padding-inline: 8px; font-size: 12px; }
+
+.webhook-auth-picker { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; text-align: left; border-radius: 12px; }
+.webhook-auth-picker > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; }
+
+.assistant-welcome { max-width: 680px; margin: 24px auto; padding: clamp(24px, 5vw, 40px); }
+.assistant-welcome h2 { margin: 20px 0 8px; }
+.assistant-welcome > p { margin: 0; }
+.assistant-setup-note { margin: 24px 0; padding: 18px; border: 1px solid var(--border); border-radius: 12px; }
+.assistant-setup-note p { margin: 6px 0 0; line-height: 1.6; }
+.assistant-setup-example { margin-top: 24px; }
+.assistant-setup-example summary { cursor: pointer; font-size: .875rem; }
+.assistant-setup-example p { font-size: .875rem; line-height: 1.6; }
+
+/* Backup creation and recovery share a compact, responsive workspace. */
+.backup-actions-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; margin: 24px 0 32px; }
+.backup-actions-grid > .card { margin: 0; padding: 24px; min-width: 0; }
+.backup-create .server-head { align-items: flex-start; }
+.backup-create .server-head .muted { margin-top: 6px; line-height: 1.6; white-space: normal; overflow: visible; }
+.backup-create .facts { margin: 22px 0; gap: 16px; }
+.backup-create .fact.wide { padding-top: 16px; border-top: 1px solid var(--line); }
+.backup-create .fact.wide b { overflow-wrap: anywhere; }
+.backup-create .actions { margin-top: 24px; flex-wrap: wrap; }
+.backup-create .status-line:empty { display: none; }
+.backup-restore { display: flex; flex-direction: column; gap: 18px; }
+.backup-restore h2 { margin: 0; font-size: 1rem; }
+.backup-restore-help summary { cursor: pointer; color: var(--muted); font-size: .875rem; }
+.backup-restore-help p { line-height: 1.6; font-size: .875rem; }
+.backup-restore .drop-zone { flex: 1; min-height: 142px; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; border-radius: 14px; background: var(--material-thin); line-height: 1.6; }
+.backup-drop-icon svg { width: 28px; height: 28px; color: var(--accent); }
+@media (max-width: 900px) { .backup-actions-grid { grid-template-columns: 1fr; } }
+
+.audit-filters { margin: 24px 0 20px; padding: 20px; }
+.audit-filter-grid { display: grid; grid-template-columns: 1fr 1fr 1.3fr 1.3fr; gap: 16px; }
+.audit-filter-grid label { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.audit-filter-grid label > span { color: var(--muted); font-size: .75rem; font-weight: 600; }
+.audit-filter-grid .search { width: 100%; min-width: 0; }
+.audit-picker { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 38px; text-align: left; }
+.audit-picker svg { width: 14px; height: 14px; }
+.audit-filter-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); font-size: .8125rem; }
+.audit-results { padding: 0; overflow: hidden; }
+.audit-results .data-table th, .audit-results .data-table td { padding: 16px; }
+.audit-results .data-table th { z-index: 1; font-size: .75rem; }
+.audit-results .data-table tbody tr:hover { background: var(--material-thin); }
+.audit-results .data-table td.mono { overflow-wrap: anywhere; min-width: 160px; }
+.audit-results .data-table td .muted { margin-top: 4px; }
+.audit-results .note { padding: 12px 16px; margin: 0; overflow-wrap: anywhere; font-size: .75rem; }
+.audit-details summary { cursor: pointer; color: var(--accent); white-space: nowrap; }
+.audit-details pre.json { margin-top: 10px; min-width: 220px; max-width: 360px; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 1000px) { .audit-filter-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 460px) { .audit-filter-grid { grid-template-columns: 1fr; } }
+
+.child-bridge-toggle { display: flex; align-items: center; gap: 12px; margin: 24px 0; }
+.child-bridge-fields { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 20px; }
+.child-bridge-fields[hidden] { display: none; }
+.child-bridge-fields label { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.child-bridge-fields input { width: 100%; }
+
+/* Standalone checkbox inputs share the accessory switch's visual language. */
+input[type="checkbox"]:not(.switch input):not(.day input) {
+  -webkit-appearance: none; appearance: none; position: relative;
+  width: 48px; min-width: 48px; height: 28px; padding: 0; margin: 0;
+  flex: none; vertical-align: middle; border: 1px solid var(--edge); border-radius: 14px;
+  background: rgba(120, 128, 142, 0.35); cursor: pointer;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15);
+  transition: background-color var(--normal) var(--ease-out), box-shadow var(--normal) var(--ease-out);
+}
+input[type="checkbox"]:not(.switch input):not(.day input)::before {
+  content: ""; position: absolute; width: 22px; height: 22px; left: 2px; top: 2px;
+  border-radius: 50%; background: linear-gradient(180deg, #fff, #eef0f4);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  transition: transform var(--normal) var(--ease-out);
+}
+input[type="checkbox"]:not(.switch input):not(.day input):checked { background: var(--accent); }
+input[type="checkbox"]:not(.switch input):not(.day input):checked::before { transform: translateX(20px); }
+input[type="checkbox"]:not(.switch input):not(.day input):indeterminate::before { transform: translateX(10px); }
+input[type="checkbox"]:not(.switch input):not(.day input):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .45; cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) {
+  input[type="checkbox"]:not(.switch input):not(.day input), input[type="checkbox"]:not(.switch input):not(.day input)::before { transition: none; }
+}
+@media (forced-colors: active) {
+  input[type="checkbox"]:not(.switch input):not(.day input) { border-color: ButtonText; }
+  input[type="checkbox"]:not(.switch input):not(.day input)::before { background: ButtonText; }
+  input[type="checkbox"]:not(.switch input):not(.day input):checked { background: Highlight; }
+}
+
+/* Keep log filtering separate from stream and export controls. */
+.log-filter-panel { padding: 20px; display: flex; flex-direction: column; gap: 18px; }
+.log-level-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.log-level-row .search { flex: 1; max-width: 440px; min-width: 180px; }
+.log-scope-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 16px; }
+.log-scope-row label { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.log-scope-row label > span { font-size: .75rem; font-weight: 600; color: var(--muted); }
+.log-scope-row select.popup { width: 100%; max-width: none; min-width: 0; }
+.log-card .log-action-bar { border-top: 1px solid var(--line); padding: 12px 20px; gap: 14px; }
+.log-action-bar .count { font-variant-numeric: tabular-nums; font-size: .8125rem; }
+.log-action-bar label.toggle { margin: 0; white-space: nowrap; }
+.log-card .log { padding: 18px 20px; line-height: 1.65; }
+.log-card .log > :hover { background: rgba(255, 255, 255, .04); }
+@media (max-width: 640px) {
+  .log-filter-panel { padding: 16px; }
+  .log-level-row > .group { display: grid; grid-template-columns: repeat(4, 1fr); width: 100%; }
+  .log-level-row .search { max-width: none; width: 100%; }
+  .log-scope-row { grid-template-columns: 1fr; }
+  .log-card .log-action-bar { padding: 12px 16px; }
+  .log-card .log-action-bar > .save-payloads { display: flex; }
+}
+
+select:not([multiple]) {
+  -webkit-appearance: none; appearance: none; cursor: pointer;
+  border-radius: 10px; border: 1px solid var(--line); background-color: var(--field);
+  padding: 9px 34px 9px 12px; color: var(--text);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='m4 5.5 3 3 3-3' fill='none' stroke='%23858b96' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center;
+}
+select:not([multiple]):hover { border-color: var(--accent); }
+select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+select:disabled { opacity: .5; cursor: not-allowed; }
+
+.plugin-instances { margin: 24px 0 36px; gap: 20px; }
+.plugin-instance { padding: 24px; }
+.plugin-instance .server-head { align-items: flex-start; }
+.plugin-instance .server-head .who { min-width: 0; }
+.plugin-instance .meta { padding: 16px 0; gap: 16px; flex-wrap: wrap; }
+.plugin-instance .card-foot { gap: 12px; align-items: center; }
+.plugin-card-actions { display: flex; align-items: center; gap: 10px; flex: none; }
+.plugin-catalog { gap: 14px; }
+.plugin-catalog .catalog { padding: 20px; }
+.plugin-catalog .catalog[hidden] { display: none; }
+.plugin-catalog .server-head { margin-bottom: 20px; }
+.plugin-catalog .actions { justify-content: flex-end; }
+.section-head:has(+ .plugin-catalog) { flex-wrap: wrap; gap: 12px; }
+.section-head:has(+ .plugin-catalog) .search { margin-left: auto; max-width: 320px; }
+@media (max-width: 600px) {
+  .plugin-instance .card-foot { flex-wrap: wrap; }
+  .plugin-card-actions { margin-left: auto; }
+  .section-head:has(+ .plugin-catalog) .search { width: 100%; max-width: none; }
+}
+
+/* Compact plugin management: keep each catalog entry on a single row. */
+.plugin-instances { margin: 16px 0 24px; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.plugin-instance { padding: 16px; gap: 10px; }
+.plugin-instance .meta { padding: 2px 0; gap: 10px; }
+.plugin-instance .card-foot { padding-top: 10px; }
+.plugin-instance .card-foot > .muted:empty { display: none; }
+.plugin-card-actions { margin-left: auto; }
+.plugin-catalog { grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 10px; }
+.plugin-catalog .catalog { display: flex; flex-direction: row; align-items: center; gap: 12px; padding: 14px 16px; }
+.plugin-catalog .server-head { flex: 1; min-width: 0; margin: 0; gap: 10px; }
+.plugin-catalog .server-head .who { min-width: 0; }
+.plugin-catalog .server-head strong { font-size: .9375rem; }
+.plugin-catalog .tile { width: 34px; height: 34px; border-radius: 10px; }
+.plugin-catalog .catalog > .actions { margin: 0; flex: none; }
+.plugin-catalog .actions .button, .plugin-catalog .actions button { padding: 7px 12px; }
+@media (max-width: 460px) {
+  .plugin-catalog .server-head { flex-wrap: wrap; }
+  .plugin-catalog .server-head .pill { margin-left: 44px; }
+}
+
+.scene-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 14px; margin-bottom: 28px; }
+.scene-grid .scene-card { padding: 18px; gap: 12px; }
+.scene-grid .scene-card[hidden] { display: none; }
+.scene-card .server-head { align-items: flex-start; }
+.scene-card .server-head .who { min-width: 0; }
+.scene-card .server-head .muted { white-space: normal; line-height: 1.5; margin-top: 5px; }
+.scene-card .controls { padding: 4px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--material-thin); }
+.scene-card .control { gap: 12px; padding: 9px 0; }
+.scene-card .control > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.scene-card .value { text-align: right; font-size: .8125rem; }
+.scene-card .card-foot { font-size: .75rem; line-height: 1.5; padding-top: 10px; }
+.section-head:has(+ .scene-grid) { gap: 12px; flex-wrap: wrap; }
+.section-head:has(+ .scene-grid) .search { margin-left: auto; max-width: 280px; }
+.moods .mood-card { padding: 18px; }
+.moods .mood-rooms { padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.moods .status-line:empty, .moods .mood-running:empty { display: none; }
+@media (max-width: 560px) { .section-head:has(+ .scene-grid) .search { max-width: none; width: 100%; } }
+
+.scene-flow { border: 1px solid var(--line); border-radius: 16px; overflow: hidden; margin: 20px 0; }
+.scene-flow-toolbar { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--material-thin); }
+.scene-flow-toolbar > span:first-child { margin-right: auto; font-size: .8125rem; color: var(--muted); }
+.scene-flow-viewport { height: 65vh; min-height: 420px; overflow: auto; background: radial-gradient(circle, var(--line) 1px, transparent 1px) 0 0 / 20px 20px; }
+.scene-flow-canvas { width: 1600px; min-height: 1400px; position: relative; }
+.scene-flow-links { position: absolute; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.scene-flow-links path { fill: none; stroke: var(--accent); stroke-width: 2; }
+.scene-flow-node { position: absolute; width: 350px; background: var(--material-solid); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.12); }
+.scene-flow-handle { width: 100%; display: flex; align-items: center; gap: 10px; border: 0; border-bottom: 1px solid var(--line); border-radius: 14px 14px 0 0; padding: 16px; cursor: grab; touch-action: none; box-shadow: none; }
+.scene-flow-handle svg { width: 20px; height: 20px; }
+.scene-flow-handle > span:last-child { margin-left: auto; color: var(--muted); }
+.scene-flow-body { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.scene-flow-body > p { font-size: .8125rem; line-height: 1.5; margin: 0; }
+.scene-flow-body .editor-row { flex-direction: column; align-items: stretch; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.scene-flow-body select, .scene-flow-body input:not([type=checkbox]), .scene-flow-body .value-slot { max-width: 100%; min-width: 0; width: 100%; }
+.scene-flow-body .group-inline { flex-wrap: wrap; }
+
+.scene-flow-body .scene-condition-remove { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 40px; margin-top: 8px; }
+.scene-condition-remove svg { width: 18px; height: 18px; flex: none; }
+
+.days .day > span { position: relative; pointer-events: none; line-height: 1; }
+.days .day input { width: 100%; min-width: 0; height: 100%; position: absolute; inset: 0; opacity: 0; }
+
+/* One trash glyph and stroke treatment across menus, forms and scene nodes. */
+svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
+  width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor;
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle;
+}
+
+.days .day { width: auto; min-width: 34px; padding: 0 7px; flex: none; }
 
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
@@ -14995,11 +15851,12 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   /// An accessory event from the page's event stream: the new value, painted on the cards of that accessory.
-  function event({ id, service, subtype, characteristic, value, unavailable }) {
+  function event({ id, service, subtype, characteristic, value, unavailable, naturalLighting }) {
     if (Date.now() - swept > 1000) sweep();
     for (const ctx of cards) {
       if (!ctx.node?.isConnected) continue;
       if (ctx.accessory.id !== id) continue;
+      if (naturalLighting !== undefined) ctx.accessory.naturalLighting = naturalLighting;
       // The device answers again, or stopped: No Response follows. A paused plugin says so with `paused`.
       if (unavailable !== undefined && !ctx.accessory.paused && Boolean(ctx.accessory.unavailable) !== unavailable) {
         ctx.accessory.unavailable = unavailable;
@@ -15412,15 +16269,22 @@ self.addEventListener("notificationclick", (event) => {
   function lightParts(ctx, service) {
     const brightness = ctx.take(service, "Brightness"), hue = ctx.take(service, "Hue"), saturation = ctx.take(service, "Saturation");
     const temperature = ctx.take(service, "Color Temperature");
-    // Apple Home owns mirrored schedules. A missing transition count means unknown, not off.
+    // Adaptive Lighting (a controller on the bridge): on while a schedule runs, which its transition count says.
     const transitions = ctx.char(service, "Characteristic Value Active Transition Count");
-    const externalAdaptive = ctx.accessory.mirroredFrom === "Apple Home" && !!temperature && !!brightness;
-    const adaptive = service.adaptiveLighting ? { resumable: !!service.adaptiveLighting.resumable } : externalAdaptive ? { external: true } : null;
-    const externalLabel = () => transitions?.value == null
-      ? t("Adaptive Lighting: status unavailable; check in Apple Home")
-      : numberOf(transitions) > 0 ? t("Adaptive Lighting: on; managed in Apple Home") : t("Adaptive Lighting: off; managed in Apple Home");
-    const adaptiveOn = () => !!adaptive && numberOf(transitions) > 0;
+    const adaptive = service.adaptiveLighting ? { resumable: !!service.adaptiveLighting.resumable } : null;
+    const natural = !adaptive && temperature && canWrite(temperature);
+    const naturalState = () => ctx.accessory.naturalLighting?.[serviceKey(service)];
+    const adaptiveOn = () => natural ? !!naturalState()?.enabled && !naturalState()?.paused : !!adaptive && numberOf(transitions) > 0;
     const setAdaptive = async (on) => {
+      if (natural) {
+        try {
+          ctx.accessory.naturalLighting = await api(`/api/accessories/${encodeURIComponent(ctx.accessory.id)}/natural-lighting`, {
+            method: "PUT", body: { service: serviceKey(service), on, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" }
+          });
+          ctx.paint();
+        } catch (e) { if (e.message !== "signed out") ctx.flash(e.message); }
+        return;
+      }
       const before = transitions?.value;
       if (transitions) transitions.value = on ? 1 : 0;
       ctx.paint();
@@ -15435,27 +16299,15 @@ self.addEventListener("notificationclick", (event) => {
     };
     /// The Adaptive control: a swatch among the colours, a round button beside a white slider, or a chip.
     const adaptiveControl = (kind) => {
-      const label = t("Adaptive Lighting");
+      const label = natural ? t("Homeswift Natural Lighting") : t("Adaptive Lighting");
       const node = kind === "chip"
-        ? el("button", { type: "button", class: "chip adaptive-chip", "aria-pressed": "false" }, icon("sun"), el("span", { text: t("Adaptive") }))
+        ? el("button", { type: "button", class: "chip adaptive-chip", "aria-pressed": "false" }, icon("sun"), el("span", { text: natural ? t("Natural") : t("Adaptive") }))
         : el("button", { type: "button", class: kind === "swatch" ? "swatch adaptive" : "round adaptive", role: kind === "swatch" ? "radio" : null, "aria-label": label, title: label }, icon("sun"));
-      // Keep the information button focusable and tappable, but never write a mirrored schedule.
-      if (adaptive.external) {
-        node.removeAttribute("role");
-        node.removeAttribute("aria-pressed");
-        node.addEventListener("click", () => ctx.flash(externalLabel()));
-      } else node.addEventListener("click", () => setAdaptive(!adaptiveOn()));
+      node.addEventListener("click", () => setAdaptive(!adaptiveOn()));
       ctx.watch(() => {
-        if (adaptive.external) {
-          node.setAttribute("aria-label", externalLabel());
-          node.title = externalLabel();
-          node.classList.toggle("unset", transitions?.value == null);
-          node.classList.toggle("external-active", adaptiveOn());
-          return;
-        }
         node.setAttribute(kind === "swatch" ? "aria-checked" : "aria-pressed", String(adaptiveOn()));
-        node.classList.toggle("unset", !adaptive.resumable && !adaptiveOn());
-        node.title = adaptiveOn() ? t("Adaptive Lighting: on") : adaptive.resumable ? t("Adaptive Lighting: resume the Home app's schedule") : t("Adaptive Lighting: turn it on once in the Home app");
+        node.classList.toggle("unset", !natural && !adaptive.resumable && !adaptiveOn());
+        node.title = natural ? (adaptiveOn() ? t("Homeswift Natural Lighting: on; click to turn off") : naturalState()?.paused ? t("Homeswift Natural Lighting: paused; click to resume") : t("Homeswift Natural Lighting: warm evenings, cool days; click to enable")) : adaptiveOn() ? t("Adaptive Lighting: on") : adaptive.resumable ? t("Adaptive Lighting: resume the Home app's schedule") : t("Adaptive Lighting: turn it on once in the Home app");
       });
       return node;
     };
@@ -15491,7 +16343,7 @@ self.addEventListener("notificationclick", (event) => {
           const near = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b)) <= 6;
           for (const one of swatches) one.swatch.setAttribute("aria-checked", String(!adaptiveOn() && s > 4 && near(one.h, h) && Math.abs(one.s - s) <= 12));
         });
-        return el("div", { class: `swatches${grid ? " grid" : ""}`, role: "radiogroup", "aria-label": t("Colour") }, adaptive ? adaptiveControl("swatch") : null, swatches.map((one) => one.swatch));
+        return el("div", { class: `swatches${grid ? " grid" : ""}`, role: "radiogroup", "aria-label": t("Colour") }, (adaptive || natural) ? adaptiveControl("swatch") : null, swatches.map((one) => one.swatch));
       } : null,
       white: canWrite(temperature) ? ({ vertical = false, thin = false } = {}) => {
         // Mireds run the other way: the track goes from warm (few kelvin, many mireds) to cool.
@@ -15507,8 +16359,13 @@ self.addEventListener("notificationclick", (event) => {
         return control.node;
       } : null,
       // For a light without colours: the Adaptive control on its own ("round" beside the white, or a "chip").
-      adaptive: adaptive ? (kind = "chip") => adaptiveControl(kind) : null,
+      adaptive: (adaptive || natural) ? (kind = "chip") => adaptiveControl(kind) : null,
       adaptiveOn,
+      modeLabel: () => natural ? (naturalState()?.paused ? t("Natural paused") : adaptiveOn() ? t("Natural") : "") : adaptiveOn() ? t("Adaptive") : "",
+      // HomeKit reports mireds. Do not invent a temperature when the cached value is absent.
+      reportedTemperature: () => ctx.accessory.mirroredFrom === "Apple Home" &&
+        typeof temperature?.value === "number" && Number.isFinite(temperature.value) && temperature.value > 0
+        ? `${num(Math.round(1e6 / temperature.value))} K` : "",
       color: () => { const c = color(); return c && { tile: `linear-gradient(160deg, ${css(c, 74)}, ${css(c, 52)})`, glow: css(c, 55) }; },
     };
   }
@@ -16006,7 +16863,7 @@ self.addEventListener("notificationclick", (event) => {
         tap: () => ctx.write(primary, on, onValue(on, !isOn(on))),
         on: () => isOn(on), color: light.color,
         hero: () => brightness && isOn(on) ? `${num(numberOf(brightness))}%` : "",
-        status: () => isOn(on) ? [[brightness ? t("On · {brightness} %", { brightness: numberOf(brightness) }) : t("On"), light.adaptiveOn() ? t("Adaptive") : ""].filter(Boolean).join(" · ")] : [t("Off")],
+        status: () => isOn(on) ? [[brightness ? t("On · {brightness} %", { brightness: numberOf(brightness) }) : t("On"), light.modeLabel(), light.reportedTemperature()].filter(Boolean).join(" · ")] : [t("Off")],
       };
       // A white-only light's Adaptive control sits beside its white slider.
       const whiteRow = (options) => light.white ? (light.adaptive ? el("div", { class: "w-row" }, el("div", { class: "w-grow" }, light.white(options)), light.adaptive("round")) : light.white(options)) : null;

@@ -42,7 +42,7 @@ with a new code). More users are added on the **Users** page (see below).
   `/status?since=24h&bridge=<bridge>&accessory=<accessory>`. With the Assistant on, a **Daily digest** says
   what needs attention today, from the day's warnings and errors and the accessories: **Write today's
   digest** streams it, the bridge keeps it for the day (`ai-digest.json`, owner-only), and the card's **⋯**
-  writes it again; any user reads today's digest, an administrator writes it. **Customise this page**, at the bottom, shows or hides each part (overview, digest,
+  writes it again; any user reads today's digest, an administrator writes it. **Customise this page**, at the bottom, opens the same pop-up menu as accessory actions, with switches to show or hide each part (overview, digest,
   activity, bridges, system) and orders them; the layout is each user's own, on every browser.
   When GitHub has a newer release, a card under the summary says
   so, with its notes and how to upgrade this install: the `.spk` to download on a Synology NAS, the image tag
@@ -104,7 +104,14 @@ with a new code). More users are added on the **Users** page (see below).
   from automations; here the page asks before running a scene that has them, the MCP server's `run_scene` refuses
   such a scene (as homebridge-mcp-server's does), and automations, with nobody to ask, leave those actions out and
   say so in the scene's last run.
-- **Notifications** (`/notifications`, from the Status page; Glass UI's notifications): a webhook (a JSON POST
+- Webhook delivery supports **Bearer token** or **Basic authentication**, plus custom HTTP headers. Header values and
+  credentials are masked when read back; leave `********` unchanged to preserve them. Remove a header row to delete it.
+  The payload remains a JSON POST; transport headers and conflicting Authorization headers are rejected.
+
+- **Notifications** groups delivery channels in cards, with setup fields under **Settings**, event switches, and a persistent Save bar.
+  ![Notification delivery channels and event switches](images/notifications.png)
+
+  Notifications (`/notifications`, from the Status page; Glass UI's notifications): a webhook (a JSON POST
   with event, title, message, instance and timestamp), ntfy (ntfy.sh or your own server, with an access token),
   Pushover, Telegram, and Web Push to the browsers that turn it on. Events: homeswift started (not after a restart
   it made itself) and stopped, a plugin logged an error, an accessory answered No Response for 5 minutes while its

@@ -44,8 +44,12 @@ A widget's **⋯** menu (revealed on hover or keyboard focus on a compact tile; 
 makes its size the one of every accessory
 of the kind ("Medium for every light"), and opens **All controls**. **Edit** shows the sizes and ‹ › arrows on
 every widget, and lets them be dragged: the widget lifts and follows the pointer or the finger, the others make
-room as it passes, and it lands where it is let go. Near the window's top or bottom the page scrolls. **One wall**
+room as it passes, and it lands where it is let go. A subtle background grid shows the actual cell spacing and
+empty space. Drag the bottom-right corner to snap between Small, Medium, Large and Extra large; neighbouring
+widgets slide into their new places. Focus the corner handle and use arrow keys to resize with a keyboard. Near the window's top or bottom the page scrolls. **One wall**
 (the default) puts every accessory on one wall; **By plugin** gives each plugin a wall of its own.
+
+![Grid guides and a corner resize handle in Edit mode](images/widgets/grid-editing.png)
 
 ![The ⋯ menu of a light](images/widgets/menu.png)
 
@@ -78,11 +82,19 @@ widget shows. An accessory no widget knows gets those rows, so nothing a plugin 
   times of day. A light whose Adaptive Lighting was never turned on in the Home app says so when the swatch is
   pressed. Picking a colour or a white turns it off, as in the Home app.
 
-  For Apple Home lights mirrored through Wingman, the sun is an information button: manage the schedule in Apple
-  Home. Without an exposed transition count, its status is explicitly unavailable, not off. Colour-temperature
-  support alone does not prove Adaptive Lighting support.
+  Apple Home lights mirrored through Wingman show their latest reported colour temperature in kelvin in the
+  status line, when available. Their Apple Adaptive Lighting schedule stays in Apple Home. Lights with writable
+  colour temperature and no bridge Adaptive Lighting controller offer a separate **Homeswift Natural Lighting**
+  sun toggle. It saves an opt-in per light and uses the browser's time zone: 2200 K at night, 4000 K at 09:00,
+  5000 K at midday–15:00, 3500 K at 18:00, and 2200 K at 21:00, interpolating between these points and clamping
+  to the lamp's range. It checks once per minute while Homeswift runs, without changing power or brightness.
+  Manual colour writes through Homeswift pause it; a different white temperature reported by another controller
+  also pauses it on the next check. Press the sun to resume. Pauses and opt-ins survive restarts.
+  This is a clock-based schedule, not a sunrise/location calculation or Apple's Adaptive Lighting.
 
-  ![An Apple Home light with an Adaptive Lighting information button](images/widgets/wingman-adaptive.png)
+  The Apple Home source filter uses the Home app icon, a count badge and an accessible switch.
+
+  ![An Apple Home light showing its reported colour temperature](images/widgets/wingman-adaptive.png)
 
   ![A light with Adaptive Lighting on](images/widgets/adaptive.png)
 

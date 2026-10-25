@@ -52,6 +52,7 @@ extension PluginHost {
         /// Back from the cache, and its plugin has not added it again: a device it has not reached yet, or no
         /// longer has.
         public var restoredOnly: Bool
+        public var mirroredFrom: String? = nil
     }
 
     /// Runs `work` after the reloads and controls queued before it, so a save and a stop never interleave.
@@ -192,7 +193,7 @@ extension PluginHost {
                     id: accessory.id, name: accessory.name, category: "\(accessory.category)", manufacturer: accessory.manufacturer, model: accessory.model,
                     cacheFile: "accessories/\(file)", platform: instance?.context.platform, instance: instance?.context.name,
                     bridge: instance?.context.bridge.name, external: accessory.external ?? false,
-                    restoredOnly: instance?.context.isRestoredOnly(id: accessory.id) ?? false)
+                    restoredOnly: instance?.context.isRestoredOnly(id: accessory.id) ?? false, mirroredFrom: accessory.mirroredFrom)
             }
         }
     }

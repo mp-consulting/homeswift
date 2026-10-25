@@ -98,6 +98,7 @@ public struct HomeswiftCatalog: Sendable {
         public var platform: PluginHost.PlatformInstance?
         /// Its room, hidden flag, display name and Quick Controls flag in the web UI's layout.
         public var layout: AccessoryLayout.Entry?
+        public var naturalLighting: JSONValue? = nil
 
         /// The room the user gave it, else the one the controller it mirrors puts it in (`Accessory.suggestedRoom`). An
         /// empty room in the layout is the user's "no room", which the suggestion does not override.
@@ -112,7 +113,7 @@ public struct HomeswiftCatalog: Sendable {
         let layout = home.layout.value.accessories
         return host.bridges.flatMap { bridge in
             bridge.server.accessories.filter { $0.id != "bridge" }.map { accessory in
-                Located(accessory: accessory, bridge: bridge, platform: owners.instance(of: accessory.id, on: bridge), layout: layout[accessory.id])
+                Located(accessory: accessory, bridge: bridge, platform: owners.instance(of: accessory.id, on: bridge), layout: layout[accessory.id], naturalLighting: home.naturalLighting.json(for: accessory.id))
             }
         }
     }
@@ -121,7 +122,7 @@ public struct HomeswiftCatalog: Sendable {
         guard id != "bridge" else { return nil }
         for bridge in host.bridges {
             guard let accessory = bridge.server.accessories.first(where: { $0.id == id }) else { continue }
-            return Located(accessory: accessory, bridge: bridge, platform: Owners(host.platforms).instance(of: id, on: bridge), layout: home.layout.value.accessories[id])
+            return Located(accessory: accessory, bridge: bridge, platform: Owners(host.platforms).instance(of: id, on: bridge), layout: home.layout.value.accessories[id], naturalLighting: home.naturalLighting.json(for: id))
         }
         return nil
     }
@@ -225,6 +226,7 @@ public struct HomeswiftCatalog: Sendable {
             if let source = accessory.mirroredFrom { json.field("mirroredFrom", .string(source)) }
             json.field("model", Self.json(information[.model]?.value ?? .null))
             json.field("name", .string(accessory.name))
+            if let natural = located.naturalLighting { json.field("naturalLighting", natural) }
             if let platform = located.platform {
                 // Its plugin does not run: the accessory answers No Response until it is resumed.
                 if platform.paused { json.field("paused", true) }
@@ -347,6 +349,7 @@ public struct HomeswiftCatalog: Sendable {
         }
         guard let hap = Self.hapValue(value) else { throw CatalogError("value must be a boolean, a number or a string") }
         do {
+            await home.naturalLighting.pause(located, characteristic: characteristic)
             try await characteristic.write(hap)
         } catch let error as HAPStatusError {
             throw CatalogError(Self.describe(error, of: located))

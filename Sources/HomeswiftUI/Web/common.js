@@ -87,6 +87,7 @@
   function icon(name) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 24 24");
+    svg.classList.add(`icon-${name}`);
     svg.innerHTML = icons[name] ?? icons.generic;
     return svg;
   }
@@ -262,9 +263,10 @@
   /// draws a labelled row of square choices, such as the widget sizes.
   /// Opened from the keyboard, its first item takes the focus; from a click, the menu does, so no item looks
   /// chosen before the pointer or an arrow key gets to it.
-  function menu(trigger, items, { keyboard = false } = {}) {
+  function menu(trigger, items, { keyboard = false, onReorder } = {}) {
     if (openMenu?.trigger === trigger) { openMenu.close(); return; }
     openMenu?.close(true);
+    let pending = false, cancelDrag = null;
     const nodes = items.filter(Boolean).map((item) => {
       if (item.separator) return el("hr", { class: "menu-separator", role: "separator" });
       if (item.choices) {
@@ -281,16 +283,72 @@
       if (item.heading !== undefined) return el("div", { class: "menu-heading" }, el("strong", { text: item.heading }), item.detail ? el("span", { text: item.detail }) : null);
       const glyph = typeof item.icon === "string" ? icon(item.icon) : item.icon ?? null;
       const choice = typeof item.checked === "boolean";
-      const role = choice ? "menuitemradio" : "menuitem";
-      const tick = choice ? el("span", { class: "menu-check", "aria-hidden": "true", text: item.checked ? "✓" : "" }) : null;
+      const role = choice ? (item.checkbox ? "menuitemcheckbox" : "menuitemradio") : "menuitem";
+      const tick = item.toggle ? el("span", { class: "menu-toggle", "aria-hidden": "true" }, el("span"))
+        : choice ? el("span", { class: "menu-check", "aria-hidden": "true", text: item.checked ? "✓" : "" }) : null;
       const node = item.href
         ? el("a", { role, href: item.href, class: item.danger ? "danger" : "", tabIndex: -1 }, glyph, el("span", { text: item.label }), tick)
         : el("button", { type: "button", role, class: item.danger ? "danger" : "", tabIndex: -1, "aria-checked": choice ? String(item.checked) : null }, glyph, el("span", { text: item.label }), tick);
-      node.addEventListener("click", () => { close(); item.onSelect?.(); });
+      if (onReorder && item.key) {
+        node.dataset.menuKey = item.key;
+        const handle = el("span", { class: "menu-drag-handle", title: t("Drag to reorder"), "aria-hidden": "true", text: "⠿" });
+        handle.addEventListener("click", (event) => { event.preventDefault(); event.stopPropagation(); });
+        handle.addEventListener("pointerdown", (event) => {
+          if (event.button !== 0 || pending) return;
+          event.preventDefault(); event.stopPropagation();
+          const rows = () => [...list.querySelectorAll(":scope > [data-menu-key]")];
+          const before = rows(), anchor = before.at(-1).nextSibling;
+          const restore = (order) => order.forEach((row) => list.insertBefore(row, anchor));
+          node.classList.add("menu-dragging");
+          list.setPointerCapture(event.pointerId);
+          const move = (pointer) => {
+            if (pointer.pointerId !== event.pointerId) return;
+            const other = rows().find((row) => {
+              const box = row.getBoundingClientRect();
+              return row !== node && pointer.clientY >= box.top && pointer.clientY <= box.bottom;
+            });
+            if (!other) return;
+            const box = other.getBoundingClientRect();
+            if (pointer.clientY > box.top + box.height / 2) other.after(node); else other.before(node);
+          };
+          const finish = async (pointer) => {
+            if (pointer && pointer.pointerId !== event.pointerId) return;
+            list.removeEventListener("pointermove", move);
+            list.removeEventListener("pointerup", finish);
+            list.removeEventListener("pointercancel", finish);
+            list.removeEventListener("lostpointercapture", finish);
+            cancelDrag = null;
+            node.classList.remove("menu-dragging");
+            if (list.hasPointerCapture(event.pointerId)) list.releasePointerCapture(event.pointerId);
+            if (pointer?.type !== "pointerup") { restore(before); return; }
+            pending = true;
+            try {
+              const saved = await onReorder(rows().map((row) => row.dataset.menuKey));
+              if (saved) restore(saved.map((id) => before.find((row) => row.dataset.menuKey === id)).filter(Boolean));
+            } catch { restore(before); }
+            finally { pending = false; }
+          };
+          cancelDrag = () => finish();
+          list.addEventListener("pointermove", move);
+          list.addEventListener("pointerup", finish);
+          list.addEventListener("pointercancel", finish);
+          list.addEventListener("lostpointercapture", finish);
+        });
+        node.prepend(handle);
+      }
+      node.addEventListener("click", async (event) => {
+        if (pending || event.target.closest(".menu-drag-handle")) return;
+        if (!item.keepOpen) { close(); item.onSelect?.(); return; }
+        pending = true;
+        node.setAttribute("aria-busy", "true");
+        try {
+          const checked = await item.onSelect?.();
+          if (typeof checked === "boolean") node.setAttribute("aria-checked", String(checked));
+        } finally { pending = false; node.removeAttribute("aria-busy"); }
+      });
       return node;
     });
-    const entries = nodes.flatMap((node) => node.getAttribute("role")?.startsWith("menuitem")
-      ? [node] : [...node.querySelectorAll('[role^="menuitem"]')]);
+    const entries = () => [...list.querySelectorAll('[role^="menuitem"]')];
     // On a phone a card's menu is an action sheet over a dimmed page, at the bottom within the thumb's reach, as
     // iOS's; the header's (the account) still drops down from its button.
     const sheet = matchMedia("(max-width: 640px)").matches && !trigger.closest("header");
@@ -313,9 +371,9 @@
       list.style.transformOrigin = `${box.right - parseFloat(list.style.left) - box.width / 2}px ${below ? "0" : "100%"}`;
     }
     trigger.setAttribute("aria-expanded", "true");
-    const focusAt = (index) => entries[(index + entries.length) % entries.length]?.focus();
+    const focusAt = (index) => entries()[(index + entries().length) % entries().length]?.focus();
     const onKey = (event) => {
-      const index = entries.indexOf(document.activeElement);
+      const index = entries().indexOf(document.activeElement);
       if (event.key === "Escape") { event.preventDefault(); close(); }
       else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && document.activeElement.closest(".menu-choice-row")) {
         event.preventDefault();
@@ -332,6 +390,7 @@
     const onPointer = (event) => { if (!list.contains(event.target) && !trigger.contains(event.target)) close(true); };
     function close(quietly = false) {
       if (openMenu?.list !== list) return;
+      cancelDrag?.();
       openMenu = null;
       document.removeEventListener("keydown", onKey, true);
       document.removeEventListener("pointerdown", onPointer, true);
@@ -802,6 +861,42 @@
   }
   /// "21.5 °C" or "70.7 °F".
   const formatTemperature = (celsius) => { const { value, unit } = temperature(celsius); return `${value} ${unit}`; };
+
+  // Keep native select values and form validation, but present choices with the shared menu.
+  function openSelectMenu(select, keyboard = false) {
+    const items = [];
+    for (const child of select.children) {
+      if (child.tagName === "OPTGROUP") {
+        if (child.disabled) continue;
+        items.push({ heading: child.label });
+        for (const option of child.children) add(option);
+      } else add(child);
+    }
+    function add(option) {
+      if (option.tagName !== "OPTION" || option.hidden || option.disabled) return;
+      items.push({ label: option.label, checked: option.selected, onSelect: () => {
+        if (select.value === option.value) return;
+        select.value = option.value;
+        select.dispatchEvent(new Event("input", { bubbles: true }));
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      } });
+    }
+    if (items.length) menu(select, items, { keyboard });
+  }
+  document.addEventListener("pointerdown", (event) => {
+    const select = event.target.closest("select");
+    if (!select || select.disabled || select.multiple || select.size > 1 || event.button !== 0) return;
+    event.preventDefault();
+    select.focus();
+    openSelectMenu(select);
+  });
+  document.addEventListener("keydown", (event) => {
+    const select = event.target.closest("select");
+    if (!select || select.disabled || select.multiple || select.size > 1) return;
+    if ([" ", "Enter", "ArrowDown", "ArrowUp"].includes(event.key)) {
+      event.preventDefault(); openSelectMenu(select, true);
+    }
+  });
 
   window.HomeswiftCommon = {
     $, el, icon, tile, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,

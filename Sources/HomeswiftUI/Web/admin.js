@@ -169,7 +169,7 @@
     const list = [...caches.accessories].sort((a, b) => (b.orphaned || b.restoredOnly) - (a.orphaned || a.restoredOnly) || a.name.localeCompare(b.name));
     const row = (cached) => el("div", { class: "row" },
       el("div", { class: "who" }, el("strong", { text: cached.name }),
-        el("div", { class: "muted", text: [cached.instance ?? cached.platform ?? cached.cacheFile, cached.bridge, cached.manufacturer, cached.model].filter(Boolean).join(" · ") })),
+        el("div", { class: "muted", text: [cached.mirroredFrom ? t("Mirrored from {source}", { source: cached.mirroredFrom }) : null, cached.instance ?? cached.platform ?? cached.cacheFile, cached.mirroredFrom ? null : cached.bridge, cached.manufacturer, cached.model].filter(Boolean).join(" · ") })),
       cached.orphaned ? el("span", { class: "pill status away", text: t("No block"), title: t("Its block is no longer in config.json") })
         : cached.restoredOnly ? el("span", { class: "pill status away", text: t("Stale"), title: t("Back from the cache, not added again by its plugin") }) : el("span", { class: "pill status on", text: t("Current") }),
       menuButton(t("Actions for {name}", { name: cached.name }), () => [
@@ -186,7 +186,9 @@
   async function removeCached(cached) {
     const ok = await confirmAction({
       title: t("Remove {name} from the cache?", { name: cached.name }), confirmLabel: t("Remove"),
-      text: t("It leaves HomeKit now. A plugin that still has the device adds it again, under the same ids, so rooms and automations come back with it."),
+      text: cached.mirroredFrom
+        ? t("This removes the local copy from Homeswift. The original accessory stays in {source}. The plugin can add the local copy again when it reconnects.", { source: cached.mirroredFrom })
+        : t("This removes the accessory from Homeswift and stops publishing it to Apple Home. If the plugin discovers the device again, it can return with the same ids. Devices that are no longer available will not return."),
     });
     if (!ok) return;
     await busy(null, async () => { await api("/api/cached-accessories/remove", { method: "POST", body: { id: cached.id, cacheFile: cached.cacheFile } }); app().route(); });
@@ -195,7 +197,7 @@
   async function resetCaches() {
     const ok = await confirmAction({
       title: t("Reset every accessory cache?"), confirmLabel: t("Reset the caches"), typed: "RESET",
-      text: [t("Every plugin's accessories leave HomeKit, and the plugins start again on empty caches, adding the devices they reach."),
+      text: [t("Accessories published by Homeswift leave HomeKit while the plugins rebuild their caches. Mirrored accessories stay in their original home; only their local copies are cleared."),
         t("Their ids stay, so rooms and automations come back with the devices; accessories of devices that are gone do not.")],
     });
     if (!ok) return;
@@ -214,7 +216,7 @@
   // ---- Child bridges -------------------------------------------------------------------------------------
 
   async function childBridgesPage(main) {
-    const [{ childBridges }, status] = await Promise.all([api("/api/child-bridges"), api("/api/status")]);
+    const [{ childBridges }, status, plugins] = await Promise.all([api("/api/child-bridges"), api("/api/status"), api("/api/plugins")]);
     const slugs = new Map(withSlugs(status.bridges, "bridge").map((bridge) => [bridge.deviceId, bridge.slug]));
     const tone = { ok: "on", degraded: "away", stopped: "paused" };
     const card = (bridge) => {
@@ -243,8 +245,48 @@
     app().show(main,
       app().pageHead(t("Child bridges"), t("Plugins on HomeKit bridges of their own (a block with _bridge), inside this process: one can restart without the others.")),
       subnav("child-bridges"),
+      el("section", {}, sectionHead(t("Plugin bridges")),
+        el("div", { class: "card rows" }, plugins.blocks.filter((block) => !["HomeswiftUI", "HomeswiftAiKit"].includes(block.platform)).map((block) =>
+          el("div", { class: "row" }, tile("child", "blue"),
+            el("div", { class: "who" }, el("strong", { text: block.name }), el("div", { class: "muted", text: block.childBridge ? t("Child bridge") : t("Main bridge") })),
+            el("button", { text: t("Configure"), onclick: () => editChildBridge(block) }))))),
       childBridges.length ? el("div", { class: "servers" }, childBridges.map(card))
-        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("child")), el("p", { class: "muted", text: t("No child bridge. Give a plugin's block a \"_bridge\" object (its Expert JSON) to run it on a bridge of its own.") })));
+        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("child")), el("p", { class: "muted", text: t("No child bridges yet. Configure a plugin above to give it its own bridge.") })));
+  }
+
+  async function editChildBridge(entry) {
+    const path = `/api/config/block/${encodeURIComponent(entry.platform)}/${encodeURIComponent(entry.name)}`;
+    let block;
+    try { block = await api(path); } catch (error) { alert(error.message); return; }
+    const enabled = el("input", { type: "checkbox", checked: Boolean(block._bridge) });
+    const name = el("input", { value: block._bridge?.name ?? "", placeholder: entry.name });
+    const port = el("input", { type: "number", min: 1, max: 65535, value: block._bridge?.port ?? "", placeholder: t("Automatic") });
+    const fields = el("div", { class: "child-bridge-fields" },
+      el("label", {}, el("span", { text: t("Name") }), name),
+      el("label", {}, el("span", { text: t("Port") }), port));
+    const update = () => { name.disabled = port.disabled = !enabled.checked; fields.hidden = !enabled.checked; };
+    enabled.addEventListener("change", update); update();
+    const result = el("p", { class: "error", role: "status" });
+    const cancel = el("button", { type: "button", text: t("Cancel"), onclick: () => dialog.close() });
+    const save = el("button", { type: "submit", class: "primary", text: t("Save") });
+    const form = el("form", {}, el("h2", { text: entry.name }),
+      el("label", { class: "child-bridge-toggle" }, enabled, el("span", { text: t("Run on its own HomeKit bridge") })), fields,
+      el("p", { class: "muted", text: t("Moving a plugin between bridges changes where its accessories appear in Apple Home. You may need to pair the new bridge and recreate room assignments or automations. Saving reloads the plugin.") }),
+      result, el("div", { class: "actions" }, cancel, save));
+    const dialog = el("dialog", { class: "admin-dialog", "aria-label": entry.name }, form);
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault(); save.disabled = true; cancel.disabled = true;
+      const next = { ...block };
+      if (enabled.checked) {
+        next._bridge = { ...(block._bridge ?? {}) };
+        if (name.value.trim()) next._bridge.name = name.value.trim(); else delete next._bridge.name;
+        if (port.value) next._bridge.port = Number(port.value); else delete next._bridge.port;
+      } else delete next._bridge;
+      try { await api(path, { method: "PUT", body: next }); dialog.close(); app().route(); }
+      catch (error) { result.textContent = error.message; save.disabled = cancel.disabled = false; }
+    });
+    dialog.addEventListener("close", () => dialog.remove(), { once: true });
+    document.body.append(dialog); dialog.showModal();
   }
 
   async function control(bridge, action) {
@@ -259,13 +301,13 @@
     const [backups, configBackups] = await Promise.all([api("/api/backups"), api("/api/config/backups")]);
     const message = el("p", { class: "status-line muted", role: "status" });
     const report = (e) => { message.className = "status-line error"; message.textContent = e.message; };
-    const now = el("button", { text: t("Back up now"), onclick: (event) => busy(event.currentTarget, async () => {
+    const now = el("button", { class: "primary", text: t("Back up now"), onclick: (event) => busy(event.currentTarget, async () => {
       const result = await api("/api/backups", { method: "POST" });
       message.className = "status-line ok";
       message.textContent = t("Kept {file} ({size}).", { file: result.backup.fileName, size: size(result.backup.bytes) });
       setTimeout(() => app().route(), 1200);
     }, report) });
-    const instance = el("div", { class: "card server" },
+    const instance = el("div", { class: "card server backup-create" },
       el("div", { class: "server-head" }, tile("archive", "green"),
         el("div", { class: "who" }, el("strong", { text: t("Back up this bridge") }),
           el("div", { class: "muted", text: t("config.json, each bridge's HomeKit identity and pairings, accessory caches, plugin files, the web UI's users") }))),
@@ -275,13 +317,12 @@
         fact(t("Scheduled restart"), backups.restartCron ? (backups.nextRestart ? t("{cron} · next {date}", { cron: backups.restartCron, date: when(backups.nextRestart) }) : backups.restartCron) : t("None"))),
       el("div", { class: "fact wide" }, el("span", { text: t("Folder") }), el("b", { class: "mono", text: backups.folder, title: backups.folder })),
       el("div", { class: "actions" },
-        el("a", { class: "button primary", href: "/api/backups/download", download: "", text: t("Download a backup") }), now),
+        now, el("a", { class: "button", href: "/api/backups/download", download: "", text: t("Download a backup") })),
       message);
     app().show(main,
       app().pageHead(t("Backups"), t("The whole instance, to move it or start over, and each saved config.json.")),
       subnav("backups"),
-      instance,
-      restoreCard(backups),
+      el("div", { class: "backup-actions-grid" }, instance, restoreCard(backups)),
       sectionHead(t("Kept backups"), backups.backups.length ? t("{n}, newest first", { n: backups.backups.length }) : ""),
       backups.backups.length ? el("div", { class: "card rows" }, backups.backups.map(backupRow))
         : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("archive")), el("p", { class: "muted", text: t("None yet: the daily backup and Back up now keep them here.") })),
@@ -296,7 +337,8 @@
     // The sentence around the link, in the page's language: the link goes where {choose} stands.
     const [dropBefore, dropAfter = ""] = t("Drop a backup (.tar) here, or {choose}").split("{choose}");
     const zone = el("div", { class: "drop-zone", role: "button", tabIndex: 0, "aria-label": t("Drop or choose a backup to restore") },
-      dropBefore, el("strong", { text: t("choose it") }), dropAfter, picker);
+      el("span", { class: "backup-drop-icon", "aria-hidden": "true" }, HomeswiftCommon.icon("restore")),
+      el("span", {}, dropBefore, el("strong", { text: t("choose it") }), dropAfter), picker);
     const result = el("div", {});
     const take = async (file) => {
       if (!file) return;
@@ -309,9 +351,10 @@
     zone.addEventListener("dragover", (event) => { event.preventDefault(); zone.classList.add("over"); });
     zone.addEventListener("dragleave", () => zone.classList.remove("over"));
     zone.addEventListener("drop", (event) => { event.preventDefault(); zone.classList.remove("over"); take(event.dataTransfer.files[0]); });
-    return el("div", { class: "card" },
-      el("h2", { text: t("Restore a backup") }),
-      el("p", { class: "muted", text: t("A backup made by Download a backup or kept below replaces this bridge's files as homeswift restarts: its pairings, accessories and plugin settings come back; this machine's bridge and web UI ports stay. Files it does not have stay as they are.") }),
+    return el("div", { class: "card backup-restore" },
+      el("div", { class: "server-head" }, tile("restore", "violet"), el("h2", { text: t("Restore a backup") })),
+      el("details", { class: "backup-restore-help" }, el("summary", { text: t("What happens when you restore?") }),
+el("p", { class: "muted", text: t("A backup made by Download a backup or kept below replaces this bridge's files as homeswift restarts: its pairings, accessories and plugin settings come back; this machine's bridge and web UI ports stay. Files it does not have stay as they are.") })),
       backups.pendingRestore ? el("p", { class: "ok", text: t("A restore is staged: it applies when homeswift next starts.") }) : null,
       zone, result);
   }
@@ -415,10 +458,17 @@
     const params = new URLSearchParams(location.search);
     const tool = el("input", { type: "search", class: "search", placeholder: t("Tool or route"), value: params.get("tool") ?? "", "aria-label": t("Filter by tool") });
     const client = el("input", { type: "search", class: "search", placeholder: t("Client or user"), value: params.get("client") ?? "", "aria-label": t("Filter by client") });
-    const select = (choices, value, label) => el("select", { class: "popup", "aria-label": label }, choices.map(([v, text]) => el("option", { value: v, text, selected: v === value })));
+    const select = (choices, value, label) => {
+      const control = el("button", { class: "audit-picker", type: "button", "aria-label": label, "aria-haspopup": "menu" });
+      control.value = value;
+      const paint = () => control.replaceChildren(el("span", { text: choices.find(([v]) => v === control.value)?.[1] ?? label }), el("span", { text: "⌄", "aria-hidden": "true" }));
+      control.addEventListener("click", () => HomeswiftCommon.menu(control, choices.map(([v, text]) => ({ label: text, checked: control.value === v, onSelect: () => { control.value = v; paint(); control.dispatchEvent(new Event("change")); } }))));
+      paint();
+      return control;
+    };
     const outcome = select(outcomes, params.get("outcome") ?? "", t("Outcome"));
     const since = select(spans, params.has("since") ? params.get("since") : "7d", t("Time range"));
-    const count = el("span", { class: "muted count" });
+    const count = el("span", { class: "muted count", role: "status", "aria-live": "polite" });
     const body = el("div", {});
     let loads = 0;   // the answer drawn is the last request's, however they arrive
     async function load() {
@@ -440,7 +490,7 @@
         return;
       }
       count.textContent = t("{shown} of {total}", { shown: found.entries.length, total: found.total });
-      body.replaceChildren(found.entries.length ? el("div", { class: "card" }, el("div", { class: "table-scroll" }, el("table", { class: "data-table" },
+      body.replaceChildren(found.entries.length ? el("div", { class: "card audit-results" }, el("div", { class: "table-scroll" }, el("table", { class: "data-table" },
         el("thead", {}, el("tr", {}, [t("Time"), t("Who"), t("What"), t("Outcome"), t("Details")].map((text) => el("th", { text })))),
         el("tbody", {}, found.entries.map(auditRow)))), el("p", { class: "muted note", text: found.path }))
         : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("shield")), el("p", { class: "muted", text: t("Nothing in this range matches.") })));
@@ -451,7 +501,14 @@
     app().show(main,
       app().pageHead(t("Audit log"), t("Every change made through the MCP server, the Assistant's chat and this web UI, with who made it.")),
       subnav("audit"),
-      el("div", { class: "filter-bar" }, since, outcome, tool, client, el("span", { class: "spacer" }), count),
+      el("div", { class: "card audit-filters" },
+        el("div", { class: "audit-filter-grid" },
+          el("label", {}, el("span", { text: t("Time range") }), since),
+          el("label", {}, el("span", { text: t("Outcome") }), outcome),
+          el("label", {}, el("span", { text: t("Tool or route") }), tool),
+          el("label", {}, el("span", { text: t("Client or user") }), client)),
+        el("div", { class: "audit-filter-footer" }, count,
+          el("button", { class: "link", text: t("Reset filters"), onclick: () => { clearTimeout(typing); tool.value = ""; client.value = ""; location.href = "/settings/audit?since=7d"; } }))),
       body);
     await load();
   }
@@ -464,7 +521,7 @@
       el("td", {}, el("strong", { text: entry.principal ?? "?" }), el("div", { class: "muted", text: `${entry.client ?? "?"} · ${entry.scope ?? ""}` })),
       el("td", { class: "mono", text: entry.dryRun ? t("{tool} (dry run)", { tool: entry.tool }) : entry.tool }),
       el("td", {}, el("span", { class: `pill status ${kind}`, text })),
-      el("td", { class: "audit-details" }, entry.error ? el("div", { class: "error", text: entry.error }) : null, args ? el("code", { text: args, title: args }) : null));
+      el("td", { class: "audit-details" }, entry.error ? el("div", { class: "error", text: entry.error }) : null, args ? el("details", {}, el("summary", { text: t("Details") }), HomeswiftCommon.jsonView(entry.args)) : null));
   }
 
   // ---- An accessory's history -----------------------------------------------------------------------------

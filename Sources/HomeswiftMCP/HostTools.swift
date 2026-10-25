@@ -67,6 +67,7 @@ extension HomeswiftCatalog {
             "id": .string(cached.id), "name": .string(cached.name), "category": .string(cached.category), "manufacturer": .string(cached.manufacturer),
             "model": .string(cached.model), "cacheFile": .string(cached.cacheFile), "platform": cached.platform.map(JSONValue.string) ?? .null,
             "instance": cached.instance.map(JSONValue.string) ?? .null, "bridge": cached.bridge.map(JSONValue.string) ?? .null,
+            "mirroredFrom": cached.mirroredFrom.map(JSONValue.string) ?? .null,
             "external": .bool(cached.external), "restoredOnly": .bool(cached.restoredOnly), "orphaned": .bool(cached.instance == nil),
         ]
     }

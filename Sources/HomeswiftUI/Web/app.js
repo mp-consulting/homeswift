@@ -398,16 +398,30 @@
         isAdmin() ? el("div", { class: "actions" }, el("button", { class: "link", text: t("Restart homeswift…"), onclick: restartBridge }),
           el("a", { class: "link", href: "/settings", text: t("Settings, pairings and backups") }), el("a", { class: "link", href: "/notifications", text: t("Notifications") })) : null)],
     };
-    const layout = dashboardLayout();
-    show(main,
-      layout.order.filter((id) => !layout.hidden.includes(id)).map((id) => {
-        const nodes = [widgets[id]?.()].flat().filter(Boolean);
-        return nodes.length ? el("section", { class: "dash-widget", "data-widget": id }, nodes) : null;
-      }),
-      el("div", { class: "actions page-foot" },
-        el("button", { class: "link", onclick: () => customiseDashboard(main, { assistant: Boolean(status.assistant), scroll: true }) }, HomeswiftCommon.icon("sliders"), " ", t("Customise this page…"))));
-    // Open while the user changes it: the page is drawn again under it after each change.
-    if (customising) customiseDashboard(main, { assistant: Boolean(status.assistant) });
+    const sections = new Map();
+    const footer = el("div", { class: "actions page-foot" },
+      el("button", { type: "button", class: "link", "aria-label": t("Customise the Status page"), "aria-haspopup": "menu", "aria-expanded": "false",
+        onclick: (event) => customiseDashboard(event.currentTarget, renderDashboard, event.detail === 0) }, HomeswiftCommon.icon("sliders"), " ", t("Customise this page…")));
+    function renderDashboard(layout) {
+      const position = { left: scrollX, top: scrollY };
+      for (const id of layout.order) {
+        let section = sections.get(id);
+        if (!section && !layout.hidden.includes(id)) {
+          const nodes = [widgets[id]?.()].flat().filter(Boolean);
+          if (nodes.length) {
+            section = el("section", { class: "dash-widget", "data-widget": id }, nodes);
+            sections.set(id, section);
+          }
+        }
+        if (section) {
+          section.hidden = layout.hidden.includes(id);
+          main.insertBefore(section, footer);
+        }
+      }
+      scrollTo({ ...position, behavior: "instant" });
+    }
+    show(main, footer);
+    renderDashboard(dashboardLayout());
   };
 
   // ---- The Status page's widgets: which show, in which order ----------------------------------------------
@@ -424,44 +438,35 @@
     return { order, hidden: (saved.hidden || []).filter((id) => known.includes(id)) };
   }
 
-  let customising = false;
-
-  /// The Customise panel: a switch per widget and arrows to move it; each change is saved and the page redrawn.
-  function customiseDashboard(main, { assistant, scroll = false }) {
-    const existing = $(".customise", main);
-    if (existing) { existing.remove(); customising = false; return; }
-    customising = true;
+  /// The same pop-up as accessory actions: visibility choices, ordering, and reset.
+  function customiseDashboard(trigger, renderDashboard, keyboard = false) {
     let layout = dashboardLayout();
-    const list = el("div", { class: "customise-list" });
+    const nameOf = (id) => dashboardWidgets.find(([known]) => known === id)[1];
     const save = async (next) => {
+      const before = layout;
       layout = next;
-      draw();
+      renderDashboard(layout);
       try {
-        await HomeswiftCommon.applyPreferences(await api("/api/preferences", { method: "PUT", body: { dashboard: layout } }));
-        route();
-      } catch (e) { alert(e.message); }
+        HomeswiftCommon.applyPreferences(await api("/api/preferences", { method: "PUT", body: { dashboard: next } }));
+      } catch (e) {
+        layout = before;
+        renderDashboard(layout);
+        alert(e.message);
+      }
     };
-    const draw = () => list.replaceChildren(...layout.order.map((id, index) => {
-      const [, name, note] = dashboardWidgets.find(([known]) => known === id);
-      const shown = !layout.hidden.includes(id);
-      const toggle = el("input", { type: "checkbox", checked: shown, "aria-label": t("Show {name}", { name }), onchange: () =>
-        save({ order: layout.order, hidden: shown ? [...layout.hidden, id] : layout.hidden.filter((one) => one !== id) }) });
-      const move = (by) => () => { const order = [...layout.order]; order.splice(index + by, 0, order.splice(index, 1)[0]); save({ ...layout, order }); };
-      return el("div", { class: "customise-row" },
-        el("label", { class: "switch" }, toggle, el("span")),
-        el("div", { class: "who" }, el("strong", { text: name }), el("div", { class: "muted", text: id === "digest" && !assistant ? t("Needs the Assistant (a HomeswiftAiKit block)") : note })),
-        el("button", { type: "button", class: "icon-button", "aria-label": t("Move {name} up", { name }), disabled: index === 0, onclick: move(-1) }, HomeswiftCommon.icon("up")),
-        el("button", { type: "button", class: "icon-button", "aria-label": t("Move {name} down", { name }), disabled: index === layout.order.length - 1, onclick: move(1) }, HomeswiftCommon.icon("down")));
-    }));
-    draw();
-    const panel = el("div", { class: "card customise", role: "region", "aria-label": t("Customise the Status page") },
-      el("div", { class: "section-head" }, el("h2", { text: t("Customise this page") }), el("span", { class: "muted", text: t("Saved for you, on every browser") })),
-      list,
-      el("div", { class: "actions" },
-        el("button", { class: "link", text: t("Back to the usual layout"), onclick: () => save({ order: dashboardWidgets.map(([id]) => id), hidden: [] }) }),
-        el("button", { class: "primary", text: t("Done"), onclick: () => { panel.remove(); customising = false; } })));
-    main.prepend(panel);
-    if (scroll) panel.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    HomeswiftCommon.menu(trigger, [
+      ...layout.order.map((id) => ({ key: id, label: t("Show {name}", { name: nameOf(id) }),
+        checked: !layout.hidden.includes(id), checkbox: true, toggle: true, keepOpen: true,
+        onSelect: async () => {
+          await save({ ...layout, hidden: layout.hidden.includes(id) ? layout.hidden.filter((one) => one !== id) : [...layout.hidden, id] });
+          return !layout.hidden.includes(id);
+        } })),
+      { separator: true },
+      { label: t("Back to the usual layout"), onSelect: () => save({ order: dashboardWidgets.map(([id]) => id), hidden: [] }) },
+    ], { keyboard, onReorder: async (order) => {
+      await save({ ...layout, order });
+      return layout.order;
+    } });
   }
 
   // ---- The daily digest (Glass UI's assistant digest widget) ------------------------------------------------
@@ -786,10 +791,32 @@
       nodes.set(accessory.id, node);
       return node;
     }
-    function resize(accessory, size) {
-      layout.sizes[accessory.id] = size;
-      nodes.get(accessory.id)?.replaceWith(widget(accessory));
-      save();
+    let layoutAnimation = 0;
+    function animateLayout(change) {
+      const before = new Map([...nodes].map(([id, node]) => [id, node.getBoundingClientRect()]));
+      change();
+      const revision = ++layoutAnimation;
+      // Expanded cards measure their controls on the next frame before settling onto whole grid rows.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (revision !== layoutAnimation || reducedMotion.matches) return;
+        for (const [id, node] of nodes) {
+          const was = before.get(id), now = node.getBoundingClientRect();
+          if (!was?.width || !now.width || !now.height) continue;
+          node.getAnimations().forEach((animation) => animation.cancel());
+          node.animate([
+            { transformOrigin: "top left", transform: `translate(${was.left - now.left}px, ${was.top - now.top}px) scale(${was.width / now.width}, ${was.height / now.height})` },
+            { transformOrigin: "top left", transform: "none" }
+          ], { duration: 220, easing: "cubic-bezier(.2,.8,.2,1)" });
+        }
+      }));
+    }
+    function resize(accessory, size, persist = true) {
+      if (size === sizeOf(accessory)) return;
+      animateLayout(() => {
+        layout.sizes[accessory.id] = size;
+        nodes.get(accessory.id)?.replaceWith(widget(accessory));
+      });
+      if (persist) save();
     }
     /// The size of a kind: every accessory of that kind takes it, those sized one by one included.
     function resizeKind(kind, size) {
@@ -807,7 +834,7 @@
       ordered.splice(ordered.indexOf(accessory), 1);
       ordered.splice(ordered.indexOf(target) + (after ? 1 : 0), 0, accessory);
       save();
-      render();
+      animateLayout(render);
     }
     function step(accessory, delta) {
       const wall = ordered.filter((one) => layout.grouping === "none" || section(one) === section(accessory));
@@ -823,7 +850,54 @@
         el("button", { type: "button", "aria-label": t("Move earlier"), title: t("Move earlier"), text: "‹", "data-step": "-1", onclick: () => step(accessory, -1) }),
         HomeswiftWidgets.sizes.map((one) => el("button", { type: "button", text: one === "xlarge" ? t("XL") : sizeNames[one][0].toUpperCase(), title: sizeNames[one], "aria-label": sizeNames[one], "aria-pressed": String(one === size), onclick: () => resize(accessory, one) })),
         el("button", { type: "button", "aria-label": t("Move later"), title: t("Move later"), text: "›", "data-step": "1", onclick: () => step(accessory, 1) })));
+      const handle = el("button", { type: "button", class: "resize-handle", text: "◢",
+        title: t("Drag to resize"), "aria-label": t("Resize {name}", { name: accessory.name }),
+        onkeydown: (event) => {
+          const delta = ["ArrowRight", "ArrowDown"].includes(event.key) ? 1 : ["ArrowLeft", "ArrowUp"].includes(event.key) ? -1 : 0;
+          if (!delta) return;
+          event.preventDefault();
+          const sizes = HomeswiftWidgets.sizes;
+          resize(accessory, sizes[Math.max(0, Math.min(sizes.length - 1, sizes.indexOf(sizeOf(accessory)) + delta))]);
+          nodes.get(accessory.id)?.querySelector(".resize-handle")?.focus();
+        } });
+      handle.addEventListener("pointerdown", (event) => resizeDrag(event, node, accessory));
+      node.append(handle);
       node.addEventListener("pointerdown", (event) => drag(event, node));
+    }
+
+    function resizeDrag(event, node, accessory) {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const initial = sizeOf(accessory), box = node.getBoundingClientRect(), wall = node.parentElement;
+      const style = getComputedStyle(wall), column = parseFloat(style.getPropertyValue("--unit")) || box.width;
+      const row = parseFloat(style.gridAutoRows) || 64, gap = parseFloat(style.rowGap) || 10;
+      const start = { x: event.clientX, y: event.clientY };
+      wall.classList.add("resizing");
+      // Capture on the stable wall: the card's contents are rebuilt as it crosses a size boundary.
+      wall.setPointerCapture(event.pointerId);
+      const move = (pointer) => {
+        if (pointer.pointerId !== event.pointerId || Math.hypot(pointer.clientX - start.x, pointer.clientY - start.y) < 8) return;
+        const width = box.width + pointer.clientX - start.x, height = box.height + pointer.clientY - start.y;
+        const size = width < column * 1.5 ? (height < row * 1.5 + gap ? "small" : "medium")
+          : (height < (row + gap) * 3.5 ? "large" : "xlarge");
+        resize(accessory, size, false);
+      };
+      const end = (pointer) => {
+        if (pointer.pointerId !== event.pointerId) return;
+        wall.removeEventListener("pointermove", move);
+        wall.removeEventListener("pointerup", end);
+        wall.removeEventListener("pointercancel", end);
+        wall.removeEventListener("lostpointercapture", end);
+        wall.classList.remove("resizing");
+        if (wall.hasPointerCapture(event.pointerId)) wall.releasePointerCapture(event.pointerId);
+        if (pointer.type !== "pointerup") resize(accessory, initial, false);
+        else save();
+      };
+      wall.addEventListener("pointermove", move);
+      wall.addEventListener("pointerup", end);
+      wall.addEventListener("pointercancel", end);
+      wall.addEventListener("lostpointercapture", end);
     }
 
     const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
@@ -850,17 +924,19 @@
     /// Let go, it lands in the slot, and the wall's order is kept. A finger drags at once: in Edit the widgets do not
     /// scroll the page.
     function drag(event, node) {
-      if (event.button !== 0 || event.target.closest(".edit-bar")) return;
+      if (event.button !== 0 || event.target.closest(".edit-bar, .resize-handle")) return;
       // A press that drags selects no text.
       event.preventDefault();
       getSelection()?.removeAllRanges();
       const wall = node.parentElement;
       const start = { x: event.clientX, y: event.clientY };
+      const originalStyle = node.style.cssText, originalNext = node.nextElementSibling;
       let slot = null, pointer = event, scroller = null;
       node.setPointerCapture(event.pointerId);
       const lift = () => {
         const box = node.getBoundingClientRect();
         slot = el("div", { class: `${[...node.classList].filter((name) => name.startsWith("size-")).join(" ")} widget drag-slot`, "aria-hidden": "true" });
+        slot.style.setProperty("--card-rows", node.style.getPropertyValue("--card-rows"));
         node.before(slot);
         node.classList.add("lifted");
         Object.assign(node.style, { left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px` });
@@ -877,7 +953,8 @@
         const under = document.elementFromPoint(pointer.clientX, pointer.clientY)?.closest(".wall > .widget");
         if (!under || under === slot || under.parentElement !== wall) return;
         const box = under.getBoundingClientRect();
-        const after = pointer.clientX > box.left + box.width / 2;
+        const after = pointer.clientY > box.top + box.height * .75 ||
+          (pointer.clientY >= box.top + box.height * .25 && pointer.clientX > box.left + box.width / 2);
         if ((after ? under.nextElementSibling : under.previousElementSibling) === slot) return;
         slide(wall, () => (after ? under.after(slot) : under.before(slot)), node);
       };
@@ -891,18 +968,21 @@
         hover();
       };
       // Also when the capture is lost (the wall drawn again under the finger): the page stops scrolling.
-      const end = () => {
+      const end = (ended) => {
         node.removeEventListener("pointermove", move);
         node.removeEventListener("pointerup", end);
         node.removeEventListener("pointercancel", end);
         node.removeEventListener("lostpointercapture", end);
         clearInterval(scroller);
         if (!slot || !slot.isConnected) return;
+        if (ended.type !== "pointerup") {
+          if (originalNext?.parentElement === wall) originalNext.before(slot); else wall.append(slot);
+        }
         // Lands in the slot from where it was let go.
         const from = node.getBoundingClientRect();
         slot.replaceWith(node);
         node.classList.remove("lifted");
-        node.style.cssText = "";
+        node.style.cssText = originalStyle;
         const to = node.getBoundingClientRect();
         node.style.transition = "none";
         node.style.transform = `translate(${from.left - to.left}px, ${from.top - to.top}px)`;
@@ -978,8 +1058,23 @@
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
     } }), el("span", { text }));
     const hiddenToggle = hiddenCount ? queryToggle("hidden", "1", showHidden, t("Show hidden ({count})", { count: hiddenCount })) : null;
-    const sourceToggles = sources.map((source) => queryToggle("from", source, from === source,
-      t("Only from {source} ({count})", { source: t(source), count: all.filter((accessory) => accessory.mirroredFrom === source).length })));
+    const sourceToggles = sources.map((source) => {
+      const count = all.filter((accessory) => accessory.mirroredFrom === source).length;
+      const label = t("Only from {source}", { source: t(source) });
+      const explanation = source === "Apple Home"
+        ? t("Show only accessories shared by Apple Home through Wingman. Turn off to show all accessories.")
+        : t("Show only accessories from {source}. Turn off to show all accessories.", { source: t(source) });
+      const input = el("input", { type: "checkbox", role: "switch", checked: from === source, "aria-label": label, "aria-description": explanation, title: explanation,
+        onchange: (event) => {
+          const next = new URLSearchParams(location.search);
+          if (event.target.checked) next.set("from", source); else next.delete("from");
+          navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
+        } });
+      return el("label", { class: "source-toggle", title: explanation },
+        source === "Apple Home" ? el("img", { class: "source-home-icon", src: "/apple-home.png", alt: "", "aria-hidden": "true" }) : el("span", { class: "source-toggle-label", text: t(source) }),
+        el("span", { class: "source-count", text: String(count) }),
+        el("span", { class: "switch" }, input, el("span", { "aria-hidden": "true" })));
+    });
     const suggest = isAdmin() && window.HomeswiftChat?.available() && all.length
       ? el("button", { class: "ai-button icon-on-phone", title: t("Suggest rooms"), "aria-label": t("Suggest rooms"), onclick: () => HomeswiftHome.suggestRooms(content, all) }, sparkle(), el("span", { text: t("Suggest rooms") })) : null;
 
@@ -1020,7 +1115,7 @@
       const opens = plugin && plugin.hasPages && instance && !instance.paused ? pluginPage(block) : block.system ? settingsLink(block) : expertLink(block);
       // Under the name, what it is when the name does not say it already: the plugin, else its platform.
       const kindName = [plugin?.name, block.platform].find((name) => name && name !== block.name);
-      return el("div", { class: "card server" },
+      return el("div", { class: "card server plugin-instance" },
         el("div", { class: "server-head" },
           tile(block.system ? "gear" : "plugin", block.system ? "grey" : "orange"),
           el("div", { class: "who" }, el("a", { class: "card-title", href: opens }, el("strong", { text: block.name })),
@@ -1033,7 +1128,7 @@
         el("div", { class: "card-foot" },
           el("span", { class: "muted", text: instance?.paused ? t("No calls to its devices; they show No Response in the Home app.")
             : instance ? "" : block.system ? t("A block of the runtime itself.") : plugin ? t("It did not start: the log says why.") : t("No plugin compiled into this homeswift provides this platform.") }),
-          menuButton(t("Actions for {name}", { name: block.name }), () => blockActions(block, plugin, instance))));
+          el("div", { class: "plugin-card-actions" }, el("a", { class: "button", href: opens, text: plugin?.hasPages && instance && !instance.paused ? t("Open its page") : t("Settings") }), menuButton(t("Actions for {name}", { name: block.name }), () => blockActions(block, plugin, instance)))));
     };
 
     /// What the menu of a plugin's card offers: its page, the block as a form or as JSON (Expert), pause or
@@ -1053,7 +1148,7 @@
       ];
     }
 
-    const catalog = el("div", { class: "grid" }, plugins.plugins.map((plugin) => {
+    const catalog = el("div", { class: "grid plugin-catalog" }, plugins.plugins.map((plugin) => {
       const used = plugins.blocks.some((block) => block.platform === plugin.platform);
       return el("div", { class: "card server catalog" },
         el("div", { class: "server-head" }, tile("plugin", "orange"),
@@ -1078,12 +1173,41 @@
       }
     }
 
+    const catalogSearch = el("input", { type: "search", class: "search", placeholder: t("Filter text"), "aria-label": t("Add a plugin") });
+    const noMatches = el("p", { class: "card empty", hidden: true, text: t("Nothing in this range matches.") });
+    const catalogEntries = [...catalog.children].map((card, index) => ({ card, plugin: plugins.plugins[index], used: plugins.blocks.some((block) => block.platform === plugins.plugins[index].platform) }));
+    const sortOptions = [["name", t("Name A–Z")], ["used", t("In use first")], ["available", t("Available first")]];
+    const sort = el("select", { class: "popup", "aria-label": t("Sort plugins") }, sortOptions.map(([value, text]) => el("option", { value, text })));
+    const savedSort = new URLSearchParams(location.search).get("sort");
+    sort.value = sortOptions.some(([value]) => value === savedSort) ? savedSort : "name";
+    const arrange = () => {
+      const ordered = [...catalogEntries].sort((a, b) => {
+        const priority = sort.value === "used" ? Number(b.used) - Number(a.used) : sort.value === "available" ? Number(a.used) - Number(b.used) : 0;
+        return priority || a.plugin.name.localeCompare(b.plugin.name) || a.plugin.platform.localeCompare(b.plugin.platform);
+      });
+      catalog.append(...ordered.map(({ card }) => card));
+    };
+    sort.addEventListener("change", () => {
+      arrange();
+      const url = new URL(location.href); url.searchParams.set("sort", sort.value);
+      history.replaceState(null, "", url.pathname + url.search);
+    });
+    arrange();
+    catalogSearch.addEventListener("input", () => {
+      const query = catalogSearch.value.trim().toLocaleLowerCase();
+      let visible = 0;
+      catalogEntries.forEach(({ card, plugin }) => {
+        card.hidden = !`${plugin.name} ${plugin.platform}`.toLocaleLowerCase().includes(query);
+        if (!card.hidden) visible++;
+      });
+      noMatches.hidden = visible > 0;
+    });
     show(main,
       pageHead(t("Plugins"), t("The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.")),
       plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: t("No plugin provides {platforms}: those blocks are ignored.", { platforms: plugins.unknownPlatforms.join(", ") }) })) : null,
-      plugins.blocks.length ? el("div", { class: "grid" }, plugins.blocks.map(blockCard)) : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("plugin")), el("p", { class: "muted", text: t("No plugin yet. Add one below.") })),
-      el("div", { class: "section-head" }, el("h2", { text: t("Add a plugin") }), el("span", { class: "muted", text: t("compiled into this homeswift") })),
-      catalog);
+      plugins.blocks.length ? el("div", { class: "grid plugin-instances" }, plugins.blocks.map(blockCard)) : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("plugin")), el("p", { class: "muted", text: t("No plugin yet. Add one below.") })),
+      el("div", { class: "section-head" }, el("h2", { text: t("Add a plugin") }), el("span", { class: "muted", text: t("compiled into this homeswift") }), catalogSearch, sort),
+      catalog, noMatches);
   };
 
   /// A block's state pill: its label and tone.
@@ -1402,9 +1526,18 @@
     const entry = plugins.blocks.find((one) => one.platform === "HomeswiftAiKit");
     const head = pageHead(t("Settings"), t("The Assistant: whether its provider answers, what it costs, and its budgets."));
     if (!entry) {
-      show(main, head, subnav, el("div", { class: "card empty" },
-        el("p", { class: "muted", text: t("The Assistant is off: config.json has no HomeswiftAiKit block. Add one on the Config page, {example}, or choose apple on a Mac with Apple Intelligence.", { example: "{ \"platform\": \"HomeswiftAiKit\", \"provider\": \"anthropic\", \"apiKey\": \"…\" }" }) }),
-        el("a", { class: "button primary", href: "/config", text: t("Open Config") })));
+      show(main, head, subnav, el("section", { class: "card assistant-welcome" },
+        el("span", { class: "tile tone-ai", "aria-hidden": "true" }, sparkle()),
+        el("h2", { text: t("Set up your Assistant") }),
+        el("p", { class: "muted", text: t("The Assistant is off until you connect an AI provider.") }),
+        el("div", { class: "assistant-setup-note" },
+          el("strong", { text: t("Choose how it runs") }),
+          el("p", { text: t("Use Anthropic with an API key, or Apple Intelligence on a supported Mac with Apple Intelligence enabled.") })),
+        el("a", { class: "button primary", href: "/config", text: t("Open Config") }),
+        el("details", { class: "assistant-setup-example" },
+          el("summary", { text: t("Configuration example") }),
+          el("p", { class: "muted", text: t("Add this block to platforms in config.json and replace the API key. For Apple Intelligence, set provider to apple and omit apiKey.") }),
+          jsonView({ platform: "HomeswiftAiKit", provider: "anthropic", apiKey: "…" }))));
       return;
     }
     const block = await api(`/api/config/block/${encodeURIComponent(entry.platform)}/${encodeURIComponent(entry.name)}`);
@@ -2729,10 +2862,15 @@
     show(main,
       pageHead(t("Logs"), t("This homeswift's log, live, and up to a week back.")),
       el("div", { class: "card log-card" },
-        el("div", { class: "editor-bar" }, levels, range.picker, sources.picker, filter, el("span", { class: "spacer" }), count, doctor.button, copy,
-          el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
-          saveToggle, actions,
+        el("div", { class: "log-filter-panel" },
+          el("div", { class: "log-level-row" }, levels, filter),
+          el("div", { class: "log-scope-row" },
+            el("label", {}, el("span", { text: t("Time range") }), range.picker),
+            el("label", {}, el("span", { text: t("What the lines are about") }), sources.picker)),
           range.customRow),
+        el("div", { class: "editor-bar log-action-bar" }, count, el("span", { class: "spacer" }), doctor.button, copy,
+          el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
+          saveToggle, actions),
         output),
       doctor.card);
     await load();
@@ -2834,6 +2972,7 @@
     if (!(auth && auth.authenticated)) return;
     if (document.hidden) { closeEvents(); return; }
     openEvents();
+    if (location.pathname === "/accessories" && document.querySelector(".wall.editing")) return;
     if (["/", "/status", "/accessories", "/quick"].includes(location.pathname)) route();
   });
 
