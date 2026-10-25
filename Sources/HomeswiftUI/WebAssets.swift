@@ -1516,16 +1516,15 @@ enum WebAssets {
       render();
     } });
 
-    const hiddenToggle = hiddenCount ? el("label", { class: "toggle compact" }, el("input", { type: "checkbox", checked: showHidden, onchange: (event) => {
+    /// A filter kept in the address: ticked, `key` is `value`.
+    const queryToggle = (key, value, checked, text) => el("label", { class: "toggle compact" }, el("input", { type: "checkbox", checked, onchange: (event) => {
       const next = new URLSearchParams(location.search);
-      if (event.target.checked) next.set("hidden", "1"); else next.delete("hidden");
+      if (event.target.checked) next.set(key, value); else next.delete(key);
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
-    } }), el("span", { text: t("Show hidden ({count})", { count: hiddenCount }) })) : null;
-    const sourceToggles = sources.map((source) => el("label", { class: "toggle compact" }, el("input", { type: "checkbox", checked: from === source, onchange: (event) => {
-      const next = new URLSearchParams(location.search);
-      if (event.target.checked) next.set("from", source); else next.delete("from");
-      navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
-    } }), el("span", { text: t("Only from {source} ({count})", { source: t(source), count: all.filter((accessory) => accessory.mirroredFrom === source).length }) })));
+    } }), el("span", { text }));
+    const hiddenToggle = hiddenCount ? queryToggle("hidden", "1", showHidden, t("Show hidden ({count})", { count: hiddenCount })) : null;
+    const sourceToggles = sources.map((source) => queryToggle("from", source, from === source,
+      t("Only from {source} ({count})", { source: t(source), count: all.filter((accessory) => accessory.mirroredFrom === source).length })));
     const suggest = isAdmin() && window.HomeswiftChat?.available() && all.length
       ? el("button", { class: "ai-button icon-on-phone", title: t("Suggest rooms"), "aria-label": t("Suggest rooms"), onclick: () => HomeswiftHome.suggestRooms(content, all) }, sparkle(), el("span", { text: t("Suggest rooms") })) : null;
 
@@ -3617,15 +3616,6 @@ enum WebAssets {
   }
   const button = (name, label, onclick) => el("button", { type: "button", class: "camera-button", "aria-label": label, title: label, onclick }, glyph(name));
 
-  /// "just now", "4 min ago", "2 h ago", or the date.
-  function ago(date) {
-    const seconds = (Date.now() - date) / 1000;
-    if (seconds < 45) return t("just now");
-    if (seconds < 3600) return t("{minutes} min ago", { minutes: Math.round(seconds / 60) });
-    if (seconds < 86400) return t("{hours} h ago", { hours: Math.round(seconds / 3600) });
-    return date.toLocaleDateString(HomeswiftI18n.locale, { month: "short", day: "numeric" });
-  }
-
   // Every view on the page, for the accessory events and the page's visibility.
   const views = new Set();
   const observer = "IntersectionObserver" in window ? new IntersectionObserver((entries) => {
@@ -3886,7 +3876,7 @@ enum WebAssets {
       element, camera,
       setVisible(visible) { state.visible = visible; update(); },
       update,
-      tick() { if (state.lastRing) ringBadge.textContent = t("Rang {when}", { when: ago(state.lastRing) }); },
+      tick() { if (state.lastRing) ringBadge.textContent = t("Rang {when}", { when: HomeswiftCommon.ago(state.lastRing) }); },
       motion(on) { motionBadge.classList.toggle("hidden", !on); element.classList.toggle("motion", !!on); },
       recording(on) { recordingBadge.classList.toggle("hidden", !on); },
       ring(date = new Date()) {
@@ -5617,12 +5607,21 @@ enum WebAssets {
     if (preferences.temperatureUnit === "f") return { value: Math.round((value * 1.8 + 32) * 10) / 10, unit: "°F" };
     return { value: Math.round(value * 10) / 10, unit: "°C" };
   }
+  /// "just now", "4 min ago", "2 h ago", or the date: a Date, a time in milliseconds or an ISO 8601 string.
+  function ago(date) {
+    const when = new Date(date);
+    const seconds = (Date.now() - when) / 1000;
+    if (seconds < 45) return t("just now");
+    if (seconds < 3600) return t("{minutes} min ago", { minutes: Math.round(seconds / 60) });
+    if (seconds < 86400) return t("{hours} h ago", { hours: Math.round(seconds / 3600) });
+    return when.toLocaleDateString(HomeswiftI18n.locale, { month: "short", day: "numeric" });
+  }
   /// "21.5 °C" or "70.7 °F".
   const formatTemperature = (celsius) => { const { value, unit } = temperature(celsius); return `${value} ${unit}`; };
 
   window.HomeswiftCommon = {
     $, el, icon, tile, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
-    assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature,
+    assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
 })();
 
@@ -16355,7 +16354,7 @@ self.addEventListener("notificationclick", (event) => {
   function statusPainter(ctx, built, status) {
     return () => {
       const paused = ctx.accessory.paused ? [ctx.accessory.platformName ? t("Paused · {plugin}", { plugin: ctx.accessory.platformName }) : t("Paused · its plugin"), "warn"] : null;
-      const unavailable = !paused && ctx.accessory.unavailable ? [t("No Response"), "bad"] : null;
+      const unavailable = ctx.accessory.unavailable ? [t("No Response"), "bad"] : null;
       const [text, tone] = ctx.flashing ? [ctx.flashing, "bad"] : paused ?? unavailable ?? (built.status ? built.status() : [""]);
       status.textContent = text;
       if (tone) status.dataset.tone = tone; else delete status.dataset.tone;

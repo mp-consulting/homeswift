@@ -25,19 +25,21 @@ struct Mirror {
     let accessory: Accessory
     /// Each characteristic by its HomeKit id, for the events.
     let characteristics: [String: Characteristic]
+    /// The accessory's shape (`signature(of:)`): a read of the homes keeps a mirror whose shape did not change.
+    let signature: String
 
     /// nil when nothing of the accessory is usable (only HomeKit's own services).
-    init?(_ source: WingmanAPI.Accessory, platform: String, write: @escaping @Sendable (_ accessoryID: String, _ characteristicID: String, JSONValue) async throws -> Void) {
+    init?(_ source: WingmanAPI.Accessory, write: @escaping @Sendable (_ accessoryID: String, _ characteristicID: String, JSONValue) async throws -> Void) {
         var services: [Service] = []
         var characteristics: [String: Characteristic] = [:]
         let usable = source.services.filter { !Self.skippedServices.contains(HAPUUID($0.type)) }
-        let primaryIndex = usable.firstIndex { $0.primary == true } ?? usable.firstIndex { Self.isMain(HAPUUID($0.type)) } ?? 0
-        for (index, service) in usable.enumerated() {
+        let primary = usable.first { $0.primary == true } ?? usable.first { Self.isMain(HAPUUID($0.type)) }
+        for service in usable {
             var extra: [Characteristic] = []
             for item in service.characteristics {
                 let uuid = HAPUUID(item.type)
                 guard uuid != CharacteristicType.name.uuid, let type = Self.type(of: item) else { continue }
-                let characteristic = Characteristic(type, value: Self.value(item.value, as: type) ?? Characteristic(type).value)
+                let characteristic = Characteristic(type, value: Self.value(item.value, as: type))
                 if Self.securityTypes.contains(uuid) { characteristic.isSecurityControl = true }
                 if let id = item.id {
                     characteristics[id] = characteristic
@@ -45,7 +47,7 @@ struct Mirror {
                         let accessoryID = source.id
                         characteristic.onWrite { value in
                             do {
-                                try await write(accessoryID, id, Self.json(value))
+                                try await write(accessoryID, id, JSONValue(value))
                             } catch {
                                 throw HAPStatusError(.serviceCommunicationFailure)
                             }
@@ -55,22 +57,48 @@ struct Mirror {
                 extra.append(characteristic)
             }
             guard !extra.isEmpty else { continue }
-            let serviceType = ServiceType.known(uuid: HAPUUID(service.type))
-                ?? ServiceType(name: service.description ?? service.type, uuid: HAPUUID(service.type), required: [])
-            // No required characteristics: the service has exactly what HomeKit reports, nothing made up.
-            let bare = ServiceType(name: serviceType.name, uuid: serviceType.uuid, required: [])
-            services.append(Service(bare, name: service.name, subtype: service.id, extra: extra, isPrimary: index == primaryIndex))
+            // Homeswift's name for the type, which the widgets and moods know; no required characteristics: the service
+            // has exactly what HomeKit reports, nothing made up.
+            let uuid = HAPUUID(service.type)
+            let type = ServiceType(name: ServiceType.known(uuid: uuid)?.name ?? service.description ?? service.type, uuid: uuid, required: [])
+            services.append(Service(type, name: service.name, subtype: service.id, extra: extra, isPrimary: service.id == primary?.id))
         }
         guard !services.isEmpty else { return nil }
         let accessory = Accessory(
-            id: "\(platform):\(source.id)", name: source.name, manufacturer: source.manufacturer ?? Self.source,
+            id: "\(WingmanPlugin.platform):\(source.id)", name: source.name, manufacturer: source.manufacturer ?? Self.source,
             model: source.model ?? "Accessory", serialNumber: source.id, firmwareRevision: source.firmware ?? "1.0.0",
-            category: Self.category(of: services[primaryIndex < services.count ? primaryIndex : 0].type), services: services)
+            category: Self.category(of: (services.first(where: \.isPrimary) ?? services[0]).type), services: services)
         accessory.mirroredFrom = Self.source
         accessory.suggestedRoom = source.room
         accessory.isUnavailable = source.reachable == false
         self.accessory = accessory
         self.characteristics = characteristics
+        signature = Self.signature(of: source)
+    }
+
+    /// What decides the accessory's objects: its name, room, services and their characteristics with their props.
+    /// Values and reachability are not in it: `update(from:)` takes those.
+    static func signature(of source: WingmanAPI.Accessory) -> String {
+        var parts = [source.name, source.room ?? "", source.manufacturer ?? "", source.model ?? ""]
+        for service in source.services {
+            parts.append("\(service.id ?? "")/\(service.type)/\(service.name ?? "")/\(service.primary == true)")
+            for item in service.characteristics {
+                parts.append("\(item.id ?? "")/\(item.type)/\(item.properties)/\(item.format ?? "")/\(item.units ?? "")/\(item.min.map { "\($0)" } ?? "")/"
+                    + "\(item.max.map { "\($0)" } ?? "")/\(item.step.map { "\($0)" } ?? "")/\(item.validValues ?? [])/\(item.maxLength.map { "\($0)" } ?? "")")
+            }
+        }
+        return parts.joined(separator: "|")
+    }
+
+    /// Takes the values and reachability of a new read of the same accessory.
+    func update(from source: WingmanAPI.Accessory) {
+        for service in source.services {
+            for item in service.characteristics {
+                if let id = item.id, let characteristic = characteristics[id] { Self.apply(item.value, to: characteristic) }
+            }
+        }
+        let unavailable = source.reachable == false
+        if accessory.isUnavailable != unavailable { accessory.isUnavailable = unavailable }
     }
 
     /// What Homeswift's types say, with the bounds this device reports; a type Homeswift does not know is described
@@ -102,24 +130,7 @@ struct Mirror {
 
     /// A value from Wingman in the characteristic's format; nil when it does not fit.
     static func value(_ json: JSONValue?, as type: CharacteristicType) -> HAPValue? {
-        let raw: HAPValue
-        switch json {
-        case .bool(let bool)?: raw = .bool(bool)
-        case .number(let number)?: raw = Int(exactly: number).map(HAPValue.int) ?? .double(number)
-        case .string(let string)?: raw = .string(string)
-        default: return nil
-        }
-        return type.coerce(raw)
-    }
-
-    static func json(_ value: HAPValue) -> JSONValue {
-        switch value {
-        case .bool(let bool): .bool(bool)
-        case .int(let int): .number(Double(int))
-        case .double(let double): .number(double)
-        case .string(let string): .string(string)
-        case .null: .null
-        }
+        json.flatMap(HAPValue.init).flatMap(type.coerce)
     }
 
     /// Sets a characteristic from an event: the web UI and the moods see it at once.

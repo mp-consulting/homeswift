@@ -970,16 +970,15 @@
       render();
     } });
 
-    const hiddenToggle = hiddenCount ? el("label", { class: "toggle compact" }, el("input", { type: "checkbox", checked: showHidden, onchange: (event) => {
+    /// A filter kept in the address: ticked, `key` is `value`.
+    const queryToggle = (key, value, checked, text) => el("label", { class: "toggle compact" }, el("input", { type: "checkbox", checked, onchange: (event) => {
       const next = new URLSearchParams(location.search);
-      if (event.target.checked) next.set("hidden", "1"); else next.delete("hidden");
+      if (event.target.checked) next.set(key, value); else next.delete(key);
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
-    } }), el("span", { text: t("Show hidden ({count})", { count: hiddenCount }) })) : null;
-    const sourceToggles = sources.map((source) => el("label", { class: "toggle compact" }, el("input", { type: "checkbox", checked: from === source, onchange: (event) => {
-      const next = new URLSearchParams(location.search);
-      if (event.target.checked) next.set("from", source); else next.delete("from");
-      navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
-    } }), el("span", { text: t("Only from {source} ({count})", { source: t(source), count: all.filter((accessory) => accessory.mirroredFrom === source).length }) })));
+    } }), el("span", { text }));
+    const hiddenToggle = hiddenCount ? queryToggle("hidden", "1", showHidden, t("Show hidden ({count})", { count: hiddenCount })) : null;
+    const sourceToggles = sources.map((source) => queryToggle("from", source, from === source,
+      t("Only from {source} ({count})", { source: t(source), count: all.filter((accessory) => accessory.mirroredFrom === source).length })));
     const suggest = isAdmin() && window.HomeswiftChat?.available() && all.length
       ? el("button", { class: "ai-button icon-on-phone", title: t("Suggest rooms"), "aria-label": t("Suggest rooms"), onclick: () => HomeswiftHome.suggestRooms(content, all) }, sparkle(), el("span", { text: t("Suggest rooms") })) : null;
 

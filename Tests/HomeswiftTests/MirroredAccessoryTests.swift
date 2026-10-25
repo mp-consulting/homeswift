@@ -34,6 +34,28 @@ import Testing
         await server.stop()
     }
 
+    /// Mirroring a whole home adds many accessories at once: none of them makes HomeKit fetch its database again.
+    @Test func addingAMirroredAccessoryLeavesTheConfigurationNumber() async throws {
+        let server = try HAPServer(
+            bridge: Accessory(id: "bridge", name: "Test Bridge", category: .bridge, services: []), accessories: [], storage: MemoryStorage(),
+            options: .init(port: 0, advertise: false, logger: testLogger))
+        try server.add(lamp("own"))
+        try await server.start()
+        let number = { server.txtRecord().first { $0.0 == "c#" }?.1 }
+        let before = number()
+        for id in ["m1", "m2", "m3"] {
+            let mirrored = lamp(id)
+            mirrored.mirroredFrom = "Apple Home"
+            try server.add(mirrored)
+            #expect(mirrored.aid > 0)
+        }
+        #expect(number() == before)
+        // An accessory of its own still bumps it.
+        try server.add(lamp("own2"))
+        #expect(number() != before)
+        await server.stop()
+    }
+
     @Test func knownTypesAreFoundByUUID() {
         #expect(CharacteristicType.known(uuid: HAPUUID("00000008-0000-1000-8000-0026BB765291"))?.name == "Brightness")
         #expect(CharacteristicType.known(uuid: HAPUUID("CE")) == .colorTemperature)

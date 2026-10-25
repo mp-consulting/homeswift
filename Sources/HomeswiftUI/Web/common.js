@@ -773,11 +773,20 @@
     if (preferences.temperatureUnit === "f") return { value: Math.round((value * 1.8 + 32) * 10) / 10, unit: "°F" };
     return { value: Math.round(value * 10) / 10, unit: "°C" };
   }
+  /// "just now", "4 min ago", "2 h ago", or the date: a Date, a time in milliseconds or an ISO 8601 string.
+  function ago(date) {
+    const when = new Date(date);
+    const seconds = (Date.now() - when) / 1000;
+    if (seconds < 45) return t("just now");
+    if (seconds < 3600) return t("{minutes} min ago", { minutes: Math.round(seconds / 60) });
+    if (seconds < 86400) return t("{hours} h ago", { hours: Math.round(seconds / 3600) });
+    return when.toLocaleDateString(HomeswiftI18n.locale, { month: "short", day: "numeric" });
+  }
   /// "21.5 °C" or "70.7 °F".
   const formatTemperature = (celsius) => { const { value, unit } = temperature(celsius); return `${value} ${unit}`; };
 
   window.HomeswiftCommon = {
     $, el, icon, tile, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
-    assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature,
+    assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
 })();

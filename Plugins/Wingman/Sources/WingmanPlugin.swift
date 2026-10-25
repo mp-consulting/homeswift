@@ -65,16 +65,16 @@ public actor WingmanPlugin: HomeswiftPlugin {
         var name: String
         var host: String
         var port: Int
-        var home: String?
     }
 
     let configuration: Configuration
     let context: PluginContext
     let dependencies: Dependencies
     private let tasks = TaskBag()
-    private var links: [String: Link] = [:]
+    private(set) var links: [String: Link] = [:]
     private var announced: [String: Announced] = [:]
-    private var logger: Logger { context.logger }
+    nonisolated var logger: Logger { context.logger }
+    nonisolated var refreshInterval: Duration { .seconds(60 * max(configuration.refreshMinutes ?? 10, 1)) }
 
     public init(configuration: Configuration, context: PluginContext) {
         self.init(configuration: configuration, context: context, dependencies: Dependencies())
@@ -97,13 +97,13 @@ public actor WingmanPlugin: HomeswiftPlugin {
             tasks.add { await link.run() }
         }
         if links.isEmpty { logger.info("No Wingman paired yet: the plugin's page finds them on the network and pairs them") }
-        // Bonjour, all the time: a Wingman whose address changed is reached at the new one.
+        // Bonjour, all the time: a Wingman whose address changed is reached at the new one, one that left is forgotten.
         let browse = dependencies.browse
         let logger = self.logger
         tasks.add { [weak self] in
             for await event in browse(logger) {
-                guard case .found(let service) = event, let self else { continue }
-                await self.announce(service)
+                guard let self else { return }
+                await self.announced(event)
             }
         }
         // With no Wingman paired, the accessories a previous one left in the cache go.
@@ -116,13 +116,17 @@ public actor WingmanPlugin: HomeswiftPlugin {
 
     // MARK: Bonjour
 
-    private func announce(_ service: BonjourService) async {
-        guard let id = service.txt["id"], !id.isEmpty else { return }
-        let host = service.addresses.first { !$0.contains(":") } ?? service.addresses.first ?? service.hostName
-        let found = Announced(id: id, name: service.name, host: host, port: service.port, home: service.txt["home"])
-        guard announced[id] != found else { return }
-        announced[id] = found
-        await links[id]?.moved(to: found.host, port: found.port)
+    private func announced(_ event: BonjourBrowser.Event) async {
+        switch event {
+        case .found(let service):
+            guard let id = service.txt["id"], !id.isEmpty else { return }
+            let found = Announced(id: id, name: service.name, host: service.preferredAddress, port: service.port)
+            guard announced[id] != found else { return }
+            announced[id] = found
+            await links[id]?.moved(to: found.host, port: found.port)
+        case .lost(let name, _, _):
+            announced = announced.filter { $0.value.name != name }
+        }
     }
 
     /// The Wingmen announced now, from the browse that runs all the time, after a moment for a page that just opened.
@@ -134,7 +138,7 @@ public actor WingmanPlugin: HomeswiftPlugin {
     // MARK: Accessories
 
     /// Whether an Apple Home accessory comes to Homeswift: not Homeswift's own, not excluded, in a chosen home.
-    func includes(_ accessory: WingmanAPI.Accessory, home: WingmanAPI.Home) -> Bool {
+    nonisolated func includes(_ accessory: WingmanAPI.Accessory, home: WingmanAPI.Home) -> Bool {
         if let homes = configuration.homes, !homes.isEmpty, !homes.contains(where: { $0.caseInsensitiveCompare(home.name) == .orderedSame }) { return false }
         if let exclude = configuration.exclude, exclude.contains(where: { $0 == accessory.id || $0.caseInsensitiveCompare(accessory.name) == .orderedSame }) {
             return false
@@ -146,7 +150,7 @@ public actor WingmanPlugin: HomeswiftPlugin {
         return true
     }
 
-    func publish(_ accessory: Accessory) {
+    nonisolated func publish(_ accessory: Accessory) {
         do {
             try context.add(accessory)
         } catch {
@@ -165,33 +169,25 @@ public actor WingmanPlugin: HomeswiftPlugin {
         _ = await context.removeAccessories(keeping: keep, message: "Removing an accessory Apple Home no longer has")
     }
 
-    nonisolated var log: Logger { context.logger }
-    nonisolated var transports: any WingmanTransportFactory { dependencies.transports }
-    nonisolated var retry: Backoff { dependencies.retry }
-    nonisolated var refreshInterval: Duration { .seconds(60 * max(configuration.refreshMinutes ?? 10, 1)) }
-
     // MARK: The web page
 
     /// A Wingman as the page lists it, asked who it is: its version, whether pairing is open, and its certificate as
     /// this machine sees it, to compare with Wingman's menu before typing the code.
-    private func describe(_ wingman: Announced) async -> JSONValue {
-        let configured = Set((configuration.devices ?? []).map(\.id))
-        var entry: [String: JSONValue] = [
-            "id": .string(wingman.id), "name": .string(wingman.name), "host": .string(wingman.host), "port": .number(Double(wingman.port)),
-            "paired": .bool(configured.contains(wingman.id)),
-        ]
-        if let home = wingman.home { entry["home"] = .string(home) }
-        let client = WingmanClient(host: wingman.host, port: wingman.port, token: nil, fingerprint: nil, transports: transports)
+    private nonisolated func describe(_ wingman: Announced) async -> JSONValue {
+        let client = WingmanClient(host: wingman.host, port: wingman.port, token: nil, fingerprint: nil, transports: dependencies.transports)
+        var entry: [String: JSONValue] = ["name": .string(wingman.name), "host": .string(wingman.host), "port": .number(Double(wingman.port))]
+        var id = wingman.id
         do {
             let (info, fingerprint) = try await client.info()
-            entry["id"] = .string(info.id)
-            entry["paired"] = .bool(configured.contains(info.id))
+            id = info.id
             entry["version"] = info.version.map(JSONValue.string) ?? .null
             entry["pairing"] = .bool(info.pairing ?? false)
             entry["fingerprint"] = fingerprint.map(JSONValue.string) ?? .null
         } catch {
             entry["error"] = .string("\(error)")
         }
+        entry["id"] = .string(id)
+        entry["paired"] = .bool(configuration.devices?.contains { $0.id == id } == true)
         return .object(entry)
     }
 
@@ -212,14 +208,20 @@ public actor WingmanPlugin: HomeswiftPlugin {
             }
             return PluginWebResponse(["wingmen": .array(list)])
         case ("GET", "discover"):
-            var found: [JSONValue] = []
-            for wingman in await discovered() { found.append(await describe(wingman)) }
+            // Asked all at once: one that does not answer costs its timeout, not everyone's.
+            let wingmen = await discovered()
+            let found = await withTaskGroup(of: (Int, JSONValue).self) { group in
+                for (index, wingman) in wingmen.enumerated() { group.addTask { (index, await self.describe(wingman)) } }
+                var found: [(Int, JSONValue)] = []
+                for await answer in group { found.append(answer) }
+                return found.sorted { $0.0 < $1.0 }.map(\.1)
+            }
             return PluginWebResponse(["wingmen": .array(found)])
         case ("GET", "probe"):
             // A Wingman Bonjour does not reach (another network, a container without multicast), by its address.
             guard let host = request.query["host"]?.trimmingCharacters(in: .whitespaces), !host.isEmpty else { return .error(400, "an address is required") }
             let port = request.query["port"].flatMap(Int.init) ?? Self.defaultPort
-            let wingman = await describe(Announced(id: "", name: host, host: host, port: port, home: nil))
+            let wingman = await describe(Announced(id: "", name: host, host: host, port: port))
             if let error = wingman["error"]?.stringValue { return .error(502, error) }
             return PluginWebResponse(["wingman": wingman])
         case ("POST", "pair"):
@@ -230,14 +232,13 @@ public actor WingmanPlugin: HomeswiftPlugin {
             guard let fingerprint = request.body["fingerprint"]?.stringValue.map(HTTPClient.normalizeFingerprint), fingerprint.count == 64 else {
                 return .error(400, "the certificate fingerprint seen at discovery is required")
             }
-            let client = WingmanClient(host: host, port: port, token: nil, fingerprint: fingerprint, transports: transports)
+            let client = WingmanClient(host: host, port: port, token: nil, fingerprint: fingerprint, transports: dependencies.transports)
             do {
                 let paired = try await client.pair(code: code, name: dependencies.bridgeName)
-                let (info, _) = try await client.info()
+                var id = paired.wingman
+                if id == nil { id = try await client.info().info.id }
                 logger.info("Paired with Wingman", metadata: ["host": "\(host)"])
-                var entry: [String: JSONValue] = [
-                    "id": .string(paired.wingman ?? info.id), "host": .string(host), "token": .string(paired.token), "fingerprint": .string(fingerprint),
-                ]
+                var entry: [String: JSONValue] = ["id": .string(id ?? ""), "host": .string(host), "token": .string(paired.token), "fingerprint": .string(fingerprint)]
                 if port != Self.defaultPort { entry["port"] = .number(Double(port)) }
                 if let name = request.body["name"]?.stringValue, !name.isEmpty { entry["name"] = .string(name) }
                 return PluginWebResponse(["device": .object(entry)])
@@ -254,46 +255,54 @@ public actor WingmanPlugin: HomeswiftPlugin {
 
 /// One paired Wingman: reads its homes, mirrors their accessories, follows their changes and carries the writes.
 actor Link {
-    private var device: WingmanPlugin.Configuration.Device
+    private enum Phase: Equatable {
+        case connecting, connected
+        case unreachable(String), unpaired(String)
+    }
+
+    /// What the last read of the homes gave.
+    private struct Snapshot {
+        var mirrors: [String: Mirror]
+        var homes: [String]
+        var leftOut: Int
+    }
+
+    private let device: WingmanPlugin.Configuration.Device
     private let token: String
     /// Weak: the plugin owns its links, and a pairing reloads it.
     private weak var plugin: WingmanPlugin?
     private let logger: Logger
-    private let transports: any WingmanTransportFactory
-    private let retry: Backoff
+    private let dependencies: WingmanPlugin.Dependencies
     private let refreshInterval: Duration
     private var client: WingmanClient
-    private var loaded = false
-    private var mirrors: [String: Mirror] = [:]
+    private var snapshot: Snapshot?
+    /// Accessories Apple Home says do not answer, until they report again.
+    private var unreachable: Set<String> = []
     private var since = 0
-    private var state = "connecting"
-    private var lastError: String?
+    private var phase = Phase.connecting
     private var lastContact: Date?
-    private var homeNames: [String] = []
-    private var skipped = 0
 
     init(device: WingmanPlugin.Configuration.Device, token: String, plugin: WingmanPlugin) {
         self.device = device
         self.token = token
         self.plugin = plugin
-        logger = plugin.log
-        transports = plugin.transports
-        retry = plugin.retry
+        logger = plugin.logger
+        dependencies = plugin.dependencies
         refreshInterval = plugin.refreshInterval
         client = WingmanClient(
             host: device.host ?? "", port: device.port ?? WingmanPlugin.defaultPort, token: token, fingerprint: device.fingerprint,
-            transports: plugin.transports)
+            transports: plugin.dependencies.transports)
     }
 
     /// The accessories of the last read of the homes; nil before the first.
-    var loadedIDs: Set<String>? { loaded ? Set(mirrors.values.map(\.accessory.id)) : nil }
+    var loadedIDs: Set<String>? { snapshot.map { Set($0.mirrors.values.map(\.accessory.id)) } }
     private var name: String { device.name ?? device.id }
 
     /// Bonjour announced Wingman at another address: the next request goes there.
     func moved(to host: String, port: Int) {
         guard host != client.host || port != client.port else { return }
         logger.info("Wingman moved", metadata: ["wingman": "\(name)", "host": "\(host)"])
-        client = WingmanClient(host: host, port: port, token: token, fingerprint: device.fingerprint, transports: transports)
+        client = WingmanClient(host: host, port: port, token: token, fingerprint: device.fingerprint, transports: dependencies.transports)
     }
 
     func run() async {
@@ -310,47 +319,52 @@ actor Link {
                 guard !Task.isCancelled else { return }
                 lost(error)
                 if case WingmanError.unauthorized = error { return }
-                try? await Task.sleep(for: retry.delay(attempt: failures))
+                try? await Task.sleep(for: dependencies.retry.delay(attempt: failures))
                 failures += 1
             }
         }
     }
 
-    /// Reads the homes and (re)builds the accessories.
-    private func refresh() async throws {
+    /// Reads the homes. An accessory whose shape is as it was keeps its objects and takes the new values; the others
+    /// are built again and replace theirs.
+    func refresh() async throws {
         guard !client.host.isEmpty else { throw WingmanError.unreachable("no address yet: waiting for Bonjour") }
+        guard let plugin else { return }
         let homes = try await client.homes()
         // Changes from now on: the events after this read.
         since = try await client.events(since: Int.max - 1, wait: 0).last ?? 0
-        var built: [String: Mirror] = [:]
-        var left = 0
-        guard let plugin else { return }
         let write: @Sendable (String, String, JSONValue) async throws -> Void = { [weak self] accessoryID, characteristicID, value in
-            guard let self else { throw WingmanError.unreachable("stopped") }
-            try await self.write(accessory: accessoryID, characteristic: characteristicID, value: value)
+            guard let client = await self?.client else { throw WingmanError.unreachable("stopped") }
+            try await client.write(accessory: accessoryID, characteristic: characteristicID, value: value)
         }
+        var mirrors: [String: Mirror] = [:]
+        var changed: [Mirror] = []
+        var leftOut = 0
+        unreachable = []
         for home in homes {
             for accessory in home.accessories {
-                guard await plugin.includes(accessory, home: home) else {
-                    left += 1
+                guard plugin.includes(accessory, home: home) else {
+                    leftOut += 1
                     continue
                 }
-                guard let mirror = Mirror(accessory, platform: WingmanPlugin.platform, write: write) else { continue }
-                built[accessory.id] = mirror
+                if accessory.reachable == false { unreachable.insert(accessory.id) }
+                if let kept = snapshot?.mirrors[accessory.id], kept.signature == Mirror.signature(of: accessory) {
+                    kept.update(from: accessory)
+                    mirrors[accessory.id] = kept
+                } else if let mirror = Mirror(accessory, write: write) {
+                    mirrors[accessory.id] = mirror
+                    changed.append(mirror)
+                }
             }
         }
         // The status first: whoever sees the accessories sees the state they came with.
-        if state != "connected" {
-            logger.info("Mirroring Apple Home through Wingman", metadata: ["wingman": "\(name)", "accessories": "\(built.count)", "left out": "\(left)"])
+        if phase != .connected {
+            logger.info("Mirroring Apple Home through Wingman", metadata: ["wingman": "\(name)", "accessories": "\(mirrors.count)", "left out": "\(leftOut)"])
         }
-        mirrors = built
-        loaded = true
-        homeNames = homes.map(\.name)
-        skipped = left
-        state = "connected"
-        lastError = nil
+        snapshot = Snapshot(mirrors: mirrors, homes: homes.map(\.name), leftOut: leftOut)
+        phase = .connected
         lastContact = Date()
-        for mirror in built.values { await plugin.publish(mirror.accessory) }
+        for mirror in changed { plugin.publish(mirror.accessory) }
         await plugin.prune()
     }
 
@@ -363,40 +377,43 @@ actor Link {
         var unknown = false
         for event in answer.events {
             if let seq = event.seq { since = max(since, seq) }
-            guard let accessoryID = event.accessoryID, let characteristicID = event.characteristicID else { continue }
-            guard let mirror = mirrors[accessoryID] else { continue }
+            guard let accessoryID = event.accessoryID, let characteristicID = event.characteristicID,
+                  let mirror = snapshot?.mirrors[accessoryID] else { continue }
             guard let characteristic = mirror.characteristics[characteristicID] else {
                 unknown = true
                 continue
             }
             Mirror.apply(event.value, to: characteristic)
-            if mirror.accessory.isUnavailable { mirror.accessory.isUnavailable = false }
+            // It reports again: it answers.
+            if unreachable.remove(accessoryID) != nil { mirror.accessory.isUnavailable = false }
         }
         if let last = answer.last { since = max(since, last) }
         return unknown
     }
 
-    private func write(accessory: String, characteristic: String, value: JSONValue) async throws {
-        try await client.write(accessory: accessory, characteristic: characteristic, value: value)
-    }
-
     private func lost(_ error: any Error) {
         let message = "\(error)"
-        if lastError != message {
-            logger.warning("Wingman: \(message)", metadata: ["wingman": "\(name)"])
-        }
-        if case WingmanError.unauthorized = error { state = "unpaired" } else { state = "unreachable" }
-        lastError = message
+        let next: Phase = if case WingmanError.unauthorized = error { .unpaired(message) } else { .unreachable(message) }
+        if next != phase { logger.warning("Wingman: \(message)", metadata: ["wingman": "\(name)"]) }
+        phase = next
     }
 
     func status() -> JSONValue {
+        let state: String, error: String?
+        switch phase {
+        case .connecting: (state, error) = ("connecting", nil)
+        case .connected: (state, error) = ("connected", nil)
+        case .unreachable(let message): (state, error) = ("unreachable", message)
+        case .unpaired(let message): (state, error) = ("unpaired", message)
+        }
         var json: [String: JSONValue] = [
             "id": .string(device.id), "name": .string(name), "host": .string(client.host), "port": .number(Double(client.port)), "state": .string(state),
-            "accessories": .number(Double(mirrors.count)), "notResponding": .number(Double(mirrors.values.filter(\.accessory.isUnavailable).count)),
-            "leftOut": .number(Double(skipped)), "homes": .array(homeNames.map(JSONValue.string)), "pinned": .bool(device.fingerprint != nil),
+            "accessories": .number(Double(snapshot?.mirrors.count ?? 0)), "notResponding": .number(Double(unreachable.count)),
+            "leftOut": .number(Double(snapshot?.leftOut ?? 0)), "homes": .array((snapshot?.homes ?? []).map(JSONValue.string)),
+            "pinned": .bool(device.fingerprint != nil),
         ]
-        if let lastError { json["error"] = .string(lastError) }
-        if let lastContact { json["lastContact"] = .string(ISO8601DateFormatter().string(from: lastContact)) }
+        if let error { json["error"] = .string(error) }
+        if let lastContact { json["lastContact"] = .string(Timestamp.iso8601(lastContact)) }
         return .object(json)
     }
 }

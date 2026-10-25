@@ -151,6 +151,25 @@ struct WingmanTests {
         await host.stop()
     }
 
+    @Test func aWriteRefusedWithoutAnyMessageIsNoResponseToo() async throws {
+        let host = try await environment.start()
+        let light = try await accessory(host, "light-1")
+        let saturation = try #require(light.service(.lightbulb)?[.saturation])
+        let write = try #require(saturation.writeHandler(for: .double(50)))
+        await #expect(throws: HAPStatusError.self) { try await write(.double(50)) }
+        await host.stop()
+    }
+
+    /// A new read of the homes keeps the objects of an accessory whose shape did not change, with its new values.
+    @Test func aReadOfTheHomesKeepsUnchangedAccessories() async throws {
+        let host = try await environment.start(settings: ["devices": [TestEnvironment.paired], "refreshMinutes": 1])
+        let light = try await accessory(host, "light-1")
+        let link = try #require(await environment.plugin?.links["wm-1"])
+        try await link.refresh()
+        #expect(host.mainBridge.server.accessories.first { $0.id == "Wingman:light-1" } === light)
+        await host.stop()
+    }
+
     @Test func valueChangesReachHomeswiftAtOnce() async throws {
         let host = try await environment.start()
         let light = try await accessory(host, "light-1")

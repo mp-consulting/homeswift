@@ -544,19 +544,11 @@ private final class WebSocketFrameHandler: ChannelInboundHandler {
         case .some(let error):
             close(context: context, code: 1002, error: WebSocketError.protocolError("\(error)"))
         case nil:
-            core.finish(Self.dropped(error) ? WebSocketError.connectionLost : error)
+            // A peer that resets the connection dropped it, as one that closes without a close frame does: which of
+            // the two reaches us depends on whether frames were still in flight.
+            core.finish(HTTPClient.isDrop(error) ? WebSocketError.connectionLost : error)
             context.close(promise: nil)
         }
-    }
-
-    /// A peer that resets or aborts the connection dropped it, as one that closes without a close frame does: which of
-    /// the two reaches us depends on whether frames were still in flight, so both end the stream the same way.
-    static func dropped(_ error: any Error) -> Bool {
-        if let error = error as? IOError {
-            return [ECONNRESET, ECONNABORTED, EPIPE, ETIMEDOUT, ENOTCONN].contains(error.errnoCode)
-        }
-        if let error = error as? NIOSSLError, case .uncleanShutdown = error { return true }
-        return error as? ChannelError == .eof || error as? ChannelError == .ioOnClosedChannel
     }
 
     func channelInactive(context: ChannelHandlerContext) {

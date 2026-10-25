@@ -230,8 +230,8 @@ public final class HTTPClient: HTTPSending, Sendable {
     }
 
     /// A connection the server closed (or reset) under the request, as opposed to a refusal, a timeout or a TLS
-    /// failure.
-    private static func isDrop(_ error: any Error) -> Bool {
+    /// failure. The WebSocket client ends its stream on the same errors as a dropped connection.
+    static func isDrop(_ error: any Error) -> Bool {
         switch error {
         case let error as HTTPClientError: error == .connectionClosed
         case let error as ChannelError: error == .ioOnClosedChannel || error == .eof || error == .alreadyClosed
