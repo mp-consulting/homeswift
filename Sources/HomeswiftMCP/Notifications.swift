@@ -58,7 +58,34 @@ public enum NotificationChannel: String, CaseIterable, Sendable {
 }
 
 public struct NotificationSettings: Codable, Sendable, Equatable {
-    public struct Webhook: Codable, Sendable, Equatable { public var enabled = false; public var url = "" }
+    public struct Webhook: Codable, Sendable, Equatable {
+        public var enabled = false
+        public var url = ""
+        public var auth = "none"
+        public var username = ""
+        public var password = ""
+        public var token = ""
+        public var headers: [String: String] = [:]
+        public init() {}
+        enum CodingKeys: String, CodingKey { case enabled, url, auth, username, password, token, headers }
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+            url = try c.decodeIfPresent(String.self, forKey: .url) ?? ""
+            auth = try c.decodeIfPresent(String.self, forKey: .auth) ?? "none"
+            username = try c.decodeIfPresent(String.self, forKey: .username) ?? ""
+            password = try c.decodeIfPresent(String.self, forKey: .password) ?? ""
+            token = try c.decodeIfPresent(String.self, forKey: .token) ?? ""
+            headers = try c.decodeIfPresent([String: String].self, forKey: .headers) ?? [:]
+        }
+        var authorization: String? {
+            switch auth {
+            case "bearer": "Bearer \(token)"
+            case "basic": "Basic " + Data("\(username):\(password)".utf8).base64EncodedString()
+            default: nil
+            }
+        }
+    }
     public struct Ntfy: Codable, Sendable, Equatable { public var enabled = false; public var server = "https://ntfy.sh"; public var topic = ""; public var token = "" }
     public struct Pushover: Codable, Sendable, Equatable { public var enabled = false; public var userKey = ""; public var appToken = "" }
     public struct Telegram: Codable, Sendable, Equatable { public var enabled = false; public var botToken = ""; public var chatId = "" }
@@ -102,11 +129,11 @@ public struct NotificationSettings: Codable, Sendable, Equatable {
 
     /// Every secret the settings hold, to scrub from error texts (a failed request's URL can carry one).
     var secrets: [String] {
-        [channels.webhook.url, channels.ntfy.token, channels.pushover.userKey, channels.pushover.appToken, channels.telegram.botToken].filter { $0.count >= 4 }
+        ([channels.webhook.url, channels.webhook.username, channels.webhook.password, channels.webhook.token, channels.webhook.authorization ?? "", channels.webhook.authorization?.split(separator: " ", maxSplits: 1).last.map(String.init) ?? "", channels.ntfy.token, channels.pushover.userKey, channels.pushover.appToken, channels.telegram.botToken] + Array(channels.webhook.headers.values)).filter { !$0.isEmpty }
     }
 
     /// The fields never sent back in clear, by channel.
-    static let secretFields: [NotificationChannel: Set<String>] = [.webhook: ["url"], .ntfy: ["token"], .pushover: ["userKey", "appToken"], .telegram: ["botToken"]]
+    static let secretFields: [NotificationChannel: Set<String>] = [.webhook: ["url", "username", "password", "token"], .ntfy: ["token"], .pushover: ["userKey", "appToken"], .telegram: ["botToken"]]
     public static let placeholder = "********"
 }
 
@@ -165,6 +192,9 @@ extension HomeswiftCatalog {
         for (channel, fields) in NotificationSettings.secretFields {
             guard var object = channels[channel.rawValue]?.objectValue else { continue }
             for field in fields { object[field] = .string((object[field]?.stringValue ?? "").isEmpty ? "" : NotificationSettings.placeholder) }
+            if channel == .webhook {
+                object["headers"] = .object(settings.channels.webhook.headers.mapValues { .string($0.isEmpty ? "" : NotificationSettings.placeholder) })
+            }
             channels[channel.rawValue] = .object(object)
         }
         return [
@@ -192,10 +222,25 @@ extension HomeswiftCatalog {
             for channel in NotificationChannel.allCases {
                 guard let given = body["channels"]?[channel.rawValue]?.objectValue, var target = channels[channel.rawValue]?.objectValue else { continue }
                 for (field, value) in given where target[field] != nil {
+                    if channel == .webhook, field == "headers" {
+                        guard let headers = value.objectValue else { throw CatalogError("Webhook headers must be an object") }
+                        var replacement: [String: JSONValue] = [:]
+                        for (name, raw) in headers {
+                            guard let text = raw.stringValue else { throw CatalogError("Webhook header values must be text") }
+                            if text == NotificationSettings.placeholder {
+                                guard let saved = settings.channels.webhook.headers.first(where: { $0.key.lowercased() == name.lowercased() })?.value else {
+                                    throw CatalogError("Enter a value for the new webhook header")
+                                }
+                                replacement[name] = .string(saved)
+                            } else { replacement[name] = .string(text) }
+                        }
+                        target[field] = .object(replacement)
+                        continue
+                    }
                     if let flag = value.boolValue { target[field] = .bool(flag); continue }
                     guard let text = value.stringValue else { continue }
                     if NotificationSettings.secretFields[channel]?.contains(field) == true, text == NotificationSettings.placeholder { continue }
-                    target[field] = .string(text.trimmingCharacters(in: .whitespacesAndNewlines))
+                    target[field] = .string(channel == .webhook && ["username", "password", "token"].contains(field) ? text : text.trimmingCharacters(in: .whitespacesAndNewlines))
                 }
                 channels[channel.rawValue] = .object(target)
             }
@@ -221,6 +266,25 @@ extension HomeswiftCatalog {
     static func validate(_ channels: NotificationSettings.Channels) throws {
         let fail = { (message: String) in CatalogError(message) }
         if !channels.webhook.url.isEmpty, !NotificationRules.isHTTPURL(channels.webhook.url) { throw fail("The webhook URL must be an http(s) URL") }
+        let hook = channels.webhook
+        guard ["none", "basic", "bearer"].contains(hook.auth) else { throw fail("Invalid webhook authentication") }
+        if hook.auth == "basic", hook.username.contains(":") { throw fail("The Basic auth username cannot contain a colon") }
+        if hook.enabled && ((hook.auth == "bearer" && hook.token.isEmpty) || (hook.auth == "basic" && (hook.username.isEmpty || hook.password.isEmpty))) {
+            throw fail("Complete the webhook authentication fields")
+        }
+        if hook.auth == "bearer", !hook.token.isEmpty, !NotificationRules.matches(hook.token, #"[A-Za-z0-9._~+/=-]+"#) { throw fail("Invalid webhook bearer token") }
+        guard hook.headers.count <= 32 else { throw fail("Use at most 32 webhook headers") }
+        var names = Set<String>()
+        let reserved: Set<String> = ["host", "content-length", "content-type", "connection", "transfer-encoding", "trailer", "te", "upgrade", "expect", "proxy-authorization"]
+        for (name, value) in hook.headers {
+            guard NotificationRules.matches(name, #"[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}"#), names.insert(name.lowercased()).inserted,
+                  !reserved.contains(name.lowercased()), !(hook.auth != "none" && name.lowercased() == "authorization") else {
+                throw fail("Invalid, duplicate or reserved webhook header name")
+            }
+            guard value.utf8.count <= 4096, value.unicodeScalars.allSatisfy({ $0.value >= 32 && $0.value <= 126 }) else {
+                throw fail("Webhook header values must be single-line ASCII text, up to 4096 bytes")
+            }
+        }
         if !channels.ntfy.server.isEmpty, !NotificationRules.isHTTPURL(channels.ntfy.server) { throw fail("The ntfy server must be an http(s) URL") }
         if !channels.ntfy.topic.isEmpty, !NotificationRules.matches(channels.ntfy.topic, #"[\w-]{1,64}"#) { throw fail("The ntfy topic may only use letters, numbers, - and _ (up to 64)") }
         if !channels.ntfy.token.isEmpty, !NotificationRules.matches(channels.ntfy.token, #"[\w.-]{1,256}"#) { throw fail("Invalid ntfy access token") }
@@ -330,7 +394,10 @@ extension HomeswiftCatalog {
         case .webhook:
             let body: JSONValue = ["event": .string(message.event.rawValue), "title": .string(title), "message": .string(message.message),
                                    "instance": .string(instanceName), "timestamp": .string(SceneRules.now())]
-            try await post(settings.channels.webhook.url, headers: [("Content-Type", "application/json")], body: body.encoded())
+            let hook = settings.channels.webhook
+            var headers = [("Content-Type", "application/json")] + hook.headers.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
+            if let authorization = hook.authorization { headers.append(("Authorization", authorization)) }
+            try await post(hook.url, headers: headers, body: body.encoded())
         case .ntfy:
             let ntfy = settings.channels.ntfy
             // Header values must be Latin-1: anything else in the title becomes ?.
@@ -516,6 +583,7 @@ extension HomeswiftCatalog {
         }
         guard fresh else { return }
         await runDueScenes(at: minute)
+        await home.naturalLighting.tick(self, at: now)
         await checkNotificationSources(now: now)
     }
 

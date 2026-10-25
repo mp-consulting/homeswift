@@ -7,9 +7,14 @@
   const { t, tn } = HomeswiftI18n;
   let app = null;
 
-  const weekdays = [t("Sun"), t("Mon"), t("Tue"), t("Wed"), t("Thu"), t("Fri"), t("Sat")];
-  // The days picker's two-letter labels.
-  const dayLetters = [t("Su"), t("Mo"), t("Tu"), t("We"), t("Th"), t("Fr"), t("Sa")];
+  // Stable Sunday-based ids for storage, localized labels and display order for people.
+  const weekdayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", timeZone: "UTC" });
+  const weekdayFullFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "long", timeZone: "UTC" });
+  const weekdays = Array.from({ length: 7 }, (_, day) => weekdayFormat.format(new Date(Date.UTC(2024, 0, 7 + day))));
+  const weekdayNames = Array.from({ length: 7 }, (_, day) => weekdayFullFormat.format(new Date(Date.UTC(2024, 0, 7 + day))));
+  const weekLocale = new Intl.Locale(HomeswiftI18n.locale);
+  const firstWeekday = (weekLocale.getWeekInfo?.() ?? weekLocale.weekInfo)?.firstDay ?? 1;
+  const weekdayOrder = Array.from({ length: 7 }, (_, offset) => (firstWeekday + offset) % 7);
   const operators = [["eq", t("is")], ["neq", t("is not")], ["gt", t("is above")], ["gte", t("is at least")], ["lt", t("is below")], ["lte", t("is at most")]];
   const field = (label, input, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), input, help ? el("span", { class: "help", text: help }) : null);
   const displayName = (accessory) => accessory.displayName || accessory.name;
@@ -411,14 +416,21 @@
             } },
           ])));
     };
+    const sceneCards = data.scenes.map((scene) => ({ scene, node: card(scene) }));
+    const search = el("input", { type: "search", class: "search", placeholder: t("Filter text"), "aria-label": t("Your scenes") });
+    const noMatches = el("p", { class: "card empty", hidden: true, text: t("Nothing in this range matches.") });
+    search.addEventListener("input", () => {
+      const query = search.value.trim().toLocaleLowerCase();
+      for (const { scene, node } of sceneCards) node.hidden = !scene.name.toLocaleLowerCase().includes(query);
+      noMatches.hidden = sceneCards.some(({ node }) => !node.hidden);
+    });
     app.show(main,
       app.pageHead(t("Scenes"), t("Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them."),
-        el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
-      moodsSection(accessories),
-      el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") })),
-      data.scenes.length ? el("div", { class: "grid" }, data.scenes.map(card))
-        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") })),
-      locationCard(data));
+        data.scenes.length ? el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") }) : null),
+      el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") }), data.scenes.length ? search : null),
+      data.scenes.length ? el("div", { class: "grid scene-grid" }, sceneCards.map(({ node }) => node))
+        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") }), el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
+      noMatches, moodsSection(accessories), locationCard(data));
   }
 
   /// Where sunrise and sunset are computed for: Glass UI took its weather widget's city; here it is typed, or
@@ -530,10 +542,11 @@
 
   function daysPicker(days) {
     const chosen = new Set(days && days.length ? days : [0, 1, 2, 3, 4, 5, 6]);
-    const node = el("span", { class: "days", role: "group", "aria-label": t("Days") }, weekdays.map((name, day) => {
+    const node = el("span", { class: "days", role: "group", "aria-label": t("Days") }, weekdayOrder.map((day) => {
+      const name = weekdayNames[day];
       const box = el("input", { type: "checkbox", checked: chosen.has(day), "aria-label": name });
       box.addEventListener("change", () => { if (box.checked) chosen.add(day); else chosen.delete(day); });
-      return el("label", { class: "day" }, box, el("span", { text: dayLetters[day] }));
+      return el("label", { class: "day", title: name }, box, el("span", { text: weekdays[day] }));
     }));
     node.read = () => chosen.size === 7 || chosen.size === 0 ? undefined : [...chosen].sort();
     return node;
@@ -566,7 +579,12 @@
       const pick = {};
       const row = rowShell(...characteristicPicker(choices, pick, { id: action.id, characteristic: action.characteristic, value: action.value }));
       row.read = () => ({ ...pick.read(), value: pick.value.read() });
-      row.append(removeButton(row, actions));
+      const remove = removeButton(row, actions);
+      remove.className = "danger scene-condition-remove";
+      remove.append(el("span", { text: t("Delete action") }));
+      remove.title = t("Delete action");
+      remove.setAttribute("aria-label", t("Delete action"));
+      row.append(remove);
       actions.add(row);
       actionList.append(row);
     };
@@ -609,7 +627,12 @@
       draw(trigger);
       type.addEventListener("change", () => draw({ type: type.value }));
       row.read = () => ({ type: type.value, ...(enabled.checked ? {} : { enabled: false }), ...row.readBody() });
-      row.append(removeButton(row, triggers));
+      const remove = removeButton(row, triggers);
+      remove.className = "danger scene-condition-remove";
+      remove.append(el("span", { text: t("Delete trigger") }));
+      remove.title = t("Delete trigger");
+      remove.setAttribute("aria-label", t("Delete trigger"));
+      row.append(remove);
       triggers.add(row);
       triggerList.append(row);
     };
@@ -635,7 +658,12 @@
       draw(condition);
       type.addEventListener("change", () => draw({ type: type.value }));
       row.read = () => ({ type: type.value, ...row.readBody() });
-      row.append(removeButton(row, conditions));
+      const remove = removeButton(row, conditions);
+      remove.className = "danger scene-condition-remove";
+      remove.append(el("span", { text: t("Delete condition") }));
+      remove.title = t("Delete condition");
+      remove.setAttribute("aria-label", t("Delete condition"));
+      row.append(remove);
       conditions.add(row);
       conditionList.append(row);
     };
@@ -653,6 +681,48 @@
       if (!accessory) return;
       for (const c of writable(accessory)) if (!c.security && c.value !== null && c.value !== undefined) addAction({ id: accessory.id, characteristic: c.type, value: c.value });
     });
+
+    const canvas = el("div", { class: "scene-flow-canvas" });
+    const viewport = el("div", { class: "scene-flow-viewport", tabIndex: 0, "aria-label": t("Scenes") }, canvas);
+    const links = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    links.classList.add("scene-flow-links"); links.setAttribute("aria-hidden", "true"); canvas.append(links);
+    let zoom = 1;
+    const nodes = [];
+    const connect = () => {
+      links.replaceChildren();
+      for (let i = 0; i < nodes.length - 1; i++) {
+        const a = nodes[i], b = nodes[i + 1];
+        const x1 = a.offsetLeft + a.offsetWidth, y1 = a.offsetTop + 36;
+        const x2 = b.offsetLeft, y2 = b.offsetTop + 36;
+        const path = document.createElementNS(links.namespaceURI, "path");
+        path.setAttribute("d", `M ${x1} ${y1} C ${x1 + 60} ${y1}, ${x2 - 60} ${y2}, ${x2} ${y2}`);
+        links.append(path);
+      }
+    };
+    const node = (title, glyph, content) => {
+      const handle = el("button", { type: "button", class: "scene-flow-handle", title: t("Drag to reorder") }, HomeswiftCommon.icon(glyph), el("strong", { text: title }), el("span", { text: "⠿", "aria-hidden": "true" }));
+      const panel = el("section", { class: "scene-flow-node", style: `left:${24 + nodes.length * 410}px;top:24px` }, handle, el("div", { class: "scene-flow-body" }, content));
+      nodes.push(panel); canvas.append(panel);
+      handle.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault(); handle.setPointerCapture(event.pointerId);
+        const x = event.clientX, y = event.clientY, left = panel.offsetLeft, top = panel.offsetTop;
+        const move = (e) => { panel.style.left = `${Math.max(8, Math.min(1200, left + (e.clientX - x) / zoom))}px`; panel.style.top = `${Math.max(8, top + (e.clientY - y) / zoom)}px`; connect(); };
+        const end = () => { handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", end); handle.removeEventListener("pointercancel", end); };
+        handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", end); handle.addEventListener("pointercancel", end);
+      });
+      return panel;
+    };
+    node(t("Triggers"), "play", [el("p", { class: "muted", text: data.location ? t("Run it automatically. Sunrise and sunset are for {place}.", { place: data.location.name || `${data.location.lat}, ${data.location.lon}` }) : t("Run it automatically. Sunrise and sunset need a location: set it on the Scenes page.") }), triggerList, el("button", { type: "button", text: t("Add a trigger"), onclick: () => addTrigger() })]);
+    node(t("Conditions"), "shield", [el("p", { class: "muted", text: t("An automatic run goes ahead only when all of these hold. Running it by hand ignores them.") }), conditionList, el("button", { type: "button", text: t("Add a condition"), onclick: () => addCondition() })]);
+    node(t("Actions"), "bulb", [el("p", { class: "muted", text: t("The values to set, in this order.") }), actionList, el("button", { type: "button", text: t("Add an action"), onclick: () => addAction() }), capture]);
+    const zoomLabel = el("span", { text: "100%" });
+    const changeZoom = (delta) => { zoom = Math.max(.5, Math.min(1.5, zoom + delta)); canvas.style.zoom = zoom; zoomLabel.textContent = `${Math.round(zoom * 100)}%`; };
+    const flow = el("div", { class: "scene-flow" }, el("div", { class: "scene-flow-toolbar" },
+      el("span", { text: `${t("Triggers")} → ${t("Conditions")} → ${t("Actions")}` }),
+      el("button", { type: "button", text: "−", "aria-label": "Zoom out", onclick: () => changeZoom(-.1) }), zoomLabel,
+      el("button", { type: "button", text: "+", "aria-label": "Zoom in", onclick: () => changeZoom(.1) })), viewport);
+    requestAnimationFrame(connect);
 
     const line = statusLine();
     const save = el("button", { class: "primary", type: "submit", text: isNew ? t("Create the scene") : t("Save") });
@@ -673,12 +743,7 @@
       save.disabled = false;
     } },
       field(t("Name"), name),
-      el("h2", { text: t("Actions") }), el("p", { class: "muted", text: t("The values to set, in this order.") }), actionList,
-      el("div", { class: "actions" }, el("button", { type: "button", text: t("Add an action"), onclick: () => addAction() }), capture),
-      el("h2", { text: t("Triggers") }), el("p", { class: "muted", text: data.location ? t("Run it automatically. Sunrise and sunset are for {place}.", { place: data.location.name || `${data.location.lat}, ${data.location.lon}` }) : t("Run it automatically. Sunrise and sunset need a location: set it on the Scenes page.") }),
-      triggerList, el("div", { class: "actions" }, el("button", { type: "button", text: t("Add a trigger"), onclick: () => addTrigger() })),
-      el("h2", { text: t("Conditions") }), el("p", { class: "muted", text: t("An automatic run goes ahead only when all of these hold. Running it by hand ignores them.") }),
-      conditionList, el("div", { class: "actions" }, el("button", { type: "button", text: t("Add a condition"), onclick: () => addCondition() })),
+      flow,
       el("div", { class: "save-bar" }, save, el("a", { class: "button", href: "/scenes", text: t("Cancel") }),
         isNew ? null : el("span", { class: "spacer" }),
         isNew ? null : el("button", { type: "button", class: "danger", text: t("Delete"), onclick: async () => {
@@ -727,7 +792,7 @@
         say(line, failed.length ? failed.map((r) => `${r.channel}: ${HomeswiftI18n.message(r.error)}`).join("; ") : t("Sent through {channels}.", { channels: answer.results.map((r) => r.channel).join(", ") }), failed.length ? "error" : "ok");
       } catch (e) { say(line, e.message, "error"); }
     };
-    const cards = Object.entries(channelInfo).map(([channel, [title, help, fields]]) => {
+    const cards = Object.entries(channelInfo).sort(([a], [b]) => Number(b === "browser") - Number(a === "browser")).map(([channel, [title, help, fields]]) => {
       const values = settings.channels[channel];
       const enabled = el("input", { type: "checkbox", checked: values.enabled, "aria-label": t("{channel} on", { channel: title }) });
       inputs[channel] = { enabled };
@@ -736,41 +801,105 @@
         inputs[channel][key] = input;
         return field(label, input);
       });
-      return el("div", { class: "card server" },
+      if (channel === "webhook") {
+        const authOptions = [["none", t("No authentication")], ["bearer", t("Bearer token")], ["basic", t("Basic authentication")]];
+        const auth = { value: values.auth || "none" };
+        const authText = el("span", { text: authOptions.find(([value]) => value === auth.value)?.[1] || t("No authentication") });
+        const authButton = el("button", { type: "button", class: "webhook-auth-picker", "aria-label": t("Authentication"), "aria-haspopup": "menu", "aria-expanded": "false",
+          onclick: (event) => HomeswiftCommon.menu(authButton, authOptions.map(([value, label]) => ({ label, checked: auth.value === value,
+            onSelect: () => { auth.value = value; authText.textContent = label; showAuth(); }
+          })), { keyboard: event.detail === 0 }) }, authText, HomeswiftCommon.icon("down"));
+        inputs[channel].auth = auth;
+        const credential = (key, label) => {
+          const input = el("input", { type: "password", value: values[key] || "", autocomplete: "off", "aria-label": label });
+          inputs[channel][key] = input;
+          return field(label, input);
+        };
+        const bearer = credential("token", t("Bearer token"));
+        const basic = el("div", {}, credential("username", t("Username")), credential("password", t("Password")));
+        const showAuth = () => { bearer.hidden = auth.value !== "bearer"; basic.hidden = auth.value !== "basic"; };
+        showAuth();
+        const headerRows = el("div", { class: "webhook-header-rows" });
+        const addHeader = (name = "", value = "") => {
+          const key = el("input", { value: name, placeholder: t("Header name"), "aria-label": t("Header name"), autocomplete: "off", spellcheck: false });
+          const secret = el("input", { type: "password", value, placeholder: t("Header value"), "aria-label": t("Header value"), autocomplete: "off" });
+          const row = el("div", { class: "webhook-header-row" }, key, secret,
+            el("button", { type: "button", title: t("Remove header"), "aria-label": t("Remove header"), onclick: () => row.remove() }, HomeswiftCommon.icon("trash")));
+          headerRows.append(row);
+        };
+        Object.entries(values.headers || {}).forEach(([name, value]) => addHeader(name, value));
+        inputs[channel].headers = { type: "headers", get value() {
+          const result = {}, names = new Set();
+          for (const row of headerRows.children) {
+            const [key, secret] = row.querySelectorAll("input");
+            const name = key.value.trim();
+            if (!name && !secret.value) continue;
+            if (!name || names.has(name.toLowerCase())) throw new Error(t("Each header needs a unique name."));
+            names.add(name.toLowerCase());
+            Object.defineProperty(result, name, { value: secret.value, enumerable: true });
+          }
+          return result;
+        } };
+        rows.push(field(t("Authentication"), authButton), bearer, basic,
+          el("div", { class: "webhook-headers" }, el("strong", { text: t("Custom headers") }), headerRows,
+            el("button", { type: "button", class: "link", text: t("Add header"), onclick: () => addHeader() }),
+            el("p", { class: "help", text: t("Saved credentials and header values are masked. Leave the mask unchanged to keep them.") })));
+      }
+      const state = el("span", { class: `notification-state${values.enabled ? " active" : ""}`, text: values.enabled ? t("On [setting]") : t("Off [setting]") });
+      enabled.addEventListener("change", () => {
+        state.textContent = enabled.checked ? t("On [setting]") : t("Off [setting]");
+        state.classList.toggle("active", enabled.checked);
+      });
+      enabled.setAttribute("role", "switch");
+      return el("div", { class: `card server notification-channel${channel === "browser" ? " notification-browser" : ""}` },
         el("div", { class: "server-head" }, tile(channel === "browser" ? "accessory" : "bell", channel === "browser" ? "blue" : "orange"),
           el("div", { class: "who" }, el("strong", { text: title })),
           el("label", { class: "switch" }, enabled, el("span"))),
         el("p", { class: "muted note", text: help }),
-        rows.length ? el("div", {}, rows) : browserPanel(settings),
-        el("div", { class: "card-foot" }, el("span", { class: "muted", text: values.enabled ? t("On [setting]") : t("Off [setting]") }),
+        rows.length ? el("details", { class: "notification-setup", open: values.enabled },
+          el("summary", { text: t("Settings") }), el("div", { class: "notification-fields" }, rows)) : browserPanel(settings),
+        el("div", { class: "card-foot" }, state,
           menuButton(t("Actions for {name}", { name: title }), () => [{ label: t("Send a test"), icon: "bell", onSelect: () => test(channel) }])));
     });
     const events = settings.events.map((event) => {
-      const box = el("input", { type: "checkbox", checked: event.enabled });
+      const label = HomeswiftI18n.message(event.label);
+      const box = el("input", { type: "checkbox", role: "switch", checked: event.enabled, "aria-label": label });
       box.dataset.event = event.name;
-      return el("label", { class: "toggle" }, box, el("span", {}, el("span", { text: HomeswiftI18n.message(event.label) }),
-        event.name === "dailyDigest" && !settings.assistant ? el("span", { class: "help", text: t("Needs the Assistant (a HomeswiftAiKit block).") }) : null));
+      return el("label", { class: "notification-event" },
+        el("span", { class: "who" }, el("span", { text: label }),
+          event.name === "dailyDigest" && !settings.assistant ? el("span", { class: "help", text: t("Needs the Assistant (a HomeswiftAiKit block).") }) : null),
+        el("span", { class: "switch" }, box, el("span")));
+
     });
     const digestTime = el("input", { type: "time", value: settings.dailyDigestTime, "aria-label": t("Daily digest time") });
     const save = el("button", { class: "primary", text: t("Save") });
     save.addEventListener("click", async () => {
       const channels = {};
-      for (const [channel, fields] of Object.entries(inputs)) {
-        channels[channel] = {};
-        for (const [key, input] of Object.entries(fields)) channels[channel][key] = input.type === "checkbox" ? input.checked : input.value;
-      }
+      try {
+        for (const [channel, fields] of Object.entries(inputs)) {
+          channels[channel] = {};
+          for (const [key, input] of Object.entries(fields)) channels[channel][key] = input.type === "checkbox" ? input.checked : input.value;
+        }
+      } catch (error) { say(line, error.message, "error"); return; }
       const body = { channels, events: Object.fromEntries([...main.querySelectorAll("[data-event]")].map((box) => [box.dataset.event, box.checked])), dailyDigestTime: digestTime.value };
       save.disabled = true;
       try { await app.api("/api/notifications", { method: "PUT", body }); say(line, t("Saved."), "ok"); } catch (e) { say(line, e.message, "error"); }
       save.disabled = false;
     });
     app.show(main,
-      app.pageHead(t("Notifications"), t("What the bridge tells you when you are not looking: it started or stopped, a plugin reported an error, an accessory stopped responding, an automation failed.")),
-      el("div", { class: "grid" }, cards),
-      el("div", { class: "card" }, el("h2", { text: t("Events") }),
-        el("p", { class: "muted", text: t("The same event about the same thing goes out once per 15 minutes at most, and 12 notifications an hour at most.") }),
-        events, field(t("Daily digest at"), digestTime)),
-      el("div", { class: "save-bar" }, save, el("button", { text: t("Send a test to every channel that is on"), onclick: () => test() })), line);
+      app.pageHead(t("Notifications"), t("Choose where alerts arrive and which events matter to you.")),
+      el("div", { class: "notification-layout" },
+        el("section", { class: "notification-delivery", "aria-label": t("Delivery channels") },
+          el("div", { class: "section-head" }, el("h2", { text: t("Delivery channels") })),
+          el("div", { class: "notification-channels" }, cards)),
+        el("section", { class: "card notification-events", "aria-label": t("Events") },
+          el("h2", { text: t("Events") }),
+          el("p", { class: "muted", text: t("Choose what you want to hear about.") }),
+          el("div", { class: "notification-event-list" }, events),
+          el("div", { class: "notification-digest" }, field(t("Daily digest at"), digestTime)),
+          el("p", { class: "muted notification-limit", text: t("The same event about the same thing goes out once per 15 minutes at most, and 12 notifications an hour at most.") }))),
+      el("div", { class: "save-bar notification-save" }, line,
+        el("button", { text: t("Send a test to every channel that is on"), onclick: () => test() }), save));
   }
 
   /// This browser's subscription and the others'.

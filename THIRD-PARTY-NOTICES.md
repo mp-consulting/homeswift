@@ -107,3 +107,9 @@ licence files, which `Scripts/collect-licenses.sh` and `Synology/bundle-librarie
 
 The Swift runtime and Foundation are linked in under the Apache-2.0 Runtime Library Exception, which asks for no
 notice in a binary.
+
+## Apple Home app icon
+
+`Sources/HomeswiftUI/Web/apple-home.png` is the Home application icon from macOS
+(`/System/Applications/Home.app/Contents/Resources/AppIcon.icns`), used to identify the Apple Home accessory
+source. The icon belongs to Apple Inc. and is not covered by Homeswift's MIT license.

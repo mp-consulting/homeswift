@@ -6,11 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Notification webhooks support Bearer and Basic authentication and custom headers, with masked credentials and header validation.
+
+- Accessory grid editing guides, corner drag-to-resize handles and animated layout changes, with keyboard resizing.
+
+- Opt-in Homeswift Natural Lighting for lights with writable colour temperature: a saved daily schedule in the
+  user's time zone, paused by manual colour writes or external white-temperature changes. Leaves power and brightness alone.
+- Apple Home source filter with the Home app icon, accessory count and an accessible switch.
+
 ### Fixed
 
-- Wingman lights with brightness and colour temperature now show an Adaptive Lighting information button.
-  Apple Home manages the schedule; the indicator uses the exposed transition count, or explicitly reports
-  unavailable status instead of guessing whether Adaptive Lighting is enabled.
+- Wingman lights show the latest reported colour temperature in kelvin instead of an information-only Adaptive
+  Lighting sun button. Missing readings are not shown as a fabricated temperature; Apple Home keeps the schedule.
 
 ## [0.10.0] - 2026-10-25
 
