@@ -80,12 +80,14 @@ func protectTimeout<T: Sendable>(milliseconds: Int, clock: any ProtectClock = Sy
         }
         let timeout = Task {
             await clock.sleep(for: .milliseconds(max(milliseconds, 0)))
+            guard !Task.isCancelled else { return }
             resume(nil)
         }
         Task {
             let value = await operation()
-            timeout.cancel()
+            // Publish success before cancellation wakes the timer’s sleep.
             resume(value)
+            timeout.cancel()
         }
     }
 }

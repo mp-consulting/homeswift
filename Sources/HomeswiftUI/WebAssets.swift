@@ -1929,7 +1929,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const kindName = [plugin?.name, block.platform].find((name) => name && name !== block.name);
       return el("div", { class: "card server plugin-instance" },
         el("div", { class: "server-head" },
-          tile(block.system ? "gear" : "plugin", block.system ? "grey" : "orange"),
+          tile(block.system ? "gear" : block.platform === "Wingman" ? "wingman" : "plugin", block.system ? "grey" : "orange"),
           el("div", { class: "who" }, el("a", { class: "card-title", href: opens }, el("strong", { text: block.name })),
             el("div", { class: "muted", text: [kindName, block.childBridge ? t("child bridge") : null].filter(Boolean).join(" · ") })),
           el("span", { class: `pill status ${kind}`, text: state })),
@@ -1963,7 +1963,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const catalog = el("div", { class: "grid plugin-catalog" }, plugins.plugins.map((plugin) => {
       const used = plugins.blocks.some((block) => block.platform === plugin.platform);
       return el("div", { class: "card server catalog" },
-        el("div", { class: "server-head" }, tile("plugin", "orange"),
+        el("div", { class: "server-head" }, tile(plugin.platform === "Wingman" ? "wingman" : "plugin", "orange"),
           el("div", { class: "who" }, el("strong", { text: plugin.name }), el("div", { class: "muted", text: plugin.platform })),
           used ? el("span", { class: "pill status standby", text: t("In use [used]") }) : null),
         el("div", { class: "actions" }, plugin.hasPages
@@ -2251,7 +2251,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     show(main,
       breadcrumb([t("Plugins"), "/plugins"], [block.name, isNew ? "/plugins" : settingsLink(block)], [isNew ? t("Add") : hasPage ? t("Expert") : t("Settings")]),
       el("div", { class: "page-head settings-head" },
-        tile(block.system ? "gear" : "plugin", block.system ? "grey" : "orange"),
+        tile(block.system ? "gear" : block.platform === "Wingman" ? "wingman" : "plugin", block.system ? "grey" : "orange"),
         el("div", { class: "who" },
           el("h1", { text: isNew ? t("Add {name}", { name: plugin.name }) : block.name }),
           el("p", { class: "muted", text: [...new Set([plugin ? plugin.name : platform, platform])].filter((part) => part !== block.name).concat(
@@ -5337,6 +5337,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   // Line icons: 24-unit boxes, round caps, the current colour.
   const icons = {
+    wingman: '<g transform="translate(0 4.32) scale(.048)"><g fill="currentColor" stroke="none"><path d="M8 12C65 48 155 88 180 110C198 121 204 136 195 148L165 177C180 144 170 131 149 121C47 95 6 88 8 12Z M36 112L150 152L132 177C64 163 42 161 36 112Z M58 177L121 193L109 221C77 220 63 203 58 177Z"/><g transform="translate(500 0) scale(-1 1)"><path d="M8 12C65 48 155 88 180 110C198 121 204 136 195 148L165 177C180 144 170 131 149 121C47 95 6 88 8 12Z M36 112L150 152L132 177C64 163 42 161 36 112Z M58 177L121 193L109 221C77 220 63 203 58 177Z"/></g></g><path d="M136 220L250 104L364 220M153 205V305H347V205" fill="none" stroke="currentColor" stroke-width="29" stroke-linecap="round" stroke-linejoin="round"/></g>',
     power: '<path d="M12 3v9M6.3 5.8a8 8 0 1 0 11.4 0"/>',
     group: '<rect x="3" y="8" width="13" height="13" rx="3"/><path d="M8 8V6a3 3 0 0 1 3-3h7a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3h-2M7 14.5h5M9.5 12v5"/>',
     bridge: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/>',
