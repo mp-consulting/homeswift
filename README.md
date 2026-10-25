@@ -215,7 +215,7 @@ code from the bridge's output:
 - **Accessories** as widgets of their kind, chosen from what HomeKit knows about each one: an air conditioner's
   gauge, setpoints and modes, a purifier's air readings and filter, a light's brightness, colours, white and
   Adaptive Lighting, a shutter you slide, a valve that counts down, a gate held to open, cameras live. Each in
-  the size you choose (a 1×1 tile, a 2×1 or a 2×2 card) on a wall you arrange by dragging, kept by the bridge.
+  the size you choose (S, M, L or XL) on a wall you arrange by dragging, kept by the bridge.
   Every control of an accessory is a tap away in its sheet; a paused plugin's accessories rest, striped.
 - **Status**: the bridges and their pairing codes with QR codes, memory, CPU and how fast the bridge and the
   plugins answer, over the last hour to the last week.
@@ -223,12 +223,13 @@ code from the bridge's output:
   resume; the raw config.json; the live log with its history; a Restart button; the Assistant's chat.
 
 <p align="center">
-  <img src="docs/images/widgets/sizes.png" width="560" alt="An air conditioner, a light and a shutter, each as a small tile, a medium card and a large card">
+  <img src="docs/images/widgets/sizes.png" width="560" alt="An air conditioner, a light and a shutter, each as compact, tall, large and extra-large widgets">
   <img src="docs/images/widgets/phone.png" width="220" alt="The Accessories page on a phone: two columns">
 </p>
 
 See [docs/ui.md](docs/ui.md) for the UI and [docs/widgets.md](docs/widgets.md) for the widgets, with how a plugin
-gets the best of them.
+gets the best of them. Explore the real controls and every HomeKit characteristic in the
+[interactive design system](https://homeswift.dev/design/) ([maintainer guide](docs/design-system.md)).
 
 ## Demo
 
@@ -285,6 +286,7 @@ node Scripts/generate-definitions.js path/to/hap-nodejs > Sources/Homeswift/Mode
 | | |
 |---|---|
 | [docs/plugins.md](docs/plugins.md) | Writing a plugin, porting one from Homebridge, the runtime's files |
+| [docs/design-system.md](docs/design-system.md) | The interactive component explorer: foundations, widget stories and every characteristic |
 | [docs/widgets.md](docs/widgets.md) | The Accessories page's widgets: sizes, the wall, and what a plugin does to get good ones |
 | [docs/ui.md](docs/ui.md) | The web UI: configuration, pages, security, a plugin's own page |
 | [docs/mcp.md](docs/mcp.md) | The MCP server: scopes, confirmations, resources, prompts |

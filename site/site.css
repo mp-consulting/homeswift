@@ -98,16 +98,23 @@ code, pre { font-family: var(--mono); }
 .meta { display: flex; flex-wrap: wrap; gap: 6px; font-size: 0.75rem; color: var(--muted); }
 .meta span { padding: 4px 10px; border-radius: 999px; background: var(--track); white-space: nowrap; }
 
-/* The wall: widgets on square units, as the web UI lays them out. */
+/* The wall uses the web UI's compact rows, tall tiles and expanded control cards. */
 .stage { container-type: inline-size; min-width: 0; }
-.wall { --gap: 12px; --u: calc((100cqw - 3 * var(--gap)) / 4); display: grid; grid-template-columns: repeat(4, var(--u)); grid-auto-rows: var(--u); gap: var(--gap); grid-auto-flow: row dense; }
+.wall { --gap: 10px; --row: max(64px, calc(var(--u) * 0.36)); --u: calc((100cqw - 3 * var(--gap)) / 4); display: grid; grid-template-columns: repeat(4, var(--u)); grid-auto-rows: var(--row); gap: var(--gap); grid-auto-flow: row dense; }
 @container (max-width: 440px) { .wall { --u: calc((100cqw - var(--gap)) / 2); grid-template-columns: repeat(2, var(--u)); } }
-.w { position: relative; border-radius: var(--radius); background: var(--tile); border: 1px solid var(--glass-edge);
+.w { color: var(--ink); position: relative; border-radius: var(--radius); background: var(--tile); border: 1px solid var(--glass-edge);
   -webkit-backdrop-filter: blur(20px) saturate(160%); backdrop-filter: blur(20px) saturate(160%); box-shadow: var(--shadow);
   padding: 12px; display: flex; flex-direction: column; justify-content: space-between; gap: 8px; min-width: 0; overflow: hidden;
   -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
   transition: background-color 200ms var(--ease-out), color 200ms var(--ease-out), transform 100ms ease-out; }
-.w.medium { grid-column: span 2; }
+.w.medium { grid-row: span 2; }
+.wall .w.large { grid-column: span 2; grid-row: span 2; }
+.wall .w.xlarge { grid-column: span 2; grid-row: span 3; }
+.wall .w.small { flex-direction: row; align-items: center; gap: 10px; padding: 10px; }
+.wall .w.small .w-head { flex: none; }
+.wall .w.small .w-head .pct { display: none; }
+.wall .w.small .icon { width: 28px; height: 28px; border-radius: 50%; }
+.wall .w.small .who strong { white-space: nowrap; font-size: 0.75rem; }
 .w.tap { cursor: pointer; }
 .w.tap:active, .w.pressed { transform: scale(0.97); }
 .w.on.small { background: var(--tile-on); color: #15171c; }

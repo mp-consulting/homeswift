@@ -126,6 +126,7 @@ function translatePage(code) {
     return `${open}\n${JSON.stringify(data)}\n${end}`;
   });
   page = page.replace(/(\s(?:href|src)=")(?![a-z]+:|\/|#)([^"]+\.(?:css|js|svg|png|ico|webmanifest))(")/g, "$1../$2$3");
+  page = page.replaceAll('href="/design/"', `href="/design/?lang=${code}"`);
   // The language links: this page is the current one, in the footer and in the bar's picker.
   page = page.replace(/ aria-current="page"/g, "").replace(new RegExp(`(<a href="/${code}/" hreflang="${code}"[^>]*?)>`), '$1 aria-current="page">');
   page = page.replace(/ selected>/g, ">").replace(`<option value="/${code}/" lang="${code}">`, `<option value="/${code}/" lang="${code}" selected>`);

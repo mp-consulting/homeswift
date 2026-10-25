@@ -2,8 +2,8 @@
 // chosen from its primary service (an air conditioner's gauge and modes, a light's brightness and colours, a
 // shutter's tile, a gate held to open), all built from the same few controls. The services an accessory links
 // to its main one become the widget's facets (chips, readouts, meters), and what no widget shows stays
-// reachable under More, as rows. On the wall a widget is a fixed box: small (1×1, a tile a tap acts on), medium
-// (2×1, its main control) or large (2×2); its ⋯ menu opens every control in a sheet. Loaded after common.js,
+// reachable under More, as rows. On the wall a widget is a fixed box: small (a compact row), medium
+// (one column, two rows), large (two columns, fitted to its main controls), or extra large (two columns, fitted to its controls); its ⋯ menu opens every control in a sheet. Loaded after common.js,
 // remote.js and camera.js.
 //
 //   HomeswiftWidgets.card(accessory, { size, actions })   an accessory of /api/accessories at a size
@@ -948,7 +948,7 @@
 
   const widgets = [];
   const register = (widget) => widgets.push(widget);
-  const sizes = ["small", "medium", "large"];
+  const sizes = ["small", "medium", "large", "xlarge"];
 
   // Which service an accessory is drawn by, when none says it is primary: the first of these.
   const rank = ["Television", "HeaterCooler", "Thermostat", "AirPurifier", "SecuritySystem", "GarageDoorOpener", "LockMechanism", "WindowCovering",
@@ -1011,7 +1011,7 @@
   });
 
   register({
-    name: "television", types: ["Television"], icon: "tv", tone: "blue", size: "large",
+    name: "television", types: ["Television"], icon: "tv", tone: "blue", size: "xlarge",
     build(ctx, primary, size) {
       const active = ctx.take(primary, "Active");
       const remoteKey = ctx.take(primary, "Remote Key");
@@ -1053,7 +1053,7 @@
   });
 
   register({
-    name: "climate", types: ["HeaterCooler", "Thermostat"], icon: "thermo", size: "large",
+    name: "climate", types: ["HeaterCooler", "Thermostat"], icon: "thermo", size: "xlarge",
     build(ctx, primary, size) {
       const parts = climateParts(ctx, primary);
       const now = () => typeof parts.current?.value === "number" ? parts.current.value : null;
@@ -1122,7 +1122,7 @@
   });
 
   register({
-    name: "air-purifier", types: ["AirPurifier"], icon: "wind", tone: "teal", size: "large",
+    name: "air-purifier", types: ["AirPurifier"], icon: "wind", tone: "teal", size: "xlarge",
     build(ctx, primary, size) {
       const active = ctx.take(primary, "Active"), state = ctx.take(primary, "Current Air Purifier State");
       const target = ctx.char(primary, "Target Air Purifier State"), speed = ctx.take(primary, "Rotation Speed");
@@ -1523,7 +1523,7 @@
 
   /// The kind of widget an accessory gets, and its default size there: what the page keeps defaults by.
   function kindOf(accessory) {
-    if (accessory.camera && window.HomeswiftCamera) return { kind: "camera", size: "medium" };
+    if (accessory.camera && window.HomeswiftCamera) return { kind: "camera", size: "large" };
     const ctx = context(accessory);
     const { widget, primary } = resolve(ctx);
     return { kind: widget.name, size: defaultOf(widget, ctx, primary) };
@@ -1542,17 +1542,19 @@
   /// What the search box looks in: the names, the room, the plugin and the model.
   const searchText = (accessory) => [accessory.name, accessory.displayName, accessory.room, accessory.platformName, accessory.model].filter(Boolean).join(" ").toLowerCase();
 
-  /// The widget for `accessory` at `size` ("small", "medium", "large"; the kind's default when left out), a box
-  /// of the wall's grid: 1×1, 2×1, 2×2.
+  /// The widget for `accessory` at `size` ("small", "medium", "large", "xlarge"; the kind's default when left out), a box
+  /// of the wall's grid: 1×1, 1×2, then two columns with an automatic row count for large and extra large.
   function card(accessory, options = {}) {
     const ctx = context(accessory, options);
     ctx.openFull = () => open(accessory, options);
     let node;
-    if (accessory.camera && window.HomeswiftCamera) node = cameraTile(ctx, sizes.includes(options.size) ? options.size : "medium");
+    if (accessory.camera && window.HomeswiftCamera) node = cameraTile(ctx, sizes.includes(options.size) ? options.size : "large");
     else {
       const { widget, primary } = resolve(ctx);
       const size = sizes.includes(options.size) ? options.size : defaultOf(widget, ctx, primary);
-      node = frame(ctx, ...built(ctx, widget, primary, size), primary, size);
+      // Reuse the builders' compact, main-control and expanded variants at the four wall sizes.
+      const contentSize = { small: "small", medium: "small", large: "medium", xlarge: "large" }[size];
+      node = frame(ctx, ...built(ctx, widget, primary, contentSize), primary, size);
     }
     ctx.node = node;
     if (Date.now() - swept > 5000) sweep();
@@ -1640,8 +1642,8 @@
     return control.node;
   }
 
-  /// A fixed box of the wall: a small tile (a tap acts, or a hold confirms), or a medium or large card with its
-  /// header and body; the ⋯ menu at the bottom right.
+  /// Compact and tall summary tiles share their tap/hold actions; large and extra-large cards keep inline controls.
+  /// The ⋯ menu opens all controls at every size.
   function frame(ctx, widget, built, primary, size) {
     const { accessory } = ctx;
     const [glyph, paintGlyph] = glyphFor(ctx, widget, built, primary);
@@ -1651,30 +1653,39 @@
     if (mark) glyph.append(mark);
     const menu = actionsButton(ctx, false);
     const node = el("article", { class: `card widget size-${size} widget-${widget.name}`, "data-search": searchText(accessory), "data-id": accessory.id });
-    if (size === "small") {
+    if (size === "small" || size === "medium") {
+      node.classList.add("widget-summary");
       const hero = el("span", { class: "w-hero" });
       const hit = el("button", { type: "button", class: "w-hit" });
       const shade = built.shade ? el("span", { class: "w-shade", "aria-hidden": "true" }) : null;
       if (built.hold) {
         // Held to confirm: the tile fills; let go early and nothing happens. Tapped, the safe action.
-        let timer = null;
+        let timer = null, confirmed = false;
         const cancel = () => { clearTimeout(timer); timer = null; node.classList.remove("holding"); };
         hit.addEventListener("pointerdown", (event) => {
-          if (event.button !== 0 || !built.hold.armed()) return;
+          if (event.button !== 0) return;
+          confirmed = false;
+          if (!built.hold.armed()) return;
           hit.setPointerCapture(event.pointerId);
           node.classList.add("holding");
-          timer = setTimeout(() => { cancel(); built.hold.confirm(); }, HOLD_MS);
+          timer = setTimeout(() => { cancel(); confirmed = true; built.hold.confirm(); }, HOLD_MS);
         });
         for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) hit.addEventListener(type, cancel);
         hit.addEventListener("keydown", (event) => {
-          if ((event.key === " " || event.key === "Enter") && !event.repeat && built.hold.armed()) {
+          if ((event.key === " " || event.key === "Enter") && !event.repeat) {
+            confirmed = false;
+            if (!built.hold.armed()) return;
             event.preventDefault();
             node.classList.add("holding");
-            timer = setTimeout(() => { cancel(); built.hold.confirm(); }, HOLD_MS);
+            timer = setTimeout(() => { cancel(); confirmed = true; built.hold.confirm(); }, HOLD_MS);
           }
         });
         hit.addEventListener("keyup", (event) => { if (event.key === " " || event.key === "Enter") cancel(); });
-        hit.addEventListener("click", () => { if (!built.hold.armed()) built.hold.tap(); });
+        hit.addEventListener("click", () => {
+          // Releasing a completed hold also fires click: do not immediately reverse the action.
+          if (confirmed) { confirmed = false; return; }
+          if (!built.hold.armed()) built.hold.tap();
+        });
         node.append(el("span", { class: "w-veil", "aria-hidden": "true" }));
       } else hit.addEventListener("click", () => {
         if (slid) { slid = false; return; }
@@ -1742,6 +1753,13 @@
     }
     ctx.watch(paintGlyph);
     ctx.watch(statusPainter(ctx, built, status));
+    // A compact sensor puts its main reading beside its name, where a taller tile has a hero value.
+    if (size === "small" && widget.name === "sensor") ctx.watch(() => {
+      if (!accessory.paused && !accessory.unavailable && !ctx.flashing && built.hero) {
+        const value = built.hero();
+        status.textContent = typeof value === "string" ? value : value.textContent;
+      }
+    });
     paused(node, ctx);
     return node;
   }
@@ -1830,10 +1848,54 @@
   }
 
   // ---- The wall's unit -------------------------------------------------------------------------------------------
-  // The wall's columns are squares of 160 px at least (two on a phone, which fill it): as many as fit, widened so the
-  // row ends at the wall's right edge instead of leaving a strip. CSS cannot size a square track to a share of the
-  // width, so each wall gets its --unit from its width, when it appears and when it resizes.
-  const unitMinimum = 160;
+  // Each column is at least 176 px (two on a phone), widened to fill the wall. Compact rows are 36% of
+  // a column, at least 64 px; a tall tile spans two rows, so two compact tiles align beside it.
+  // Large and XL fit their main or expanded controls instead of reserving empty rows.
+  // Measure an inert offscreen copy at the same width, then round its natural height up to grid rows. The
+  // copy has no event handlers and never becomes a card context. Measurements are batched once per frame.
+  const expandedPending = new Set();
+  let expandedFrame = null;
+  function queueExpanded(node) {
+    if (!node?.matches(".size-large, .size-xlarge") || node.matches(".widget-measuring, .widget-camera, .drag-slot")) return;
+    expandedPending.add(node);
+    if (expandedFrame !== null) return;
+    expandedFrame = requestAnimationFrame(() => {
+      expandedFrame = null;
+      const pending = [...expandedPending];
+      expandedPending.clear();
+      for (const card of pending) fitExpanded(card);
+    });
+  }
+  function fitExpanded(node) {
+    const wall = node.closest(".wall");
+    if (!wall || !node.isConnected || node.classList.contains("lifted")) return;
+    const width = node.getBoundingClientRect().width;
+    if (!width) return;
+    const style = getComputedStyle(wall);
+    const row = parseFloat(style.gridAutoRows), gap = parseFloat(style.rowGap) || 0;
+    if (!Number.isFinite(row) || row <= 0) return;
+    const copy = node.cloneNode(true);
+    copy.classList.add("widget-measuring");
+    copy.inert = true;
+    copy.setAttribute("aria-hidden", "true");
+    Object.assign(copy.style, { width: `${width}px`, height: "auto", minHeight: "0", maxHeight: "none", left: "-10000px", top: "0", transform: "none" });
+    // No duplicate DOM ids, even during the synchronous measurement.
+    copy.removeAttribute("id");
+    for (const child of copy.querySelectorAll("[id]")) child.removeAttribute("id");
+    wall.append(copy);
+    const height = copy.getBoundingClientRect().height;
+    copy.remove();
+    const minimum = node.classList.contains("size-xlarge") ? 3 : 2;
+    const rows = Math.max(minimum, Math.min(8, Math.ceil((height + gap - 0.5) / (row + gap))));
+    if (node.style.getPropertyValue("--card-rows") !== String(rows)) node.style.setProperty("--card-rows", rows);
+  }
+  function expandedIn(node) {
+    if (node.nodeType !== 1 || node.classList.contains("widget-measuring")) return [];
+    return node.matches(".size-large, .size-xlarge") ? [node] : [...node.querySelectorAll(".size-large, .size-xlarge")];
+  }
+  const expandedResized = new ResizeObserver((entries) => { for (const entry of entries) queueExpanded(entry.target); });
+  const watchExpanded = (node) => { if (node.matches(".widget-camera, .drag-slot")) return; expandedResized.observe(node); queueExpanded(node); };
+  const unitMinimum = 176;
   const fitted = new WeakMap();
   function fitWall(wall) {
     const width = wall.clientWidth;
@@ -1842,6 +1904,7 @@
     const gap = parseFloat(getComputedStyle(wall).columnGap) || 12;
     const columns = width <= 520 ? 2 : Math.max(2, Math.floor((width + gap) / (unitMinimum + gap)));
     wall.style.setProperty("--unit", `${Math.floor(((width - gap * (columns - 1)) / columns) * 100) / 100}px`);
+    for (const node of wall.querySelectorAll(":scope > .size-large, :scope > .size-xlarge")) queueExpanded(node);
   }
   const resized = new ResizeObserver((entries) => { for (const entry of entries) fitWall(entry.target); });
   // A new wall is sized at once, before it is first drawn at the default unit, then again whenever its width changes.
@@ -1857,14 +1920,31 @@
   const view = document.getElementById("view")?.parentElement ?? document.documentElement;
   new MutationObserver((records) => {
     for (const record of records) {
-      for (const node of record.addedNodes) for (const wall of walls(node)) watch(wall);
-      for (const node of record.removedNodes) for (const wall of walls(node)) resized.unobserve(wall);
+      // Optional controls can appear or disappear while a device is running.
+      if (record.target.nodeType === 1) queueExpanded(record.target.closest(".size-large, .size-xlarge"));
+      for (const node of record.addedNodes) {
+        for (const wall of walls(node)) watch(wall);
+        for (const card of expandedIn(node)) watchExpanded(card);
+      }
+      for (const node of record.removedNodes) {
+        for (const wall of walls(node)) resized.unobserve(wall);
+        for (const card of expandedIn(node)) { expandedResized.unobserve(card); expandedPending.delete(card); }
+      }
     }
-  }).observe(view, { childList: true, subtree: true });
+  }).observe(view, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden"] });
   for (const wall of walls(view)) watch(wall);
+  for (const node of expandedIn(view)) watchExpanded(node);
 
   window.HomeswiftWidgets = {
     card, open, kindOf, sizes, event, listen, describeModel, labelFor, enumLabels,
+    /// The same fallback characteristic row used under All controls, for live documentation and plugin pages.
+    characteristicRow(accessory, service, characteristic) {
+      const ctx = context(accessory);
+      const node = el("div", { class: "controls" }, rows(ctx, { ...service, characteristics: [characteristic] }));
+      ctx.node = node;
+      cards.add(ctx);
+      return node;
+    },
     /// A page's own widget, tried before the built-in ones: { name, types, match?, icon, tone, size, build }.
     register: (widget) => widgets.unshift(widget),
     /// The controls the widgets are made of, for a page's own widget.

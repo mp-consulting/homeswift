@@ -434,8 +434,8 @@ struct LogFilterTests {
         defer { Task { await environment.stop() } }
         let browser = Browser(base: base)
         #expect(try await browser.get("/api/layout").json == ["order": [], "sizes": [:], "defaults": [:], "grouping": "none"])
-        let layout: JSONValue = ["order": ["Lamps:lamp", "Lamps:lock", "Lamps:lamp"], "sizes": ["Lamps:lamp": "large"], "defaults": ["light": "small"], "grouping": "plugin", "extra": true]
-        let kept: JSONValue = ["order": ["Lamps:lamp", "Lamps:lock"], "sizes": ["Lamps:lamp": "large"], "defaults": ["light": "small"], "grouping": "plugin"]
+        let layout: JSONValue = ["order": ["Lamps:lamp", "Lamps:lock", "Lamps:lamp"], "sizes": ["Lamps:lamp": "xlarge", "Lamps:lock": "large"], "defaults": ["light": "small", "climate": "xlarge"], "grouping": "plugin", "extra": true]
+        let kept: JSONValue = ["order": ["Lamps:lamp", "Lamps:lock"], "sizes": ["Lamps:lamp": "xlarge", "Lamps:lock": "large"], "defaults": ["light": "small", "climate": "xlarge"], "grouping": "plugin"]
         #expect(try await browser.put("/api/layout", layout).json == kept)
         #expect(try await browser.get("/api/layout").json == kept)
         let file = environment.directory.appendingPathComponent("ui-layout.json")
