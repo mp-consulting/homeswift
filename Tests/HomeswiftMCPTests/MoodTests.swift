@@ -122,8 +122,8 @@ struct MoodTests {
         #expect(MoodRules.hapNumber(90, for: Characteristic(.colorTemperature, value: .int(140))) == .int(140))
     }
 
-    /// A calm mood sets every light of the room once (the lock is no light) and nothing keeps playing; a dry run
-    /// writes nothing.
+    /// A calm mood sets every light of the room once (the lock is no light) and is kept to undo; a dry run writes
+    /// nothing.
     @Test func aCalmMoodSetsTheRoomsLights() async throws {
         let (environment, client) = try await den()
         defer { Task { await environment.stop() } }
@@ -134,15 +134,64 @@ struct MoodTests {
 
         let result = try await client.tool("start_mood", ["mood": "Focus", "room": "den"])
         #expect(result["structuredContent"]?["ok"] == true)
-        #expect(result["structuredContent"]?["run"] == nil)
+        #expect(result["structuredContent"]?["run"]?["held"] == true)
+        #expect(result["structuredContent"]?["run"]?["undoUntil"]?.stringValue != nil)
         #expect(value(environment, "Devices:bulb1", .colorTemperature) == .int(200))
         #expect(value(environment, "Devices:bulb2", .brightness) == .int(100))
         #expect(value(environment, "Devices:bulb1", .on) == .bool(true))
         #expect(environment.written.contains { $0.0 == "lamp.brightness" && $0.1 == .int(100) })
         #expect(!environment.written.contains { $0.0.hasPrefix("lock") || $0.0.hasPrefix("trigger") })
         let list = try await client.tool("list_moods")
-        #expect(list["structuredContent"]?["running"]?.arrayValue?.isEmpty == true)
+        #expect(list["structuredContent"]?["running"]?.arrayValue?.count == 1)
         #expect(list["structuredContent"]?["moods"]?.arrayValue?.count == MoodLibrary.all.count)
+    }
+
+    /// stop_mood undoes a calm mood: every light as it was before, the lamp included; then nothing is left to undo.
+    @Test func aCalmMoodIsUndone() async throws {
+        let (environment, client) = try await den()
+        defer { Task { await environment.stop() } }
+        let lampBefore = value(environment, "Devices:lamp", .brightness)
+
+        let set = try await client.tool("start_mood", ["mood": "romantic", "room": "Den"])
+        let run = try #require(set["structuredContent"]?["run"]?["id"]?.stringValue)
+        // The lamp takes the first colour of the spread, the bulbs the next ones.
+        #expect([340, 355].contains(value(environment, "Devices:bulb1", .hue)?.doubleValue ?? 0))
+        #expect(value(environment, "Devices:bulb1", .on) == .bool(true))
+
+        let undone = try await client.tool("stop_mood", ["run": .string(run)])
+        #expect(undone["structuredContent"]?["stopped"]?[0]?["held"] == true)
+        for bulb in ["Devices:bulb1", "Devices:bulb2"] {
+            #expect(value(environment, bulb, .on) == .bool(false))
+            #expect(value(environment, bulb, .brightness) == .int(40))
+            #expect(value(environment, bulb, .hue)?.doubleValue == 10)
+            #expect(value(environment, bulb, .saturation)?.doubleValue == 20)
+        }
+        #expect(value(environment, "Devices:lamp", .brightness) == lampBefore)
+        let list = try await client.tool("list_moods")
+        #expect(list["structuredContent"]?["running"]?.arrayValue?.isEmpty == true)
+    }
+
+    /// A mood on some of a calm mood's lights takes only those: the others stay as the calm mood set them, still to
+    /// undo, and undoing both brings everything back to how it was before the first.
+    @Test func aNewMoodTakesSomeOfACalmMoodsLights() async throws {
+        let (environment, client) = try await den()
+        defer { Task { await environment.stop() } }
+
+        let calm = try await client.tool("start_mood", ["mood": "focus", "room": "Den"])
+        let calmRun = try #require(calm["structuredContent"]?["run"]?["id"]?.stringValue)
+        _ = try await client.tool("start_mood", ["plan": blink, "ids": ["Devices:bulb1"]])
+        // bulb2 is still focus's white, and focus still holds it (and the lamp) to undo.
+        #expect(value(environment, "Devices:bulb2", .colorTemperature) == .int(200))
+        let list = try await client.tool("list_moods")
+        let held = list["structuredContent"]?["running"]?.arrayValue?.first { $0["id"]?.stringValue == calmRun }
+        #expect(held?["lights"]?.arrayValue?.compactMap { $0["id"]?.stringValue }.sorted() == ["Devices:bulb2", "Devices:lamp"])
+
+        _ = try await client.tool("stop_mood")
+        for bulb in ["Devices:bulb1", "Devices:bulb2"] {
+            #expect(value(environment, bulb, .on) == .bool(false))
+            #expect(value(environment, bulb, .brightness) == .int(40))
+            #expect(value(environment, bulb, .colorTemperature) == .int(300))
+        }
     }
 
     /// An animated mood plays in the background until it is stopped, then every light is as it was.

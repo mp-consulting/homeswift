@@ -5880,13 +5880,14 @@ enum WebAssets {
     function drawRunning(runs) {
       running.replaceChildren(...runs.map((run) => {
         const name = moodName(run.mood, run.name);
-        const stop = el("button", { type: "button", class: "mood-stop", text: t("Stop") });
+        // A mood that set the lights once is undone; one that plays is stopped. Either way the lights go back.
+        const stop = el("button", { type: "button", class: "mood-stop", text: run.held ? t("Undo") : t("Stop") });
         stop.addEventListener("click", async () => {
           stop.classList.add("busy");
           stop.disabled = true;
           try {
             await app.api("/api/moods/stop", { method: "POST", body: { run: run.id } });
-            say(line, t("{mood} stopped: the lights are back as they were.", { mood: name }));
+            say(line, run.held ? t("{mood} undone: the lights are back as they were.", { mood: name }) : t("{mood} stopped: the lights are back as they were.", { mood: name }));
             await refresh();
           } catch (e) { say(line, e.message, "error"); stop.disabled = false; stop.classList.remove("busy"); }
         });
@@ -5895,7 +5896,8 @@ enum WebAssets {
         const where = run.room && run.room !== room ? t("{room}, {lights}", { room: run.room, lights }) : lights;
         return el("div", { class: "mood-run" }, swatch(run.swatch, true),
           el("div", { class: "mood-run-text" }, el("strong", { text: name }),
-            el("span", { class: "muted", text: run.endsAt ? t("{lights}, until {time}", { lights: where, time: timeFormat.format(new Date(run.endsAt)) }) : where })),
+            el("span", { class: "muted", text: run.held ? t("{lights}, set at {time}", { lights: where, time: timeFormat.format(new Date(run.startedAt)) })
+              : run.endsAt ? t("{lights}, until {time}", { lights: where, time: timeFormat.format(new Date(run.endsAt)) }) : where })),
           stop);
       }));
     }
@@ -5913,7 +5915,7 @@ enum WebAssets {
         const result = await app.api("/api/moods/start", { method: "POST", body: { ...body, room } });
         const shown = body.mood ? name : result.mood.name;
         const count = result.lights.length;
-        if (result.run) {
+        if (result.run && !result.run.held) {
           say(line, "");
         } else if (result.ok) {
           say(line, tn("{mood} is set on {n} light.", "{mood} is set on {n} lights.", count, { mood: shown }));
@@ -6532,6 +6534,7 @@ HomeswiftI18n.add("es", {
   "{label}: {value}": "{label}: {value}",
   "{level}, {bits} bits": "{level}, {bits} bits",
   "{room}, {lights}": "{room}, {lights}",
+  "{lights}, set at {time}": "{lights}, ajustado a las {time}",
   "{lights}, until {time}": "{lights}, hasta las {time}",
   "{m}m": "{m} min",
   "{minutes} min after sunrise {days}": "{minutes} min después del amanecer {days}",
@@ -6547,6 +6550,7 @@ HomeswiftI18n.add("es", {
   "{mood} is set on {n} light.": "{mood}: {n} luz ajustada.",
   "{mood} is set on {n} lights.": "{mood}: {n} luces ajustadas.",
   "{mood} is set, but not on every light: {failures}": "{mood}: no todas las luces han respondido: {failures}",
+  "{mood} undone: the lights are back as they were.": "{mood}: deshecho, las luces han vuelto a como estaban.",
   "{mood} stopped: the lights are back as they were.": "{mood}: detenido, las luces han vuelto a como estaban.",
   "{n} accessories": "{n} accesorios",
   "{n} accessories on {bridge}": "{n} accesorios en {bridge}",
@@ -8162,6 +8166,7 @@ HomeswiftI18n.add("es", {
   "two-factor authentication is already on; turn it off first": "la autenticación de dos factores ya está activada; desactívala primero",
   "Type {text} to confirm": "Escribe {text} para confirmar",
   "type the code from your authenticator app": "escribe el código de tu app de autenticación",
+  "Undo": "Deshacer",
   "Unknown": "Desconocido",
   "unknown API route": "ruta de API desconocida",
   "unknown auth action": "acción de autenticación desconocida",
@@ -8360,6 +8365,7 @@ HomeswiftI18n.add("fr", {
   "{label}: {value}": "{label} : {value}",
   "{level}, {bits} bits": "{level}, {bits} bits",
   "{room}, {lights}": "{room}, {lights}",
+  "{lights}, set at {time}": "{lights}, réglée à {time}",
   "{lights}, until {time}": "{lights}, jusqu'à {time}",
   "{m}m": "{m} min",
   "{minutes} min after sunrise {days}": "{minutes} min après le lever du soleil {days}",
@@ -8375,6 +8381,7 @@ HomeswiftI18n.add("fr", {
   "{mood} is set on {n} light.": "{mood} : {n} lampe réglée.",
   "{mood} is set on {n} lights.": "{mood} : {n} lampes réglées.",
   "{mood} is set, but not on every light: {failures}": "{mood} : certaines lampes n'ont pas suivi : {failures}",
+  "{mood} undone: the lights are back as they were.": "{mood} : annulée, les lampes sont revenues à leur état précédent.",
   "{mood} stopped: the lights are back as they were.": "{mood} : arrêtée, les lampes sont revenues à leur état précédent.",
   "{n} accessories": "{n} accessoires",
   "{n} accessories on {bridge}": "{n} accessoires sur {bridge}",
@@ -9990,6 +9997,7 @@ HomeswiftI18n.add("fr", {
   "two-factor authentication is already on; turn it off first": "l'authentification à deux facteurs est déjà activée ; désactivez-la d'abord",
   "Type {text} to confirm": "Saisissez {text} pour confirmer",
   "type the code from your authenticator app": "saisissez le code de votre app d'authentification",
+  "Undo": "Annuler",
   "Unknown": "Inconnu",
   "unknown API route": "route d'API inconnue",
   "unknown auth action": "action d'authentification inconnue",
@@ -10188,6 +10196,7 @@ HomeswiftI18n.add("pt", {
   "{label}: {value}": "{label}: {value}",
   "{level}, {bits} bits": "{level}, {bits} bits",
   "{room}, {lights}": "{room}, {lights}",
+  "{lights}, set at {time}": "{lights}, aplicado às {time}",
   "{lights}, until {time}": "{lights}, até às {time}",
   "{m}m": "{m} min",
   "{minutes} min after sunrise {days}": "{minutes} min depois do nascer do sol {days}",
@@ -10203,6 +10212,7 @@ HomeswiftI18n.add("pt", {
   "{mood} is set on {n} light.": "{mood}: {n} luz ajustada.",
   "{mood} is set on {n} lights.": "{mood}: {n} luzes ajustadas.",
   "{mood} is set, but not on every light: {failures}": "{mood}: nem todas as luzes responderam: {failures}",
+  "{mood} undone: the lights are back as they were.": "{mood}: anulado, as luzes voltaram ao que eram.",
   "{mood} stopped: the lights are back as they were.": "{mood}: parado, as luzes voltaram ao que eram.",
   "{n} accessories": "{n} acessórios",
   "{n} accessories on {bridge}": "{n} acessórios em {bridge}",
@@ -11818,6 +11828,7 @@ HomeswiftI18n.add("pt", {
   "two-factor authentication is already on; turn it off first": "a autenticação de dois fatores já está ativada; desative-a primeiro",
   "Type {text} to confirm": "Escreva {text} para confirmar",
   "type the code from your authenticator app": "introduza o código da app de autenticação",
+  "Undo": "Anular",
   "Unknown": "Desconhecido",
   "unknown API route": "rota de API desconhecida",
   "unknown auth action": "ação de autenticação desconhecida",

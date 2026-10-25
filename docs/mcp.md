@@ -223,10 +223,10 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   `mood` from the list, a `description` the bridge's Assistant turns into one, or a `plan` of the client's own
   (`{name, steps: [{colors: [{on, brightness, hue, saturation, colorTemperature}], assign: spread|random, seconds,
   jitter}], loop, durationSeconds, restore}`), checked and kept to each light's range. Only lightbulbs change, never a
-  security control. A mood of one step that does not loop sets the lights and is done; any other plays in the
-  background, at least half a second a step since lights fade, and puts the lights back when it ends (when it loops,
+  security control. A mood of one step that does not loop sets the lights, and `stop_mood` undoes it for 12 hours
+  (`"held": true` in `list_moods`); any other plays in the background, at least half a second a step since lights fade, and puts the lights back when it ends (when it loops,
   or with `restore`) or when `stop_mood` stops it. A mood started on lights another plays on takes them over, and
-  restores them as they were before the first; a light that fails three writes in a row leaves the show.
+  restores them as they were before the first; one that takes only some of a held mood's lights leaves it the others; a light that fails three writes in a row leaves the show.
 - **Notifications.** `send_test_notification` sends a test through the channels that are on (`channel` for one:
   `webhook`, `ntfy`, `pushover`, `telegram`, `browser`) and answers per channel, 5 a minute at most. The channels
   are set up on the web UI's Notifications page, in a file of their own that no tool reads.

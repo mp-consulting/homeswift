@@ -260,13 +260,14 @@
     function drawRunning(runs) {
       running.replaceChildren(...runs.map((run) => {
         const name = moodName(run.mood, run.name);
-        const stop = el("button", { type: "button", class: "mood-stop", text: t("Stop") });
+        // A mood that set the lights once is undone; one that plays is stopped. Either way the lights go back.
+        const stop = el("button", { type: "button", class: "mood-stop", text: run.held ? t("Undo") : t("Stop") });
         stop.addEventListener("click", async () => {
           stop.classList.add("busy");
           stop.disabled = true;
           try {
             await app.api("/api/moods/stop", { method: "POST", body: { run: run.id } });
-            say(line, t("{mood} stopped: the lights are back as they were.", { mood: name }));
+            say(line, run.held ? t("{mood} undone: the lights are back as they were.", { mood: name }) : t("{mood} stopped: the lights are back as they were.", { mood: name }));
             await refresh();
           } catch (e) { say(line, e.message, "error"); stop.disabled = false; stop.classList.remove("busy"); }
         });
@@ -275,7 +276,8 @@
         const where = run.room && run.room !== room ? t("{room}, {lights}", { room: run.room, lights }) : lights;
         return el("div", { class: "mood-run" }, swatch(run.swatch, true),
           el("div", { class: "mood-run-text" }, el("strong", { text: name }),
-            el("span", { class: "muted", text: run.endsAt ? t("{lights}, until {time}", { lights: where, time: timeFormat.format(new Date(run.endsAt)) }) : where })),
+            el("span", { class: "muted", text: run.held ? t("{lights}, set at {time}", { lights: where, time: timeFormat.format(new Date(run.startedAt)) })
+              : run.endsAt ? t("{lights}, until {time}", { lights: where, time: timeFormat.format(new Date(run.endsAt)) }) : where })),
           stop);
       }));
     }
@@ -293,7 +295,7 @@
         const result = await app.api("/api/moods/start", { method: "POST", body: { ...body, room } });
         const shown = body.mood ? name : result.mood.name;
         const count = result.lights.length;
-        if (result.run) {
+        if (result.run && !result.run.held) {
           say(line, "");
         } else if (result.ok) {
           say(line, tn("{mood} is set on {n} light.", "{mood} is set on {n} lights.", count, { mood: shown }));
