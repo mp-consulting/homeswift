@@ -1,5 +1,8 @@
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Adaptive Lighting: status unavailable; check in Apple Home": "Iluminación adaptativa: estado no disponible; compruébalo en Casa",
+  "Adaptive Lighting: on; managed in Apple Home": "Iluminación adaptativa: activada; gestionada en Casa",
+  "Adaptive Lighting: off; managed in Apple Home": "Iluminación adaptativa: desactivada; gestionada en Casa",
   "-100… or @channel": "-100… o @canal",
   "\"{0}\" is in several caches; pass cacheFile ({1})": "\"{0}\" está en varias cachés; indica cacheFile ({1})",
   "(done)": "(hecho)",

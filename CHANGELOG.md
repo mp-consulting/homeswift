@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Wingman lights with brightness and colour temperature now show an Adaptive Lighting information button.
+  Apple Home manages the schedule; the indicator uses the exposed transition count, or explicitly reports
+  unavailable status instead of guessing whether Adaptive Lighting is enabled.
+
 ## [0.10.0] - 2026-10-25
 
 ### Added
