@@ -61,6 +61,8 @@ public final class HomeState: Sendable {
     let running = NIOLockedValueBox<RunningHome?>(nil)
     /// Scenes running now, so one does not start twice.
     let runningScenes = NIOLockedValueBox<Set<String>>([])
+    /// Moods playing on the lights now, by run id.
+    let runningMoods = NIOLockedValueBox<[String: MoodRun]>([:])
     /// The last value of each characteristic a scene trigger watches, and when each trigger last fired.
     let watched = NIOLockedValueBox(WatchedValues())
     /// Rate limits and memory of the notification dispatcher.

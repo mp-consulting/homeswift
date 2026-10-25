@@ -5785,6 +5785,183 @@ enum WebAssets {
     }
   }
 
+  // ---- Moods -----------------------------------------------------------------------------------------
+
+  /// The collection's names and descriptions, by id: translated here, the server's being English for MCP clients.
+  const moodTexts = {
+    "candlelight": [t("Candlelight"), t("Very warm, dim light for dinner.")],
+    "relax": [t("Relax"), t("Soft warm white for the evening.")],
+    "golden-hour": [t("Golden hour"), t("Amber and soft orange, a little different on each light.")],
+    "cinema": [t("Cinema"), t("Almost dark, with a touch of blue behind the screen.")],
+    "romantic": [t("Romantic"), t("Deep pink and soft red, dimmed.")],
+    "focus": [t("Focus"), t("Bright, cool white for work.")],
+    "night-light": [t("Night light"), t("A faint amber glow to find your way.")],
+    "candle-flicker": [t("Candle flicker"), t("Warm amber, each light flickering on its own.")],
+    "fireplace": [t("Fireplace"), t("Reds, oranges and amber dancing unevenly.")],
+    "ocean": [t("Ocean"), t("Blues and teals rolling from light to light like waves.")],
+    "northern-lights": [t("Northern lights"), t("Green, teal and violet drifting slowly.")],
+    "breathing": [t("Breathing"), t("Soft light rising and falling in a six-second rhythm, to calm down.")],
+    "sunset": [t("Sunset"), t("Ten minutes from golden yellow through orange and pink to a dim red.")],
+    "sunrise": [t("Sunrise"), t("Fifteen minutes from a dim red glow to bright warm white, to wake up.")],
+    "disco": [t("Disco"), t("Every light jumps to a vivid colour on each beat.")],
+    "police": [t("Police siren"), t("Red and blue swapping from light to light.")],
+    "rainbow-wave": [t("Rainbow wave"), t("The colour wheel passing from light to light.")],
+    "lightning": [t("Lightning storm"), t("Dim stormy blue, with sudden white flashes.")],
+    "halloween": [t("Halloween"), t("Purple and orange with an eerie flicker.")],
+    "christmas": [t("Christmas"), t("Red and green taking turns, with a warm white twinkle now and then.")],
+    "alert": [t("Alert flash"), t("Two red pulses, then the lights go back to how they were.")],
+    "bedtime": [t("Bedtime"), t("A slow fade to a dim red over fifteen minutes.")],
+  };
+  const moodCategories = [["calm", t("Calm")], ["animated", t("Slow animations")], ["party", t("Party")], ["signal", t("Signals")]];
+  const moodName = (id, name) => moodTexts[id]?.[0] ?? name;
+  const moodRoomKey = "homeswift.moods.room";
+
+  /// The rooms with a light in them, for the moods.
+  function lightRooms(accessories) {
+    const rooms = accessories.filter((a) => !a.hidden && a.room && a.services.some((s) => s.type === "Lightbulb")).map((a) => a.room);
+    return [...new Set(rooms)].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale));
+  }
+
+  /// Moods for a room's lights: the rooms as chips, what plays now, a box where the Assistant writes one from a
+  /// description, and the collection by kind. On a phone each kind is a row that swipes sideways, so the whole card
+  /// fits on a screen and what a tap started shows next to the finger: the pill lights up while its mood plays.
+  function moodsSection(accessories) {
+    const section = el("section", { class: "moods" });
+    const head = el("div", { class: "section-head" }, el("div", {}, el("h2", { text: t("Moods") }), el("span", { class: "muted", text: t("Ambiances and light shows for a room's lights.") })));
+    const rooms = lightRooms(accessories);
+    if (!rooms.length) {
+      section.append(head, el("div", { class: "card empty" }, el("p", { class: "muted", text: t("Put your lights in rooms (a card's menu on the Accessories page) to play moods on them.") })));
+      return section;
+    }
+    let room = rooms[0];
+    try { const remembered = localStorage.getItem(moodRoomKey); if (rooms.includes(remembered)) room = remembered; } catch {}
+    const roomChips = el("div", { class: "mood-rooms", role: "group", "aria-label": t("Room") }, rooms.map((name) => {
+      const chip = el("button", { type: "button", class: "mood-room", text: name, "aria-pressed": String(name === room) });
+      chip.addEventListener("click", () => {
+        room = name;
+        try { localStorage.setItem(moodRoomKey, name); } catch {}
+        for (const other of roomChips.children) other.setAttribute("aria-pressed", String(other === chip));
+        drawRunning(data.running);
+        markPlaying();
+      });
+      return chip;
+    }));
+    const line = statusLine();
+    const running = el("div", { class: "mood-running" });
+    const collection = el("div", { class: "mood-collection" });
+    const describe = el("input", { type: "text", maxLength: 500, enterKeyHint: "go", placeholder: t("Describe a mood…"), title: t("Describe one: a jazz bar, a rainy afternoon…"), "aria-label": t("Describe a mood") });
+    const create = el("button", { type: "submit", class: "primary mood-create" }, sparkle(), el("span", { text: t("Create") }));
+    const designer = el("form", { class: "mood-describe hidden" }, describe, create);
+    section.append(head, el("div", { class: "card mood-card" }, roomChips, running, line, designer, collection));
+
+    let data = { moods: [], running: [] };
+    const buttons = new Map();
+    let timer = null;
+
+    /// The pills of the moods playing in the chosen room light up.
+    function markPlaying() {
+      const playing = new Set(data.running.filter((run) => run.room === room).map((run) => run.mood).filter(Boolean));
+      for (const [id, button] of buttons) {
+        button.classList.toggle("playing", playing.has(id));
+        button.setAttribute("aria-pressed", String(playing.has(id)));
+      }
+    }
+
+    async function refresh() {
+      data = await app.api("/api/moods");
+      drawRunning(data.running);
+      markPlaying();
+      // Look again just after the next one ends by itself.
+      clearTimeout(timer);
+      const next = Math.min(...data.running.map((run) => run.endsAt ? new Date(run.endsAt) - Date.now() : Infinity));
+      if (Number.isFinite(next)) timer = setTimeout(() => { if (section.isConnected) refresh().catch(() => {}); }, Math.max(1000, next + 1500));
+    }
+
+    function drawRunning(runs) {
+      running.replaceChildren(...runs.map((run) => {
+        const name = moodName(run.mood, run.name);
+        const stop = el("button", { type: "button", class: "mood-stop", text: t("Stop") });
+        stop.addEventListener("click", async () => {
+          stop.classList.add("busy");
+          stop.disabled = true;
+          try {
+            await app.api("/api/moods/stop", { method: "POST", body: { run: run.id } });
+            say(line, t("{mood} stopped: the lights are back as they were.", { mood: name }));
+            await refresh();
+          } catch (e) { say(line, e.message, "error"); stop.disabled = false; stop.classList.remove("busy"); }
+        });
+        const lights = tn("{n} light", "{n} lights", run.lights.length);
+        // The room shows only when it is not the one chosen above.
+        const where = run.room && run.room !== room ? t("{room}, {lights}", { room: run.room, lights }) : lights;
+        return el("div", { class: "mood-run" }, swatch(run.swatch, true),
+          el("div", { class: "mood-run-text" }, el("strong", { text: name }),
+            el("span", { class: "muted", text: run.endsAt ? t("{lights}, until {time}", { lights: where, time: timeFormat.format(new Date(run.endsAt)) }) : where })),
+          stop);
+      }));
+    }
+
+    function swatch(colours = [], animated = false) {
+      const fill = colours.length > 1 ? `linear-gradient(135deg, ${colours.join(", ")})` : colours[0] || "var(--accent)";
+      return el("span", { class: `mood-swatch${animated && colours.length > 1 ? " animated" : ""}`, style: `background: ${fill}`, "aria-hidden": "true" });
+    }
+
+    async function start(body, name, button) {
+      if (button?.classList.contains("busy")) return;
+      button?.classList.add("busy");
+      say(line, body.description ? t("The Assistant is writing a mood…") : t("Starting {mood}…", { mood: name }));
+      try {
+        const result = await app.api("/api/moods/start", { method: "POST", body: { ...body, room } });
+        const shown = body.mood ? name : result.mood.name;
+        const count = result.lights.length;
+        if (result.run) {
+          say(line, "");
+        } else if (result.ok) {
+          say(line, tn("{mood} is set on {n} light.", "{mood} is set on {n} lights.", count, { mood: shown }));
+          line.append(" ", el("button", { type: "button", class: "link", text: t("Save as a scene"), onclick: () => saveAsScene(body.mood ? { mood: body.mood } : { plan: result.mood }, shown) }));
+        } else {
+          const failures = result.failed.map((f) => `${f.name}: ${HomeswiftI18n.message(f.error)}`).join("; ");
+          say(line, t("{mood} is set, but not on every light: {failures}", { mood: shown, failures }), "error");
+        }
+        if (body.description) describe.value = "";
+        await refresh();
+      } catch (e) { say(line, e.message, "error"); } finally { button?.classList.remove("busy"); }
+    }
+
+    async function saveAsScene(source, name) {
+      try {
+        const scene = await app.api("/api/moods/save", { method: "POST", body: { ...source, room, name: t("{mood} in {room}", { mood: name, room }) } });
+        say(line, t("Saved as the scene {name}.", { name: scene.name }));
+        setTimeout(() => { if (section.isConnected) app.route(); }, 1200);
+      } catch (e) { say(line, e.message, "error"); }
+    }
+
+    designer.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const text = describe.value.trim();
+      if (text) start({ description: text }, text, create);
+    });
+
+    (async () => {
+      await refresh();
+      designer.classList.toggle("hidden", !data.assistant);
+      collection.replaceChildren(...moodCategories.map(([category, label]) => {
+        const moods = data.moods.filter((mood) => mood.category === category);
+        if (!moods.length) return null;
+        return el("div", { class: "mood-group" }, el("div", { class: "service-name", text: label }),
+          el("div", { class: "mood-buttons" }, moods.map((mood) => {
+            const name = moodName(mood.id, mood.name);
+            const button = el("button", { type: "button", class: "mood-button", title: moodTexts[mood.id]?.[1] ?? mood.description ?? "", "aria-pressed": "false" },
+              swatch(mood.swatch, mood.animated), el("span", { text: name }));
+            button.addEventListener("click", () => start({ mood: mood.id }, name, button));
+            buttons.set(mood.id, button);
+            return button;
+          })));
+      }).filter(Boolean));
+      markPlaying();
+    })().catch((e) => say(line, e.message, "error"));
+    return section;
+  }
+
   // ---- Scenes ----------------------------------------------------------------------------------------
 
   const timeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { hour: "2-digit", minute: "2-digit" });
@@ -5855,6 +6032,8 @@ enum WebAssets {
     app.show(main,
       app.pageHead(t("Scenes"), t("Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them."),
         el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
+      moodsSection(accessories),
+      el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") })),
       data.scenes.length ? el("div", { class: "grid" }, data.scenes.map(card))
         : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") })),
       locationCard(data));
@@ -6352,6 +6531,8 @@ HomeswiftI18n.add("es", {
   "{label} {n} of {count}": "{label} {n} de {count}",
   "{label}: {value}": "{label}: {value}",
   "{level}, {bits} bits": "{level}, {bits} bits",
+  "{room}, {lights}": "{room}, {lights}",
+  "{lights}, until {time}": "{lights}, hasta las {time}",
   "{m}m": "{m} min",
   "{minutes} min after sunrise {days}": "{minutes} min después del amanecer {days}",
   "{minutes} min after sunset {days}": "{minutes} min después del atardecer {days}",
@@ -6360,6 +6541,13 @@ HomeswiftI18n.add("es", {
   "{minutes} min before sunset {days}": "{minutes} min antes del atardecer {days}",
   "{model} read {n} line. Secrets and addresses were masked first; check its advice before acting on it.": "{model} ha leído {n} línea. Antes se han ocultado los secretos y las direcciones; comprueba sus consejos antes de seguirlos.",
   "{model} read {n} lines. Secrets and addresses were masked first; check its advice before acting on it.": "{model} ha leído {n} líneas. Antes se han ocultado los secretos y las direcciones; comprueba sus consejos antes de seguirlos.",
+  "{mood} in {room}": "{mood} – {room}",
+  "{mood} is playing on {n} light.": "{mood}: en marcha en {n} luz.",
+  "{mood} is playing on {n} lights.": "{mood}: en marcha en {n} luces.",
+  "{mood} is set on {n} light.": "{mood}: {n} luz ajustada.",
+  "{mood} is set on {n} lights.": "{mood}: {n} luces ajustadas.",
+  "{mood} is set, but not on every light: {failures}": "{mood}: no todas las luces han respondido: {failures}",
+  "{mood} stopped: the lights are back as they were.": "{mood}: detenido, las luces han vuelto a como estaban.",
   "{n} accessories": "{n} accesorios",
   "{n} accessories on {bridge}": "{n} accesorios en {bridge}",
   "{n} accessory": "{n} accesorio",
@@ -6372,6 +6560,8 @@ HomeswiftI18n.add("es", {
   "{n} files from the backup are staged.": "Se han preparado {n} archivos de la copia.",
   "{n} Home app controller": "{n} controlador de la app Casa",
   "{n} Home app controllers": "{n} controladores de la app Casa",
+  "{n} light": "{n} luz",
+  "{n} lights": "{n} luces",
   "{n} message": "{n} mensaje",
   "{n} messages": "{n} mensajes",
   "{n} min": "{n} min",
@@ -6430,6 +6620,7 @@ HomeswiftI18n.add("es", {
   "A control character in a string must be escaped": "Un carácter de control en una cadena debe escaparse",
   "A display name must be 1 to {0} characters": "Un nombre visible debe tener de 1 a {0} caracteres",
   "a field name is required": "se necesita un nombre de campo",
+  "A faint amber glow to find your way.": "Un tenue brillo ámbar para orientarte.",
   "A JSON POST to a URL of yours: event, title, message, instance, timestamp.": "Un POST JSON a una URL tuya: event, title, message, instance, timestamp.",
   "A location needs lat (-90 to 90) and lon (-180 to 180)": "Una ubicación necesita lat (de -90 a 90) y lon (de -180 a 180)",
   "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)": "una cerradura, puerta o alarma: la confirma una persona (set_security_accessory, o la interfaz web)",
@@ -6448,6 +6639,7 @@ HomeswiftI18n.add("es", {
   "a security control: use set_security_accessory, one at a time": "un control de seguridad: usa set_security_accessory, de uno en uno",
   "a size is small, medium or large": "un tamaño es small, medium o large",
   "a token expires after 1 to {0} days, or never": "un token caduca al cabo de entre 1 y {0} días, o nunca",
+  "A slow fade to a dim red over fifteen minutes.": "Un lento fundido a un rojo tenue en quince minutos.",
   "A topic on ntfy.sh or your own ntfy server; the app shows it on a phone.": "Un tema en ntfy.sh o en tu propio servidor ntfy; la app lo muestra en el móvil.",
   "a username and a password are required": "se necesitan un nombre de usuario y una contraseña",
   "a widget id is a short word": "un identificador de widget es una palabra corta",
@@ -6524,6 +6716,7 @@ HomeswiftI18n.add("es", {
   "AirPlay Enable": "AirPlay activado",
   "alarm": "alarma",
   "Alarm": "Alarma",
+  "Alert flash": "Destello de alerta",
   "All": "Todo",
   "All controls": "Todos los controles",
   "All lines": "Todas las líneas",
@@ -6535,9 +6728,12 @@ HomeswiftI18n.add("es", {
   "Allowed": "Permitido",
   "Allowing sends you back to {destination}. You can disconnect it from your account page at any time.": "Al permitirlo, volverás a {destination}. Puedes desconectarla en cualquier momento desde la página de tu cuenta.",
   "already there": "ya está ahí",
+  "Almost dark, with a touch of blue behind the screen.": "Casi a oscuras, con un toque de azul detrás de la pantalla.",
   "Also change config.json, plugins and settings, and restart the bridge: everything this web UI can do.": "Además, cambiar config.json, los plugins y los ajustes, y reiniciar el puente: todo lo que puede hacer esta interfaz web.",
   "Also turn accessories on and off and run scenes. Locks, garage doors and alarms still ask you first.": "Además, encender y apagar accesorios y ejecutar escenas. Las cerraduras, puertas de garaje y alarmas te siguen preguntando antes.",
   "Amber": "Ámbar",
+  "Amber and soft orange, a little different on each light.": "Ámbar y naranja suave, un poco distintos en cada luz.",
+  "Ambiances and light shows for a room's lights.": "Ambientes y juegos de luces para las luces de una habitación.",
   "An administrator changes settings, plugins and users; anyone else sees the bridge and controls accessories.": "Un administrador cambia ajustes, plugins y usuarios; el resto ve el puente y controla los accesorios.",
   "an API token cannot manage accounts or tokens; sign in to the web UI": "un token de API no puede gestionar cuentas ni tokens; inicia sesión en la interfaz web",
   "an API token names no account: sign in to connect an app": "un token de API no corresponde a ninguna cuenta: inicia sesión para conectar una app",
@@ -6609,16 +6805,20 @@ HomeswiftI18n.add("es", {
   "bad index": "índice incorrecto",
   "Battery": "Batería",
   "Battery Level": "Nivel de batería",
+  "Bedtime": "Hora de dormir",
   "Behind the glass of every page.": "Detrás del cristal de cada página.",
   "Between": "Entre",
   "Blowing": "Ventilando",
   "Blue": "Azul",
+  "Blues and teals rolling from light to light like waves.": "Azules y turquesas que pasan de luz en luz como olas.",
   "Bot token": "Token del bot",
   "Breadcrumb": "Ruta de navegación",
+  "Breathing": "Respiración",
   "Bridge": "Puente",
   "Bridges": "Puentes",
   "Bridges and accessories": "Puentes y accesorios",
   "Bridges only": "Solo puentes",
+  "Bright, cool white for work.": "Blanco frío y brillante para trabajar.",
   "Brightness": "Brillo",
   "Browser's language": "Idioma del navegador",
   "Built in": "Integrado",
@@ -6626,10 +6826,13 @@ HomeswiftI18n.add("es", {
   "By room": "Por habitación",
   "Cached accessories": "Accesorios en caché",
   "camera": "cámara",
+  "Calm": "Tranquilos",
   "Camera": "Cámara",
   "Camera Operating Mode": "Modo de funcionamiento de la cámara",
   "Camera Operating Mode Indicator": "Indicador de funcionamiento de la cámara",
   "Cancel": "Cancelar",
+  "Candle flicker": "Vela parpadeante",
+  "Candlelight": "Luz de velas",
   "Cannot connect": "No se puede conectar",
   "cannot read {0}": "no se puede leer {0}",
   "Cannot restore __REDACTED__ (no matching value in the current config) in {0}. Supply the real value, or keep the entry's identifying fields (platform, accessory, name) unchanged.": "No se puede restaurar __REDACTED__ (no hay ningún valor que coincida en la configuración actual) en {0}. Indica el valor real, o deja sin cambios los campos que identifican la entrada (platform, accessory, name).",
@@ -6670,6 +6873,8 @@ HomeswiftI18n.add("es", {
   "choose it": "elígela",
   "choose it [file]": "elígelo",
   "choose read, control or admin, up to what your account may do": "elige read, control o admin, hasta lo que tu cuenta pueda hacer",
+  "Christmas": "Navidad",
+  "Cinema": "Cine",
   "Clear [smoke]": "Sin humo",
   "Clearer names": "Nombres más claros",
   "Client or user": "Cliente o usuario",
@@ -6749,6 +6954,7 @@ HomeswiftI18n.add("es", {
   "Counter-clockwise": "Sentido antihorario",
   "CPU": "CPU",
   "CPUs": "CPU",
+  "Create": "Crear",
   "Create account": "Crear cuenta",
   "Create an API token": "Crear un token de API",
   "Create the administrator account for this bridge. The set-up code is in the bridge's output, next to the web UI address.": "Crea la cuenta de administrador de este puente. El código de configuración está en la salida del puente, junto a la dirección de la interfaz web.",
@@ -6790,12 +6996,16 @@ HomeswiftI18n.add("es", {
   "Days": "Días",
   "Days (none: every day)": "Días (ninguno: todos los días)",
   "defaults are by kind of widget (climate, light…)": "los valores predeterminados van por tipo de widget (climate, light…)",
+  "Deep pink and soft red, dimmed.": "Rosa intenso y rojo suave, atenuados.",
   "Degraded": "Degradado",
   "Delete": "Eliminar",
   "Delete the scene {name}?": "¿Eliminar la escena {name}?",
   "Delete this backup?": "¿Eliminar esta copia de seguridad?",
   "Delete…": "Eliminar…",
   "Deny": "Denegar",
+  "Describe a mood": "Describir un ambiente",
+  "Describe a mood…": "Describe un ambiente…",
+  "Describe one: a jazz bar, a rainy afternoon…": "Describe uno: un bar de jazz, una tarde lluviosa…",
   "Describe your setup": "Describe tu instalación",
   "Details": "Detalles",
   "Device ID": "ID del dispositivo",
@@ -6805,9 +7015,11 @@ HomeswiftI18n.add("es", {
   "Dictate: tap, or hold while you speak": "Dictar: toca, o mantén pulsado mientras hablas",
   "Digest actions": "Acciones del resumen",
   "Digital Zoom": "Zoom digital",
+  "Dim stormy blue, with sudden white flashes.": "Azul tormentoso tenue, con destellos blancos repentinos.",
   "Direction": "Dirección",
   "Disabled": "Desactivado",
   "Discard": "Descartar",
+  "Disco": "Disco",
   "Disconnect": "Desconectar",
   "Disconnect {name}? It is refused at once and must sign in again.": "¿Desconectar {name}? Pierde el acceso al momento y tendrá que volver a iniciar sesión.",
   "Dismiss": "Descartar",
@@ -6854,6 +7066,7 @@ HomeswiftI18n.add("es", {
   "Every controller was removed and disconnected: add the bridge again in the Home app with its setup code.": "Se han eliminado y desconectado todos los controladores: vuelve a añadir el puente en la app Casa con su código de configuración.",
   "every day": "todos los días",
   "Every Home app controller paired with it is forgotten and disconnected. The Home app loses it with its accessories, their rooms, scenes and automations.": "Todos los controladores de la app Casa emparejados con él se olvidan y se desconectan. La app Casa lo pierde junto con sus accesorios, sus habitaciones, escenas y automatizaciones.",
+  "Every light jumps to a vivid colour on each beat.": "Cada luz salta a un color vivo en cada compás.",
   "Every one": "Todas",
   "Every outcome": "Todos los resultados",
   "Every plugin's accessories leave HomeKit, and the plugins start again on empty caches, adding the devices they reach.": "Los accesorios de todos los plugins salen de HomeKit y los plugins vuelven a empezar con las cachés vacías, añadiendo los dispositivos a los que llegan.",
@@ -6879,6 +7092,7 @@ HomeswiftI18n.add("es", {
   "Fanv2": "Ventilador",
   "Faucet": "Grifo",
   "Favourite accessories and scenes": "Accesorios y escenas favoritos",
+  "Fifteen minutes from a dim red glow to bright warm white, to wake up.": "Quince minutos de un tenue brillo rojo a un blanco cálido y brillante, para despertarte.",
   "Filter": "Filtro",
   "filter {percent} %": "filtro {percent} %",
   "Filter by client": "Filtrar por cliente",
@@ -6889,9 +7103,11 @@ HomeswiftI18n.add("es", {
   "Filter Maintenance": "Mantenimiento del filtro",
   "Filter text": "Filtrar texto",
   "Filter the log": "Filtrar el registro",
+  "Fireplace": "Chimenea",
   "Firmware revision": "Versión del firmware",
   "Firmware Revision": "Versión del firmware",
   "Firmware Update": "Actualización del firmware",
+  "Focus": "Concentración",
   "Folder": "Carpeta",
   "Follow": "Seguir",
   "for {time}": "durante {time}",
@@ -6915,12 +7131,15 @@ HomeswiftI18n.add("es", {
   "GitHub answered HTTP {0}": "GitHub ha respondido HTTP {0}",
   "GitHub's answer has no release": "La respuesta de GitHub no incluye ninguna versión",
   "GitHub's latest release has an unexpected tag": "La última versión en GitHub tiene una etiqueta inesperada",
+  "Golden hour": "Hora dorada",
   "Good": "Buena",
   "Graphite": "Grafito",
   "Green": "Verde",
   "group of switches": "grupo de interruptores",
+  "Green, teal and violet drifting slowly.": "Verde, turquesa y violeta que se desplazan despacio.",
   "Group the accessories": "Agrupar los accesorios",
   "grouping is plugin, room or none": "grouping es plugin, room o none",
+  "Halloween": "Halloween",
   "Hardware Revision": "Versión del hardware",
   "Health, accessories, plugins, uptime": "Salud, accesorios, plugins, tiempo activo",
   "Heart Beat": "Latido",
@@ -7079,6 +7298,7 @@ HomeswiftI18n.add("es", {
   "Light or dark, the wallpaper, °C or °F, the language": "Claro u oscuro, el fondo de pantalla, °C o °F, el idioma",
   "Light Sensor": "Sensor de luz",
   "Lightbulb": "Bombilla",
+  "Lightning storm": "Tormenta eléctrica",
   "Line {line}": "Línea {line}",
   "Listening on port": "Escuchando en el puerto",
   "Listening… tap the mic again when you are done.": "Escuchando… vuelve a tocar el micrófono cuando termines.",
@@ -7135,6 +7355,7 @@ HomeswiftI18n.add("es", {
   "Mode": "Modo",
   "Model": "Modelo",
   "Mon": "Lun",
+  "Moods": "Ambientes",
   "More": "Más",
   "More options ({count})": "Más opciones ({count})",
   "Motion": "Movimiento",
@@ -7163,6 +7384,7 @@ HomeswiftI18n.add("es", {
   "Next sunrise {sunrise}, sunset {sunset}.": "Próximo amanecer: {sunrise}; atardecer: {sunset}.",
   "NFCAccess": "Acceso NFC",
   "Night": "Noche",
+  "Night light": "Luz nocturna",
   "Night Vision": "Visión nocturna",
   "Nitrogen Dioxide Density": "Dióxido de nitrógeno",
   "No accessories yet. Plugins add them once they reach their devices.": "Aún no hay accesorios. Los plugins los añaden en cuanto llegan a sus dispositivos.",
@@ -7233,6 +7455,7 @@ HomeswiftI18n.add("es", {
   "None yet.": "Ninguna todavía.",
   "Normal": "Normal",
   "not a backup id: {0}": "no es un identificador de copia de seguridad: {0}",
+  "Northern lights": "Aurora boreal",
   "Not a bridge setting here: {0} (the device ID stays; reset_pairings starts the pairing over)": "No es un ajuste del puente aquí: {0} (el ID de dispositivo se mantiene; reset_pairings vuelve a empezar el emparejamiento)",
   "not a homeswift backup: {0}": "no es una copia de seguridad de homeswift: {0}",
   "not a homeswift backup: a header's checksum is wrong at byte {0}: not a tar archive, or a damaged one": "no es una copia de seguridad de homeswift: la suma de comprobación de una cabecera es incorrecta en el byte {0}: no es un archivo tar, o está dañado",
@@ -7327,6 +7550,7 @@ HomeswiftI18n.add("es", {
   "Pairing codes and what each bridge runs": "Códigos de emparejamiento y lo que ejecuta cada puente",
   "Pairing Features": "Funciones de emparejamiento",
   "Pairing QR code": "Código QR de emparejamiento",
+  "Party": "Fiesta",
   "Password": "Contraseña",
   "Password changed. Other browsers signed in as {username} are signed out; this one stays.": "Contraseña cambiada. Se ha cerrado la sesión de {username} en los demás navegadores; en este se mantiene.",
   "Password strength": "Seguridad de la contraseña",
@@ -7346,6 +7570,7 @@ HomeswiftI18n.add("es", {
   "Plugins on HomeKit bridges of their own (a block with _bridge), inside this process: one can restart without the others.": "Plugins en sus propios puentes HomeKit (un bloque con _bridge), dentro de este proceso: cada uno puede reiniciarse sin los demás.",
   "PM10 Density": "PM10",
   "PM2.5 Density": "PM2,5",
+  "Police siren": "Sirena de policía",
   "Poor": "Mala",
   "Port": "Puerto",
   "port must be a port number, or null for an automatic one": "port debe ser un número de puerto, o null para uno automático",
@@ -7360,10 +7585,13 @@ HomeswiftI18n.add("es", {
   "Programmable Switch Output State": "Estado de salida del botón",
   "Purifying": "Purificando",
   "Purifying · {how}": "Purificando · {how}",
+  "Purple and orange with an eerie flicker.": "Morado y naranja con un parpadeo inquietante.",
   "Push payload too large ({0} bytes)": "Contenido push demasiado grande ({0} bytes)",
   "Put in a room…": "Asignar a una habitación…",
+  "Put your lights in rooms (a card's menu on the Accessories page) to play moods on them.": "Pon tus luces en habitaciones (el menú de una tarjeta en la página Accesorios) para ponerles ambientes.",
   "QR code for an authenticator app": "Código QR para una app de autenticación",
   "Quick controls": "Controles rápidos",
+  "Rainbow wave": "Ola arcoíris",
   "Raise {setting}": "Subir {setting}",
   "Rang {when}": "Ha sonado {when}",
   "Read": "Lectura",
@@ -7377,9 +7605,13 @@ HomeswiftI18n.add("es", {
   "Recording": "Grabando",
   "Recording Audio Active": "Grabación de audio",
   "Red": "Rojo",
+  "Red and blue swapping from light to light.": "Rojo y azul que se intercambian de luz en luz.",
+  "Red and green taking turns, with a warm white twinkle now and then.": "Rojo y verde por turnos, con un destello blanco cálido de vez en cuando.",
+  "Reds, oranges and amber dancing unevenly.": "Rojos, naranjas y ámbar que bailan de forma irregular.",
   "Refresh": "Actualizar",
   "Relative Humidity Dehumidifier Threshold": "Umbral de deshumidificación",
   "Relative Humidity Humidifier Threshold": "Umbral de humidificación",
+  "Relax": "Relax",
   "Relay Enabled": "Relé activado",
   "Relay State": "Estado del relé",
   "Remaining Duration": "Duración restante",
@@ -7440,6 +7672,8 @@ HomeswiftI18n.add("es", {
   "Revoke": "Revocar",
   "Revoke the token “{name}”? Scripts using it are refused at once.": "¿Revocar el token «{name}»? Los scripts que lo usen se rechazarán al momento.",
   "Right": "Derecha",
+  "Romantic": "Romántico",
+  "Room": "Habitación",
   "Room: {room}…": "Habitación: {room}…",
   "rooms must be names": "rooms debe contener nombres",
   "Rotation Direction": "Sentido de giro",
@@ -7469,6 +7703,7 @@ HomeswiftI18n.add("es", {
   "Save “{entry}” in {block}?": "¿Guardar «{entry}» en {block}?",
   "Save and restart": "Guardar y reiniciar",
   "Save anyway": "Guardar de todos modos",
+  "Save as a scene": "Guardar como escena",
   "Save payloads": "Guardar contenidos",
   "Save the budgets": "Guardar los presupuestos",
   "Save this entry in {block}?": "¿Guardar esta entrada en {block}?",
@@ -7476,6 +7711,7 @@ HomeswiftI18n.add("es", {
   "Save what the plugins' schemas refuse: for a value a plugin accepts that its schema does not list": "Guardar lo que los esquemas de los plugins rechazan: para un valor que un plugin acepta pero que su esquema no incluye",
   "Saved": "Guardado",
   "Saved and applied.": "Guardado y aplicado.",
+  "Saved as the scene {name}.": "Guardado como la escena {name}.",
   "Saved for you, on every browser": "Guardado para ti, en todos los navegadores",
   "Saved for your account, on every browser.": "Guardado en tu cuenta, en todos los navegadores.",
   "Saved.": "Guardado.",
@@ -7552,6 +7788,7 @@ HomeswiftI18n.add("es", {
   "Sign in with your Homeswift account to connect an app.": "Inicia sesión con tu cuenta de Homeswift para conectar una app.",
   "Sign out": "Cerrar sesión",
   "Signal To Noise Ratio": "Relación señal/ruido",
+  "Signals": "Señales",
   "Signed in on this browser. Logins last {n} day without activity; changing the password, or turning two-factor authentication on or off, signs the others out.": "Sesión iniciada en este navegador. Las sesiones duran {n} día sin actividad; cambiar la contraseña, o activar o desactivar la autenticación de dos factores, cierra las demás.",
   "Signed in on this browser. Logins last {n} days without activity; changing the password, or turning two-factor authentication on or off, signs the others out.": "Sesión iniciada en este navegador. Las sesiones duran {n} días sin actividad; cambiar la contraseña, o activar o desactivar la autenticación de dos factores, cierra las demás.",
   "Signing in asks for the code your authenticator app shows, after the password.": "Al iniciar sesión se pide el código que muestra tu app de autenticación, después de la contraseña.",
@@ -7573,12 +7810,15 @@ HomeswiftI18n.add("es", {
   "Slat Type": "Tipo de lamas",
   "Slats": "Lamas",
   "Sleep Interval": "Intervalo de reposo",
+  "Slow animations": "Animaciones lentas",
   "Small": "Pequeño",
   "Smart Speaker": "Altavoz inteligente",
   "Smoke": "Humo",
   "Smoke Detected": "Humo detectado",
   "Smoke Sensor": "Detector de humo",
   "Snapshot of {name}": "Instantánea de {name}",
+  "Soft light rising and falling in a six-second rhythm, to calm down.": "Luz suave que sube y baja a un ritmo de seis segundos, para calmarte.",
+  "Soft warm white for the evening.": "Blanco cálido y suave para la noche.",
   "Software Revision": "Versión del software",
   "Some changes need a restart of homeswift.": "Algunos cambios requieren reiniciar homeswift.",
   "Something follows the end of the JSON": "Hay algo después del final del JSON",
@@ -7589,6 +7829,7 @@ HomeswiftI18n.add("es", {
   "Staged Firmware Version": "Firmware preparado",
   "Stale": "Obsoleto",
   "Start": "Iniciar",
+  "Starting {mood}…": "Iniciando {mood}…",
   "Starting…": "Iniciando…",
   "Stateful Programmable Switch": "Interruptor programable",
   "Stateless Programmable Switch": "Botón programable",
@@ -7657,6 +7898,7 @@ HomeswiftI18n.add("es", {
   "Temperature Sensor": "Sensor de temperatura",
   "Temperature unit": "Unidad de temperatura",
   "Temperatures": "Temperaturas",
+  "Ten minutes from golden yellow through orange and pink to a dim red.": "Diez minutos del amarillo dorado a un rojo tenue, pasando por el naranja y el rosa.",
   "Ten-minute averages, kept four weeks; each point here averages those in its span.": "Medias de diez minutos, guardadas cuatro semanas; cada punto aquí promedia las de su intervalo.",
   "Test connection": "Probar la conexión",
   "Th": "Ju",
@@ -7698,6 +7940,7 @@ HomeswiftI18n.add("es", {
   "The Assistant is off: config.json has no HomeswiftAiKit block. Add one on the Config page, {example}, or choose apple on a Mac with Apple Intelligence.": "El Asistente está desactivado: config.json no tiene bloque HomeswiftAiKit. Añade uno en la página Configuración, {example}, o elige apple en un Mac con Apple Intelligence.",
   "The Assistant is sorting your accessories into rooms…": "El Asistente está ordenando tus accesorios por habitaciones…",
   "the Assistant is still answering; stop it first": "el Asistente aún está respondiendo; detenlo primero",
+  "The Assistant is writing a mood…": "El Asistente está creando un ambiente…",
   "The Assistant is writing the block…": "El Asistente está escribiendo el bloque…",
   "The Assistant reads the lines shown and groups the issues, with causes and fixes": "El Asistente lee las líneas mostradas y agrupa los problemas, con causas y soluciones",
   "The Assistant stopped after many steps without an answer. Ask again, or more precisely.": "El Asistente se ha detenido tras muchos pasos sin respuesta. Vuelve a preguntar, o con más precisión.",
@@ -7728,6 +7971,7 @@ HomeswiftI18n.add("es", {
   "The code the app shows now": "El código que muestra ahora la app",
   "The code the Home app asks for, as XXX-XX-XXX. It is never logged.": "El código que pide la app Casa, con el formato XXX-XX-XXX. Nunca se registra.",
   "the config must be a JSON object": "la configuración debe ser un objeto JSON",
+  "The colour wheel passing from light to light.": "La rueda de colores pasando de luz en luz.",
   "The connection dropped before the answer ended.": "La conexión se ha cortado antes de terminar la respuesta.",
   "The connection dropped: {error}": "Se ha perdido la conexión: {error}",
   "the current and the new password are required": "se necesitan la contraseña actual y la nueva",
@@ -7912,6 +8156,7 @@ HomeswiftI18n.add("es", {
   "Turn on": "Activar",
   "Turn on for this browser": "Activar en este navegador",
   "Turned off in the Home app": "Desactivada en la app Casa",
+  "Two red pulses, then the lights go back to how they were.": "Dos pulsos rojos y luego las luces vuelven a como estaban.",
   "Two-factor": "Dos factores",
   "Two-factor authentication": "Autenticación de dos factores",
   "two-factor authentication is already on; turn it off first": "la autenticación de dos factores ya está activada; desactívala primero",
@@ -7953,6 +8198,7 @@ HomeswiftI18n.add("es", {
   "Valve position": "Posición de la válvula",
   "Valve Type": "Tipo de válvula",
   "Version {version} · {host}": "Versión {version} · {host}",
+  "Very warm, dim light for dinner.": "Luz muy cálida y tenue para cenar.",
   "Very weak": "Muy débil",
   "Video Analysis Active": "Análisis de vídeo",
   "Violet": "Violeta",
@@ -7971,6 +8217,7 @@ HomeswiftI18n.add("es", {
   "Volume up": "Subir volumen",
   "Waiting to be added (setup code on the Status page)": "Esperando a que se añada (código de configuración en la página Estado)",
   "Wallpaper": "Fondo de pantalla",
+  "Warm amber, each light flickering on its own.": "Ámbar cálido, cada luz parpadeando a su aire.",
   "Warm white": "Blanco cálido",
   "Warnings": "Avisos",
   "Water": "Agua",
@@ -8026,6 +8273,7 @@ HomeswiftI18n.add("es", {
   "Your image": "Tu imagen",
   "Your image is the wallpaper now.": "Tu imagen es ahora el fondo de pantalla.",
   "Your password and two-factor": "Tu contraseña y la autenticación de dos factores",
+  "Your scenes": "Tus escenas",
   "Your setup, in your words": "Tu instalación, con tus palabras",
   "Your sign-in to this bridge's web UI, as an administrator.": "Tu inicio de sesión en la interfaz web de este puente, como administrador.",
   "Your sign-in to this bridge's web UI.": "Tu inicio de sesión en la interfaz web de este puente.",
@@ -8111,6 +8359,8 @@ HomeswiftI18n.add("fr", {
   "{label} {n} of {count}": "{label} {n} sur {count}",
   "{label}: {value}": "{label} : {value}",
   "{level}, {bits} bits": "{level}, {bits} bits",
+  "{room}, {lights}": "{room}, {lights}",
+  "{lights}, until {time}": "{lights}, jusqu'à {time}",
   "{m}m": "{m} min",
   "{minutes} min after sunrise {days}": "{minutes} min après le lever du soleil {days}",
   "{minutes} min after sunset {days}": "{minutes} min après le coucher du soleil {days}",
@@ -8119,6 +8369,13 @@ HomeswiftI18n.add("fr", {
   "{minutes} min before sunset {days}": "{minutes} min avant le coucher du soleil {days}",
   "{model} read {n} line. Secrets and addresses were masked first; check its advice before acting on it.": "{model} a lu {n} ligne. Les secrets et les adresses ont d'abord été masqués ; vérifiez ses conseils avant de les suivre.",
   "{model} read {n} lines. Secrets and addresses were masked first; check its advice before acting on it.": "{model} a lu {n} lignes. Les secrets et les adresses ont d'abord été masqués ; vérifiez ses conseils avant de les suivre.",
+  "{mood} in {room}": "{mood} – {room}",
+  "{mood} is playing on {n} light.": "{mood} : en cours sur {n} lampe.",
+  "{mood} is playing on {n} lights.": "{mood} : en cours sur {n} lampes.",
+  "{mood} is set on {n} light.": "{mood} : {n} lampe réglée.",
+  "{mood} is set on {n} lights.": "{mood} : {n} lampes réglées.",
+  "{mood} is set, but not on every light: {failures}": "{mood} : certaines lampes n'ont pas suivi : {failures}",
+  "{mood} stopped: the lights are back as they were.": "{mood} : arrêtée, les lampes sont revenues à leur état précédent.",
   "{n} accessories": "{n} accessoires",
   "{n} accessories on {bridge}": "{n} accessoires sur {bridge}",
   "{n} accessory": "{n} accessoire",
@@ -8131,6 +8388,8 @@ HomeswiftI18n.add("fr", {
   "{n} files from the backup are staged.": "{n} fichiers de la sauvegarde sont prêts.",
   "{n} Home app controller": "{n} contrôleur de l'app Maison",
   "{n} Home app controllers": "{n} contrôleurs de l'app Maison",
+  "{n} light": "{n} lampe",
+  "{n} lights": "{n} lampes",
   "{n} message": "{n} message",
   "{n} messages": "{n} messages",
   "{n} min": "{n} min",
@@ -8189,6 +8448,7 @@ HomeswiftI18n.add("fr", {
   "A control character in a string must be escaped": "Un caractère de contrôle dans une chaîne doit être échappé",
   "A display name must be 1 to {0} characters": "Un nom d'affichage doit compter de 1 à {0} caractères",
   "a field name is required": "un nom de champ est requis",
+  "A faint amber glow to find your way.": "Une faible lueur ambrée pour trouver votre chemin.",
   "A JSON POST to a URL of yours: event, title, message, instance, timestamp.": "Un POST JSON vers une URL de votre choix : event, title, message, instance, timestamp.",
   "A location needs lat (-90 to 90) and lon (-180 to 180)": "Une position nécessite lat (-90 à 90) et lon (-180 à 180)",
   "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)": "une serrure, une porte ou une alarme : une personne doit confirmer (set_security_accessory, ou l'interface web)",
@@ -8207,6 +8467,7 @@ HomeswiftI18n.add("fr", {
   "a security control: use set_security_accessory, one at a time": "une commande de sécurité : utilisez set_security_accessory, une à la fois",
   "a size is small, medium or large": "une taille vaut small, medium ou large",
   "a token expires after 1 to {0} days, or never": "un jeton expire après 1 à {0} jours, ou jamais",
+  "A slow fade to a dim red over fifteen minutes.": "Un lent fondu vers un rouge tamisé en quinze minutes.",
   "A topic on ntfy.sh or your own ntfy server; the app shows it on a phone.": "Un sujet sur ntfy.sh ou votre propre serveur ntfy ; l'app l'affiche sur un téléphone.",
   "a username and a password are required": "un nom d'utilisateur et un mot de passe sont requis",
   "a widget id is a short word": "un identifiant de widget est un mot court",
@@ -8283,6 +8544,7 @@ HomeswiftI18n.add("fr", {
   "AirPlay Enable": "AirPlay activé",
   "alarm": "alarme",
   "Alarm": "Alarme",
+  "Alert flash": "Flash d'alerte",
   "All": "Tout",
   "All controls": "Toutes les commandes",
   "All lines": "Toutes les lignes",
@@ -8294,9 +8556,12 @@ HomeswiftI18n.add("fr", {
   "Allowed": "Autorisé",
   "Allowing sends you back to {destination}. You can disconnect it from your account page at any time.": "Si vous autorisez, vous serez renvoyé vers {destination}. Vous pourrez déconnecter l'app à tout moment depuis la page de votre compte.",
   "already there": "déjà dans cette pièce",
+  "Almost dark, with a touch of blue behind the screen.": "Presque dans le noir, avec une touche de bleu derrière l'écran.",
   "Also change config.json, plugins and settings, and restart the bridge: everything this web UI can do.": "Modifier aussi config.json, les plugins et les réglages, et redémarrer le pont : tout ce que peut faire cette interface web.",
   "Also turn accessories on and off and run scenes. Locks, garage doors and alarms still ask you first.": "Allumer et éteindre aussi les accessoires, et lancer des scènes. Les serrures, portes de garage et alarmes demandent toujours votre accord.",
   "Amber": "Ambre",
+  "Amber and soft orange, a little different on each light.": "Ambre et orange doux, un peu différents sur chaque lampe.",
+  "Ambiances and light shows for a room's lights.": "Atmosphères et jeux de lumière pour les lampes d'une pièce.",
   "An administrator changes settings, plugins and users; anyone else sees the bridge and controls accessories.": "Un administrateur modifie les réglages, les plugins et les utilisateurs ; les autres voient le pont et commandent les accessoires.",
   "an API token cannot manage accounts or tokens; sign in to the web UI": "un jeton d'API ne peut pas gérer les comptes ni les jetons ; connectez-vous à l'interface web",
   "an API token names no account: sign in to connect an app": "un jeton d'API ne désigne aucun compte : connectez-vous pour connecter une app",
@@ -8368,16 +8633,20 @@ HomeswiftI18n.add("fr", {
   "bad index": "index incorrect",
   "Battery": "Batterie",
   "Battery Level": "Niveau de batterie",
+  "Bedtime": "Coucher",
   "Behind the glass of every page.": "Derrière le verre de chaque page.",
   "Between": "Entre",
   "Blowing": "Ventilation",
   "Blue": "Bleu",
+  "Blues and teals rolling from light to light like waves.": "Des bleus et des turquoises qui passent de lampe en lampe comme des vagues.",
   "Bot token": "Jeton du bot",
   "Breadcrumb": "Fil d'Ariane",
+  "Breathing": "Respiration",
   "Bridge": "Pont",
   "Bridges": "Ponts",
   "Bridges and accessories": "Ponts et accessoires",
   "Bridges only": "Ponts seulement",
+  "Bright, cool white for work.": "Un blanc froid et lumineux pour travailler.",
   "Brightness": "Luminosité",
   "Browser's language": "Langue du navigateur",
   "Built in": "Intégré",
@@ -8385,10 +8654,13 @@ HomeswiftI18n.add("fr", {
   "By room": "Par pièce",
   "Cached accessories": "Accessoires en cache",
   "camera": "caméra",
+  "Calm": "Calmes",
   "Camera": "Caméra",
   "Camera Operating Mode": "Mode de fonctionnement de la caméra",
   "Camera Operating Mode Indicator": "Voyant de fonctionnement de la caméra",
   "Cancel": "Annuler",
+  "Candle flicker": "Bougie vacillante",
+  "Candlelight": "Aux chandelles",
   "Cannot connect": "Connexion impossible",
   "cannot read {0}": "impossible de lire {0}",
   "Cannot restore __REDACTED__ (no matching value in the current config) in {0}. Supply the real value, or keep the entry's identifying fields (platform, accessory, name) unchanged.": "Impossible de restaurer __REDACTED__ (aucune valeur correspondante dans la config actuelle) dans {0}. Indiquez la vraie valeur, ou laissez inchangés les champs qui identifient l'entrée (platform, accessory, name).",
@@ -8429,6 +8701,8 @@ HomeswiftI18n.add("fr", {
   "choose it": "choisissez-la",
   "choose it [file]": "choisissez-le",
   "choose read, control or admin, up to what your account may do": "choisissez read, control ou admin, dans la limite de ce que votre compte peut faire",
+  "Christmas": "Noël",
+  "Cinema": "Cinéma",
   "Clear [smoke]": "Aucune fumée",
   "Clearer names": "Des noms plus clairs",
   "Client or user": "Client ou utilisateur",
@@ -8508,6 +8782,7 @@ HomeswiftI18n.add("fr", {
   "Counter-clockwise": "Sens antihoraire",
   "CPU": "Processeur",
   "CPUs": "Processeurs",
+  "Create": "Créer",
   "Create account": "Créer le compte",
   "Create an API token": "Créer un jeton d'API",
   "Create the administrator account for this bridge. The set-up code is in the bridge's output, next to the web UI address.": "Créez le compte administrateur de ce pont. Le code de configuration figure dans la sortie du pont, à côté de l'adresse de l'interface web.",
@@ -8549,12 +8824,16 @@ HomeswiftI18n.add("fr", {
   "Days": "Jours",
   "Days (none: every day)": "Jours (aucun : tous les jours)",
   "defaults are by kind of widget (climate, light…)": "les valeurs par défaut dépendent du type de widget (climate, light…)",
+  "Deep pink and soft red, dimmed.": "Rose profond et rouge doux, tamisés.",
   "Degraded": "Dégradé",
   "Delete": "Supprimer",
   "Delete the scene {name}?": "Supprimer la scène {name} ?",
   "Delete this backup?": "Supprimer cette sauvegarde ?",
   "Delete…": "Supprimer…",
   "Deny": "Refuser",
+  "Describe a mood": "Décrire une ambiance",
+  "Describe a mood…": "Décrivez une ambiance…",
+  "Describe one: a jazz bar, a rainy afternoon…": "Décrivez-en une : un bar de jazz, un après-midi pluvieux…",
   "Describe your setup": "Décrivez votre installation",
   "Details": "Détails",
   "Device ID": "Identifiant de l'appareil",
@@ -8564,9 +8843,11 @@ HomeswiftI18n.add("fr", {
   "Dictate: tap, or hold while you speak": "Dicter : touchez, ou maintenez pendant que vous parlez",
   "Digest actions": "Actions du résumé",
   "Digital Zoom": "Zoom numérique",
+  "Dim stormy blue, with sudden white flashes.": "Un bleu orageux tamisé, avec de soudains éclairs blancs.",
   "Direction": "Sens",
   "Disabled": "Désactivé",
   "Discard": "Ignorer",
+  "Disco": "Disco",
   "Disconnect": "Déconnecter",
   "Disconnect {name}? It is refused at once and must sign in again.": "Déconnecter {name} ? Ses requêtes sont refusées aussitôt, et il lui faudra se reconnecter.",
   "Dismiss": "Ignorer",
@@ -8613,6 +8894,7 @@ HomeswiftI18n.add("fr", {
   "Every controller was removed and disconnected: add the bridge again in the Home app with its setup code.": "Tous les contrôleurs ont été supprimés et déconnectés : ajoutez de nouveau le pont dans l'app Maison avec son code de configuration.",
   "every day": "tous les jours",
   "Every Home app controller paired with it is forgotten and disconnected. The Home app loses it with its accessories, their rooms, scenes and automations.": "Tous les contrôleurs de l'app Maison jumelés avec lui sont oubliés et déconnectés. L'app Maison le perd avec ses accessoires, leurs pièces, scènes et automatisations.",
+  "Every light jumps to a vivid colour on each beat.": "Chaque lampe passe à une couleur vive à chaque temps.",
   "Every one": "Toutes",
   "Every outcome": "Tous les résultats",
   "Every plugin's accessories leave HomeKit, and the plugins start again on empty caches, adding the devices they reach.": "Les accessoires de tous les plugins quittent HomeKit, et les plugins redémarrent avec des caches vides, en ajoutant les appareils qu'ils joignent.",
@@ -8638,6 +8920,7 @@ HomeswiftI18n.add("fr", {
   "Fanv2": "Ventilateur",
   "Faucet": "Robinet",
   "Favourite accessories and scenes": "Accessoires et scènes favoris",
+  "Fifteen minutes from a dim red glow to bright warm white, to wake up.": "Quinze minutes d'une faible lueur rouge à un blanc chaud et lumineux, pour se réveiller.",
   "Filter": "Filtre",
   "filter {percent} %": "filtre {percent} %",
   "Filter by client": "Filtrer par client",
@@ -8648,9 +8931,11 @@ HomeswiftI18n.add("fr", {
   "Filter Maintenance": "Entretien du filtre",
   "Filter text": "Filtrer par texte",
   "Filter the log": "Filtrer le journal",
+  "Fireplace": "Feu de cheminée",
   "Firmware revision": "Version du firmware",
   "Firmware Revision": "Version du firmware",
   "Firmware Update": "Mise à jour du firmware",
+  "Focus": "Concentration",
   "Folder": "Dossier",
   "Follow": "Suivre",
   "for {time}": "pendant {time}",
@@ -8674,12 +8959,15 @@ HomeswiftI18n.add("fr", {
   "GitHub answered HTTP {0}": "GitHub a répondu HTTP {0}",
   "GitHub's answer has no release": "La réponse de GitHub ne contient aucune version",
   "GitHub's latest release has an unexpected tag": "La dernière version sur GitHub a un tag inattendu",
+  "Golden hour": "Heure dorée",
   "Good": "Bonne",
   "Graphite": "Graphite",
   "Green": "Vert",
   "group of switches": "groupe d'interrupteurs",
+  "Green, teal and violet drifting slowly.": "Du vert, du turquoise et du violet qui dérivent lentement.",
   "Group the accessories": "Regrouper les accessoires",
   "grouping is plugin, room or none": "grouping vaut plugin, room ou none",
+  "Halloween": "Halloween",
   "Hardware Revision": "Version du matériel",
   "Health, accessories, plugins, uptime": "État de santé, accessoires, plugins, durée de fonctionnement",
   "Heart Beat": "Pulsation",
@@ -8838,6 +9126,7 @@ HomeswiftI18n.add("fr", {
   "Light or dark, the wallpaper, °C or °F, the language": "Clair ou sombre, le fond d'écran, °C ou °F, la langue",
   "Light Sensor": "Capteur de lumière",
   "Lightbulb": "Ampoule",
+  "Lightning storm": "Orage",
   "Line {line}": "Ligne {line}",
   "Listening on port": "Port d'écoute",
   "Listening… tap the mic again when you are done.": "À l'écoute… touchez à nouveau le micro quand vous avez fini.",
@@ -8894,6 +9183,7 @@ HomeswiftI18n.add("fr", {
   "Mode": "Mode",
   "Model": "Modèle",
   "Mon": "Lun",
+  "Moods": "Ambiances",
   "More": "Plus",
   "More options ({count})": "Plus d'options ({count})",
   "Motion": "Mouvement",
@@ -8922,6 +9212,7 @@ HomeswiftI18n.add("fr", {
   "Next sunrise {sunrise}, sunset {sunset}.": "Prochain lever du soleil : {sunrise}, coucher : {sunset}.",
   "NFCAccess": "Accès NFC",
   "Night": "Nuit",
+  "Night light": "Veilleuse",
   "Night Vision": "Vision nocturne",
   "Nitrogen Dioxide Density": "Dioxyde d'azote",
   "No accessories yet. Plugins add them once they reach their devices.": "Aucun accessoire pour l'instant. Les plugins les ajoutent dès qu'ils joignent leurs appareils.",
@@ -8992,6 +9283,7 @@ HomeswiftI18n.add("fr", {
   "None yet.": "Aucune pour l'instant.",
   "Normal": "Normal",
   "not a backup id: {0}": "pas un identifiant de sauvegarde : {0}",
+  "Northern lights": "Aurore boréale",
   "Not a bridge setting here: {0} (the device ID stays; reset_pairings starts the pairing over)": "Pas un réglage du pont ici : {0} (l'identifiant d'appareil reste ; reset_pairings recommence le jumelage)",
   "not a homeswift backup: {0}": "pas une sauvegarde homeswift : {0}",
   "not a homeswift backup: a header's checksum is wrong at byte {0}: not a tar archive, or a damaged one": "pas une sauvegarde homeswift : la somme de contrôle d'un en-tête est fausse à l'octet {0} : ce n'est pas une archive tar, ou elle est endommagée",
@@ -9086,6 +9378,7 @@ HomeswiftI18n.add("fr", {
   "Pairing codes and what each bridge runs": "Codes de jumelage et ce que chaque pont exécute",
   "Pairing Features": "Fonctions de jumelage",
   "Pairing QR code": "Code QR de jumelage",
+  "Party": "Fête",
   "Password": "Mot de passe",
   "Password changed. Other browsers signed in as {username} are signed out; this one stays.": "Mot de passe changé. Les autres navigateurs connectés en tant que {username} sont déconnectés ; celui-ci reste connecté.",
   "Password strength": "Robustesse du mot de passe",
@@ -9105,6 +9398,7 @@ HomeswiftI18n.add("fr", {
   "Plugins on HomeKit bridges of their own (a block with _bridge), inside this process: one can restart without the others.": "Des plugins sur leurs propres ponts HomeKit (un bloc avec _bridge), dans ce processus : chacun peut redémarrer sans les autres.",
   "PM10 Density": "PM10",
   "PM2.5 Density": "PM2,5",
+  "Police siren": "Sirène de police",
   "Poor": "Mauvaise",
   "Port": "Port",
   "port must be a port number, or null for an automatic one": "port doit être un numéro de port, ou null pour un port automatique",
@@ -9119,10 +9413,13 @@ HomeswiftI18n.add("fr", {
   "Programmable Switch Output State": "État de sortie du bouton",
   "Purifying": "Purification",
   "Purifying · {how}": "Purification · {how}",
+  "Purple and orange with an eerie flicker.": "Violet et orange, avec un scintillement inquiétant.",
   "Push payload too large ({0} bytes)": "Contenu push trop volumineux ({0} octets)",
   "Put in a room…": "Mettre dans une pièce…",
+  "Put your lights in rooms (a card's menu on the Accessories page) to play moods on them.": "Placez vos lampes dans des pièces (le menu d'une carte sur la page Accessoires) pour y lancer des ambiances.",
   "QR code for an authenticator app": "Code QR pour une app d'authentification",
   "Quick controls": "Commandes rapides",
+  "Rainbow wave": "Vague arc-en-ciel",
   "Raise {setting}": "Augmenter ({setting})",
   "Rang {when}": "A sonné {when}",
   "Read": "Lecture",
@@ -9136,9 +9433,13 @@ HomeswiftI18n.add("fr", {
   "Recording": "Enregistrement",
   "Recording Audio Active": "Enregistrement audio",
   "Red": "Rouge",
+  "Red and blue swapping from light to light.": "Le rouge et le bleu qui s'échangent de lampe en lampe.",
+  "Red and green taking turns, with a warm white twinkle now and then.": "Le rouge et le vert à tour de rôle, avec de temps en temps un scintillement blanc chaud.",
+  "Reds, oranges and amber dancing unevenly.": "Des rouges, des oranges et de l'ambre qui dansent de façon irrégulière.",
   "Refresh": "Actualiser",
   "Relative Humidity Dehumidifier Threshold": "Seuil de déshumidification",
   "Relative Humidity Humidifier Threshold": "Seuil d'humidification",
+  "Relax": "Détente",
   "Relay Enabled": "Relais activé",
   "Relay State": "État du relais",
   "Remaining Duration": "Durée restante",
@@ -9199,6 +9500,8 @@ HomeswiftI18n.add("fr", {
   "Revoke": "Révoquer",
   "Revoke the token “{name}”? Scripts using it are refused at once.": "Révoquer le jeton « {name} » ? Les scripts qui l'utilisent sont refusés aussitôt.",
   "Right": "Droite",
+  "Romantic": "Romantique",
+  "Room": "Pièce",
   "Room: {room}…": "Pièce : {room}…",
   "rooms must be names": "rooms doit contenir des noms",
   "Rotation Direction": "Sens de rotation",
@@ -9228,6 +9531,7 @@ HomeswiftI18n.add("fr", {
   "Save “{entry}” in {block}?": "Enregistrer « {entry} » dans {block} ?",
   "Save and restart": "Enregistrer et redémarrer",
   "Save anyway": "Enregistrer quand même",
+  "Save as a scene": "Enregistrer comme scène",
   "Save payloads": "Conserver les contenus",
   "Save the budgets": "Enregistrer les budgets",
   "Save this entry in {block}?": "Enregistrer cette entrée dans {block} ?",
@@ -9235,6 +9539,7 @@ HomeswiftI18n.add("fr", {
   "Save what the plugins' schemas refuse: for a value a plugin accepts that its schema does not list": "Enregistrer ce que les schémas des plugins refusent : pour une valeur qu'un plugin accepte mais que son schéma ne liste pas",
   "Saved": "Enregistré",
   "Saved and applied.": "Enregistré et appliqué.",
+  "Saved as the scene {name}.": "Enregistrée comme la scène {name}.",
   "Saved for you, on every browser": "Enregistré pour vous, sur tous vos navigateurs",
   "Saved for your account, on every browser.": "Enregistré pour votre compte, sur tous les navigateurs.",
   "Saved.": "Enregistré.",
@@ -9311,6 +9616,7 @@ HomeswiftI18n.add("fr", {
   "Sign in with your Homeswift account to connect an app.": "Connectez-vous avec votre compte Homeswift pour connecter une app.",
   "Sign out": "Se déconnecter",
   "Signal To Noise Ratio": "Rapport signal/bruit",
+  "Signals": "Signaux",
   "Signed in on this browser. Logins last {n} day without activity; changing the password, or turning two-factor authentication on or off, signs the others out.": "Connecté sur ce navigateur. Les sessions expirent après {n} jour d'inactivité ; changer le mot de passe, ou activer ou désactiver l'authentification à deux facteurs, déconnecte les autres.",
   "Signed in on this browser. Logins last {n} days without activity; changing the password, or turning two-factor authentication on or off, signs the others out.": "Connecté sur ce navigateur. Les sessions expirent après {n} jours d'inactivité ; changer le mot de passe, ou activer ou désactiver l'authentification à deux facteurs, déconnecte les autres.",
   "Signing in asks for the code your authenticator app shows, after the password.": "La connexion demande le code affiché par votre app d'authentification, après le mot de passe.",
@@ -9332,12 +9638,15 @@ HomeswiftI18n.add("fr", {
   "Slat Type": "Type de lamelles",
   "Slats": "Lamelles",
   "Sleep Interval": "Intervalle de veille",
+  "Slow animations": "Animations lentes",
   "Small": "Petit",
   "Smart Speaker": "Enceinte connectée",
   "Smoke": "Fumée",
   "Smoke Detected": "Fumée détectée",
   "Smoke Sensor": "Détecteur de fumée",
   "Snapshot of {name}": "Instantané de {name}",
+  "Soft light rising and falling in a six-second rhythm, to calm down.": "Une lumière douce qui monte et descend sur un rythme de six secondes, pour s'apaiser.",
+  "Soft warm white for the evening.": "Un blanc chaud et doux pour la soirée.",
   "Software Revision": "Version du logiciel",
   "Some changes need a restart of homeswift.": "Certaines modifications nécessitent un redémarrage de homeswift.",
   "Something follows the end of the JSON": "Quelque chose suit la fin du JSON",
@@ -9348,6 +9657,7 @@ HomeswiftI18n.add("fr", {
   "Staged Firmware Version": "Firmware en attente",
   "Stale": "Obsolète",
   "Start": "Démarrer",
+  "Starting {mood}…": "Lancement de {mood}…",
   "Starting…": "Démarrage…",
   "Stateful Programmable Switch": "Interrupteur programmable",
   "Stateless Programmable Switch": "Bouton programmable",
@@ -9416,6 +9726,7 @@ HomeswiftI18n.add("fr", {
   "Temperature Sensor": "Capteur de température",
   "Temperature unit": "Unité de température",
   "Temperatures": "Températures",
+  "Ten minutes from golden yellow through orange and pink to a dim red.": "Dix minutes du jaune doré à un rouge tamisé, en passant par l'orange et le rose.",
   "Ten-minute averages, kept four weeks; each point here averages those in its span.": "Moyennes sur dix minutes, conservées quatre semaines ; chaque point ici fait la moyenne de celles de son intervalle.",
   "Test connection": "Tester la connexion",
   "Th": "Je",
@@ -9457,6 +9768,7 @@ HomeswiftI18n.add("fr", {
   "The Assistant is off: config.json has no HomeswiftAiKit block. Add one on the Config page, {example}, or choose apple on a Mac with Apple Intelligence.": "L'Assistant est désactivé : config.json n'a pas de bloc HomeswiftAiKit. Ajoutez-en un sur la page Config, {example}, ou choisissez apple sur un Mac avec Apple Intelligence.",
   "The Assistant is sorting your accessories into rooms…": "L'Assistant range vos accessoires par pièce…",
   "the Assistant is still answering; stop it first": "l'Assistant répond encore ; arrêtez-le d'abord",
+  "The Assistant is writing a mood…": "L'Assistant compose une ambiance…",
   "The Assistant is writing the block…": "L'Assistant rédige le bloc…",
   "The Assistant reads the lines shown and groups the issues, with causes and fixes": "L'Assistant lit les lignes affichées et regroupe les problèmes, avec leurs causes et leurs solutions",
   "The Assistant stopped after many steps without an answer. Ask again, or more precisely.": "L'Assistant s'est arrêté après de nombreuses étapes sans réponse. Reposez la question, ou soyez plus précis.",
@@ -9487,6 +9799,7 @@ HomeswiftI18n.add("fr", {
   "The code the app shows now": "Le code que l'app affiche maintenant",
   "The code the Home app asks for, as XXX-XX-XXX. It is never logged.": "Le code que demande l'app Maison, sous la forme XXX-XX-XXX. Il n'apparaît jamais dans le journal.",
   "the config must be a JSON object": "la config doit être un objet JSON",
+  "The colour wheel passing from light to light.": "La roue des couleurs qui passe de lampe en lampe.",
   "The connection dropped before the answer ended.": "La connexion a été coupée avant la fin de la réponse.",
   "The connection dropped: {error}": "La connexion a été coupée : {error}",
   "the current and the new password are required": "le mot de passe actuel et le nouveau sont requis",
@@ -9671,6 +9984,7 @@ HomeswiftI18n.add("fr", {
   "Turn on": "Activer",
   "Turn on for this browser": "Activer pour ce navigateur",
   "Turned off in the Home app": "Désactivée dans l'app Maison",
+  "Two red pulses, then the lights go back to how they were.": "Deux pulsations rouges, puis les lampes reviennent à leur état précédent.",
   "Two-factor": "Deux facteurs",
   "Two-factor authentication": "Authentification à deux facteurs",
   "two-factor authentication is already on; turn it off first": "l'authentification à deux facteurs est déjà activée ; désactivez-la d'abord",
@@ -9712,6 +10026,7 @@ HomeswiftI18n.add("fr", {
   "Valve position": "Position de la vanne",
   "Valve Type": "Type de vanne",
   "Version {version} · {host}": "Version {version} · {host}",
+  "Very warm, dim light for dinner.": "Une lumière très chaude et tamisée pour le dîner.",
   "Very weak": "Très faible",
   "Video Analysis Active": "Analyse vidéo",
   "Violet": "Violet",
@@ -9730,6 +10045,7 @@ HomeswiftI18n.add("fr", {
   "Volume up": "Augmenter le volume",
   "Waiting to be added (setup code on the Status page)": "En attente d'ajout (code de configuration sur la page État)",
   "Wallpaper": "Fond d'écran",
+  "Warm amber, each light flickering on its own.": "Un ambre chaud, chaque lampe vacillant à son rythme.",
   "Warm white": "Blanc chaud",
   "Warnings": "Avertissements",
   "Water": "Eau",
@@ -9785,6 +10101,7 @@ HomeswiftI18n.add("fr", {
   "Your image": "Votre image",
   "Your image is the wallpaper now.": "Votre image est maintenant le fond d'écran.",
   "Your password and two-factor": "Votre mot de passe et l'authentification à deux facteurs",
+  "Your scenes": "Vos scènes",
   "Your setup, in your words": "Votre installation, en vos propres mots",
   "Your sign-in to this bridge's web UI, as an administrator.": "Votre connexion à l'interface web de ce pont, en tant qu'administrateur.",
   "Your sign-in to this bridge's web UI.": "Votre connexion à l'interface web de ce pont.",
@@ -9870,6 +10187,8 @@ HomeswiftI18n.add("pt", {
   "{label} {n} of {count}": "{label} {n} de {count}",
   "{label}: {value}": "{label}: {value}",
   "{level}, {bits} bits": "{level}, {bits} bits",
+  "{room}, {lights}": "{room}, {lights}",
+  "{lights}, until {time}": "{lights}, até às {time}",
   "{m}m": "{m} min",
   "{minutes} min after sunrise {days}": "{minutes} min depois do nascer do sol {days}",
   "{minutes} min after sunset {days}": "{minutes} min depois do pôr do sol {days}",
@@ -9878,6 +10197,13 @@ HomeswiftI18n.add("pt", {
   "{minutes} min before sunset {days}": "{minutes} min antes do pôr do sol {days}",
   "{model} read {n} line. Secrets and addresses were masked first; check its advice before acting on it.": "{model} leu {n} linha. Os segredos e os endereços foram ocultados primeiro; verifique os conselhos antes de os seguir.",
   "{model} read {n} lines. Secrets and addresses were masked first; check its advice before acting on it.": "{model} leu {n} linhas. Os segredos e os endereços foram ocultados primeiro; verifique os conselhos antes de os seguir.",
+  "{mood} in {room}": "{mood} – {room}",
+  "{mood} is playing on {n} light.": "{mood}: a decorrer em {n} luz.",
+  "{mood} is playing on {n} lights.": "{mood}: a decorrer em {n} luzes.",
+  "{mood} is set on {n} light.": "{mood}: {n} luz ajustada.",
+  "{mood} is set on {n} lights.": "{mood}: {n} luzes ajustadas.",
+  "{mood} is set, but not on every light: {failures}": "{mood}: nem todas as luzes responderam: {failures}",
+  "{mood} stopped: the lights are back as they were.": "{mood}: parado, as luzes voltaram ao que eram.",
   "{n} accessories": "{n} acessórios",
   "{n} accessories on {bridge}": "{n} acessórios em {bridge}",
   "{n} accessory": "{n} acessório",
@@ -9890,6 +10216,8 @@ HomeswiftI18n.add("pt", {
   "{n} files from the backup are staged.": "{n} ficheiros da cópia estão preparados.",
   "{n} Home app controller": "{n} controlador da app Casa",
   "{n} Home app controllers": "{n} controladores da app Casa",
+  "{n} light": "{n} luz",
+  "{n} lights": "{n} luzes",
   "{n} message": "{n} mensagem",
   "{n} messages": "{n} mensagens",
   "{n} min": "{n} min",
@@ -9948,6 +10276,7 @@ HomeswiftI18n.add("pt", {
   "A control character in a string must be escaped": "Um carácter de controlo numa cadeia tem de ser escapado",
   "A display name must be 1 to {0} characters": "Um nome de apresentação tem de ter de 1 a {0} caracteres",
   "a field name is required": "é preciso um nome de campo",
+  "A faint amber glow to find your way.": "Um ténue brilho âmbar para encontrar o caminho.",
   "A JSON POST to a URL of yours: event, title, message, instance, timestamp.": "Um POST JSON para um URL seu: event, title, message, instance, timestamp.",
   "A location needs lat (-90 to 90) and lon (-180 to 180)": "Uma localização precisa de lat (-90 a 90) e lon (-180 a 180)",
   "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)": "uma fechadura, porta ou alarme: uma pessoa tem de confirmar (set_security_accessory, ou a interface web)",
@@ -9966,6 +10295,7 @@ HomeswiftI18n.add("pt", {
   "a security control: use set_security_accessory, one at a time": "um controlo de segurança: use set_security_accessory, um de cada vez",
   "a size is small, medium or large": "um tamanho é small, medium ou large",
   "a token expires after 1 to {0} days, or never": "um token expira após 1 a {0} dias, ou nunca",
+  "A slow fade to a dim red over fifteen minutes.": "Um desvanecer lento até um vermelho ténue em quinze minutos.",
   "A topic on ntfy.sh or your own ntfy server; the app shows it on a phone.": "Um tópico em ntfy.sh ou no seu próprio servidor ntfy; a app mostra-o num telemóvel.",
   "a username and a password are required": "são obrigatórios um nome de utilizador e uma palavra-passe",
   "a widget id is a short word": "um identificador de widget é uma palavra curta",
@@ -10042,6 +10372,7 @@ HomeswiftI18n.add("pt", {
   "AirPlay Enable": "AirPlay ativado",
   "alarm": "alarme",
   "Alarm": "Alarme",
+  "Alert flash": "Flash de alerta",
   "All": "Todos",
   "All controls": "Todos os controlos",
   "All lines": "Todas as linhas",
@@ -10053,9 +10384,12 @@ HomeswiftI18n.add("pt", {
   "Allowed": "Permitido",
   "Allowing sends you back to {destination}. You can disconnect it from your account page at any time.": "Ao permitir, regressa a {destination}. Pode desligá-la a qualquer momento na página da sua conta.",
   "already there": "já está lá",
+  "Almost dark, with a touch of blue behind the screen.": "Quase às escuras, com um toque de azul atrás do ecrã.",
   "Also change config.json, plugins and settings, and restart the bridge: everything this web UI can do.": "Também alterar o config.json, os plugins e as definições, e reiniciar a ponte: tudo o que esta interface web pode fazer.",
   "Also turn accessories on and off and run scenes. Locks, garage doors and alarms still ask you first.": "Também ligar e desligar acessórios e executar cenas. Fechaduras, portas de garagem e alarmes continuam a pedir confirmação primeiro.",
   "Amber": "Âmbar",
+  "Amber and soft orange, a little different on each light.": "Âmbar e laranja suave, um pouco diferentes em cada luz.",
+  "Ambiances and light shows for a room's lights.": "Ambientes e jogos de luz para as luzes de uma divisão.",
   "An administrator changes settings, plugins and users; anyone else sees the bridge and controls accessories.": "Um administrador altera definições, plugins e utilizadores; os restantes veem a ponte e controlam os acessórios.",
   "an API token cannot manage accounts or tokens; sign in to the web UI": "um token de API não pode gerir contas nem tokens; inicie sessão na interface web",
   "an API token names no account: sign in to connect an app": "um token de API não identifica nenhuma conta: inicie sessão para ligar uma app",
@@ -10127,16 +10461,20 @@ HomeswiftI18n.add("pt", {
   "bad index": "índice incorreto",
   "Battery": "Bateria",
   "Battery Level": "Nível da bateria",
+  "Bedtime": "Hora de dormir",
   "Behind the glass of every page.": "Por trás do vidro de cada página.",
   "Between": "Entre",
   "Blowing": "A ventilar",
   "Blue": "Azul",
+  "Blues and teals rolling from light to light like waves.": "Azuis e turquesas que passam de luz em luz como ondas.",
   "Bot token": "Token do bot",
   "Breadcrumb": "Trilho de navegação",
+  "Breathing": "Respiração",
   "Bridge": "Ponte",
   "Bridges": "Pontes",
   "Bridges and accessories": "Pontes e acessórios",
   "Bridges only": "Só pontes",
+  "Bright, cool white for work.": "Branco frio e intenso para trabalhar.",
   "Brightness": "Brilho",
   "Browser's language": "Idioma do navegador",
   "Built in": "Integrado",
@@ -10144,10 +10482,13 @@ HomeswiftI18n.add("pt", {
   "By room": "Por divisão",
   "Cached accessories": "Acessórios em cache",
   "camera": "câmara",
+  "Calm": "Calmos",
   "Camera": "Câmara",
   "Camera Operating Mode": "Modo de funcionamento da câmara",
   "Camera Operating Mode Indicator": "Indicador de funcionamento da câmara",
   "Cancel": "Cancelar",
+  "Candle flicker": "Vela tremeluzente",
+  "Candlelight": "Luz de velas",
   "Cannot connect": "Não é possível ligar",
   "cannot read {0}": "não é possível ler {0}",
   "Cannot restore __REDACTED__ (no matching value in the current config) in {0}. Supply the real value, or keep the entry's identifying fields (platform, accessory, name) unchanged.": "Não é possível restaurar __REDACTED__ (nenhum valor correspondente na configuração atual) em {0}. Indique o valor real, ou mantenha inalterados os campos que identificam a entrada (platform, accessory, name).",
@@ -10188,6 +10529,8 @@ HomeswiftI18n.add("pt", {
   "choose it": "escolha-a",
   "choose it [file]": "escolha-o",
   "choose read, control or admin, up to what your account may do": "escolha read, control ou admin, até ao que a conta pode fazer",
+  "Christmas": "Natal",
+  "Cinema": "Cinema",
   "Clear [smoke]": "Sem fumo",
   "Clearer names": "Nomes mais claros",
   "Client or user": "Cliente ou utilizador",
@@ -10267,6 +10610,7 @@ HomeswiftI18n.add("pt", {
   "Counter-clockwise": "Sentido anti-horário",
   "CPU": "CPU",
   "CPUs": "CPU",
+  "Create": "Criar",
   "Create account": "Criar conta",
   "Create an API token": "Criar um token de API",
   "Create the administrator account for this bridge. The set-up code is in the bridge's output, next to the web UI address.": "Crie a conta de administrador desta ponte. O código de configuração está na saída da ponte, junto ao endereço da interface web.",
@@ -10308,12 +10652,16 @@ HomeswiftI18n.add("pt", {
   "Days": "Dias",
   "Days (none: every day)": "Dias (nenhum: todos os dias)",
   "defaults are by kind of widget (climate, light…)": "as predefinições são por tipo de widget (climate, light…)",
+  "Deep pink and soft red, dimmed.": "Rosa intenso e vermelho suave, atenuados.",
   "Degraded": "Degradada",
   "Delete": "Eliminar",
   "Delete the scene {name}?": "Eliminar a cena {name}?",
   "Delete this backup?": "Eliminar esta cópia de segurança?",
   "Delete…": "Eliminar…",
   "Deny": "Recusar",
+  "Describe a mood": "Descrever um ambiente",
+  "Describe a mood…": "Descreva um ambiente…",
+  "Describe one: a jazz bar, a rainy afternoon…": "Descreva um: um bar de jazz, uma tarde de chuva…",
   "Describe your setup": "Descreva a sua instalação",
   "Details": "Detalhes",
   "Device ID": "ID do dispositivo",
@@ -10323,9 +10671,11 @@ HomeswiftI18n.add("pt", {
   "Dictate: tap, or hold while you speak": "Ditar: toque, ou mantenha premido enquanto fala",
   "Digest actions": "Ações do resumo",
   "Digital Zoom": "Zoom digital",
+  "Dim stormy blue, with sudden white flashes.": "Azul tempestuoso ténue, com súbitos clarões brancos.",
   "Direction": "Direção",
   "Disabled": "Desativado",
   "Discard": "Descartar",
+  "Disco": "Disco",
   "Disconnect": "Desligar",
   "Disconnect {name}? It is refused at once and must sign in again.": "Desligar {name}? O acesso é recusado de imediato e terá de iniciar sessão novamente.",
   "Dismiss": "Ignorar",
@@ -10372,6 +10722,7 @@ HomeswiftI18n.add("pt", {
   "Every controller was removed and disconnected: add the bridge again in the Home app with its setup code.": "Todos os controladores foram removidos e desligados: adicione novamente a ponte na app Casa com o respetivo código de configuração.",
   "every day": "todos os dias",
   "Every Home app controller paired with it is forgotten and disconnected. The Home app loses it with its accessories, their rooms, scenes and automations.": "Todos os controladores da app Casa emparelhados com ela são esquecidos e desligados. A app Casa perde-a, com os seus acessórios, divisões, cenas e automatizações.",
+  "Every light jumps to a vivid colour on each beat.": "Cada luz salta para uma cor viva a cada batida.",
   "Every one": "Todas",
   "Every outcome": "Todos os resultados",
   "Every plugin's accessories leave HomeKit, and the plugins start again on empty caches, adding the devices they reach.": "Os acessórios de todos os plugins saem do HomeKit e os plugins recomeçam com caches vazias, adicionando os dispositivos que alcançam.",
@@ -10397,6 +10748,7 @@ HomeswiftI18n.add("pt", {
   "Fanv2": "Ventoinha",
   "Faucet": "Torneira",
   "Favourite accessories and scenes": "Acessórios e cenas favoritos",
+  "Fifteen minutes from a dim red glow to bright warm white, to wake up.": "Quinze minutos de um ténue brilho vermelho até um branco quente e intenso, para acordar.",
   "Filter": "Filtro",
   "filter {percent} %": "filtro {percent} %",
   "Filter by client": "Filtrar por cliente",
@@ -10407,9 +10759,11 @@ HomeswiftI18n.add("pt", {
   "Filter Maintenance": "Manutenção do filtro",
   "Filter text": "Filtrar texto",
   "Filter the log": "Filtrar o registo",
+  "Fireplace": "Lareira",
   "Firmware revision": "Versão do firmware",
   "Firmware Revision": "Versão do firmware",
   "Firmware Update": "Atualização do firmware",
+  "Focus": "Concentração",
   "Folder": "Pasta",
   "Follow": "Seguir",
   "for {time}": "durante {time}",
@@ -10433,12 +10787,15 @@ HomeswiftI18n.add("pt", {
   "GitHub answered HTTP {0}": "O GitHub respondeu HTTP {0}",
   "GitHub's answer has no release": "A resposta do GitHub não inclui nenhuma versão",
   "GitHub's latest release has an unexpected tag": "A versão mais recente no GitHub tem uma etiqueta inesperada",
+  "Golden hour": "Hora dourada",
   "Good": "Boa",
   "Graphite": "Grafite",
   "Green": "Verde",
   "group of switches": "grupo de interruptores",
+  "Green, teal and violet drifting slowly.": "Verde, turquesa e violeta a deslizar lentamente.",
   "Group the accessories": "Agrupar os acessórios",
   "grouping is plugin, room or none": "grouping é plugin, room ou none",
+  "Halloween": "Halloween",
   "Hardware Revision": "Versão do hardware",
   "Health, accessories, plugins, uptime": "Saúde, acessórios, plugins, tempo ativo",
   "Heart Beat": "Pulsação",
@@ -10597,6 +10954,7 @@ HomeswiftI18n.add("pt", {
   "Light or dark, the wallpaper, °C or °F, the language": "Claro ou escuro, o papel de parede, °C ou °F, o idioma",
   "Light Sensor": "Sensor de luz",
   "Lightbulb": "Lâmpada",
+  "Lightning storm": "Trovoada",
   "Line {line}": "Linha {line}",
   "Listening on port": "Porta de escuta",
   "Listening… tap the mic again when you are done.": "A ouvir… toque novamente no microfone quando terminar.",
@@ -10653,6 +11011,7 @@ HomeswiftI18n.add("pt", {
   "Mode": "Modo",
   "Model": "Modelo",
   "Mon": "Seg",
+  "Moods": "Ambientes",
   "More": "Mais",
   "More options ({count})": "Mais opções ({count})",
   "Motion": "Movimento",
@@ -10681,6 +11040,7 @@ HomeswiftI18n.add("pt", {
   "Next sunrise {sunrise}, sunset {sunset}.": "Próximo nascer do sol: {sunrise}; pôr do sol: {sunset}.",
   "NFCAccess": "Acesso NFC",
   "Night": "Noite",
+  "Night light": "Luz de presença",
   "Night Vision": "Visão noturna",
   "Nitrogen Dioxide Density": "Dióxido de azoto",
   "No accessories yet. Plugins add them once they reach their devices.": "Ainda não há acessórios. Os plugins adicionam-nos assim que chegam aos seus dispositivos.",
@@ -10751,6 +11111,7 @@ HomeswiftI18n.add("pt", {
   "None yet.": "Nenhuma por enquanto.",
   "Normal": "Normal",
   "not a backup id: {0}": "não é um identificador de cópia de segurança: {0}",
+  "Northern lights": "Aurora boreal",
   "Not a bridge setting here: {0} (the device ID stays; reset_pairings starts the pairing over)": "Não é uma definição da ponte aqui: {0} (o ID do dispositivo mantém-se; reset_pairings recomeça o emparelhamento)",
   "not a homeswift backup: {0}": "não é uma cópia de segurança do homeswift: {0}",
   "not a homeswift backup: a header's checksum is wrong at byte {0}: not a tar archive, or a damaged one": "não é uma cópia de segurança do homeswift: a soma de verificação de um cabeçalho está errada no byte {0}: não é um arquivo tar, ou está danificado",
@@ -10845,6 +11206,7 @@ HomeswiftI18n.add("pt", {
   "Pairing codes and what each bridge runs": "Códigos de emparelhamento e o que cada ponte executa",
   "Pairing Features": "Funcionalidades de emparelhamento",
   "Pairing QR code": "Código QR de emparelhamento",
+  "Party": "Festa",
   "Password": "Palavra-passe",
   "Password changed. Other browsers signed in as {username} are signed out; this one stays.": "Palavra-passe alterada. Os outros navegadores com sessão iniciada como {username} terminam a sessão; este mantém-se.",
   "Password strength": "Força da palavra-passe",
@@ -10864,6 +11226,7 @@ HomeswiftI18n.add("pt", {
   "Plugins on HomeKit bridges of their own (a block with _bridge), inside this process: one can restart without the others.": "Plugins em pontes HomeKit próprias (um bloco com _bridge), dentro deste processo: cada uma pode reiniciar sem as outras.",
   "PM10 Density": "PM10",
   "PM2.5 Density": "PM2,5",
+  "Police siren": "Sirene de polícia",
   "Poor": "Má",
   "Port": "Porta",
   "port must be a port number, or null for an automatic one": "port tem de ser um número de porta, ou null para uma automática",
@@ -10878,10 +11241,13 @@ HomeswiftI18n.add("pt", {
   "Programmable Switch Output State": "Estado de saída do botão",
   "Purifying": "A purificar",
   "Purifying · {how}": "A purificar · {how}",
+  "Purple and orange with an eerie flicker.": "Roxo e laranja com um tremeluzir inquietante.",
   "Push payload too large ({0} bytes)": "Conteúdo push demasiado grande ({0} bytes)",
   "Put in a room…": "Colocar numa divisão…",
+  "Put your lights in rooms (a card's menu on the Accessories page) to play moods on them.": "Coloque as luzes em divisões (o menu de um cartão na página Acessórios) para lhes aplicar ambientes.",
   "QR code for an authenticator app": "Código QR para uma app de autenticação",
   "Quick controls": "Controlos rápidos",
+  "Rainbow wave": "Onda arco-íris",
   "Raise {setting}": "Subir ({setting})",
   "Rang {when}": "Tocou {when}",
   "Read": "Leitura",
@@ -10895,9 +11261,13 @@ HomeswiftI18n.add("pt", {
   "Recording": "A gravar",
   "Recording Audio Active": "Gravação de áudio",
   "Red": "Vermelho",
+  "Red and blue swapping from light to light.": "Vermelho e azul a trocar de luz em luz.",
+  "Red and green taking turns, with a warm white twinkle now and then.": "Vermelho e verde à vez, com um cintilar branco quente de vez em quando.",
+  "Reds, oranges and amber dancing unevenly.": "Vermelhos, laranjas e âmbar a dançar de forma irregular.",
   "Refresh": "Atualizar",
   "Relative Humidity Dehumidifier Threshold": "Limiar de desumidificação",
   "Relative Humidity Humidifier Threshold": "Limiar de humidificação",
+  "Relax": "Relaxar",
   "Relay Enabled": "Relé ativado",
   "Relay State": "Estado do relé",
   "Remaining Duration": "Duração restante",
@@ -10958,6 +11328,8 @@ HomeswiftI18n.add("pt", {
   "Revoke": "Revogar",
   "Revoke the token “{name}”? Scripts using it are refused at once.": "Revogar o token «{name}»? Os scripts que o usam são recusados de imediato.",
   "Right": "Direita",
+  "Romantic": "Romântico",
+  "Room": "Divisão",
   "Room: {room}…": "Divisão: {room}…",
   "rooms must be names": "rooms tem de conter nomes",
   "Rotation Direction": "Sentido de rotação",
@@ -10987,6 +11359,7 @@ HomeswiftI18n.add("pt", {
   "Save “{entry}” in {block}?": "Guardar «{entry}» em {block}?",
   "Save and restart": "Guardar e reiniciar",
   "Save anyway": "Guardar mesmo assim",
+  "Save as a scene": "Guardar como cena",
   "Save payloads": "Guardar conteúdos",
   "Save the budgets": "Guardar os orçamentos",
   "Save this entry in {block}?": "Guardar esta entrada em {block}?",
@@ -10994,6 +11367,7 @@ HomeswiftI18n.add("pt", {
   "Save what the plugins' schemas refuse: for a value a plugin accepts that its schema does not list": "Guardar o que os esquemas dos plugins recusam: para um valor que um plugin aceita mas que o esquema não inclui",
   "Saved": "Guardado",
   "Saved and applied.": "Guardado e aplicado.",
+  "Saved as the scene {name}.": "Guardado como a cena {name}.",
   "Saved for you, on every browser": "Guardado para si, em todos os navegadores",
   "Saved for your account, on every browser.": "Guardado para a sua conta, em todos os navegadores.",
   "Saved.": "Guardado.",
@@ -11070,6 +11444,7 @@ HomeswiftI18n.add("pt", {
   "Sign in with your Homeswift account to connect an app.": "Inicie sessão com a sua conta Homeswift para ligar uma app.",
   "Sign out": "Terminar sessão",
   "Signal To Noise Ratio": "Relação sinal/ruído",
+  "Signals": "Sinais",
   "Signed in on this browser. Logins last {n} day without activity; changing the password, or turning two-factor authentication on or off, signs the others out.": "Sessão iniciada neste navegador. As sessões duram {n} dia sem atividade; alterar a palavra-passe, ou ativar ou desativar a autenticação de dois fatores, termina as outras sessões.",
   "Signed in on this browser. Logins last {n} days without activity; changing the password, or turning two-factor authentication on or off, signs the others out.": "Sessão iniciada neste navegador. As sessões duram {n} dias sem atividade; alterar a palavra-passe, ou ativar ou desativar a autenticação de dois fatores, termina as outras sessões.",
   "Signing in asks for the code your authenticator app shows, after the password.": "O início de sessão pede o código que a app de autenticação mostra, depois da palavra-passe.",
@@ -11091,12 +11466,15 @@ HomeswiftI18n.add("pt", {
   "Slat Type": "Tipo de lâminas",
   "Slats": "Lâminas",
   "Sleep Interval": "Intervalo de repouso",
+  "Slow animations": "Animações lentas",
   "Small": "Pequeno",
   "Smart Speaker": "Altifalante inteligente",
   "Smoke": "Fumo",
   "Smoke Detected": "Fumo detetado",
   "Smoke Sensor": "Detetor de fumo",
   "Snapshot of {name}": "Instantâneo de {name}",
+  "Soft light rising and falling in a six-second rhythm, to calm down.": "Luz suave a subir e a descer num ritmo de seis segundos, para acalmar.",
+  "Soft warm white for the evening.": "Branco quente e suave para a noite.",
   "Software Revision": "Versão do software",
   "Some changes need a restart of homeswift.": "Algumas alterações exigem reiniciar o homeswift.",
   "Something follows the end of the JSON": "Há algo depois do fim do JSON",
@@ -11107,6 +11485,7 @@ HomeswiftI18n.add("pt", {
   "Staged Firmware Version": "Firmware preparado",
   "Stale": "Obsoleto",
   "Start": "Iniciar",
+  "Starting {mood}…": "A iniciar {mood}…",
   "Starting…": "A iniciar…",
   "Stateful Programmable Switch": "Interruptor programável",
   "Stateless Programmable Switch": "Botão programável",
@@ -11175,6 +11554,7 @@ HomeswiftI18n.add("pt", {
   "Temperature Sensor": "Sensor de temperatura",
   "Temperature unit": "Unidade de temperatura",
   "Temperatures": "Temperaturas",
+  "Ten minutes from golden yellow through orange and pink to a dim red.": "Dez minutos do amarelo dourado a um vermelho ténue, passando pelo laranja e pelo rosa.",
   "Ten-minute averages, kept four weeks; each point here averages those in its span.": "Médias de dez minutos, guardadas durante quatro semanas; cada ponto aqui faz a média das do seu intervalo.",
   "Test connection": "Testar a ligação",
   "Th": "Qui",
@@ -11216,6 +11596,7 @@ HomeswiftI18n.add("pt", {
   "The Assistant is off: config.json has no HomeswiftAiKit block. Add one on the Config page, {example}, or choose apple on a Mac with Apple Intelligence.": "O Assistente está desativado: o config.json não tem um bloco HomeswiftAiKit. Adicione um na página Configuração, {example}, ou escolha apple num Mac com Apple Intelligence.",
   "The Assistant is sorting your accessories into rooms…": "O Assistente está a organizar os acessórios por divisões…",
   "the Assistant is still answering; stop it first": "o Assistente ainda está a responder; pare-o primeiro",
+  "The Assistant is writing a mood…": "O Assistente está a criar um ambiente…",
   "The Assistant is writing the block…": "O Assistente está a escrever o bloco…",
   "The Assistant reads the lines shown and groups the issues, with causes and fixes": "O Assistente lê as linhas mostradas e agrupa os problemas, com causas e soluções",
   "The Assistant stopped after many steps without an answer. Ask again, or more precisely.": "O Assistente parou após muitos passos sem resposta. Pergunte novamente, ou de forma mais precisa.",
@@ -11246,6 +11627,7 @@ HomeswiftI18n.add("pt", {
   "The code the app shows now": "O código que a app mostra agora",
   "The code the Home app asks for, as XXX-XX-XXX. It is never logged.": "O código que a app Casa pede, no formato XXX-XX-XXX. Nunca fica registado.",
   "the config must be a JSON object": "a configuração tem de ser um objeto JSON",
+  "The colour wheel passing from light to light.": "A roda das cores a passar de luz em luz.",
   "The connection dropped before the answer ended.": "A ligação caiu antes do fim da resposta.",
   "The connection dropped: {error}": "A ligação caiu: {error}",
   "the current and the new password are required": "a palavra-passe atual e a nova são obrigatórias",
@@ -11430,6 +11812,7 @@ HomeswiftI18n.add("pt", {
   "Turn on": "Ativar",
   "Turn on for this browser": "Ativar neste navegador",
   "Turned off in the Home app": "Desativada na app Casa",
+  "Two red pulses, then the lights go back to how they were.": "Dois impulsos vermelhos e depois as luzes voltam ao que eram.",
   "Two-factor": "Dois fatores",
   "Two-factor authentication": "Autenticação de dois fatores",
   "two-factor authentication is already on; turn it off first": "a autenticação de dois fatores já está ativada; desative-a primeiro",
@@ -11471,6 +11854,7 @@ HomeswiftI18n.add("pt", {
   "Valve position": "Posição da válvula",
   "Valve Type": "Tipo de válvula",
   "Version {version} · {host}": "Versão {version} · {host}",
+  "Very warm, dim light for dinner.": "Luz muito quente e ténue para o jantar.",
   "Very weak": "Muito fraco",
   "Video Analysis Active": "Análise de vídeo",
   "Violet": "Violeta",
@@ -11489,6 +11873,7 @@ HomeswiftI18n.add("pt", {
   "Volume up": "Aumentar volume",
   "Waiting to be added (setup code on the Status page)": "A aguardar adição (código de configuração na página Estado)",
   "Wallpaper": "Papel de parede",
+  "Warm amber, each light flickering on its own.": "Âmbar quente, cada luz a tremeluzir ao seu ritmo.",
   "Warm white": "Branco quente",
   "Warnings": "Avisos",
   "Water": "Água",
@@ -11544,6 +11929,7 @@ HomeswiftI18n.add("pt", {
   "Your image": "A sua imagem",
   "Your image is the wallpaper now.": "A sua imagem é agora o papel de parede.",
   "Your password and two-factor": "A palavra-passe e a autenticação de dois fatores",
+  "Your scenes": "As suas cenas",
   "Your setup, in your words": "A sua instalação, por palavras suas",
   "Your sign-in to this bridge's web UI, as an administrator.": "O seu início de sessão na interface web desta ponte, como administrador.",
   "Your sign-in to this bridge's web UI.": "O seu início de sessão na interface web desta ponte.",
@@ -13968,6 +14354,61 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .scene-run .tile { width: 30px; height: 30px; border-radius: 50%; }
 .scene-run.busy { opacity: 0.6; }
 .scene-card .server-head > button { flex: none; }
+/* Moods: the rooms as chips, what plays, the Assistant's box, the collection as pills with their colours. Pills and chips
+   are controls: no text selection or callout on a long press, press feedback at once, the lift on hover only with a
+   mouse (a tap would leave it stuck). On a phone each kind is a row that swipes sideways and snaps, so the card fits a
+   screen and what a tap starts shows beside the finger. */
+.mood-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.mood-rooms, .mood-buttons { display: flex; gap: 8px; }
+.mood-rooms { flex-wrap: wrap; }
+.mood-buttons { flex-wrap: wrap; }
+.mood-room, .mood-button { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.mood-room { padding: 7px 14px; font-size: 0.875rem; }
+.mood-room[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: transparent; }
+.mood-button {
+  display: inline-flex; align-items: center; gap: 10px; flex: none; min-height: 44px; padding: 6px 16px 6px 6px;
+  transition: transform var(--fast) var(--ease-out), box-shadow var(--normal) var(--ease-out);
+}
+.mood-room:hover, .mood-button:hover { transform: none; }
+@media (hover: hover) and (pointer: fine) { .mood-button:hover, .mood-room:hover { transform: translateY(-1px); } }
+.mood-button:active:not(:disabled), .mood-room:active { transform: scale(0.96); transition-duration: 80ms; }
+.mood-button.playing { box-shadow: 0 0 0 2px var(--accent), var(--shadow-control); }
+.mood-button.busy::after { margin-left: 0; }
+.mood-swatch { width: 32px; height: 32px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1px var(--line); }
+.mood-swatch.animated { background-size: 240% 240% !important; animation: mood-drift 6s ease-in-out infinite alternate; animation-play-state: paused; }
+.mood-button.playing .mood-swatch.animated, .mood-run .mood-swatch.animated { animation-play-state: running; }
+@keyframes mood-drift { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
+.mood-group .service-name { margin: 0 0 8px; }
+.mood-collection { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.mood-describe { display: flex; gap: 8px; }
+.mood-describe input { flex: 1; min-width: 0; }
+.mood-create { display: inline-flex; align-items: center; gap: 6px; flex: none; white-space: nowrap; }
+.mood-running { display: grid; gap: 8px; }
+.mood-running:empty { display: none; }
+.mood-run {
+  display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 10px; border-radius: 18px; background: var(--material-thin); border: 1px solid var(--line);
+  transition: opacity var(--normal) var(--ease-out), transform var(--normal) var(--ease-out);
+}
+@starting-style { .mood-run { opacity: 0; transform: translateY(-4px); } }
+.mood-run-text { flex: 1; min-width: 0; display: grid; }
+.mood-run-text .muted { font-size: 0.8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mood-stop { flex: none; }
+.mood-card .status-line { margin: 0; }
+.mood-card .status-line:empty { display: none; }
+/* A phone: rooms and each kind of mood scroll sideways from edge to edge of the card, snapping to a pill; the input stays
+   at 16px so iOS does not zoom into it. */
+@media (max-width: 640px) {
+  .mood-rooms, .mood-buttons {
+    flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: none;
+    margin: 0 -20px; padding: 2px 20px 6px; scroll-padding: 0 20px;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 22px), transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 22px), transparent);
+  }
+  .mood-rooms::-webkit-scrollbar, .mood-buttons::-webkit-scrollbar { display: none; }
+  .mood-room, .mood-button { flex: none; scroll-snap-align: start; }
+}
+@media (pointer: coarse) { .mood-describe input { font-size: 16px; } }
+@media (prefers-reduced-motion: reduce) { .mood-swatch.animated { animation: none; } .mood-run { transition: none; } }
 .location summary { cursor: pointer; }
 .location { margin-top: 14px; }
 .scene-editor h2 { margin: 22px 0 2px; font-size: 1.0625rem; }

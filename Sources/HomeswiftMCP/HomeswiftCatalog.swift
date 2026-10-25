@@ -996,7 +996,7 @@ public struct HomeswiftCatalog: Sendable {
                     block[list] = .array(entries)
                 })
             },
-        ] + hostTools + adminTools + layoutTools + sceneTools + notificationTools + assistantTools + pluginActionTools
+        ] + hostTools + adminTools + layoutTools + sceneTools + moodTools + notificationTools + assistantTools + pluginActionTools
     }
 
     /// `set_accessories` with `ids` or `filter`: one characteristic and value on every target.

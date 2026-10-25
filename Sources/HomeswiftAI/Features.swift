@@ -281,3 +281,48 @@ extension AssistantService {
         return suggestion
     }
 }
+
+// MARK: - Moods
+
+extension AssistantService {
+    /// The shape of a mood (Homeswift's `Mood`): steps of colours for a room's lights, played once or looped.
+    public static let moodSchema: JSONValue = {
+        let color: JSONValue = [
+            "type": "object", "additionalProperties": false,
+            "properties": [
+                "on": ["type": "boolean"], "brightness": ["type": "number", "minimum": 0, "maximum": 100],
+                "hue": ["type": "number", "minimum": 0, "maximum": 360], "saturation": ["type": "number", "minimum": 0, "maximum": 100],
+                "colorTemperature": ["type": "number", "minimum": 140, "maximum": 500],
+            ],
+        ]
+        return [
+            "type": "object", "required": ["name", "steps"],
+            "properties": [
+                "name": ["type": "string", "minLength": 1, "maxLength": 64],
+                "steps": ["type": "array", "minItems": 1, "maxItems": 60, "items": [
+                    "type": "object", "required": ["colors", "seconds"],
+                    "properties": [
+                        "colors": ["type": "array", "minItems": 1, "maxItems": 12, "items": color],
+                        "assign": ["type": "string", "enum": ["spread", "random"]],
+                        "seconds": ["type": "number", "minimum": 0.5, "maximum": 3600],
+                        "jitter": ["type": "number", "minimum": 0, "maximum": 50],
+                    ],
+                ]],
+                "loop": ["type": "boolean"],
+                "durationSeconds": ["type": "number", "minimum": 1, "maximum": 3600],
+                "restore": ["type": "boolean"],
+            ],
+        ]
+    }()
+
+    /// Writes a mood from what the user describes. `lights` says how many lights there are and which take colours
+    /// or whites (no names: nothing about the home but its lights' abilities reaches the provider).
+    public func designMood(_ description: String, lights: JSONValue) async throws -> JSONGenerationResult {
+        try await usage.checkBudget()
+        let result = try await JSONGeneration.generate(
+            provider: provider, schema: Self.moodSchema, prompt: Prompts.DesignMood.user(description: description, lights: lights),
+            system: system(Prompts.DesignMood.system), maxOutputTokens: maxOutputTokens)
+        await record(model: provider.model, usage: result.usage)
+        return result
+    }
+}

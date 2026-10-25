@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Moods for a room's lights: calm ambiances set once (candlelight, cinema, focus), slow animations (candle
+  flicker, fireplace, ocean, northern lights, sunset, sunrise), party effects (disco, police siren, rainbow wave,
+  lightning storm, Halloween, Christmas) and signals (an alert flash, bedtime). Animated ones play in the
+  background and put the lights back as they were when they end or are stopped; a new mood takes the lights over
+  without a flash back. The Assistant writes one from a description ("a jazz bar"), knowing only how many lights
+  there are and what they take. On the Scenes page (the rooms as chips, the moods by kind, rows that swipe on a
+  phone, Stop for what plays, a calm mood saved as a scene) and over MCP (`list_moods`, `start_mood` with a mood,
+  a description or a plan of the client's own, `stop_mood`).
+
 ## [0.8.0] - 2026-10-24
 
 ### Added

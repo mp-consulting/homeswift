@@ -18,6 +18,9 @@ let testLogger: Logger = {
 actor DevicesPlugin: HomeswiftPlugin {
     struct Configuration: Decodable, Sendable {
         var name: String?
+        /// Colour lightbulbs `Devices:bulb1`…, for the moods; the last one fails every write when `failingBulb` is set.
+        var colourBulbs: Int?
+        var failingBulb: Bool?
     }
 
     static let platform = "Devices"
@@ -55,6 +58,25 @@ actor DevicesPlugin: HomeswiftPlugin {
         let trigger = Service(.switch, name: "Door Trigger", subtype: "trigger", extra: [Characteristic(.setupEndpoints, value: "c3J0cC1tYXN0ZXIta2V5")])
         trigger.characteristic(.on).securityControl().onWrite { value in writes.withLockedValue { $0.append(("trigger.on", value)) } }
         try context.add(Accessory(id: "Devices:lock", name: "Front Door", category: .doorLock, services: [lock, trigger]))
+
+        let bulbs = configuration.colourBulbs ?? 0
+        for number in 0..<bulbs {
+            let name = "bulb\(number + 1)"
+            let fails = configuration.failingBulb == true && number == bulbs - 1
+            let light = Service(.lightbulb, name: "Bulb \(number + 1)", optional: [.brightness, .hue, .saturation, .colorTemperature], isPrimary: true)
+            light.characteristic(.on).value = .bool(false)
+            light.characteristic(.brightness).value = .int(40)
+            light.characteristic(.hue).value = .double(10)
+            light.characteristic(.saturation).value = .double(20)
+            light.characteristic(.colorTemperature).value = .int(300)
+            for (type, key) in [(CharacteristicType.on, "on"), (.brightness, "brightness"), (.hue, "hue"), (.saturation, "saturation"), (.colorTemperature, "colorTemperature")] {
+                light.characteristic(type).onWrite { value in
+                    if fails { throw HAPStatusError(.serviceCommunicationFailure) }
+                    writes.withLockedValue { $0.append(("\(name).\(key)", value)) }
+                }
+            }
+            try context.add(Accessory(id: "Devices:\(name)", name: "Bulb \(number + 1)", category: .lightbulb, services: [light]))
+        }
     }
 
     static let assistantActions = [
@@ -126,7 +148,8 @@ final class MCPTestEnvironment: @unchecked Sendable {
 
     /// `config` replaces the default config.json; `schema` is the devices plugin's config.schema.json, `blockSchemas`
     /// the catalog's for blocks no plugin provides.
-    init(elicitation: Bool = true, allowSecrets: Bool = false, config custom: String? = nil, schema: String? = nil, blockSchemas: [String: String] = [:]) throws {
+    init(elicitation: Bool = true, allowSecrets: Bool = false, config custom: String? = nil, schema: String? = nil, blockSchemas: [String: String] = [:],
+         aiTransport: (any HTTPTransport)? = nil) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let configURL = directory.appendingPathComponent("config.json")
         let auditURL = directory.appendingPathComponent("audit.jsonl")
@@ -146,9 +169,10 @@ final class MCPTestEnvironment: @unchecked Sendable {
         registry.register(platform: DevicesPlugin.platform, name: DevicesPlugin.name, configurationSchemaJSON: schema, assistantActions: DevicesPlugin.assistantActions) { json, context in
             DevicesPlugin(configuration: try JSONDecoder().decode(DevicesPlugin.Configuration.self, from: json), context: context, writes: writes)
         }
+        var hostOptions = PluginHost.Options(advertise: false, logger: testLogger) { _ in MemoryStorage() }
+        hostOptions.aiTransport = aiTransport
         host = try PluginHost(
-            configuration: try HomeswiftConfiguration.decode(Data(config.utf8)), registry: registry, storageDirectory: directory,
-            options: .init(advertise: false, logger: testLogger) { _ in MemoryStorage() })
+            configuration: try HomeswiftConfiguration.decode(Data(config.utf8)), registry: registry, storageDirectory: directory, options: hostOptions)
         catalog = HomeswiftCatalog(host: host, logs: logs, configURL: configURL, allowSecrets: allowSecrets, blockSchemas: blockSchemas, logger: testLogger)
         var options = MCPServer.Options(version: "test", instructions: HomeswiftCatalog.instructions)
         options.elicitation = elicitation
