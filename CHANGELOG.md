@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-25
+
 ### Added
 
 - Moods for a room's lights: calm ambiances set once (candlelight, cinema, focus), slow animations (candle
@@ -16,6 +18,13 @@ All notable changes to this project are documented here. The format follows
   there are and what they take. On the Scenes page (the rooms as chips, the moods by kind, rows that swipe on a
   phone, Stop for what plays, a calm mood saved as a scene) and over MCP (`list_moods`, `start_mood` with a mood,
   a description or a plan of the client's own, `stop_mood`).
+
+### Changed
+
+- homeswift.dev: the home page starts with the chat demo, the bridge's own page moves to bridge.html, and each
+  language is a page of its own (`fr/`, `es/`, `pt/`); stylesheet and script addresses carry the commit, so a cache
+  never pairs new pages with old files. The home page shows moods, and its demo plays Halloween or a jazz bar on its
+  lights.
 
 ## [0.8.0] - 2026-10-24
 
@@ -805,7 +814,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/mp-consulting/homeswift/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/mp-consulting/homeswift/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/mp-consulting/homeswift/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/mp-consulting/homeswift/compare/v0.6.0...v0.6.1
