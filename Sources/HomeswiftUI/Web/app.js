@@ -1070,7 +1070,7 @@
       const block = { platform: plugin.platform, name: uniqueName(plugin.name, plugins.blocks) };
       try {
         await api(`/api/config/block/${encodeURIComponent(block.platform)}/${encodeURIComponent(block.name)}`, { method: "POST", body: {} });
-        location.href = pluginPage(block);
+        location.href = pluginPage({ slug: slug(block.name) });
       } catch (e) {
         button.disabled = false;
         alert(e.message);
