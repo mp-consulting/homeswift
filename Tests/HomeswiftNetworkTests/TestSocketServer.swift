@@ -166,7 +166,8 @@ private final class RefusingHTTPHandler: ChannelInboundHandler, RemovableChannel
 }
 
 /// Greets with "hello", then: echoes messages; "fragment" sends a text message in three frames; "close" closes
-/// with 4000 "bye"; "big" sends 2048 bytes; "mute" stops answering pings; "drop" drops the connection.
+/// with 4000 "bye"; "big" sends 2048 bytes; "mute" stops answering pings; "drop" drops the connection; "reset" aborts it
+/// (SO_LINGER 0: a TCP reset, as a peer that goes away with frames still in flight sends).
 private final class EchoWebSocketHandler: ChannelInboundHandler {
     typealias InboundIn = WebSocketFrame
     typealias OutboundOut = WebSocketFrame
@@ -207,6 +208,10 @@ private final class EchoWebSocketHandler: ChannelInboundHandler {
                 behaviour.state.withLockedValue { $0.mute = true }
             case "drop":
                 context.close(promise: nil)
+            case "reset":
+                let channel = context.channel
+                guard let provider = channel as? any SocketOptionProvider else { return channel.close(promise: nil) }
+                provider.setSoLinger(linger(l_onoff: 1, l_linger: 0)).whenComplete { _ in channel.close(promise: nil) }
             default:
                 send(context: context, .text, ByteBuffer(string: text))
             }
