@@ -1248,7 +1248,11 @@ final class EventHub: Sendable {
             // Nothing is looked up while no page listens: `payload` is only built for a listener.
             broadcast(event: "accessory", payload: {
                 let service = accessory.services.first { $0.characteristics.contains { $0 === characteristic } }
-                var payload: [String: JSONValue] = ["id": .string(accessory.id), "characteristic": .string(characteristic.type.name), "value": characteristic.isConfidential ? .null : HomeswiftCatalog.json(value)]
+                var payload: [String: JSONValue] = [
+                    "id": .string(accessory.id), "characteristic": .string(characteristic.type.name), "value": characteristic.isConfidential ? .null : HomeswiftCatalog.json(value),
+                    // Whether the device answers: No Response on its card follows it (`Accessory.isUnavailable`).
+                    "unavailable": .bool(accessory.isUnavailable),
+                ]
                 if let service {
                     payload["service"] = .string(service.type.name)
                     if let subtype = service.subtype { payload["subtype"] = .string(subtype) }

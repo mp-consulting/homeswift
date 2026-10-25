@@ -174,8 +174,18 @@ public final class HAPServer: @unchecked Sendable {
     public func add(_ accessory: Accessory) throws {
         // A mirrored accessory gets its aid and iids for the web UI and the MCP server, but HomeKit's database, its
         // configuration number and the advertisement stay as they are: no bump, no write, no new TXT record.
+        // Only when it replaces one HomeKit could see under the same id does the database change.
         if accessory.mirroredFrom != nil {
-            state.withLockedValue { _ = assign(accessory, aid: nil, in: &$0) }
+            let running = state.withLockedValue { state -> Bool in
+                let previous = state.persisted.aids[accessory.id].flatMap { state.accessories[$0] }
+                _ = assign(accessory, aid: nil, in: &state)
+                guard let previous, previous.mirroredFrom == nil else { return false }
+                return refreshIfRunning(&state)
+            }
+            if running {
+                try persist()
+                updateAdvertisement()
+            }
             return
         }
         let (running, changed) = state.withLockedValue { state -> (Bool, Bool) in

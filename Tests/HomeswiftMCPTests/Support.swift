@@ -23,6 +23,8 @@ actor DevicesPlugin: HomeswiftPlugin {
         var failingBulb: Bool?
         /// A colour bulb mirrored from Apple Home (`Devices:mirrored`, in the room Salon), as Wingman adds one.
         var mirroredBulb: Bool?
+        /// A second one, `Devices:mirrored2`, in this room.
+        var secondMirroredRoom: String?
     }
 
     static let platform = "Devices"
@@ -90,6 +92,12 @@ actor DevicesPlugin: HomeswiftPlugin {
             mirrored.mirroredFrom = "Apple Home"
             mirrored.suggestedRoom = "Salon"
             try context.add(mirrored)
+        }
+        if let room = configuration.secondMirroredRoom {
+            let second = Accessory(id: "Devices:mirrored2", name: "Floor Lamp", category: .lightbulb, services: [Service(.lightbulb, name: "Floor Lamp", isPrimary: true)])
+            second.mirroredFrom = "Apple Home"
+            second.suggestedRoom = room
+            try context.add(second)
         }
     }
 

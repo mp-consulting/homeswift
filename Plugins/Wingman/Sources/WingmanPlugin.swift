@@ -88,8 +88,9 @@ public actor WingmanPlugin: HomeswiftPlugin {
 
     public func start() async throws {
         for device in configuration.devices ?? [] {
-            guard let token = device.token, !token.isEmpty else {
-                logger.warning("A Wingman in devices has no token: pair it on the plugin's page", metadata: ["wingman": "\(device.name ?? device.id)"])
+            // The token goes only to the certificate pairing pinned: never over a connection that accepts any.
+            guard let token = device.token, !token.isEmpty, device.fingerprint?.isEmpty == false else {
+                logger.warning("A Wingman in devices has no token or no pinned certificate: pair it on the plugin's page", metadata: ["wingman": "\(device.name ?? device.id)"])
                 continue
             }
             let link = Link(device: device, token: token, plugin: self)
@@ -137,8 +138,11 @@ public actor WingmanPlugin: HomeswiftPlugin {
 
     // MARK: Accessories
 
-    /// Whether an Apple Home accessory comes to Homeswift: not Homeswift's own, not excluded, in a chosen home.
-    nonisolated func includes(_ accessory: WingmanAPI.Accessory, home: WingmanAPI.Home) -> Bool {
+    /// Whether an Apple Home accessory comes to Homeswift: not Homeswift's own (on its bridges, or published on its own
+    /// like a TV or a camera, by serial number: `homeswift` is `context.publishedSerialNumbers`), not excluded, in a
+    /// chosen home.
+    nonisolated func includes(_ accessory: WingmanAPI.Accessory, home: WingmanAPI.Home, homeswift: Set<String>) -> Bool {
+        if let serial = accessory.serialNumber, homeswift.contains(serial) { return false }
         if let homes = configuration.homes, !homes.isEmpty, !homes.contains(where: { $0.caseInsensitiveCompare(home.name) == .orderedSame }) { return false }
         if let exclude = configuration.exclude, exclude.contains(where: { $0 == accessory.id || $0.caseInsensitiveCompare(accessory.name) == .orderedSame }) {
             return false
@@ -203,7 +207,7 @@ public actor WingmanPlugin: HomeswiftPlugin {
                     list.append(await link.status())
                 } else {
                     list.append(["id": .string(device.id), "name": .string(device.name ?? device.id), "state": "unpaired",
-                                 "error": "No token: pair it again"])
+                                 "error": "No token or no pinned certificate: pair it again"])
                 }
             }
             return PluginWebResponse(["wingmen": .array(list)])
@@ -330,9 +334,10 @@ actor Link {
     func refresh() async throws {
         guard !client.host.isEmpty else { throw WingmanError.unreachable("no address yet: waiting for Bonjour") }
         guard let plugin else { return }
-        let homes = try await client.homes()
-        // Changes from now on: the events after this read.
+        // Changes from now on, counted before the read: one made while the homes are read comes as an event too.
         since = try await client.events(since: Int.max - 1, wait: 0).last ?? 0
+        let homes = try await client.homes()
+        let homeswift = plugin.context.publishedSerialNumbers
         let write: @Sendable (String, String, JSONValue) async throws -> Void = { [weak self] accessoryID, characteristicID, value in
             guard let client = await self?.client else { throw WingmanError.unreachable("stopped") }
             try await client.write(accessory: accessoryID, characteristic: characteristicID, value: value)
@@ -343,7 +348,7 @@ actor Link {
         unreachable = []
         for home in homes {
             for accessory in home.accessories {
-                guard plugin.includes(accessory, home: home) else {
+                guard plugin.includes(accessory, home: home, homeswift: homeswift) else {
                     leftOut += 1
                     continue
                 }
@@ -373,7 +378,9 @@ actor Link {
     private func follow() async throws -> Bool {
         let answer = try await client.events(since: since, wait: WingmanPlugin.eventWait)
         lastContact = Date()
+        // Wingman restarted (its count began again), or dropped events older than it keeps: read the homes again.
         if let last = answer.last, last < since { return true }
+        if let first = answer.first, first > since + 1 { return true }
         var unknown = false
         for event in answer.events {
             if let seq = event.seq { since = max(since, seq) }

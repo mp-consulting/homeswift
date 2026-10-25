@@ -212,7 +212,11 @@ automations use it as any other; the UI marks it with a house badge and filters 
 `?from=`). `accessory.suggestedRoom` is the room the other controller gives it, the web UI's until the user picks one;
 both survive the accessory cache. `CharacteristicType.known(uuid:)` and `ServiceType.known(uuid:)` find Homeswift's
 own types from a UUID another controller reports, so the widgets and moods, which know types by name, recognise them.
-`accessory.isUnavailable` set for a device that does not answer shows No Response in the web UI.
+`context.publishedSerialNumbers` lists the serial numbers of every accessory Homeswift itself publishes (bridges, child
+bridges, external accessories), so a plugin reading the Home app's view leaves Homeswift's own out. Renaming or removing a
+room the other controller suggests makes it the layout's own; a removed one leaves its accessories with no room.
+`accessory.isUnavailable` set for a device that does not answer shows No Response in the web UI, which follows its
+changes as they happen (a change is announced with an event of an unchanged value).
 
 **Confidential values.** A characteristic whose value is for HomeKit only (`isConfidential`) is read and
 written by controllers as usual, but the MCP server, the web UI and its event stream show it as null, the

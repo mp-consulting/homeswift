@@ -82,9 +82,20 @@ public final class Accessory: @unchecked Sendable {
     /// Whether the accessory answers: while it does not, every read and write of its characteristics fails with
     /// "No Response" and reaches none of their handlers, so nothing is sent to the device (a paused plugin).
     /// Values and handlers are kept.
+    /// A change is announced with an event of a value that did not change, so the pages following the accessory (the
+    /// web UI's event stream carries `unavailable`) learn it at once.
     public var isUnavailable: Bool {
         get { services.contains { $0.characteristics.contains(where: \.isUnavailable) } }
-        set { for service in services { for characteristic in service.characteristics { characteristic.isUnavailable = newValue } } }
+        set {
+            let characteristics = services.flatMap(\.characteristics)
+            guard characteristics.contains(where: { $0.isUnavailable != newValue }) else { return }
+            for characteristic in characteristics { characteristic.isUnavailable = newValue }
+            // A state, never a button's press (which automations take as one), and never an empty value.
+            let announcer = characteristics.first {
+                $0.type.permissions.contains(.events) && $0.type.uuid != CharacteristicType.programmableSwitchEvent.uuid && $0.value != .null
+            }
+            if let announcer { announcer.update(announcer.value, origin: nil, force: true) }
+        }
     }
 
     /// The controller this accessory mirrors, for an accessory HomeKit already has another way ("Apple Home": the

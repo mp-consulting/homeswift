@@ -25,12 +25,26 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
         var tls: [HTTPClient.TLS] = []
         var tokenValid = true
         var reachable = true
+        var requests: [String] = []
+        /// Events older than this are gone, as Wingman keeps 500 at most.
+        var keptFrom = 1
     }
 
     private let state = NIOLockedValueBox(State())
 
     var writes: [Write] { state.withLockedValue { $0.writes } }
     var tlsModes: [HTTPClient.TLS] { state.withLockedValue { $0.tls } }
+    /// The paths asked, in order (`events`, `homes`…).
+    var requests: [String] { state.withLockedValue { $0.requests } }
+
+    /// Wingman dropped every event so far, as when more than 500 came while Homeswift was away.
+    func dropKeptEvents() {
+        state.withLockedValue { state in
+            state.seq += 3
+            state.keptFrom = state.seq + 1
+            state.events = []
+        }
+    }
 
     /// A value change HomeKit pushed, as Wingman reports it.
     func push(accessory: String, characteristic: String, type: String, value: Any) {
@@ -61,6 +75,7 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
 
     func answer(_ request: HTTPRequest) async throws -> HTTPResponse {
         let path = request.url.path
+        state.withLockedValue { $0.requests.append(String(path.dropFirst())) }
         let query = Dictionary(uniqueKeysWithValues: (URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
         switch (request.method, path) {
         case ("GET", "/info"):
@@ -79,13 +94,13 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
         case ("GET", "/events"):
             let since = Int(query["since"] ?? "") ?? 0
             let wait = Double(query["wait"] ?? "") ?? 0
-            var answer = state.withLockedValue { state in (state.events.filter { ($0["seq"] as? Int ?? 0) > since }, state.seq) }
+            var answer = state.withLockedValue { state in (state.events.filter { ($0["seq"] as? Int ?? 0) > since }, state.seq, state.keptFrom) }
             if answer.0.isEmpty, wait > 0 {
                 // A short wait stands for the long-poll.
                 try await Task.sleep(for: .milliseconds(50))
-                answer = state.withLockedValue { state in (state.events.filter { ($0["seq"] as? Int ?? 0) > since }, state.seq) }
+                answer = state.withLockedValue { state in (state.events.filter { ($0["seq"] as? Int ?? 0) > since }, state.seq, state.keptFrom) }
             }
-            return json(["events": answer.0, "last": answer.1])
+            return json(["events": answer.0, "last": answer.1, "first": answer.2])
         case ("POST", "/write"):
             let body = (try? JSONSerialization.jsonObject(with: request.body ?? Data())) as? [String: Any] ?? [:]
             let write = Write(accessory: body["accessory"] as? String ?? "", characteristic: body["characteristic"] as? String ?? "", value: "\(body["value"] ?? "")")
@@ -135,6 +150,18 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
                 "services": [
                     ["id": "temp-1", "type": "0000008A-0000-1000-8000-0026BB765291", "primary": true, "characteristics": [
                         ["id": "temp", "type": "00000011-0000-1000-8000-0026BB765291", "properties": ["read", "events"], "value": 12.5, "format": "float", "min": -100, "max": 100, "step": 0.1],
+                    ]],
+                ],
+            ],
+            [
+                // Published by Homeswift on its own (a TV, a camera): not bridged, known by its serial number.
+                "id": "tv-1", "name": "Salon TV", "room": "Salon", "reachable": true, "manufacturer": "Philips",
+                "services": [
+                    ["id": "tv-info", "type": "0000003E-0000-1000-8000-0026BB765291", "characteristics": [
+                        ["id": "tv-serial", "type": "00000030-0000-1000-8000-0026BB765291", "properties": ["read"], "value": "TV-SERIAL", "format": "string"],
+                    ]],
+                    ["id": "tv-switch", "type": "00000049-0000-1000-8000-0026BB765291", "primary": true, "characteristics": [
+                        ["id": "tv-on", "type": "00000025-0000-1000-8000-0026BB765291", "properties": ["read", "write", "events"], "value": 0, "format": "bool"],
                     ]],
                 ],
             ],

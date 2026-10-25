@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftNetwork
 import HomeswiftPlugin
 
@@ -40,6 +41,12 @@ enum WingmanAPI {
         var model: String?
         var firmware: String?
         var services: [Service]
+
+        /// The Serial Number of its Accessory Information, as HomeKit keeps it.
+        var serialNumber: String? {
+            services.first { HAPUUID($0.type) == ServiceType.accessoryInformation.uuid }?
+                .characteristics.first { HAPUUID($0.type) == CharacteristicType.serialNumber.uuid }?.value?.stringValue
+        }
     }
 
     struct Service: Decodable, Sendable {
@@ -70,6 +77,8 @@ enum WingmanAPI {
     struct Events: Decodable, Sendable {
         var events: [Event]
         var last: Int?
+        /// The oldest event Wingman still keeps: a `since` before it missed some.
+        var first: Int?
     }
 
     struct Event: Decodable, Sendable {

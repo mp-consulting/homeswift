@@ -14929,11 +14929,16 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   /// An accessory event from the page's event stream: the new value, painted on the cards of that accessory.
-  function event({ id, service, subtype, characteristic, value }) {
+  function event({ id, service, subtype, characteristic, value, unavailable }) {
     if (Date.now() - swept > 1000) sweep();
     for (const ctx of cards) {
       if (!ctx.node?.isConnected) continue;
       if (ctx.accessory.id !== id) continue;
+      // The device answers again, or stopped: No Response follows. A paused plugin says so with `paused`.
+      if (unavailable !== undefined && !ctx.accessory.paused && Boolean(ctx.accessory.unavailable) !== unavailable) {
+        ctx.accessory.unavailable = unavailable;
+        ctx.paint();
+      }
       const key = subtype || service;
       const owner = ctx.accessory.services.find((s) => (!key || serviceKey(s) === key) && s.characteristics.some((c) => c.type === characteristic));
       const target = owner && owner.characteristics.find((c) => c.type === characteristic);

@@ -9,6 +9,7 @@ import HomeswiftPlugin
 /// Kept in `accessory-layout.json` next to config.json.
 public struct AccessoryLayout: Codable, Sendable, Equatable {
     public struct Entry: Codable, Sendable, Equatable {
+        /// The room; empty for none even when the accessory's controller suggests one (`Accessory.suggestedRoom`).
         public var room: String?
         public var hidden: Bool?
         /// The name the web UI shows instead of the accessory's own (an Assistant's rename, say).
@@ -66,7 +67,8 @@ extension HomeswiftCatalog {
     /// Changes the layout. `body` may hold `accessories`, an object by accessory id (or a list of objects with
     /// `id`) of `room`, `hidden`, `name` and `favourite`, where null clears one; `rooms`, the rooms in order (new
     /// names are added, those left out keep their place after them); `renameRoom` `{from, to}`; `removeRooms`, whose
-    /// accessories have no room afterwards. A room an accessory moves to is added. Answers `layoutJSON()`.
+    /// accessories have no room afterwards. A room an accessory moves to is added. A room only a mirrored controller
+    /// names (Apple Home's) becomes the layout's own when it is renamed or removed. Answers `layoutJSON()`.
     public func updateLayout(_ body: JSONValue) throws -> JSONValue {
         func cleanName(_ value: String, _ what: String) throws -> String {
             let name = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -85,8 +87,21 @@ extension HomeswiftCatalog {
                 return (id, object)
             }
         }
-        let known = Set(located().map(\.accessory.id))
+        let all = located()
+        let known = Set(all.map(\.accessory.id))
+        let suggested = Dictionary(all.compactMap { located in located.accessory.suggestedRoom.map { (located.accessory.id, $0) } }, uniquingKeysWith: { first, _ in first })
         try home.layout.update { layout in
+            /// Gives the layout a room a mirrored controller names: the room, and its accessories that follow the suggestion.
+            func adopt(_ name: String) -> String? {
+                if let current = layout.room(named: name) { return current }
+                let followers = suggested.filter { id, room in room.caseInsensitiveCompare(name) == .orderedSame && layout.accessories[id]?.room == nil }
+                guard let spelled = followers.values.first else { return nil }
+                layout.rooms.append(spelled)
+                for id in followers.keys { layout.accessories[id, default: AccessoryLayout.Entry()].room = spelled }
+                return spelled
+            }
+            /// Out of its room: none, rather than the room its controller suggests.
+            func noRoom(_ id: String) -> String? { suggested[id] == nil ? nil : "" }
             if let order = body["rooms"]?.arrayValue {
                 let names = try order.map { value -> String in
                     guard let text = value.stringValue else { throw CatalogError("rooms must be names") }
@@ -100,16 +115,16 @@ extension HomeswiftCatalog {
                 layout.rooms = ordered + layout.rooms.filter { !seen.contains($0.lowercased()) }
             }
             if let rename = body["renameRoom"], !rename.isNull {
-                guard let from = rename["from"]?.stringValue, let current = layout.room(named: from) else { throw CatalogError("No room \(rename["from"]?.stringValue ?? "")") }
+                guard let from = rename["from"]?.stringValue, let current = adopt(from) else { throw CatalogError("No room \(rename["from"]?.stringValue ?? "")") }
                 let to = try cleanName(rename["to"]?.stringValue ?? "", "A room's name")
                 if let other = layout.room(named: to), other != current { throw CatalogError("There is already a room \(other)") }
                 layout.rooms = layout.rooms.map { $0 == current ? to : $0 }
                 for (id, entry) in layout.accessories where entry.room == current { layout.accessories[id]?.room = to }
             }
             for name in body["removeRooms"]?.arrayValue?.compactMap(\.stringValue) ?? [] {
-                guard let current = layout.room(named: name) else { continue }
+                guard let current = adopt(name) else { continue }
                 layout.rooms.removeAll { $0 == current }
-                for (id, entry) in layout.accessories where entry.room == current { layout.accessories[id]?.room = nil }
+                for (id, entry) in layout.accessories where entry.room == current { layout.accessories[id]?.room = noRoom(id) }
             }
             for (id, change) in changes {
                 guard known.contains(id) || layout.accessories[id] != nil else { throw CatalogError("No accessory with id \(id)") }
@@ -124,7 +139,7 @@ extension HomeswiftCatalog {
                             layout.rooms.append(clean)
                         }
                     } else {
-                        entry.room = nil
+                        entry.room = noRoom(id)
                     }
                 }
                 if let hidden = change["hidden"] { entry.hidden = hidden.boolValue == true ? true : nil }
@@ -179,11 +194,16 @@ extension HomeswiftCatalog {
         ]
     }
 
-    /// The user's rooms, then those only a mirrored controller names (Apple Home's, through Wingman), by name.
+    /// The user's rooms, then those only a mirrored controller names (Apple Home's, through Wingman), by name, each once
+    /// whatever its case.
     func allRoomNames(_ all: [Located]? = nil) -> [String] {
         let layout = home.layout.value.rooms
-        let suggested = Set((all ?? located()).compactMap { $0.layout?.room == nil ? $0.accessory.suggestedRoom : nil })
-            .filter { name in !layout.contains { $0.caseInsensitiveCompare(name) == .orderedSame } }.sorted()
+        var seen = Set(layout.map { $0.lowercased() })
+        var suggested: [String] = []
+        for name in (all ?? located()).compactMap({ $0.layout?.room == nil ? $0.accessory.suggestedRoom : nil }).sorted()
+        where seen.insert(name.lowercased()).inserted {
+            suggested.append(name)
+        }
         return layout + suggested
     }
 
