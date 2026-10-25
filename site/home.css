@@ -171,20 +171,10 @@ h1, h2, h3, .ask q, .way h3, .who strong, .plugin strong, .plugin span, .brain s
 .trust .glyph svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 /* What it knows: things you'd say, and what happens. */
-/* Moods: a card per mood, its colours in a round swatch that drifts slowly when the mood moves. */
+/* Moods: a card per mood, a small illustration of the scene. */
 .moods { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
 .mood { padding: 16px 18px; border-radius: var(--radius); background: var(--glass); border: 1px solid var(--glass-edge); display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 14px; row-gap: 2px; align-content: start; align-items: center; }
-.mood .swatch { grid-row: span 2; align-self: start; width: 44px; height: 44px; border-radius: 50%; background-size: 260% 260%; box-shadow: 0 6px 18px -6px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.25); }
-.mood[data-mood="candlelight"] .swatch { background-image: linear-gradient(135deg, #ffcf8a, #ffa64d); }
-.mood[data-mood="fireplace"] .swatch { background-image: linear-gradient(135deg, #ff4d1a, #ff8c1a, #ffb347, #e8380d); }
-.mood[data-mood="ocean"] .swatch { background-image: linear-gradient(135deg, #22c1c3, #1fa2d6, #2b6fe0, #22c1c3); }
-.mood[data-mood="northern-lights"] .swatch { background-image: linear-gradient(135deg, #2fe6a0, #2ec4c4, #8a5cf6, #2fe6a0); }
-.mood[data-mood="sunset"] .swatch { background-image: linear-gradient(135deg, #ffd25a, #ff8a3d, #f25c8a, #8f1d2c); }
-.mood[data-mood="disco"] .swatch { background-image: linear-gradient(135deg, #ff2d55, #ffd60a, #30d158, #0a84ff, #bf5af2); }
-.mood[data-mood="police"] .swatch { background-image: linear-gradient(135deg, #ff2d2d, #2f5bff, #ff2d2d); }
-.mood[data-mood="halloween"] .swatch { background-image: linear-gradient(135deg, #8e2de2, #ff7a00, #3c1361, #2f8f3a); }
-.mood.moving .swatch { animation: mood-drift 6s ease-in-out infinite alternate; }
-@keyframes mood-drift { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
+.mood .swatch { grid-row: span 2; align-self: start; width: 44px; height: 44px; border-radius: 11px; }
 .mood strong { font-size: 1rem; letter-spacing: -0.01em; }
 .mood span:not(.swatch) { font-size: 0.875rem; color: var(--muted); }
 /* The demo's lights in a mood: the tile takes the colour and glows with it. */
@@ -262,7 +252,6 @@ h1, h2, h3, .ask q, .way h3, .who strong, .plugin strong, .plugin span, .brain s
   .motion [data-reveal]:not(.in) { transform: none; }
   .msg, .tool, .confirm { animation: none; }
   .typing i, .tool .st { animation: none; }
-  .mood.moving .swatch { animation: none; }
   .log { scroll-behavior: auto; }
 }
 @media (prefers-reduced-transparency: reduce) {

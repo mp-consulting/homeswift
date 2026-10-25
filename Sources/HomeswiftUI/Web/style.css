@@ -1751,10 +1751,7 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .mood-button:active:not(:disabled), .mood-room:active { transform: scale(0.96); transition-duration: 80ms; }
 .mood-button.playing { box-shadow: 0 0 0 2px var(--accent), var(--shadow-control); }
 .mood-button.busy::after { margin-left: 0; }
-.mood-swatch { width: 32px; height: 32px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1px var(--line); }
-.mood-swatch.animated { background-size: 240% 240% !important; animation: mood-drift 6s ease-in-out infinite alternate; animation-play-state: paused; }
-.mood-button.playing .mood-swatch.animated, .mood-run .mood-swatch.animated { animation-play-state: running; }
-@keyframes mood-drift { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
+.mood-swatch { width: 32px; height: 32px; border-radius: 8px; flex: none; }
 .mood-group .service-name { margin: 0 0 8px; }
 .mood-collection { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .mood-describe { display: flex; gap: 8px; }
@@ -1785,7 +1782,7 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
   .mood-room, .mood-button { flex: none; scroll-snap-align: start; }
 }
 @media (pointer: coarse) { .mood-describe input { font-size: 16px; } }
-@media (prefers-reduced-motion: reduce) { .mood-swatch.animated { animation: none; } .mood-run { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .mood-run { transition: none; } }
 .location summary { cursor: pointer; }
 .location { margin-top: 14px; }
 .scene-editor h2 { margin: 22px 0 2px; font-size: 1.0625rem; }

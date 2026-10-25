@@ -274,7 +274,7 @@
         const lights = tn("{n} light", "{n} lights", run.lights.length);
         // The room shows only when it is not the one chosen above.
         const where = run.room && run.room !== room ? t("{room}, {lights}", { room: run.room, lights }) : lights;
-        return el("div", { class: "mood-run" }, swatch(run.swatch, true),
+        return el("div", { class: "mood-run" }, swatch(run.mood),
           el("div", { class: "mood-run-text" }, el("strong", { text: name }),
             el("span", { class: "muted", text: run.held ? t("{lights}, set at {time}", { lights: where, time: timeFormat.format(new Date(run.startedAt)) })
               : run.endsAt ? t("{lights}, until {time}", { lights: where, time: timeFormat.format(new Date(run.endsAt)) }) : where })),
@@ -282,9 +282,9 @@
       }));
     }
 
-    function swatch(colours = [], animated = false) {
-      const fill = colours.length > 1 ? `linear-gradient(135deg, ${colours.join(", ")})` : colours[0] || "var(--accent)";
-      return el("span", { class: `mood-swatch${animated && colours.length > 1 ? " animated" : ""}`, style: `background: ${fill}`, "aria-hidden": "true" });
+    function swatch(id) {
+      const illustration = Object.hasOwn(moodTexts, id) ? id : "custom";
+      return el("img", { class: "mood-swatch", src: `/mood-${illustration}.svg`, alt: "", "aria-hidden": "true" });
     }
 
     async function start(body, name, button) {
@@ -333,7 +333,7 @@
           el("div", { class: "mood-buttons" }, moods.map((mood) => {
             const name = moodName(mood.id, mood.name);
             const button = el("button", { type: "button", class: "mood-button", title: moodTexts[mood.id]?.[1] ?? mood.description ?? "", "aria-pressed": "false" },
-              swatch(mood.swatch, mood.animated), el("span", { text: name }));
+              swatch(mood.id), el("span", { text: name }));
             button.addEventListener("click", () => start({ mood: mood.id }, name, button));
             buttons.set(mood.id, button);
             return button;
