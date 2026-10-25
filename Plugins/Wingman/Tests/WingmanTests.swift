@@ -112,9 +112,10 @@ struct WingmanTests {
         let host = try await environment.start()
         _ = try await accessory(host, "light-1")
         #expect(!host.mainBridge.server.accessories.contains { $0.id == "Wingman:homeswift-switch" })
-        let status = try await web(environment.plugin, "GET", "wingmen")
+        let plugin = environment.plugin
+        #expect(await eventually { (try? await web(plugin, "GET", "wingmen"))?.json["wingmen"]?.arrayValue?.first?["state"] == "connected" })
+        let status = try await web(plugin, "GET", "wingmen")
         let wingman = try #require(status.json["wingmen"]?.arrayValue?.first)
-        #expect(wingman["state"] == "connected")
         #expect(wingman["accessories"]?.doubleValue == 3)
         #expect(wingman["leftOut"]?.doubleValue == 1)
         #expect(wingman["notResponding"]?.doubleValue == 1)
