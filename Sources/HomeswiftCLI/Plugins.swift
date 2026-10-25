@@ -9,6 +9,7 @@ import HomeswiftPhilipsAmbilightTV
 import HomeswiftPlugin
 import HomeswiftUniFiAccess
 import HomeswiftUniFiProtect
+import HomeswiftWingman
 
 /// The plugins compiled into this binary.
 ///
@@ -27,5 +28,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(LGThinQPlugin.self)
     registry.register(GoveePlugin.self)
     registry.register(UniFiProtectPlugin.self)
+    registry.register(WingmanPlugin.self)
     return registry
 }

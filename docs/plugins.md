@@ -204,6 +204,16 @@ trigger.characteristic(.on).securityControl().onWrite { value in try await door.
 // or: trigger.characteristic(.on).isSecurityControl = true
 ```
 
+**Mirrored accessories.** An accessory HomeKit already has another way (the Home app's own, which
+`Plugins/Wingman` reads through Homeswift Wingman on a Mac) is added with `accessory.mirroredFrom = "Apple Home"`
+before `context.add`. The bridge keeps it out of HomeKit: it is not in `GET /accessories`, and controllers cannot
+read, write or subscribe to it, so the Home app does not show it twice. The web UI, the MCP tools, scenes, moods and
+automations use it as any other; the UI marks it with a house badge and filters on it (**Only from Apple Home**,
+`?from=`). `accessory.suggestedRoom` is the room the other controller gives it, the web UI's until the user picks one;
+both survive the accessory cache. `CharacteristicType.known(uuid:)` and `ServiceType.known(uuid:)` find Homeswift's
+own types from a UUID another controller reports, so the widgets and moods, which know types by name, recognise them.
+`accessory.isUnavailable` set for a device that does not answer shows No Response in the web UI.
+
 **Confidential values.** A characteristic whose value is for HomeKit only (`isConfidential`) is read and
 written by controllers as usual, but the MCP server, the web UI and its event stream show it as null, the
 accessory cache keeps no value, and the `HAP_DEBUG` trace prints only its size. Setup Endpoints (its value
@@ -315,8 +325,9 @@ Keep the platform name and the option names, and copy `config.schema.json` and t
 | `dgram` | `HomeswiftNetwork.UDPSocket` |
 | `homebridge-ui/server.js`, `config.schema.json` | Keep the schema file; the settings page comes with the Homeswift UI |
 
-The ten plugins under `Plugins/` are ported this way; between them they use every transport above, cameras
-(UniFi Protect) and external accessories (Philips TV).
+Ten of the plugins under `Plugins/` are ported this way; between them they use every transport above, cameras
+(UniFi Protect) and external accessories (Philips TV). The eleventh, Wingman, is Homeswift's own: it mirrors the Home
+app's accessories (below, "Mirrored accessories").
 
 ## Where plugins live
 

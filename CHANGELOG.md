@@ -11,6 +11,15 @@ All notable changes to this project are documented here. The format follows
 - A calm mood (candlelight, focus…) can be undone for 12 hours: **Undo** on the Scenes page, or `stop_mood`, puts
   every light back as it was, its colour temperature as well as its hue and saturation. A mood started on some of its
   lights takes only those; the rest stay to undo.
+- The **Wingman** plugin: the Home app's accessories in Homeswift, Matter ones included, through Homeswift Wingman,
+  a menu bar app on a Mac (github.com/mp-consulting/homeswift-wingman). Its page finds Wingman over Bonjour and pairs
+  with the 6-digit code Wingman shows, the certificate compared and pinned; changes arrive at once (long-poll) and
+  writes go through Wingman. The accessories join the Accessories page in Apple Home's rooms, moods, scenes and the MCP
+  tools, and are never published to HomeKit again; Homeswift's own accessories are left out.
+- Mirrored accessories (`Accessory.mirroredFrom`, `suggestedRoom`): kept out of HomeKit's database, marked with a house
+  badge on the Accessories page, which filters on them (**Only from Apple Home**). `CharacteristicType.known(uuid:)` and
+  `ServiceType.known(uuid:)` find Homeswift's types by UUID.
+- The Accessories page shows No Response for an accessory whose device does not answer.
 
 ## [0.9.0] - 2026-10-25
 
