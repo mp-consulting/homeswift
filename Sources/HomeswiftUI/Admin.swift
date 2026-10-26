@@ -28,6 +28,11 @@ extension UIServer {
     func adminAPI(_ route: [String], _ request: Request, caller: Caller) async throws -> Reply? {
         let username = caller.username
         let method = request.method
+        // The config import: administrators only, checked in the import routes.
+        if route.first == "import" {
+            guard caller.isAdmin else { return .error(403, "only an administrator can do this") }
+            return try await importAPI(route, request)
+        }
         // An accessory's history is anyone's to read: the accessory is on the page already.
         if method == .GET, route.count == 3, route[0] == "accessories", route[2] == "history" {
             let hours = request.query["hours"].flatMap(Double.init) ?? 24
@@ -179,7 +184,9 @@ extension UIServer {
         }
         var arguments: JSONValue = [:]
         if route.first != "account", !request.body.isEmpty {
-            if request.body.count <= 2048, !Self.acceptsArchive(request), let json = try? JSONValue(data: request.body) {
+            // A config import's body is a whole config.json, passwords and all, and a key-name redaction does not
+            // reach its `text` field: only its size is kept, as for the bodies too large to read.
+            if route.first != "import", request.body.count <= 2048, !Self.acceptsArchive(request), let json = try? JSONValue(data: request.body) {
                 arguments = Redaction.redactSecrets(json)
             } else {
                 arguments = ["bytes": .number(Double(request.body.count))]

@@ -90,10 +90,13 @@
         body.setupCode = form.setupCode.value;
       }
       if (!$("#auth-otp").classList.contains("hidden")) body.otp = form.otp.value;
+      const firstRun = Boolean(auth && auth.setupNeeded);
       await api(auth && auth.setupNeeded ? "/api/auth/setup" : "/api/auth/login", { method: "POST", body });
       form.password.value = "";
       askCode(false);
       await loadAuth();
+      // The first account: with no plugin yet, the welcome page offers the import (import.js).
+      if (firstRun) window.HomeswiftImport?.afterSetup();
     } catch (e) {
       if (e.status === 412) { askCode(true); return; }
       error.textContent = e.message;
@@ -301,7 +304,7 @@
   // As Glass UI's: a user who is not an administrator sees Status and Accessories (and controls accessories); the
   // plugins, config.json, the log and the users are an administrator's. The server refuses the rest anyway.
 
-  const adminSections = new Set(["plugins", "config", "logs", "settings", "users"]);
+  const adminSections = new Set(["plugins", "config", "logs", "settings", "users", "import", "welcome"]);
   const isAdmin = () => Boolean(auth && auth.admin);
 
   /// Shows the header's and the tab bar's sections the user may open.
@@ -1447,7 +1450,7 @@
     show(main,
       pageHead(t("Plugins"), t("The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.")),
       plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: t("No plugin provides {platforms}: those blocks are ignored.", { platforms: plugins.unknownPlatforms.join(", ") }) })) : null,
-      plugins.blocks.length ? el("div", { class: "grid plugin-instances" }, plugins.blocks.map(blockCard)) : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("plugin")), el("p", { class: "muted", text: t("No plugin yet. Add one below.") })),
+      plugins.blocks.some((block) => !block.system) ? el("div", { class: "grid plugin-instances" }, plugins.blocks.map(blockCard)) : window.HomeswiftImport.offer(),
       el("div", { class: "section-head" }, el("h2", { text: t("Add a plugin") }), el("span", { class: "muted", text: t("compiled into this homeswift") }), catalogSearch, catalogCount, sort, HomeswiftCommon.clearFilters([[catalogSearch, ""]])),
       catalog, noMatches);
   };
@@ -3353,6 +3356,9 @@
   // The views of home.js: rooms, Quick Controls, scenes, notifications.
   // An accessory's widget at its kind's size, for the Quick Controls.
   const accessoryCard = (accessory) => HomeswiftWidgets.card(accessory, { size: HomeswiftWidgets.kindOf(accessory).size, actions: accessoryActions });
+  // The Homebridge import (import.js): its page at /import and the welcome page at /welcome.
+  views.import = (main) => window.HomeswiftImport.view(main);
+  views.welcome = (main) => window.HomeswiftImport.welcome(main);
   window.HomeswiftHome?.install({
     views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(),
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,

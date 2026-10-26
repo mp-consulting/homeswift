@@ -93,7 +93,7 @@ public struct HomeswiftCatalog: Sendable {
         """
 
     /// Platform blocks the runtime handles itself: not plugins, so not "unknown".
-    public static let systemPlatforms: Set<String> = [AIConfiguration.platform, "HomeswiftUI"]
+    public static let systemPlatforms: Set<String> = RuntimePlatforms.all
 
 
     // MARK: Accessories
@@ -504,7 +504,8 @@ public struct HomeswiftCatalog: Sendable {
 
     /// Backs up the current file and writes the new one owner-only (`applyConfig` validated it). Returns the
     /// backup's name.
-    func writeConfig(_ config: JSONValue) throws -> String {
+    /// Writes config.json, keeping the previous one in `backups`; returns the backup's file name.
+    public func writeConfig(_ config: JSONValue) throws -> String {
         let manager = FileManager.default
         try manager.createDirectory(at: backupsDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let formatter = ISO8601DateFormatter()
@@ -558,10 +559,17 @@ public struct HomeswiftCatalog: Sendable {
         try await applyConfig(next, dryRun: dryRun, current: (try? readConfig()) ?? [:], checkSchemas: checkSchemas)
     }
 
-    /// `applyConfig` with the file as it was just read, so a caller that read it does not read it again.
-    func applyConfig(_ next: JSONValue, dryRun: Bool, current: JSONValue, checkSchemas: Bool = true) async throws -> JSONValue {
+    /// Applies a config whose secrets are sealed: the file keeps the sealed text, and the running bridge gets
+    /// `opened`, the same config with the secrets opened (`SecretBox.revealing`). Nothing else differs from a save.
+    public func applySealed(_ sealed: JSONValue, opened: HomeswiftConfiguration) async throws -> JSONValue {
+        try await applyConfig(sealed, dryRun: false, current: (try? readConfig()) ?? [:], opened: opened)
+    }
+
+    /// `applyConfig` with the file as it was just read, so a caller that read it does not read it again. With
+    /// `opened`, the bridge runs that configuration and the file keeps `next` as written.
+    func applyConfig(_ next: JSONValue, dryRun: Bool, current: JSONValue, checkSchemas: Bool = true, opened: HomeswiftConfiguration? = nil) async throws -> JSONValue {
         let restored = Redaction.containsRedacted(next) ? try Redaction.restoreSecrets(next, from: current) : next
-        let configuration = try HomeswiftConfiguration.decode(restored.encoded())
+        let configuration = try opened ?? HomeswiftConfiguration.decode(restored.encoded())
         try configuration.validate()
         if checkSchemas { try checkBlocks(restored, current: current) }
         let changed = Self.changedKeys(from: current, to: restored)

@@ -142,7 +142,8 @@ if !FileManager.default.fileExists(atPath: configURL.path) {
 
 let configuration: HomeswiftConfiguration
 do {
-    configuration = try HomeswiftConfiguration.load(from: configURL)
+    // Sealed secrets (`enc:v1:`) are opened here, so every command and plugin reads the plain values.
+    configuration = try SecretBox.revealing(HomeswiftConfiguration.load(from: configURL), storage: storagePath)
 } catch {
     fail("\(configURL.path): \(error)")
 }

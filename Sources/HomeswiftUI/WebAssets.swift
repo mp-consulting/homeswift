@@ -796,10 +796,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         body.setupCode = form.setupCode.value;
       }
       if (!$("#auth-otp").classList.contains("hidden")) body.otp = form.otp.value;
+      const firstRun = Boolean(auth && auth.setupNeeded);
       await api(auth && auth.setupNeeded ? "/api/auth/setup" : "/api/auth/login", { method: "POST", body });
       form.password.value = "";
       askCode(false);
       await loadAuth();
+      // The first account: with no plugin yet, the welcome page offers the import (import.js).
+      if (firstRun) window.HomeswiftImport?.afterSetup();
     } catch (e) {
       if (e.status === 412) { askCode(true); return; }
       error.textContent = e.message;
@@ -1007,7 +1010,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // As Glass UI's: a user who is not an administrator sees Status and Accessories (and controls accessories); the
   // plugins, config.json, the log and the users are an administrator's. The server refuses the rest anyway.
 
-  const adminSections = new Set(["plugins", "config", "logs", "settings", "users"]);
+  const adminSections = new Set(["plugins", "config", "logs", "settings", "users", "import", "welcome"]);
   const isAdmin = () => Boolean(auth && auth.admin);
 
   /// Shows the header's and the tab bar's sections the user may open.
@@ -2153,7 +2156,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     show(main,
       pageHead(t("Plugins"), t("The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.")),
       plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: t("No plugin provides {platforms}: those blocks are ignored.", { platforms: plugins.unknownPlatforms.join(", ") }) })) : null,
-      plugins.blocks.length ? el("div", { class: "grid plugin-instances" }, plugins.blocks.map(blockCard)) : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("plugin")), el("p", { class: "muted", text: t("No plugin yet. Add one below.") })),
+      plugins.blocks.some((block) => !block.system) ? el("div", { class: "grid plugin-instances" }, plugins.blocks.map(blockCard)) : window.HomeswiftImport.offer(),
       el("div", { class: "section-head" }, el("h2", { text: t("Add a plugin") }), el("span", { class: "muted", text: t("compiled into this homeswift") }), catalogSearch, catalogCount, sort, HomeswiftCommon.clearFilters([[catalogSearch, ""]])),
       catalog, noMatches);
   };
@@ -4059,6 +4062,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // The views of home.js: rooms, Quick Controls, scenes, notifications.
   // An accessory's widget at its kind's size, for the Quick Controls.
   const accessoryCard = (accessory) => HomeswiftWidgets.card(accessory, { size: HomeswiftWidgets.kindOf(accessory).size, actions: accessoryActions });
+  // The Homebridge import (import.js): its page at /import and the welcome page at /welcome.
+  views.import = (main) => window.HomeswiftImport.view(main);
+  views.welcome = (main) => window.HomeswiftImport.welcome(main);
   window.HomeswiftHome?.install({
     views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(),
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
@@ -5606,6 +5612,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     restore: '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/>',
     history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6M3.5 4.5V9H8"/><path d="M12 7.5V12l3 2"/>',
     sliders: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
+    upload: '<path d="M12 15V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/>',
+    folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+    file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+    clipboard: '<rect x="8" y="3" width="8" height="4" rx="1"/><path d="M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/>',
+    back: '<path d="M15 18l-6-6 6-6"/>',
+    forward: '<path d="M9 6l6 6-6 6"/>',
     up: '<path d="M6 15l6-6 6 6"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     down: '<path d="M6 9l6 6 6-6"/>',
@@ -9774,7 +9786,110 @@ HomeswiftI18n.add("es", {
   "Choose a picture…": "Elegir una imagen…",
   "Remove the picture": "Quitar la imagen",
   "Show in the Home app": "Mostrar en la app Casa",
-  "Leave out of the Home app": "Quitar de la app Casa"
+  "Leave out of the Home app": "Quitar de la app Casa",
+  "Import a Homebridge config": "Importar una config de Homebridge",
+  "Bring the platforms of an existing Homebridge into homeswift. You review every item before anything is saved.": "Trae las plataformas de un Homebridge existente a homeswift. Revisas cada elemento antes de guardar nada.",
+  "Your Homeswift is ready": "Tu Homeswift está listo",
+  "The bridge is running and you are signed in as the administrator.": "El puente funciona y tienes la sesión iniciada como administrador.",
+  "Administrator account created": "Cuenta de administrador creada",
+  "homeswift is running": "homeswift está en marcha",
+  "Already run Homebridge?": "¿Ya usabas Homebridge?",
+  "Import its config.json and keep what homeswift supports. Passwords are encrypted, and you review every item before anything is saved.": "Importa su config.json y conserva lo que homeswift admite. Las contraseñas se cifran, y revisas cada elemento antes de guardar nada.",
+  "Start empty": "Empezar vacío",
+  "Starting empty is fine. You can add plugins on the Plugins page at any time.": "Empezar vacío está bien. Puedes añadir plugins en la página Plugins en cualquier momento.",
+  "Or import its config.json: homeswift keeps what it supports, and you review every item before anything is saved.": "O importa su config.json: homeswift conserva lo que admite, y revisas cada elemento antes de guardar nada.",
+  "Choose config": "Elegir la config",
+  "Review": "Revisar",
+  "Import steps": "Pasos de la importación",
+  "This computer": "Este ordenador",
+  "On the server": "En el servidor",
+  "Paste text": "Pegar texto",
+  "Review config": "Revisar la config",
+  "Choose your Homebridge config": "Elige tu config de Homebridge",
+  "Pick the config.json, or paste its text. Nothing is saved until you review it.": "Elige el config.json o pega su texto. No se guarda nada hasta que lo revisas.",
+  "How to add the config": "Cómo añadir la config",
+  "Nothing is saved until you review it.": "No se guarda nada hasta que lo revisas.",
+  "Uploading needs a secure connection (HTTPS): the file passes through this browser. \"On the server\" works here, because the server reads the file itself.": "Subir un archivo necesita una conexión segura (HTTPS): el archivo pasa por este navegador. «En el servidor» funciona aquí, porque el servidor lee el archivo por sí mismo.",
+  "Choose config.json": "Elegir config.json",
+  "or drop it here. Up to 1 MB.": "o suéltalo aquí. Hasta 1 MB.",
+  "config.json contents": "contenido de config.json",
+  "Secure connection (HTTPS): pasting is allowed": "Conexión segura (HTTPS): pegar está permitido",
+  "Pasting is off because this page is not on a secure connection (HTTPS). Use \"On the server\" instead.": "Pegar está desactivado porque esta página no tiene una conexión segura (HTTPS). Usa «En el servidor» en su lugar.",
+  "The file is over 1 MB, the largest config homeswift reads.": "El archivo supera 1 MB, la config más grande que lee homeswift.",
+  "The file could not be read.": "No se pudo leer el archivo.",
+  "Storage folder": "Carpeta de almacenamiento",
+  "This folder could not be opened.": "No se pudo abrir esta carpeta.",
+  "Nothing to pick here: no folders or .json files.": "Nada que elegir aquí: no hay carpetas ni archivos .json.",
+  "Files on the server": "Archivos en el servidor",
+  "The config is over 1 MB, the largest config homeswift reads.": "La config supera 1 MB, la más grande que lee homeswift.",
+  "Choose a config to check it.": "Elige una config para revisarla.",
+  "This config cannot be imported yet": "Esta config todavía no se puede importar",
+  "{n} platform: {encrypted} encrypted, {dropped} dropped.": "{n} plataforma: {encrypted} cifrado(s), {dropped} descartado(s).",
+  "{n} platforms: {encrypted} encrypted, {dropped} dropped.": "{n} plataformas: {encrypted} cifrado(s), {dropped} descartado(s).",
+  "Ready to review, with a note": "Lista para revisar, con una nota",
+  "Ready to review": "Lista para revisar",
+  "The config is over 1 MB ({kilobytes} KB).": "La config supera 1 MB ({kilobytes} KB).",
+  "The config must be a JSON object, between braces.": "La config debe ser un objeto JSON, entre llaves.",
+  "The bridge block must be an object.": "El bloque del puente debe ser un objeto.",
+  "The platforms must be a list.": "Las plataformas deben ser una lista.",
+  "Platform {index} must be an object.": "La plataforma {index} debe ser un objeto.",
+  "Platform {index} has no name.": "La plataforma {index} no tiene nombre.",
+  "The disabled plugins must be a list.": "Los plugins desactivados deben ser una lista.",
+  "The platform {name} is listed twice.": "La plataforma {name} aparece dos veces.",
+  "Nothing in this file can be imported. Check that the file is your Homebridge config.json and that its platforms are ones homeswift runs.": "Nada de este archivo se puede importar. Comprueba que es el config.json de tu Homebridge y que sus plataformas son las que homeswift ejecuta.",
+  "homeswift cannot use this config.": "homeswift no puede usar esta config.",
+  "homeswift cannot read part of this config.": "homeswift no puede leer una parte de esta config.",
+  "{n} accessory is skipped by homeswift.": "homeswift omite {n} accesorio.",
+  "{n} accessories are skipped by homeswift.": "homeswift omite {n} accesorios.",
+  "The bridge block is not copied: homeswift keeps its own bridge settings.": "El bloque del puente no se copia: homeswift conserva sus propios ajustes de puente.",
+  "The disabled plugin {name} matches no plugin here, so nothing is paused.": "El plugin desactivado {name} no coincide con ningún plugin aquí, así que no se pausa nada.",
+  "Part of the config needs a look before saving.": "Una parte de la config necesita revisión antes de guardar.",
+  "The text ends too soon. A bracket or a quote is probably missing.": "El texto termina demasiado pronto. Probablemente falta un corchete o una comilla.",
+  "Something in the syntax is wrong near this place.": "Algo de la sintaxis está mal cerca de este punto.",
+  "Line {line}, column {column}.": "Línea {line}, columna {column}.",
+  "This page is not on a secure connection (HTTPS), so the text cannot be sent. Use \"On the server\" instead.": "Esta página no tiene una conexión segura (HTTPS), así que el texto no se puede enviar. Usa «En el servidor» en su lugar.",
+  "Sign in again to continue.": "Vuelve a iniciar sesión para continuar.",
+  "homeswift answered with an error ({status}).": "homeswift respondió con un error ({status}).",
+  "homeswift could not be reached.": "No se puede contactar con homeswift.",
+  "{kilobytes} KB": "{kilobytes} KB",
+  "Encrypted": "Cifrado",
+  "Dropped": "Descartado",
+  "Imported": "Importado",
+  "{n} entry": "{n} entrada",
+  "{n} entries": "{n} entradas",
+  "Not saved": "No guardado",
+  "Encrypted in config.json, with the key in the bridge's owner-only key file": "Cifrado en config.json, con la clave en el archivo de clave del puente, solo para el propietario",
+  "Plain text in config.json": "En texto plano en config.json",
+  "This is Homebridge's own web UI. homeswift has its own, which replaces it, so nothing is kept.": "Es la interfaz web propia de Homebridge. homeswift tiene la suya, que la sustituye, así que no se conserva nada.",
+  "No plugin in this homeswift provides {platform}, so the block is kept but does nothing.": "Ningún plugin de este homeswift ofrece {platform}: el bloque se conserva, pero no hace nada.",
+  "{platform} does not read this setting, so it is kept as written and has no effect.": "{platform} no lee este ajuste: se conserva tal cual y no tiene efecto.",
+  "A group of settings. Each setting inside it is reviewed on its own row.": "Un grupo de ajustes. Cada ajuste que contiene se revisa en su propia fila.",
+  "A number or a yes/no under a secret's name is not kept: homeswift keeps secrets as text. Set it as text in Homebridge to import it.": "Un número o un sí/no bajo el nombre de un secreto no se guarda: homeswift guarda los secretos como texto. Escríbalo como texto en Homebridge para importarlo.",
+  "homeswift does not read this value. It stays in config.json as written.": "homeswift no lee este valor. Se queda en config.json tal cual.",
+  "Disabled in Homebridge. It is imported paused and does not start until it is resumed.": "Desactivado en Homebridge. Se importa en pausa y no arranca hasta que se reanude.",
+  "Kept as written.": "Se conserva tal cual.",
+  "The secret is sealed with the bridge's key and decrypted in memory when homeswift starts. It is never logged or shown in the web UI.": "El secreto se sella con la clave del puente y se descifra en memoria al arrancar homeswift. Nunca se registra ni se muestra en la interfaz web.",
+  "Kept as written; the plugin reads it when it starts.": "Se conserva tal cual; el plugin lo lee al arrancar.",
+  "homeswift has no equivalent, so nothing is saved.": "homeswift no tiene equivalente, así que no se guarda nada.",
+  "Saved as": "Guardado como",
+  "What it does": "Qué hace",
+  "From the server: {name}": "Desde el servidor: {name}",
+  "From this computer: {name}": "Desde este ordenador: {name}",
+  "Pasted text": "Texto pegado",
+  "Save and import": "Guardar e importar",
+  "Review your Homebridge config": "Revisa tu config de Homebridge",
+  "Nothing is saved yet. Each item shows what homeswift will do with it. Secrets are never stored as plain text.": "Aún no se ha guardado nada. Cada elemento indica lo que homeswift hará con él. Los secretos nunca se guardan en texto plano.",
+  "Summary": "Resumen",
+  "Nothing to import: the config has no platform.": "Nada que importar: la config no tiene plataformas.",
+  "{n} item": "{n} elemento",
+  "{n} items": "{n} elementos",
+  "Encrypted values open only with this bridge's key file. Keep the key file with the config.": "Los valores cifrados solo se abren con el archivo de clave de este puente. Guarda el archivo de clave junto a la config.",
+  "Your config is imported": "Tu config está importada",
+  "{n} platform is saved in config.json.": "{n} plataforma se guarda en config.json.",
+  "{n} platforms are saved in config.json.": "{n} plataformas se guardan en config.json.",
+  "The config from before this save is kept as {backup}.": "La config de antes de este guardado se conserva como {backup}.",
+  "Open the Plugins page": "Abrir la página Plugins",
+  "Saved. Restart homeswift to apply the rest.": "Guardado. Reinicia homeswift para aplicar el resto."
 });
 
 """#),
@@ -11729,7 +11844,110 @@ HomeswiftI18n.add("fr", {
   "Choose a picture…": "Choisir une image…",
   "Remove the picture": "Retirer l'image",
   "Show in the Home app": "Afficher dans l'app Maison",
-  "Leave out of the Home app": "Retirer de l'app Maison"
+  "Leave out of the Home app": "Retirer de l'app Maison",
+  "Import a Homebridge config": "Importer une config Homebridge",
+  "Bring the platforms of an existing Homebridge into homeswift. You review every item before anything is saved.": "Reprenez les plateformes d'un Homebridge existant dans homeswift. Vous vérifiez chaque élément avant toute sauvegarde.",
+  "Your Homeswift is ready": "Votre Homeswift est prêt",
+  "The bridge is running and you are signed in as the administrator.": "Le pont fonctionne et vous êtes connecté en tant qu'administrateur.",
+  "Administrator account created": "Compte administrateur créé",
+  "homeswift is running": "homeswift fonctionne",
+  "Already run Homebridge?": "Vous utilisiez déjà Homebridge ?",
+  "Import its config.json and keep what homeswift supports. Passwords are encrypted, and you review every item before anything is saved.": "Importez son config.json et gardez ce que homeswift prend en charge. Les mots de passe sont chiffrés, et vous vérifiez chaque élément avant toute sauvegarde.",
+  "Start empty": "Partir de zéro",
+  "Starting empty is fine. You can add plugins on the Plugins page at any time.": "Partir de zéro, c'est possible. Vous pouvez ajouter des plugins depuis la page Plugins à tout moment.",
+  "Or import its config.json: homeswift keeps what it supports, and you review every item before anything is saved.": "Ou importez son config.json : homeswift garde ce qu'il prend en charge, et vous vérifiez chaque élément avant toute sauvegarde.",
+  "Choose config": "Choisir la config",
+  "Review": "Vérifier",
+  "Import steps": "Étapes de l'import",
+  "This computer": "Cet ordinateur",
+  "On the server": "Sur le serveur",
+  "Paste text": "Coller le texte",
+  "Review config": "Vérifier la config",
+  "Choose your Homebridge config": "Choisissez votre config Homebridge",
+  "Pick the config.json, or paste its text. Nothing is saved until you review it.": "Choisissez le config.json, ou collez son texte. Rien n'est sauvegardé avant que vous ne l'ayez vérifié.",
+  "How to add the config": "Comment ajouter la config",
+  "Nothing is saved until you review it.": "Rien n'est sauvegardé avant votre vérification.",
+  "Uploading needs a secure connection (HTTPS): the file passes through this browser. \"On the server\" works here, because the server reads the file itself.": "L'envoi demande une connexion sécurisée (HTTPS) : le fichier passe par ce navigateur. « Sur le serveur » fonctionne ici, car le serveur lit lui-même le fichier.",
+  "Choose config.json": "Choisir le config.json",
+  "or drop it here. Up to 1 MB.": "ou déposez-le ici. 1 Mo maximum.",
+  "config.json contents": "contenu de config.json",
+  "Secure connection (HTTPS): pasting is allowed": "Connexion sécurisée (HTTPS) : le collage est permis",
+  "Pasting is off because this page is not on a secure connection (HTTPS). Use \"On the server\" instead.": "Le collage est désactivé, car cette page n'est pas en connexion sécurisée (HTTPS). Utilisez plutôt « Sur le serveur ».",
+  "The file is over 1 MB, the largest config homeswift reads.": "Le fichier dépasse 1 Mo, la plus grande config que homeswift lit.",
+  "The file could not be read.": "Le fichier n'a pas pu être lu.",
+  "Storage folder": "Dossier de stockage",
+  "This folder could not be opened.": "Ce dossier n'a pas pu être ouvert.",
+  "Nothing to pick here: no folders or .json files.": "Rien à choisir ici : aucun dossier ni fichier .json.",
+  "Files on the server": "Fichiers sur le serveur",
+  "The config is over 1 MB, the largest config homeswift reads.": "La config dépasse 1 Mo, la plus grande config que homeswift lit.",
+  "Choose a config to check it.": "Choisissez une config à vérifier.",
+  "This config cannot be imported yet": "Cette config ne peut pas encore être importée",
+  "{n} platform: {encrypted} encrypted, {dropped} dropped.": "{n} plateforme : {encrypted} chiffré(s), {dropped} écarté(s).",
+  "{n} platforms: {encrypted} encrypted, {dropped} dropped.": "{n} plateformes : {encrypted} chiffré(s), {dropped} écarté(s).",
+  "Ready to review, with a note": "Prête à être vérifiée, avec une remarque",
+  "Ready to review": "Prête à être vérifiée",
+  "The config is over 1 MB ({kilobytes} KB).": "La config dépasse 1 Mo ({kilobytes} Ko).",
+  "The config must be a JSON object, between braces.": "La config doit être un objet JSON, entre accolades.",
+  "The bridge block must be an object.": "Le bloc du pont doit être un objet.",
+  "The platforms must be a list.": "Les plateformes doivent être une liste.",
+  "Platform {index} must be an object.": "La plateforme {index} doit être un objet.",
+  "Platform {index} has no name.": "La plateforme {index} n'a pas de nom.",
+  "The disabled plugins must be a list.": "Les plugins désactivés doivent être une liste.",
+  "The platform {name} is listed twice.": "La plateforme {name} est listée deux fois.",
+  "Nothing in this file can be imported. Check that the file is your Homebridge config.json and that its platforms are ones homeswift runs.": "Rien dans ce fichier ne peut être importé. Vérifiez qu'il s'agit du config.json de votre Homebridge et que ses plateformes sont celles que homeswift exécute.",
+  "homeswift cannot use this config.": "homeswift ne peut pas utiliser cette config.",
+  "homeswift cannot read part of this config.": "homeswift ne peut pas lire une partie de cette config.",
+  "{n} accessory is skipped by homeswift.": "{n} accessoire est ignoré par homeswift.",
+  "{n} accessories are skipped by homeswift.": "{n} accessoires sont ignorés par homeswift.",
+  "The bridge block is not copied: homeswift keeps its own bridge settings.": "Le bloc du pont n'est pas copié : homeswift garde ses propres réglages de pont.",
+  "The disabled plugin {name} matches no plugin here, so nothing is paused.": "Le plugin désactivé {name} ne correspond à aucun plugin ici : rien n'est mis en pause.",
+  "Part of the config needs a look before saving.": "Une partie de la config demande un examen avant la sauvegarde.",
+  "The text ends too soon. A bracket or a quote is probably missing.": "Le texte se termine trop tôt. Un crochet ou un guillemet manque probablement.",
+  "Something in the syntax is wrong near this place.": "La syntaxe est fautive près de cet endroit.",
+  "Line {line}, column {column}.": "Ligne {line}, colonne {column}.",
+  "This page is not on a secure connection (HTTPS), so the text cannot be sent. Use \"On the server\" instead.": "Cette page n'est pas en connexion sécurisée (HTTPS) : le texte ne peut pas être envoyé. Utilisez plutôt « Sur le serveur ».",
+  "Sign in again to continue.": "Reconnectez-vous pour continuer.",
+  "homeswift answered with an error ({status}).": "homeswift a répondu par une erreur ({status}).",
+  "homeswift could not be reached.": "homeswift est injoignable.",
+  "{kilobytes} KB": "{kilobytes} Ko",
+  "Encrypted": "Chiffré",
+  "Dropped": "Écarté",
+  "Imported": "Importé",
+  "{n} entry": "{n} entrée",
+  "{n} entries": "{n} entrées",
+  "Not saved": "Non sauvegardé",
+  "Encrypted in config.json, with the key in the bridge's owner-only key file": "Chiffré dans config.json, la clé dans le fichier de clé du pont, réservé au propriétaire",
+  "Plain text in config.json": "En clair dans config.json",
+  "This is Homebridge's own web UI. homeswift has its own, which replaces it, so nothing is kept.": "C'est l'interface web propre à Homebridge. homeswift en a une, qui la remplace, donc rien n'est gardé.",
+  "No plugin in this homeswift provides {platform}, so the block is kept but does nothing.": "Aucun plugin de ce homeswift ne fournit {platform} : le bloc est gardé mais sans effet.",
+  "{platform} does not read this setting, so it is kept as written and has no effect.": "{platform} ne lit pas ce réglage : il est gardé tel quel et n'a aucun effet.",
+  "A group of settings. Each setting inside it is reviewed on its own row.": "Un groupe de réglages. Chaque réglage qu'il contient est vérifié sur sa propre ligne.",
+  "A number or a yes/no under a secret's name is not kept: homeswift keeps secrets as text. Set it as text in Homebridge to import it.": "Un nombre ou un oui/non sous le nom d'un secret n'est pas gardé : homeswift garde les secrets en texte. Mettez-le en texte dans Homebridge pour l'importer.",
+  "homeswift does not read this value. It stays in config.json as written.": "homeswift ne lit pas cette valeur. Elle reste dans config.json telle quelle.",
+  "Disabled in Homebridge. It is imported paused and does not start until it is resumed.": "Désactivé dans Homebridge. Il est importé en pause et ne démarre pas tant qu'il n'est pas repris.",
+  "Kept as written.": "Gardé tel quel.",
+  "The secret is sealed with the bridge's key and decrypted in memory when homeswift starts. It is never logged or shown in the web UI.": "Le secret est scellé avec la clé du pont et déchiffré en mémoire au démarrage de homeswift. Il n'est jamais journalisé ni affiché dans l'interface web.",
+  "Kept as written; the plugin reads it when it starts.": "Gardé tel quel ; le plugin le lit au démarrage.",
+  "homeswift has no equivalent, so nothing is saved.": "homeswift n'a pas d'équivalent : rien n'est sauvegardé.",
+  "Saved as": "Enregistré comme",
+  "What it does": "Ce qu'il fait",
+  "From the server: {name}": "Depuis le serveur : {name}",
+  "From this computer: {name}": "Depuis cet ordinateur : {name}",
+  "Pasted text": "Texte collé",
+  "Save and import": "Sauvegarder et importer",
+  "Review your Homebridge config": "Vérifiez votre config Homebridge",
+  "Nothing is saved yet. Each item shows what homeswift will do with it. Secrets are never stored as plain text.": "Rien n'est encore sauvegardé. Chaque élément indique ce que homeswift en fera. Les secrets ne sont jamais stockés en clair.",
+  "Summary": "Résumé",
+  "Nothing to import: the config has no platform.": "Rien à importer : la config ne contient aucune plateforme.",
+  "{n} item": "{n} élément",
+  "{n} items": "{n} éléments",
+  "Encrypted values open only with this bridge's key file. Keep the key file with the config.": "Les valeurs chiffrées ne s'ouvrent qu'avec le fichier de clé de ce pont. Gardez le fichier de clé avec la config.",
+  "Your config is imported": "Votre config est importée",
+  "{n} platform is saved in config.json.": "{n} plateforme est sauvegardée dans config.json.",
+  "{n} platforms are saved in config.json.": "{n} plateformes sont sauvegardées dans config.json.",
+  "The config from before this save is kept as {backup}.": "La config d'avant cet enregistrement est gardée sous le nom {backup}.",
+  "Open the Plugins page": "Ouvrir la page Plugins",
+  "Saved. Restart homeswift to apply the rest.": "Sauvegardé. Redémarrez homeswift pour appliquer le reste."
 });
 
 """#),
@@ -13684,7 +13902,110 @@ HomeswiftI18n.add("pt", {
   "Choose a picture…": "Escolher uma imagem…",
   "Remove the picture": "Remover a imagem",
   "Show in the Home app": "Mostrar na app Casa",
-  "Leave out of the Home app": "Retirar da app Casa"
+  "Leave out of the Home app": "Retirar da app Casa",
+  "Import a Homebridge config": "Importar uma configuração do Homebridge",
+  "Bring the platforms of an existing Homebridge into homeswift. You review every item before anything is saved.": "Traga as plataformas de um Homebridge existente para o homeswift. Reveja cada item antes de guardar seja o que for.",
+  "Your Homeswift is ready": "O Homeswift está pronto",
+  "The bridge is running and you are signed in as the administrator.": "A ponte está a funcionar e a sessão está iniciada como administrador.",
+  "Administrator account created": "Conta de administrador criada",
+  "homeswift is running": "O homeswift está em funcionamento",
+  "Already run Homebridge?": "Já usava o Homebridge?",
+  "Import its config.json and keep what homeswift supports. Passwords are encrypted, and you review every item before anything is saved.": "Importe o config.json e mantenha o que o homeswift suporta. As palavras-passe são cifradas, e cada item é revisto antes de se guardar seja o que for.",
+  "Start empty": "Começar vazio",
+  "Starting empty is fine. You can add plugins on the Plugins page at any time.": "Começar vazio é possível. Pode adicionar plugins na página Plugins a qualquer momento.",
+  "Or import its config.json: homeswift keeps what it supports, and you review every item before anything is saved.": "Ou importe o config.json: o homeswift mantém o que suporta, e cada item é revisto antes de se guardar seja o que for.",
+  "Choose config": "Escolher a configuração",
+  "Review": "Rever",
+  "Import steps": "Passos da importação",
+  "This computer": "Este computador",
+  "On the server": "No servidor",
+  "Paste text": "Colar texto",
+  "Review config": "Rever a configuração",
+  "Choose your Homebridge config": "Escolha a sua configuração do Homebridge",
+  "Pick the config.json, or paste its text. Nothing is saved until you review it.": "Escolha o config.json ou cole o seu texto. Nada é guardado antes de ser revisto.",
+  "How to add the config": "Como adicionar a configuração",
+  "Nothing is saved until you review it.": "Nada é guardado antes de ser revisto.",
+  "Uploading needs a secure connection (HTTPS): the file passes through this browser. \"On the server\" works here, because the server reads the file itself.": "Carregar um ficheiro requer uma ligação segura (HTTPS): o ficheiro passa por este navegador. «No servidor» funciona aqui, porque o próprio servidor lê o ficheiro.",
+  "Choose config.json": "Escolher o config.json",
+  "or drop it here. Up to 1 MB.": "ou largue-o aqui. Até 1 MB.",
+  "config.json contents": "conteúdo do config.json",
+  "Secure connection (HTTPS): pasting is allowed": "Ligação segura (HTTPS): colar é permitido",
+  "Pasting is off because this page is not on a secure connection (HTTPS). Use \"On the server\" instead.": "Colar está desativado porque esta página não está numa ligação segura (HTTPS). Use «No servidor» em alternativa.",
+  "The file is over 1 MB, the largest config homeswift reads.": "O ficheiro excede 1 MB, a maior configuração que o homeswift lê.",
+  "The file could not be read.": "Não foi possível ler o ficheiro.",
+  "Storage folder": "Pasta de armazenamento",
+  "This folder could not be opened.": "Não foi possível abrir esta pasta.",
+  "Nothing to pick here: no folders or .json files.": "Nada para escolher aqui: não há pastas nem ficheiros .json.",
+  "Files on the server": "Ficheiros no servidor",
+  "The config is over 1 MB, the largest config homeswift reads.": "A configuração excede 1 MB, a maior que o homeswift lê.",
+  "Choose a config to check it.": "Escolha uma configuração para a verificar.",
+  "This config cannot be imported yet": "Esta configuração ainda não pode ser importada",
+  "{n} platform: {encrypted} encrypted, {dropped} dropped.": "{n} plataforma: {encrypted} cifrada(s), {dropped} descartada(s).",
+  "{n} platforms: {encrypted} encrypted, {dropped} dropped.": "{n} plataformas: {encrypted} cifrada(s), {dropped} descartada(s).",
+  "Ready to review, with a note": "Pronta a rever, com uma nota",
+  "Ready to review": "Pronta a rever",
+  "The config is over 1 MB ({kilobytes} KB).": "A configuração excede 1 MB ({kilobytes} KB).",
+  "The config must be a JSON object, between braces.": "A configuração tem de ser um objeto JSON, entre chavetas.",
+  "The bridge block must be an object.": "O bloco da ponte tem de ser um objeto.",
+  "The platforms must be a list.": "As plataformas têm de ser uma lista.",
+  "Platform {index} must be an object.": "A plataforma {index} tem de ser um objeto.",
+  "Platform {index} has no name.": "A plataforma {index} não tem nome.",
+  "The disabled plugins must be a list.": "Os plugins desativados têm de ser uma lista.",
+  "The platform {name} is listed twice.": "A plataforma {name} está listada duas vezes.",
+  "Nothing in this file can be imported. Check that the file is your Homebridge config.json and that its platforms are ones homeswift runs.": "Nada neste ficheiro pode ser importado. Verifique se é o config.json do seu Homebridge e se as suas plataformas são as que o homeswift executa.",
+  "homeswift cannot use this config.": "O homeswift não consegue usar esta configuração.",
+  "homeswift cannot read part of this config.": "O homeswift não consegue ler uma parte desta configuração.",
+  "{n} accessory is skipped by homeswift.": "{n} acessório é ignorado pelo homeswift.",
+  "{n} accessories are skipped by homeswift.": "{n} acessórios são ignorados pelo homeswift.",
+  "The bridge block is not copied: homeswift keeps its own bridge settings.": "O bloco da ponte não é copiado: o homeswift mantém as suas próprias definições de ponte.",
+  "The disabled plugin {name} matches no plugin here, so nothing is paused.": "O plugin desativado {name} não corresponde a nenhum plugin aqui, por isso nada é pausado.",
+  "Part of the config needs a look before saving.": "Uma parte da configuração precisa de ser revista antes de guardar.",
+  "The text ends too soon. A bracket or a quote is probably missing.": "O texto termina cedo demais. Deve faltar um parêntese reto ou uma aspa.",
+  "Something in the syntax is wrong near this place.": "Algo na sintaxe está errado perto deste ponto.",
+  "Line {line}, column {column}.": "Linha {line}, coluna {column}.",
+  "This page is not on a secure connection (HTTPS), so the text cannot be sent. Use \"On the server\" instead.": "Esta página não está numa ligação segura (HTTPS), por isso o texto não pode ser enviado. Use «No servidor» em alternativa.",
+  "Sign in again to continue.": "Volte a iniciar sessão para continuar.",
+  "homeswift answered with an error ({status}).": "O homeswift respondeu com um erro ({status}).",
+  "homeswift could not be reached.": "Não foi possível contactar o homeswift.",
+  "{kilobytes} KB": "{kilobytes} KB",
+  "Encrypted": "Cifrado",
+  "Dropped": "Descartado",
+  "Imported": "Importado",
+  "{n} entry": "{n} entrada",
+  "{n} entries": "{n} entradas",
+  "Not saved": "Não guardado",
+  "Encrypted in config.json, with the key in the bridge's owner-only key file": "Cifrado no config.json, com a chave no ficheiro de chave da ponte, acessível só ao proprietário",
+  "Plain text in config.json": "Em texto simples no config.json",
+  "This is Homebridge's own web UI. homeswift has its own, which replaces it, so nothing is kept.": "É a interface web própria do Homebridge. O homeswift tem a sua, que a substitui, por isso nada é mantido.",
+  "No plugin in this homeswift provides {platform}, so the block is kept but does nothing.": "Nenhum plugin deste homeswift fornece {platform}: o bloco é mantido, mas não faz nada.",
+  "{platform} does not read this setting, so it is kept as written and has no effect.": "{platform} não lê esta definição: é mantida tal como está e não tem efeito.",
+  "A group of settings. Each setting inside it is reviewed on its own row.": "Um grupo de definições. Cada definição que contém é revista na sua própria linha.",
+  "A number or a yes/no under a secret's name is not kept: homeswift keeps secrets as text. Set it as text in Homebridge to import it.": "Um número ou um sim/não sob o nome de um segredo não é guardado: o homeswift guarda os segredos como texto. Escreva-o como texto no Homebridge para o importar.",
+  "homeswift does not read this value. It stays in config.json as written.": "O homeswift não lê este valor. Fica no config.json tal como está.",
+  "Disabled in Homebridge. It is imported paused and does not start until it is resumed.": "Desativado no Homebridge. É importado em pausa e não arranca até ser retomado.",
+  "Kept as written.": "Mantido tal como está.",
+  "The secret is sealed with the bridge's key and decrypted in memory when homeswift starts. It is never logged or shown in the web UI.": "O segredo é selado com a chave da ponte e decifrado em memória quando o homeswift arranca. Nunca é registado nem mostrado na interface web.",
+  "Kept as written; the plugin reads it when it starts.": "Mantido tal como está; o plugin lê-o ao arrancar.",
+  "homeswift has no equivalent, so nothing is saved.": "O homeswift não tem equivalente, por isso nada é guardado.",
+  "Saved as": "Guardado como",
+  "What it does": "O que faz",
+  "From the server: {name}": "Do servidor: {name}",
+  "From this computer: {name}": "Deste computador: {name}",
+  "Pasted text": "Texto colado",
+  "Save and import": "Guardar e importar",
+  "Review your Homebridge config": "Reveja a sua configuração do Homebridge",
+  "Nothing is saved yet. Each item shows what homeswift will do with it. Secrets are never stored as plain text.": "Ainda nada foi guardado. Cada item mostra o que o homeswift fará com ele. Os segredos nunca são guardados em texto simples.",
+  "Summary": "Resumo",
+  "Nothing to import: the config has no platform.": "Nada a importar: a configuração não tem plataformas.",
+  "{n} item": "{n} item",
+  "{n} items": "{n} itens",
+  "Encrypted values open only with this bridge's key file. Keep the key file with the config.": "Os valores cifrados só se abrem com o ficheiro de chave desta ponte. Guarde o ficheiro de chave junto da configuração.",
+  "Your config is imported": "A configuração foi importada",
+  "{n} platform is saved in config.json.": "{n} plataforma guardada no config.json.",
+  "{n} platforms are saved in config.json.": "{n} plataformas guardadas no config.json.",
+  "The config from before this save is kept as {backup}.": "A configuração de antes desta gravação fica guardada como {backup}.",
+  "Open the Plugins page": "Abrir a página Plugins",
+  "Saved. Restart homeswift to apply the rest.": "Guardado. Reinicie o homeswift para aplicar o resto."
 });
 
 """#),
@@ -13846,6 +14167,501 @@ HomeswiftI18n.add("pt", {
 </svg>
 
 """#),
+        "import.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
+// The Homebridge config import (admin only). The page at /import chooses a config.json (from this computer, from the
+// server's storage folder, or pasted), reviews what homeswift keeps, encrypts or drops, and saves it. The welcome page
+// (/welcome) and the Plugins page's empty state offer it. The API answers with codes; each one is said here in words.
+(() => {
+  "use strict";
+
+  const { el, icon } = HomeswiftCommon;
+  const { t, tn } = HomeswiftI18n;
+  const app = () => window.HomeswiftApp;
+  const MAX_BYTES = 1024 * 1024;
+  const SECRET = "••••••••••••";
+
+  // The picks of the tabs: each keeps its text or path and the answer of its check. They live only while the page is open.
+  let picks = {};
+  let tab = "upload";
+  let folder = { path: "", entries: null, error: false, loading: false };
+  let stage = null;       // the card the steps draw into
+  let checkBox = null;    // the check's status box of the drawn step
+  let nextButton = null;  // "Review config"
+  let folderBox = null;   // the server's folder listing
+  let pasteTimer = 0;
+
+  // ---- Views -----------------------------------------------------------------
+
+  function view(main) {
+    picks = {};
+    tab = window.isSecureContext === true ? "upload" : "server";
+    folder = { path: "", entries: null, error: false, loading: false };
+    stage = el("section", { class: "card import-card" });
+    app().show(main,
+      app().breadcrumb([t("Plugins"), "/plugins"], [t("Import a Homebridge config")]),
+      app().pageHead(t("Import a Homebridge config"), t("Bring the platforms of an existing Homebridge into homeswift. You review every item before anything is saved.")),
+      stage);
+    chooseStep();
+  }
+
+  /// The welcome page after the first account: what is ready, the import offer, and starting empty.
+  function welcome(main) {
+    app().show(main, el("section", { class: "card import-welcome" },
+      el("h1", { text: t("Your Homeswift is ready") }),
+      el("p", { class: "lede", text: t("The bridge is running and you are signed in as the administrator.") }),
+      el("ul", { class: "import-done" },
+        el("li", {}, el("span", { class: "import-tick" }, icon("check")), t("Administrator account created")),
+        el("li", {}, el("span", { class: "import-tick" }, icon("check")), t("homeswift is running"))),
+      el("div", { class: "import-offer" },
+        el("span", { class: "import-offer-icon", "aria-hidden": "true" }, icon("upload")),
+        el("div", { class: "who" },
+          el("h2", { text: t("Already run Homebridge?") }),
+          el("p", { class: "muted", text: t("Import its config.json and keep what homeswift supports. Passwords are encrypted, and you review every item before anything is saved.") })),
+        el("div", { class: "actions" },
+          el("button", { type: "button", class: "primary", actionIcon: "upload", text: t("Import a Homebridge config"), onclick: () => app().navigate("/import") }),
+          el("button", { type: "button", actionIcon: "plus", text: t("Start empty"), onclick: () => app().navigate("/status") }))),
+      el("p", { class: "fine muted", text: t("Starting empty is fine. You can add plugins on the Plugins page at any time.") })));
+  }
+
+  /// The Plugins page's empty state while no plugin exists: the import as an action card.
+  function offer() {
+    return el("div", { class: "card empty import-offer-card" },
+      el("span", { class: "empty-glyph" }, icon("upload")),
+      el("p", { class: "import-offer-title", text: t("Already run Homebridge?") }),
+      el("p", { class: "muted", text: t("No plugin yet. Add one below.") }),
+      el("p", { class: "muted", text: t("Or import its config.json: homeswift keeps what it supports, and you review every item before anything is saved.") }),
+      el("div", { class: "actions" },
+        el("button", { type: "button", class: "primary", actionIcon: "upload", text: t("Import a Homebridge config"), onclick: () => app().navigate("/import") })));
+  }
+
+  /// After the first account is created: with no plugin yet, the welcome page; otherwise the Status page stays.
+  async function afterSetup() {
+    try {
+      const plugins = await app().api("/api/plugins");
+      // The web UI's and the Assistant's blocks are system blocks, not plugins: they do not count.
+      if (!plugins.blocks.some((block) => !block.system)) app().navigate("/welcome", { replace: true });
+    } catch {}
+  }
+
+  // ---- Step 1: choose the config ---------------------------------------------
+
+  const stepNames = () => [t("Choose config"), t("Review"), t("Save")];
+
+  function stepsList(current) {
+    return el("ol", { class: "import-steps", "aria-label": t("Import steps") }, stepNames().map((name, index) => el("li", {
+      class: index < current ? "done" : index === current ? "current" : "",
+      "aria-current": index === current ? "step" : null,
+    }, el("span", { class: "step-dot", "aria-hidden": "true", text: index < current ? "✓" : String(index + 1) }), name)));
+  }
+
+  const tabList = () => [["upload", t("This computer"), "upload"], ["server", t("On the server"), "system"], ["paste", t("Paste text"), "clipboard"]];
+
+  function chooseStep() {
+    const secure = window.isSecureContext === true;
+    const tabButtons = tabList().map(([name, label, glyph]) => el("button", {
+      type: "button", role: "tab", id: `import-tab-${name}`, "aria-controls": "import-panel", "aria-selected": String(name === tab),
+      tabIndex: name === tab ? 0 : -1, class: name === tab ? "on" : "", actionIcon: glyph, text: label, onclick: () => switchTab(name),
+    }));
+    const panel = tab === "upload" ? uploadPanel(secure) : tab === "server" ? serverPanel() : pastePanel(secure);
+    checkBox = el("div", { class: "import-check", role: "status", "aria-live": "polite" });
+    nextButton = el("button", { type: "button", class: "primary", actionIcon: "forward", text: t("Review config"), disabled: true, onclick: () => reviewStep(picks[tab]) });
+    stage.replaceChildren(
+      stepsList(0),
+      el("h2", { text: t("Choose your Homebridge config") }),
+      el("p", { class: "lede", text: t("Pick the config.json, or paste its text. Nothing is saved until you review it.") }),
+      el("div", { class: "group view-switch import-tabs", role: "tablist", "aria-label": t("How to add the config") }, tabButtons),
+      el("div", { class: "import-panel-box", id: "import-panel", role: "tabpanel", "aria-labelledby": `import-tab-${tab}` }, panel),
+      checkBox,
+      el("div", { class: "actions import-foot" }, el("p", { class: "fine muted", text: t("Nothing is saved until you review it.") }), nextButton));
+    renderCheck(picks[tab]);
+  }
+
+  function switchTab(name) {
+    tab = name;
+    chooseStep();
+  }
+
+  const notice = (text) => el("p", { class: "import-notice", role: "note" }, icon("warning"), text);
+
+  function uploadPanel(secure) {
+    const pick = picks.upload;
+    if (pick) {
+      return el("div", { class: "import-picked" },
+        el("span", { class: "import-picked-name" }, icon("check"), el("b", { text: pick.name }), el("span", { class: "muted", text: sizeText(pick.size) })),
+        el("button", { type: "button", actionIcon: "close", text: t("Remove"), onclick: () => removePick("upload") }));
+    }
+    const input = el("input", {
+      type: "file", id: "import-file", accept: ".json,application/json", class: "import-file-input", disabled: !secure,
+      onchange: (event) => { const file = event.target.files[0]; event.target.value = ""; if (file) pickFile(file); },
+    });
+    return el("div", { class: "import-panel" },
+      secure ? null : notice(t("Uploading needs a secure connection (HTTPS): the file passes through this browser. \"On the server\" works here, because the server reads the file itself.")),
+      el("label", {
+        class: `import-drop${secure ? "" : " is-off"}`,
+        ondragover: (event) => event.preventDefault(),
+        ondrop: (event) => { event.preventDefault(); const file = event.dataTransfer?.files?.[0]; if (file && secure) pickFile(file); },
+      }, input, icon("upload"), el("strong", { text: t("Choose config.json") }), el("span", { class: "muted", text: t("or drop it here. Up to 1 MB.") })));
+  }
+
+  function pastePanel(secure) {
+    const pasteBox = el("textarea", {
+      id: "import-paste", spellcheck: false, autocapitalize: "off", autocomplete: "off", "aria-describedby": "import-check",
+      "aria-label": t("config.json contents"), placeholder: '{ "bridge": { "name": "Homebridge" }, "platforms": [] }',
+      disabled: !secure, value: picks.paste?.text ?? "", oninput: (event) => pasteChanged(event.target.value),
+    });
+    return el("div", { class: "import-panel" },
+      secure
+        ? el("p", { class: "import-secure" }, icon("lock"), t("Secure connection (HTTPS): pasting is allowed"))
+        : notice(t("Pasting is off because this page is not on a secure connection (HTTPS). Use \"On the server\" instead.")),
+      pasteBox);
+  }
+
+  /// Typed text is checked a moment after the typing stops; each keystroke replaces the pick, so an old answer is dropped.
+  function pasteChanged(text) {
+    clearTimeout(pasteTimer);
+    const pick = text.trim() ? { source: "paste", text } : null;
+    picks.paste = pick;
+    renderCheck(pick);
+    if (pick) pasteTimer = setTimeout(() => runCheck(pick), 400);
+  }
+
+  function removePick(name) {
+    picks[name] = null;
+    chooseStep();
+  }
+
+  function pickFile(file) {
+    const pick = { source: "upload", name: file.name, size: file.size };
+    picks.upload = pick;
+    chooseStep();
+    if (file.size > MAX_BYTES) { fail(pick, t("The file is over 1 MB, the largest config homeswift reads.")); return; }
+    file.text().then((text) => { pick.text = text; runCheck(pick); }, () => fail(pick, t("The file could not be read.")));
+  }
+
+  // ---- Server folder -----------------------------------------------------------
+
+  function serverPanel() {
+    folderBox = el("div", { class: "import-folder" });
+    if (folder.entries === null && !folder.loading) openFolder(folder.path);
+    renderFolder();
+    return folderBox;
+  }
+
+  async function openFolder(path) {
+    folder = { path, entries: null, error: false, loading: true };
+    renderFolder();
+    try {
+      const data = await app().api(`/api/import/browse?path=${encodeURIComponent(path)}`);
+      if (folder.path !== path) return;
+      folder = { path, entries: data.entries || [], error: false, loading: false };
+    } catch {
+      if (folder.path !== path) return;
+      folder = { path, entries: null, error: true, loading: false };
+    }
+    renderFolder();
+  }
+
+  function renderFolder() {
+    if (!folderBox) return;
+    const crumbs = [{ label: t("Storage folder"), path: "" }, ...(folder.path ? folder.path.split("/") : []).map((name, index, parts) => ({ label: name, path: parts.slice(0, index + 1).join("/") }))];
+    const trail = el("nav", { class: "import-crumbs", "aria-label": t("Folder") }, crumbs.flatMap((crumb, index) => [
+      index ? el("span", { class: "muted", "aria-hidden": "true", text: "/" }) : null,
+      el("button", { type: "button", class: "crumb", actionIcon: "folder", text: crumb.label, "aria-current": index === crumbs.length - 1 ? "page" : null, onclick: () => openFolder(crumb.path) }),
+    ]));
+    let list;
+    if (folder.loading || (folder.entries === null && !folder.error)) list = el("div", { class: "import-loading" }, el("span", { class: "spinner", role: "status", "aria-label": t("Loading") }));
+    else if (folder.error) list = el("p", { class: "error", text: t("This folder could not be opened.") });
+    else if (folder.entries.length === 0) list = el("p", { class: "muted", text: t("Nothing to pick here: no folders or .json files.") });
+    else list = el("ul", { class: "import-files", "aria-label": t("Files on the server") }, folder.entries.map(entryRow));
+    folderBox.replaceChildren(trail, list);
+  }
+
+  function entryRow(entry) {
+    const path = [folder.path, entry.name].filter(Boolean).join("/");
+    if (entry.kind === "folder") {
+      return el("li", {}, el("button", { type: "button", class: "import-file", actionIcon: "folder", onclick: () => openFolder(path) },
+        el("span", { class: "name", text: entry.name }), el("span", { class: "meta", text: t("Folder") })));
+    }
+    const selected = picks.server?.path === path;
+    return el("li", {}, el("button", { type: "button", class: "import-file", actionIcon: "file", "aria-pressed": String(selected), onclick: () => pickServer(path, entry) },
+      el("span", { class: "name", text: entry.name }),
+      el("span", { class: "meta", text: [sizeText(entry.size), dateText(entry.modified)].filter(Boolean).join(", ") })));
+  }
+
+  function pickServer(path, entry) {
+    const pick = { source: "server", path, name: entry.name, size: entry.size };
+    picks.server = pick;
+    chooseStep();
+    runCheck(pick);
+  }
+
+  // ---- The check -----------------------------------------------------------------
+
+  const requestBody = (pick) => (pick.source === "server" ? { source: "server", path: pick.path } : { source: pick.source, text: pick.text });
+  const isReady = (pick) => Boolean(pick && pick.status === "done" && pick.result && pick.result.valid);
+
+  function runCheck(pick) {
+    pick.status = "checking";
+    pick.result = null;
+    pick.failure = null;
+    if (pick.text !== undefined && new Blob([pick.text]).size > MAX_BYTES) { fail(pick, t("The config is over 1 MB, the largest config homeswift reads.")); return; }
+    renderIfShown(pick);
+    app().api("/api/import/check", { method: "POST", body: requestBody(pick) }).then((report) => {
+      if (picks[pick.source] !== pick) return;
+      pick.status = "done";
+      pick.result = report;
+      renderIfShown(pick);
+    }, (error) => {
+      if (picks[pick.source] !== pick) return;
+      fail(pick, failureText(error));
+    });
+  }
+
+  function fail(pick, text) {
+    pick.status = "failed";
+    pick.failure = text;
+    renderIfShown(pick);
+  }
+
+  function renderIfShown(pick) {
+    if (picks[pick.source] === pick && tab === pick.source) renderCheck(pick);
+  }
+
+  const CHECK_ICON = { ok: "check", warn: "warning", error: "warning", neutral: "file" };
+
+  function setCheck(kind, heading, lines = []) {
+    checkBox.dataset.state = kind;
+    checkBox.replaceChildren(
+      el("p", { class: "import-check-head" },
+        kind === "checking" ? el("span", { class: "spinner", role: "status", "aria-label": t("Checking…") }) : icon(CHECK_ICON[kind]),
+        el("b", { text: heading })),
+      ...lines.map((line) => (line.nodeType ? line : el("p", { class: "import-check-line", text: line }))));
+  }
+
+  function renderCheck(pick) {
+    if (!checkBox) return;
+    if (nextButton) nextButton.disabled = !isReady(pick);
+    if (!pick || pick.status === undefined) return setCheck("neutral", t("Choose a config to check it."));
+    if (pick.status === "checking") return setCheck("checking", t("Checking…"));
+    if (pick.status === "failed") return setCheck("error", pick.failure);
+    const report = pick.result;
+    const warnings = (report.warnings || []).map(warningText);
+    if (!report.valid) {
+      const lines = [
+        ...(report.problems || []).map(problemText),
+        ...(report.syntax ? [syntaxLine(report.syntax)] : []),
+        ...warnings,
+      ];
+      return setCheck("error", t("This config cannot be imported yet"), lines);
+    }
+    const summary = report.summary || {};
+    const lines = [
+      tn("{n} platform: {encrypted} encrypted, {dropped} dropped.", "{n} platforms: {encrypted} encrypted, {dropped} dropped.", summary.platforms ?? 0,
+        { encrypted: summary.encrypted ?? 0, dropped: summary.dropped ?? 0 }),
+      ...warnings,
+    ];
+    setCheck(warnings.length ? "warn" : "ok", warnings.length ? t("Ready to review, with a note") : t("Ready to review"), lines);
+  }
+
+  /// A problem's code and its arguments, said in words (the API answers codes, never sentences to show).
+  function problemText({ code, args = {} }) {
+    switch (code) {
+      case "tooLarge": return t("The config is over 1 MB ({kilobytes} KB).", { kilobytes: args.kilobytes });
+      case "notObject": return t("The config must be a JSON object, between braces.");
+      case "bridgeNotObject": return t("The bridge block must be an object.");
+      case "platformsNotList": return t("The platforms must be a list.");
+      case "platformNotObject": return t("Platform {index} must be an object.", { index: Number(args.index) + 1 });
+      case "platformNameMissing": return t("Platform {index} has no name.", { index: Number(args.index) + 1 });
+      case "disabledPluginsNotList": return t("The disabled plugins must be a list.");
+      case "duplicatePlatform": return t("The platform {name} is listed twice.", { name: args.name });
+      case "nothingToImport": return t("Nothing in this file can be imported. Check that the file is your Homebridge config.json and that its platforms are ones homeswift runs.");
+      case "invalidConfig": return el("span", {}, t("homeswift cannot use this config."), " ", el("code", { class: "import-detail", text: String(args.detail ?? "") }));
+      default: return t("homeswift cannot read part of this config.");
+    }
+  }
+
+  function warningText({ code, args = {} }) {
+    switch (code) {
+      case "accessoriesSkipped": return tn("{n} accessory is skipped by homeswift.", "{n} accessories are skipped by homeswift.", args.count);
+      case "bridgeKeptExisting": return t("The bridge block is not copied: homeswift keeps its own bridge settings.");
+      case "disabledMatchesNothing": return t("The disabled plugin {name} matches no plugin here, so nothing is paused.", { name: args.name });
+      default: return t("Part of the config needs a look before saving.");
+    }
+  }
+
+  function syntaxLine(syntax) {
+    return el("p", { class: "import-check-line" },
+      syntax.hint === "unexpectedEnd" ? t("The text ends too soon. A bracket or a quote is probably missing.") : t("Something in the syntax is wrong near this place."),
+      " ", t("Line {line}, column {column}.", { line: syntax.line, column: syntax.column }),
+      syntax.detail ? el("code", { class: "import-detail", text: syntax.detail }) : null);
+  }
+
+  function failureText(error) {
+    if (error.status === 403) return t("This page is not on a secure connection (HTTPS), so the text cannot be sent. Use \"On the server\" instead.");
+    if (error.status === 413) return t("The config is over 1 MB, the largest config homeswift reads.");
+    if (error.status === 401) return t("Sign in again to continue.");
+    return error.status ? t("homeswift answered with an error ({status}).", { status: error.status }) : t("homeswift could not be reached.");
+  }
+
+  const sizeText = (bytes) => (bytes == null ? "" : t("{kilobytes} KB", { kilobytes: Math.max(1, Math.round(bytes / 1024)) }));
+  const dateText = (iso) => {
+    const date = iso ? new Date(iso) : null;
+    return date && !isNaN(date) ? new Intl.DateTimeFormat(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" }).format(date) : "";
+  };
+
+  // ---- Step 2: review ----------------------------------------------------------
+
+  const outcomeLabel = (outcome) => (outcome === "encrypted" ? t("Encrypted") : outcome === "dropped" ? t("Dropped") : t("Imported"));
+
+  function valueText(item) {
+    if (item.outcome === "encrypted") return SECRET;
+    if (item.count != null) return tn("{n} entry", "{n} entries", item.count);
+    return item.value ?? "";
+  }
+
+  function savedAs(item) {
+    if (item.outcome === "dropped") return t("Not saved");
+    if (item.outcome === "encrypted") return t("Encrypted in config.json, with the key in the bridge's owner-only key file");
+    return t("Plain text in config.json");
+  }
+
+  function noteText({ code, args = {} }) {
+    switch (code) {
+      case "webUI": return t("This is Homebridge's own web UI. homeswift has its own, which replaces it, so nothing is kept.");
+      case "unsupportedPlatform": return t("No plugin in this homeswift provides {platform}, so the block is kept but does nothing.", { platform: args.platform });
+      case "notSetting": return t("{platform} does not read this setting, so it is kept as written and has no effect.", { platform: args.platform });
+      case "nestedConfig": return t("A group of settings. Each setting inside it is reviewed on its own row.");
+      case "notUsed": return t("homeswift does not read this value. It stays in config.json as written.");
+      case "numericSecret": return t("A number or a yes/no under a secret's name is not kept: homeswift keeps secrets as text. Set it as text in Homebridge to import it.");
+      case "paused": return t("Disabled in Homebridge. It is imported paused and does not start until it is resumed.");
+      default: return t("Kept as written.");
+    }
+  }
+
+  function effectText(item) {
+    const lines = [];
+    if (item.outcome === "encrypted") lines.push(t("The secret is sealed with the bridge's key and decrypted in memory when homeswift starts. It is never logged or shown in the web UI."));
+    if (item.note) lines.push(noteText(item.note));
+    else if (item.outcome === "imported") lines.push(t("Kept as written; the plugin reads it when it starts."));
+    else if (item.outcome === "dropped") lines.push(t("homeswift has no equivalent, so nothing is saved."));
+    return lines.join(" ");
+  }
+
+  function itemRow(item) {
+    const chevron = icon("down");
+    chevron.classList.add("chev");
+    return el("details", { class: `import-item ${item.outcome}` },
+      el("summary", {},
+        el("span", { class: "import-key", text: item.path }),
+        el("span", { class: `import-value${item.outcome === "encrypted" ? " masked" : ""}`, text: valueText(item) }),
+        el("span", { class: `import-pill ${item.outcome}`, text: outcomeLabel(item.outcome) }),
+        chevron),
+      el("dl", { class: "import-detail-list" },
+        el("div", {}, el("dt", { text: t("Saved as") }), el("dd", { text: savedAs(item) })),
+        el("div", {}, el("dt", { text: t("What it does") }), el("dd", { text: effectText(item) }))));
+  }
+
+  const countBox = (kind, number, label) => el("div", { class: `import-count ${kind}` }, el("b", { text: String(number) }), el("span", { text: label }));
+
+  function sourceText(pick) {
+    if (pick.source === "server") return t("From the server: {name}", { name: pick.name });
+    if (pick.source === "upload") return t("From this computer: {name}", { name: pick.name });
+    return t("Pasted text");
+  }
+
+  function reviewStep(pick) {
+    const report = pick.result;
+    const items = report.items || [];
+    const count = (outcome) => items.filter((item) => item.outcome === outcome).length;
+    const groups = new Map();
+    for (const item of items) groups.set(item.group, [...(groups.get(item.group) || []), item]);
+    const feedback = el("p", { class: "error", role: "alert" });
+    const backButton = el("button", { type: "button", actionIcon: "back", text: t("Back"), onclick: () => chooseStep() });
+    const saveButton = el("button", { type: "button", class: "primary", actionIcon: "check", text: t("Save and import"), onclick: () => saveConfig(pick, saveButton, feedback) });
+    stage.replaceChildren(
+      stepsList(1),
+      el("h2", { text: t("Review your Homebridge config") }),
+      el("p", { class: "lede", text: t("Nothing is saved yet. Each item shows what homeswift will do with it. Secrets are never stored as plain text.") }),
+      el("p", { class: "import-source" }, icon("file"), sourceText(pick)),
+      el("div", { class: "import-summary", "aria-label": t("Summary") },
+        countBox("imported", count("imported"), t("Imported")),
+        countBox("encrypted", count("encrypted"), t("Encrypted")),
+        countBox("dropped", count("dropped"), t("Dropped"))),
+      // replaceChildren takes nodes only: no null, no arrays, so each list is spread.
+      ...(items.length === 0 ? [el("p", { class: "muted", text: t("Nothing to import: the config has no platform.") })] : []),
+      ...[...groups].map(([name, list]) => el("section", { class: "import-group" },
+        el("div", { class: "import-group-head" }, el("h3", { text: name }), el("span", { class: "muted", text: tn("{n} item", "{n} items", list.length) })),
+        el("div", { class: "import-rows" }, list.map(itemRow)))),
+      feedback,
+      el("div", { class: "actions import-foot" },
+        el("p", { class: "fine muted", text: t("Encrypted values open only with this bridge's key file. Keep the key file with the config.") }),
+        el("div", { class: "end" }, backButton, saveButton)));
+  }
+
+  // ---- Step 3: save ---------------------------------------------------------------
+
+  /// The save answers 200 with what it wrote, or 422 with the same report as the check when invalid (nothing written).
+  /// The report is read here, not through the shared helper, which keeps only the problems.
+  async function postSave(body) {
+    const response = await fetch("/api/import/save", {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json", "Accept-Language": HomeswiftI18n.locale },
+      body: JSON.stringify(body),
+    });
+    const text = await response.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+    if (response.status === 422 && data) return { invalid: true, report: data };
+    if (!response.ok) {
+      const error = new Error(String(response.status));
+      error.status = response.status;
+      throw error;
+    }
+    return data;
+  }
+
+  async function saveConfig(pick, button, feedback) {
+    button.disabled = true;
+    button.classList.add("busy");
+    feedback.textContent = "";
+    try {
+      const outcome = await postSave(requestBody(pick));
+      if (outcome.invalid) {
+        pick.result = outcome.report;
+        pick.status = "done";
+        tab = pick.source;
+        chooseStep();
+        return;
+      }
+      doneStep(outcome);
+    } catch (error) {
+      feedback.textContent = failureText(error);
+      button.disabled = false;
+      button.classList.remove("busy");
+    }
+  }
+
+  function doneStep(outcome) {
+    const restart = el("p", { class: "muted", text: t("Saved and applied.") });
+    stage.replaceChildren(
+      stepsList(2),
+      el("h2", { text: t("Your config is imported") }),
+      el("p", { class: "lede", text: tn("{n} platform is saved in config.json.", "{n} platforms are saved in config.json.", outcome.saved ?? 0) }),
+      el("p", { class: "muted", text: t("The config from before this save is kept as {backup}.", { backup: outcome.backup }) }),
+      restart,
+      el("div", { class: "actions" },
+        el("button", { type: "button", class: "primary", actionIcon: "plugin", text: t("Open the Plugins page"), onclick: () => app().navigate("/plugins") })));
+    // A restart is needed only when the saved bridge settings wait for one; the banner says so, as after a save elsewhere.
+    app().api("/api/status").then((status) => {
+      restart.textContent = status.restartNeeded ? t("Saved. Restart homeswift to apply the rest.") : t("Saved and applied.");
+      document.querySelector("#banner")?.classList.toggle("hidden", !status.restartNeeded);
+    }, () => {});
+  }
+
+  window.HomeswiftImport = { view, welcome, offer, afterSetup };
+})();
+
+"""#),
         "index.html": WebFile(contentType: "text/html; charset=utf-8", body: #"""
 <!doctype html>
 <html lang="en">
@@ -13906,6 +14722,7 @@ HomeswiftI18n.add("pt", {
 <script src="/chat.js"></script>
 <script src="/home.js"></script>
 <script src="/admin.js"></script>
+<script src="/import.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>
@@ -17549,6 +18366,107 @@ select option:disabled { color: var(--muted); }
   .tab-pane { animation: none; }
   .pairing .link-button { animation: none; }
   .scene { transition: none; }
+}
+
+/* ---- Homebridge config import (import.js): /import, the welcome page, the Plugins page's empty state ---- */
+.import-card { padding: 20px 22px; }
+.import-card h2 { margin: 18px 0 6px; }
+.import-card .lede { margin: 0 0 14px; color: var(--muted); }
+.import-steps { list-style: none; display: flex; flex-wrap: wrap; gap: 14px; margin: 0 0 6px; padding: 0; font-size: 0.8125rem; color: var(--muted); }
+.import-steps li { display: inline-flex; align-items: center; gap: 8px; }
+.import-steps li.current { color: var(--text); font-weight: 600; }
+.import-steps li.done { color: var(--ok); }
+.import-steps .step-dot { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line); font-size: 0.75rem; font-weight: 600; }
+.import-steps li.current .step-dot { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); border-color: transparent; color: var(--accent-text); }
+.import-steps li.done .step-dot { border-color: rgba(21, 122, 66, 0.4); }
+.import-tabs { margin: 4px 0 12px; flex-wrap: wrap; }
+.import-panel-box { min-height: 120px; }
+.import-panel { display: grid; gap: 10px; }
+.import-notice { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding: 10px 12px; border-radius: 14px; color: var(--warn); font-size: 0.875rem; background: rgba(201, 115, 26, 0.1); }
+.import-notice svg, .import-secure svg { flex: none; width: 16px; height: 16px; margin-top: 2px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.import-secure { display: flex; gap: 6px; align-items: center; margin: 0; font-size: 0.8125rem; color: var(--ok); }
+.import-secure svg { width: 14px; height: 14px; margin: 0; }
+.import-file-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.import-drop { display: grid; justify-items: center; gap: 6px; padding: 28px 16px; border: 1.5px dashed var(--line); border-radius: 18px; background: var(--field); cursor: pointer; text-align: center; }
+.import-drop:focus-within { outline: 2px solid var(--accent); outline-offset: 3px; }
+.import-drop svg { width: 30px; height: 30px; fill: none; stroke: var(--accent-ink); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.import-drop.is-off { opacity: 0.5; cursor: not-allowed; }
+.import-picked { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 14px; border-radius: 16px; border: 1px solid var(--line); background: var(--material-thin); }
+.import-picked-name { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.import-picked-name svg { width: 18px; height: 18px; fill: none; stroke: var(--ok); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.import-check { margin: 12px 0 4px; padding: 12px 14px; border-radius: 16px; border: 1px solid var(--line); background: var(--material-thin); font-size: 0.875rem; }
+.import-check[data-state="ok"] { border-color: rgba(21, 122, 66, 0.35); }
+.import-check[data-state="warn"], .import-check[data-state="error"] { border-color: rgba(201, 115, 26, 0.4); }
+.import-check-head { display: flex; align-items: center; gap: 8px; margin: 0; }
+.import-check-head svg { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.import-check[data-state="ok"] .import-check-head { color: var(--ok); }
+.import-check[data-state="warn"] .import-check-head, .import-check[data-state="error"] .import-check-head { color: var(--warn); }
+.import-check-line { margin: 4px 0 0 26px; color: var(--muted); }
+.import-check-line:has(.import-detail) { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.import-detail { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); word-break: break-all; }
+.import-foot { justify-content: space-between; flex-wrap: wrap; }
+.import-foot .fine { margin: 0; max-width: 46ch; font-size: 0.8125rem; }
+.import-foot .end { display: flex; gap: 10px; flex-wrap: wrap; }
+.import-folder { display: grid; gap: 10px; }
+.import-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 0.8125rem; }
+.import-crumbs .crumb { padding: 4px 8px; font-size: 0.8125rem; }
+.import-crumbs .crumb[aria-current="page"] { font-weight: 600; }
+.import-files { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 42vh; overflow: auto; overscroll-behavior: contain; }
+.import-file { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: start; gap: 2px; padding: 10px 12px; text-align: left; border-radius: 14px; }
+.import-file .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.import-file .meta { font-size: 0.75rem; color: var(--muted); }
+.import-file[aria-pressed="true"] { border-color: var(--accent); background: var(--material-thin); }
+.import-loading { display: grid; place-items: center; min-height: 80px; }
+.import-source { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 6px; font-size: 0.8125rem; color: var(--muted); }
+.import-source svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.import-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 12px 0 4px; }
+.import-count { display: grid; gap: 2px; padding: 12px; border-radius: 16px; border: 1px solid var(--line); background: var(--material-thin); }
+.import-count b { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.import-count span { font-size: 0.75rem; color: var(--muted); }
+.import-count.imported b { color: var(--ok); }
+.import-count.encrypted b { color: var(--series-1); }
+.import-count.dropped b { color: var(--muted); }
+.import-group { margin-top: 18px; }
+.import-group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.import-group-head h3 { margin: 0; font-size: 0.9375rem; font-weight: 600; }
+.import-group-head .muted { font-size: 0.8125rem; }
+.import-rows { display: grid; gap: 6px; }
+.import-item { border: 1px solid var(--line); border-radius: 16px; background: var(--material-thin); }
+.import-item > summary { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 8px 12px; padding: 10px 14px; list-style: none; color: var(--text); }
+.import-item > summary::-webkit-details-marker { display: none; }
+.import-key { font-family: var(--mono); font-size: 0.8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.import-value { font-size: 0.8125rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; justify-self: end; max-width: 16ch; }
+.import-value.masked { letter-spacing: 0.12em; }
+.import-pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; white-space: nowrap; }
+.import-pill.imported { color: var(--ok); background: rgba(21, 122, 66, 0.12); }
+.import-pill.encrypted { color: var(--series-1); background: rgba(42, 120, 214, 0.12); }
+.import-pill.dropped { color: var(--muted); background: rgba(89, 97, 112, 0.12); }
+.import-item .chev { width: 16px; height: 16px; fill: none; stroke: var(--muted); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; transition: transform var(--fast) var(--ease-out); }
+.import-item[open] .chev { transform: rotate(180deg); }
+.import-detail-list { margin: 0; padding: 0 14px 12px; display: grid; gap: 8px; font-size: 0.875rem; }
+.import-detail-list > div { display: grid; gap: 2px; }
+.import-detail-list dt { font-size: 0.75rem; color: var(--muted); font-weight: 600; }
+.import-detail-list dd { margin: 0; }
+.import-welcome h1 { margin-bottom: 6px; }
+.import-welcome .lede { margin: 0 0 14px; color: var(--muted); }
+.import-done { list-style: none; margin: 0 0 18px; padding: 0; display: grid; gap: 8px; }
+.import-done li { display: flex; align-items: center; gap: 10px; }
+.import-tick { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; flex: none; color: var(--ok); background: rgba(21, 122, 66, 0.14); }
+.import-tick svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.import-offer { display: grid; gap: 12px; padding: 16px; border-radius: 18px; border: 1px solid var(--line); background: var(--material-thin); }
+.import-offer h2 { margin: 0 0 4px; font-size: 1rem; }
+.import-offer p { margin: 0; }
+.import-offer-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; color: var(--accent-ink); background: rgba(255, 122, 26, 0.14); }
+.import-offer-icon svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.import-offer .actions { margin-top: 0; flex-wrap: wrap; }
+.import-welcome > .fine { margin: 14px 0 0; font-size: 0.8125rem; }
+.import-offer-card .actions { justify-content: center; flex-wrap: wrap; }
+.import-offer-title { font-weight: 600; font-size: 1rem; }
+@media (max-width: 520px) {
+  .import-item > summary { grid-template-columns: minmax(0, 1fr) auto; }
+  .import-value { grid-column: 1 / -1; justify-self: start; max-width: none; grid-row: 2; }
+  .import-summary { gap: 8px; }
+  .import-count b { font-size: 1.25rem; }
 }
 
 """#),
