@@ -5,7 +5,7 @@ import HomeswiftPlugin
 extension PhilipsHuePlugin {
     /// The page's routes (`Web/`): `GET status` the bridge and pairing, `GET discover` the bridges on the network,
     /// `POST host` another address, `POST pair`, `GET lights` and `GET scenes` with their colours,
-    /// `POST recall` a scene (`dynamic` plays it or stops it playing), `POST scene-off` its room, `POST light` a light's power, brightness, effect or flash, `POST identify` a light;
+    /// `POST recall` a scene (`dynamic` plays it or stops it playing), `POST scene-off` its room, `POST autoplay` its Autoplay, `POST light` a light's power, brightness, effect or flash, `POST identify` a light;
     /// `GET scene-picture`, `POST scene-picture` and `POST scene-picture-remove` the picture a person gave a scene.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         if let response = pictures.handle(request) { return response }
@@ -40,6 +40,7 @@ extension PhilipsHuePlugin {
                     "scenes": .array(scenes.map { scene in
                         [
                             "id": .string(scene.id), "name": .string(scene.name), "active": .bool(scene.active), "playing": .bool(scene.playing), "smart": .bool(scene.smart),
+                            "autoplay": .bool(scene.autoplay), "palette": .bool(scene.hasPalette),
                             "hidden": .bool(!visible.contains(scene.id)), "colours": .array(Self.swatches(scene).map(JSONValue.string)),
                             "picture": versions[scene.id].map(JSONValue.string) ?? .null,
                             "transitionMs": ownTransition(scene, room: group.name).map { .number(Double($0)) } ?? .null,
@@ -58,6 +59,12 @@ extension PhilipsHuePlugin {
             guard let id = request.body["id"]?.stringValue else { return .error(400, "a scene id is required") }
             try await switchOff(sceneID: id)
             return PluginWebResponse(["off": .string(id)])
+        case ("POST", "autoplay"):
+            guard let id = request.body["id"]?.stringValue, let on = request.body["on"]?.boolValue else { return .error(400, "a scene id and on are required") }
+            // A smart scene follows the time of day: it has no Autoplay.
+            guard snapshot.scenes.contains(where: { $0.id == id && !$0.smart }) else { return .error(404, "no such scene") }
+            try await setAutoplay(sceneID: id, on)
+            return PluginWebResponse(["autoplay": .bool(on)])
         case ("POST", "light"):
             guard let id = request.body["id"]?.stringValue, let light = snapshot.lights.first(where: { $0.id == id }) else { return .error(404, "no light with that id") }
             var body: [String: JSONValue] = [:]

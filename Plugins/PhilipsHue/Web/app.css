@@ -12,14 +12,18 @@ h2 { margin: 0 0 10px; }
 .room-head h2 { margin: 0; font-size: 1.0625rem; }
 .scene .kind { position: relative; z-index: 1; font-size: 0.75rem; opacity: 0.85; }
 
-/* An active scene's play button, at the tile's bottom right as the Hue app has it; lit while the scene plays. */
-.scene .play { position: absolute; right: 8px; bottom: 8px; z-index: 2; width: 34px; height: 34px; min-height: 0; padding: 0; border-radius: 50%; display: grid; place-items: center; background: rgba(0, 0, 0, 0.32); border: 0; color: #fff; box-shadow: none; }
-.scene .play svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* An active scene's play button, at the tile's centre; lit while the scene plays. */
+.scene .play { position: absolute; left: 50%; top: 50%; translate: -50% -50%; z-index: 2; width: 44px; height: 44px; min-height: 0; padding: 0; border-radius: 50%; display: grid; place-items: center; background: rgba(0, 0, 0, 0.32); border: 0; color: #fff; box-shadow: none; }
+.scene .play svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .scene .play.on { background: rgba(255, 255, 255, 0.9); color: #1d1d1f; }
 .scene.light:not(.pictured) .play { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
 .scene.light:not(.pictured) .play.on { background: #1d1d1f; color: #fff; }
-/* The name keeps clear of the button. */
-.scene:has(.play) .name { padding-right: 36px; }
+
+/* A scene with Autoplay: a loop at its tile's bottom right. */
+.scene .loop { position: absolute; right: 10px; bottom: 10px; z-index: 1; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: rgba(0, 0, 0, 0.32); color: #fff; }
+.scene .loop svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.scene.light:not(.pictured) .loop { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
+.scene:has(.loop) .name { padding-right: 28px; }
 
 /* A scene's speed dialog: whether it follows the Settings speed, under the scale. */
 .scene-speed-note { margin: 10px 0 14px; font-size: 0.875rem; }

@@ -108,9 +108,29 @@
   // Home app, by "<room>/<scene>".
   const pictures = homeswift.scenePictures({
     refresh: () => refresh(), toggleHidden: (key) => toggleList("excludeScenes", key),
-    // A smart scene follows the time of day: the bridge takes no transition for it.
-    more: (scene) => scene.smart ? [] : [{ label: t("Speed…"), icon: "sliders", onSelect: () => sceneSpeed(scene) }],
+    // A smart scene follows the time of day: the bridge takes no transition or Autoplay for it. Autoplay is the
+    // scene's own on the bridge, as the Hue app's: it plays whenever it is recalled, here, in the Home app or there.
+    more: (scene) => scene.smart ? [] : [
+      { label: t("Speed…"), icon: "sliders", onSelect: () => sceneSpeed(scene) },
+      scene.palette ? autoplayItem(scene) : null,
+    ].filter(Boolean),
   });
+
+  /// The menu's Autoplay switch: it flips in place, the menu staying open, once the bridge has it.
+  function autoplayItem(scene) {
+    let on = scene.autoplay;
+    return {
+      label: t("Autoplay"), icon: "loop", toggle: true, checkbox: true, checked: on, keepOpen: true,
+      onSelect: async () => {
+        try {
+          await request("autoplay", { method: "POST", body: { id: scene.id, on: !on } });
+          on = !on;
+          refresh();
+        } catch (e) { alert(e.message); }
+        return on;
+      },
+    };
+  }
 
   /// A scene's own transition, kept in the block's `sceneTransitions` by "<room>/<scene>": the speed scale of the
   /// Settings tab, showing the scene's or else the Settings tab's. Saved at the Settings speed (or Use the default), the
@@ -164,6 +184,8 @@
       "aria-label": scene.name, "aria-pressed": String(scene.active),
     },
       scene.active ? el("span", { class: "badge", text: t("Active") }) : null,
+      // Autoplay on: the scene plays whenever it is recalled.
+      scene.autoplay && scene.palette && !scene.smart ? el("span", { class: "loop", role: "img", "aria-label": t("Autoplay is on"), title: t("Autoplay is on") }, icon("loop")) : null,
       el("span", { class: "name", text: scene.name }),
       // A smart scene says so, unless its name already does.
       scene.smart && !/natural light/i.test(scene.name) ? el("span", { class: "kind", text: t("Natural light") }) : null);
@@ -177,8 +199,8 @@
     button.addEventListener("click", toggle);
     button.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggle(); } });
     // Once the scene is on, play, as the Hue app's button: its colours move until it is paused (recalled still). A
-    // smart scene follows the time of day and does not play.
-    if (scene.active && !scene.smart) {
+    // smart scene follows the time of day, and one without a palette has no colours to move: neither plays.
+    if (scene.active && !scene.smart && scene.palette) {
       const play = el("button", {
         class: `play ${scene.playing ? "on" : ""}`, "aria-label": scene.playing ? t("Pause {name}", { name: scene.name }) : t("Play {name}", { name: scene.name }),
         "aria-pressed": String(scene.playing), onclick: (event) => { event.stopPropagation(); recall(!scene.playing); },
