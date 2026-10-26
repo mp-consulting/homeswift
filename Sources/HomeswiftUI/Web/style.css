@@ -149,8 +149,26 @@ nav a.active { background: linear-gradient(180deg, var(--accent-fill-top), var(-
 /* A plugin card's name opens its page; Pause sits at the right of a plugin page's breadcrumb. */
 .card-title { color: inherit; text-decoration: none; }
 .card-title:hover strong { text-decoration: underline; }
-.pause-toggle { display: inline-flex; align-items: center; gap: 5px; font-size: 0.8125rem; font-weight: 500; }
-.pause-toggle svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.pause-toggle { flex: none; }
+
+/* A tooltip: `data-tip` on a control, shown under it on hover and on keyboard focus; `data-tip-align="end"` lines it
+   up with the control's end, for one at the edge of the page. */
+[data-tip] { position: relative; }
+[data-tip]::after {
+  content: attr(data-tip); position: absolute; z-index: 20; top: calc(100% + 8px); left: 50%; translate: -50% -4px;
+  width: max-content; max-width: min(280px, 80vw); padding: 8px 12px; border-radius: 12px; pointer-events: none;
+  font-size: 0.8125rem; font-weight: 400; line-height: 1.4; text-align: left; white-space: normal; color: var(--text);
+  background: var(--material-solid); border: 1px solid var(--line); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  opacity: 0; visibility: hidden; transition: opacity var(--fast) var(--ease-out), translate var(--fast) var(--ease-out), visibility 0s linear var(--fast);
+}
+[data-tip-align="end"]::after { left: auto; right: 0; translate: 0 -4px; }
+[data-tip]:focus-visible::after { opacity: 1; visibility: visible; translate: -50% 0; transition-delay: 0s; }
+[data-tip-align="end"]:focus-visible::after { translate: 0 0; }
+@media (hover: hover) and (pointer: fine) {
+  [data-tip]:hover::after { opacity: 1; visibility: visible; translate: -50% 0; transition-delay: 0s; }
+  [data-tip-align="end"]:hover::after { translate: 0 0; }
+}
+@media (prefers-reduced-motion: reduce) { [data-tip]::after { transition: opacity var(--fast) linear; } }
 .expert-links { display: flex; gap: 8px; flex: none; }
 .settings-bar {
   position: sticky; bottom: 14px; z-index: 3; display: flex; align-items: center; gap: 10px; margin: 14px 0 0;
@@ -372,6 +390,9 @@ button:active:not(:disabled), a.button:active { transform: scale(0.97); transiti
 button.primary, a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: rgba(255, 255, 255, 0.4); box-shadow: 0 8px 20px rgba(255, 122, 26, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
 button.link { border: 0; background: none; box-shadow: none; color: var(--accent-ink); padding: 4px 6px; }
 button.link:active:not(:disabled) { transform: none; opacity: 0.6; }
+/* A smaller button, for a line of small text such as a page's breadcrumb. */
+button.small, a.button.small { padding: 4px 12px; font-size: 0.8125rem; }
+button.small.action-with-icon::before, a.button.small.action-with-icon::before { width: 14px; height: 14px; }
 button:disabled { opacity: .5; cursor: default; transform: none; }
 button:focus-visible, a.button:focus-visible, nav a:focus-visible, summary:focus-visible, .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
 input, select, textarea {

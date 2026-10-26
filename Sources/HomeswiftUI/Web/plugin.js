@@ -186,17 +186,23 @@
   if (main) {
     // Pause, at the right of the breadcrumb: the plugin stops calling its devices (an app sharing the account
     // keeps its session) until Resume, which a banner offers while it is paused.
-    const toggle = el("button", { type: "button", class: "link pause-toggle hidden" });
-    main.prepend(el("nav", { class: "breadcrumb", "aria-label": t("Breadcrumb") }, trail, toggle));
+    const nav = el("nav", { class: "breadcrumb", "aria-label": t("Breadcrumb") }, trail);
+    main.prepend(nav);
     breadcrumb(null);
     api("/api/plugins").then(({ platforms }) => {
       const instance = platforms.find((p) => p.platform === platform && p.name === name);
       if (!instance) return;
-      const set = (paused) => act(toggle, () => HomeswiftCommon.setPaused(platform, name, paused).then(() => location.reload()));
-      toggle.replaceChildren(icon(instance.paused ? "play" : "pause"), el("span", { text: instance.paused ? t("Resume") : t("Pause") }));
-      toggle.title = instance.paused ? t("Run the plugin again") : t("Stop the plugin's calls to its devices for now");
-      toggle.onclick = () => set(!instance.paused);
-      toggle.classList.remove("hidden");
+      // A button as any other, once the plugin's state is known.
+      const toggle = el("button", {
+        type: "button", class: "small pause-toggle", actionIcon: instance.paused ? "play" : "pause", text: instance.paused ? t("Resume") : t("Pause"),
+        // What it does, in a tooltip (style.css's data-tip) that a screen reader reads as the description.
+        "data-tip": instance.paused ? t("Runs the plugin again: it reconnects to its devices and they answer in the Home app.")
+          : t("Stops the plugin until you resume it: no calls to its devices, which show No Response in the Home app."),
+        "data-tip-align": "end",
+        onclick: () => act(toggle, () => HomeswiftCommon.setPaused(platform, name, !instance.paused).then(() => location.reload())),
+      });
+      toggle.setAttribute("aria-description", toggle.dataset.tip);
+      nav.append(toggle);
       if (instance.paused) {
         main.querySelector(".breadcrumb").after(el("div", { class: "card page-note paused-note" },
           el("p", {}, el("strong", { text: t("Paused.") }), " ", t("The plugin makes no calls to its devices, and they show No Response in the Home app. This page needs it running.")),
