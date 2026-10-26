@@ -174,6 +174,36 @@ struct PanelTests {
         let removed = try await browser.send("DELETE", "/api/preferences/wallpaper")
         #expect(removed.json?["wallpaper"] == "none")
         #expect(try await browser.get("/api/preferences/wallpaper").status == 404)
+
+        // Several images: each added one is shown, any can be chosen again, and removing the one shown leaves none.
+        let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0]) + Data(repeating: 1, count: 64)
+        let first = try await browser.put("/api/preferences/wallpaper", ["data": .string(png.base64EncodedString())]).json
+        let second = try await browser.put("/api/preferences/wallpaper", ["data": .string(jpeg.base64EncodedString())]).json
+        let ids = second?["wallpaperImages"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        #expect(ids.count == 2)
+        #expect(second?["wallpaperImage"]?.stringValue == ids.last)
+        #expect(try await browser.get("/api/preferences/wallpaper").headers["content-type"] == "image/jpeg")
+        #expect(try await browser.get("/api/preferences/wallpaper/\(ids[0])").headers["content-type"] == "image/png")
+        let chosen = try await browser.put("/api/preferences", ["wallpaper": "custom", "wallpaperImage": .string(ids[0])])
+        #expect(chosen.json?["wallpaperVersion"]?.stringValue == ids[0])
+        #expect(try await browser.get("/api/preferences/wallpaper").headers["content-type"] == "image/png")
+        #expect(try await browser.put("/api/preferences", ["wallpaperImage": "zzz"]).status == 400)
+        #expect(try await browser.get("/api/preferences/wallpaper/x.png").status == 404)
+        let kept = try await browser.send("DELETE", "/api/preferences/wallpaper/\(ids[1])")
+        #expect(kept.json?["wallpaperImages"] == [.string(ids[0])])
+        #expect(kept.json?["wallpaper"] == "custom")
+        let gone = try await browser.send("DELETE", "/api/preferences/wallpaper/\(ids[0])")
+        #expect(gone.json?["wallpaper"] == "none")
+        #expect(gone.json?["wallpaperImages"] == [])
+        #expect(first?["wallpaper"] == "custom")
+
+        // The single image an earlier version kept, a file named after the user, moves into the user's folder.
+        let store = PreferencesStore(url: url)
+        let legacy = store.wallpaperFolder(for: "old")
+        try FileManager.default.createDirectory(at: legacy.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try png.write(to: legacy)
+        #expect(store.wallpaperIDs(for: "old") == ["0"])
+        #expect(store.wallpaper(for: "old", id: "0")?.type == "image/png")
     }
 
     /// The log as a file, and emptied.
