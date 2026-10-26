@@ -30,6 +30,8 @@
   // ---- Authentication ------------------------------------------------------
 
   let auth = null;
+  // The server's secret-key rule (see the settings page): set with the plugin list, read by the JSON secret note.
+  let secretRule = null;
 
   async function loadAuth() {
     auth = await api("/api/auth/state");
@@ -1485,6 +1487,8 @@
   views.settings = async (main, [first, second, third]) => {
     const isNew = first === "add";
     const [plugins, config] = await Promise.all([api("/api/plugins"), api("/api/config", { raw: true }).then(JSON.parse)]);
+    // A bridge that does not send the rule (an older build) leaves the note off, rather than failing the page.
+    secretRule = plugins.secretRule ? { keys: new RegExp(plugins.secretRule.keys, "i"), except: new RegExp(plugins.secretRule.except, "i"), placeholder: plugins.secretRule.placeholder } : null;
     const found = isNew ? null : plugins.blocks.find((b) => b.slug === first);
     if (!isNew && !found) {
       show(main, breadcrumb([t("Plugins"), "/plugins"], [t("Settings")]),
@@ -1528,13 +1532,25 @@
     const textarea = el("textarea", { class: "short", value: JSON.stringify(current, null, 2), spellcheck: false, "aria-label": t("The block as JSON") });
     const editor = jsonEditor(textarea);
     const fromJSON = () => { const value = JSON.parse(textarea.value); delete value.platform; return value; };
+    // The same key names the server seals (Redaction's rule). A secret typed in JSON is encrypted on save, so the note
+    // says where it is easier to set one; it shows only while the JSON on screen holds a secret.
+    // The server's rule (Redaction): the page reads it from /api/plugins, set when the settings page loads them.
+    const isSecretKey = (key) => Boolean(secretRule) && secretRule.keys.test(key) && !secretRule.except.test(key);
+    const holdsSecret = (value, underSecret = false) => {
+      if (typeof value === "string") return underSecret && value !== "" && value !== secretRule?.placeholder;
+      if (Array.isArray(value)) return value.some((item) => holdsSecret(item, underSecret));
+      if (value && typeof value === "object") return Object.entries(value).some(([key, child]) => holdsSecret(child, underSecret || isSecretKey(key)));
+      return false;
+    };
+    const secretNote = el("p", { class: "secret-note", role: "note", text: t("A secret set in JSON is encrypted in config.json when you save. Set it in Form or on the plugin's own page, where it is easier to get right.") });
+    secretNote.hidden = true;
     if (schema) {
       // The form first; the block as JSON one tap away, for what the form does not show. Each view starts
       // from the other's value, and Save takes the one on screen.
       let mode = view === "json" ? "json" : "form";
       let form = buildForm(schema, current);
       const formView = el("div", { class: mode === "form" ? "" : "hidden" }, form.element);
-      const jsonView = el("div", { class: mode === "json" ? "" : "hidden" }, el("p", { class: "muted", text: t("The block as config.json keeps it.") }), editor);
+      const jsonView = el("div", { class: mode === "json" ? "" : "hidden" }, el("p", { class: "muted", text: t("The block as config.json keeps it.") }), secretNote, editor);
       const switchError = el("p", { class: "error" });
       const tabs = el("div", { class: "group view-switch", role: "tablist", "aria-label": t("Edit as") },
         [["form", t("Form")], ["json", "JSON"]].map(([value, text]) => el("button", { type: "button", role: "tab", "data-mode": value, class: value === mode ? "on" : "", "aria-selected": String(value === mode), onclick: () => {
@@ -1565,7 +1581,7 @@
         body.dispatchEvent(new Event("input", { bubbles: true }));
       };
     } else {
-      body = el("div", { class: "card form-card" }, el("p", { class: "muted", text: t("This block has no settings form; edit it as JSON.") }), editor);
+      body = el("div", { class: "card form-card" }, el("p", { class: "muted", text: t("This block has no settings form; edit it as JSON.") }), secretNote, editor);
       getValue = fromJSON;
     }
 
@@ -1584,6 +1600,7 @@
     const jsonShown = () => textarea.isConnected && !textarea.closest(".hidden");
     const update = () => {
       const result = jsonShown() ? editor.check() : null;
+      secretNote.hidden = !(result && "value" in result && holdsSecret(result.value));
       if (result && !("value" in result)) {
         message.className = "error";
         message.replaceChildren(...lineLink(result, editor), result.message);

@@ -99,7 +99,7 @@
       stepsList(0),
       el("h2", { text: t("Choose your Homebridge config") }),
       el("p", { class: "lede", text: t("Pick the config.json, or paste its text. Nothing is saved until you review it.") }),
-      el("div", { class: "group view-switch import-tabs", role: "tablist", "aria-label": t("How to add the config") }, tabButtons),
+      el("div", { class: "group view-switch import-tabs", role: "tablist", "aria-label": t("How to add the config"), onkeydown: tabKeys }, tabButtons),
       el("div", { class: "import-panel-box", id: "import-panel", role: "tabpanel", "aria-labelledby": `import-tab-${tab}` }, panel),
       checkBox,
       el("div", { class: "actions import-foot" }, el("p", { class: "fine muted", text: t("Nothing is saved until you review it.") }), nextButton));
@@ -109,6 +109,19 @@
   function switchTab(name) {
     tab = name;
     chooseStep();
+  }
+
+  // The ARIA tabs pattern: Left and Right move between the source tabs, Home and End go to the ends. Focus follows
+  // the selection, since the tabs are drawn again on each switch.
+  function tabKeys(event) {
+    const names = tabList().map(([name]) => name);
+    const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+    if (!step && event.key !== "Home" && event.key !== "End") return;
+    event.preventDefault();
+    const at = names.indexOf(tab);
+    const next = event.key === "Home" ? 0 : event.key === "End" ? names.length - 1 : (at + step + names.length) % names.length;
+    switchTab(names[next]);
+    document.getElementById(`import-tab-${names[next]}`)?.focus();
   }
 
   const notice = (text) => el("p", { class: "import-notice", role: "note" }, icon("warning"), text);
@@ -304,6 +317,7 @@
       case "platformNameMissing": return t("Platform {index} has no name.", { index: Number(args.index) + 1 });
       case "disabledPluginsNotList": return t("The disabled plugins must be a list.");
       case "duplicatePlatform": return t("The platform {name} is listed twice.", { name: args.name });
+      case "sealedLookingValue": return t("A value starts with enc:v1:, the prefix homeswift gives the secrets it seals. Remove the prefix, or set the secret as plain text in Homebridge.");
       case "nothingToImport": return t("Nothing in this file can be imported. Check that the file is your Homebridge config.json and that its platforms are ones homeswift runs.");
       case "invalidConfig": return el("span", {}, t("homeswift cannot use this config."), " ", el("code", { class: "import-detail", text: String(args.detail ?? "") }));
       default: return t("homeswift cannot read part of this config.");
@@ -341,18 +355,30 @@
 
   // ---- Step 2: review ----------------------------------------------------------
 
-  const outcomeLabel = (outcome) => (outcome === "encrypted" ? t("Encrypted") : outcome === "dropped" ? t("Dropped") : t("Imported"));
+  // What each outcome reads as: its pill, what its value shows, what is saved, and what it does when no note says more.
+  const OUTCOMES = {
+    imported: {
+      label: () => t("Imported"),
+      saved: () => t("Plain text in config.json"),
+      effect: () => t("Kept as written; the plugin reads it when it starts."),
+    },
+    encrypted: {
+      label: () => t("Encrypted"),
+      saved: () => t("Encrypted in config.json, with the key in the bridge's owner-only key file"),
+      effect: () => t("The secret is sealed with the bridge's key and decrypted in memory when homeswift starts. It is never logged or shown in the web UI."),
+    },
+    dropped: {
+      label: () => t("Dropped"),
+      saved: () => t("Not saved"),
+      effect: () => t("homeswift has no equivalent, so nothing is saved."),
+    },
+  };
+  const outcomeOf = (item) => OUTCOMES[item.outcome] || OUTCOMES.imported;
 
   function valueText(item) {
     if (item.outcome === "encrypted") return SECRET;
     if (item.count != null) return tn("{n} entry", "{n} entries", item.count);
     return item.value ?? "";
-  }
-
-  function savedAs(item) {
-    if (item.outcome === "dropped") return t("Not saved");
-    if (item.outcome === "encrypted") return t("Encrypted in config.json, with the key in the bridge's owner-only key file");
-    return t("Plain text in config.json");
   }
 
   function noteText({ code, args = {} }) {
@@ -368,12 +394,11 @@
     }
   }
 
+  // A note says why a setting is kept, dropped or paused; without one, the outcome says what happens.
   function effectText(item) {
     const lines = [];
-    if (item.outcome === "encrypted") lines.push(t("The secret is sealed with the bridge's key and decrypted in memory when homeswift starts. It is never logged or shown in the web UI."));
+    if (item.outcome === "encrypted" || !item.note) lines.push(outcomeOf(item).effect());
     if (item.note) lines.push(noteText(item.note));
-    else if (item.outcome === "imported") lines.push(t("Kept as written; the plugin reads it when it starts."));
-    else if (item.outcome === "dropped") lines.push(t("homeswift has no equivalent, so nothing is saved."));
     return lines.join(" ");
   }
 
@@ -384,10 +409,10 @@
       el("summary", {},
         el("span", { class: "import-key", text: item.path }),
         el("span", { class: `import-value${item.outcome === "encrypted" ? " masked" : ""}`, text: valueText(item) }),
-        el("span", { class: `import-pill ${item.outcome}`, text: outcomeLabel(item.outcome) }),
+        el("span", { class: `import-pill ${item.outcome}`, text: outcomeOf(item).label() }),
         chevron),
       el("dl", { class: "import-detail-list" },
-        el("div", {}, el("dt", { text: t("Saved as") }), el("dd", { text: savedAs(item) })),
+        el("div", {}, el("dt", { text: t("Saved as") }), el("dd", { text: outcomeOf(item).saved() })),
         el("div", {}, el("dt", { text: t("What it does") }), el("dd", { text: effectText(item) }))));
   }
 
@@ -476,7 +501,7 @@
     stage.replaceChildren(
       stepsList(2),
       el("h2", { text: t("Your config is imported") }),
-      el("p", { class: "lede", text: tn("{n} platform is saved in config.json.", "{n} platforms are saved in config.json.", outcome.saved ?? 0) }),
+      el("p", { class: "lede", text: tn("{n} platform is saved in config.json.", "{n} platforms are saved in config.json.", outcome.summary?.platforms ?? 0) }),
       el("p", { class: "muted", text: t("The config from before this save is kept as {backup}.", { backup: outcome.backup }) }),
       restart,
       el("div", { class: "actions" },

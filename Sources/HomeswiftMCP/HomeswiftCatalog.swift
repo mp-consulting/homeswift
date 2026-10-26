@@ -13,6 +13,13 @@ import HomeswiftPlugin
 import Logging
 import NIOConcurrencyHelpers
 
+/// A save that was checked against a config.json the file no longer matches: nothing was written.
+public struct ConfigChanged: Error, CustomStringConvertible {
+    public init() {}
+
+    public var description: String { "config.json changed while the import was checked: check it again" }
+}
+
 /// The tools, resources and prompts over one running bridge: its accessories, plugins, config.json and log.
 public struct HomeswiftCatalog: Sendable {
     public let host: PluginHost
@@ -20,6 +27,8 @@ public struct HomeswiftCatalog: Sendable {
     /// The memory, CPU and latency history of the Status page; nil when nothing records it.
     public let metrics: Metrics?
     public let configURL: URL
+    /// Held while config.json is written, so a save's compare and its write cannot be split by another save.
+    private let configWrites = NIOLock()
     /// `get_config` may return secrets (`HOMESWIFT_ALLOW_SECRETS=true`).
     public let allowSecrets: Bool
     /// Restarts the process, when it can (the `homeswift` binary execs itself). nil in a library or a test.
@@ -441,12 +450,13 @@ public struct HomeswiftCatalog: Sendable {
                 ["platform": .string($0.platform), "name": .string($0.name), "plugin": .string($0.pluginName), "bridge": .string($0.bridge.name), "accessories": .number(Double($0.accessoryIDs.count)), "paused": .bool($0.paused)]
             }),
             "unknownPlatforms": .array(configured.subtracting(running.map(\.platform)).subtracting(Self.systemPlatforms).sorted().map(JSONValue.string)),
+            // The Assistant is a runtime block, not a compiled-in plugin, but it can be added, so it is listed as one.
             "plugins": .array(host.registry.entries.map { entry in
                 [
                     "platform": .string(entry.platform), "name": .string(entry.name), "hasSchema": .bool(entry.configurationSchemaJSON != nil), "hasPages": .bool(entry.hasPages),
                     "tools": .array(entry.assistantActions.map { .string(Self.actionToolName(platform: entry.platform, action: $0.name)) }),
                 ]
-            }),
+            } + (host.registry.entry(for: AIConfiguration.platform) == nil ? [["platform": .string(AIConfiguration.platform), "name": .string("Assistant"), "hasSchema": .bool(true), "hasPages": .bool(false), "tools": .array([])]] : [])),
         ]
     }
 
@@ -496,33 +506,45 @@ public struct HomeswiftCatalog: Sendable {
         try JSONValue(data: Data(contentsOf: configURL))
     }
 
-    public var backupsDirectory: URL { configURL.deletingLastPathComponent().appendingPathComponent("backups") }
+    /// The folder config.json, its backups, and the bridge's state (and key for sealed secrets) live in.
+    public var storageDirectory: URL { configURL.deletingLastPathComponent() }
+    public var backupsDirectory: URL { storageDirectory.appendingPathComponent("backups") }
 
     public func backups() -> [String] {
         ((try? FileManager.default.contentsOfDirectory(atPath: backupsDirectory.path)) ?? []).filter { $0.hasPrefix("config-") && $0.hasSuffix(".json") }.sorted()
     }
 
-    /// Backs up the current file and writes the new one owner-only (`applyConfig` validated it). Returns the
-    /// backup's name.
-    /// Writes config.json, keeping the previous one in `backups`; returns the backup's file name.
-    public func writeConfig(_ config: JSONValue) throws -> String {
-        let manager = FileManager.default
-        try manager.createDirectory(at: backupsDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withFullDate, .withFullTime]
-        let stamp = formatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        var backup = "config-\(stamp).json"
-        var suffix = 2
-        while manager.fileExists(atPath: backupsDirectory.appendingPathComponent(backup).path) {
-            backup = "config-\(stamp)-\(suffix).json"
-            suffix += 1
+    /// Backs up the current file and writes the new one owner-only (`applyConfig` validated it). Returns the backup's
+    /// name. Every write holds `configWrites`, so the compare with `expecting` and the write cannot be split by another
+    /// save: a file that changed since the caller read it (`expecting`) throws `ConfigChanged`.
+    func writeConfig(_ config: JSONValue, expecting: JSONValue? = nil) throws -> String {
+        try configWrites.withLock {
+            if let expecting, try readConfig() != expecting { throw ConfigChanged() }
+            // Every write seals the plain secrets it holds (the editor, the MCP tools, a restored backup), so none
+            // reaches config.json as plain text. The key is made on the first plain secret; a config without one never
+            // creates it.
+            var key: SecretBox?
+            let stored = try SecretBox.sealingSecrets(config) { text in
+                let box = try key ?? SecretBox.load(storage: storageDirectory, create: true)
+                key = box
+                return try box.seal(text)
+            }
+            let manager = FileManager.default
+            try manager.createDirectory(at: backupsDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            let stamp = Timestamp.iso8601(Date()).replacingOccurrences(of: ":", with: "-")
+            var backup = "config-\(stamp).json"
+            var suffix = 2
+            while manager.fileExists(atPath: backupsDirectory.appendingPathComponent(backup).path) {
+                backup = "config-\(stamp)-\(suffix).json"
+                suffix += 1
+            }
+            if manager.fileExists(atPath: configURL.path) {
+                try manager.copyItem(at: configURL, to: backupsDirectory.appendingPathComponent(backup))
+            }
+            for old in backups().dropLast(20) { try? manager.removeItem(at: backupsDirectory.appendingPathComponent(old)) }
+            try OwnerOnlyFile.write(stored.encoded(pretty: true), to: configURL)
+            return backup
         }
-        if manager.fileExists(atPath: configURL.path) {
-            try manager.copyItem(at: configURL, to: backupsDirectory.appendingPathComponent(backup))
-        }
-        for old in backups().dropLast(20) { try? manager.removeItem(at: backupsDirectory.appendingPathComponent(old)) }
-        try OwnerOnlyFile.write(config.encoded(pretty: true), to: configURL)
-        return backup
     }
 
     /// When config.json turns the MCP server on and no client has a token (none in the block, none from the
@@ -561,22 +583,25 @@ public struct HomeswiftCatalog: Sendable {
 
     /// Applies a config whose secrets are sealed: the file keeps the sealed text, and the running bridge gets
     /// `opened`, the same config with the secrets opened (`SecretBox.revealing`). Nothing else differs from a save.
-    public func applySealed(_ sealed: JSONValue, opened: HomeswiftConfiguration) async throws -> JSONValue {
-        try await applyConfig(sealed, dryRun: false, current: (try? readConfig()) ?? [:], opened: opened)
+    /// `expecting` is the config the check read: when the file changed since, nothing is written (`ConfigChanged`).
+    public func applySealed(_ sealed: JSONValue, opened: HomeswiftConfiguration? = nil, expecting: JSONValue) async throws -> JSONValue {
+        // `expecting` is what the check read and what the file must still hold, so it is the current config too.
+        try await applyConfig(sealed, dryRun: false, current: expecting, opened: opened, expecting: expecting)
     }
 
     /// `applyConfig` with the file as it was just read, so a caller that read it does not read it again. With
     /// `opened`, the bridge runs that configuration and the file keeps `next` as written.
-    func applyConfig(_ next: JSONValue, dryRun: Bool, current: JSONValue, checkSchemas: Bool = true, opened: HomeswiftConfiguration? = nil) async throws -> JSONValue {
+    func applyConfig(_ next: JSONValue, dryRun: Bool, current: JSONValue, checkSchemas: Bool = true, opened: HomeswiftConfiguration? = nil, expecting: JSONValue? = nil) async throws -> JSONValue {
         let restored = Redaction.containsRedacted(next) ? try Redaction.restoreSecrets(next, from: current) : next
-        let configuration = try opened ?? HomeswiftConfiguration.decode(restored.encoded())
+        // The runtime gets the secrets opened, as at startup; the file keeps `restored` as it is written.
+        let configuration = try opened ?? SecretBox.revealing(HomeswiftConfiguration.decode(restored.encoded()), storage: storageDirectory)
         try configuration.validate()
         if checkSchemas { try checkBlocks(restored, current: current) }
         let changed = Self.changedKeys(from: current, to: restored)
         if dryRun {
             return ["dryRun": true, "changes": .array(changed.map(JSONValue.string)), "config": Redaction.redactSecrets(restored)]
         }
-        let backup = try writeConfig(restored)
+        let backup = try writeConfig(restored, expecting: expecting)
         let report = await host.apply(configuration)
         var pending = report.needsRestart
         let services = report.systemBlocksChanged.filter { $0 != AIConfiguration.platform || reloadServices != nil }

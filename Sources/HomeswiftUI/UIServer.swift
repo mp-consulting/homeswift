@@ -609,13 +609,18 @@ public final class UIServer: Sendable {
                 }
                 var plugins = catalog.pluginsJSON().objectValue ?? [:]
                 plugins["blocks"] = .array(blocks)
+                // The key rule the server seals and redacts by; the settings page reads it from here.
+                plugins["secretRule"] = ["keys": .string(Redaction.secretKeyPattern), "except": .string(Redaction.notSecretKeyPattern), "placeholder": .string(Redaction.placeholder)]
                 return .json(.object(plugins))
             case ["config"]:
-                return .text(try String(contentsOf: catalog.configURL, encoding: .utf8), contentType: "application/json")
+                // Secrets show as the placeholder, as the block views show them; a save that keeps it keeps the stored value.
+                let shown = Redaction.redactSecrets(try catalog.readConfig()).encoded(pretty: true)
+                return .text(String(decoding: shown, as: UTF8.self), contentType: "application/json")
             case let path where path.count == 4 && path[0] == "config" && path[1] == "block":
                 let block = try catalog.readConfig()["platforms"]?.arrayValue?.first { $0["platform"]?.stringValue == path[2] && ($0["name"]?.stringValue ?? path[2]) == path[3] }
                 guard let block else { return .error(404, "no block \(path[3]) of \(path[2])") }
-                return .json(block)
+                // The page shows secrets as the placeholder; a save that keeps it keeps the stored value.
+                return .json(Redaction.redactSecrets(block))
             case ["logs"]:
                 // `from` (and `to`, now when left out) as ISO 8601: that span, from the archive on disk; else the latest lines.
                 // `accessory`, `bridge` (a device ID, or `all`), `plugin` (a block's name): only the lines about them,

@@ -164,7 +164,7 @@ extension UniFiProtectPlugin {
 
                   "onvifPassword": {
 
-                    "type": "string",
+                    "type": "string", "x-schema-form": { "type": "password" },
                     "title": "ONVIF Password",
                     "required": false,
                     "description": "Password remembered for the ONVIF discovery panel. Stored in plaintext alongside the controller credentials."
@@ -183,7 +183,7 @@ extension UniFiProtectPlugin {
             },
 
             "password": {
-              "type": "string",
+              "type": "string", "x-schema-form": { "type": "password" },
               "title": "Controller Password",
               "required": true,
               "placeholder": "e.g. unifi-protect-password",
@@ -199,7 +199,7 @@ extension UniFiProtectPlugin {
             },
 
             "playlistToken": {
-              "type": "string",
+              "type": "string", "x-schema-form": { "type": "password" },
               "title": "M3U Playlist Access Token",
               "required": false,
               "placeholder": "e.g. a-long-random-string",

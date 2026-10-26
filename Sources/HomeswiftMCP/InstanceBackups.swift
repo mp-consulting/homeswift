@@ -76,7 +76,28 @@ public struct InstanceBackups: Sendable {
 
     /// Whether a name is left out: an excluded name, or a file being written (`OwnerOnlyFile`'s `.<name>.tmp-…`).
     public static func isExcluded(_ name: String) -> Bool {
-        excludedNames.contains(name) || (name.hasPrefix(".") && name.contains(".tmp-"))
+        let key = foldedCase(name)
+        return excludedFolded.contains(key) || (key.hasPrefix(".") && key.contains(".tmp-"))
+    }
+
+    /// The name as the file system compares it: the Mac's file system ignores case (`UI-Sessions.json` is
+    /// `ui-sessions.json`), Linux's does not.
+    static func foldedCase(_ name: String) -> String {
+        #if canImport(Darwin)
+        name.lowercased()
+        #else
+        name
+        #endif
+    }
+
+    private static let excludedFolded: Set<String> = Set(excludedNames.map { foldedCase($0) })
+
+    /// The files at the root of storage that a restore never takes from the archive: the bridge's config and its key.
+    static let reservedRoots = ["config.json", SecretBox.fileName]
+
+    /// Whether `relative` (a path under storage) is one of the reserved root files, in any letter case.
+    static func isReservedRoot(_ relative: String) -> Bool {
+        !relative.contains("/") && reservedRoots.contains(relative.lowercased())
     }
 
     // MARK: Making one
@@ -238,10 +259,21 @@ public struct InstanceBackups: Sendable {
         guard let configEntry = entries.first(where: { $0.path == "storage/config.json" && $0.kind == .file }) else {
             throw BackupError("the backup has no config.json")
         }
+        // The config and the key are checked as the one copy each the restore applies: a second entry for either, in any
+        // letter case (the Mac's file system ignores case), would replace the checked one, so the archive is refused.
+        for name in Self.reservedRoots {
+            // Lowercased on every platform, unlike the exclusions: a storage folder on a case-insensitive mount (a Mac's
+            // bind mount, SMB) takes either spelling of these, so the archive's copy in other letters is refused.
+            let copies = entries.filter { $0.path.lowercased() == "storage/" + name }
+            if copies.count > 1 { throw BackupError("the backup has more than one \(name): it cannot be restored") }
+            if copies.contains(where: { $0.path != "storage/" + name }) { throw BackupError("the backup names \(name) in other letters: it cannot be restored") }
+        }
         let configuration: HomeswiftConfiguration
         do {
             configuration = try HomeswiftConfiguration.decode(configEntry.data)
-            try configuration.validate()
+            // Sealed secrets are checked opened, with the key the archive carries; without one the backup cannot run.
+            let key = try entries.first(where: { $0.path == "storage/secrets.key" && $0.kind == .file }).map { try SecretBox.fromKeyFile($0.data) }
+            try SecretBox.revealing(configuration, key: key).validate()
         } catch {
             throw BackupError("the backup's config.json cannot run: \(error)")
         }
@@ -280,10 +312,11 @@ public struct InstanceBackups: Sendable {
     /// Drops a staged restore.
     public func cancelPendingRestore() { try? FileManager.default.removeItem(at: pending) }
 
-    /// Applies a staged restore, at start, before config.json is read: the files go over the storage directory's
-    /// (those the backup does not have stay), then config.json keeps this machine's bridge and web UI ports, as
-    /// upstream does, so the bridge and the page stay where they were. A staged tree with a link in it is refused
-    /// whole. Answers what it did, for the log; nil when nothing was staged.
+    /// Applies a staged restore, at start, before config.json is read. config.json is replaced first, in one atomic write:
+    /// the backup's sealed secrets are opened with the backup's key and sealed again with this bridge's key, and this
+    /// machine's ports are kept. The backup's secrets.key is never installed. If that fails, nothing is changed. Then the
+    /// other files go over the storage directory (those the backup does not have stay). A staged tree with a link in it is
+    /// refused whole. Answers what it did, for the log; nil when nothing was staged or the restore is refused.
     @discardableResult
     public static func applyPendingRestore(storage: URL, logger: Logger) -> String? {
         let manager = FileManager.default
@@ -311,21 +344,36 @@ public struct InstanceBackups: Sendable {
         let configURL = storage.appendingPathComponent("config.json")
         let current = (try? JSONValue(data: Data(contentsOf: configURL))) ?? [:]
         var restored = 0
-        for (relative, url) in files where relative != "config.json" {
-            guard let data = try? Data(contentsOf: url) else { continue }
+        // The backup's config is opened with the backup's own key (its archive carries it) and sealed again with this
+        // bridge's key, then replaces config.json in one rename. The bridge keeps its key: the backup's secrets.key is not
+        // installed, so no two files change together and a failure leaves config.json as it was.
+        if let data = try? Data(contentsOf: pending.appendingPathComponent("config.json")), let config = try? JSONValue(data: data) {
             do {
-                try OwnerOnlyFile.write(data, to: storage.appendingPathComponent(relative))
+                let backupKey = (try? Data(contentsOf: pending.appendingPathComponent(SecretBox.fileName))).flatMap { try? SecretBox.fromKeyFile($0) }
+                let opened = try backupKey?.opening(config) ?? config
+                let box = try SecretBox.load(storage: storage, create: true)
+                let sealed = try SecretBox.sealingSecrets(keepingPorts(of: current, in: opened)) { try box.seal($0) }
+                try OwnerOnlyFile.write(sealed.encoded(pretty: true), to: configURL)
+                restored += 1
+            } catch {
+                logger.error("Could not restore config.json; the restore did not complete, nothing was changed", metadata: ["error": "\(error)"])
+                return nil
+            }
+        }
+        // The config and the key at the root of storage are never copied from the archive, in any letter case.
+        // The staged files are on the same volume as storage: each one moves into place (its mode was set when it was staged).
+        for (relative, url) in files where !isReservedRoot(relative) {
+            let target = storage.appendingPathComponent(relative)
+            do {
+                try manager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+                if manager.fileExists(atPath: target.path) {
+                    _ = try manager.replaceItemAt(target, withItemAt: url)
+                } else {
+                    try manager.moveItem(at: url, to: target)
+                }
                 restored += 1
             } catch {
                 logger.error("Could not restore a file", metadata: ["file": "\(relative)", "error": "\(error)"])
-            }
-        }
-        if let data = try? Data(contentsOf: pending.appendingPathComponent("config.json")), let config = try? JSONValue(data: data) {
-            do {
-                try OwnerOnlyFile.write(keepingPorts(of: current, in: config).encoded(pretty: true), to: configURL)
-                restored += 1
-            } catch {
-                logger.error("Could not restore config.json", metadata: ["error": "\(error)"])
             }
         }
         let summary = "Restored \(restored) file(s) from a backup"

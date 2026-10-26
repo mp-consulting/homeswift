@@ -144,6 +144,78 @@ private let accept: JSONValue = ["action": "accept", "content": ["confirm": true
         #expect(InstanceBackups.applyPendingRestore(storage: storage, logger: testLogger) == nil)
     }
 
+    @Test func aRestoredConfigOpensWithThisBridgesKey() throws {
+        try FileManager.default.createDirectory(at: storage, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: storage) }
+        // This bridge's key, and a backup made elsewhere with its own key.
+        let bridgeKey = try SecretBox.load(storage: storage, create: true)
+        let elsewhere = storage.deletingLastPathComponent().appendingPathComponent("elsewhere-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: elsewhere) }
+        let backupKey = try SecretBox.load(storage: elsewhere, create: true)
+        let sealed = try backupKey.seal("031-45-154")
+        let staging = storage.appendingPathComponent(".restore-pending")
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        try OwnerOnlyFile.write(Data(#"{ "bridge": { "name": "Old", "username": "0E:11:22:33:44:55", "pin": "\#(sealed)" }, "platforms": [] }"#.utf8), to: staging.appendingPathComponent("config.json"))
+        try FileManager.default.copyItem(at: elsewhere.appendingPathComponent(SecretBox.fileName), to: staging.appendingPathComponent(SecretBox.fileName))
+
+        #expect(InstanceBackups.applyPendingRestore(storage: storage, logger: testLogger) != nil)
+        let restored = try JSONValue(data: Data(contentsOf: storage.appendingPathComponent("config.json")))
+        let pin = try #require(restored["bridge"]?["pin"]?.stringValue)
+        #expect(try bridgeKey.open(pin) == "031-45-154")
+    }
+
+    @Test func anExcludedNameIsLeftOutWhateverItsLetterCaseOnTheMac() {
+        #expect(InstanceBackups.isExcluded("ui-sessions.json"))
+        #if canImport(Darwin)
+        #expect(InstanceBackups.isExcluded("UI-Sessions.json"))
+        #endif
+    }
+
+    @Test func refusesAnArchiveNamingAReservedFileInOtherLetters() throws {
+        // A Mac's storage folder would take `Secrets.key` for the bridge's key: refused on every platform, before anything is staged.
+        try populate()
+        defer { try? FileManager.default.removeItem(at: storage) }
+        let backups = InstanceBackups(storage: storage, instanceID: "0E:11:22:33:44:55", logger: testLogger)
+        let (archive, _) = try backups.makeArchive(info: ["bridge": "Old"])
+        var writer = Tar.Writer()
+        for entry in try Tar.read(archive) where entry.kind == .file {
+            try writer.append(Tar.Entry(path: entry.path, data: entry.data))
+        }
+        try writer.append(Tar.Entry(path: "storage/Secrets.key", data: Data("{}".utf8)))
+        #expect(throws: InstanceBackups.BackupError.self) { try backups.stageRestore(writer.data) }
+        #expect(!backups.hasPendingRestore)
+    }
+
+    @Test func aSealedBackupWithoutItsKeyIsRefused() throws {
+        try populate()
+        defer { try? FileManager.default.removeItem(at: storage) }
+        // A config whose secret is sealed, in an archive that carries no key for it.
+        let sealed = try SecretBox.load(storage: storage, create: true).seal("031-45-154")
+        let config = #"{ "bridge": { "name": "Old", "username": "0E:11:22:33:44:55", "pin": "\#(sealed)" }, "platforms": [] }"#
+        try OwnerOnlyFile.write(Data(config.utf8), to: storage.appendingPathComponent("config.json"))
+        try FileManager.default.removeItem(at: storage.appendingPathComponent(SecretBox.fileName))
+        let backups = InstanceBackups(storage: storage, instanceID: "0E:11:22:33:44:55", logger: testLogger)
+        let (archive, _) = try backups.makeArchive(info: ["bridge": "Old"])
+        #expect(throws: InstanceBackups.BackupError.self) { try backups.stageRestore(archive) }
+        #expect(!backups.hasPendingRestore)
+    }
+
+    @Test func aRestoreWhoseConfigCannotBeWrittenChangesNothing() throws {
+        // The staged config cannot be written (config.json is a folder that holds something here), so nothing else may change.
+        let staging = storage.appendingPathComponent(".restore-pending")
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let blocked = storage.appendingPathComponent("config.json")
+        try FileManager.default.createDirectory(at: blocked, withIntermediateDirectories: true)
+        try OwnerOnlyFile.write(Data("kept".utf8), to: blocked.appendingPathComponent("inside.txt"))
+        defer { try? FileManager.default.removeItem(at: storage) }
+        try OwnerOnlyFile.write(Data(#"{ "bridge": { "name": "New" }, "platforms": [] }"#.utf8), to: staging.appendingPathComponent("config.json"))
+        try OwnerOnlyFile.write(Data("{\"pairings\":9}".utf8), to: staging.appendingPathComponent("homeswift.json"))
+
+        #expect(InstanceBackups.applyPendingRestore(storage: storage, logger: testLogger) == nil)
+        #expect(!FileManager.default.fileExists(atPath: storage.appendingPathComponent("homeswift.json").path))
+    }
+
     @Test func refusesArchivesItCannotTrust() throws {
         try FileManager.default.createDirectory(at: storage, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: storage) }
@@ -200,7 +272,7 @@ struct AdminToolTests {
         let renamed = try await client.tool("update_bridge_settings", ["settings": ["name": "Renamed"]], answer: accept)
         #expect(renamed["isError"] == nil)
         #expect(try environment.catalog.readConfig()["bridge"]?["name"] == "Renamed")
-        #expect(try environment.catalog.readConfig()["bridge"]?["pin"] == "031-45-154")
+        #expect(try environment.catalog.readConfig()["bridge"]?["pin"]?.stringValue?.hasPrefix(SecretBox.prefix) == true)
 
         #expect(environment.auditEntries.contains { $0["tool"] == "create_backup" && $0["ok"] == true })
     }
@@ -247,7 +319,7 @@ struct AdminToolTests {
         #expect(try environment.catalog.configBackupText(named: name).contains("secret-token"))
         #expect(throws: CatalogError.self) { try environment.catalog.configBackupText(named: "../config.json") }
         _ = try await environment.catalog.restoreConfigBackup(name)
-        #expect(try environment.catalog.readConfig()["platforms"]?[0]?["token"] == "secret-token")
+        #expect(try environment.catalog.readConfig()["platforms"]?[0]?["token"]?.stringValue?.hasPrefix(SecretBox.prefix) == true)
     }
 
     @Test func turningTheMCPServerOnMakesItsToken() throws {
@@ -263,7 +335,9 @@ struct AdminToolTests {
         let updated = try #require(try environment.catalog.addMissingMCPToken())
         let token = try #require(try environment.catalog.readConfig()["platforms"]?[1]?["mcp"]?["http"]?["token"]?.stringValue)
         #expect(!token.isEmpty)
-        #expect(try MCPConfiguration(block: try #require(try updated.block(for: AIConfiguration.platform))).token == token)
+        // The file holds the token sealed; the server reads it opened, as at startup.
+        let key = try SecretBox.load(storage: environment.configURL.deletingLastPathComponent(), create: false)
+        #expect(try key.open(token) == (try MCPConfiguration(block: try #require(try updated.block(for: AIConfiguration.platform))).token))
         #expect(try environment.catalog.readConfig()["platforms"]?[1]?["mcp"]?["http"]?["port"] == 18583)
         #expect(environment.catalog.configBackupsJSON()["backups"]?.arrayValue?.count == 1)
         // Once it has one, and with the server off, nothing changes.

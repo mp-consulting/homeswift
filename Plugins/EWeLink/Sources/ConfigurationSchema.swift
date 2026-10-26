@@ -25,7 +25,7 @@ extension EWeLinkPlugin {
       },
       "password": {
         "title": "Password",
-        "type": "string",
+        "type": "string", "x-schema-form": { "type": "password" },
         "description": "Your eWeLink password, can also be a base64 encoded version of your password."
       },
       "countryCode": {

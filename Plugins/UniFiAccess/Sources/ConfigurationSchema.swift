@@ -67,7 +67,7 @@ extension UniFiAccessPlugin {
             },
 
             "password": {
-              "type": "string",
+              "type": "string", "x-schema-form": { "type": "password" },
               "title": "Controller Password",
               "required": true,
               "placeholder": "e.g. unifi-access-password",

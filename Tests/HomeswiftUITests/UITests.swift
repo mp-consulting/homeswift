@@ -716,7 +716,11 @@ struct UIServerTests {
         #expect(schema.json?["pluginAlias"] == "ElgatoKeyLights")
         #expect(try await browser.get("/api/plugins/Lamps/schema").status == 404)
         let config = try await browser.get("/api/config")
-        #expect(config.json?["bridge"]?["pin"] == "031-45-154")
+        // The page's config shows the PIN as the placeholder, never the value.
+        #expect(config.json?["bridge"]?["pin"] == .string(Redaction.placeholder))
+        // The Assistant is offered in the plugin list, so a removed one can be added again.
+        let pluginList = try await browser.get("/api/plugins")
+        #expect(pluginList.json?["plugins"]?.arrayValue?.contains { $0["platform"] == "HomeswiftAiKit" } == true)
 
         let patched = try await browser.put("/api/config/platforms/0", ["platform": "Lamps", "name": "Lamps", "pollingRate": 5])
         #expect(patched.status == 200)
