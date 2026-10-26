@@ -70,8 +70,10 @@ struct Mirror {
         let onIdentify: (@Sendable () async throws -> Void)?
         let identifyID = source.supportsIdentify == true ? "Identify" : source.supportsIdentify == false ? nil : identify?.id
         if let id = identifyID {
+            // Only the id: the closure lives as long as the accessory, the decoded source need not.
+            let sourceID = source.id
             onIdentify = {
-                do { try await write(source.id, id, .bool(true)) }
+                do { try await write(sourceID, id, .bool(true)) }
                 catch { throw HAPStatusError(.serviceCommunicationFailure) }
             }
         } else { onIdentify = nil }

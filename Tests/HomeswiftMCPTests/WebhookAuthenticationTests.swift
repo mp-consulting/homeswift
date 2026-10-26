@@ -10,6 +10,19 @@ import Testing
         #expect(old.headers.isEmpty)
     }
 
+    @Test func shortValuesAreNotScrubbed() {
+        var settings = NotificationSettings()
+        settings.channels.webhook.headers = ["X-Version": "1", "X-API-Key": "test-header-secret"]
+        settings.channels.webhook.auth = "basic"
+        settings.channels.webhook.username = "a"
+        settings.channels.webhook.password = "test-password"
+        // "1" and "a" would turn "HTTP 401" and every word of the error into placeholders.
+        #expect(!settings.secrets.contains("1"))
+        #expect(!settings.secrets.contains("a"))
+        #expect(settings.secrets.contains("test-header-secret"))
+        #expect(settings.secrets.contains("test-password"))
+    }
+
     @Test func authHeadersMaskingAndValidation() async throws {
         let environment = try MCPTestEnvironment()
         try await environment.start()

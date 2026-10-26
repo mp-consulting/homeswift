@@ -16,6 +16,15 @@ import Testing
         #expect(NaturalLighting.mireds(at: date(12), timeZone: utc, minimum: 250, maximum: 400) == 250)
     }
 
+    @Test func deviceRoundingIsNotDrift() {
+        // 2203 K or 2250 K written, the lamp reports its nearest 100 K step: no one else changed it.
+        #expect(!NaturalLighting.drifted(455, from: 454))
+        #expect(!NaturalLighting.drifted(435, from: 444))
+        #expect(!NaturalLighting.drifted(199, from: 200))
+        #expect(NaturalLighting.drifted(140, from: 200))
+        #expect(NaturalLighting.drifted(300, from: 454))
+    }
+
     @Test func optInPauseResumePersistenceAndOffline() async throws {
         let environment = try MCPTestEnvironment(config: """
         {"bridge":{"name":"Test","username":"0E:11:22:33:44:57","pin":"031-45-154","port":0},
@@ -67,6 +76,26 @@ import Testing
         _ = try await engine.configure(located, service: nil, on: false, timeZone: "UTC", catalog: catalog)
         #expect(engine.settings.value.isEmpty)
         #expect(engine.json(for: located.accessory.id) == nil)
+        await environment.stop()
+    }
+
+    @Test func failedManualWriteKeepsTheSchedule() async throws {
+        let environment = try MCPTestEnvironment(config: """
+        {"bridge":{"name":"Test","username":"0E:11:22:33:44:59","pin":"031-45-154","port":0},
+         "platforms":[{"platform":"Devices","mirroredBulb":true}]}
+        """)
+        try await environment.start()
+        let catalog = environment.catalog
+        let located = try #require(catalog.find(id: "Devices:mirrored"))
+        let light = try #require(located.accessory.services.first { $0.type.uuid == ServiceType.lightbulb.uuid })
+        light[.on]?.value = true
+        _ = try await catalog.home.naturalLighting.configure(located, service: nil, on: true, timeZone: "UTC", catalog: catalog)
+        light[.colorTemperature]?.onWrite { _ in throw HAPStatusError(.serviceCommunicationFailure) }
+        await #expect(throws: CatalogError.self) {
+            try await catalog.write(located, service: nil, characteristic: "Color Temperature", value: 300, allowSecurity: false)
+        }
+        for _ in 0..<10 { await Task.yield() }
+        #expect(catalog.home.naturalLighting.settings.value.first?.paused == false)
         await environment.stop()
     }
 

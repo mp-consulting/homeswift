@@ -772,8 +772,10 @@ public final class UIServer: Sendable {
                     return .error(400, "port must be an integer from 1 to 65535")
                 }
                 let host = body["host"]?.stringValue ?? "0.0.0.0"
-                if body["service"]?.stringValue != "bridge", candidate == port && host == configuration.host {
-                    return .json(["available": true, "current": true])
+                // The web UI's own port is held by this server, on whatever address: the restart that applies a new
+                // address releases it first, so a probe here would only find this server.
+                if body["service"]?.stringValue != "bridge", candidate == port {
+                    return .json(["available": true, "current": .bool(host == configuration.host)])
                 }
                 do {
                     let probe = try await ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton)

@@ -566,8 +566,6 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .group button:hover:not(:disabled):not(.on) { background: var(--material-thin); }
 .group button.on { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); }
 /* A segmented control whose choices carry a glyph before their name (a phone shows the glyph alone). */
-.group.with-icons button { display: inline-flex; align-items: center; gap: 6px; }
-.group.with-icons svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 
 /* The mini remote (remote.js): a round pad with OK in the middle, round keys and a volume rocker. Keys give
    way under the press at once and the one that sent flashes the accent; a TV that cannot take keys dims it. */
@@ -1098,10 +1096,6 @@ textarea.short { min-height: 220px; }
 .chip { padding: 3px 10px; border-radius: 999px; font-size: 0.8125rem; background: var(--material-thin); border: 1px solid var(--line); }
 
 /* Status: a summary that says whether all is well, the numbers that matter, then a card per server. */
-.hero { display: flex; align-items: center; gap: 16px; padding: 20px 22px; }
-.hero .logo.large { margin: 0; }
-.hero h1 { margin: 0 0 2px; }
-.hero p { margin: 0; }
 /* A newer release, under the summary: how to upgrade this install, its command with Copy, the notes folded. */
 .update-card { margin-top: 14px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .update-card > p { margin: 0; }
@@ -1630,9 +1624,7 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   /* The four figures in one row, each its glyph, number and a one-line label. */
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   /* Toolbar buttons that become their glyph alone: a segmented control's choices, an Assistant action. */
-  .group.with-icons button { padding: 7px 13px; }
-  .group.with-icons button > span, .icon-on-phone > span { display: none; }
-  .group.with-icons svg { width: 19px; height: 19px; }
+  .icon-on-phone > span { display: none; }
   .icon-on-phone { justify-content: center; width: 40px; height: 40px; padding: 0; flex: none; }
   .icon-on-phone .sparkle { width: 19px; height: 19px; }
   /* A note beside its button (a plugin's Expert part), and removal: the text across, the button under it. */
@@ -1669,10 +1661,6 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
 @media (max-width: 360px) {
   .dash-widget .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   /* The overview's card, smaller: the icon beside the name and the health under it. */
-  .hero { gap: 14px; padding: 16px; }
-  .hero .logo.large { width: 56px; height: 56px; border-radius: 14px; }
-  .hero h1 { font-size: 1.375rem; }
-  .hero p { font-size: 0.875rem; }
   .facts, .facts.lead { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .facts.lead > :first-child { grid-column: 1 / -1; }
   /* The chat sheet sits over the tab bar, its field above the home indicator. */
@@ -1945,11 +1933,7 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 /* ---- The Status page's widgets, Customise, and the daily digest ------------------------------------------- */
 .dash-widget { min-width: 0; }
 .page-foot { justify-content: center; margin: 24px 0 8px; }
-.page-foot svg, .customise .icon-button svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: -3px; }
-.customise { margin-bottom: 16px; padding: 16px 18px; }
-.customise-list { display: grid; gap: 6px; margin: 10px 0; }
-.customise-row { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); }
-.customise-row .icon-button:disabled { opacity: 0.35; }
+.page-foot svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: -3px; }
 .tile.tone-ai { background: var(--material-solid); border: 1px solid var(--line); }
 .tile.tone-ai .sparkle { width: 24px; height: 24px; stroke: none; }
 .digest-card { margin-bottom: 18px; }
@@ -2000,13 +1984,7 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 :root[data-wallpaper] main :is(h2, details.more > summary):not(:is(.card, .log, .banner, .section-head, .page-head, dialog, .menu) *) { padding: 5px 12px; border-radius: 12px; }
 
 /* Source filters use the same switch as accessory controls, with a separate count badge. */
-.source-toggle { display: inline-flex; align-items: center; gap: 10px; padding: 8px 12px; margin: 0; border: 1px solid var(--line); border-radius: 14px; cursor: pointer; background: var(--material); }
-.source-toggle-label { font-size: 13px; font-weight: 600; }
-.source-toggle .source-count { min-width: 24px; padding: 2px 6px; border-radius: 8px; font-size: 12px; text-align: center; background: var(--search-fill); color: var(--muted); }
-.source-toggle:has(input:checked) { border-color: var(--accent); }
-.source-toggle .switch { display: inline-block; }
 
-.source-home-icon { width: 32px; height: 32px; object-fit: contain; flex: none; }
 
 /* Quiet rounded slots and gutter dots: the pattern follows the real grid's responsive pitch. */
 .wall.editing {
@@ -2506,8 +2484,6 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 
 .status-footer-meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
 .status-footer .footer-update-check { margin: 0; padding: 0; min-height: 24px; font-size: inherit; line-height: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; }
-.footer-update-result:empty { display: none; }
-.footer-update-result { color: var(--muted); }
 @media (max-width: 640px) {
   .status-footer-meta { margin-top: 4px; padding-left: 14px; }
   .status-footer-summary .status-footer-meta .muted { margin: 0; padding: 0; }
@@ -2516,7 +2492,6 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 /* Keep the version and its update action on one row, even on narrow screens. */
 .status-footer-meta > .muted { flex: 0 1 auto; max-width: calc(100% - 125px); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-footer .footer-update-check { flex: none; white-space: nowrap; }
-.footer-update-result { flex-basis: 100%; }
 @media (max-width: 640px) {
   .status-footer { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: 4px 12px; }
   .status-footer-summary { display: contents; }
@@ -2665,11 +2640,9 @@ select option:disabled { color: var(--muted); }
 .wall.editing > .accessory-group { cursor: default; }
 .wall.editing > .accessory-group > .server-head { visibility: hidden; }
 .edit-caption > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; color: var(--muted); }
-.wall.editing .group-edit-bar { right: 8px; gap: 4px; }
-.wall.editing .group-edit-bar button { height: 30px; flex: 1; padding: 0 8px; }
 .wall.editing > .accessory-group .group-feedback:not(:empty) { position: relative; z-index: 3; margin-bottom: 42px; }
 /* A corner grip leaves more of the bottom edge for the size controls. */
-.wall.editing .edit-bar:not(.group-edit-bar) { right: 24px; }
+.wall.editing .edit-bar { right: 24px; }
 .wall.editing .resize-handle,
 .wall.editing > .widget.size-small .resize-handle {
   right: 0; bottom: 0; width: 28px; height: 28px; border-radius: 0 0 var(--radius) 0;

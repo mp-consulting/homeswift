@@ -607,18 +607,22 @@
     const actions = new Set(), triggers = new Set(), conditions = new Set();
     const actionList = el("div", { class: "editor-list" }), triggerList = el("div", { class: "editor-list" }), conditionList = el("div", { class: "editor-list" });
 
+    // A labelled remove button for an action, trigger or condition.
+    const deleteButton = (row, list, label) => {
+      const remove = removeButton(row, list);
+      remove.className = "danger scene-condition-remove";
+      remove.append(el("span", { text: label }));
+      remove.title = label;
+      remove.setAttribute("aria-label", label);
+      return remove;
+    };
     const addAction = (action = {}) => {
       const pick = {};
       const [accessory, control, value] = characteristicPicker(choices, pick, { id: action.id, characteristic: action.characteristic, value: action.value });
       control.setAttribute("aria-label", t("Control"));
       const row = rowShell(field(t("Accessory"), accessory), field(t("Control"), control), field(t("Value"), value));
       row.read = () => ({ ...pick.read(), value: pick.value.read() });
-      const remove = removeButton(row, actions);
-      remove.className = "danger scene-condition-remove";
-      remove.append(el("span", { text: t("Delete action") }));
-      remove.title = t("Delete action");
-      remove.setAttribute("aria-label", t("Delete action"));
-      row.append(remove);
+      row.append(deleteButton(row, actions, t("Delete action")));
       actions.add(row);
       actionList.append(row);
     };
@@ -661,12 +665,7 @@
       draw(trigger);
       type.addEventListener("change", () => draw({ type: type.value }));
       row.read = () => ({ type: type.value, ...(enabled.checked ? {} : { enabled: false }), ...row.readBody() });
-      const remove = removeButton(row, triggers);
-      remove.className = "danger scene-condition-remove";
-      remove.append(el("span", { text: t("Delete trigger") }));
-      remove.title = t("Delete trigger");
-      remove.setAttribute("aria-label", t("Delete trigger"));
-      row.append(remove);
+      row.append(deleteButton(row, triggers, t("Delete trigger")));
       triggers.add(row);
       triggerList.append(row);
     };
@@ -692,12 +691,7 @@
       draw(condition);
       type.addEventListener("change", () => draw({ type: type.value }));
       row.read = () => ({ type: type.value, ...row.readBody() });
-      const remove = removeButton(row, conditions);
-      remove.className = "danger scene-condition-remove";
-      remove.append(el("span", { text: t("Delete condition") }));
-      remove.title = t("Delete condition");
-      remove.setAttribute("aria-label", t("Delete condition"));
-      row.append(remove);
+      row.append(deleteButton(row, conditions, t("Delete condition")));
       conditions.add(row);
       conditionList.append(row);
     };

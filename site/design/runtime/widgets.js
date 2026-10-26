@@ -1707,13 +1707,16 @@
         // Held to confirm: the tile fills; let go early and nothing happens. Tapped, the safe action.
         let timer = null, confirmed = false;
         const cancel = () => { clearTimeout(timer); timer = null; node.classList.remove("holding"); };
+        const startHold = () => {
+          node.classList.add("holding");
+          timer = setTimeout(() => { cancel(); confirmed = true; built.hold.confirm(); }, HOLD_MS);
+        };
         hit.addEventListener("pointerdown", (event) => {
           if (event.button !== 0) return;
           confirmed = false;
           if (!built.hold.armed()) return;
           hit.setPointerCapture(event.pointerId);
-          node.classList.add("holding");
-          timer = setTimeout(() => { cancel(); confirmed = true; built.hold.confirm(); }, HOLD_MS);
+          startHold();
         });
         for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) hit.addEventListener(type, cancel);
         hit.addEventListener("keydown", (event) => {
@@ -1721,8 +1724,7 @@
             confirmed = false;
             if (!built.hold.armed()) return;
             event.preventDefault();
-            node.classList.add("holding");
-            timer = setTimeout(() => { cancel(); confirmed = true; built.hold.confirm(); }, HOLD_MS);
+            startHold();
           }
         });
         hit.addEventListener("keyup", (event) => { if (event.key === " " || event.key === "Enter") cancel(); });

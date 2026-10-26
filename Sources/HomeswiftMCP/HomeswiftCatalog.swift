@@ -356,11 +356,14 @@ public struct HomeswiftCatalog: Sendable {
             throw CatalogError("\(characteristic.type.name) of \(located.accessory.name) unlocks, opens or disarms: use set_security_accessory")
         }
         guard let hap = Self.hapValue(value) else { throw CatalogError("value must be a boolean, a number or a string") }
+        let paused = await home.naturalLighting.pause(located, characteristic: characteristic)
         do {
-            await home.naturalLighting.pause(located, characteristic: characteristic)
             try await characteristic.write(hap)
-        } catch let error as HAPStatusError {
-            throw CatalogError(Self.describe(error, of: located))
+        } catch {
+            // Nothing changed on the light: its schedule carries on.
+            await home.naturalLighting.resume(paused)
+            if let error = error as? HAPStatusError { throw CatalogError(Self.describe(error, of: located)) }
+            throw error
         }
         return ["id": .string(located.accessory.id), "characteristic": .string(characteristic.type.name), "value": Self.value(of: characteristic)]
     }

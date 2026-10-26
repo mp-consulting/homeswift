@@ -907,19 +907,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     button.disabled = true;
     showRestartOverlay();
     const started = Date.now();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4000);
     try {
-      const response = await fetch("/api/restart", { method: "POST", credentials: "same-origin", signal: controller.signal });
+      const response = await fetch("/api/restart", { method: "POST", credentials: "same-origin", signal: AbortSignal.timeout(4000) });
       if (!response.ok) throw new ApiError(response.status, `HTTP ${response.status}`);
       // The process may exit before completing the response body. Headers are enough.
     } catch (e) {
       if (e instanceof ApiError) {
-        restartOverlay?.close(); restartOverlay?.remove(); restartOverlay = null;
+        closeRestartOverlay();
         alert(e.message); button.disabled = false; return;
       }
       // A disconnected or aborted request can mean the restart already began.
-    } finally { clearTimeout(timeout); }
+    }
     waitForRestart(started);
   }
 
@@ -936,15 +934,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return restartOverlay;
   }
 
+  function closeRestartOverlay() {
+    restartOverlay?.close();
+    restartOverlay?.remove();
+    restartOverlay = null;
+  }
+
   async function finishRestart() {
-    const overlay = restartOverlay;
-    if (overlay?.isConnected && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      overlay.classList.add("restart-leaving");
+    if (restartOverlay?.isConnected && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      restartOverlay.classList.add("restart-leaving");
       await new Promise((resolve) => setTimeout(resolve, 220));
     }
-    overlay?.close();
-    overlay?.remove();
-    restartOverlay = null;
+    closeRestartOverlay();
     restartPolling = false;
     const restartButton = $("#restart");
     if (restartButton) restartButton.disabled = false;
@@ -969,17 +970,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     let wasOffline = false;
     let healthyReplies = 0;
     const poll = async () => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
       try {
-        const response = await fetch("/api/status", { credentials: "same-origin", cache: "no-store", signal: controller.signal });
+        const response = await fetch("/api/status", { credentials: "same-origin", cache: "no-store", signal: AbortSignal.timeout(5000) });
         if (response.ok) {
           const status = await response.json();
           healthyReplies++;
           const younger = Number.isFinite(status.uptimeSeconds) && status.uptimeSeconds < (Date.now() - started) / 1000 + 5;
           if (younger || (wasOffline && healthyReplies >= 2)) { await finishRestart(); return; }
         } else if (response.status === 401) { await finishRestart(); return; }
-      } catch { wasOffline = true; healthyReplies = 0; } finally { clearTimeout(timeout); }
+      } catch { wasOffline = true; healthyReplies = 0; }
       if (Date.now() < deadline) setTimeout(poll, 1000);
       else {
         restartPolling = false;
@@ -987,7 +986,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         overlay.querySelector("#restart-heading").textContent = t("homeswift did not come back; check its log.");
         overlay.querySelector("#restart-message").textContent = "";
         overlay.append(el("button", { actionIcon: "restore", class: "primary", text: t("Try again"), onclick: () => {
-          overlay.close(); overlay.remove(); restartOverlay = null;
+          closeRestartOverlay();
           waitForRestart(started);
         } }));
       }
@@ -1987,15 +1986,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       none.classList.toggle("hidden", shown > 0);
     }
     search.addEventListener("input", filter);
-    // Each with its glyph; a phone shows the glyphs alone.
     const groupings = [["none", t("One wall"), "wall"], ...(rooms.length ? [["room", t("By room"), "room"]] : []), ["plugin", t("By plugin"), "plugin"]];
-    const grouping = el("div", { class: "group with-icons", role: "group", "aria-label": t("Group the accessories") }, groupings.map(([value, text, glyph]) =>
-      el("button", { type: "button", title: text, "aria-label": text, class: layout.grouping === value ? "on" : "", "aria-pressed": String(layout.grouping === value), onclick: (event) => {
-        layout.grouping = value;
-        for (const button of grouping.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
-        save();
-        render();
-      } }, HomeswiftCommon.icon(glyph), el("span", { text }))));
+    const setGrouping = (value) => { layout.grouping = value; save(); render(); };
     const edit = el("button", { actionIcon: "sliders", type: "button", text: t("Edit"), "aria-pressed": "false", title: t("Sizes and order of the widgets"), onclick: () => {
       editing = !editing;
       edit.textContent = editing ? t("Done") : t("Edit");
@@ -2004,32 +1996,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       render();
     } });
 
-    /// A filter kept in the address: ticked, `key` is `value`.
-    const queryToggle = (key, value, checked, text) => el("label", { class: "toggle compact" }, el("input", { type: "checkbox", checked, onchange: (event) => {
-      const next = new URLSearchParams(location.search);
-      if (event.target.checked) next.set(key, value); else next.delete(key);
-      navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
-    } }), el("span", { text }));
-    const hiddenToggle = hiddenCount ? queryToggle("hidden", "1", showHidden, t("Show hidden ({count})", { count: hiddenCount })) : null;
-    const sourceToggles = sources.map((source) => {
-      const count = all.filter((accessory) => accessory.mirroredFrom === source).length;
-      const label = t("Only from {source}", { source: t(source) });
-      const explanation = source === "Apple Home"
-        ? t("Show only accessories shared by Apple Home through Wingman. Turn off to show all accessories.")
-        : t("Show only accessories from {source}. Turn off to show all accessories.", { source: t(source) });
-      const input = el("input", { type: "checkbox", role: "switch", checked: from === source, "aria-label": label, "aria-description": explanation, title: explanation,
-        onchange: (event) => {
-          const next = new URLSearchParams(location.search);
-          if (event.target.checked) next.set("from", source); else next.delete("from");
-          navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
-        } });
-      return el("label", { class: "source-toggle", title: explanation },
-        source === "Apple Home" ? el("img", { class: "source-home-icon", src: "/apple-home.png", alt: "", "aria-hidden": "true" }) : el("span", { class: "source-toggle-label", text: t(source) }),
-        el("span", { class: "source-count", text: String(count) }),
-        el("span", { class: "switch" }, input, el("span", { "aria-hidden": "true" })));
-    });
-    const suggest = isAdmin() && window.HomeswiftChat?.available() && all.length
-      ? el("button", { class: "ai-button icon-on-phone", title: t("Suggest rooms"), "aria-label": t("Suggest rooms"), onclick: () => HomeswiftHome.suggestRooms(content, all) }, sparkle(), el("span", { text: t("Suggest rooms") })) : null;
+    const canSuggest = isAdmin() && window.HomeswiftChat?.available() && all.length;
 
     const changeFilter = (key, value, enabled) => {
       const next = new URLSearchParams(location.search);
@@ -2059,8 +2026,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const more = menuButton(t("Accessory options"), () => [
       { label: t("Create group"), icon: "group", onSelect: () => groupingControls.edit() },
       { separator: true },
-      ...groupings.map(([value, label, icon], index) => ({ label, icon, checked: layout.grouping === value, onSelect: () => grouping.children[index].click() })),
-      ...(suggest ? [{ separator: true }, { label: t("Suggest rooms"), icon: "sparkle", onSelect: () => suggest.click() }] : [])
+      ...groupings.map(([value, label, icon]) => ({ label, icon, checked: layout.grouping === value, onSelect: () => setGrouping(value) })),
+      ...(canSuggest ? [{ separator: true }, { label: t("Suggest rooms"), icon: "sparkle", onSelect: () => HomeswiftHome.suggestRooms(content, all) }] : [])
     ]);
     more.replaceChildren(HomeswiftCommon.icon("sliders"));
     more.classList.add("accessory-options-button");
@@ -6463,10 +6430,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (saveBarFrame) return;
     saveBarFrame = requestAnimationFrame(() => {
       saveBarFrame = 0;
+      const bars = document.querySelectorAll(".settings-bar");
+      if (!bars.length) return;
       const toggle = document.querySelector(".mobile-nav-toggle");
       const mobile = matchMedia("(max-width: 640px)").matches;
       const menuRect = mobile && toggle ? toggle.getBoundingClientRect() : null;
-      document.querySelectorAll(".settings-bar").forEach((bar) => {
+      bars.forEach((bar) => {
+        // Measured only beside a menu: a desktop page changing does not lay it out again.
+        if (!menuRect) { bar.classList.remove("beside-mobile-menu"); return; }
         const rect = bar.getBoundingClientRect();
         const beside = menuRect && menuRect.height > 0 && rect.bottom > menuRect.top && rect.top < menuRect.bottom;
         bar.classList.toggle("beside-mobile-menu", Boolean(beside));
@@ -6629,16 +6600,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const dialog = el('dialog', { class: 'admin-dialog accessory-group-dialog', 'aria-label': t('Accessory group') });
       const search = el('input', { type: 'search', class: 'search', placeholder: t('Search accessories'), 'aria-label': t('Search accessories') });
       let activeType = '';
-      const clearFilters = el('button', { type: 'button', class: 'clear-filters group-clear-filters', actionIcon: 'restore', text: t('Clear filters'), onclick: () => {
-        search.value = '';
-        activeType = '';
-        roomSelect.value = '__keep__';
-        for (const [index, button] of [...typeFilter.children].entries()) button.setAttribute('aria-pressed', String(index === 0));
-        applyFilter();
-      } });
       const empty = el('p', { class: 'muted', hidden: true, text: t('No accessory matches.') });
       const applyFilter = () => {
-        clearFilters.disabled = !search.value && !activeType && roomSelect.value === '__keep__';
         const query = search.value.trim().toLowerCase();
         for (const button of typeFilter.children) {
           const count = [...list.children].filter((row) => (!button.dataset.type || row.dataset.type === button.dataset.type) && (roomSelect.value === '__keep__' || row.dataset.room === roomSelect.value) && row.dataset.search.includes(query)).length;
@@ -6659,11 +6622,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       };
       const typeFilter = el('div', { class: 'group-type-filter', role: 'group', 'aria-label': t('Device type') },
         [['', 'grid', t('All')], ...deviceTypes.filter(([type]) => choices.some((a) => deviceType(a)[0] === type))].map(([type, glyph, label]) =>
-          el('button', { type: 'button', 'data-type': type, 'aria-pressed': String(type === activeType), onclick: (event) => {
-            activeType = type;
-            for (const button of typeFilter.children) button.setAttribute('aria-pressed', String(button === event.currentTarget));
-            applyFilter();
-          } }, HomeswiftCommon.icon(glyph), el('span', { text: label }), el('span', { class: 'filter-count' }))));
+          el('button', { type: 'button', 'data-type': type, 'aria-pressed': String(type === activeType), onclick: () => selectType(type) },
+            HomeswiftCommon.icon(glyph), el('span', { text: label }), el('span', { class: 'filter-count' }))));
+      const selectType = (type) => {
+        activeType = type;
+        for (const button of typeFilter.children) button.setAttribute('aria-pressed', String(button.dataset.type === type));
+        applyFilter();
+      };
+      const clearFilters = HomeswiftCommon.clearFilters([[search, ''], [roomSelect, '__keep__']],
+        { active: () => Boolean(activeType), reset: () => selectType(''), events: [[typeFilter, 'click']] });
+      clearFilters.classList.add('group-clear-filters');
       search.addEventListener('input', applyFilter);
       roomSelect.addEventListener('change', applyFilter);
       applyFilter();
@@ -6698,6 +6666,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const cards = new Set();
     function card(group, editing) {
       const people = group.members.map((id) => byID.get(id));
+      // A member that is gone (its plugin removed or not loaded) leaves the others controllable.
+      const present = people.filter(Boolean);
       const memberTypes = people.map((accessory) => accessory ? deviceType(accessory) : null);
       const matchingType = memberTypes[0]?.[0] && memberTypes.every((type) => type?.[0] === memberTypes[0][0]);
       const groupIcon = matchingType ? memberTypes[0][1] : 'group';
@@ -6714,8 +6684,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         }));
         glyph.classList.toggle('is-off', states.length > 0 && !states.some(Boolean));
         if (body.contains(document.activeElement)) return;
-        body.replaceChildren(...shared(people).map((type) => {
-          const targets = people.map((a) => controls(a).get(type));
+        body.replaceChildren(...shared(present).map((type) => {
+          const targets = present.map((a) => controls(a).get(type));
           const values = targets.map(({ c }) => c.value);
           const mixed = values.some((v) => v !== values[0]);
           const isBool = type === 'On' || type === 'Active';
@@ -6727,9 +6697,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           const commit = async (value) => {
             if (editing || busy) return;
             busy = true; input.inert = true; input.setAttribute('aria-disabled', 'true');
-            const outcomes = await Promise.allSettled(people.map((a, i) => api(`/api/accessories/${encodeURIComponent(a.id)}`, { method: 'PUT', body: { service: targets[i].service, characteristic: type, value } })));
+            const outcomes = await Promise.allSettled(present.map((a, i) => api(`/api/accessories/${encodeURIComponent(a.id)}`, { method: 'PUT', body: { service: targets[i].service, characteristic: type, value } })));
             outcomes.forEach((outcome, i) => { if (outcome.status === 'fulfilled') targets[i].c.value = value; });
-            const failed = outcomes.flatMap((outcome, i) => outcome.status === 'rejected' ? [people[i].displayName || people[i].name] : []);
+            const failed = outcomes.flatMap((outcome, i) => outcome.status === 'rejected' ? [present[i].displayName || present[i].name] : []);
             result.textContent = failed.length ? t('Could not update: {names}', { names: failed.join(', ') }) : '';
             busy = false; input.inert = editing; input.blur(); draw();
           };
@@ -6771,7 +6741,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
               try { await persist(); refresh(); } catch (error) { layout.groups = before; result.textContent = error.message; }
             } }
           ])), body, result);
-      draw(); cards.add({ node, draw }); return node;
+      draw(); cards.add({ node, draw, members: new Set(group.members) }); return node;
     }
     return { card, edit, canJoin, join: (a, b) => {
       const target = layout.groups.find((g) => g.id === b) || layout.groups.find((g) => g.id === a);
@@ -6784,7 +6754,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     }, event: (event) => {
       const a = byID.get(event.id); if (!a) return;
       for (const s of a.services) if ((s.subtype || s.type) === (event.subtype || event.service)) for (const c of s.characteristics) if (c.type === event.characteristic) c.value = event.value;
-      for (const item of cards) { if (!item.node.isConnected) cards.delete(item); else item.draw(); }
+      // Only the groups this accessory belongs to.
+      for (const item of cards) { if (!item.node.isConnected) cards.delete(item); else if (item.members.has(event.id)) item.draw(); }
     } };
   }
   window.HomeswiftGroups = { mount, sectionIndex };
@@ -7401,18 +7372,22 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const actions = new Set(), triggers = new Set(), conditions = new Set();
     const actionList = el("div", { class: "editor-list" }), triggerList = el("div", { class: "editor-list" }), conditionList = el("div", { class: "editor-list" });
 
+    // A labelled remove button for an action, trigger or condition.
+    const deleteButton = (row, list, label) => {
+      const remove = removeButton(row, list);
+      remove.className = "danger scene-condition-remove";
+      remove.append(el("span", { text: label }));
+      remove.title = label;
+      remove.setAttribute("aria-label", label);
+      return remove;
+    };
     const addAction = (action = {}) => {
       const pick = {};
       const [accessory, control, value] = characteristicPicker(choices, pick, { id: action.id, characteristic: action.characteristic, value: action.value });
       control.setAttribute("aria-label", t("Control"));
       const row = rowShell(field(t("Accessory"), accessory), field(t("Control"), control), field(t("Value"), value));
       row.read = () => ({ ...pick.read(), value: pick.value.read() });
-      const remove = removeButton(row, actions);
-      remove.className = "danger scene-condition-remove";
-      remove.append(el("span", { text: t("Delete action") }));
-      remove.title = t("Delete action");
-      remove.setAttribute("aria-label", t("Delete action"));
-      row.append(remove);
+      row.append(deleteButton(row, actions, t("Delete action")));
       actions.add(row);
       actionList.append(row);
     };
@@ -7455,12 +7430,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       draw(trigger);
       type.addEventListener("change", () => draw({ type: type.value }));
       row.read = () => ({ type: type.value, ...(enabled.checked ? {} : { enabled: false }), ...row.readBody() });
-      const remove = removeButton(row, triggers);
-      remove.className = "danger scene-condition-remove";
-      remove.append(el("span", { text: t("Delete trigger") }));
-      remove.title = t("Delete trigger");
-      remove.setAttribute("aria-label", t("Delete trigger"));
-      row.append(remove);
+      row.append(deleteButton(row, triggers, t("Delete trigger")));
       triggers.add(row);
       triggerList.append(row);
     };
@@ -7486,12 +7456,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       draw(condition);
       type.addEventListener("change", () => draw({ type: type.value }));
       row.read = () => ({ type: type.value, ...row.readBody() });
-      const remove = removeButton(row, conditions);
-      remove.className = "danger scene-condition-remove";
-      remove.append(el("span", { text: t("Delete condition") }));
-      remove.title = t("Delete condition");
-      remove.setAttribute("aria-label", t("Delete condition"));
-      row.append(remove);
+      row.append(deleteButton(row, conditions, t("Delete condition")));
       conditions.add(row);
       conditionList.append(row);
     };
@@ -7813,7 +7778,6 @@ HomeswiftI18n.add("es", {
   "Up to date": "Actualizado",
   "Update available": "Actualización disponible",
   "Check for updates": "Buscar actualizaciones",
-  "Homeswift is up to date.": "Homeswift está actualizado.",
   "Could not check for updates. Try again.": "No se pudieron buscar actualizaciones. Inténtalo de nuevo.",
   "Move to room…": "Mover a una habitación…",
   "Moves every member of this group in Homeswift only. HomeKit rooms stay unchanged.": "Mueve todos los miembros de este grupo solo en Homeswift. Las habitaciones de HomeKit no cambian.",
@@ -7858,7 +7822,6 @@ HomeswiftI18n.add("es", {
   "Run on its own HomeKit bridge": "Usar su propio puente HomeKit",
   "No child bridges yet. Configure a plugin above to give it its own bridge.": "Aún no hay puentes secundarios. Configura un plugin arriba para darle su propio puente.",
   "Moving a plugin between bridges changes where its accessories appear in Apple Home. You may need to pair the new bridge and recreate room assignments or automations. Saving reloads the plugin.": "Mover un plugin entre puentes cambia dónde aparecen sus accesorios en Apple Home. Puede que tengas que enlazar el nuevo puente y recrear habitaciones o automatizaciones. Guardar recarga el plugin.",
-  "Reset filters": "Restablecer filtros",
   "What happens when you restore?": "¿Qué ocurre al restaurar?",
   "Set up your Assistant": "Configura tu Asistente",
   "The Assistant is off until you connect an AI provider.": "El Asistente está desactivado hasta que conectes un proveedor de IA.",
@@ -7887,8 +7850,6 @@ HomeswiftI18n.add("es", {
   "Drag to reorder": "Arrastra para reordenar",
   "Drag to resize": "Arrastra para cambiar el tamaño",
   "Resize {name}": "Cambiar tamaño de {name}",
-  "Show only accessories shared by Apple Home through Wingman. Turn off to show all accessories.": "Mostrar solo los accesorios compartidos por Apple Casa a través de Wingman. Desactiva para ver todos los accesorios.",
-  "Show only accessories from {source}. Turn off to show all accessories.": "Mostrar solo los accesorios de {source}. Desactiva para ver todos los accesorios.",
   "Homeswift Natural Lighting": "Iluminación natural de Homeswift",
   "Natural": "Natural",
   "Natural paused": "Natural en pausa",
@@ -8581,7 +8542,6 @@ HomeswiftI18n.add("es", {
   "Green": "Verde",
   "group of switches": "grupo de interruptores",
   "Green, teal and violet drifting slowly.": "Verde, turquesa y violeta que se desplazan despacio.",
-  "Group the accessories": "Agrupar los accesorios",
   "grouping is plugin, room or none": "grouping es plugin, room o none",
   "Halloween": "Halloween",
   "Hardware Revision": "Versión del hardware",
@@ -8807,8 +8767,6 @@ HomeswiftI18n.add("es", {
   "Motion": "Movimiento",
   "Motion Detected": "Movimiento detectado",
   "Motion Sensor": "Sensor de movimiento",
-  "Move {name} down": "Bajar {name}",
-  "Move {name} up": "Subir {name}",
   "Move earlier": "Mover antes",
   "Move later": "Mover después",
   "Multifunction Button": "Botón multifunción",
@@ -8966,7 +8924,6 @@ HomeswiftI18n.add("es", {
   "only an administrator can do this": "solo un administrador puede hacer esto",
   "only an administrator can empty the log": "solo un administrador puede vaciar el registro",
   "Only for you to recognise it.": "Solo para que la reconozcas.",
-  "Only from {source} ({count})": "Solo desde {source} ({count})",
   "Only if": "Solo si",
   "open": "abrir",
   "Open": "Abierto",
@@ -9016,7 +8973,6 @@ HomeswiftI18n.add("es", {
   "Plugins": "Plugins",
   "Plugins › HomeswiftUI › Settings": "Plugins › HomeswiftUI › Ajustes",
   "turns sign-in on.": "permite activar el inicio de sesión.",
-  "Plugins › HomeswiftUI › Settings turns sign-in on.": "Plugins › HomeswiftUI › Ajustes activa el inicio de sesión.",
   "Plugins on HomeKit bridges of their own (a block with _bridge), inside this process: one can restart without the others.": "Plugins en sus propios puentes HomeKit (un bloque con _bridge), dentro de este proceso: cada uno puede reiniciarse sin los demás.",
   "PM10 Density": "PM10",
   "PM2.5 Density": "PM2,5",
@@ -9164,7 +9120,6 @@ HomeswiftI18n.add("es", {
   "Saved": "Guardado",
   "Saved and applied.": "Guardado y aplicado.",
   "Saved as the scene {name}.": "Guardado como la escena {name}.",
-  "Saved for you, on every browser": "Guardado para ti, en todos los navegadores",
   "Saved for your account, on every browser.": "Guardado en tu cuenta, en todos los navegadores.",
   "Saved.": "Guardado.",
   "Saved. Homeswift restarts by itself to apply the bridge settings…": "Guardado. Homeswift se reinicia solo para aplicar los ajustes del puente…",
@@ -9225,7 +9180,6 @@ HomeswiftI18n.add("es", {
   "Show {name}": "Mostrar {name}",
   "show all controls": "mostrar todos los controles",
   "Show as a table": "Mostrar como tabla",
-  "Show hidden ({count})": "Mostrar ocultos ({count})",
   "Show it again": "Volver a mostrarlo",
   "Show its log": "Mostrar su registro",
   "Show less": "Mostrar menos",
@@ -9756,7 +9710,6 @@ HomeswiftI18n.add("fr", {
   "Up to date": "À jour",
   "Update available": "Mise à jour disponible",
   "Check for updates": "Rechercher des mises à jour",
-  "Homeswift is up to date.": "Homeswift est à jour.",
   "Could not check for updates. Try again.": "Impossible de rechercher des mises à jour. Réessayez.",
   "Move to room…": "Déplacer dans une pièce…",
   "Moves every member of this group in Homeswift only. HomeKit rooms stay unchanged.": "Déplace tous les membres de ce groupe uniquement dans Homeswift. Les pièces HomeKit restent inchangées.",
@@ -9801,7 +9754,6 @@ HomeswiftI18n.add("fr", {
   "Run on its own HomeKit bridge": "Utiliser son propre pont HomeKit",
   "No child bridges yet. Configure a plugin above to give it its own bridge.": "Aucun pont enfant. Configurez un plugin ci-dessus pour lui attribuer son propre pont.",
   "Moving a plugin between bridges changes where its accessories appear in Apple Home. You may need to pair the new bridge and recreate room assignments or automations. Saving reloads the plugin.": "Déplacer un plugin entre les ponts change l’emplacement de ses accessoires dans Apple Home. Vous devrez peut-être jumeler le nouveau pont et recréer les pièces ou automatisations. L’enregistrement recharge le plugin.",
-  "Reset filters": "Réinitialiser les filtres",
   "What happens when you restore?": "Que se passe-t-il lors de la restauration ?",
   "Set up your Assistant": "Configurez votre Assistant",
   "The Assistant is off until you connect an AI provider.": "L’Assistant est désactivé tant que vous n’avez pas connecté de fournisseur d’IA.",
@@ -9830,8 +9782,6 @@ HomeswiftI18n.add("fr", {
   "Drag to reorder": "Faire glisser pour réorganiser",
   "Drag to resize": "Faire glisser pour redimensionner",
   "Resize {name}": "Redimensionner {name}",
-  "Show only accessories shared by Apple Home through Wingman. Turn off to show all accessories.": "Afficher uniquement les accessoires partagés par Apple Maison via Wingman. Désactivez pour afficher tous les accessoires.",
-  "Show only accessories from {source}. Turn off to show all accessories.": "Afficher uniquement les accessoires de {source}. Désactivez pour afficher tous les accessoires.",
   "Homeswift Natural Lighting": "Éclairage naturel Homeswift",
   "Natural": "Naturel",
   "Natural paused": "Naturel en pause",
@@ -10524,7 +10474,6 @@ HomeswiftI18n.add("fr", {
   "Green": "Vert",
   "group of switches": "groupe d'interrupteurs",
   "Green, teal and violet drifting slowly.": "Du vert, du turquoise et du violet qui dérivent lentement.",
-  "Group the accessories": "Regrouper les accessoires",
   "grouping is plugin, room or none": "grouping vaut plugin, room ou none",
   "Halloween": "Halloween",
   "Hardware Revision": "Version du matériel",
@@ -10750,8 +10699,6 @@ HomeswiftI18n.add("fr", {
   "Motion": "Mouvement",
   "Motion Detected": "Mouvement détecté",
   "Motion Sensor": "Détecteur de mouvement",
-  "Move {name} down": "Descendre {name}",
-  "Move {name} up": "Monter {name}",
   "Move earlier": "Avancer",
   "Move later": "Reculer",
   "Multifunction Button": "Bouton multifonction",
@@ -10909,7 +10856,6 @@ HomeswiftI18n.add("fr", {
   "only an administrator can do this": "seul un administrateur peut faire cela",
   "only an administrator can empty the log": "seul un administrateur peut vider le journal",
   "Only for you to recognise it.": "Seulement pour que vous la reconnaissiez.",
-  "Only from {source} ({count})": "Seulement depuis {source} ({count})",
   "Only if": "Seulement si",
   "open": "ouvrir",
   "Open": "Ouvert",
@@ -10959,7 +10905,6 @@ HomeswiftI18n.add("fr", {
   "Plugins": "Plugins",
   "Plugins › HomeswiftUI › Settings": "Plugins › HomeswiftUI › Réglages",
   "turns sign-in on.": "permet d’activer la connexion.",
-  "Plugins › HomeswiftUI › Settings turns sign-in on.": "Plugins › HomeswiftUI › Réglages active la connexion.",
   "Plugins on HomeKit bridges of their own (a block with _bridge), inside this process: one can restart without the others.": "Des plugins sur leurs propres ponts HomeKit (un bloc avec _bridge), dans ce processus : chacun peut redémarrer sans les autres.",
   "PM10 Density": "PM10",
   "PM2.5 Density": "PM2,5",
@@ -11107,7 +11052,6 @@ HomeswiftI18n.add("fr", {
   "Saved": "Enregistré",
   "Saved and applied.": "Enregistré et appliqué.",
   "Saved as the scene {name}.": "Enregistrée comme la scène {name}.",
-  "Saved for you, on every browser": "Enregistré pour vous, sur tous vos navigateurs",
   "Saved for your account, on every browser.": "Enregistré pour votre compte, sur tous les navigateurs.",
   "Saved.": "Enregistré.",
   "Saved. Homeswift restarts by itself to apply the bridge settings…": "Enregistré. Homeswift redémarre de lui-même pour appliquer les réglages du pont…",
@@ -11168,7 +11112,6 @@ HomeswiftI18n.add("fr", {
   "Show {name}": "Afficher {name}",
   "show all controls": "afficher toutes les commandes",
   "Show as a table": "Afficher sous forme de tableau",
-  "Show hidden ({count})": "Afficher les masqués ({count})",
   "Show it again": "Afficher à nouveau",
   "Show its log": "Afficher son journal",
   "Show less": "Afficher moins",
@@ -11699,7 +11642,6 @@ HomeswiftI18n.add("pt", {
   "Up to date": "Atualizado",
   "Update available": "Atualização disponível",
   "Check for updates": "Procurar atualizações",
-  "Homeswift is up to date.": "O Homeswift está atualizado.",
   "Could not check for updates. Try again.": "Não foi possível procurar atualizações. Tente novamente.",
   "Move to room…": "Mover para uma divisão…",
   "Moves every member of this group in Homeswift only. HomeKit rooms stay unchanged.": "Move todos os membros deste grupo apenas no Homeswift. As divisões do HomeKit mantêm-se inalteradas.",
@@ -11744,7 +11686,6 @@ HomeswiftI18n.add("pt", {
   "Run on its own HomeKit bridge": "Usar a sua própria bridge HomeKit",
   "No child bridges yet. Configure a plugin above to give it its own bridge.": "Ainda não existem bridges secundárias. Configure um plugin acima para lhe atribuir a sua própria bridge.",
   "Moving a plugin between bridges changes where its accessories appear in Apple Home. You may need to pair the new bridge and recreate room assignments or automations. Saving reloads the plugin.": "Mover um plugin entre bridges altera onde aparecem os acessórios no Apple Home. Poderá ter de emparelhar a nova bridge e recriar divisões ou automatizações. Guardar recarrega o plugin.",
-  "Reset filters": "Repor filtros",
   "What happens when you restore?": "O que acontece ao restaurar?",
   "Set up your Assistant": "Configure o seu Assistente",
   "The Assistant is off until you connect an AI provider.": "O Assistente está desativado até ligar um fornecedor de IA.",
@@ -11773,8 +11714,6 @@ HomeswiftI18n.add("pt", {
   "Drag to reorder": "Arraste para reordenar",
   "Drag to resize": "Arraste para redimensionar",
   "Resize {name}": "Redimensionar {name}",
-  "Show only accessories shared by Apple Home through Wingman. Turn off to show all accessories.": "Mostrar apenas os acessórios partilhados pela Casa da Apple através do Wingman. Desative para mostrar todos os acessórios.",
-  "Show only accessories from {source}. Turn off to show all accessories.": "Mostrar apenas os acessórios de {source}. Desative para mostrar todos os acessórios.",
   "Homeswift Natural Lighting": "Iluminação natural Homeswift",
   "Natural": "Natural",
   "Natural paused": "Natural em pausa",
@@ -12467,7 +12406,6 @@ HomeswiftI18n.add("pt", {
   "Green": "Verde",
   "group of switches": "grupo de interruptores",
   "Green, teal and violet drifting slowly.": "Verde, turquesa e violeta a deslizar lentamente.",
-  "Group the accessories": "Agrupar os acessórios",
   "grouping is plugin, room or none": "grouping é plugin, room ou none",
   "Halloween": "Halloween",
   "Hardware Revision": "Versão do hardware",
@@ -12693,8 +12631,6 @@ HomeswiftI18n.add("pt", {
   "Motion": "Movimento",
   "Motion Detected": "Movimento detetado",
   "Motion Sensor": "Sensor de movimento",
-  "Move {name} down": "Descer {name}",
-  "Move {name} up": "Subir {name}",
   "Move earlier": "Mover para trás",
   "Move later": "Mover para a frente",
   "Multifunction Button": "Botão multifunções",
@@ -12852,7 +12788,6 @@ HomeswiftI18n.add("pt", {
   "only an administrator can do this": "só um administrador pode fazer isto",
   "only an administrator can empty the log": "só um administrador pode esvaziar o registo",
   "Only for you to recognise it.": "Apenas para a reconhecer.",
-  "Only from {source} ({count})": "Só da {source} ({count})",
   "Only if": "Só se",
   "open": "abrir",
   "Open": "Aberto",
@@ -12902,7 +12837,6 @@ HomeswiftI18n.add("pt", {
   "Plugins": "Plugins",
   "Plugins › HomeswiftUI › Settings": "Plugins › HomeswiftUI › Definições",
   "turns sign-in on.": "permite ativar o início de sessão.",
-  "Plugins › HomeswiftUI › Settings turns sign-in on.": "Plugins › HomeswiftUI › Definições ativa o início de sessão.",
   "Plugins on HomeKit bridges of their own (a block with _bridge), inside this process: one can restart without the others.": "Plugins em pontes HomeKit próprias (um bloco com _bridge), dentro deste processo: cada uma pode reiniciar sem as outras.",
   "PM10 Density": "PM10",
   "PM2.5 Density": "PM2,5",
@@ -13050,7 +12984,6 @@ HomeswiftI18n.add("pt", {
   "Saved": "Guardado",
   "Saved and applied.": "Guardado e aplicado.",
   "Saved as the scene {name}.": "Guardado como a cena {name}.",
-  "Saved for you, on every browser": "Guardado para si, em todos os navegadores",
   "Saved for your account, on every browser.": "Guardado para a sua conta, em todos os navegadores.",
   "Saved.": "Guardado.",
   "Saved. Homeswift restarts by itself to apply the bridge settings…": "Guardado. O Homeswift reinicia-se automaticamente para aplicar as definições da ponte…",
@@ -13111,7 +13044,6 @@ HomeswiftI18n.add("pt", {
   "Show {name}": "Mostrar {name}",
   "show all controls": "mostrar todos os controlos",
   "Show as a table": "Mostrar como tabela",
-  "Show hidden ({count})": "Mostrar ocultos ({count})",
   "Show it again": "Mostrar novamente",
   "Show its log": "Mostrar o registo",
   "Show less": "Mostrar menos",
@@ -14971,8 +14903,6 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .group button:hover:not(:disabled):not(.on) { background: var(--material-thin); }
 .group button.on { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); }
 /* A segmented control whose choices carry a glyph before their name (a phone shows the glyph alone). */
-.group.with-icons button { display: inline-flex; align-items: center; gap: 6px; }
-.group.with-icons svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 
 /* The mini remote (remote.js): a round pad with OK in the middle, round keys and a volume rocker. Keys give
    way under the press at once and the one that sent flashes the accent; a TV that cannot take keys dims it. */
@@ -15503,10 +15433,6 @@ textarea.short { min-height: 220px; }
 .chip { padding: 3px 10px; border-radius: 999px; font-size: 0.8125rem; background: var(--material-thin); border: 1px solid var(--line); }
 
 /* Status: a summary that says whether all is well, the numbers that matter, then a card per server. */
-.hero { display: flex; align-items: center; gap: 16px; padding: 20px 22px; }
-.hero .logo.large { margin: 0; }
-.hero h1 { margin: 0 0 2px; }
-.hero p { margin: 0; }
 /* A newer release, under the summary: how to upgrade this install, its command with Copy, the notes folded. */
 .update-card { margin-top: 14px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .update-card > p { margin: 0; }
@@ -16035,9 +15961,7 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   /* The four figures in one row, each its glyph, number and a one-line label. */
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   /* Toolbar buttons that become their glyph alone: a segmented control's choices, an Assistant action. */
-  .group.with-icons button { padding: 7px 13px; }
-  .group.with-icons button > span, .icon-on-phone > span { display: none; }
-  .group.with-icons svg { width: 19px; height: 19px; }
+  .icon-on-phone > span { display: none; }
   .icon-on-phone { justify-content: center; width: 40px; height: 40px; padding: 0; flex: none; }
   .icon-on-phone .sparkle { width: 19px; height: 19px; }
   /* A note beside its button (a plugin's Expert part), and removal: the text across, the button under it. */
@@ -16074,10 +15998,6 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
 @media (max-width: 360px) {
   .dash-widget .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   /* The overview's card, smaller: the icon beside the name and the health under it. */
-  .hero { gap: 14px; padding: 16px; }
-  .hero .logo.large { width: 56px; height: 56px; border-radius: 14px; }
-  .hero h1 { font-size: 1.375rem; }
-  .hero p { font-size: 0.875rem; }
   .facts, .facts.lead { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .facts.lead > :first-child { grid-column: 1 / -1; }
   /* The chat sheet sits over the tab bar, its field above the home indicator. */
@@ -16350,11 +16270,7 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 /* ---- The Status page's widgets, Customise, and the daily digest ------------------------------------------- */
 .dash-widget { min-width: 0; }
 .page-foot { justify-content: center; margin: 24px 0 8px; }
-.page-foot svg, .customise .icon-button svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: -3px; }
-.customise { margin-bottom: 16px; padding: 16px 18px; }
-.customise-list { display: grid; gap: 6px; margin: 10px 0; }
-.customise-row { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); }
-.customise-row .icon-button:disabled { opacity: 0.35; }
+.page-foot svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: -3px; }
 .tile.tone-ai { background: var(--material-solid); border: 1px solid var(--line); }
 .tile.tone-ai .sparkle { width: 24px; height: 24px; stroke: none; }
 .digest-card { margin-bottom: 18px; }
@@ -16405,13 +16321,7 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 :root[data-wallpaper] main :is(h2, details.more > summary):not(:is(.card, .log, .banner, .section-head, .page-head, dialog, .menu) *) { padding: 5px 12px; border-radius: 12px; }
 
 /* Source filters use the same switch as accessory controls, with a separate count badge. */
-.source-toggle { display: inline-flex; align-items: center; gap: 10px; padding: 8px 12px; margin: 0; border: 1px solid var(--line); border-radius: 14px; cursor: pointer; background: var(--material); }
-.source-toggle-label { font-size: 13px; font-weight: 600; }
-.source-toggle .source-count { min-width: 24px; padding: 2px 6px; border-radius: 8px; font-size: 12px; text-align: center; background: var(--search-fill); color: var(--muted); }
-.source-toggle:has(input:checked) { border-color: var(--accent); }
-.source-toggle .switch { display: inline-block; }
 
-.source-home-icon { width: 32px; height: 32px; object-fit: contain; flex: none; }
 
 /* Quiet rounded slots and gutter dots: the pattern follows the real grid's responsive pitch. */
 .wall.editing {
@@ -16911,8 +16821,6 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 
 .status-footer-meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
 .status-footer .footer-update-check { margin: 0; padding: 0; min-height: 24px; font-size: inherit; line-height: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; }
-.footer-update-result:empty { display: none; }
-.footer-update-result { color: var(--muted); }
 @media (max-width: 640px) {
   .status-footer-meta { margin-top: 4px; padding-left: 14px; }
   .status-footer-summary .status-footer-meta .muted { margin: 0; padding: 0; }
@@ -16921,7 +16829,6 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 /* Keep the version and its update action on one row, even on narrow screens. */
 .status-footer-meta > .muted { flex: 0 1 auto; max-width: calc(100% - 125px); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-footer .footer-update-check { flex: none; white-space: nowrap; }
-.footer-update-result { flex-basis: 100%; }
 @media (max-width: 640px) {
   .status-footer { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: 4px 12px; }
   .status-footer-summary { display: contents; }
@@ -17070,11 +16977,9 @@ select option:disabled { color: var(--muted); }
 .wall.editing > .accessory-group { cursor: default; }
 .wall.editing > .accessory-group > .server-head { visibility: hidden; }
 .edit-caption > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; color: var(--muted); }
-.wall.editing .group-edit-bar { right: 8px; gap: 4px; }
-.wall.editing .group-edit-bar button { height: 30px; flex: 1; padding: 0 8px; }
 .wall.editing > .accessory-group .group-feedback:not(:empty) { position: relative; z-index: 3; margin-bottom: 42px; }
 /* A corner grip leaves more of the bottom edge for the size controls. */
-.wall.editing .edit-bar:not(.group-edit-bar) { right: 24px; }
+.wall.editing .edit-bar { right: 24px; }
 .wall.editing .resize-handle,
 .wall.editing > .widget.size-small .resize-handle {
   right: 0; bottom: 0; width: 28px; height: 28px; border-radius: 0 0 var(--radius) 0;
@@ -18909,13 +18814,16 @@ self.addEventListener("notificationclick", (event) => {
         // Held to confirm: the tile fills; let go early and nothing happens. Tapped, the safe action.
         let timer = null, confirmed = false;
         const cancel = () => { clearTimeout(timer); timer = null; node.classList.remove("holding"); };
+        const startHold = () => {
+          node.classList.add("holding");
+          timer = setTimeout(() => { cancel(); confirmed = true; built.hold.confirm(); }, HOLD_MS);
+        };
         hit.addEventListener("pointerdown", (event) => {
           if (event.button !== 0) return;
           confirmed = false;
           if (!built.hold.armed()) return;
           hit.setPointerCapture(event.pointerId);
-          node.classList.add("holding");
-          timer = setTimeout(() => { cancel(); confirmed = true; built.hold.confirm(); }, HOLD_MS);
+          startHold();
         });
         for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) hit.addEventListener(type, cancel);
         hit.addEventListener("keydown", (event) => {
@@ -18923,8 +18831,7 @@ self.addEventListener("notificationclick", (event) => {
             confirmed = false;
             if (!built.hold.armed()) return;
             event.preventDefault();
-            node.classList.add("holding");
-            timer = setTimeout(() => { cancel(); confirmed = true; built.hold.confirm(); }, HOLD_MS);
+            startHold();
           }
         });
         hit.addEventListener("keyup", (event) => { if (event.key === " " || event.key === "Enter") cancel(); });

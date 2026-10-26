@@ -16,14 +16,13 @@ enum Restart {
         timeout: TimeInterval = 30,
         shutdown: @escaping @Sendable () async -> Void,
         replace: @escaping @Sendable () -> Void = { exec() },
-        timedOut: @escaping @Sendable () -> Void = {
-            FileHandle.standardError.write(Data("homeswift: shutdown exceeded 30 seconds; restarting the process now\n".utf8))
-        }
+        timedOut: (@Sendable () -> Void)? = nil
     ) async {
         let gate = RestartGate()
         let deadline = DispatchWorkItem {
             guard gate.claim() else { return }
-            timedOut()
+            if let timedOut { timedOut() }
+            else { FileHandle.standardError.write(Data("homeswift: shutdown exceeded \(Int(timeout)) seconds; restarting the process now\n".utf8)) }
             replace()
         }
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + timeout, execute: deadline)

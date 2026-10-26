@@ -48,15 +48,13 @@ final class AccessoryLayout: Sendable {
             guard let id = entry.stringValue, isID(id) else { throw Invalid(description: "order lists accessory ids") }
             if seen.insert(id).inserted { order.append(.string(id)) }
         }
-        let sizes = try (object["sizes"]?.objectValue ?? [:]).mapValues { value -> JSONValue in
+        let checkedSize = { (value: JSONValue) throws -> JSONValue in
             guard let size = value.stringValue, Self.sizes.contains(size) else { throw Invalid(description: "a size is small, medium, large or xlarge") }
             return .string(size)
         }
+        let sizes = try (object["sizes"]?.objectValue ?? [:]).mapValues(checkedSize)
         guard sizes.keys.allSatisfy(isID) else { throw Invalid(description: "sizes are by accessory id") }
-        let defaults = try (object["defaults"]?.objectValue ?? [:]).mapValues { value -> JSONValue in
-            guard let size = value.stringValue, Self.sizes.contains(size) else { throw Invalid(description: "a size is small, medium, large or xlarge") }
-            return .string(size)
-        }
+        let defaults = try (object["defaults"]?.objectValue ?? [:]).mapValues(checkedSize)
         guard defaults.keys.allSatisfy({ !$0.isEmpty && $0.count <= 40 && $0.allSatisfy { $0.isLowercase || $0 == "-" } }) else {
             throw Invalid(description: "defaults are by kind of widget (climate, light…)")
         }

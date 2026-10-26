@@ -78,16 +78,8 @@
       const dialog = el('dialog', { class: 'admin-dialog accessory-group-dialog', 'aria-label': t('Accessory group') });
       const search = el('input', { type: 'search', class: 'search', placeholder: t('Search accessories'), 'aria-label': t('Search accessories') });
       let activeType = '';
-      const clearFilters = el('button', { type: 'button', class: 'clear-filters group-clear-filters', actionIcon: 'restore', text: t('Clear filters'), onclick: () => {
-        search.value = '';
-        activeType = '';
-        roomSelect.value = '__keep__';
-        for (const [index, button] of [...typeFilter.children].entries()) button.setAttribute('aria-pressed', String(index === 0));
-        applyFilter();
-      } });
       const empty = el('p', { class: 'muted', hidden: true, text: t('No accessory matches.') });
       const applyFilter = () => {
-        clearFilters.disabled = !search.value && !activeType && roomSelect.value === '__keep__';
         const query = search.value.trim().toLowerCase();
         for (const button of typeFilter.children) {
           const count = [...list.children].filter((row) => (!button.dataset.type || row.dataset.type === button.dataset.type) && (roomSelect.value === '__keep__' || row.dataset.room === roomSelect.value) && row.dataset.search.includes(query)).length;
@@ -108,11 +100,16 @@
       };
       const typeFilter = el('div', { class: 'group-type-filter', role: 'group', 'aria-label': t('Device type') },
         [['', 'grid', t('All')], ...deviceTypes.filter(([type]) => choices.some((a) => deviceType(a)[0] === type))].map(([type, glyph, label]) =>
-          el('button', { type: 'button', 'data-type': type, 'aria-pressed': String(type === activeType), onclick: (event) => {
-            activeType = type;
-            for (const button of typeFilter.children) button.setAttribute('aria-pressed', String(button === event.currentTarget));
-            applyFilter();
-          } }, HomeswiftCommon.icon(glyph), el('span', { text: label }), el('span', { class: 'filter-count' }))));
+          el('button', { type: 'button', 'data-type': type, 'aria-pressed': String(type === activeType), onclick: () => selectType(type) },
+            HomeswiftCommon.icon(glyph), el('span', { text: label }), el('span', { class: 'filter-count' }))));
+      const selectType = (type) => {
+        activeType = type;
+        for (const button of typeFilter.children) button.setAttribute('aria-pressed', String(button.dataset.type === type));
+        applyFilter();
+      };
+      const clearFilters = HomeswiftCommon.clearFilters([[search, ''], [roomSelect, '__keep__']],
+        { active: () => Boolean(activeType), reset: () => selectType(''), events: [[typeFilter, 'click']] });
+      clearFilters.classList.add('group-clear-filters');
       search.addEventListener('input', applyFilter);
       roomSelect.addEventListener('change', applyFilter);
       applyFilter();
@@ -147,6 +144,8 @@
     const cards = new Set();
     function card(group, editing) {
       const people = group.members.map((id) => byID.get(id));
+      // A member that is gone (its plugin removed or not loaded) leaves the others controllable.
+      const present = people.filter(Boolean);
       const memberTypes = people.map((accessory) => accessory ? deviceType(accessory) : null);
       const matchingType = memberTypes[0]?.[0] && memberTypes.every((type) => type?.[0] === memberTypes[0][0]);
       const groupIcon = matchingType ? memberTypes[0][1] : 'group';
@@ -163,8 +162,8 @@
         }));
         glyph.classList.toggle('is-off', states.length > 0 && !states.some(Boolean));
         if (body.contains(document.activeElement)) return;
-        body.replaceChildren(...shared(people).map((type) => {
-          const targets = people.map((a) => controls(a).get(type));
+        body.replaceChildren(...shared(present).map((type) => {
+          const targets = present.map((a) => controls(a).get(type));
           const values = targets.map(({ c }) => c.value);
           const mixed = values.some((v) => v !== values[0]);
           const isBool = type === 'On' || type === 'Active';
@@ -176,9 +175,9 @@
           const commit = async (value) => {
             if (editing || busy) return;
             busy = true; input.inert = true; input.setAttribute('aria-disabled', 'true');
-            const outcomes = await Promise.allSettled(people.map((a, i) => api(`/api/accessories/${encodeURIComponent(a.id)}`, { method: 'PUT', body: { service: targets[i].service, characteristic: type, value } })));
+            const outcomes = await Promise.allSettled(present.map((a, i) => api(`/api/accessories/${encodeURIComponent(a.id)}`, { method: 'PUT', body: { service: targets[i].service, characteristic: type, value } })));
             outcomes.forEach((outcome, i) => { if (outcome.status === 'fulfilled') targets[i].c.value = value; });
-            const failed = outcomes.flatMap((outcome, i) => outcome.status === 'rejected' ? [people[i].displayName || people[i].name] : []);
+            const failed = outcomes.flatMap((outcome, i) => outcome.status === 'rejected' ? [present[i].displayName || present[i].name] : []);
             result.textContent = failed.length ? t('Could not update: {names}', { names: failed.join(', ') }) : '';
             busy = false; input.inert = editing; input.blur(); draw();
           };
@@ -220,7 +219,7 @@
               try { await persist(); refresh(); } catch (error) { layout.groups = before; result.textContent = error.message; }
             } }
           ])), body, result);
-      draw(); cards.add({ node, draw }); return node;
+      draw(); cards.add({ node, draw, members: new Set(group.members) }); return node;
     }
     return { card, edit, canJoin, join: (a, b) => {
       const target = layout.groups.find((g) => g.id === b) || layout.groups.find((g) => g.id === a);
@@ -233,7 +232,8 @@
     }, event: (event) => {
       const a = byID.get(event.id); if (!a) return;
       for (const s of a.services) if ((s.subtype || s.type) === (event.subtype || event.service)) for (const c of s.characteristics) if (c.type === event.characteristic) c.value = event.value;
-      for (const item of cards) { if (!item.node.isConnected) cards.delete(item); else item.draw(); }
+      // Only the groups this accessory belongs to.
+      for (const item of cards) { if (!item.node.isConnected) cards.delete(item); else if (item.members.has(event.id)) item.draw(); }
     } };
   }
   window.HomeswiftGroups = { mount, sectionIndex };

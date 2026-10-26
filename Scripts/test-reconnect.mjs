@@ -8,8 +8,8 @@ let now = 0, finished = 0;
 let healthy = false;
 const timers = [], buttons = [];
 const overlay = {querySelector:()=>({remove(){},textContent:''}),append:b=>buttons.push(b),close(){},remove(){}};
-const polling = {Date:{now:()=>now}, AbortController, restartPolling:false,restartOverlay:null,
-  closeEvents(){}, showRestartOverlay:()=>overlay, t:x=>x, el:(_tag,attrs)=>attrs,
+const polling = {Date:{now:()=>now}, AbortSignal, restartPolling:false,restartOverlay:null,
+  closeEvents(){}, showRestartOverlay:()=>overlay, closeRestartOverlay(){}, t:x=>x, el:(_tag,attrs)=>attrs,
   setTimeout:(fn,ms)=>{timers.push({fn,ms});return 1},clearTimeout(){},
   fetch:async()=>({ok:healthy,status:healthy?200:503,json:async()=>({uptimeSeconds:1})}),
   finishRestart:async()=>{finished++}};
