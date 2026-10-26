@@ -129,7 +129,9 @@ public struct NotificationSettings: Codable, Sendable, Equatable {
 
     /// Every secret the settings hold, to scrub from error texts (a failed request's URL can carry one).
     var secrets: [String] {
-        ([channels.webhook.url, channels.webhook.username, channels.webhook.password, channels.webhook.token, channels.webhook.authorization ?? "", channels.webhook.authorization?.split(separator: " ", maxSplits: 1).last.map(String.init) ?? "", channels.ntfy.token, channels.pushover.userKey, channels.pushover.appToken, channels.telegram.botToken] + Array(channels.webhook.headers.values)).filter { !$0.isEmpty }
+        ([channels.webhook.url, channels.webhook.username, channels.webhook.password, channels.webhook.token, channels.webhook.authorization ?? "", channels.webhook.authorization?.split(separator: " ", maxSplits: 1).last.map(String.init) ?? "", channels.ntfy.token, channels.pushover.userKey, channels.pushover.appToken, channels.telegram.botToken] + Array(channels.webhook.headers.values))
+            // Shorter values would scrub ordinary characters out of the error text ("HTTP 401" with a header "1").
+            .filter { $0.count >= 4 }
     }
 
     /// The fields never sent back in clear, by channel.

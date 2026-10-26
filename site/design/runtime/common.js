@@ -960,10 +960,14 @@
     if (saveBarFrame) return;
     saveBarFrame = requestAnimationFrame(() => {
       saveBarFrame = 0;
+      const bars = document.querySelectorAll(".settings-bar");
+      if (!bars.length) return;
       const toggle = document.querySelector(".mobile-nav-toggle");
       const mobile = matchMedia("(max-width: 640px)").matches;
       const menuRect = mobile && toggle ? toggle.getBoundingClientRect() : null;
-      document.querySelectorAll(".settings-bar").forEach((bar) => {
+      bars.forEach((bar) => {
+        // Measured only beside a menu: a desktop page changing does not lay it out again.
+        if (!menuRect) { bar.classList.remove("beside-mobile-menu"); return; }
         const rect = bar.getBoundingClientRect();
         const beside = menuRect && menuRect.height > 0 && rect.bottom > menuRect.top && rect.top < menuRect.bottom;
         bar.classList.toggle("beside-mobile-menu", Boolean(beside));

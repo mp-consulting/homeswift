@@ -10,6 +10,8 @@ public actor NaturalLighting {
         var service: String
         var timeZone: String
         var paused = false
+        /// The same light (accessory and service), whatever its settings.
+        func matches(_ other: Setting) -> Bool { accessory == other.accessory && service == other.service }
     }
     nonisolated let settings: JSONFileStore<[Setting]>
     private var observers: [String: [(Characteristic, Int)]] = [:]
@@ -29,6 +31,8 @@ public actor NaturalLighting {
         service[.colorTemperature]?.type.permissions.contains(.pairedWrite) == true
     }
     private func identity(_ entry: Setting) -> String { "\(entry.accessory.utf8.count):\(entry.accessory)\(entry.service)" }
+    /// Whether `entry`'s light is still set and not paused in the saved settings.
+    private func isActive(_ entry: Setting) -> Bool { settings.value.contains { $0.matches(entry) && !$0.paused } }
 
     public nonisolated func json(for accessory: String) -> JSONValue? {
         let entries = settings.value.filter { $0.accessory == accessory }
@@ -60,16 +64,18 @@ public actor NaturalLighting {
         let entry = Setting(accessory: located.accessory.id, service: Self.key(service), timeZone: timeZone)
         let key = identity(entry)
         try settings.update { entries in
-            entries.removeAll { $0.accessory == entry.accessory && $0.service == entry.service }
+            entries.removeAll { $0.matches(entry) }
             if on { entries.append(entry) }
         }
         expected[key] = nil
         suspended.remove(key)
         unwatch(key)
         errors[key] = nil
-        if on { watch(service, entry: entry) }
-        else { unwatch(key) }
-        await tick(catalog, at: Date())
+        // Its own light only, and not through `tick`: a minute tick still writing other lamps would skip it.
+        if on {
+            watch(service, entry: entry)
+            await apply(entry, catalog: catalog, at: Date())
+        }
         if let error = errors[key] {
             pause(entry)
             throw CatalogError(error)
@@ -109,10 +115,10 @@ public actor NaturalLighting {
 
     private func pause(_ entry: Setting) {
         suspended.insert(identity(entry))
-        guard settings.value.contains(where: { $0.accessory == entry.accessory && $0.service == entry.service && !$0.paused }) else { return }
+        guard isActive(entry) else { return }
         do {
             try settings.update { entries in
-                if let index = entries.firstIndex(where: { $0.accessory == entry.accessory && $0.service == entry.service }) {
+                if let index = entries.firstIndex(where: { $0.matches(entry) }) {
                     entries[index].paused = true
                 }
             }
@@ -120,12 +126,39 @@ public actor NaturalLighting {
         } catch { errors[identity(entry)] = "could not save Natural Lighting pause: \(error)" }
     }
 
-    /// Called before manual UI/MCP writes, so a concurrent tick cannot start another scheduled write.
-    public func pause(_ located: HomeswiftCatalog.Located, characteristic: Characteristic) {
-        guard [CharacteristicType.colorTemperature.uuid, CharacteristicType.hue.uuid, CharacteristicType.saturation.uuid].contains(characteristic.type.uuid) else { return }
+    /// Called before manual UI/MCP writes, so a concurrent tick cannot start another scheduled write. Answers the
+    /// lights it paused, for `resume` when the write fails.
+    @discardableResult
+    func pause(_ located: HomeswiftCatalog.Located, characteristic: Characteristic) -> [Setting] {
+        guard [CharacteristicType.colorTemperature.uuid, CharacteristicType.hue.uuid, CharacteristicType.saturation.uuid].contains(characteristic.type.uuid) else { return [] }
+        var paused: [Setting] = []
         for entry in settings.value where entry.accessory == located.accessory.id {
-            if located.accessory.services.contains(where: { Self.key($0) == entry.service && $0.characteristics.contains { $0 === characteristic } }) { pause(entry) }
+            guard located.accessory.services.contains(where: { Self.key($0) == entry.service && $0.characteristics.contains { $0 === characteristic } }) else { continue }
+            if isActive(entry), !suspended.contains(identity(entry)) { paused.append(entry) }
+            pause(entry)
         }
+        return paused
+    }
+
+    /// A manual write that failed changed nothing: the lights it paused follow the schedule again.
+    func resume(_ entries: [Setting]) {
+        guard !entries.isEmpty else { return }
+        do {
+            try settings.update { saved in
+                for index in saved.indices where entries.contains(where: { $0.matches(saved[index]) }) { saved[index].paused = false }
+            }
+        } catch { return }
+        for entry in entries {
+            suspended.remove(identity(entry))
+            if let characteristic = observers[identity(entry)]?.first?.0 { characteristic.sendEvent(characteristic.value) }
+        }
+    }
+
+    /// Whether the light moved away from the temperature last written, beyond what a device's rounding explains:
+    /// lamps quantise to their own kelvin steps (often 50 or 100 K), which is many mireds at the warm end.
+    static func drifted(_ current: Int, from expected: Int) -> Bool {
+        guard current > 0, expected > 0 else { return current != expected }
+        return abs(1_000_000 / Double(current) - 1_000_000 / Double(expected)) > 100
     }
 
     func tick(_ catalog: HomeswiftCatalog, at now: Date) async {
@@ -133,34 +166,38 @@ public actor NaturalLighting {
         busy = true
         defer { busy = false }
         for entry in settings.value {
-            // Re-read after every awaited device write: a user may have disabled or paused another lamp meanwhile.
-            guard !suspended.contains(identity(entry)), settings.value.contains(where: {
-                $0.accessory == entry.accessory && $0.service == entry.service && !$0.paused
-            }) else { continue }
-            guard !Task.isCancelled, let located = catalog.find(id: entry.accessory), !located.accessory.isUnavailable,
-                  located.platform?.paused != true,
-                  let service = located.accessory.services.first(where: { Self.key($0) == entry.service && Self.eligible($0) }),
-                  let temperature = service[.colorTemperature], let zone = TimeZone(identifier: entry.timeZone) else { continue }
-            watch(service, entry: entry)
-            guard service[.on]?.value.boolValue == true else { continue }
-            let key = identity(entry)
-            // If another controller changed the white temperature, stop competing with it.
-            if let last = expected[key], let current = temperature.value.intValue, abs(current - last) > 2 {
-                pause(entry)
-                continue
-            }
-            let target = Self.mireds(at: now, timeZone: zone, minimum: temperature.type.minValue ?? 140, maximum: temperature.type.maxValue ?? 500)
-            if expected[key] != nil, temperature.value.intValue == target { continue }
-            do {
-                try await temperature.write(.int(target), context: ObjectIdentifier(self))
-                expected[key] = target
-                errors[key] = nil
-            } catch {
-                errors[key] = HomeswiftCatalog.describe((error as? HAPStatusError) ?? HAPStatusError(.serviceCommunicationFailure), of: located)
-                // A failed write does not establish an expected colour; try again on the next tick.
-                expected[key] = nil
-                catalog.logger.warning("Natural Lighting could not update a light", metadata: ["accessory": "\(located.accessory.name)", "error": "\(error)"])
-            }
+            guard !Task.isCancelled else { return }
+            await apply(entry, catalog: catalog, at: now)
+        }
+    }
+
+    /// Writes the curve's temperature to one light, unless it is off, paused, unreachable or changed by someone else.
+    private func apply(_ entry: Setting, catalog: HomeswiftCatalog, at now: Date) async {
+        // Re-read after every awaited device write: a user may have disabled or paused another lamp meanwhile.
+        guard !suspended.contains(identity(entry)), isActive(entry) else { return }
+        guard !Task.isCancelled, let located = catalog.find(id: entry.accessory), !located.accessory.isUnavailable,
+              located.platform?.paused != true,
+              let service = located.accessory.services.first(where: { Self.key($0) == entry.service && Self.eligible($0) }),
+              let temperature = service[.colorTemperature], let zone = TimeZone(identifier: entry.timeZone) else { return }
+        watch(service, entry: entry)
+        guard service[.on]?.value.boolValue == true else { return }
+        let key = identity(entry)
+        // If another controller changed the white temperature, stop competing with it.
+        if let last = expected[key], let current = temperature.value.intValue, Self.drifted(current, from: last) {
+            pause(entry)
+            return
+        }
+        let target = Self.mireds(at: now, timeZone: zone, minimum: temperature.type.minValue ?? 140, maximum: temperature.type.maxValue ?? 500)
+        if expected[key] != nil, temperature.value.intValue == target { return }
+        do {
+            try await temperature.write(.int(target), context: ObjectIdentifier(self))
+            expected[key] = target
+            errors[key] = nil
+        } catch {
+            errors[key] = HomeswiftCatalog.describe((error as? HAPStatusError) ?? HAPStatusError(.serviceCommunicationFailure), of: located)
+            // A failed write does not establish an expected colour; try again on the next tick.
+            expected[key] = nil
+            catalog.logger.warning("Natural Lighting could not update a light", metadata: ["accessory": "\(located.accessory.name)", "error": "\(error)"])
         }
     }
 }

@@ -193,19 +193,17 @@
     button.disabled = true;
     showRestartOverlay();
     const started = Date.now();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4000);
     try {
-      const response = await fetch("/api/restart", { method: "POST", credentials: "same-origin", signal: controller.signal });
+      const response = await fetch("/api/restart", { method: "POST", credentials: "same-origin", signal: AbortSignal.timeout(4000) });
       if (!response.ok) throw new ApiError(response.status, `HTTP ${response.status}`);
       // The process may exit before completing the response body. Headers are enough.
     } catch (e) {
       if (e instanceof ApiError) {
-        restartOverlay?.close(); restartOverlay?.remove(); restartOverlay = null;
+        closeRestartOverlay();
         alert(e.message); button.disabled = false; return;
       }
       // A disconnected or aborted request can mean the restart already began.
-    } finally { clearTimeout(timeout); }
+    }
     waitForRestart(started);
   }
 
@@ -222,15 +220,18 @@
     return restartOverlay;
   }
 
+  function closeRestartOverlay() {
+    restartOverlay?.close();
+    restartOverlay?.remove();
+    restartOverlay = null;
+  }
+
   async function finishRestart() {
-    const overlay = restartOverlay;
-    if (overlay?.isConnected && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      overlay.classList.add("restart-leaving");
+    if (restartOverlay?.isConnected && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      restartOverlay.classList.add("restart-leaving");
       await new Promise((resolve) => setTimeout(resolve, 220));
     }
-    overlay?.close();
-    overlay?.remove();
-    restartOverlay = null;
+    closeRestartOverlay();
     restartPolling = false;
     const restartButton = $("#restart");
     if (restartButton) restartButton.disabled = false;
@@ -255,17 +256,15 @@
     let wasOffline = false;
     let healthyReplies = 0;
     const poll = async () => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
       try {
-        const response = await fetch("/api/status", { credentials: "same-origin", cache: "no-store", signal: controller.signal });
+        const response = await fetch("/api/status", { credentials: "same-origin", cache: "no-store", signal: AbortSignal.timeout(5000) });
         if (response.ok) {
           const status = await response.json();
           healthyReplies++;
           const younger = Number.isFinite(status.uptimeSeconds) && status.uptimeSeconds < (Date.now() - started) / 1000 + 5;
           if (younger || (wasOffline && healthyReplies >= 2)) { await finishRestart(); return; }
         } else if (response.status === 401) { await finishRestart(); return; }
-      } catch { wasOffline = true; healthyReplies = 0; } finally { clearTimeout(timeout); }
+      } catch { wasOffline = true; healthyReplies = 0; }
       if (Date.now() < deadline) setTimeout(poll, 1000);
       else {
         restartPolling = false;
@@ -273,7 +272,7 @@
         overlay.querySelector("#restart-heading").textContent = t("homeswift did not come back; check its log.");
         overlay.querySelector("#restart-message").textContent = "";
         overlay.append(el("button", { actionIcon: "restore", class: "primary", text: t("Try again"), onclick: () => {
-          overlay.close(); overlay.remove(); restartOverlay = null;
+          closeRestartOverlay();
           waitForRestart(started);
         } }));
       }
@@ -1273,15 +1272,8 @@
       none.classList.toggle("hidden", shown > 0);
     }
     search.addEventListener("input", filter);
-    // Each with its glyph; a phone shows the glyphs alone.
     const groupings = [["none", t("One wall"), "wall"], ...(rooms.length ? [["room", t("By room"), "room"]] : []), ["plugin", t("By plugin"), "plugin"]];
-    const grouping = el("div", { class: "group with-icons", role: "group", "aria-label": t("Group the accessories") }, groupings.map(([value, text, glyph]) =>
-      el("button", { type: "button", title: text, "aria-label": text, class: layout.grouping === value ? "on" : "", "aria-pressed": String(layout.grouping === value), onclick: (event) => {
-        layout.grouping = value;
-        for (const button of grouping.children) { button.classList.toggle("on", button === event.currentTarget); button.setAttribute("aria-pressed", String(button === event.currentTarget)); }
-        save();
-        render();
-      } }, HomeswiftCommon.icon(glyph), el("span", { text }))));
+    const setGrouping = (value) => { layout.grouping = value; save(); render(); };
     const edit = el("button", { actionIcon: "sliders", type: "button", text: t("Edit"), "aria-pressed": "false", title: t("Sizes and order of the widgets"), onclick: () => {
       editing = !editing;
       edit.textContent = editing ? t("Done") : t("Edit");
@@ -1290,32 +1282,7 @@
       render();
     } });
 
-    /// A filter kept in the address: ticked, `key` is `value`.
-    const queryToggle = (key, value, checked, text) => el("label", { class: "toggle compact" }, el("input", { type: "checkbox", checked, onchange: (event) => {
-      const next = new URLSearchParams(location.search);
-      if (event.target.checked) next.set(key, value); else next.delete(key);
-      navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
-    } }), el("span", { text }));
-    const hiddenToggle = hiddenCount ? queryToggle("hidden", "1", showHidden, t("Show hidden ({count})", { count: hiddenCount })) : null;
-    const sourceToggles = sources.map((source) => {
-      const count = all.filter((accessory) => accessory.mirroredFrom === source).length;
-      const label = t("Only from {source}", { source: t(source) });
-      const explanation = source === "Apple Home"
-        ? t("Show only accessories shared by Apple Home through Wingman. Turn off to show all accessories.")
-        : t("Show only accessories from {source}. Turn off to show all accessories.", { source: t(source) });
-      const input = el("input", { type: "checkbox", role: "switch", checked: from === source, "aria-label": label, "aria-description": explanation, title: explanation,
-        onchange: (event) => {
-          const next = new URLSearchParams(location.search);
-          if (event.target.checked) next.set("from", source); else next.delete("from");
-          navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
-        } });
-      return el("label", { class: "source-toggle", title: explanation },
-        source === "Apple Home" ? el("img", { class: "source-home-icon", src: "/apple-home.png", alt: "", "aria-hidden": "true" }) : el("span", { class: "source-toggle-label", text: t(source) }),
-        el("span", { class: "source-count", text: String(count) }),
-        el("span", { class: "switch" }, input, el("span", { "aria-hidden": "true" })));
-    });
-    const suggest = isAdmin() && window.HomeswiftChat?.available() && all.length
-      ? el("button", { class: "ai-button icon-on-phone", title: t("Suggest rooms"), "aria-label": t("Suggest rooms"), onclick: () => HomeswiftHome.suggestRooms(content, all) }, sparkle(), el("span", { text: t("Suggest rooms") })) : null;
+    const canSuggest = isAdmin() && window.HomeswiftChat?.available() && all.length;
 
     const changeFilter = (key, value, enabled) => {
       const next = new URLSearchParams(location.search);
@@ -1345,8 +1312,8 @@
     const more = menuButton(t("Accessory options"), () => [
       { label: t("Create group"), icon: "group", onSelect: () => groupingControls.edit() },
       { separator: true },
-      ...groupings.map(([value, label, icon], index) => ({ label, icon, checked: layout.grouping === value, onSelect: () => grouping.children[index].click() })),
-      ...(suggest ? [{ separator: true }, { label: t("Suggest rooms"), icon: "sparkle", onSelect: () => suggest.click() }] : [])
+      ...groupings.map(([value, label, icon]) => ({ label, icon, checked: layout.grouping === value, onSelect: () => setGrouping(value) })),
+      ...(canSuggest ? [{ separator: true }, { label: t("Suggest rooms"), icon: "sparkle", onSelect: () => HomeswiftHome.suggestRooms(content, all) }] : [])
     ]);
     more.replaceChildren(HomeswiftCommon.icon("sliders"));
     more.classList.add("accessory-options-button");
