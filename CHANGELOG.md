@@ -29,6 +29,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Accessories: a group whose members differ shows it plainly rather than "Mixed" beside a switch that moved: the
+  switch half lit with its thumb between and "2 of 5 on" under its name (a tap turns them all on), and each slider
+  the spread of its members, "40–80 %", solid to the lowest and lighter to the highest.
 - The Assistant's prompts are Markdown files in `Sources/HomeswiftAI/Prompts/`, one per feature, embedded into the
   binary by `Scripts/embed-assets.swift prompts`; the prompts themselves are unchanged.
 - The writes of one HomeKit request run at the same time, as in HAP-NodeJS: a light's brightness and colour reach the

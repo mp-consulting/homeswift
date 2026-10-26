@@ -182,11 +182,15 @@
             busy = false; input.inert = editing; input.blur(); draw();
           };
           if (isBool) {
-            input = el('input', { type: 'checkbox', checked: Boolean(values[0]), disabled: editing });
+            // Some on, some off: the switch half lit, its thumb between, and how many are on under its name; a tap turns
+            // them all on, as a mixed checkbox goes to on. The switch stays where every switch is.
+            const on = values.filter((value) => Number(value) > 0).length;
+            input = el('input', { type: 'checkbox', checked: mixed ? false : Boolean(values[0]), disabled: editing });
             input.setAttribute('aria-label', HomeswiftI18n.message(type)); input.indeterminate = mixed;
             input.addEventListener('change', () => commit(type === 'Active' ? Number(input.checked) : input.checked));
-            return el('label', {}, el('span', { text: HomeswiftI18n.message(type) }), input,
-              mixed ? el('span', { class: 'muted', text: t('Mixed') }) : null);
+            const count = mixed ? el('span', { class: 'group-count', text: HomeswiftI18n.tn('{n} of {count} on [one]', '{n} of {count} on', on, { count: values.length }) }) : null;
+            if (count) input.setAttribute('aria-description', count.textContent);
+            return el('label', {}, el('span', { class: 'group-name' }, el('span', { text: HomeswiftI18n.message(type) }), count), input);
           }
           const { level, kelvin, whiteColor } = HomeswiftWidgets.controls;
           const min = temperature ? kelvin(high) : low, max = temperature ? kelvin(low) : high;
@@ -200,8 +204,11 @@
           input.setAttribute('aria-disabled', String(editing));
           control.set(temperature ? kelvin(values[0] || high) : values[0] ?? low);
           if (mixed) {
-            input.querySelector('.level-text').textContent = t('Mixed');
-            input.setAttribute('aria-valuetext', t('Mixed'));
+            // The spread, from the lowest to the highest member, rather than one member's value: "40–80 %".
+            const shown = values.map((value) => temperature ? kelvin(value || high) : Number(value) || 0);
+            const [least, most] = [Math.min(...shown), Math.max(...shown)];
+            const unit = temperature ? ' K' : type === 'Hue' ? '°' : ' %';
+            control.range(least, most, `${least}–${most}${unit}`);
           }
           return input;
         }).filter(Boolean));
