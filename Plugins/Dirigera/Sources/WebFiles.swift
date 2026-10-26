@@ -52,7 +52,7 @@ h2 { margin: 0 0 10px; }
   // The card plugin.js draws for both lighting pages: a block per hub (config.json's, paired ones, and the ones found
   // on the network), its pairing, and the address form.
   const card = homeswift.bridgePairing({
-    card: $("#hubs"), tone: "blue", button: "hub",
+    card: $("#hubs"), tone: "blue", button: "bridge",
     texts: {
       name: t("DIRIGERA hub"), pairTitle: t("Pair Homeswift with the hub."), press: t("Press the action button under the hub."),
       pairHelp: t("Pair, then press the action button under the hub within a minute. The token stays in the plugin's folder, not in config.json."),

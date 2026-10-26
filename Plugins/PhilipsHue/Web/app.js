@@ -6,7 +6,7 @@
 // card, tabs, scene pictures, speed scale and tile text come from plugin.js.
 (() => {
   "use strict";
-  const { t, tn } = HomeswiftI18n;
+  const { t } = HomeswiftI18n;
   const { $, el, icon, request, act, readBlock, updateBlock, setKey, poll, renderKeyed } = homeswift;
 
   let status = {};
@@ -66,9 +66,26 @@
       ...names.map((name) => el("button", { actionIcon: "eye", text: name, title: t("Show in the Home app"), onclick: () => toggleList("excludeLights", name) }))] : []));
   }
 
+  // The lights' finder, over the plugin's widgets: each light with its room from the bridge.
+  const lightFinder = finder({
+    toolbar: $("#light-toolbar"), placeholder: t("Search lights"), prefix: "l", foldKey: "hue-folded-light-rooms", draw: () => drawLights(),
+    items: () => accessories.map((accessory) => {
+      const light = lights.find((entry) => `PhilipsHue:${entry.id}` === accessory.id);
+      return { id: accessory.id, name: accessory.name, room: light?.room ?? null, roomID: light?.roomID ?? null, light: light ?? {} };
+    }),
+    filters: [
+      // The bridge keeps a light it cannot reach on: only one that answers is on now.
+      ["on", t("On now"), "bulb", (item) => item.light.on === true && item.light.reachable !== false],
+      ["colour", t("Colour lights"), "sparkle", (item) => item.light.kind === "colour"],
+      ["effects", t("With effects"), "star", (item) => (item.light.effects?.length ?? 0) > 0],
+      ["unreachable", t("No Response"), "warning", (item) => item.light.reachable === false],
+    ],
+  });
+
   let listening = false;
   async function drawLights() {
     const list = $("#lights");
+    lightFinder.show(status.paired && accessories.length > 0);
     if (!status.paired) {
       list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("Pair with the bridge to see its lights.") })));
       drawHidden([]);
@@ -82,10 +99,15 @@
     if (!accessories.length) {
       list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("The bridge has no lights yet: add them in the Hue app.") })));
     } else {
-      if (list.querySelector(".card.empty")) list.replaceChildren();
-      // A widget per accessory, drawn once: its values follow the bridge's event stream.
-      renderKeyed(list, accessories.map((accessory) => ({ id: accessory.id, name: accessory.name, services: accessory.services.length })), (item) => item.id,
-        (item) => HomeswiftWidgets.card(accessories.find((accessory) => accessory.id === item.id), { size: "large", actions: actionsFor }));
+      lightFinder.show(true);
+      // A widget per accessory, drawn once in its room's wall: its values follow the bridge's event stream. A light
+      // that is on or off is not a new widget: only what the finder sorts by goes in its key.
+      lightFinder.draw(list, {
+        countText: (shown, total) => t("{shown} of {total} lights", { shown, total }),
+        emptyText: t("No light matches the search and filters."), bodyClass: "wall",
+        render: (body, items) => renderKeyed(body, items.map((item) => ({ id: item.id, name: item.name, services: accessories.find((accessory) => accessory.id === item.id)?.services.length })), (item) => item.id,
+          (item) => HomeswiftWidgets.card(accessories.find((accessory) => accessory.id === item.id), { size: "large", actions: actionsFor })),
+      });
       if (!listening) { HomeswiftWidgets.listen(); listening = true; }
     }
     drawHidden(lights.filter((item) => item.hidden).map((item) => item.name));
@@ -212,109 +234,181 @@
     return pictures.decorate(button, scene, `${scene.room}/${scene.name}`);
   }
 
-  // MARK: Finding a scene
+  // MARK: Finding a light or a scene
 
-  // A bridge has dozens of scenes per room: a search (scene and room names, accents aside), a room, filters with
-  // their counts, and the order, kept in the page's address so a reload or a link keeps them.
-  const query = new URLSearchParams(location.search);
   const fold = (text) => String(text ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  const sceneFilters = [
-    ["on", t("On now"), "bulb", (scene) => scene.active],
-    ["autoplay", t("Autoplay"), "loop", (scene) => scene.autoplay && scene.palette && !scene.smart],
-    ["colour", t("Colour scenes"), "sparkle", (scene) => scene.colourful],
-    ["picture", t("With a picture"), "image", (scene) => Boolean(scene.picture)],
-    ["hidden", t("Not in the Home app"), "eye", (scene) => scene.hidden],
-  ];
-  const activeFilters = new Set(sceneFilters.map(([key]) => key).filter((key) => query.has(key)));
-  const sceneSearch = el("input", { type: "search", class: "search", placeholder: t("Search scenes"), "aria-label": t("Search scenes"), value: query.get("q") ?? "" });
-  const roomPicker = el("select", { class: "popup", "aria-label": t("Room") });
-  const sortPicker = el("select", { class: "popup", "aria-label": t("Order") },
-    el("option", { value: "room", text: t("By room") }), el("option", { value: "name", text: t("By name") }));
-  sortPicker.value = query.get("sort") === "name" ? "name" : "room";
-  const filterButton = el("button", { type: "button", actionIcon: "sliders", "aria-haspopup": "menu" });
-  const sceneCount = el("span", { class: "count muted", "aria-live": "polite" });
-  $("#scene-toolbar").append(sceneSearch, roomPicker, sortPicker, filterButton, sceneCount);
 
-  /// Writes the search, room, order and filters into the address, without a new history entry.
-  function keepInAddress() {
-    const next = new URLSearchParams();
-    if (sceneSearch.value.trim()) next.set("q", sceneSearch.value.trim());
-    if (roomPicker.value) next.set("room", roomPicker.value);
-    if (sortPicker.value === "name") next.set("sort", "name");
-    for (const key of activeFilters) next.set(key, "1");
-    history.replaceState(history.state, "", `${location.pathname}${next.size ? `?${next}` : ""}`);
-  }
-  const changed = () => { keepInAddress(); drawScenes(); };
-  sceneSearch.addEventListener("input", changed);
-  roomPicker.addEventListener("change", changed);
-  sortPicker.addEventListener("change", changed);
-
-  function clearSceneFilters() {
-    sceneSearch.value = "";
-    roomPicker.value = "";
-    activeFilters.clear();
-    changed();
+  /// The room or zone's pill, as the bridge has it: on or off.
+  function roomPill(id) {
+    const group = groups.find((entry) => entry.id === id);
+    if (!group) return null;
+    return el("span", { class: `pill status ${group.on ? "on" : "standby"}`, text: group.kind === "zone" ? (group.on ? t("Zone on") : t("Zone off")) : (group.on ? t("Room on") : t("Room off")) });
   }
 
-  /// Every scene with its room, those the search and room keep (what a filter counts in), and those shown.
-  function sceneView() {
-    const text = fold(sceneSearch.value.trim());
-    const all = groups.flatMap((group) => group.scenes.map((scene) => ({ ...scene, room: group.name, groupID: group.id })));
-    const base = all.filter((scene) => (!roomPicker.value || scene.groupID === roomPicker.value)
-      && (!text || fold(scene.name).includes(text) || fold(scene.room).includes(text)));
-    const predicates = sceneFilters.filter(([key]) => activeFilters.has(key)).map(([, , , predicate]) => predicate);
-    return { all, base, shown: base.filter((scene) => predicates.every((predicate) => predicate(scene))) };
+  /// What finds a light or a scene among dozens, the same on both tabs: a toolbar (a search of names and rooms,
+  /// accents aside; a room; by room or by name; Filters with their counts and Clear filters) kept in the page's
+  /// address under `prefix`, each tab its own; and the list it keeps, a section per room (its name folds it away,
+  /// remembered under `foldKey`, unless a search or a filter is on) or one list by name. `items()` answers the items,
+  /// each { id, name, room, roomID }; `filters` are [key, label, icon, predicate]; `draw()` draws the list again.
+  function finder({ toolbar, placeholder, prefix = "", items, filters, foldKey, draw }) {
+    const param = (key) => prefix + key;
+    const query = new URLSearchParams(location.search);
+    const active = new Set(filters.map(([key]) => key).filter((key) => query.has(param(key))));
+    const search = el("input", { type: "search", class: "search", placeholder, "aria-label": placeholder, value: query.get(param("q")) ?? "" });
+    const room = el("select", { class: "popup", "aria-label": t("Room") });
+    const order = el("select", { class: "popup", "aria-label": t("Order") },
+      el("option", { value: "room", text: t("By room") }), el("option", { value: "name", text: t("By name") }));
+    order.value = query.get(param("sort")) === "name" ? "name" : "room";
+    const button = el("button", { type: "button", actionIcon: "sliders", "aria-haspopup": "menu" });
+    toolbar.append(search, room, order, button);
+    // Under the toolbar while a search or a filter narrows the list: how many it keeps, and the way back.
+    const status = el("div", { class: "finder-status", "aria-live": "polite" });
+    toolbar.after(status);
+    let wantedRoom = query.get(param("room")) || "";
+
+    /// Writes this tab's search, room, order and filters into the address, the other tab's left as they are.
+    function keep() {
+      const next = new URLSearchParams(location.search);
+      for (const key of ["q", "room", "sort", ...filters.map(([key]) => key)]) next.delete(param(key));
+      if (search.value.trim()) next.set(param("q"), search.value.trim());
+      if (room.value) next.set(param("room"), room.value);
+      if (order.value === "name") next.set(param("sort"), "name");
+      for (const key of active) next.set(param(key), "1");
+      history.replaceState(history.state, "", `${location.pathname}${next.size ? `?${next}` : ""}`);
+    }
+    const changed = () => { wantedRoom = room.value; keep(); draw(); };
+    search.addEventListener("input", changed);
+    room.addEventListener("change", changed);
+    order.addEventListener("change", changed);
+    function clear() {
+      search.value = "";
+      room.value = "";
+      active.clear();
+      changed();
+    }
+
+    /// Every item, those the search and room keep (what a filter counts in), and those shown.
+    function view() {
+      const text = fold(search.value.trim());
+      const all = items();
+      const base = all.filter((item) => (!room.value || item.roomID === room.value) && (!text || fold(item.name).includes(text) || fold(item.room).includes(text)));
+      const predicates = filters.filter(([key]) => active.has(key)).map(([, , , predicate]) => predicate);
+      const shown = base.filter((item) => predicates.every((predicate) => predicate(item)));
+      return { all, base, shown, narrowed: shown.length !== all.length };
+    }
+
+    /// The rooms, by name, with how many items each has: the room menu (drawn again only when they change; a room the
+    /// address names that is gone falls back to all) and the order of the sections.
+    let roomsKey = "";
+    function rooms() {
+      const found = new Map();
+      for (const item of items()) if (item.roomID) found.set(item.roomID, { name: item.room, count: (found.get(item.roomID)?.count ?? 0) + 1 });
+      return [...found].sort(([, a], [, b]) => a.name.localeCompare(b.name));
+    }
+    function drawRooms(list) {
+      const key = JSON.stringify(list);
+      if (key === roomsKey) return;
+      roomsKey = key;
+      room.replaceChildren(el("option", { value: "", text: t("All rooms") }), ...list.map(([id, entry]) => el("option", { value: id, text: `${entry.name} (${entry.count})` })));
+      room.value = list.some(([id]) => id === wantedRoom) ? wantedRoom : "";
+    }
+
+    button.addEventListener("click", () => {
+      const { base } = view();
+      HomeswiftCommon.menu(button, [
+        ...filters.map(([key, label, iconName, predicate]) => ({
+          label, icon: iconName, count: base.filter(predicate).length, checkbox: true, toggle: true, keepOpen: true, checked: active.has(key),
+          onSelect: () => {
+            if (active.has(key)) active.delete(key); else active.add(key);
+            changed();
+            return active.has(key);
+          },
+        })),
+        { separator: true },
+        { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: !search.value && !room.value && !active.size, onSelect: clear },
+      ]);
+    });
+
+    const folded = new Set((() => { try { return JSON.parse(localStorage.getItem(foldKey) || "[]"); } catch { return []; } })());
+    function toggleFold(id) {
+      if (folded.has(id)) folded.delete(id); else folded.add(id);
+      try { localStorage.setItem(foldKey, JSON.stringify([...folded])); } catch {}
+      draw();
+    }
+
+    return {
+      show(visible) {
+        toolbar.classList.toggle("hidden", !visible);
+        if (!visible) { status.replaceChildren(); delete status.dataset.key; }
+      },
+      /// Draws `list`: how many the search and filters keep (`countText(shown, total)`), `emptyText` with Clear
+      /// filters when none, else a
+      /// section per room (those without one last, under "No room") or one by name, each a `bodyClass` element
+      /// whose items `render(body, items)` draws.
+      draw(list, { countText, emptyText, bodyClass, render }) {
+        const roomList = rooms();
+        drawRooms(roomList);
+        const active_ = active.size;
+        button.classList.toggle("on", active_ > 0);
+        button.replaceChildren(...[el("span", { text: t("Filters") }), active_ ? el("span", { class: "toolbar-count", text: String(active_) }) : null].filter(Boolean));
+        const { all, shown, narrowed } = view();
+        const statusKey = narrowed ? `${shown.length}/${all.length}` : "";
+        if (status.dataset.key !== statusKey) {
+          status.dataset.key = statusKey;
+          status.replaceChildren(...(narrowed ? [el("span", { text: countText(shown.length, all.length) }),
+            el("button", { type: "button", class: "small", actionIcon: "restore", text: t("Clear filters"), onclick: clear })] : []));
+        }
+        if (!shown.length) {
+          list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: emptyText })));
+          return;
+        }
+        if (list.querySelector(":scope > .card.empty")) list.replaceChildren();
+        const byName = order.value === "name";
+        const sections = byName
+          ? [{ id: "*", name: null, items: [...shown].sort((a, b) => a.name.localeCompare(b.name) || fold(a.room).localeCompare(fold(b.room))) }]
+          : [...roomList.map(([id, entry]) => ({ id, name: entry.name, items: shown.filter((item) => item.roomID === id) })),
+            { id: "-", name: t("No room"), items: shown.filter((item) => !item.roomID) }].filter((section) => section.items.length);
+        renderKeyed(list, sections.map((section) => ({ id: section.id })), (section) => section.id,
+          () => el("section", { class: "room" }, el("div", { class: "room-head" }), el("div", { class: bodyClass })));
+        sections.forEach((section, index) => {
+          const node = list.children[index];
+          const [head, body] = node.children;
+          const isFolded = !narrowed && section.name !== null && folded.has(section.id);
+          node.classList.toggle("folded", isFolded);
+          head.classList.toggle("hidden", section.name === null);
+          const pill = roomPill(section.id);
+          const headKey = JSON.stringify([section.name, section.items.length, isFolded, pill?.outerHTML ?? null]);
+          if (section.name !== null && head.dataset.json !== headKey) {
+            head.dataset.json = headKey;
+            head.replaceChildren(...[
+              el("button", { type: "button", class: "room-fold", "aria-expanded": String(!isFolded), onclick: () => toggleFold(section.id) },
+                el("span", { class: "chevron", "aria-hidden": "true" }), el("h2", { text: section.name }), el("span", { class: "muted room-count", text: String(section.items.length) })),
+              pill].filter(Boolean));
+          }
+          render(body, isFolded ? [] : section.items.map((item) => ({ ...item, showRoom: byName })));
+        });
+      },
+    };
   }
 
-  /// The room menu, drawn again only when the rooms change; a room the address names that is gone falls back to all.
-  let roomsKey = "";
-  function drawRoomPicker() {
-    const key = JSON.stringify(groups.map((group) => [group.id, group.name, group.scenes.length]));
-    if (key === roomsKey) return;
-    roomsKey = key;
-    const wanted = roomPicker.value || query.get("room") || "";
-    roomPicker.replaceChildren(el("option", { value: "", text: t("All rooms") }),
-      ...groups.map((group) => el("option", { value: group.id, text: `${group.name} (${group.scenes.length})` })));
-    roomPicker.value = groups.some((group) => group.id === wanted) ? wanted : "";
-  }
-
-  filterButton.addEventListener("click", () => {
-    const { base } = sceneView();
-    HomeswiftCommon.menu(filterButton, [
-      ...sceneFilters.map(([key, label, iconName, predicate]) => ({
-        label, icon: iconName, count: base.filter(predicate).length, checkbox: true, toggle: true, keepOpen: true, checked: activeFilters.has(key),
-        onSelect: () => {
-          if (activeFilters.has(key)) activeFilters.delete(key); else activeFilters.add(key);
-          changed();
-          return activeFilters.has(key);
-        },
-      })),
-      { separator: true },
-      { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: !sceneSearch.value && !roomPicker.value && !activeFilters.size, onSelect: clearSceneFilters },
-    ]);
+  // The scenes' finder: Colour scenes leaves out the whites of Hue's standard scenes.
+  const sceneFinder = finder({
+    toolbar: $("#scene-toolbar"), placeholder: t("Search scenes"), items: () => groups.flatMap((group) => group.scenes.map((scene) => ({ ...scene, room: group.name, roomID: group.id }))),
+    foldKey: "hue-folded-rooms", draw: () => drawScenes(),
+    filters: [
+      ["on", t("On now"), "bulb", (scene) => scene.active],
+      ["autoplay", t("Autoplay"), "loop", (scene) => scene.autoplay && scene.palette && !scene.smart],
+      ["colour", t("Colour scenes"), "sparkle", (scene) => scene.colourful],
+      ["picture", t("With a picture"), "image", (scene) => Boolean(scene.picture)],
+      ["hidden", t("Not in the Home app"), "eye", (scene) => scene.hidden],
+    ],
   });
 
-  /// The Filters button with how many are on.
-  function drawFilterButton() {
-    const count = activeFilters.size;
-    filterButton.classList.toggle("on", count > 0);
-    filterButton.replaceChildren(...[el("span", { text: t("Filters") }), count ? el("span", { class: "toolbar-count", text: String(count) }) : null].filter(Boolean));
-  }
-
-  // Rooms folded away, by group id, kept between visits; a search or a filter shows every room that matches.
-  const folded = new Set((() => { try { return JSON.parse(localStorage.getItem("hue-folded-rooms") || "[]"); } catch { return []; } })());
-  function toggleFold(id) {
-    if (folded.has(id)) folded.delete(id); else folded.add(id);
-    try { localStorage.setItem("hue-folded-rooms", JSON.stringify([...folded])); } catch {}
-    drawScenes();
-  }
-
-  /// The scenes as the toolbar asks: a section per room (its head drawn again when the room changes, a tile per scene
-  /// drawn again only when its own scene changes, so a recall does not repaint every picture), or one list by name.
+  /// The scenes as the toolbar asks; a tile is drawn again only when its own scene changes, so a recall does not
+  /// repaint every picture.
   function drawScenes() {
     const list = $("#scenes");
-    const paired = status.paired && groups.length;
-    $("#scene-toolbar").classList.toggle("hidden", !paired);
+    sceneFinder.show(status.paired && groups.length);
     if (!status.paired) {
       list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("Pair with the bridge to see its scenes.") })));
       return;
@@ -323,38 +417,10 @@
       list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("No scenes yet: make some in the Hue app.") })));
       return;
     }
-    drawRoomPicker();
-    drawFilterButton();
-    const { all, shown } = sceneView();
-    const narrowed = shown.length !== all.length;
-    sceneCount.textContent = narrowed ? t("{shown} of {total} scenes", { shown: shown.length, total: all.length }) : tn("{n} scene", "{n} scenes", all.length);
-    if (!shown.length) {
-      list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("No scene matches the search and filters.") }),
-        el("button", { type: "button", actionIcon: "restore", text: t("Clear filters"), onclick: clearSceneFilters })));
-      return;
-    }
-    if (list.querySelector(":scope > .card.empty")) list.replaceChildren();
-    const byName = sortPicker.value === "name";
-    const sections = byName
-      ? [{ id: "*", name: null, scenes: [...shown].sort((a, b) => a.name.localeCompare(b.name) || a.room.localeCompare(b.room)) }]
-      : groups.map((group) => ({ ...group, scenes: shown.filter((scene) => scene.groupID === group.id) })).filter((section) => section.scenes.length);
-    renderKeyed(list, sections.map((section) => ({ id: section.id })), (section) => section.id,
-      () => el("section", { class: "room" }, el("div", { class: "room-head" }), el("div", { class: "scene-tiles" })));
-    sections.forEach((section, index) => {
-      const node = list.children[index];
-      const [head, tiles] = node.children;
-      const isFolded = !narrowed && section.name !== null && folded.has(section.id);
-      node.classList.toggle("folded", isFolded);
-      head.classList.toggle("hidden", section.name === null);
-      const headKey = JSON.stringify([section.name, section.kind, section.on, section.scenes.length, isFolded]);
-      if (section.name !== null && head.dataset.json !== headKey) {
-        head.dataset.json = headKey;
-        head.replaceChildren(
-          el("button", { type: "button", class: "room-fold", "aria-expanded": String(!isFolded), onclick: () => toggleFold(section.id) },
-            el("span", { class: "chevron", "aria-hidden": "true" }), el("h2", { text: section.name }), el("span", { class: "muted room-count", text: String(section.scenes.length) })),
-          el("span", { class: `pill status ${section.on ? "on" : "standby"}`, text: section.kind === "zone" ? (section.on ? t("Zone on") : t("Zone off")) : (section.on ? t("Room on") : t("Room off")) }));
-      }
-      renderKeyed(tiles, isFolded ? [] : section.scenes.map((scene) => ({ ...scene, showRoom: byName })), (scene) => scene.id, sceneTile);
+    sceneFinder.draw(list, {
+      countText: (shown, total) => t("{shown} of {total} scenes", { shown, total }),
+      emptyText: t("No scene matches the search and filters."), bodyClass: "scene-tiles",
+      render: (body, scenes) => renderKeyed(body, scenes, (scene) => scene.id, sceneTile),
     });
   }
 

@@ -442,6 +442,10 @@ struct PhilipsHueTests {
         #expect(strip["kind"] == "colour")
         #expect(strip["effects"] == ["candle", "fire"])
         #expect(strip["gradient"]?.arrayValue?.count == 2)
+        // A light's room is the room its device is in; a zone does not count.
+        #expect(strip["room"] == "Living room")
+        #expect(strip["roomID"] == "room-1")
+        #expect(lights.json["lights"]?.arrayValue?.first { $0["id"] == "light-2" }?["room"] == .null)
         let scenes = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "scenes", user: "admin"))
         let room = try #require(scenes.json["groups"]?[0])
         #expect(room["name"] == "Living room")

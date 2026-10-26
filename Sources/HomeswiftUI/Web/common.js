@@ -42,9 +42,8 @@
     sparkle: '<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/>',
     ungroup: '<rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><path d="M3 9V3h6M3 3l5 5M15 21h6v-6M21 21l-5-5"/>',
     group: '<rect x="3" y="8" width="13" height="13" rx="3"/><path d="M8 8V6a3 3 0 0 1 3-3h7a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3h-2M7 14.5h5M9.5 12v5"/>',
-    bridge: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/>',
-    // A lighting bridge or hub (Hue Bridge, DIRIGERA): the box on the shelf, its light, and the radio it speaks.
-    hub: '<rect x="4" y="13" width="16" height="7.5" rx="2.5"/><path d="M8 16.75h.01M8.5 9.5a5 5 0 0 1 7 0M6 7a8.5 8.5 0 0 1 12 0"/>',
+    // A bridge, Homeswift's own or a Hue Bridge or DIRIGERA hub: the box on the shelf, its light, the radio it speaks.
+    bridge: '<rect x="4" y="13" width="16" height="7.5" rx="2.5"/><path d="M8 16.75h.01M8.5 9.5a5 5 0 0 1 7 0M6 7a8.5 8.5 0 0 1 12 0"/>',
     // Plays again and again: a scene's Autoplay, a play inside a turning arrow.
     loop: '<path d="M19.8 16.5A9 9 0 1 1 18.4 5.6"/><path d="M20.5 3v5.5H15z" fill="currentColor"/><path d="M10 8.5v7l5.5-3.5z" fill="currentColor"/>',
     // Pairing: two links of a chain on the diagonal.
@@ -129,10 +128,12 @@
     node.style.setProperty("--action-icon", url);
   }
 
-  /// An icon as an SVG element.
+  /// An icon as an SVG element, drawn as the UI's icons are (lines of the current colour) by its own attributes, so
+  /// one placed where no style sizes and strokes it is still a line drawing, not a filled shape; a style overrides them.
   function icon(name) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 24 24");
+    for (const [key, value] of [["fill", "none"], ["stroke", "currentColor"], ["stroke-width", "2"], ["stroke-linecap", "round"], ["stroke-linejoin", "round"]]) svg.setAttribute(key, value);
     svg.classList.add(`icon-${name}`);
     svg.innerHTML = icons[name] ?? icons.generic;
     return svg;

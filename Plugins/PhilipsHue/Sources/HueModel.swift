@@ -25,6 +25,9 @@ struct HueLight: Sendable, Equatable {
     var effect: String?
     /// Whether it takes `effects_v2` (an effect with a speed) rather than `effects`.
     var effectsV2 = false
+    /// The room its device is in (a room holds devices; a zone, which crosses rooms, does not count).
+    var roomID: String?
+    var room: String?
     var signals: [String] = []
     /// A gradient light's points (at most 5) and how many it takes; 0 on other lights.
     var gradientPoints: [HueXY] = []
@@ -89,6 +92,7 @@ struct HueSnapshot: Sendable, Equatable {
         var devices: [String: JSONValue] = [:]
         var groupedLights: [String: (on: Bool, brightness: Double?)] = [:]
         var unreachable: Set<String> = []
+        var roomOfDevice: [String: (id: String, name: String)] = [:]
         for resource in resources {
             guard let id = resource["id"]?.stringValue else { continue }
             switch resource["type"]?.stringValue {
@@ -111,6 +115,11 @@ struct HueSnapshot: Sendable, Equatable {
                 light.reachable = !unreachable.contains(light.deviceID)
                 lights.append(light)
             case "room", "zone":
+                if resource["type"]?.stringValue == "room", let name = resource["metadata"]?["name"]?.stringValue {
+                    for child in resource["children"]?.arrayValue ?? [] where child["rtype"]?.stringValue == "device" {
+                        if let device = child["rid"]?.stringValue { roomOfDevice[device] = (id, name) }
+                    }
+                }
                 let grouped = resource["services"]?.arrayValue?.first { $0["rtype"]?.stringValue == "grouped_light" }?["rid"]?.stringValue
                 groups.append(HueGroup(
                     id: id, kind: resource["type"]?.stringValue ?? "room", name: resource["metadata"]?["name"]?.stringValue ?? "Room",
@@ -126,6 +135,9 @@ struct HueSnapshot: Sendable, Equatable {
                     active: resource["state"]?.stringValue == "active", smart: true))
             default: break
             }
+        }
+        for index in lights.indices {
+            (lights[index].roomID, lights[index].room) = (roomOfDevice[lights[index].deviceID]?.id, roomOfDevice[lights[index].deviceID]?.name)
         }
         // The bridge keeps a scene's status after its room is switched off (a dimmer, the Hue app, the Home app):
         // a scene is on, and plays, only while its room or zone is on.
