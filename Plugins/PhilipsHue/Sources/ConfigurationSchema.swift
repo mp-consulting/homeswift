@@ -62,6 +62,12 @@ extension PhilipsHuePlugin {
         "default": true,
         "description": "A switch for each effect a light has (candle, fire, sparkle, prism…)."
       },
+      "roomLights": {
+        "title": "Room Lights",
+        "type": "boolean",
+        "default": false,
+        "description": "A lightbulb on each room's and zone's accessory: on, off and brightness for all its lights at once, as one command, like the Hue app's room controls."
+      },
       "flashSwitch": {
         "title": "Flash Switch",
         "type": "boolean",
@@ -90,7 +96,7 @@ extension PhilipsHuePlugin {
       "type": "fieldset",
       "title": "Scenes and Effects",
       "expandable": true,
-      "items": ["scenes", "dynamicScenes", "excludeScenes", "effects", "flashSwitch", "gradientPoints"]
+      "items": ["scenes", "roomLights", "dynamicScenes", "excludeScenes", "effects", "flashSwitch", "gradientPoints"]
     },
     {
       "type": "fieldset",

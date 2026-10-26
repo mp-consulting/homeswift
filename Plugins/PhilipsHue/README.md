@@ -36,6 +36,7 @@ config.json, with the bridge's certificate pinned on first use. One block per br
 | `dynamicScenes` | `false` | Recall scenes with their colours moving, as the Hue app's play button |
 | `excludeScenes` | `[]` | Scene names, `Room/Scene` or ids to leave out |
 | `effects` | `true` | A switch for each effect a light has |
+| `roomLights` | `false` | A lightbulb on each room's and zone's accessory: on, off and brightness for all its lights in one command, as the Hue app's room controls |
 | `flashSwitch` | `false` | A switch on each light that makes it flash for five seconds (Hue's signaling) |
 | `gradientPoints` | `false` | On gradient lightstrips and lamps, a lightbulb per colour point (up to five), so each part takes its own colour |
 | `excludeLights` | `[]` | Light names or ids to leave out of HomeKit |
@@ -46,6 +47,24 @@ Each room and zone with scenes is an accessory, "<Room> Scenes", with a switch p
 transition), the switch shows on while the bridge says the scene is active, and **Off** switches the room's lights off.
 Smart scenes (natural light) are switches too: On activates, Off deactivates. Scenes made in the Hue app show up at
 the next poll.
+
+### Room lights
+
+With `roomLights`, each room and zone also gets a lightbulb, named after it, at the head of its accessory (a zone
+without scenes gets an accessory for it alone). It drives the room's `grouped_light`, as the Hue app's room controls
+do: on, off and brightness reach every light of the room in one command, with the transition, where the Home app's
+room controls send one command per light and the lights change one after the other. It shows the on and brightness
+the bridge reports for the room. Colour stays with the scenes: the bridge does not report a room's colour. The
+plugin reads rooms and zones and never changes them; they are made in the Hue app.
+
+### A Hue Bridge already in the Home app
+
+Pairing the plugin with the bridge does not touch the bridge's own HomeKit pairing (a bridge keeps many application
+keys), but the lights then show twice in the Home app: once from the bridge, once from Homeswift, both working.
+Either keep the bridge in the Home app and leave the lights out of Homeswift (`excludeLights`, or a light's ⋯ menu on
+the page), using it for scenes, room lights and what HomeKit's Hue lacks; or remove the bridge from the Home app and
+use Homeswift's accessories, with effects, Flash, gradient points and room lights, putting rooms and automations on
+them again. The Hue app keeps working either way.
 
 ### Effects, Flash and gradients
 

@@ -25,6 +25,8 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         /// Seconds between polls; 1 at least, 2 by default.
         public var pollingInterval: Int?
         public var scenes: Bool?
+        /// A lightbulb per room and zone, its lights' on and brightness as one command; off by default.
+        public var roomLights: Bool?
         public var excludeScenes: [String]?
         public var dynamicScenes: Bool?
         public var effects: Bool?
@@ -102,9 +104,12 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         let shape: String
     }
 
+    /// A room's or zone's accessory: a switch per scene and, with `roomLights`, a lightbulb for its lights together.
     struct SceneServices {
         let accessory: Accessory
         var switches: [String: Service]
+        let room: Service?
+        let roomWriter: LightChangeBatcher?
         let shape: String
     }
 
@@ -299,13 +304,13 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
             keep.insert(Self.accessoryID(lightID: light.id))
             await show(light)
         }
-        if configuration.scenes ?? true {
-            for group in snapshot.groups {
-                let scenes = visibleScenes(of: group)
-                guard !scenes.isEmpty else { continue }
-                keep.insert(Self.sceneAccessoryID(groupID: group.id))
-                showScenes(group, scenes)
-            }
+        // A room or zone has an accessory for its scenes, its lights together (`roomLights`), or both.
+        for group in snapshot.groups {
+            let scenes = configuration.scenes ?? true ? visibleScenes(of: group) : []
+            let roomLight = configuration.roomLights == true && group.groupedLightID != nil
+            guard !scenes.isEmpty || roomLight else { continue }
+            keep.insert(Self.sceneAccessoryID(groupID: group.id))
+            await showRoom(group, scenes, roomLight: roomLight)
         }
         lights = lights.filter { keep.contains(Self.accessoryID(lightID: $0.key)) }
         sceneAccessories = sceneAccessories.filter { keep.contains(Self.sceneAccessoryID(groupID: $0.key)) }
@@ -504,10 +509,11 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
 
     // MARK: Scenes
 
-    private func showScenes(_ group: HueGroup, _ scenes: [HueScene]) {
-        let shape = scenes.map { "\($0.id)=\($0.name)" }.joined(separator: "|")
+    private func showRoom(_ group: HueGroup, _ scenes: [HueScene], roomLight: Bool) async {
+        let shape = (roomLight ? "room|" : "") + scenes.map { "\($0.id)=\($0.name)" }.joined(separator: "|")
         if let services = sceneAccessories[group.id], services.shape == shape {
             for scene in scenes { services.switches[scene.id]?.characteristic(.on).value = .bool(scene.active) }
+            if let room = services.room, let writer = services.roomWriter { await Self.showRoomValues(group, on: room, writer: writer) }
             return
         }
         guard let client else { return }
@@ -515,8 +521,25 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         let transition = transitionMs
         var switches: [String: Service] = [:]
         var services: [Service] = []
+        // The room's lights as one lightbulb, the grouped_light the Hue app's room controls write: one command for all.
+        var room: Service?
+        var roomWriter: LightChangeBatcher?
+        if roomLight, let groupedLight = group.groupedLightID {
+            let bulb = Service(.lightbulb, name: group.name, subtype: "room", optional: [.brightness], isPrimary: true)
+            let command = HueLightCommand(lightID: groupedLight, gamut: .c, transitionMs: transition, currentColour: { (0, 0) })
+            let writer = LightChangeBatcher { changes in try await client.put("grouped_light", id: groupedLight, command.body(for: changes)) }
+            bulb.characteristic(.on).onWrite { value in
+                do { try await writer.set(.on(value.boolValue ?? false)) } catch { throw HAPStatusError(.serviceCommunicationFailure) }
+            }
+            bulb[.brightness]?.onWrite { value in
+                do { try await writer.set(.brightness(max(1, value.doubleValue ?? 100))) } catch { throw HAPStatusError(.serviceCommunicationFailure) }
+            }
+            await Self.showRoomValues(group, on: bulb, writer: writer)
+            services.append(bulb)
+            (room, roomWriter) = (bulb, writer)
+        }
         for (index, scene) in scenes.enumerated() {
-            let service = Self.switchService(scene.name, subtype: "scene:\(scene.id)", isPrimary: index == 0)
+            let service = Self.switchService(scene.name, subtype: "scene:\(scene.id)", isPrimary: room == nil && index == 0)
             let groupedLight = group.groupedLightID
             service.characteristic(.on).onWrite { value in
                 do {
@@ -535,16 +558,25 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
             switches[scene.id] = service
             services.append(service)
         }
-        let name = "\(group.name) Scenes"
+        let zone = group.kind == "zone"
         let accessory = Accessory(
-            id: Self.sceneAccessoryID(groupID: group.id), name: name, manufacturer: "Signify", model: group.kind == "zone" ? "Zone scenes" : "Room scenes",
-            serialNumber: group.id, category: .switch, services: services)
+            id: Self.sceneAccessoryID(groupID: group.id), name: room == nil ? "\(group.name) Scenes" : group.name, manufacturer: "Signify",
+            model: room == nil ? (zone ? "Zone scenes" : "Room scenes") : (zone ? "Zone" : "Room"),
+            serialNumber: group.id, category: room == nil ? .switch : .lightbulb, services: services)
         do {
             try context.add(accessory)
-            sceneAccessories[group.id] = SceneServices(accessory: accessory, switches: switches, shape: shape)
+            sceneAccessories[group.id] = SceneServices(accessory: accessory, switches: switches, room: room, roomWriter: roomWriter, shape: shape)
         } catch {
-            logger.error("Could not add the scenes of \(group.name): \(error)")
+            logger.error("Could not add the accessory of \(group.name): \(error)")
         }
+    }
+
+    /// The room's on and brightness as the bridge sums them up; left alone just after a command, as a light's are.
+    static func showRoomValues(_ group: HueGroup, on bulb: Service, writer: LightChangeBatcher) async {
+        if let sent = await writer.lastSent, ContinuousClock.now - sent < settleTime { return }
+        bulb.characteristic(.on).value = .bool(group.on)
+        // A room switched off may say 0: the brightness it comes back on at stays.
+        if let brightness = group.brightness, brightness >= 1 { bulb[.brightness]?.value = .int(Int(brightness.rounded())) }
     }
 
     static func recallBody(_ scene: HueScene, dynamic: Bool, transitionMs: Int) -> JSONValue {

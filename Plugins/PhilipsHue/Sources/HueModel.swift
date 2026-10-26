@@ -45,6 +45,8 @@ struct HueGroup: Sendable, Equatable {
     var name: String
     var groupedLightID: String?
     var on: Bool = false
+    /// Its lights' brightness as the bridge sums it up (0 to 100), when it says.
+    var brightness: Double?
 }
 
 /// A scene of a room or zone; a smart scene (one that follows the time of day) is one too, recalled with `activate`.
@@ -77,13 +79,13 @@ struct HueSnapshot: Sendable, Equatable {
 
     init(resources: [JSONValue]) {
         var devices: [String: JSONValue] = [:]
-        var groupedLights: [String: Bool] = [:]
+        var groupedLights: [String: (on: Bool, brightness: Double?)] = [:]
         var unreachable: Set<String> = []
         for resource in resources {
             guard let id = resource["id"]?.stringValue else { continue }
             switch resource["type"]?.stringValue {
             case "device": devices[id] = resource
-            case "grouped_light": groupedLights[id] = resource["on"]?["on"]?.boolValue ?? false
+            case "grouped_light": groupedLights[id] = (resource["on"]?["on"]?.boolValue ?? false, resource["dimming"]?["brightness"]?.doubleValue)
             case "zigbee_connectivity":
                 // A light the bridge cannot reach reports `connectivity_issue` on its device's connectivity.
                 if let status = resource["status"]?.stringValue, status != "connected", let owner = resource["owner"]?["rid"]?.stringValue {
@@ -104,7 +106,8 @@ struct HueSnapshot: Sendable, Equatable {
                 let grouped = resource["services"]?.arrayValue?.first { $0["rtype"]?.stringValue == "grouped_light" }?["rid"]?.stringValue
                 groups.append(HueGroup(
                     id: id, kind: resource["type"]?.stringValue ?? "room", name: resource["metadata"]?["name"]?.stringValue ?? "Room",
-                    groupedLightID: grouped, on: grouped.flatMap { groupedLights[$0] } ?? false))
+                    groupedLightID: grouped, on: grouped.flatMap { groupedLights[$0]?.on } ?? false,
+                    brightness: grouped.flatMap { groupedLights[$0]?.brightness }))
             case "scene":
                 guard let group = resource["group"]?["rid"]?.stringValue else { continue }
                 scenes.append(Self.scene(resource, id: id, group: group))
