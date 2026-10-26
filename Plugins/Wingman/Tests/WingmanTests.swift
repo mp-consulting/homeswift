@@ -102,6 +102,21 @@ struct WingmanTests {
         #expect(Mirror.signature(of: source) != before)
     }
 
+    @Test func aRefusedWriteCarriesWingmansWords() async throws {
+        let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: FakeWingman.home))
+        let source = try #require(home.accessories.first { $0.id == "light-1" })
+        let refusal = WingmanError.refused(status: 500, message: "HMErrorDomain 80: Missing entitlement for API.")
+        let refusingMirror = Mirror(source, write: { _, _, _ in throw refusal })
+        let mirror = try #require(refusingMirror)
+        let on = try #require(mirror.accessory.service(.lightbulb)?[.on])
+        // Controllers still get No Response; people get why.
+        let error = await #expect(throws: HAPStatusError.self) { try await on.write(.bool(true)) }
+        #expect(error?.status == .serviceCommunicationFailure)
+        #expect(error?.reason == "Wingman: HMErrorDomain 80: Missing entitlement for API.")
+        let identify = await #expect(throws: HAPStatusError.self) { try await mirror.accessory.information.characteristic(.identify).write(.bool(true)) }
+        #expect(identify?.reason == "Wingman: HMErrorDomain 80: Missing entitlement for API.")
+    }
+
     @Test func nativeIdentifyDoesNotRequireACharacteristic() async throws {
         let home = try JSONDecoder().decode(WingmanAPI.Home.self, from: JSONSerialization.data(withJSONObject: FakeWingman.home))
         var source = try #require(home.accessories.first { $0.id == "light-1" })

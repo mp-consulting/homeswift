@@ -27,6 +27,8 @@ All notable changes to this project are documented here. The format follows
 
 - Prevent a cancelled UniFi Protect timeout from overriding a completed operation, which could drop RTSP recording initialization and intermittently fail Linux CI.
 
+- Show why a Wingman write or Identify failed (such as Apple Home's "Missing entitlement for API" or a lost pairing) instead of "did not answer: the device may be off or out of reach"; MCP clients receive those words as untrusted data.
+
 ## [0.11.0] - 2026-10-25
 
 ### Added

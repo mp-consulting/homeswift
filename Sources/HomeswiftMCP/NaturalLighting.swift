@@ -194,7 +194,7 @@ public actor NaturalLighting {
             expected[key] = target
             errors[key] = nil
         } catch {
-            errors[key] = HomeswiftCatalog.describe((error as? HAPStatusError) ?? HAPStatusError(.serviceCommunicationFailure), of: located)
+            errors[key] = HomeswiftCatalog.failure((error as? HAPStatusError) ?? HAPStatusError(.serviceCommunicationFailure), of: located).description
             // A failed write does not establish an expected colour; try again on the next tick.
             expected[key] = nil
             catalog.logger.warning("Natural Lighting could not update a light", metadata: ["accessory": "\(located.accessory.name)", "error": "\(error)"])
