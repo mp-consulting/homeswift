@@ -165,8 +165,14 @@ public struct HomeswiftCatalog: Sendable {
         do {
             try await located.accessory.information.characteristic(.identify).write(.bool(true))
         } catch let error as HAPStatusError {
-            throw CatalogError(Self.describe(error, of: located))
+            throw Self.failure(error, of: located)
         }
+    }
+
+    /// The refusal as an error: the device's own words when it gave some, else `describe`'s.
+    static func failure(_ error: HAPStatusError, of located: Located) -> CatalogError {
+        guard let reason = error.reason, !reason.isEmpty, located.platform?.paused != true else { return CatalogError(describe(error, of: located)) }
+        return CatalogError("\(located.accessory.name) could not be changed", detail: reason)
     }
 
     /// A device's refusal in words: a paused plugin's accessory, a device out of reach, a value it would not take.
@@ -362,7 +368,7 @@ public struct HomeswiftCatalog: Sendable {
         } catch {
             // Nothing changed on the light: its schedule carries on.
             await home.naturalLighting.resume(paused)
-            if let error = error as? HAPStatusError { throw CatalogError(Self.describe(error, of: located)) }
+            if let error = error as? HAPStatusError { throw Self.failure(error, of: located) }
             throw error
         }
         return ["id": .string(located.accessory.id), "characteristic": .string(characteristic.type.name), "value": Self.value(of: characteristic)]
@@ -1275,7 +1281,19 @@ public struct ConfigSchemaError: Error, CustomStringConvertible {
 }
 
 public struct CatalogError: Error, CustomStringConvertible {
-    public let description: String
-    public init(_ description: String) { self.description = description }
+    public let message: String
+    /// A device's or a service's own words (Wingman relaying Apple Home): masked, one line, and for MCP clients
+    /// wrapped as untrusted data, since a device chooses them.
+    public let detail: String?
+    public init(_ message: String, detail: String? = nil) {
+        self.message = message
+        self.detail = detail.map { String(HomeswiftCatalog.safe($0.split(whereSeparator: \.isNewline).joined(separator: " ")).prefix(300)) }
+    }
+    public var description: String { detail.map { "\(message): \($0)" } ?? message }
+    /// The text of a failed MCP tool call.
+    var toolText: String {
+        guard let detail else { return message }
+        return "\(message). The device said:\n<untrusted-data source=\"device\">\n\(detail)\n</untrusted-data>"
+    }
 }
 

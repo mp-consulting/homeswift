@@ -713,7 +713,7 @@ extension HomeswiftCatalog {
         do {
             try await characteristic.write(value)
         } catch let error as HAPStatusError {
-            throw CatalogError(Self.describe(error, of: light.located))
+            throw Self.failure(error, of: light.located)
         }
     }
 

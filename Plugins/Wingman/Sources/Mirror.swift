@@ -49,7 +49,7 @@ struct Mirror {
                             do {
                                 try await write(accessoryID, id, JSONValue(value))
                             } catch {
-                                throw HAPStatusError(.serviceCommunicationFailure)
+                                throw HAPStatusError(.serviceCommunicationFailure, reason: Self.reason(error))
                             }
                         }
                     }
@@ -74,7 +74,7 @@ struct Mirror {
             let sourceID = source.id
             onIdentify = {
                 do { try await write(sourceID, id, .bool(true)) }
-                catch { throw HAPStatusError(.serviceCommunicationFailure) }
+                catch { throw HAPStatusError(.serviceCommunicationFailure, reason: Self.reason(error)) }
             }
         } else { onIdentify = nil }
         let accessory = Accessory(
@@ -88,6 +88,10 @@ struct Mirror {
         self.characteristics = characteristics
         signature = Self.signature(of: source)
     }
+
+    /// Why a write or Identify failed, for the person who asked: Wingman's own words (Apple Home's refusal, a lost
+    /// pairing) rather than "did not answer".
+    static func reason(_ error: any Error) -> String { "Wingman: \(error)" }
 
     /// What decides the accessory's objects: its name, room, services and their characteristics with their props.
     /// Values and reachability are not in it: `update(from:)` takes those.

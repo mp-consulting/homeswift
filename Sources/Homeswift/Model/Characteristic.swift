@@ -3,7 +3,12 @@ import NIOConcurrencyHelpers
 /// An error a read or write handler can throw to report a specific HAP status to the controller.
 public struct HAPStatusError: Error, Sendable, Equatable {
     public let status: HAPStatus
-    public init(_ status: HAPStatus) { self.status = status }
+    /// What the device or the service behind it said, for people (the web UI, MCP); controllers get `status` only.
+    public let reason: String?
+    public init(_ status: HAPStatus, reason: String? = nil) {
+        self.status = status
+        self.reason = reason
+    }
 }
 
 /// HAP status codes returned per characteristic.

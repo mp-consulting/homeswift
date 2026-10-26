@@ -752,7 +752,7 @@ public final class MCPServer: Sendable {
                 dry["dryRun"] = true
                 let dryCall = ToolCall(session: session, tool: tool, arguments: .object(dry), emit: emit, elicitationEnabled: false, serverRequests: serverRequests)
                 let answer: ToolResult
-                do { answer = try await tool.handler(dryCall) } catch let error as JSONRPCError { throw error } catch { answer = .error("\(error)") }
+                do { answer = try await tool.handler(dryCall) } catch let error as JSONRPCError { throw error } catch { answer = .error((error as? CatalogError)?.toolText ?? "\(error)") }
                 if answer.isError {
                     audit(ok: false, error: answer.text)
                     return answer.json
@@ -805,7 +805,7 @@ public final class MCPServer: Sendable {
             throw error
         } catch {
             audit(ok: false, error: "\(error)")
-            return ToolResult.error("\(error)").json
+            return ToolResult.error((error as? CatalogError)?.toolText ?? "\(error)").json
         }
     }
 
