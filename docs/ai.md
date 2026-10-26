@@ -165,6 +165,10 @@ The command line and the MCP server leave the language to the model.
   (`sk-…`, `Bearer …`, `AIza…`, JWTs) masked.
 - **Logs and device data are data.** They are wrapped in `<untrusted-data>` tags and the system prompt
   tells the model never to follow instructions found in them.
+- **Every prompt is readable.** The words sent to a model are Markdown files in
+  [`Sources/HomeswiftAI/Prompts/`](../Sources/HomeswiftAI/Prompts), one per feature (logs, the config copilot, moods,
+  the digest, the chat…); its README says how a file reads. Edit one, then run
+  `swift Scripts/embed-assets.swift prompts Sources/HomeswiftAI/Prompts Sources/HomeswiftAI/PromptFiles.swift`.
 - **Inputs are trimmed** to the provider's context window, keeping the end of a log and the start of a
   changelog, with a note saying how much was cut.
 - **Secrets a tool returns become handles.** Each MCP session (the chat's too) has a `SecretVault`: a

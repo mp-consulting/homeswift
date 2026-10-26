@@ -22,6 +22,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The Assistant's prompts are Markdown files in `Sources/HomeswiftAI/Prompts/`, one per feature, embedded into the
+  binary by `Scripts/embed-assets.swift prompts`; the prompts themselves are unchanged.
+
 - The writes of one HomeKit request run at the same time, as in HAP-NodeJS: a light's brightness and colour reach the
   plugin together, so colour changes from the Home app are faster. A request naming one characteristic twice is
   refused (422), as HAP-NodeJS does.

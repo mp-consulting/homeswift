@@ -4,16 +4,18 @@
 //   swift Scripts/embed-assets.swift plugin Plugins/ElgatoKeyLights ElgatoKeyLightsPlugin
 //   swift Scripts/embed-assets.swift web Sources/HomeswiftUI/Web Sources/HomeswiftUI/WebAssets.swift
 //   swift Scripts/embed-assets.swift web Plugins/ElgatoKeyLights/Web Plugins/ElgatoKeyLights/Sources/WebFiles.swift ElgatoKeyLightsPlugin
+//   swift Scripts/embed-assets.swift prompts Sources/HomeswiftAI/Prompts Sources/HomeswiftAI/PromptFiles.swift
 //
 // `plugin` turns <dir>/config.schema.json into <dir>/Sources/ConfigurationSchema.swift; `web` turns every
 // file of the directory into one Swift file: the UI's own assets, or, with a plugin type as the last
-// argument, that plugin's `webFiles`. Tests check the generated files are current.
+// argument, that plugin's `webFiles`; `prompts` turns the Assistant's Markdown prompts (every .md but README.md) into
+// `PromptFiles.files`. Tests check the generated files are current.
 
 import Foundation
 
 let arguments = CommandLine.arguments.dropFirst()
 guard let mode = arguments.first else {
-    FileHandle.standardError.write(Data("usage: embed-assets.swift plugin <plugin dir> <plugin type> | web <web dir> <output file> [<plugin type>]\n".utf8))
+    FileHandle.standardError.write(Data("usage: embed-assets.swift plugin <plugin dir> <plugin type> | web <web dir> <output file> [<plugin type>] | prompts <prompts dir> <output file>\n".utf8))
     exit(2)
 }
 
@@ -76,6 +78,29 @@ case "web":
         import HomeswiftPlugin
 
         \(declaration)
+        \(entries.joined(separator: "\n"))
+            ]
+        }
+
+        """
+    try output.write(toFile: outputPath, atomically: true, encoding: .utf8)
+case "prompts":
+    guard arguments.count == 3 else { exit(2) }
+    let directory = arguments[arguments.startIndex + 1]
+    let outputPath = arguments[arguments.startIndex + 2]
+    let names = try FileManager.default.contentsOfDirectory(atPath: directory).filter { $0.hasSuffix(".md") && $0 != "README.md" }.sorted()
+    var entries: [String] = []
+    for name in names {
+        let content = try String(contentsOfFile: "\(directory)/\(name)", encoding: .utf8)
+        entries.append("        \"\(name.dropLast(3))\": \(literal(content)),")
+    }
+    let output = """
+        // THIS FILE IS GENERATED from Prompts/ by Scripts/embed-assets.swift - DO NOT EDIT.
+        // swiftlint:disable all
+
+        enum PromptFiles {
+            /// The Assistant's prompts as written in Prompts/, by file name without .md; `PromptBook` reads them.
+            static let files: [String: String] = [
         \(entries.joined(separator: "\n"))
             ]
         }
