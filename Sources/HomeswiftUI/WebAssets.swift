@@ -2220,7 +2220,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       try { schema = JSON.parse(await api(`/api/plugins/${encodeURIComponent(platform)}/schema`, { raw: true })); } catch {}
     }
     if (platform === "HomeswiftUI" && schema) {
-      const advanced = (schema.layout || []).filter((item) => typeof item === "object").map((item) => ({ ...item, icon: item.title === "Schedules" ? "history" : "system" }));
+      const advanced = (schema.layout || []).filter((item) => typeof item === "object").map((item) => {
+        // `?section=proxy` and `?section=schedules` open these (admin.js links to the first).
+        const section = item.title === "Schedules" ? "schedules" : (item.items || []).includes("trustProxy") ? "proxy" : undefined;
+        return { ...item, section, icon: section === "schedules" ? "history" : "system" };
+      });
       schema.layout = [
         { type: "fieldset", title: t("Connection"), icon: "system", items: ["port", "host", "allowedHosts"] },
         { type: "fieldset", title: t("Sign-in"), icon: "user", items: ["auth", "sessionDays"] },
@@ -2951,7 +2955,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const inner = item.items.map(layoutItem).flat().filter(Boolean);
         if (!inner.length) return null;
         const node = item.type === "fieldset" || item.title
-          ? el("details", { class: "group-box", "data-section": slug(item.title || ""), open: !item.expandable || item.expanded !== false }, el("summary", {}, item.icon ? HomeswiftCommon.icon(item.icon) : null, el("span", { text: item.title || t("More") })), el("div", { class: "fields" }, ...inner))
+          ? el("details", { class: "group-box", "data-section": item.section || slug(item.title || ""), open: !item.expandable || item.expanded !== false }, el("summary", {}, item.icon ? HomeswiftCommon.icon(item.icon) : null, el("span", { text: item.title || t("More") })), el("div", { class: "fields" }, ...inner))
           : el("div", { class: "fields" }, ...inner);
         watch(node, item.condition);
         return node;
