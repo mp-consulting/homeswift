@@ -58,6 +58,10 @@ struct HueScene: Sendable, Equatable {
     var smart = false
     /// Active with its colours moving (the bridge's `dynamic_palette`), as the Hue app's play button leaves it.
     var playing = false
+    /// Plays as soon as it is recalled (the bridge's `auto_dynamic`, the Hue app's Autoplay).
+    var autoplay = false
+    /// Has a palette, so its colours can move: a scene made of fixed colours per light cannot play.
+    var hasPalette = false
     /// The scene's colours, for its tile on the page: its palette, else the colours it sets.
     var colours: [HueXY] = []
     /// Its colour temperatures in mirek, when it sets whites.
@@ -178,9 +182,11 @@ struct HueSnapshot: Sendable, Equatable {
             id: id, name: resource["metadata"]?["name"]?.stringValue ?? "Scene", groupID: group,
             active: (resource["status"]?["active"]?.stringValue ?? "inactive") != "inactive", speed: resource["speed"]?.doubleValue)
         scene.playing = resource["status"]?["active"]?.stringValue == "dynamic_palette"
+        scene.autoplay = resource["auto_dynamic"]?.boolValue ?? false
         let palette = resource["palette"]
         scene.colours = (palette?["color"]?.arrayValue ?? []).compactMap { xy($0["color"]?["xy"]) }
         scene.whites = (palette?["color_temperature"]?.arrayValue ?? []).compactMap { $0["color_temperature"]?["mirek"]?.intValue }
+        scene.hasPalette = !scene.colours.isEmpty || !scene.whites.isEmpty
         if scene.colours.isEmpty, scene.whites.isEmpty {
             for action in resource["actions"]?.arrayValue ?? [] {
                 if let point = xy(action["action"]?["color"]?["xy"]) { scene.colours.append(point) }

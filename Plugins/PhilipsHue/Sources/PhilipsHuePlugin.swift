@@ -538,7 +538,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
             return
         }
         guard let client else { return }
-        let dynamic = configuration.dynamicScenes == true
+        let dynamic: Bool? = configuration.dynamicScenes == true ? true : nil
         let transition = transitionMs
         var switches: [String: Service] = [:]
         var services: [Service] = []
@@ -609,16 +609,30 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         }
     }
 
-    static func recallBody(_ scene: HueScene, dynamic: Bool, transitionMs: Int) -> JSONValue {
+    /// A scene's recall: playing (`dynamic` true), still (false, whatever its Autoplay), or as its Autoplay says (nil).
+    static func recallBody(_ scene: HueScene, dynamic: Bool?, transitionMs: Int) -> JSONValue {
         if scene.smart { return ["recall": ["action": "activate"]] }
-        return ["recall": ["action": .string(dynamic ? "dynamic_palette" : "active"), "duration": .number(Double(transitionMs))]]
+        let action = switch dynamic {
+        case true?: "dynamic_palette"
+        case false?: "static"
+        case nil: "active"
+        }
+        return ["recall": ["action": .string(action), "duration": .number(Double(transitionMs))]]
     }
 
     /// Recalls a scene by id (the page's tiles): playing (its colours moving) or still when `dynamic` says, else as
-    /// `dynamicScenes` does.
+    /// `dynamicScenes` does (every scene plays), else as the scene's Autoplay does.
     func recall(sceneID: String, dynamic: Bool? = nil) async throws {
         guard let client, let scene = snapshot.scenes.first(where: { $0.id == sceneID }) else { throw HueClient.Failure.status(404, "no such scene") }
-        try await client.put(scene.smart ? "smart_scene" : "scene", id: scene.id, Self.recallBody(scene, dynamic: dynamic ?? (configuration.dynamicScenes == true), transitionMs: transitionMs(for: scene)))
+        try await client.put(scene.smart ? "smart_scene" : "scene", id: scene.id, Self.recallBody(scene, dynamic: dynamic ?? (configuration.dynamicScenes == true ? true : nil), transitionMs: transitionMs(for: scene)))
+        await refresh()
+    }
+
+    /// Turns a scene's Autoplay on or off on the bridge (`auto_dynamic`): it then plays, or stays still, whenever it
+    /// is recalled, from the Hue app too.
+    func setAutoplay(sceneID: String, _ on: Bool) async throws {
+        guard let client, let scene = snapshot.scenes.first(where: { $0.id == sceneID }), !scene.smart else { throw HueClient.Failure.status(404, "no such scene") }
+        try await client.put("scene", id: scene.id, ["auto_dynamic": .bool(on)])
         await refresh()
     }
 

@@ -1,6 +1,8 @@
 // The Philips Hue page in French, Spanish and Portuguese (docs/translations.md).
 HomeswiftI18n.add({
   "fr": {
+    "Autoplay is on": "Lecture auto activée",
+    "Autoplay": "Lecture auto",
     "Follows the Settings speed ({speed}).": "Suit la vitesse des Réglages ({speed}).",
     "A speed of its own; Settings has {speed}.": "Une vitesse propre ; les Réglages ont {speed}.",
     "Speed…": "Vitesse…",
@@ -66,6 +68,8 @@ HomeswiftI18n.add({
     "no picture for that scene": "aucune image pour cette scène"
   },
   "es": {
+    "Autoplay is on": "Reproducción automática activada",
+    "Autoplay": "Reproducción automática",
     "Follows the Settings speed ({speed}).": "Sigue la velocidad de Ajustes ({speed}).",
     "A speed of its own; Settings has {speed}.": "Una velocidad propia; Ajustes tiene {speed}.",
     "Speed…": "Velocidad…",
@@ -131,6 +135,8 @@ HomeswiftI18n.add({
     "no picture for that scene": "no hay imagen para esa escena"
   },
   "pt": {
+    "Autoplay is on": "Reprodução automática ativada",
+    "Autoplay": "Reprodução automática",
     "Follows the Settings speed ({speed}).": "Segue a velocidade das Definições ({speed}).",
     "A speed of its own; Settings has {speed}.": "Uma velocidade própria; as Definições têm {speed}.",
     "Speed…": "Velocidade…",

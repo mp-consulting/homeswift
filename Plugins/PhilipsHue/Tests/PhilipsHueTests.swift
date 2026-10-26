@@ -366,6 +366,8 @@ struct PhilipsHueTests {
         #expect(playing.active && playing.playing)
         let still = HueSnapshot.scene(["metadata": ["name": "Read"], "status": ["active": "static"]], id: "s", group: "g")
         #expect(still.active && !still.playing)
+        let autoplay = HueSnapshot.scene(["metadata": ["name": "Arctic aurora"], "auto_dynamic": true], id: "s", group: "g")
+        #expect(autoplay.autoplay && !still.autoplay)
     }
 
     @Test func coloursConvert() {
@@ -425,13 +427,24 @@ struct PhilipsHueTests {
         // The tile's play button plays the scene, and stops it, whatever dynamicScenes says.
         _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "recall", body: ["id": "scene-1", "dynamic": true], user: "admin"))
         #expect(environment.bridge.puts.last?.body == ["recall": ["action": "dynamic_palette", "duration": 100]])
+        // Paused, it is recalled still, so a scene with Autoplay does not start playing again.
         _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "recall", body: ["id": "scene-1", "dynamic": false], user: "admin"))
-        #expect(environment.bridge.puts.last?.body == ["recall": ["action": "active", "duration": 100]])
+        #expect(environment.bridge.puts.last?.body == ["recall": ["action": "static", "duration": 100]])
         // Tapped again, an active scene switches its room off, as its switch in the Home app; a smart one stops.
         _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "scene-off", body: ["id": "scene-1"], user: "admin"))
         #expect(environment.bridge.puts.last == .init(method: "PUT", path: "/clip/v2/resource/grouped_light/group-1", body: ["on": ["on": false]]))
         _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "scene-off", body: ["id": "smart-1"], user: "admin"))
         #expect(environment.bridge.puts.last == .init(method: "PUT", path: "/clip/v2/resource/smart_scene/smart-1", body: ["recall": ["action": "deactivate"]]))
+        // Autoplay is the scene's own on the bridge, as the Hue app's; a smart scene has none.
+        let sunset = try #require(room["scenes"]?.arrayValue?.first { $0["id"] == "scene-1" })
+        #expect(sunset["autoplay"] == false)
+        #expect(sunset["palette"] == true)
+        // Concentrate sets a white per light, no palette: it cannot play.
+        #expect(room["scenes"]?.arrayValue?.first { $0["id"] == "scene-2" }?["palette"] == false)
+        _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "autoplay", body: ["id": "scene-1", "on": true], user: "admin"))
+        #expect(environment.bridge.puts.last == .init(method: "PUT", path: "/clip/v2/resource/scene/scene-1", body: ["auto_dynamic": true]))
+        let smart = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "autoplay", body: ["id": "smart-1", "on": true], user: "admin"))
+        #expect(smart.status == 404)
         _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "light", body: ["id": "light-2", "on": true, "brightness": 40], user: "admin"))
         #expect(environment.bridge.puts.last?.body == ["on": ["on": true], "dimming": ["brightness": 40], "dynamics": ["duration": 100]])
         _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "identify", body: ["id": "light-2"], user: "admin"))

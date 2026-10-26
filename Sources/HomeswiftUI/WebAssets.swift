@@ -5561,6 +5561,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     bridge: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/>',
     // A lighting bridge or hub (Hue Bridge, DIRIGERA): the box on the shelf, its light, and the radio it speaks.
     hub: '<rect x="4" y="13" width="16" height="7.5" rx="2.5"/><path d="M8 16.75h.01M8.5 9.5a5 5 0 0 1 7 0M6 7a8.5 8.5 0 0 1 12 0"/>',
+    // Plays again and again: a scene's Autoplay, a play inside a turning arrow.
+    loop: '<path d="M19.8 16.5A9 9 0 1 1 18.4 5.6"/><path d="M20.5 3v5.5H15z" fill="currentColor"/><path d="M10 8.5v7l5.5-3.5z" fill="currentColor"/>',
     // Pairing: two links of a chain on the diagonal.
     pair: '<g transform="rotate(-45 12 12)"><rect x="10.5" y="8" width="12.5" height="8" rx="4"/><rect x="1" y="8" width="12.5" height="8" rx="4"/></g>',
     child: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/>',
