@@ -1,4 +1,5 @@
 import HomeswiftDaikinCloud
+import HomeswiftDirigera
 import HomeswiftDolphinPoolCleaner
 import HomeswiftDysonPureCool
 import HomeswiftEWeLink
@@ -31,5 +32,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(UniFiProtectPlugin.self)
     registry.register(WingmanPlugin.self)
     registry.register(PhilipsHuePlugin.self)
+    registry.register(DirigeraPlugin.self)
     return registry
 }

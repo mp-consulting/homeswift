@@ -13,6 +13,9 @@ All notable changes to this project are documented here. The format follows
   zone's scenes as switches (smart scenes too), optional Flash switches and gradient points. A light's changes go in
   one command with a chosen transition (`transitionMs`, 0 for instant flashes). Pairing with the link button from
   the plugin's page, which shows the lights as the Accessories page's widgets and the scenes as palette tiles.
+- **IKEA DIRIGERA** plugin (`Dirigera`, homebridge-dirigera's block): lights, outlets, PARASOLL door and window
+  sensors with their battery, and scenes (On triggers, Off within 30 seconds undoes), followed through the hub's
+  websocket. Pairing with the hub's action button (OAuth with PKCE) from the plugin's page.
 - Govee: **Scenes over LAN** (`lanScenes`, per light, off by default) sends scenes, DIY effects and music mode
   straight to the light as `ptReal`, faster and without the cloud. The light does not confirm LAN commands, so one
   that ignores them gets no cloud or Bluetooth fallback.
