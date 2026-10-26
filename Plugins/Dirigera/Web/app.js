@@ -1,135 +1,67 @@
 // The IKEA DIRIGERA page: the hubs (from config.json and found on the network), each paired with its action button;
 // the lights, outlets and sensors as the Accessories page draws them (its widgets); the hubs' scenes as tiles (a tap
 // runs one, the eye leaves it out of the Home app); and the settings. Refreshed every two seconds while visible;
-// saving writes this instance's block. The tabs, scene pictures, speed scale and tile text come from plugin.js.
+// saving writes this instance's block. The hub card (the Hue page's bridge card), tabs, scene pictures, speed scale
+// and tile text come from plugin.js.
 (() => {
   "use strict";
-  const { t, tn } = HomeswiftI18n;
-  const { $, el, icon, tile, request, explain, act, readBlock, updateBlock, setKey, poll, renderKeyed } = homeswift;
+  const { t } = HomeswiftI18n;
+  const { $, el, request, act, readBlock, updateBlock, setKey, poll, renderKeyed } = homeswift;
 
   let hubs = [];
   let devices = [];
   let scenes = [];
   let found = [];
   let block = {};
-  // The end of each hub's minute to press its action button, by host: the hub's own while it pairs (this page or another
-  // started it), else the one this page's Pair started. A second's tick redraws the rows meanwhile.
-  const pairing = new Map();
-  const asking = new Set();
-  let ticker = 0;
-  function followPairing() {
-    for (const hub of hubs) {
-      if (hub.pairing && hub.pairingSecondsLeft != null) pairing.set(hub.host, Date.now() + hub.pairingSecondsLeft * 1000);
-      else if (!hub.pairing && !asking.has(hub.host)) pairing.delete(hub.host);
-    }
-    const on = hubs.some((hub) => hub.pairing) || [...pairing.values()].some((until) => Date.now() < until);
-    if (on && !ticker) ticker = setInterval(drawHubs, 1000);
-    if (!on && ticker) { clearInterval(ticker); ticker = 0; }
-  }
 
   homeswift.tabs("dirigera-tab");
 
   // MARK: Hubs
 
-  /// The countdown texts of the hubs waiting for their button, by host: the second's tick updates them.
-  const countdowns = new Map();
+  // The card plugin.js draws for both lighting pages: a block per hub (config.json's, paired ones, and the ones found
+  // on the network), its pairing, and the address form.
+  const card = homeswift.bridgePairing({
+    card: $("#hubs"), tone: "blue", button: "hub",
+    texts: {
+      name: t("DIRIGERA hub"), pairTitle: t("Pair Homeswift with the hub."), press: t("Press the action button under the hub."),
+      pairHelp: t("Pair, then press the action button under the hub within a minute. The token stays in the plugin's folder, not in config.json."),
+      summary: t("Add a hub"), placeholder: "192.168.1.30", addressHelp: t("Hubs on the network show up above on their own; type the address of one that does not."), none: t("No hub answered on the network."),
+    },
+    facts: (hub) => [[t("Address"), hub.host], [t("Devices"), hub.devices ?? 0], [t("Scenes"), hub.scenes ?? 0]],
+    menu: (hub) => [hub.inConfig ? { label: t("Remove from config.json"), icon: "trash", danger: true, onSelect: () => removeHub(hub.host) } : null],
+    problem: (hub) => ({
+      error: `The DIRIGERA hub at ${hub.host} did not answer: ${hub.error}`,
+      context: "The Homeswift DIRIGERA plugin reads GET https://<hub>:8443/v1/devices and /v1/scenes with its token, and follows the hub's websocket for changes.",
+      device: { host: hub.host },
+    }),
+    discover: async () => (found = (await request("discover")).hosts),
+    use: async (host) => {
+      if (!host) return;
+      await keep(host);
+      if (!found.includes(host)) found = [...found, host];
+    },
+    pair: async (host) => {
+      await request("pair", { method: "POST", body: { host } });
+      await keep(host);
+    },
+    refresh: () => refresh(),
+  });
 
-  function hubRow(hub) {
-    const until = pairing.get(hub.host) ?? 0;
-    const waiting = Date.now() < until || hub.pairing;
-    const [state, kind] = waiting ? [t("Pairing…"), "standby"] : !hub.paired ? [t("Not paired"), "away"]
-      : hub.error ? [t("Not responding"), "away"] : hub.connected ? [t("Connected"), "on"] : [t("Connecting…"), "standby"];
-    const seconds = Math.max(0, Math.ceil((until - Date.now()) / 1000));
-    const actions = [
-      hub.paired ? { label: t("Pair again"), icon: "key", onSelect: () => pair(null, hub.host) } : null,
-      hub.inConfig ? { label: t("Remove from config.json"), icon: "trash", danger: true, onSelect: () => removeHub(hub.host) } : null,
-    ].filter(Boolean);
-    return el("div", { class: "hub" },
-      el("div", { class: "hub-row" },
-        tile("bridge", hub.paired && !hub.error ? "blue" : "grey"),
-        el("div", { class: "who" }, el("strong", { text: hub.name || t("DIRIGERA hub") }),
-          el("div", { class: "muted", text: hub.paired ? [hub.host, tn("{n} device", "{n} devices", hub.devices), tn("{n} scene", "{n} scenes", hub.scenes)].join(" · ") : hub.host })),
-        el("span", { class: `pill status ${kind}`, text: state }),
-        hub.paired || waiting ? null : el("button", { class: "primary", actionIcon: "key", text: t("Pair"), onclick: (event) => pair(event.currentTarget, hub.host) }),
-        // The ⋯ menu only when it has something: a hub found on the network and pairing for the first time has nothing.
-        actions.length ? HomeswiftCommon.menuButton(t("Actions for {name}", { name: hub.name || hub.host }), () => actions) : null),
-      waiting ? el("div", { class: "pair-prompt pairing" },
-        el("span", { class: "link-button", "aria-hidden": "true" }, icon("power")),
-        el("div", {},
-          el("p", {}, el("strong", { text: t("Press the action button under the hub.") })),
-          countdown(hub.host, seconds))) : null,
-      hub.error && hub.paired ? explain({
-        error: `The DIRIGERA hub at ${hub.host} did not answer: ${hub.error}`,
-        context: "The Homeswift DIRIGERA plugin reads GET https://<hub>:8443/v1/devices and /v1/scenes with its token, and follows the hub's websocket for changes.",
-        device: { host: hub.host },
-      }) : null);
-  }
-
-  function countdown(host, seconds) {
-    const text = el("p", { class: "muted", text: t("Waiting for the button… {seconds} s left.", { seconds }) });
-    countdowns.set(host, text);
-    return text;
-  }
-
-  const hubList = el("div");
-  const foundList = el("div", { class: "found" });
-  const addressInput = el("input", { type: "text", id: "hub-address", placeholder: "192.168.1.30", inputmode: "url", autocomplete: "off" });
-  $("#hubs").append(hubList, foundList,
-    el("details", { class: "address-box" },
-      el("summary", { text: t("Add a hub") }),
-      // The title, then the input with its buttons on one row, so they line up at any width.
-      el("div", { class: "address" },
-        el("label", { class: "field-title", htmlFor: "hub-address", text: t("Address") }),
-        el("div", { class: "address-row" }, addressInput,
-        el("button", { actionIcon: "search", text: t("Find"), onclick: (event) => act(event.currentTarget, async () => {
-          ({ hosts: found } = await request("discover"));
-          if (!found.length) alert(t("No hub answered on the network."));
-          drawHubs();
-        }) }),
-        el("button", { class: "primary", actionIcon: "key", text: t("Pair"), onclick: (event) => { const host = addressInput.value.trim(); if (host) pair(event.currentTarget, host); } })))));
-
-  /// The hub rows, and the hubs found on the network that are not paired yet; the address form stays as typed. They
-  /// are drawn again only when what they show changed; while a hub pairs, the second's tick only counts down.
-  let hubsKey = "";
+  /// The hubs, then the ones found on the network that are not among them yet; with none, the one being looked for.
   function drawHubs() {
     const known = new Set(hubs.map((hub) => hub.host));
-    const extra = found.filter((host) => !known.has(host));
-    const now = Date.now();
-    const key = JSON.stringify([hubs.map((hub) => ({ ...hub, pairingSecondsLeft: null, waiting: now < (pairing.get(hub.host) ?? 0) })), extra]);
-    if (key === hubsKey) {
-      for (const [host, text] of countdowns) {
-        const seconds = Math.max(0, Math.ceil(((pairing.get(host) ?? 0) - now) / 1000));
-        text.textContent = t("Waiting for the button… {seconds} s left.", { seconds });
-      }
-      return;
-    }
-    hubsKey = key;
-    countdowns.clear();
-    hubList.replaceChildren(...(hubs.length ? hubs.map(hubRow) : [el("p", { class: "muted", text: t("No hub yet. Find one on the network or type its address.") })]));
-    foundList.replaceChildren(...extra.map((host) => el("button", { actionIcon: "key", text: t("Pair {host}", { host }), onclick: (event) => pair(event.currentTarget, host) })));
+    const list = [...hubs, ...found.filter((host) => !known.has(host)).map((host) => ({ host, paired: false }))];
+    card.draw(list.length ? list : [{ host: null }]);
   }
 
-  async function pair(button, host) {
-    pairing.set(host, Date.now() + 60000);
-    asking.add(host);
-    followPairing();
-    drawHubs();
-    try {
-      await request("pair", { method: "POST", body: { host } });
-      // The hub goes in config.json, as homebridge-dirigera keeps it; its token stays in the plugin's folder.
-      await updateBlock((draft) => {
-        const list = draft.hubs || [];
-        if (!list.some((hub) => hub.host === host)) list.push({ host });
-        draft.hubs = list;
-      });
-      block = await readBlock();
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      pairing.delete(host);
-      asking.delete(host);
-      await refresh();
-    }
+  /// Puts the hub in config.json, as homebridge-dirigera keeps it; its token stays in the plugin's folder.
+  async function keep(host) {
+    await updateBlock((draft) => {
+      const list = draft.hubs || [];
+      if (!list.some((hub) => hub.host === host)) list.push({ host });
+      draft.hubs = list;
+    });
+    block = await readBlock();
   }
 
   async function removeHub(host) {
@@ -140,6 +72,7 @@
       if (list.length) draft.hubs = list; else delete draft.hubs;
     }).catch((e) => alert(e.message));
     block = await readBlock();
+    found = found.filter((other) => other !== host);
     await refresh();
   }
 
@@ -321,7 +254,6 @@
     } catch (e) {
       hubs = [];
     }
-    followPairing();
     drawHubs();
     drawDevices();
     drawScenes();

@@ -2126,6 +2126,8 @@
       const type = property.type;
       if (property["x-schema-form"]?.type === "schedule") return scheduleField(wrap, current);
       const options = property.oneOf && property.oneOf.every((o) => Array.isArray(o.enum)) ? property.oneOf.map((o) => ({ value: o.enum[0], title: o.title ?? String(o.enum[0]) })) : property.enum ? property.enum.map((v) => ({ value: v, title: String(v) })) : null;
+      // A value config.json has that is not among the choices stays one, so a save does not drop it.
+      if (options && current !== undefined && !options.some((o) => JSON.stringify(o.value) === JSON.stringify(current))) options.unshift({ value: current, title: String(current) });
       if (options) {
         const select = el("select", {}, el("option", { value: "", text: "—" }), ...options.map((o) => el("option", { value: JSON.stringify(o.value), text: o.title, selected: current !== undefined ? JSON.stringify(o.value) === JSON.stringify(current) : JSON.stringify(o.value) === JSON.stringify(property.default) })));
         return { element: wrap(select), get: () => (select.value === "" ? undefined : JSON.parse(select.value)) };

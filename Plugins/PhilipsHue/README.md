@@ -33,8 +33,9 @@ config.json, with the bridge's certificate pinned on first use. One block per br
 | `transitionMs` | `100` | How long a light takes to reach a new colour or brightness; `0` changes at once (flashes, fast moods); the Hue app uses about 400 |
 | `pollingInterval` | `2` | Seconds between reads of the bridge, for changes made in the Hue app or with a switch |
 | `scenes` | `true` | A switch for each scene of a room or zone, on one accessory per room or zone (see below) |
-| `dynamicScenes` | `false` | Recall scenes with their colours moving, as the Hue app's play button |
+| `dynamicScenes` | `false` | Recall scenes with their colours moving, as if the Hue app's play button were pressed each time |
 | `excludeScenes` | `[]` | Scene names, `Room/Scene` or ids to leave out |
+| `sceneTransitions` | none | Scenes with a transition of their own instead of `transitionMs`: `[{ "scene": "Living room/Relax", "transitionMs": 2000 }]`, by "Room/Scene" or by a scene's name in any room |
 | `effects` | `true` | A switch for each effect a light has |
 | `roomLights` | `false` | A lightbulb on each room's and zone's accessory: on, off and brightness for all its lights in one command, as the Hue app's room controls |
 | `flashSwitch` | `false` | A switch on each light that makes it flash for five seconds (Hue's signaling) |
@@ -79,10 +80,13 @@ countdown for the link button, and its address to change), then three tabs:
 
 - **Lights**: every light drawn by the Accessories page's own widgets (power, brightness, colours, white; effects and
   the rest in All controls), with **Identify**, **Leave out of the Home app** and its log in each widget's menu.
-- **Scenes**: each room's scenes as tiles painted with the scene's palette; a tap recalls one. Drop a picture on a tile
-  (or choose one from its ⋯ menu) to give the scene its own: the page shrinks it to 640 pixels, and the bridge keeps it
-  in the plugin's folder (`scene-pictures/`, JPEG, PNG or WebP, checked by its bytes, 1 MB at most). The same menu
-  removes it, and leaves the scene out of the Home app.
+- **Scenes**: each room's scenes as tiles painted with the scene's palette; a tap recalls one, and a tap on the active
+  one switches its room off, as its switch in the Home app does. Once a scene is on, its tile has a play button, as in
+  the Hue app: its colours move until you pause it (not for a natural light scene, which follows the time of day).
+  Drop a picture on a tile (or choose one from its ⋯ menu) to give the scene its own: the page shrinks it to 640
+  pixels, and the bridge keeps it in the plugin's folder (`scene-pictures/`, JPEG, PNG or WebP, checked by its bytes,
+  1 MB at most). The same menu removes it, leaves the scene out of the Home app, and gives it a **Speed** of its own
+  (the transition its recall takes, from the page and the Home app; Settings' speed otherwise).
 - **Settings**: the transition on a 12-step speed scale (Very slow to Extreme; Fast, 100 ms, by default), the polling interval, and what the Home app shows.
 
 ![Scenes, room by room](../../docs/images/plugins/hue-scenes.png)

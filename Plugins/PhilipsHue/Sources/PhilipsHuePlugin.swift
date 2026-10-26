@@ -28,11 +28,19 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         /// A lightbulb per room and zone, its lights' on and brightness as one command; off by default.
         public var roomLights: Bool?
         public var excludeScenes: [String]?
+        /// Scenes with a transition of their own, by "Room/Scene" (or a scene's name, in any room).
+        public var sceneTransitions: [SceneTransition]?
         public var dynamicScenes: Bool?
         public var effects: Bool?
         public var flashSwitch: Bool?
         public var gradientPoints: Bool?
         public var excludeLights: [String]?
+    }
+
+    /// A scene's own transition, in place of `transitionMs` when it is recalled.
+    public struct SceneTransition: Decodable, Sendable {
+        public var scene: String
+        public var transitionMs: Int
     }
 
     /// What the plugin keeps of its bridge in `bridge.json`.
@@ -136,6 +144,19 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     }
 
     var transitionMs: Int { min(max(configuration.transitionMs ?? Self.defaultTransition, 0), 10000) }
+
+    /// The transition `sceneTransitions` gives a scene of the room `room`: by "Room/Scene" first, then by its name.
+    func ownTransition(_ scene: HueScene, room: String) -> Int? {
+        let entries = configuration.sceneTransitions ?? []
+        let entry = entries.first { $0.scene.lowercased() == "\(room)/\(scene.name)".lowercased() } ?? entries.first { $0.scene.lowercased() == scene.name.lowercased() }
+        return entry.map { min(max($0.transitionMs, 0), 10000) }
+    }
+
+    /// How long a scene's recall takes: its own transition, else `transitionMs`.
+    func transitionMs(for scene: HueScene) -> Int {
+        let room = snapshot.groups.first { $0.id == scene.groupID }?.name ?? ""
+        return ownTransition(scene, room: room) ?? transitionMs
+    }
     var pollingInterval: Duration { .seconds(max(configuration.pollingInterval ?? Self.defaultPollingInterval, 1)) }
 
     static func accessoryID(lightID: String) -> String { "\(platform):\(lightID)" }
@@ -541,14 +562,13 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         for (index, scene) in scenes.enumerated() {
             let service = Self.switchService(scene.name, subtype: "scene:\(scene.id)", isPrimary: room == nil && index == 0)
             let groupedLight = group.groupedLightID
+            let sceneTransition = ownTransition(scene, room: group.name) ?? transition
             service.characteristic(.on).onWrite { value in
                 do {
                     if value.boolValue == true {
-                        try await client.put(scene.smart ? "smart_scene" : "scene", id: scene.id, Self.recallBody(scene, dynamic: dynamic, transitionMs: transition))
-                    } else if scene.smart {
-                        try await client.put("smart_scene", id: scene.id, ["recall": ["action": "deactivate"]])
-                    } else if let groupedLight {
-                        try await client.put("grouped_light", id: groupedLight, ["on": ["on": false]])
+                        try await client.put(scene.smart ? "smart_scene" : "scene", id: scene.id, Self.recallBody(scene, dynamic: dynamic, transitionMs: sceneTransition))
+                    } else {
+                        try await Self.switchOff(scene, groupedLight: groupedLight, client: client)
                     }
                 } catch {
                     throw HAPStatusError(.serviceCommunicationFailure)
@@ -579,15 +599,33 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         if let brightness = group.brightness, brightness >= 1 { bulb[.brightness]?.value = .int(Int(brightness.rounded())) }
     }
 
+    /// Switches a scene off, as its switch in the Home app does: a smart scene stops following the time of day, any
+    /// other switches its room or zone off.
+    static func switchOff(_ scene: HueScene, groupedLight: String?, client: HueClient) async throws {
+        if scene.smart {
+            try await client.put("smart_scene", id: scene.id, ["recall": ["action": "deactivate"]])
+        } else if let groupedLight {
+            try await client.put("grouped_light", id: groupedLight, ["on": ["on": false]])
+        }
+    }
+
     static func recallBody(_ scene: HueScene, dynamic: Bool, transitionMs: Int) -> JSONValue {
         if scene.smart { return ["recall": ["action": "activate"]] }
         return ["recall": ["action": .string(dynamic ? "dynamic_palette" : "active"), "duration": .number(Double(transitionMs))]]
     }
 
-    /// Recalls a scene by id (the page's tiles).
-    func recall(sceneID: String) async throws {
+    /// Recalls a scene by id (the page's tiles): playing (its colours moving) or still when `dynamic` says, else as
+    /// `dynamicScenes` does.
+    func recall(sceneID: String, dynamic: Bool? = nil) async throws {
         guard let client, let scene = snapshot.scenes.first(where: { $0.id == sceneID }) else { throw HueClient.Failure.status(404, "no such scene") }
-        try await client.put(scene.smart ? "smart_scene" : "scene", id: scene.id, Self.recallBody(scene, dynamic: configuration.dynamicScenes == true, transitionMs: transitionMs))
+        try await client.put(scene.smart ? "smart_scene" : "scene", id: scene.id, Self.recallBody(scene, dynamic: dynamic ?? (configuration.dynamicScenes == true), transitionMs: transitionMs(for: scene)))
+        await refresh()
+    }
+
+    /// Switches a scene off by id (an active tile tapped again).
+    func switchOff(sceneID: String) async throws {
+        guard let client, let scene = snapshot.scenes.first(where: { $0.id == sceneID }) else { throw HueClient.Failure.status(404, "no such scene") }
+        try await Self.switchOff(scene, groupedLight: snapshot.groups.first { $0.id == scene.groupID }?.groupedLightID, client: client)
         await refresh()
     }
 

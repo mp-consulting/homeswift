@@ -2832,6 +2832,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const type = property.type;
       if (property["x-schema-form"]?.type === "schedule") return scheduleField(wrap, current);
       const options = property.oneOf && property.oneOf.every((o) => Array.isArray(o.enum)) ? property.oneOf.map((o) => ({ value: o.enum[0], title: o.title ?? String(o.enum[0]) })) : property.enum ? property.enum.map((v) => ({ value: v, title: String(v) })) : null;
+      // A value config.json has that is not among the choices stays one, so a save does not drop it.
+      if (options && current !== undefined && !options.some((o) => JSON.stringify(o.value) === JSON.stringify(current))) options.unshift({ value: current, title: String(current) });
       if (options) {
         const select = el("select", {}, el("option", { value: "", text: "—" }), ...options.map((o) => el("option", { value: JSON.stringify(o.value), text: o.title, selected: current !== undefined ? JSON.stringify(o.value) === JSON.stringify(current) : JSON.stringify(o.value) === JSON.stringify(property.default) })));
         return { element: wrap(select), get: () => (select.value === "" ? undefined : JSON.parse(select.value)) };
@@ -5557,6 +5559,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     ungroup: '<rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><path d="M3 9V3h6M3 3l5 5M15 21h6v-6M21 21l-5-5"/>',
     group: '<rect x="3" y="8" width="13" height="13" rx="3"/><path d="M8 8V6a3 3 0 0 1 3-3h7a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3h-2M7 14.5h5M9.5 12v5"/>',
     bridge: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/>',
+    // A lighting bridge or hub (Hue Bridge, DIRIGERA): the box on the shelf, its light, and the radio it speaks.
+    hub: '<rect x="4" y="13" width="16" height="7.5" rx="2.5"/><path d="M8 16.75h.01M8.5 9.5a5 5 0 0 1 7 0M6 7a8.5 8.5 0 0 1 12 0"/>',
+    // Pairing: two links of a chain on the diagonal.
+    pair: '<g transform="rotate(-45 12 12)"><rect x="10.5" y="8" width="12.5" height="8" rx="4"/><rect x="1" y="8" width="12.5" height="8" rx="4"/></g>',
     child: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/>',
     accessory: '<rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/>',
     system: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
@@ -8966,6 +8972,17 @@ HomeswiftI18n.add("es", {
   "Not in use": "Sin usar",
   "Not occupied": "Desocupado",
   "Not paired": "Sin emparejar",
+  "Pairing…": "Emparejando…",
+  "Not found": "No encontrado",
+  "Not responding": "No responde",
+  "Connected": "Conectado",
+  "Address": "Dirección",
+  "Find": "Buscar",
+  "Use": "Usar",
+  "Pair": "Emparejar",
+  "Pair again": "Volver a emparejar",
+  "Waiting for the button… {seconds} s left.": "Esperando el botón… quedan {seconds} s.",
+  "Looking on the network…": "Buscando en la red…",
   "Not running": "Detenido",
   "not set": "sin definir",
   "not valid JSON: {0} at byte {1}": "JSON no válido: {0} en el byte {1}",
@@ -11024,6 +11041,17 @@ HomeswiftI18n.add("fr", {
   "Not in use": "Inutilisé",
   "Not occupied": "Inoccupé",
   "Not paired": "Non jumelé",
+  "Pairing…": "Jumelage…",
+  "Not found": "Introuvable",
+  "Not responding": "Ne répond pas",
+  "Connected": "Connecté",
+  "Address": "Adresse",
+  "Find": "Rechercher",
+  "Use": "Utiliser",
+  "Pair": "Jumeler",
+  "Pair again": "Jumeler à nouveau",
+  "Waiting for the button… {seconds} s left.": "En attente du bouton… encore {seconds} s.",
+  "Looking on the network…": "Recherche sur le réseau…",
   "Not running": "Arrêté",
   "not set": "non définie",
   "not valid JSON: {0} at byte {1}": "JSON non valide : {0} à l'octet {1}",
@@ -13082,6 +13110,17 @@ HomeswiftI18n.add("pt", {
   "Not in use": "Sem utilização",
   "Not occupied": "Desocupado",
   "Not paired": "Não emparelhada",
+  "Pairing…": "A emparelhar…",
+  "Not found": "Não encontrado",
+  "Not responding": "Não responde",
+  "Connected": "Ligado",
+  "Address": "Endereço",
+  "Find": "Procurar",
+  "Use": "Usar",
+  "Pair": "Emparelhar",
+  "Pair again": "Emparelhar novamente",
+  "Waiting for the button… {seconds} s left.": "À espera do botão… faltam {seconds} s.",
+  "Looking on the network…": "A procurar na rede…",
   "Not running": "Parado",
   "not set": "não definida",
   "not valid JSON: {0} at byte {1}": "JSON inválido: {0} no byte {1}",
@@ -15280,9 +15319,10 @@ HomeswiftI18n.add("pt", {
   /// Scene tiles' pictures: dropped on a tile or chosen from its ⋯ menu, shrunk here to 640 pixels and sent as a JPEG
   /// data: URL to the plugin's `scene-picture` route (POST; GET `scene-picture?id=` reads one, `scene-picture-remove`
   /// takes it away). A scene's `picture` is its version: each is fetched once, a newer one replacing it. `refresh`
-  /// runs after a change; `toggleHidden(key)` leaves the scene out of the Home app, or brings it back. Answers
-  /// `decorate(tileNode, scene, hideKey)`, which adds the tile's menu, takes drops and paints the picture.
-  function scenePictures({ refresh, toggleHidden }) {
+  /// runs after a change; `toggleHidden(key)` leaves the scene out of the Home app, or brings it back; `more(scene)`
+  /// the page's own items for the menu. Answers `decorate(tileNode, scene, hideKey)`, which adds the tile's menu, takes
+  /// drops and paints the picture.
+  function scenePictures({ refresh, toggleHidden, more = () => [] }) {
     if (!pictureDropGuard) {
       pictureDropGuard = true;
       for (const type of ["dragover", "drop"]) document.addEventListener(type, (event) => { if (event.dataTransfer?.types?.includes("Files")) event.preventDefault(); });
@@ -15368,6 +15408,7 @@ HomeswiftI18n.add("pt", {
       const button = HomeswiftCommon.menuButton(t("Actions for {name}", { name: scene.name }), () => [
         { label: scene.picture ? t("Change the picture…") : t("Choose a picture…"), icon: "camera", onSelect: () => choosePicture(scene, tileNode) },
         scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: () => removePicture(scene) } : null,
+        ...more(scene),
         { label: scene.hidden ? t("Show in the Home app") : t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleHidden(hideKey) },
       ]);
       button.classList.add("eye");
@@ -15390,10 +15431,148 @@ HomeswiftI18n.add("pt", {
     };
   }
 
+  /// The bridge card of the lighting pages, the same for a Hue Bridge and DIRIGERA hubs: a block per bridge (its tile,
+  /// name, address and state; its facts once paired, else the prompt to pair: Pair, then the countdown while its
+  /// button can be pressed), and the address form at the end of the card (Find lists the bridges on the network, a tap
+  /// fills the address in; the primary button uses it). The form is made once, so it stays open and keeps what was typed.
+  ///
+  /// `card` the element; `tone` the tile's colour once connected; `button` the icon on the drawn bridge button;
+  /// `texts`: `name` (a bridge without one), `pairTitle`, `pairHelp`, `press` (while pairing), `summary` (the form's),
+  /// `placeholder`, `addressHelp`, `none` (Find found nothing). `facts(bridge)` the [label, value] pairs of a paired
+  /// one; `menu(bridge)` more items of its ⋯ menu (Pair again is there once paired); `problem(bridge)` what
+  /// `explain` takes when it does not answer. `discover()` answers the hosts on the network, `use(host)` takes the
+  /// address, `pair(host)` pairs (resolves once paired, rejects otherwise), `refresh()` reads the state again.
+  ///
+  /// Answers `{ draw(bridges, { address }), pair(host) }`: `bridges` are `{ host, name, detail, paired, pairing,
+  /// pairingSecondsLeft, connected, error }` (`connected` false while connecting; `detail` replaces the address
+  /// under the name), `address` what the form shows until a person types.
+  function bridgePairing({ card, tone, button = "link", texts, facts = () => [], menu = () => [], problem, discover, use, pair, refresh }) {
+    // The end of each bridge's minute to press its button, by host: the bridge's own while it pairs (this page, another
+    // or the plugin at start), else the one this page's Pair started. A second's tick redraws meanwhile.
+    const pairingUntil = new Map();
+    const asking = new Set();
+    let bridges = [];
+    let address = "";
+    let ticker = 0;
+    const secondsLeft = (host) => Math.max(0, Math.ceil(((pairingUntil.get(host) ?? 0) - Date.now()) / 1000));
+    const isPairing = (bridge) => bridge.pairing || Date.now() < (pairingUntil.get(bridge.host) ?? 0);
+    const waiting = (host) => t("Waiting for the button… {seconds} s left.", { seconds: secondsLeft(host) });
+
+    function follow() {
+      for (const bridge of bridges) {
+        if (bridge.pairing && bridge.pairingSecondsLeft != null) pairingUntil.set(bridge.host, Date.now() + bridge.pairingSecondsLeft * 1000);
+        else if (!bridge.pairing && !asking.has(bridge.host)) pairingUntil.delete(bridge.host);
+      }
+      const on = bridges.some(isPairing);
+      if (on && !ticker) ticker = setInterval(redraw, 1000);
+      if (!on && ticker) { clearInterval(ticker); ticker = 0; }
+    }
+
+    let typed = false;
+    const input = el("input", { type: "text", id: "bridge-address", placeholder: texts.placeholder, inputmode: "url", autocomplete: "off" });
+    input.addEventListener("input", () => { typed = true; });
+    const found = el("div", { class: "found" });
+    const form = el("details", { class: "address-box" },
+      el("summary", { text: texts.summary }),
+      // The title, then the input with its buttons on one row (so they line up at any width), then the help.
+      el("div", { class: "address" },
+        el("label", { class: "field-title", htmlFor: "bridge-address", text: t("Address") }),
+        el("div", { class: "address-row" }, input,
+          el("button", { actionIcon: "search", text: t("Find"), onclick: (event) => act(event.currentTarget, async () => {
+            const hosts = await discover();
+            found.replaceChildren(...(hosts.length
+              ? hosts.map((host) => el("button", { actionIcon: "hub", text: host, onclick: () => { input.value = host; typed = true; } }))
+              : [el("span", { class: "muted", text: texts.none })]));
+          }) }),
+          el("button", { class: "primary", actionIcon: "check", text: t("Use"), onclick: (event) => act(event.currentTarget, async () => {
+            await use(input.value.trim());
+            typed = false;
+            found.replaceChildren();
+            await refresh();
+          }) })),
+        texts.addressHelp ? el("span", { class: "help", text: texts.addressHelp }) : null),
+      found);
+    const list = el("div", { class: "bridges" });
+    card.append(list, form);
+
+    /// The countdown texts of the bridges waiting for their button, by host: the second's tick updates only them.
+    const countdowns = new Map();
+
+    function block(bridge) {
+      const pairingNow = isPairing(bridge);
+      const [state, kind] = pairingNow ? [t("Pairing…"), "standby"] : !bridge.host ? [t("Not found"), "away"] : !bridge.paired ? [t("Not paired"), "away"]
+        : bridge.error ? [t("Not responding"), "away"] : bridge.connected === false ? [t("Connecting…"), "standby"] : [t("Connected"), "on"];
+      const items = [
+        bridge.paired && !pairingNow ? { label: t("Pair again"), icon: "key", onSelect: () => start(null, bridge.host) } : null,
+        ...menu(bridge),
+      ].filter(Boolean);
+      const note = el("p", { class: "muted", text: pairingNow ? waiting(bridge.host) : texts.pairHelp });
+      if (pairingNow) countdowns.set(bridge.host, note);
+      const pairs = facts(bridge);
+      return el("div", { class: "bridge" },
+        el("div", { class: "server-head" },
+          tile("bridge", bridge.paired && !bridge.error ? tone : "grey"),
+          el("div", { class: "who" }, el("strong", { text: bridge.name || texts.name }),
+            el("div", { class: "muted", text: bridge.detail || bridge.host || t("Looking on the network…") })),
+          el("span", { class: `pill status ${kind}`, text: state }),
+          // The ⋯ menu only when it has something: a bridge pairing for the first time has nothing.
+          items.length ? HomeswiftCommon.menuButton(t("Actions for {name}", { name: bridge.name || bridge.host || texts.name }), () => items) : null),
+        bridge.paired && bridge.host && !pairingNow && pairs.length ? el("div", { class: "facts" }, ...pairs.map(([label, value]) => fact(label, String(value)))) : null,
+        bridge.host && (!bridge.paired || pairingNow) ? el("div", { class: `pair-prompt ${pairingNow ? "pairing" : ""}` },
+          el("span", { class: "link-button", "aria-hidden": "true" }, icon(button)),
+          el("div", {},
+            el("p", {}, el("strong", { text: pairingNow ? texts.press : texts.pairTitle })),
+            note),
+          // At the row's end, on the drawn button's line.
+          pairingNow ? null : el("button", { class: "primary", actionIcon: "pair", text: t("Pair"), onclick: (event) => start(event.currentTarget, bridge.host) })) : null,
+        bridge.error && bridge.paired && !pairingNow && problem ? explain(problem(bridge)) : null);
+    }
+
+    /// The blocks, drawn again only when what they show changed; while a bridge pairs, the second's tick only counts down.
+    let key = "";
+    function redraw() {
+      if (!typed && document.activeElement !== input) input.value = address;
+      const next = JSON.stringify(bridges.map((bridge) => [{ ...bridge, pairingSecondsLeft: null }, isPairing(bridge)]));
+      if (next === key) {
+        for (const [host, text] of countdowns) text.textContent = waiting(host);
+        return;
+      }
+      key = next;
+      countdowns.clear();
+      list.replaceChildren(...bridges.map(block));
+    }
+
+    async function start(control, host) {
+      pairingUntil.set(host, Date.now() + 60000);
+      asking.add(host);
+      follow();
+      redraw();
+      try {
+        await (control ? act(control, () => pair(host), null) : pair(host));
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        pairingUntil.delete(host);
+        asking.delete(host);
+        await refresh();
+      }
+    }
+
+    return {
+      draw(next, options = {}) {
+        bridges = next;
+        address = options.address ?? "";
+        follow();
+        redraw();
+      },
+      pair: (host) => start(null, host),
+    };
+  }
+
   window.homeswift = {
     platform, name, request, home: "/plugins", $, el, icon, tile, fact, assistant, explain, ask, breadcrumb, api, act, formatTemperature, temperature,
     readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, toggleList, poll, renderKeyed,
-    canonicalMAC, isMAC, sameMAC, tabs, textStyle, speedScale, scenePictures,
+    canonicalMAC, isMAC, sameMAC, tabs, textStyle, speedScale, scenePictures, bridgePairing,
   };
 })();
 
@@ -15825,7 +16004,7 @@ button.add-button {
 .page-head button.add-button { width: 30px; height: 30px; }
 button.add-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
 @media (hover: hover) and (pointer: fine) {
-  button.add-button:hover { background: var(--accent-fill); color: var(--accent-text); transform: none; }
+  button.add-button:hover { background: var(--accent-fill); color: var(--accent-text); }
 }
 @media (pointer: coarse) { button.add-button { position: relative; } button.add-button::after { content: ""; position: absolute; inset: -8px; } }
 .pill.status.admin { color: var(--accent-ink); border-color: rgba(255, 122, 26, 0.4); }
@@ -15876,11 +16055,9 @@ button, a.button {
   transition: transform var(--fast) var(--ease-out), box-shadow var(--fast) var(--ease-out), opacity var(--fast) var(--ease-out);
 }
 a.button { display: inline-flex; align-items: center; justify-content: center; text-align: center; text-decoration: none; line-height: normal; }
-button:hover, a.button:hover { transform: translateY(-1px); }
 button:active:not(:disabled), a.button:active { transform: scale(0.97); transition-duration: 80ms; }
 button.primary, a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: rgba(255, 255, 255, 0.4); box-shadow: 0 8px 20px rgba(255, 122, 26, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
 button.link { border: 0; background: none; box-shadow: none; color: var(--accent-ink); padding: 4px 6px; }
-button.link:hover { transform: none; }
 button.link:active:not(:disabled) { transform: none; opacity: 0.6; }
 button:disabled { opacity: .5; cursor: default; transform: none; }
 button:focus-visible, a.button:focus-visible, nav a:focus-visible, summary:focus-visible, .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -15911,7 +16088,6 @@ select.popup {
   background-color: var(--control); border-color: var(--edge); box-shadow: var(--shadow-control), inset 0 1px 0 var(--edge-light);
   transition: transform var(--fast) var(--ease-out), box-shadow var(--fast) var(--ease-out), border-color var(--fast) var(--ease-out);
 }
-select.popup:hover { transform: translateY(-1px); }
 select.popup:active { transform: scale(0.97); transition-duration: 80ms; }
 select.popup:focus:not(:focus-visible) { border-color: var(--edge); box-shadow: var(--shadow-control), inset 0 1px 0 var(--edge-light); }
 select.popup:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(255, 122, 26, 0.18); }
@@ -16070,7 +16246,6 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
   background: var(--control); border: 1px solid var(--edge); box-shadow: inset 0 1px 0 var(--edge-light), var(--shadow-control);
 }
 .group button { border: 0; background: none; box-shadow: none; padding: 5px 13px; white-space: nowrap; transition: background-color var(--fast) var(--ease-out), transform var(--fast) var(--ease-out); }
-.group button:hover:not(:disabled) { transform: none; }
 .group button:hover:not(:disabled):not(.on) { background: var(--material-thin); }
 .group button.on { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); }
 /* A segmented control whose choices carry a glyph before their name (a phone shows the glyph alone). */
@@ -16080,7 +16255,6 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .mini-remote { display: grid; grid-template-columns: auto auto auto; align-items: center; justify-content: start; gap: 14px; }
 .mini-remote svg { display: block; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .mini-remote button { touch-action: manipulation; transition: transform var(--fast) var(--ease-out), color var(--fast) var(--ease-out), background-color var(--fast) var(--ease-out); }
-.mini-remote button:hover:not(:disabled) { transform: none; }
 .mini-remote button:active:not(:disabled) { transform: scale(0.9); transition-duration: 60ms; }
 .mini-remote button.sent { color: var(--accent-ink); }
 .mini-remote.is-disabled .pad, .mini-remote.is-disabled .round-keys, .mini-remote.is-disabled .remote-side { opacity: 0.45; }
@@ -16362,7 +16536,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .edit-bar { position: absolute; z-index: 3; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; gap: 0; padding: 4px; border-radius: 999px; max-width: calc(100% - 8px); width: max-content;
   background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
 .edit-bar button { min-width: 0; width: 26px; flex: 1 1 26px; height: 28px; padding: 0 2px; border: 0; background: none; box-shadow: none; border-radius: 999px; font-size: 0.75rem; font-weight: 600; color: var(--muted); }
-.edit-bar button:hover { transform: none; color: var(--text); }
+.edit-bar button:hover { color: var(--text); }
 .edit-bar button[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); }
 /* Dragged: the widget lifts over the page and follows the pointer; a dashed slot shows where it will land. In
    Edit, a finger on a widget drags it rather than scrolling the page. */
@@ -16771,7 +16945,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
   padding: 0 7px; margin: 0; border-radius: 6px; font: 600 0.6875rem/1.5 var(--mono); letter-spacing: 0.02em; vertical-align: baseline;
   color: var(--muted); background: var(--material-thin); border: 1px solid var(--line); box-shadow: none;
 }
-.log-details-toggle:hover { color: var(--text); transform: none; }
+.log-details-toggle:hover { color: var(--text); }
 .log-details-toggle[aria-expanded="true"] { color: var(--accent-ink); border-color: var(--accent); }
 .log-line .log-details { grid-column: 1 / -1; margin: 4px 0 6px; max-height: 420px; overflow: auto; font-size: 0.75rem; }
 .log-line.warning { background: rgba(201, 115, 26, 0.08); }
@@ -16958,7 +17132,7 @@ dd { margin: 0; }
 .chat-composer textarea:focus { box-shadow: none; }
 .chat-mic, .chat-send { flex: none; width: 34px; height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
 .chat-mic { border-color: transparent; background: none; box-shadow: none; color: var(--muted); }
-.chat-mic:hover { color: var(--text); background: var(--material-thin); transform: none; }
+.chat-mic:hover { color: var(--text); background: var(--material-thin); }
 .chat-mic.unavailable { opacity: 0.45; }
 .chat.listening .chat-mic {
   color: #fff; background: conic-gradient(from var(--ai-angle), var(--ai-colors)); animation: ai-turn 2s linear infinite;
@@ -17023,7 +17197,6 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
 .code-editor { --code-line: 1.55em; }
 .code-mark { position: absolute; left: 0; right: 0; height: var(--code-line); z-index: -1; background: rgba(255, 107, 107, 0.16); box-shadow: inset 3px 0 0 var(--error); }
 .line-link { padding: 0; margin: 0 6px 0 0; border: 0; background: none; box-shadow: none; font: inherit; font-weight: 600; color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
-.line-link:hover { transform: none; }
 .schema-problems { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 2px; }
 .code-editor > .code-input { position: relative; z-index: 1; color: transparent; background: transparent; caret-color: var(--text); resize: vertical; }
 .code-editor > .code-input::selection { color: transparent; background: rgba(10, 132, 255, 0.28); }
@@ -17186,9 +17359,8 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   /* The chat sheet sits over the tab bar, its field above the home indicator. */
   .chat-foot { margin-bottom: max(12px, env(safe-area-inset-bottom)); }
 }
-/* A touch has no hover: a lift or a tint applied on tap would stay until the next tap elsewhere. */
+/* A touch has no hover: a tint applied on tap would stay until the next tap elsewhere. */
 @media (hover: none) {
-  button:hover, a.button:hover, select.popup:hover { transform: none; }
   nav a:hover:not(.active) { background-color: transparent; }
 }
 @media (prefers-reduced-motion: reduce) { .tabbar a { transition: none; } }
@@ -17246,7 +17418,7 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   background: rgba(30, 32, 40, 0.42); -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%);
   border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: none;
 }
-.camera-button:hover { transform: none; background: rgba(30, 32, 40, 0.62); }
+.camera-button:hover { background: rgba(30, 32, 40, 0.62); }
 .camera-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .camera-message {
   position: absolute; inset: 0; display: grid; place-items: center; padding: 48px 16px; text-align: center; z-index: 1;
@@ -17308,8 +17480,6 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
   display: inline-flex; align-items: center; gap: 10px; flex: none; min-height: 44px; padding: 6px 16px 6px 6px;
   transition: transform var(--fast) var(--ease-out), box-shadow var(--normal) var(--ease-out);
 }
-.mood-room:hover, .mood-button:hover { transform: none; }
-@media (hover: hover) and (pointer: fine) { .mood-button:hover, .mood-room:hover { transform: translateY(-1px); } }
 .mood-button:active:not(:disabled), .mood-room:active { transform: scale(0.96); transition-duration: 80ms; }
 .mood-button.playing { box-shadow: 0 0 0 2px var(--accent), var(--shadow-control); }
 .mood-button.busy::after { margin-left: 0; }
@@ -17452,7 +17622,7 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
   display: grid; place-items: center; background: var(--control); color: var(--text);
 }
 .wallpaper-remove svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
-.wallpaper-remove:hover:not(:disabled) { color: var(--error); transform: none; }
+.wallpaper-remove:hover:not(:disabled) { color: var(--error); }
 /* A finger's worth of target around the small badge. */
 .wallpaper-remove::after { content: ""; position: absolute; inset: -8px; border-radius: 50%; }
 .appearance { display: grid; gap: 16px; }
@@ -17902,12 +18072,12 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .local-ui-settings .group-box > .fields > .fields { align-items: stretch; }
 .local-ui-settings .group-box > .fields > .fields > div { display: flex; flex-direction: column; min-width: 0; }
 .local-ui-settings .group-box > .fields > .fields > div > .drop-zone { margin-top: auto; }
-/* Separate section guidance from its actions. */
-.local-ui-settings .group-box fieldset > button,
-.local-ui-settings .group-box .help + button,
-.local-ui-settings .group-box p + button,
-.local-ui-settings .group-box .help + .actions { margin-top: 14px; }
-.local-ui-settings .group-box fieldset > .help { margin-bottom: 10px; }
+/* Separate section guidance from its actions, in every form: a list's help from its Add button. */
+fieldset > button,
+.group-box .help + button,
+.group-box p + button,
+.group-box .help + .actions { margin-top: 14px; }
+fieldset > .help { margin-bottom: 10px; }
 
 .scene-value-slider { display: flex; flex-direction: column; gap: 10px; width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--material-thin); }
 .scene-slider-value { align-self: flex-end; font-size: .9375rem; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -17987,7 +18157,7 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 
 .mobile-nav-divider { border: 0; border-top: 1px solid var(--edge); margin: 8px 4px; }
 
-.mobile-nav-account:hover { transform: none; background: var(--material-thin); }
+.mobile-nav-account:hover { background: var(--material-thin); }
 
 .account-settings-link, .account-settings-link:visited { color: var(--accent-ink); text-decoration: none; }
 .account-settings-link:hover { text-decoration: underline; text-underline-offset: 3px; }
@@ -17997,7 +18167,7 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .port-stepper > input::-webkit-inner-spin-button, .port-stepper > input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .port-stepper-buttons { position: absolute; inset: 4px 4px 4px auto; width: 34px; display: grid; grid-template-rows: 1fr 1fr; gap: 2px; }
 .port-stepper-buttons button { display: grid; place-items: center; min-height: 0; padding: 0; border: 0; border-radius: 6px; background: var(--material-thin); color: var(--muted); box-shadow: none; }
-.port-stepper-buttons button:hover { transform: none; background: var(--material-regular); color: var(--accent-ink); }
+.port-stepper-buttons button:hover { background: var(--material-regular); color: var(--accent-ink); }
 .port-stepper-buttons svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
@@ -18304,12 +18474,21 @@ select option:disabled { color: var(--muted); }
 
 /* ---- The lighting plugins' pages (Philips Hue, IKEA DIRIGERA): their tabs, a bridge's pairing with its button,
    its address, scene tiles painted with their palette or a picture, the transition's speed scale and the save bar.
-   plugin.js has their pieces (tabs, scenePictures, textStyle, speedScale). */
+   plugin.js has their pieces (tabs, bridgePairing, scenePictures, textStyle, speedScale). */
 .main-tabs { margin: 18px 0 14px; }
 .tab-pane { animation: fade var(--normal) var(--ease-out); }
 
-/* Pairing: press the bridge's button, which pulses while the bridge waits. */
-.pair-prompt { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: center; margin-top: 14px; padding: 14px 16px; border-radius: 16px; background: var(--material-thin); border: 1px solid var(--line); }
+/* The bridge card: a block per bridge (a line between two), its facts once paired, then the address form. */
+.bridge-card .bridge { padding: 14px 0; border-top: 1px solid var(--line); }
+.bridge-card .bridge:first-child { padding-top: 0; border-top: 0; }
+.bridge-card .bridge .who { flex: 1; min-width: 0; }
+.bridge-card .bridge .facts { margin-top: 14px; }
+.bridge-card .bridges:not(:empty) + .address-box { padding-top: 14px; border-top: 1px solid var(--line); }
+.bridge-card .found { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.bridge-card .found:empty { display: none; }
+
+/* Pairing: the bridge's button drawn, what to do, and Pair at the row's end; the drawn button pulses while the bridge waits. */
+.pair-prompt { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 16px; align-items: center; margin-top: 14px; padding: 14px 16px; border-radius: 16px; background: var(--material-thin); border: 1px solid var(--line); }
 .pair-prompt p { margin: 0; font-size: 0.875rem; }
 .link-button { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle at 50% 40%, #fff, #e6e8ee 70%); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.15); color: #3d4352; }
 .link-button svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
@@ -18325,7 +18504,7 @@ select option:disabled { color: var(--muted); }
 .scene-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr)); gap: 10px; margin-bottom: 28px; }
 .scene { position: relative; display: grid; align-content: end; min-height: 96px; padding: 12px 14px; border-radius: 18px; border: 1px solid var(--edge); color: #fff; text-align: left; cursor: pointer; overflow: hidden; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); transition: transform var(--fast) var(--ease-out), box-shadow var(--fast) var(--ease-out); }
 .scene::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 35%, rgba(0, 0, 0, 0.42)); pointer-events: none; }
-@media (hover: hover) and (pointer: fine) { .scene:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14); } }
+@media (hover: hover) and (pointer: fine) { .scene:hover { box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14); } }
 .scene:active { transform: scale(0.98); }
 .scene .name { position: relative; z-index: 1; font-weight: 600; font-size: 0.9375rem; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .scene.active { box-shadow: 0 0 0 3px var(--accent), 0 6px 18px rgba(0, 0, 0, 0.14); }
@@ -18360,7 +18539,8 @@ select option:disabled { color: var(--muted); }
 
 @media (max-width: 640px) {
   .speed-scale { display: none; }
-  .pair-prompt { grid-template-columns: 1fr; justify-items: start; }
+  .pair-prompt { grid-template-columns: auto minmax(0, 1fr); }
+  .pair-prompt > button { grid-column: 1 / -1; justify-self: end; }
 }
 @media (prefers-reduced-motion: reduce) {
   .tab-pane { animation: none; }

@@ -40,12 +40,24 @@
         }
       },
       "transitionMs": {
-        "title": "Transition (ms)",
+        "title": "Transition",
         "type": "integer",
-        "minimum": 0,
-        "maximum": 10000,
         "default": 100,
-        "description": "How long a light takes to reach a new level or colour. 0 changes at once."
+        "description": "How long a light takes to reach a new level or colour: the plugin page's speed scale. Extreme changes at once.",
+        "oneOf": [
+          { "title": "Very slow · 2000 ms", "enum": [2000] },
+          { "title": "Very slow · 1500 ms", "enum": [1500] },
+          { "title": "Slow · 1000 ms", "enum": [1000] },
+          { "title": "Slow · 800 ms", "enum": [800] },
+          { "title": "Medium · 600 ms", "enum": [600] },
+          { "title": "Medium · 400 ms", "enum": [400] },
+          { "title": "Medium · 300 ms", "enum": [300] },
+          { "title": "Fast · 200 ms", "enum": [200] },
+          { "title": "Fast · 100 ms", "enum": [100] },
+          { "title": "Very fast · 60 ms", "enum": [60] },
+          { "title": "Very fast · 30 ms", "enum": [30] },
+          { "title": "Extreme · at once", "enum": [0] }
+        ]
       },
       "scenes": {
         "title": "Scenes",
