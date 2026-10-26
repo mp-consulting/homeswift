@@ -140,8 +140,8 @@ with a new code). More users are added on the **Users** page (see below).
 - **Addresses** are paths: `/status`, `/accessories`, `/quick`, `/scenes` (and `/scenes/<id>`, `/scenes/new`),
   `/notifications`, `/plugins`, `/plugins/<slug>` and its `/expert`,
   `/plugins/add/<platform>`, `/config`, `/account`, `/appearance`, `/users`, `/settings` and its `/child-bridges`, `/backups`, `/assistant` and
-  `/audit?since=7d&outcome=failed&tool=…&client=…`, and `/logs/<accessory>?bridge=<bridge or all>&since=24h&level=warning&q=text`
-  (the accessory by its name's slug; `since` is `1h`, `6h`, `24h`, `today`, `yesterday`, `7d` or `custom` with
+  `/audit?since=7d&outcome=failed&tool=…&client=…`, and `/logs/<accessory>?bridge=<bridge or all>&plugin=<plugin>&since=24h&level=warning&q=text`
+  (the accessory by its name's slug, or its id; the plugin by its slug, and `/logs/<platform>` from a plugin's page; `since` is `1h`, `6h`, `24h`, `today`, `yesterday`, `7d` or `custom` with
   `from` and `to`). A link changes the view in place, Back and Forward work, and an address can be kept or
   shared; the Logs view writes its choices into its own.
 - **Plugins**: every platform block of config.json, with whether it runs, is paused, and where. Each card's
@@ -209,8 +209,8 @@ with a new code). More users are added on the **Users** page (see below).
 - **Logs**: the live log, filtered by level (All; Info, info and above; Warnings or Errors alone), text, time
   and what the lines are about. That last is one menu:
   every line; the bridges' own lines (their servers' connections, pairings and controllers), every bridge's or
-  one's; or an accessory's (those of its own server and those that name it, its id or its address), the
-  accessories grouped by plugin. The time: the latest lines, the last hour, 6 or 24 hours, today,
+  one's; a plugin's own lines (its pairing, devices, clouds and errors: the lines it writes); or an accessory's
+  (those of its own server and those that name it, its id or its address), the accessories grouped by plugin. The time: the latest lines, the last hour, 6 or 24 hours, today,
   yesterday, the last 7 days, or a custom range. The bridge keeps its log on disk for that, under `logs/`
   next to config.json: segments of 8 MB at most, a new one each day, the oldest removed past 64 MB or 7
   days, written in batches once a second so logging never waits for the disk. **Copy** puts the lines shown

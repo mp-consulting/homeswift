@@ -3710,12 +3710,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// What the data is about, one menu: everything (`everything` names it); the bridges, every bridge's own lines
   /// (`allBridges`) or one's; or one accessory, grouped by plugin. Values: "", "bridge:all", "bridge:<device ID>",
   /// "accessory:<id>". `changed` runs on a choice; `source()` reads it as a kind and a value.
-  function sourceFilter(accessories, bridges, initial, { label, everything, allBridges = false, changed }) {
+  function sourceFilter(accessories, bridges, initial, { label, everything, allBridges = false, plugins = [], changed }) {
     const option = (value, text) => el("option", { value, text, selected: value === initial });
     const picker = el("select", { class: `popup ${initial ? "chosen" : ""}`, "aria-label": label },
       option("", everything),
       bridges.length ? el("optgroup", { label: t("Bridges") }, allBridges ? option("bridge:all", t("Bridges only")) : null,
         bridges.map((bridge) => option(`bridge:${bridge.deviceId}`, bridge.external ? t("{name} · its own server", { name: bridge.name }) : bridge.childBridge ? t("{name} · child bridge", { name: bridge.name }) : bridge.name))) : null,
+      // A plugin's own lines: its pairing, its devices and clouds, its errors (the lines it writes, labelled with its name).
+      plugins.length ? el("optgroup", { label: t("Plugins") }, plugins.map((plugin) => option(`plugin:${plugin.name}`, plugin.name))) : null,
       groupByPlugin(accessories).map(([name, list]) => el("optgroup", { label: name },
         list.map((accessory) => option(`accessory:${accessory.id}`, accessory.name)))));
     picker.addEventListener("change", () => { picker.classList.toggle("chosen", Boolean(picker.value)); changed(); });
@@ -3728,10 +3730,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
   }
 
-  /// The source menu's value for an address: an accessory by its slug or id, a bridge by its slug, or `all`.
-  function initialSource(accessories, bridges, accessory, bridge) {
+  /// The source menu's value for an address: an accessory by its slug or id, a plugin by its slug, name or platform (a
+  /// plugin's page links to `/logs/<platform>`), a bridge by its slug, or `all`.
+  function initialSource(accessories, bridges, accessory, bridge, plugins = [], plugin = null) {
     const found = accessory && accessories.find((one) => one.slug === accessory || one.id === accessory);
     if (found) return `accessory:${found.id}`;
+    const named = (wanted) => wanted && plugins.find((one) => [one.slug, one.name, one.platform].some((key) => key?.toLowerCase() === wanted.toLowerCase()));
+    const owner = named(plugin) || named(accessory);
+    if (owner) return `plugin:${owner.name}`;
     if (bridge === "all") return "bridge:all";
     const one = bridge && bridges.find((candidate) => candidate.slug === bridge);
     return one ? `bridge:${one.deviceId}` : "";
@@ -3742,9 +3748,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // the range (latest, 1h, 6h, 24h, today, yesterday, 7d, or custom with from= and to=), the lowest level and the
   // text. The address follows what is chosen, so it can be kept or shared.
   views.logs = async (main, [wanted] = []) => {
-    const [accessories, bridges] = await Promise.all([
+    const [accessories, bridges, plugins] = await Promise.all([
       api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
       api("/api/status").then((status) => withSlugs(status.bridges, "bridge")).catch(() => []),
+      // The plugins (not the UI's or the Assistant's blocks): their lines carry their name.
+      api("/api/plugins").then((answer) => (answer.blocks ?? []).filter((block) => !block.system)).catch(() => []),
     ]);
     const params = new URLSearchParams(location.search);
     const output = el("div", { class: "log", role: "log", "aria-live": "off" });
@@ -3770,13 +3778,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const labels = new Set(chosen.map((bridge) => bridge.name));
       return (line) => labels.has(line.label);
     };
-    const sources = sourceFilter(accessories, bridges, initialSource(accessories, bridges, wanted, params.get("bridge")), {
-      label: t("What the lines are about"), everything: t("All lines"), allBridges: true, changed: () => { choose(); load(); } });
+    const sources = sourceFilter(accessories, bridges, initialSource(accessories, bridges, wanted, params.get("bridge"), plugins, params.get("plugin")), {
+      label: t("What the lines are about"), everything: t("All lines"), allBridges: true, plugins, changed: () => { choose(); load(); } });
     const source = sources.source;
     const choose = () => {
       const { kind, value } = source();
       logState.accessory = kind === "accessory" ? termsFor(value) : null;
-      logState.bridge = kind === "bridge" ? bridgeFor(value) : null;
+      logState.bridge = kind === "bridge" ? bridgeFor(value) : kind === "plugin" ? (line) => line.label === value : null;
     };
     // `live`: new lines join the page (not while a span in the past is shown); `cap`: how many it keeps.
     filter.value = params.get("q") ?? "";
@@ -3827,6 +3835,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const { kind, value } = source();
       const bridge = kind === "bridge" ? bridges.find((b) => b.deviceId === value) : null;
       if (kind === "bridge") query.set("bridge", bridge ? bridge.slug : "all");
+      const plugin = kind === "plugin" ? plugins.find((one) => one.name === value) : null;
+      if (plugin) query.set("plugin", plugin.slug);
       const accessory = kind === "accessory" ? byID.get(value) : null;
       const path = `/logs${accessory ? `/${accessory.slug}` : ""}${query.size ? `?${query}` : ""}`;
       if (path !== location.pathname + location.search) history.replaceState(null, "", path);

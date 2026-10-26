@@ -517,6 +517,10 @@ struct LogFilterTests {
         #expect(try await browser.get("/api/logs?bridge=all").json?.arrayValue?.count == 2)
         let both = try await browser.get("/api/logs?bridge=\(bridge)&accessory=Lamps:lamp").json?.arrayValue ?? []
         #expect(both.map { $0["text"]?.stringValue ?? "" } == ["Desk Lamp read by a controller"])
+        // A plugin's own lines, by its block's name; a name no block has picks nothing out.
+        let plugin = try await browser.get("/api/logs?plugin=Lamps").json?.arrayValue ?? []
+        #expect(plugin.map { $0["text"]?.stringValue ?? "" } == ["Desk Lamp turned on"])
+        #expect(try await browser.get("/api/logs?plugin=Nope").json?.arrayValue?.count == 4)
     }
 }
 
