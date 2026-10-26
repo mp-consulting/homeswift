@@ -224,7 +224,8 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   (`{name, steps: [{colors: [{on, brightness, hue, saturation, colorTemperature}], assign: spread|random, seconds,
   jitter}], loop, durationSeconds, restore}`), checked and kept to each light's range. Only lightbulbs change, never a
   security control. A mood of one step that does not loop sets the lights, and `stop_mood` undoes it for 12 hours
-  (`"held": true` in `list_moods`); any other plays in the background, at least half a second a step since lights fade, and puts the lights back when it ends (when it loops,
+  (`"held": true` in `list_moods`); any other plays in the background, every light of a step written at the same time, at least a
+  quarter of a second a step since many lights fade, and puts the lights back when it ends (when it loops,
   or with `restore`) or when `stop_mood` stops it. A mood started on lights another plays on takes them over, and
   restores them as they were before the first; one that takes only some of a held mood's lights leaves it the others; a light that fails three writes in a row leaves the show.
 - **Notifications.** `send_test_notification` sends a test through the channels that are on (`channel` for one:
