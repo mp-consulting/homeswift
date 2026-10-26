@@ -2774,9 +2774,8 @@
         onclick: () => { if (option !== value) choose({ [key]: option }); } })));
 
     const picker = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp", class: "hidden" });
-    picker.addEventListener("change", async () => {
-      const file = picker.files[0];
-      picker.value = "";
+    /// A wallpaper of the viewer's own, from the picker or dropped on the zone.
+    const useImage = async (file) => {
       if (!file) return;
       message.className = "status-line muted";
       message.textContent = t("Preparing the image…");
@@ -2786,7 +2785,22 @@
         message.textContent = t("Your image is the wallpaper now.");
         draw();
       } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
-    });
+    };
+    picker.addEventListener("change", () => { const file = picker.files[0]; picker.value = ""; useImage(file); });
+    const imageZone = () => {
+      const zone = el("div", { class: "drop-zone wallpaper-drop", role: "button", tabIndex: 0, "aria-label": t("Drop or choose an image for the wallpaper") },
+        HomeswiftCommon.icon("image"), el("span", {}, t("Drop an image here, or "), el("strong", { text: t("choose one [image]") })));
+      zone.addEventListener("click", () => picker.click());
+      zone.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); picker.click(); } });
+      zone.addEventListener("dragover", (event) => {
+        if (![...(event.dataTransfer?.types ?? [])].includes("Files")) return;
+        event.preventDefault();
+        zone.classList.add("over");
+      });
+      zone.addEventListener("dragleave", () => zone.classList.remove("over"));
+      zone.addEventListener("drop", (event) => { event.preventDefault(); zone.classList.remove("over"); useImage(event.dataTransfer?.files?.[0]); });
+      return zone;
+    };
     const body = el("div", { class: "appearance" });
     function draw() {
       const own = preferences.wallpaper === "custom" || preferences.wallpaperVersion;
@@ -2801,11 +2815,11 @@
               el("button", { type: "button", role: "radio", class: `wallpaper-choice${preferences.wallpaper === value ? " on" : ""}`, "aria-checked": String(preferences.wallpaper === value),
                 onclick: () => { if (preferences.wallpaper !== value) choose({ wallpaper: value }); } },
                 el("span", { class: "wallpaper-swatch", "data-swatch": value }), el("span", { text })))),
-          el("div", { class: "actions" },
-            el("button", { text: own ? t("Choose another image…") : t("Use an image of your own…"), onclick: () => picker.click() }),
-            own ? el("button", { actionIcon: "trash", class: "link danger", text: t("Remove your image"), onclick: async () => {
+          imageZone(),
+          own ? el("div", { class: "actions" },
+            el("button", { actionIcon: "trash", class: "link danger", text: t("Remove your image"), onclick: async () => {
               try { preferences = HomeswiftCommon.applyPreferences(await api("/api/preferences/wallpaper", { method: "DELETE" })); draw(); } catch (e) { alert(e.message); }
-            } }) : null),
+            } })) : null,
           picker),
         el("div", { class: "card" }, el("h2", { text: t("Temperatures") }),
           el("p", { class: "muted", text: t("How accessories and plugin pages show them. HomeKit and the Home app keep their own setting.") }),

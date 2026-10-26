@@ -3488,9 +3488,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         onclick: () => { if (option !== value) choose({ [key]: option }); } })));
 
     const picker = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp", class: "hidden" });
-    picker.addEventListener("change", async () => {
-      const file = picker.files[0];
-      picker.value = "";
+    /// A wallpaper of the viewer's own, from the picker or dropped on the zone.
+    const useImage = async (file) => {
       if (!file) return;
       message.className = "status-line muted";
       message.textContent = t("Preparing the image…");
@@ -3500,7 +3499,22 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         message.textContent = t("Your image is the wallpaper now.");
         draw();
       } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
-    });
+    };
+    picker.addEventListener("change", () => { const file = picker.files[0]; picker.value = ""; useImage(file); });
+    const imageZone = () => {
+      const zone = el("div", { class: "drop-zone wallpaper-drop", role: "button", tabIndex: 0, "aria-label": t("Drop or choose an image for the wallpaper") },
+        HomeswiftCommon.icon("image"), el("span", {}, t("Drop an image here, or "), el("strong", { text: t("choose one [image]") })));
+      zone.addEventListener("click", () => picker.click());
+      zone.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); picker.click(); } });
+      zone.addEventListener("dragover", (event) => {
+        if (![...(event.dataTransfer?.types ?? [])].includes("Files")) return;
+        event.preventDefault();
+        zone.classList.add("over");
+      });
+      zone.addEventListener("dragleave", () => zone.classList.remove("over"));
+      zone.addEventListener("drop", (event) => { event.preventDefault(); zone.classList.remove("over"); useImage(event.dataTransfer?.files?.[0]); });
+      return zone;
+    };
     const body = el("div", { class: "appearance" });
     function draw() {
       const own = preferences.wallpaper === "custom" || preferences.wallpaperVersion;
@@ -3515,11 +3529,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
               el("button", { type: "button", role: "radio", class: `wallpaper-choice${preferences.wallpaper === value ? " on" : ""}`, "aria-checked": String(preferences.wallpaper === value),
                 onclick: () => { if (preferences.wallpaper !== value) choose({ wallpaper: value }); } },
                 el("span", { class: "wallpaper-swatch", "data-swatch": value }), el("span", { text })))),
-          el("div", { class: "actions" },
-            el("button", { text: own ? t("Choose another image…") : t("Use an image of your own…"), onclick: () => picker.click() }),
-            own ? el("button", { actionIcon: "trash", class: "link danger", text: t("Remove your image"), onclick: async () => {
+          imageZone(),
+          own ? el("div", { class: "actions" },
+            el("button", { actionIcon: "trash", class: "link danger", text: t("Remove your image"), onclick: async () => {
               try { preferences = HomeswiftCommon.applyPreferences(await api("/api/preferences/wallpaper", { method: "DELETE" })); draw(); } catch (e) { alert(e.message); }
-            } }) : null),
+            } })) : null,
           picker),
         el("div", { class: "card" }, el("h2", { text: t("Temperatures") }),
           el("p", { class: "muted", text: t("How accessories and plugin pages show them. HomeKit and the Home app keep their own setting.") }),
@@ -5570,6 +5584,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     check: '<path d="m5 12 4.5 4.5L19 7"/>',
     warning: '<path d="m12 3 10 18H2zM12 9v5M12 17h.01"/>',
     download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+    image: '<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="m21 15.5-4.5-4.5L7 19.5"/>',
     restore: '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/>',
     history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6M3.5 4.5V9H8"/><path d="M12 7.5V12l3 2"/>',
     sliders: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
@@ -8281,8 +8296,8 @@ HomeswiftI18n.add("es", {
   "Child bridges": "Puentes secundarios",
   "Child lock": "Bloqueo infantil",
   "Choose a JPEG, PNG or WebP image.": "Elige una imagen JPEG, PNG o WebP.",
-  "Choose another image…": "Elegir otra imagen…",
   "choose it": "elígela",
+  "choose one [image]": "elige una",
   "choose it [file]": "elígelo",
   "choose read, control or admin, up to what your account may do": "elige read, control o admin, hasta lo que tu cuenta pueda hacer",
   "Christmas": "Navidad",
@@ -8450,6 +8465,8 @@ HomeswiftI18n.add("es", {
   "Drop a backup (.tar) here, or {choose}": "Suelta aquí una copia de seguridad (.tar) o {choose}",
   "Drop or choose a backup to restore": "Suelta o elige una copia de seguridad para restaurar",
   "Drop or choose the file for {key}": "Suelta o elige el archivo para {key}",
+  "Drop an image here, or ": "Suelta una imagen aquí, o ",
+  "Drop or choose an image for the wallpaper": "Suelta o elige una imagen para el fondo de pantalla",
   "Drop the file here, or ": "Suelta el archivo aquí, o ",
   "Dry": "Seco",
   "Duration": "Duración",
@@ -9594,7 +9611,6 @@ HomeswiftI18n.add("es", {
   "URL": "URL",
   "USD per day": "USD al día",
   "USD per month": "USD al mes",
-  "Use an image of your own…": "Usar una imagen propia…",
   "use at least {0} characters": "usa al menos {0} caracteres",
   "use at most {0} bytes": "usa como máximo {0} bytes",
   "Use it": "Usarlo",
@@ -10213,8 +10229,8 @@ HomeswiftI18n.add("fr", {
   "Child bridges": "Ponts enfants",
   "Child lock": "Sécurité enfants",
   "Choose a JPEG, PNG or WebP image.": "Choisissez une image JPEG, PNG ou WebP.",
-  "Choose another image…": "Choisir une autre image…",
   "choose it": "choisissez-la",
+  "choose one [image]": "choisissez-en une",
   "choose it [file]": "choisissez-le",
   "choose read, control or admin, up to what your account may do": "choisissez read, control ou admin, dans la limite de ce que votre compte peut faire",
   "Christmas": "Noël",
@@ -10382,6 +10398,8 @@ HomeswiftI18n.add("fr", {
   "Drop a backup (.tar) here, or {choose}": "Déposez une sauvegarde (.tar) ici, ou {choose}",
   "Drop or choose a backup to restore": "Déposez ou choisissez une sauvegarde à restaurer",
   "Drop or choose the file for {key}": "Déposez ou choisissez le fichier pour {key}",
+  "Drop an image here, or ": "Déposez une image ici, ou ",
+  "Drop or choose an image for the wallpaper": "Déposez ou choisissez une image pour le fond d'écran",
   "Drop the file here, or ": "Déposez le fichier ici, ou ",
   "Dry": "Pas de fuite",
   "Duration": "Durée",
@@ -11526,7 +11544,6 @@ HomeswiftI18n.add("fr", {
   "URL": "URL",
   "USD per day": "USD par jour",
   "USD per month": "USD par mois",
-  "Use an image of your own…": "Utiliser votre propre image…",
   "use at least {0} characters": "utilisez au moins {0} caractères",
   "use at most {0} bytes": "utilisez au plus {0} octets",
   "Use it": "Utiliser",
@@ -12145,8 +12162,8 @@ HomeswiftI18n.add("pt", {
   "Child bridges": "Pontes secundárias",
   "Child lock": "Bloqueio para crianças",
   "Choose a JPEG, PNG or WebP image.": "Escolha uma imagem JPEG, PNG ou WebP.",
-  "Choose another image…": "Escolher outra imagem…",
   "choose it": "escolha-a",
+  "choose one [image]": "escolha uma",
   "choose it [file]": "escolha-o",
   "choose read, control or admin, up to what your account may do": "escolha read, control ou admin, até ao que a conta pode fazer",
   "Christmas": "Natal",
@@ -12314,6 +12331,8 @@ HomeswiftI18n.add("pt", {
   "Drop a backup (.tar) here, or {choose}": "Largue aqui uma cópia de segurança (.tar) ou {choose}",
   "Drop or choose a backup to restore": "Largue ou escolha uma cópia de segurança para restaurar",
   "Drop or choose the file for {key}": "Largue ou escolha o ficheiro para {key}",
+  "Drop an image here, or ": "Largue uma imagem aqui, ou ",
+  "Drop or choose an image for the wallpaper": "Largue ou escolha uma imagem para o papel de parede",
   "Drop the file here, or ": "Largue o ficheiro aqui, ou ",
   "Dry": "Seco",
   "Duration": "Duração",
@@ -13458,7 +13477,6 @@ HomeswiftI18n.add("pt", {
   "URL": "URL",
   "USD per day": "USD por dia",
   "USD per month": "USD por mês",
-  "Use an image of your own…": "Usar uma imagem própria…",
   "use at least {0} characters": "use pelo menos {0} caracteres",
   "use at most {0} bytes": "use no máximo {0} bytes",
   "Use it": "Usar",
@@ -15890,6 +15908,10 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
 .drop-zone.over { border-color: var(--accent); background: rgba(255, 122, 26, 0.08); color: var(--text); transform: scale(1.01); }
 .drop-zone.ok { border-style: solid; border-color: var(--ok); color: var(--ok); }
 .drop-zone.error { border-color: var(--error); color: var(--error); }
+/* Appearance's own wallpaper: drop an image on the card's zone, or tap it to choose one. */
+.wallpaper-drop { margin-top: 14px; padding: 18px 14px; gap: 10px; font-size: 0.875rem; }
+.wallpaper-drop svg { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.wallpaper-drop + .actions { margin-top: 10px; }
 .view-switch { margin-bottom: 12px; }
 .form-card > p.error:empty { display: none; }
 .chat-voice { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 6px 16px 0; font-size: 0.75rem; color: var(--muted); }
@@ -16277,9 +16299,9 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .appearance .group { margin-top: 10px; flex-wrap: wrap; }
 @media (max-width: 640px) {
   /* The choices fill the card's width; one that needs two rows (the languages) stretches each row's buttons to the
-     edge, so neither row is ragged. */
+     edge, so neither row is ragged; a button never shrinks below its text, it moves to the next row. */
   .appearance .group { display: flex; border-radius: 18px; }
-  .appearance .group button { flex: 1 1 5.5rem; min-width: 0; padding: 7px 6px; border-radius: 14px; }
+  .appearance .group button { flex: 1 1 5.5rem; padding: 7px 10px; border-radius: 14px; }
   /* The save message under the cards stays clear of the floating menu button. */
   .appearance + .status-line { margin-inline-end: calc(70px + env(safe-area-inset-right)); }
 }
