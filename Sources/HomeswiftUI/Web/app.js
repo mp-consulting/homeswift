@@ -2052,6 +2052,9 @@
     throw new Error(`unknown operator ${node.op}`);
   }
 
+  /// An English plural title's singular, for a list's Add button: proxies → proxy, addresses → address, hosts → host (status stays).
+  const singular = (text) => text.replace(/ies$/, "y").replace(/(ss|x|ch|sh)es$/, "$1").replace(/([^su])s$/, "$1");
+
   /// A form from a Homebridge-style config.schema.json; key order follows the schema (and its layout).
   function buildForm(root, value) {
     const schema = root.schema || root;
@@ -2187,7 +2190,7 @@
         };
         for (const item of Array.isArray(current) ? current : []) addRow(item);
         const element = el("fieldset", {}, el("legend", { text: title }), help, list,
-          el("button", { actionIcon: "plus", text: t("Add {item}", { item: title.replace(/s$/, "").toLowerCase() }), onclick: () => addRow(undefined) }));
+          el("button", { actionIcon: "plus", text: t("Add {item}", { item: singular(title).toLowerCase() }), onclick: () => addRow(undefined) }));
         return { element, get: () => { const v = rows.map((r) => r.get()).filter((x) => x !== undefined); return v.length ? v : undefined; } };
       }
       const input = el("input", { type: property["x-schema-form"] && property["x-schema-form"].type === "password" ? "password" : "text", value: current ?? "", placeholder: property.placeholder ?? property.default ?? "", required });

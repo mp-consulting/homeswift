@@ -2766,6 +2766,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     throw new Error(`unknown operator ${node.op}`);
   }
 
+  /// An English plural title's singular, for a list's Add button: proxies → proxy, addresses → address, hosts → host (status stays).
+  const singular = (text) => text.replace(/ies$/, "y").replace(/(ss|x|ch|sh)es$/, "$1").replace(/([^su])s$/, "$1");
+
   /// A form from a Homebridge-style config.schema.json; key order follows the schema (and its layout).
   function buildForm(root, value) {
     const schema = root.schema || root;
@@ -2901,7 +2904,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         };
         for (const item of Array.isArray(current) ? current : []) addRow(item);
         const element = el("fieldset", {}, el("legend", { text: title }), help, list,
-          el("button", { actionIcon: "plus", text: t("Add {item}", { item: title.replace(/s$/, "").toLowerCase() }), onclick: () => addRow(undefined) }));
+          el("button", { actionIcon: "plus", text: t("Add {item}", { item: singular(title).toLowerCase() }), onclick: () => addRow(undefined) }));
         return { element, get: () => { const v = rows.map((r) => r.get()).filter((x) => x !== undefined); return v.length ? v : undefined; } };
       }
       const input = el("input", { type: property["x-schema-form"] && property["x-schema-form"].type === "password" ? "password" : "text", value: current ?? "", placeholder: property.placeholder ?? property.default ?? "", required });
@@ -15931,6 +15934,9 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   .settings-bar.beside-mobile-menu { margin-right: calc(70px + env(safe-area-inset-right)); }
   .settings-bar > span:first-child { flex-basis: 60px; }
   .settings-bar > button { flex-shrink: 0; }
+  /* Revert as an icon, so the status, Revert and Save fit on one row beside the menu button. */
+  .settings-bar > .settings-action:not(.primary) { width: 40px; height: 40px; padding: 0; justify-content: center; }
+  .settings-bar > .settings-action:not(.primary) > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   /* Fields at 16px: smaller, and Safari zooms the page into them on focus. */
   input, select, textarea, .code-editor > .code-layer, .code-editor > .code-input { font-size: 16px; }
   /* Comfortable targets, near Apple's 44pt: every button at least 40px tall, a text button too (its hit area
@@ -16269,6 +16275,14 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .wallpaper-swatch { display: block; height: 64px; border-radius: 11px; border: 1px solid var(--line); }
 .appearance { display: grid; gap: 16px; }
 .appearance .group { margin-top: 10px; flex-wrap: wrap; }
+@media (max-width: 640px) {
+  /* The choices fill the card's width; one that needs two rows (the languages) stretches each row's buttons to the
+     edge, so neither row is ragged. */
+  .appearance .group { display: flex; border-radius: 18px; }
+  .appearance .group button { flex: 1 1 5.5rem; min-width: 0; padding: 7px 6px; border-radius: 14px; }
+  /* The save message under the cards stays clear of the floating menu button. */
+  .appearance + .status-line { margin-inline-end: calc(70px + env(safe-area-inset-right)); }
+}
 .link-card { display: flex; align-items: center; gap: 14px; margin-top: 16px; padding: 16px 18px; color: var(--text); text-decoration: none; }
 .link-card svg { width: 24px; height: 24px; fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
