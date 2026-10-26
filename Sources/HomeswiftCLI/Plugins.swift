@@ -6,6 +6,7 @@ import HomeswiftElgatoKeyLights
 import HomeswiftGovee
 import HomeswiftLGThinQ
 import HomeswiftPhilipsAmbilightTV
+import HomeswiftPhilipsHue
 import HomeswiftPlugin
 import HomeswiftUniFiAccess
 import HomeswiftUniFiProtect
@@ -29,5 +30,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(GoveePlugin.self)
     registry.register(UniFiProtectPlugin.self)
     registry.register(WingmanPlugin.self)
+    registry.register(PhilipsHuePlugin.self)
     return registry
 }
