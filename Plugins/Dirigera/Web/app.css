@@ -18,8 +18,11 @@ h2 { margin: 0 0 10px; }
 .pairing .link-button { animation: press 1.6s var(--ease-out) infinite; }
 @keyframes press { 0%, 100% { box-shadow: 0 0 0 0 rgba(124, 77, 219, 0.45), inset 0 -2px 0 rgba(0, 0, 0, 0.08); } 50% { box-shadow: 0 0 0 10px rgba(124, 77, 219, 0), inset 0 -2px 0 rgba(0, 0, 0, 0.08); } }
 .countdown { font-variant-numeric: tabular-nums; }
-.address { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 12px; }
-.address .field { flex: 1; min-width: 200px; margin: 0; }
+.address { margin-top: 12px; }
+.address-row { display: flex; gap: 8px; align-items: center; }
+.address-row input { flex: 1; min-width: 0; width: auto; }
+.address-row button { flex: none; }
+.address .help { display: block; margin-top: 6px; }
 .found { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 
 /* Scenes: a section per room, a tile per scene painted with its colours. */
@@ -41,11 +44,13 @@ h2 { margin: 0 0 10px; }
 .scene.busy { pointer-events: none; }
 
 /* Settings. */
-.range { display: flex; align-items: center; gap: 12px; }
-.range input { flex: 1; width: auto; }
-.range output { min-width: 72px; text-align: right; font-variant-numeric: tabular-nums; }
-.presets { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
-.presets button { padding: 4px 11px; min-height: 0; font-size: 0.8125rem; border-radius: 999px; }
+.range-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.range-head output { font-weight: 600; font-variant-numeric: tabular-nums; }
+.field input.speed { width: 100%; }
+.speed-scale { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); margin: 4px 0 2px; font-size: 0.75rem; color: var(--muted); text-align: center; }
+.speed-scale span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; border-left: 1px solid var(--line); }
+.speed-scale span:first-child { border-left: 0; }
+@media (max-width: 640px) { .speed-scale { display: none; } }
 .save-card { position: sticky; bottom: 12px; z-index: 3; margin-top: 18px; }
 .save-card .save-bar { border-top: 0; padding-top: 0; }
 
@@ -73,3 +78,18 @@ h2 { margin: 0 0 10px; }
 .accessory-walls { margin: 0; }
 .hidden-devices { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; font-size: 0.875rem; }
 .hidden-devices:empty { display: none; }
+
+/* A scene's own picture fills its tile; dragging a picture over a tile outlines it. */
+.scene.pictured { background-size: cover !important; background-position: center !important; }
+.scene.pictured .glyph { display: none; }
+.scene.drop { box-shadow: 0 0 0 3px var(--accent), 0 6px 18px rgba(0, 0, 0, 0.18); transform: scale(1.02); }
+.scene .eye.menu-button { color: #fff; }
+/* A light palette takes dark text, without the scrim; a palette neither reads well on takes a darker scrim; a picture
+   keeps white text on the scrim, whatever its palette. */
+.scene.deep::after { background: linear-gradient(180deg, transparent 20%, rgba(0, 0, 0, 0.62)); }
+.scene.light:not(.pictured) { color: #1d1d1f; }
+.scene.light:not(.pictured)::after { display: none; }
+.scene.light:not(.pictured) .name { text-shadow: none; }
+.scene.light:not(.pictured) .glyph { color: rgba(29, 29, 31, 0.78); }
+.scene.light:not(.pictured) .eye.menu-button { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
+.scene.light:not(.pictured) .badge { background: #1d1d1f; color: #fff; }

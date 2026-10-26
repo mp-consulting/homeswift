@@ -186,3 +186,43 @@ struct AssistantBackgroundTests {
         #expect(PluginContext.assistantContext(name: "Desk", platform: "Lamp", background: "  ") == "The requests come from the Homeswift plugin \"Desk\" (platform Lamp).")
     }
 }
+
+struct PluginPicturesTests {
+    let pictures = PluginPictures(directory: FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-pictures-\(UUID().uuidString)"))
+    static let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10]) + Data(repeating: 7, count: 32)
+    static let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) + Data(repeating: 1, count: 32)
+    static let webp = Data("RIFF".utf8) + Data([0, 0, 0, 0]) + Data("WEBPVP8 ".utf8) + Data(repeating: 2, count: 16)
+
+    static func url(_ data: Data, as type: String = "image/jpeg") -> String { "data:\(type);base64,\(data.base64EncodedString())" }
+
+    /// A picture comes back as it went, typed by its bytes rather than by what the URL claims.
+    @Test func keepsJPEGPNGAndWebP() throws {
+        try pictures.save(key: "scene-1", dataURL: Self.url(Self.jpeg))
+        #expect(pictures.dataURL(key: "scene-1") == Self.url(Self.jpeg))
+        try pictures.save(key: "scene-2", dataURL: Self.url(Self.png, as: "image/jpeg"))
+        #expect(pictures.dataURL(key: "scene-2") == Self.url(Self.png, as: "image/png"))
+        try pictures.save(key: "scene-3", dataURL: Self.url(Self.webp, as: "image/webp"))
+        #expect(pictures.dataURL(key: "scene-3")?.hasPrefix("data:image/webp;base64,") == true)
+        #expect(Set(pictures.versions().keys) == ["scene-1", "scene-2", "scene-3"])
+        // Another kind replaces the first, it does not sit beside it.
+        try pictures.save(key: "scene-1", dataURL: Self.url(Self.png, as: "image/png"))
+        #expect(pictures.dataURL(key: "scene-1") == Self.url(Self.png, as: "image/png"))
+        pictures.remove(key: "scene-1")
+        #expect(pictures.dataURL(key: "scene-1") == nil)
+        #expect(pictures.version(key: "scene-1") == nil)
+    }
+
+    @Test func refusesWhatIsNotAPicture() {
+        #expect(throws: PluginPictures.Failure.notAnImage) { try pictures.save(key: "a", dataURL: Self.url(Data("<svg onload=alert(1)>".utf8), as: "image/png")) }
+        #expect(throws: PluginPictures.Failure.notAnImage) { try pictures.save(key: "a", dataURL: "https://example.com/a.jpg") }
+        #expect(throws: PluginPictures.Failure.notAnImage) { try pictures.save(key: "a", dataURL: "data:image/jpeg;base64,%%%") }
+        #expect(throws: PluginPictures.Failure.tooLarge(limit: PluginPictures.maximumSize)) {
+            try pictures.save(key: "a", dataURL: Self.url(Self.jpeg + Data(count: PluginPictures.maximumSize)))
+        }
+        // A key never leaves the directory.
+        for key in ["../escape", "a/b", "", "a.b", String(repeating: "x", count: 200)] {
+            #expect(throws: PluginPictures.Failure.badKey) { try pictures.save(key: key, dataURL: Self.url(Self.jpeg)) }
+        }
+        #expect(pictures.versions().isEmpty)
+    }
+}

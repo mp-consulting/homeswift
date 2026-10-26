@@ -295,6 +295,33 @@ struct DirigeraTests {
         await host.stop()
     }
 
+    @Test func scenesTakePictures() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, scenesID)
+        let plugin = try #require(environment.plugin)
+        let picture = "data:image/png;base64," + (Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) + Data(repeating: 3, count: 32)).base64EncodedString()
+        let saved = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "scene-picture", body: ["id": "scene-1", "data": .string(picture)], user: "admin"))
+        #expect(saved.status == 200)
+        let scenes = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "scenes", user: "admin"))
+        #expect(scenes.json["scenes"]?[0]?["picture"] == saved.json["version"])
+        await host.stop()
+    }
+
+    /// The Assistant lists the scenes and runs the one it picked, through the actions.
+    @Test func theAssistantRunsAScene() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, scenesID)
+        let plugin = try #require(environment.plugin)
+        let actions = Dictionary(uniqueKeysWithValues: DirigeraPlugin.assistantActions.map { ($0.name, $0) })
+        let scenes = try await plugin.handleWebRequest(try #require(actions["list_scenes"]).request(arguments: [:], user: "admin")).json["scenes"]?.arrayValue ?? []
+        let movie = try #require(scenes.first { $0["name"] == "Movie night" })
+        #expect(movie["icon"] == "scenes_tv")
+        let run = try #require(actions["run_scene"]).request(arguments: ["host": movie["host"]!, "id": movie["id"]!], user: "admin")
+        #expect(try await plugin.handleWebRequest(run).status == 200)
+        #expect(environment.hub.sent.last?.path == "/v1/scenes/scene-1/trigger")
+        await host.stop()
+    }
+
     @Test func schemaIsCurrent() throws {
         let file = try String(contentsOf: Self.root.appendingPathComponent("config.schema.json"), encoding: .utf8)
         #expect(DirigeraPlugin.configurationSchemaJSON == file.trimmingCharacters(in: .whitespacesAndNewlines),
