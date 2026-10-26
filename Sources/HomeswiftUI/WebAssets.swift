@@ -15561,7 +15561,7 @@ HomeswiftI18n.add("pt", {
       const [state, kind] = pairingNow ? [t("Pairing…"), "standby"] : !bridge.host ? [t("Not found"), "away"] : !bridge.paired ? [t("Not paired"), "away"]
         : bridge.error ? [t("Not responding"), "away"] : bridge.connected === false ? [t("Connecting…"), "standby"] : [t("Connected"), "on"];
       const items = [
-        bridge.paired && !pairingNow ? { label: t("Pair again"), icon: "key", onSelect: () => start(null, bridge.host) } : null,
+        bridge.paired && !pairingNow ? { label: t("Pair again"), icon: "pair", onSelect: () => start(null, bridge.host) } : null,
         ...menu(bridge),
       ].filter(Boolean);
       const note = el("p", { class: "muted", text: pairingNow ? waiting(bridge.host) : texts.pairHelp });
@@ -15569,12 +15569,12 @@ HomeswiftI18n.add("pt", {
       const pairs = facts(bridge);
       return el("div", { class: "bridge" },
         el("div", { class: "server-head" },
-          tile("bridge", bridge.paired && !bridge.error ? tone : "grey"),
+          tile("hub", bridge.paired && !bridge.error ? tone : "grey"),
           el("div", { class: "who" }, el("strong", { text: bridge.name || texts.name }),
             el("div", { class: "muted", text: bridge.detail || bridge.host || t("Looking on the network…") })),
           el("span", { class: `pill status ${kind}`, text: state }),
           // The ⋯ menu only when it has something: a bridge pairing for the first time has nothing.
-          items.length ? HomeswiftCommon.menuButton(t("Actions for {name}", { name: bridge.name || bridge.host || texts.name }), () => items) : null),
+          items.length ? HomeswiftCommon.menuButton(t("Actions for {name}", { name: [bridge.name || texts.name, bridge.host].filter(Boolean).join(" ") }), () => items) : null),
         bridge.paired && bridge.host && !pairingNow && pairs.length ? el("div", { class: "facts" }, ...pairs.map(([label, value]) => fact(label, String(value)))) : null,
         bridge.host && (!bridge.paired || pairingNow) ? el("div", { class: `pair-prompt ${pairingNow ? "pairing" : ""}` },
           el("span", { class: "link-button", "aria-hidden": "true" }, icon(button)),
@@ -15750,6 +15750,8 @@ HomeswiftI18n.add("pt", {
   color-scheme: light dark;
   --bg: #e9edf6; --bg-warm: #ffe9d6; --bg-cool: #dcefff; --bg-mint: #e2f7ee;
   --material-thick: rgba(255, 255, 255, 0.7); --material: rgba(255, 255, 255, 0.52); --material-thin: rgba(255, 255, 255, 0.38);
+  /* The floating header's glass: thicker than a card's, so its text reads over the palest or darkest tile under it. */
+  --material-chrome: rgba(255, 255, 255, 0.84);
   --material-solid: #f7f8fb;
   --control: rgba(255, 255, 255, 0.82); --field: rgba(255, 255, 255, 0.6);
   /* A search field's fill, as iOS's search bars: grey, so it reads on a white card too. */
@@ -15777,6 +15779,7 @@ HomeswiftI18n.add("pt", {
   :root:not(:where([data-theme="light"])) {
     --bg: #0f1218; --bg-warm: #3a2a1e; --bg-cool: #15243a; --bg-mint: #14302a;
     --material-thick: rgba(28, 31, 40, 0.74); --material: rgba(34, 38, 48, 0.54); --material-thin: rgba(255, 255, 255, 0.06);
+    --material-chrome: rgba(24, 27, 35, 0.88);
     --material-solid: #1d2129;
     --control: rgba(70, 76, 92, 0.75); --field: rgba(0, 0, 0, 0.28);
     --search-fill: rgba(118, 118, 128, 0.26); --search-glyph: rgba(235, 235, 245, 0.6);
@@ -15795,6 +15798,7 @@ HomeswiftI18n.add("pt", {
   color-scheme: dark;
   --bg: #0f1218; --bg-warm: #3a2a1e; --bg-cool: #15243a; --bg-mint: #14302a;
   --material-thick: rgba(28, 31, 40, 0.74); --material: rgba(34, 38, 48, 0.54); --material-thin: rgba(255, 255, 255, 0.06);
+  --material-chrome: rgba(24, 27, 35, 0.88);
   --material-solid: #1d2129;
   --control: rgba(70, 76, 92, 0.75); --field: rgba(0, 0, 0, 0.28);
   --search-fill: rgba(118, 118, 128, 0.26); --search-glyph: rgba(235, 235, 245, 0.6);
@@ -15835,7 +15839,7 @@ body::before {
 header {
   position: sticky; top: 12px; z-index: 2; margin: 12px auto 0; max-width: 1100px; width: calc(100% - 24px);
   display: flex; align-items: center; gap: 14px; padding: 8px 10px 8px 20px; border-radius: 999px;
-  background-color: var(--material-thick); background-image: var(--sheen);
+  background-color: var(--material-chrome); background-image: var(--sheen);
   -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
   border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
 }
@@ -17060,11 +17064,11 @@ dd { margin: 0; }
   .switch input:checked:active + span::before { transform: translateX(20px); }
 }
 @media (prefers-reduced-transparency: reduce) {
-  :root { --material: var(--material-solid); --material-thick: var(--material-solid); --material-thin: var(--field); --sheen: none; }
+  :root { --material: var(--material-solid); --material-thick: var(--material-solid); --material-chrome: var(--material-solid); --material-thin: var(--field); --sheen: none; }
   .card, header, .log, .banner { -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
 @media (prefers-contrast: more) {
-  :root { --material: var(--material-solid); --material-thick: var(--material-solid); --sheen: none; --edge: rgba(20, 30, 50, 0.55); --line: rgba(20, 30, 50, 0.3); --muted: #3a4150; }
+  :root { --material: var(--material-solid); --material-thick: var(--material-solid); --material-chrome: var(--material-solid); --sheen: none; --edge: rgba(20, 30, 50, 0.55); --line: rgba(20, 30, 50, 0.3); --muted: #3a4150; }
   @media (prefers-color-scheme: dark) { :root:not(:where([data-theme="light"])) { --edge: rgba(255, 255, 255, 0.6); --line: rgba(255, 255, 255, 0.3); --muted: #cfd4dc; } }
   :root:where([data-theme="dark"]) { --edge: rgba(255, 255, 255, 0.6); --line: rgba(255, 255, 255, 0.3); --muted: #cfd4dc; }
   .card, header, .log, .banner { -webkit-backdrop-filter: none; backdrop-filter: none; }
@@ -18584,7 +18588,7 @@ select option:disabled { color: var(--muted); }
 
 /* Scene tiles: a scene's palette as a gradient, or its picture, under a scrim that keeps the name readable. */
 .scene-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr)); gap: 10px; margin-bottom: 28px; }
-.scene { position: relative; display: grid; align-content: end; min-height: 96px; padding: 12px 14px; border-radius: 18px; border: 1px solid var(--edge); color: #fff; text-align: left; cursor: pointer; overflow: hidden; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); transition: transform var(--fast) var(--ease-out), box-shadow var(--fast) var(--ease-out); }
+.scene { position: relative; isolation: isolate; display: grid; align-content: end; min-height: 96px; padding: 12px 14px; border-radius: 18px; border: 1px solid var(--edge); color: #fff; text-align: left; cursor: pointer; overflow: hidden; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); transition: transform var(--fast) var(--ease-out), box-shadow var(--fast) var(--ease-out); }
 .scene::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 35%, rgba(0, 0, 0, 0.42)); pointer-events: none; }
 @media (hover: hover) and (pointer: fine) { .scene:hover { box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14); } }
 .scene:active { transform: scale(0.98); }
