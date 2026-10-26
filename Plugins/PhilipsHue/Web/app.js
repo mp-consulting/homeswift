@@ -2,7 +2,7 @@
 // lights as the Accessories page draws them (its widgets: power, brightness, colour; effects in All controls), the
 // scenes of each room as tiles painted with their palette (a tap recalls one, the eye leaves it out of the Home app),
 // and the settings: the transition and what the Home app shows. Refreshed every two seconds while visible; saving
-// writes this instance's block.
+// writes this instance's block. The tabs, scene pictures, speed scale and tile text come from plugin.js.
 (() => {
   "use strict";
   const { t } = HomeswiftI18n;
@@ -13,23 +13,7 @@
   let groups = [];
   let block = {};
 
-  // MARK: Tabs
-
-  for (const button of document.querySelectorAll(".main-tabs [data-tab]")) {
-    button.addEventListener("click", () => {
-      for (const other of document.querySelectorAll(".main-tabs [data-tab]")) {
-        const on = other === button;
-        other.classList.toggle("on", on);
-        other.setAttribute("aria-selected", String(on));
-        $(`#tab-${other.dataset.tab}`).classList.toggle("hidden", !on);
-      }
-      try { localStorage.setItem("hue-tab", button.dataset.tab); } catch {}
-    });
-  }
-  try {
-    const saved = localStorage.getItem("hue-tab");
-    if (saved) document.querySelector(`.main-tabs [data-tab="${saved}"]`)?.click();
-  } catch {}
+  homeswift.tabs("hue-tab");
 
   // MARK: The bridge
 
@@ -46,24 +30,67 @@
     if (!on && ticker) { clearInterval(ticker); ticker = 0; }
   }
 
+  /// The address form, made once and kept at the end of the card, so it stays open and keeps what was typed; until a
+  /// person types, it shows the address in config.json, else the bridge's.
+  let addressTyped = false;
+  const addressInput = el("input", { type: "text", id: "bridge-address", placeholder: "192.168.1.20", inputmode: "url", autocomplete: "off" });
+  addressInput.addEventListener("input", () => { addressTyped = true; });
+  const foundList = el("div", { class: "found" });
+  const addressBox = el("details", { class: "address-box" },
+    el("summary", { text: t("Bridge address") }),
+    // The title, then the input with its buttons on one row (so they line up at any width), then the help.
+    el("div", { class: "address" },
+      el("label", { class: "field-title", htmlFor: "bridge-address", text: t("Address") }),
+      el("div", { class: "address-row" }, addressInput,
+        el("button", { actionIcon: "search", text: t("Find"), onclick: (event) => act(event.currentTarget, async () => {
+          const { hosts } = await request("discover");
+          foundList.replaceChildren(...(hosts.length ? hosts.map((host) => el("button", { actionIcon: "bridge", text: host, onclick: () => { addressInput.value = host; addressTyped = true; } })) : [el("span", { class: "muted", text: t("No bridge answered on the network.") })]));
+        }) }),
+        el("button", { class: "primary", actionIcon: "check", text: t("Use"), onclick: (event) => act(event.currentTarget, async () => {
+          const host = addressInput.value.trim();
+          await updateBlock((draft) => { setKey(draft, "host", host, ""); });
+          if (host) await request("host", { method: "POST", body: { host } });
+          block = await readBlock();
+          addressTyped = false;
+          await refresh();
+        }) })),
+      el("span", { class: "help", text: t("Leave it empty to find the bridge on the network.") })),
+    foundList);
+  $("#bridge").append(addressBox);
+
+  /// The card above the address form, drawn again only when what it shows changed; while pairing, the second's tick
+  /// only counts down.
+  let bridgeKey = "";
+  let countdown = null;
   function drawBridge() {
-    const card = $("#bridge");
+    if (!addressTyped && document.activeElement !== addressInput) addressInput.value = block.host || status.host || "";
     const paired = status.paired;
     const pairing = status.pairing || Date.now() < pairingUntil;
+    const seconds = Math.max(0, Math.ceil((pairingUntil - Date.now()) / 1000));
+    const waiting = () => t("Waiting for the button… {seconds} s left.", { seconds });
+    const key = JSON.stringify([{ ...status, pairingSecondsLeft: null }, pairing]);
+    if (key === bridgeKey) {
+      if (countdown) countdown.textContent = waiting();
+      return;
+    }
+    bridgeKey = key;
     const [state, kind] = !status.host ? [t("Not found"), "away"] : !paired ? [pairing ? t("Pairing…") : t("Not paired"), pairing ? "standby" : "away"]
       : status.error ? [t("Not responding"), "away"] : [t("Connected"), "on"];
     const facts = paired && status.host
       ? el("div", { class: "facts" },
         homeswift.fact(t("Address"), status.host), homeswift.fact(t("Lights"), String(status.lights ?? 0)), homeswift.fact(t("Scenes"), String(status.scenes ?? 0)))
       : null;
-    const seconds = Math.max(0, Math.ceil((pairingUntil - Date.now()) / 1000));
-    const pairBox = status.host && !paired ? el("div", { class: `pair-steps ${pairing ? "pairing" : ""}` },
-      el("span", { class: "link-button", "aria-hidden": "true" }, linkGlyph()),
+    const note = el("p", { class: "muted", text: pairing ? waiting() : t("Pair, then press the link button on the bridge within a minute. The key stays in the plugin's folder, not in config.json.") });
+    countdown = pairing ? note : null;
+    const pairBox = status.host && !paired ? el("div", { class: `pair-prompt ${pairing ? "pairing" : ""}` },
+      el("span", { class: "link-button", "aria-hidden": "true" }, icon("link")),
       el("div", {},
         el("p", {}, el("strong", { text: pairing ? t("Press the round link button on top of the bridge.") : t("Pair Homeswift with the bridge.") })),
-        el("p", { class: "muted", text: pairing ? t("Waiting for the button… {seconds} s left.", { seconds }) : t("Pair, then press the link button on the bridge within a minute. The key stays in the plugin's folder, not in config.json.") }),
+        note,
         pairing ? null : el("div", { class: "actions" }, el("button", { class: "primary", actionIcon: "key", text: t("Pair"), onclick: (event) => pair(event.currentTarget) })))) : null;
-    card.replaceChildren(...[
+    const card = $("#bridge");
+    for (const node of [...card.children]) if (node !== addressBox) node.remove();
+    addressBox.before(...[
       el("div", { class: "server-head" },
         tile("bridge", paired && !status.error ? "violet" : "grey"),
         el("div", { class: "who" }, el("strong", { text: t("Hue Bridge") }), el("div", { class: "muted", text: [status.host, status.bridgeID?.toUpperCase()].filter(Boolean).join(" · ") || t("Looking on the network…") })),
@@ -73,49 +100,7 @@
         error: `The Hue Bridge at ${status.host} did not answer: ${status.error}`,
         context: "The Homeswift Philips Hue plugin reads every resource of the bridge's local API v2 (GET https://<bridge>/clip/v2/resource) every two seconds with its application key.",
         device: { host: status.host },
-      }) : null,
-      addressForm()].filter(Boolean));
-  }
-
-  function linkGlyph() {
-    const span = document.createElement("span");
-    span.innerHTML = '<svg viewBox="0 0 24 24"><path d="M9.5 14.5l5-5M8 11l-2 2a3.5 3.5 0 0 0 5 5l2-2M16 13l2-2a3.5 3.5 0 0 0-5-5l-2 2"/></svg>';
-    return span.firstChild;
-  }
-
-  /// The address form, made once so the card's redraws leave it open and keep what was typed; until a person types, it
-  /// shows the address in config.json, else the bridge's.
-  let addressBox = null;
-  let addressInput = null;
-  let addressTyped = false;
-  function addressForm() {
-    if (addressBox) {
-      if (!addressTyped && document.activeElement !== addressInput) addressInput.value = block.host || status.host || "";
-      return addressBox;
-    }
-    const input = addressInput = el("input", { type: "text", id: "bridge-address", value: block.host || status.host || "", placeholder: "192.168.1.20", inputmode: "url", autocomplete: "off" });
-    input.addEventListener("input", () => { addressTyped = true; });
-    const found = el("div", { class: "found" });
-    return addressBox = el("details", { class: "address-box" },
-      el("summary", { text: t("Bridge address") }),
-      // The title, then the input with its buttons on one row (so they line up at any width), then the help.
-      el("div", { class: "address" },
-        el("label", { class: "field-title", htmlFor: "bridge-address", text: t("Address") }),
-        el("div", { class: "address-row" }, input,
-        el("button", { actionIcon: "search", text: t("Find"), onclick: (event) => act(event.currentTarget, async () => {
-          const { hosts } = await request("discover");
-          found.replaceChildren(...(hosts.length ? hosts.map((host) => el("button", { actionIcon: "bridge", text: host, onclick: () => { input.value = host; addressTyped = true; } })) : [el("span", { class: "muted", text: t("No bridge answered on the network.") })]));
-        }) }),
-        el("button", { class: "primary", actionIcon: "check", text: t("Use"), onclick: (event) => act(event.currentTarget, async () => {
-          const host = input.value.trim();
-          await updateBlock((draft) => { setKey(draft, "host", host, ""); });
-          if (host) await request("host", { method: "POST", body: { host } });
-          block = await readBlock();
-          addressTyped = false;
-          await refresh();
-        }) })),
-        el("span", { class: "help", text: t("Leave it empty to find the bridge on the network.") })),
-      found);
+      }) : null].filter(Boolean));
   }
 
   async function pair(button) {
@@ -145,13 +130,22 @@
     accessories = all.filter((accessory) => accessory.platform === "PhilipsHue" && accessory.platformName === homeswift.name && !accessory.id.startsWith("PhilipsHue:scenes:"));
   }
 
+  /// The lights left out of the Home app, as buttons that bring one back; drawn again only when they change.
+  function drawHidden(names) {
+    const hidden = $("#hidden-devices");
+    const key = JSON.stringify(names);
+    if (hidden.dataset.json === key) return;
+    hidden.dataset.json = key;
+    hidden.replaceChildren(...(names.length ? [el("span", { class: "muted", text: t("Not in the Home app:") }),
+      ...names.map((name) => el("button", { actionIcon: "eye", text: name, title: t("Show in the Home app"), onclick: () => toggleList("excludeLights", name) }))] : []));
+  }
+
   let listening = false;
   async function drawLights() {
     const list = $("#lights");
-    const hidden = $("#hidden-devices");
     if (!status.paired) {
       list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("Pair with the bridge to see its lights.") })));
-      hidden.replaceChildren();
+      drawHidden([]);
       return;
     }
     const key = lights.filter((item) => !item.hidden).map((item) => item.id).sort().join(",");
@@ -168,9 +162,7 @@
         (item) => HomeswiftWidgets.card(accessories.find((accessory) => accessory.id === item.id), { size: "large", actions: actionsFor }));
       if (!listening) { HomeswiftWidgets.listen(); listening = true; }
     }
-    const left = lights.filter((item) => item.hidden);
-    hidden.replaceChildren(...(left.length ? [el("span", { class: "muted", text: t("Not in the Home app:") }),
-      ...left.map((item) => el("button", { actionIcon: "eye", text: item.name, title: t("Show in the Home app"), onclick: () => toggleList("excludeLights", item.name) }))] : []));
+    drawHidden(lights.filter((item) => item.hidden).map((item) => item.name));
   }
 
   /// The widget's ⋯ menu, after All controls: what this page adds.
@@ -186,130 +178,18 @@
 
   // MARK: Scenes
 
-  // MARK: Scene pictures
+  // A scene's picture: dropped on its tile or chosen from its menu (plugin.js); its ⋯ menu also leaves it out of the
+  // Home app, by "<room>/<scene>".
+  const pictures = homeswift.scenePictures({ refresh: () => refresh(), toggleHidden: (key) => toggleList("excludeScenes", key) });
 
-  // A picture a person gave a scene: dropped on its tile or chosen from its menu, shrunk here to 640 pixels and sent as
-  // a JPEG data: URL (the bridge keeps JPEG, PNG and WebP, a megabyte at most). Fetched once per version.
-  const pictureCache = new Map();
-  async function pictureFor(scene) {
-    if (!scene.picture) return null;
-    const key = `${scene.id}@${scene.picture}`;
-    if (!pictureCache.has(key)) {
-      pictureCache.set(key, request(`scene-picture?id=${encodeURIComponent(scene.id)}`).then(({ data }) => data).catch(() => null));
-    }
-    return pictureCache.get(key);
-  }
-
-  async function shrink(file) {
-    if (!/^image\//.test(file.type)) throw new Error(t("This file is not a picture."));
-    const bitmap = await createImageBitmap(file).catch(() => { throw new Error(t("This file is not a picture.")); });
-    const scale = Math.min(1, 640 / Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    bitmap.close?.();
-    return canvas.toDataURL("image/jpeg", 0.85);
-  }
-
-  async function setPicture(scene, file, tileNode) {
-    tileNode.classList.add("busy");
-    try {
-      const data = await shrink(file);
-      const { version } = await request("scene-picture", { method: "POST", body: { id: scene.id, data } });
-      pictureCache.set(`${scene.id}@${version}`, Promise.resolve(data));
-      await refresh();
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      tileNode.classList.remove("busy");
-    }
-  }
-
-  function choosePicture(scene, tileNode) {
-    const input = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp,image/heic" });
-    input.addEventListener("change", () => { if (input.files?.[0]) setPicture(scene, input.files[0], tileNode); });
-    input.click();
-  }
-
-  async function removePicture(scene) {
-    try { await request("scene-picture-remove", { method: "POST", body: { id: scene.id } }); await refresh(); } catch (e) { alert(e.message); }
-  }
-
-  /// The tile takes a dropped picture; the page takes none itself, so a picture dropped beside a tile does not open.
-  function dropZone(tileNode, scene) {
-    tileNode.addEventListener("dragover", (event) => {
-      if (![...(event.dataTransfer?.types ?? [])].includes("Files")) return;
-      event.preventDefault();
-      event.dataTransfer.dropEffect = "copy";
-      tileNode.classList.add("drop");
-    });
-    tileNode.addEventListener("dragleave", () => tileNode.classList.remove("drop"));
-    tileNode.addEventListener("drop", (event) => {
-      event.preventDefault();
-      tileNode.classList.remove("drop");
-      const file = event.dataTransfer?.files?.[0];
-      if (file) setPicture(scene, file, tileNode);
-    });
-  }
-  for (const type of ["dragover", "drop"]) document.addEventListener(type, (event) => { if (event.dataTransfer?.types?.includes("Files")) event.preventDefault(); });
-
-  /// The tile's menu: a picture for it, and whether the Home app shows it.
-  function sceneMenu(scene, tileNode, hideKey) {
-    const button = HomeswiftCommon.menuButton(t("Actions for {name}", { name: scene.name }), () => [
-      { label: scene.picture ? t("Change the picture…") : t("Choose a picture…"), icon: "camera", onSelect: () => choosePicture(scene, tileNode) },
-      scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: () => removePicture(scene) } : null,
-      { label: scene.hidden ? t("Show in the Home app") : t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleList("excludeScenes", hideKey) },
-    ]);
-    button.classList.add("eye");
-    button.addEventListener("click", (event) => event.stopPropagation());
-    button.addEventListener("keydown", (event) => event.stopPropagation());
-    return button;
-  }
-
-  /// Paints the tile with its picture once loaded; the colours stay until then, and when there is none.
-  function paintPicture(tileNode, scene) {
-    pictureFor(scene).then((data) => {
-      if (!data) return;
-      tileNode.style.backgroundImage = `url("${data}")`;
-      tileNode.classList.add("pictured");
-    });
-  }
-
-  /// How a tile's name reads best on its palette: "light" (dark text) or "deep" (white on a darker scrim), else white on
-  /// the usual scrim. The name spans about 35 to 70 % of the 135° gradient, so the colours there count (stops evenly
-  /// spaced, mixed in sRGB as the browser does); white has the scrim under it (about a third black at the name). Each
-  /// takes the contrast of its worst colour (WCAG's relative luminance) and the better one wins; when neither reaches
-  /// 4.5, the darker scrim does.
-  function textStyle(colours) {
-    const rgb = colours.map((hex) => /^#([0-9a-f]{6})$/i.exec(hex.trim())).map((match) => match && [0, 2, 4].map((i) => parseInt(match[1].slice(i, i + 2), 16)));
-    if (!rgb.length || rgb.includes(null)) return "";
-    const at = (t) => {
-      if (rgb.length === 1) return rgb[0];
-      const position = t * (rgb.length - 1);
-      const index = Math.min(Math.floor(position), rgb.length - 2);
-      return rgb[index].map((c, i) => c + (rgb[index + 1][i] - c) * (position - index));
-    };
-    const luminance = (channels) => {
-      const [r, g, b] = channels.map((c) => c / 255).map((c) => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    };
-    const under = [0.35, 0.5, 0.7].map((t) => luminance(at(t)));
-    const white = Math.min(...under.map((l) => 1.05 / (l * 0.46 + 0.05)));
-    const dark = Math.min(...under.map((l) => (l + 0.05) / 0.062));
-    if (Math.max(white, dark) < 4.5) return "deep";
-    return dark > white ? "light" : "";
-  }
-
-  function sceneTile(group, scene) {
+  function sceneTile(scene) {
     const colours = scene.colours?.length ? scene.colours : ["#8e8e93"];
     const background = colours.length === 1 ? colours[0] : `linear-gradient(135deg, ${colours.join(", ")})`;
     const button = el("div", {
-      class: `scene ${scene.active ? "active" : ""} ${scene.hidden ? "hidden-scene" : ""} ${textStyle(colours)}`, role: "button", tabindex: 0, style: `background: ${background}`,
+      class: `scene ${scene.active ? "active" : ""} ${scene.hidden ? "hidden-scene" : ""} ${homeswift.textStyle(colours)}`, role: "button", tabindex: 0, style: `background: ${background}`,
       "aria-label": t("Recall {name}", { name: scene.name }), "aria-pressed": String(scene.active),
     },
       scene.active ? el("span", { class: "badge", text: t("Active") }) : null,
-      null,
       el("span", { class: "name", text: scene.name }),
       // A smart scene says so, unless its name already does.
       scene.smart && !/natural light/i.test(scene.name) ? el("span", { class: "kind", text: t("Natural light") }) : null);
@@ -319,12 +199,11 @@
     };
     button.addEventListener("click", recall);
     button.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); recall(); } });
-    button.append(sceneMenu(scene, button, `${group.name}/${scene.name}`));
-    dropZone(button, scene);
-    paintPicture(button, scene);
-    return button;
+    return pictures.decorate(button, scene, `${scene.room}/${scene.name}`);
   }
 
+  /// A section per room, its head drawn again when the room changes and a tile per scene drawn again only when its own
+  /// scene changes, so a recall does not repaint every picture of the room.
   function drawScenes() {
     const list = $("#scenes");
     if (!status.paired) {
@@ -335,11 +214,18 @@
       list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("No scenes yet: make some in the Hue app.") })));
       return;
     }
-    renderKeyed(list, groups, (group) => group.id, (group) => el("section", { class: "room" },
-      el("div", { class: "room-head" },
-        el("h2", { text: group.name }),
-        el("span", { class: `pill status ${group.on ? "on" : "standby"}`, text: group.kind === "zone" ? (group.on ? t("Zone on") : t("Zone off")) : (group.on ? t("Room on") : t("Room off")) })),
-      el("div", { class: "scene-grid" }, group.scenes.map((scene) => sceneTile(group, scene)))));
+    renderKeyed(list, groups.map((group) => ({ id: group.id })), (group) => group.id,
+      () => el("section", { class: "room" }, el("div", { class: "room-head" }), el("div", { class: "scene-tiles" })));
+    groups.forEach((group, index) => {
+      const [head, tiles] = list.children[index].children;
+      const headKey = JSON.stringify([group.name, group.kind, group.on]);
+      if (head.dataset.json !== headKey) {
+        head.dataset.json = headKey;
+        head.replaceChildren(el("h2", { text: group.name }),
+          el("span", { class: `pill status ${group.on ? "on" : "standby"}`, text: group.kind === "zone" ? (group.on ? t("Zone on") : t("Zone off")) : (group.on ? t("Room on") : t("Room off")) }));
+      }
+      renderKeyed(tiles, group.scenes.map((scene) => ({ ...scene, room: group.name })), (scene) => scene.id, sceneTile);
+    });
   }
 
   // MARK: Settings
@@ -351,98 +237,78 @@
     ["flashSwitch", false, t("Flash switch"), t("A switch on each light that makes it flash for five seconds.")],
     ["gradientPoints", false, t("Gradient points"), t("On gradient lightstrips, a light for each colour point, so each part of the strip takes its own colour.")],
   ];
+  /// The toggles' checkboxes, by key.
+  const toggleInputs = new Map();
 
   let dirty = false;
   const markDirty = () => { dirty = true; $("#save-state").textContent = t("Unsaved changes."); };
 
-  // The transition as a 12-step speed scale, slowest first; the block keeps its milliseconds (`transitionMs`), a value
-  // between steps showing as the nearest. Step 9, 100 ms, is the default.
-  const speedSteps = [2000, 1500, 1000, 800, 600, 400, 300, 200, 100, 60, 30, 0];
-  const speedNames = [[2, t("Very slow")], [4, t("Slow")], [7, t("Medium")], [9, t("Fast")], [11, t("Very fast")], [12, t("Extreme")]];
-  const speedName = (step) => speedNames.find(([last]) => step <= last)[1];
-  const stepFor = (ms) => speedSteps.reduce((best, value, index) => Math.abs(value - ms) < Math.abs(speedSteps[best] - ms) ? index : best, 0) + 1;
-  const speedText = (step) => {
-    const ms = speedSteps[step - 1];
-    return ms === 0 ? t("{speed} · at once", { speed: speedName(step) }) : t("{speed} · {ms} ms", { speed: speedName(step), ms });
-  };
+  const speed = homeswift.speedScale({
+    help: t("How fast a light reaches a new colour or brightness. Fast is the default; Extreme changes at once, snappiest for moods and flashes."),
+    onInput: markDirty,
+  });
+  const polling = el("input", { type: "number", id: "pollingInterval", min: 1, max: 300, step: 1, placeholder: "2", inputmode: "numeric" });
 
   function buildSettings() {
-    const value = el("output");
-    const slider = el("input", { type: "range", class: "speed", id: "transitionMs", min: 1, max: 12, step: 1, "aria-label": t("Transition") });
-    const show = () => {
-      value.textContent = speedText(Number(slider.value));
-      slider.setAttribute("aria-valuetext", value.textContent);
-    };
-    slider.addEventListener("input", () => { show(); markDirty(); });
-    // The names under the scale, each as wide as its steps.
-    const scale = el("div", { class: "speed-scale", "aria-hidden": "true" }, speedNames.map(([last, name], index) =>
-      el("span", { text: name, style: `grid-column: span ${last - (speedNames[index - 1]?.[0] ?? 0)}` })));
-    const polling = el("input", { type: "number", id: "pollingInterval", min: 1, max: 300, step: 1, placeholder: "2", inputmode: "numeric" });
     polling.addEventListener("input", markDirty);
-    $("#speed").append(
-      el("label", { class: "field" }, el("span", { class: "range-head" }, el("span", { class: "field-title", text: t("Transition") }), value), slider, scale,
-        el("span", { class: "help", text: t("How fast a light reaches a new colour or brightness. Fast is the default; Extreme changes at once, snappiest for moods and flashes.") })),
+    $("#speed").append(speed.element,
       el("label", { class: "field" }, el("span", { class: "field-title", text: t("Polling interval (s)") }), polling,
         el("span", { class: "help", text: t("How often the bridge is asked for changes made in the Hue app or with a switch.") })));
     $("#options").append(...toggles.map(([id, , label, help]) => {
       const input = el("input", { type: "checkbox", id: `option-${id}` });
       input.addEventListener("change", markDirty);
+      toggleInputs.set(id, input);
       return el("label", { class: "toggle" }, el("span", { class: "switch" }, input, el("span")),
         el("span", {}, el("span", { class: "field-title", text: label }), el("span", { class: "help", text: help })));
     }));
-    show();
     $("#save").addEventListener("click", (event) => act(event.currentTarget, save));
   }
 
   function fillSettings() {
     if (dirty) return;
-    $("#transitionMs").value = stepFor(block.transitionMs ?? 100);
-    $("#transitionMs").dispatchEvent(new Event("input"));
-    dirty = false;
+    speed.set(block.transitionMs);
     $("#save-state").textContent = t("Changes are kept once you save.");
-    $("#pollingInterval").value = block.pollingInterval ?? "";
-    for (const [id, fallback] of toggles) $(`#option-${id}`).checked = block[id] ?? fallback;
+    polling.value = block.pollingInterval ?? "";
+    for (const [id, fallback] of toggles) toggleInputs.get(id).checked = block[id] ?? fallback;
   }
 
   async function save() {
     await updateBlock((draft) => {
-      setKey(draft, "transitionMs", speedSteps[Number($("#transitionMs").value) - 1], 100);
-      const polling = parseInt($("#pollingInterval").value, 10);
-      setKey(draft, "pollingInterval", Number.isNaN(polling) ? undefined : Math.min(Math.max(polling, 1), 300), 2);
-      for (const [id, fallback] of toggles) setKey(draft, id, $(`#option-${id}`).checked, fallback);
+      setKey(draft, "transitionMs", speed.value(), 100);
+      const seconds = parseInt(polling.value, 10);
+      setKey(draft, "pollingInterval", Number.isNaN(seconds) ? undefined : Math.min(Math.max(seconds, 1), 300), 2);
+      for (const [id, fallback] of toggles) setKey(draft, id, toggleInputs.get(id).checked, fallback);
     });
     dirty = false;
     block = await readBlock();
     $("#save-state").textContent = t("Saved. The plugin restarted with these settings.");
   }
 
-  /// Adds or removes a name from one of the block's lists (`excludeLights`, `excludeScenes`) and saves at once.
+  /// Adds or removes a name from one of the block's lists (`excludeLights`, `excludeScenes`), saved at once.
   async function toggleList(key, name) {
-    try {
-      await updateBlock((draft) => {
-        const list = draft[key] || [];
-        const index = list.findIndex((item) => item.toLowerCase() === name.toLowerCase());
-        if (index >= 0) list.splice(index, 1); else list.push(name);
-        if (list.length) draft[key] = list; else delete draft[key];
-      });
-      block = await readBlock();
-      setTimeout(refresh, 1500);
-    } catch (e) {
-      alert(e.message);
-    }
+    const written = await homeswift.toggleList(key, name);
+    if (!written) return;
+    block = written;
+    setTimeout(refresh, 1500);
   }
 
   // MARK: Refresh
 
+  /// The status and the lists together; the lists count only once the bridge is paired.
   async function refresh() {
+    const settle = (promise) => promise.then((value) => ({ value }), (error) => ({ error }));
     try {
-      status = await request("status");
-      if (status.paired) {
-        [{ lights }, { groups }] = await Promise.all([request("lights"), request("scenes")]);
+      const [answer, lightList, sceneList] = await Promise.all([request("status"), settle(request("lights")), settle(request("scenes"))]);
+      if (answer.paired) {
+        const failed = lightList.error ?? sceneList.error;
+        if (failed) throw failed;
+        ({ lights } = lightList.value);
+        ({ groups } = sceneList.value);
       } else {
         lights = [];
         groups = [];
       }
+      status = answer;
     } catch (e) {
       status = { error: e.message };
     }

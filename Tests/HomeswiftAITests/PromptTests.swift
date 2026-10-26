@@ -64,4 +64,11 @@ struct PromptTests {
         #expect(Prompts.ExplainDeviceError.user(error: "boom", context: nil, device: nil, pluginName: nil).contains("<untrusted-data>\n```\nboom\n```\n</untrusted-data>"))
         #expect(Prompts.answerLanguage("en") == nil)
     }
+
+    /// A person's text with placeholders in it goes in as written: it is not filled, and it does not stop the bridge.
+    @Test func valuesAreNotReadForPlaceholders() {
+        let prompt = Prompts.DesignMood.user(description: "a {{jazz}} bar, {{description}} and {{", lights: ["n": 1])
+        #expect(prompt.contains("a {{jazz}} bar, {{description}} and {{"))
+        #expect(Prompts.DiagnoseLogs.user(logs: "{{focus}}", focus: "Govee").contains("{{focus}}"))
+    }
 }

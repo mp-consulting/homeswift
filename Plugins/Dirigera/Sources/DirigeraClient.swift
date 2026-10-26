@@ -89,19 +89,19 @@ actor DirigeraClient {
     func patch(deviceID: String, attributes: JSONValue, transitionMs: Int? = nil) async throws {
         var change: [String: JSONValue] = ["attributes": attributes]
         if let transitionMs { change["transitionTime"] = .number(Double(transitionMs)) }
-        _ = try await send("PATCH", "/devices/\(deviceID)", body: JSONValue.array([.object(change)]).encoded(), contentType: "application/json")
+        _ = try await send("PATCH", "/devices/\(Self.segment(deviceID))", body: JSONValue.array([.object(change)]).encoded(), contentType: "application/json")
     }
 
     func trigger(sceneID: String) async throws {
-        _ = try await send("POST", "/scenes/\(sceneID)/trigger")
+        _ = try await send("POST", "/scenes/\(Self.segment(sceneID))/trigger")
     }
 
     func undo(sceneID: String) async throws {
-        _ = try await send("POST", "/scenes/\(sceneID)/undo")
+        _ = try await send("POST", "/scenes/\(Self.segment(sceneID))/undo")
     }
 
     func identify(deviceID: String) async throws {
-        _ = try await send("PUT", "/devices/\(deviceID)/identify", body: JSONValue.object(["period": 5]).encoded(), contentType: "application/json")
+        _ = try await send("PUT", "/devices/\(Self.segment(deviceID))/identify", body: JSONValue.object(["period": 5]).encoded(), contentType: "application/json")
     }
 
     // MARK: Sending
@@ -128,6 +128,13 @@ actor DirigeraClient {
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 
+    /// An id as one path segment: `/`, `?`, `#`, `%` and `..` cannot reach another of the hub's paths.
+    static func segment(_ id: String) -> String {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-_~")
+        return id.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+    }
+
     static func hostForURL(_ host: String) -> String {
         host.filter { $0 == ":" }.count > 1 && !host.hasPrefix("[") ? "[\(host)]" : host
     }
@@ -138,7 +145,7 @@ struct PinningTransport: HTTPSending {
     let trust: HTTPClient.TrustOnFirstUse
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        let response = try await HTTPClient(tls: trust.tls).send(request)
+        let response = try await trust.client.send(request)
         trust.observe(response.certificateFingerprint)
         return response
     }

@@ -134,6 +134,10 @@ struct AdminPageTests {
         #expect(tools.contains("PUT /api/settings/bridge"))
         #expect(audit["entries"]?.arrayValue?.contains { $0["tool"] == "POST /api/pairings/reset" && $0["ok"] == false } == true)
         #expect(try await browser.get("/api/audit?outcome=ok&tool=pairings").json?["total"] == 1)
+        let counted = try await browser.get("/api/audit?tool=pairings&spans=24h,7d,").json
+        #expect(counted?["counts"]?["outcome"]?["ok"] == 1)
+        #expect(counted?["counts"]?["since"]?[""] == counted?["total"])
+        #expect(try await browser.get("/api/audit?spans=soon").status == 400)
     }
 
     @Test func backsUpAndRestores() async throws {

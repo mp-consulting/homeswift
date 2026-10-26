@@ -9,6 +9,8 @@ import Homeswift
 /// let pictures = context.pictures("scene-pictures")
 /// let version = try pictures.save(key: scene.id, dataURL: body["data"]?.stringValue ?? "")
 /// let url = pictures.dataURL(key: scene.id)
+/// // In `handleWebRequest`, before the plugin's own routes: `GET`/`POST scene-picture`, `POST scene-picture-remove`.
+/// if let response = pictures.handle(request) { return response }
 /// ```
 public final class PluginPictures: Sendable {
     public enum Failure: Error, CustomStringConvertible, Equatable {
@@ -59,27 +61,47 @@ public final class PluginPictures: Sendable {
         return nil
     }
 
-    /// A short token that changes when the picture does (its file's modification time), or nil without one.
-    public func version(key: String) -> String? {
-        Self.fileName(key).flatMap(version(of:))
-    }
-
     public func remove(key: String) {
         guard let name = Self.fileName(key) else { return }
         for kind in Self.kinds { try? FileManager.default.removeItem(at: file(name, kind.ext)) }
     }
 
-    /// Every key with a picture, and its version.
+    /// Every key with a picture, and its version: a short token that changes when the picture does (its file's
+    /// modification time). One listing of the directory, its dates included.
     public func versions() -> [String: String] {
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
         var result: [String: String] = [:]
-        for name in names {
-            let url = directory.appendingPathComponent(name)
-            let key = url.deletingPathExtension().lastPathComponent
-            guard Self.kinds.contains(where: { $0.ext == url.pathExtension }), let version = version(of: key) else { continue }
-            result[key] = version
+        for url in files where Self.kinds.contains(where: { $0.ext == url.pathExtension }) {
+            guard let date = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate else { continue }
+            result[url.deletingPathExtension().lastPathComponent] = Self.version(date)
         }
         return result
+    }
+
+    /// The page's routes for these pictures, named after `route` (`scene-picture`): `GET <route>?id=` the picture as a
+    /// `data:` URL, `POST <route>` `{id, data}` keeps one and answers its version, `POST <route>-remove` `{id}`. Nil
+    /// for any other request, which the plugin answers itself.
+    public func handle(_ request: PluginWebRequest, route: String = "scene-picture") -> PluginWebResponse? {
+        switch (request.method, request.path) {
+        case ("GET", route):
+            guard let id = request.query["id"], let data = dataURL(key: id) else { return .error(404, "no picture for that scene") }
+            return PluginWebResponse(["data": .string(data)])
+        case ("POST", route):
+            guard let id = request.body["id"]?.stringValue, let data = request.body["data"]?.stringValue else { return .error(400, "a scene and a picture are required") }
+            do {
+                return PluginWebResponse(["version": .string(try save(key: id, dataURL: data))])
+            } catch let error as Failure {
+                return .error(error == .badKey ? 400 : 422, error.description)
+            } catch {
+                return .error(500, "\(error)")
+            }
+        case ("POST", route + "-remove"):
+            guard let id = request.body["id"]?.stringValue else { return .error(400, "a scene is required") }
+            remove(key: id)
+            return PluginWebResponse(["removed": .string(id)])
+        default:
+            return nil
+        }
     }
 
     // MARK: Files
@@ -105,13 +127,12 @@ public final class PluginPictures: Sendable {
 
     private func version(of name: String) -> String? {
         for kind in Self.kinds {
-            let path = file(name, kind.ext).path
-            if let date = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date {
-                return String(Int(date.timeIntervalSince1970 * 1000), radix: 36)
-            }
+            if let date = (try? FileManager.default.attributesOfItem(atPath: file(name, kind.ext).path))?[.modificationDate] as? Date { return Self.version(date) }
         }
         return nil
     }
+
+    private static func version(_ date: Date) -> String { String(Int(date.timeIntervalSince1970 * 1000), radix: 36) }
 }
 
 extension PluginContext {

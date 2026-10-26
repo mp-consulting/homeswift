@@ -152,6 +152,9 @@ extension HomeswiftCatalog {
         public var outcome: String?
         public var since: Date?
         public var limit = 200
+        /// Time ranges to count the entries of, by name (`24h`, and `""` for everything): with any, the answer adds
+        /// `counts`, what each outcome and each range would match with the other filters as they are.
+        public var spans: [(name: String, since: Date?)] = []
 
         public init(tool: String? = nil, client: String? = nil, outcome: String? = nil, since: Date? = nil, limit: Int = 200) {
             self.tool = tool
@@ -168,25 +171,48 @@ extension HomeswiftCatalog {
         guard let log = auditLog() else { return ["enabled": false, "entries": [], "total": 0] }
         let files = [log.url] + (1...log.keep).map { log.url.appendingPathExtension("\($0)") }
         let formatter = ISO8601DateFormatter()
+        let outcomes = ["", "ok", "failed", "notConfirmed"]
         var matched: [JSONValue] = []
+        var outcomeCounts = Dictionary(uniqueKeysWithValues: outcomes.map { ($0, 0) })
+        var spanCounts = Dictionary(query.spans.map { ($0.name, 0) }, uniquingKeysWith: { first, _ in first })
+        // One pass: the entries, and with `spans` the counts of the other choices, without reading the files again.
         for file in files {
             guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
             for line in text.split(separator: "\n").reversed() {
                 guard let entry = try? JSONValue(string: String(line)), entry.objectValue != nil else { continue }
                 if let tool = query.tool, !TextSearch.contains(entry["tool"]?.stringValue ?? "", caseless: tool) { continue }
                 if let client = query.client, !TextSearch.contains("\(entry["client"]?.stringValue ?? "") \(entry["principal"]?.stringValue ?? "")", caseless: client) { continue }
-                switch query.outcome {
-                case "ok": if entry["ok"]?.boolValue != true { continue }
-                case "failed": if entry["ok"]?.boolValue != false || entry["notConfirmed"]?.boolValue == true { continue }
-                case "notConfirmed": if entry["notConfirmed"]?.boolValue != true { continue }
-                default: break
+                // An entry without a readable time is in every range, as before.
+                let date = entry["ts"]?.stringValue.flatMap(formatter.date(from:))
+                let inRange = { (since: Date?) in since.map { bound in date.map { $0 >= bound } ?? true } ?? true }
+                let isOutcome = { (outcome: String?) in Self.auditEntry(entry, hasOutcome: outcome) }
+                if !query.spans.isEmpty {
+                    if inRange(query.since) { for outcome in outcomes where isOutcome(outcome) { outcomeCounts[outcome, default: 0] += 1 } }
+                    if isOutcome(query.outcome) { for span in query.spans where inRange(span.since) { spanCounts[span.name, default: 0] += 1 } }
                 }
-                if let since = query.since, let date = entry["ts"]?.stringValue.flatMap(formatter.date(from:)), date < since { continue }
-                matched.append(entry)
+                if isOutcome(query.outcome), inRange(query.since) { matched.append(entry) }
             }
         }
         let limit = min(max(query.limit, 1), 2000)
-        return ["enabled": true, "path": .string(log.url.path), "total": .number(Double(matched.count)), "entries": .array(Array(matched.prefix(limit)))]
+        var answer: [String: JSONValue] = ["enabled": true, "path": .string(log.url.path), "total": .number(Double(matched.count)), "entries": .array(Array(matched.prefix(limit)))]
+        if !query.spans.isEmpty {
+            answer["counts"] = [
+                "outcome": .object(outcomeCounts.mapValues { .number(Double($0)) }),
+                "since": .object(spanCounts.mapValues { .number(Double($0)) }),
+            ]
+        }
+        return .object(answer)
+    }
+
+    /// Whether an audit entry has an outcome: `ok`, `failed` (not one left unconfirmed) or `notConfirmed`; any
+    /// other value, or none, matches every entry.
+    static func auditEntry(_ entry: JSONValue, hasOutcome outcome: String?) -> Bool {
+        switch outcome {
+        case "ok": entry["ok"]?.boolValue == true
+        case "failed": entry["ok"]?.boolValue == false && entry["notConfirmed"]?.boolValue != true
+        case "notConfirmed": entry["notConfirmed"]?.boolValue == true
+        default: true
+        }
     }
 
     // MARK: The bridge block

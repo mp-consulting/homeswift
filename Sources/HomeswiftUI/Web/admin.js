@@ -577,24 +577,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       window.history.replaceState(null, "", `/settings/audit?${query}`);
       if (!since.value) query.delete("since");
       count.textContent = t("Loading…");
-      // Count each alternative against the current text and the other selected filter.
-      for (const [control, choices, key] of [[outcome, outcomes, "outcome"], [since, spans, "since"]]) {
-        control.counts.clear(); control.paint();
-        Promise.all(choices.map(async ([value]) => {
-          const candidate = new URLSearchParams(query);
-          if (value) candidate.set(key, value); else candidate.delete(key);
-          candidate.set("limit", "1");
-          try { return [value, (await api(`/api/audit?${candidate}`)).total]; }
-          catch { return [value, null]; }
-        })).then((counts) => {
-          if (own !== loads) return;
-          control.counts = new Map(counts.filter(([, count]) => count != null));
-          control.paint();
-        });
-      }
+      for (const control of [outcome, since]) { control.counts.clear(); control.paint(); }
+      // The server counts each alternative against the current text and the other selected filter, in the same pass.
+      query.set("spans", spans.map(([value]) => value).join(","));
       let found;
       try { found = await api(`/api/audit?${query}`); } catch (e) { if (own === loads) count.textContent = e.message; return; }
       if (own !== loads) return;
+      for (const [control, key] of [[outcome, "outcome"], [since, "since"]]) {
+        control.counts = new Map(Object.entries(found.counts?.[key] ?? {}));
+        control.paint();
+      }
       if (!found.enabled) {
         count.textContent = "";
         body.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("The audit log is off: the HomeswiftAiKit block's mcp.http says auditLog: false.") })));

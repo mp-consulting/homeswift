@@ -1926,5 +1926,20 @@ HomeswiftI18n.add("es", {
   "Your sign-in to this bridge's web UI, as an administrator.": "Tu inicio de sesión en la interfaz web de este puente, como administrador.",
   "Your sign-in to this bridge's web UI.": "Tu inicio de sesión en la interfaz web de este puente.",
   "Your user key and an application token from pushover.net.": "Tu clave de usuario y un token de aplicación de pushover.net.",
-  "your username adds nothing": "tu nombre de usuario no aporta nada"
+  "your username adds nothing": "tu nombre de usuario no aporta nada",
+
+  "Very slow": "Muy lenta",
+  "Slow": "Lenta",
+  "Fast": "Rápida",
+  "Very fast": "Muy rápida",
+  "Extreme": "Extrema",
+  "{speed} · at once": "{speed} · inmediata",
+  "{speed} · {ms} ms": "{speed} · {ms} ms",
+  "Transition": "Transición",
+  "This file is not a picture.": "Este archivo no es una imagen.",
+  "Change the picture…": "Cambiar la imagen…",
+  "Choose a picture…": "Elegir una imagen…",
+  "Remove the picture": "Quitar la imagen",
+  "Show in the Home app": "Mostrar en la app Casa",
+  "Leave out of the Home app": "Quitar de la app Casa"
 });

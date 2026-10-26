@@ -60,6 +60,9 @@ public actor DirigeraPlugin: HomeswiftPlugin {
     static let undoWindow = Duration.seconds(30)
 
     let configuration: Configuration
+    /// `excludeDevices` and `excludeScenes`, lowercased once: every refresh checks each device and scene against them.
+    private let excludedDevices: Set<String>
+    private let excludedScenes: Set<String>
     let context: PluginContext
     let dependencies: Dependencies
     private let tasks = TaskBag()
@@ -97,7 +100,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         let accessory: Accessory
         let service: Service
         var battery: Service? = nil
-        let writer: DirigeraLightWriter?
+        let writer: LightChangeBatcher?
         let shape: String
     }
 
@@ -113,6 +116,8 @@ public actor DirigeraPlugin: HomeswiftPlugin {
 
     init(configuration: Configuration, context: PluginContext, dependencies: Dependencies) {
         self.configuration = configuration
+        excludedDevices = Set((configuration.excludeDevices ?? []).map { $0.lowercased() })
+        excludedScenes = Set((configuration.excludeScenes ?? []).map { $0.lowercased() })
         self.context = context
         self.dependencies = dependencies
         store = context.jsonFile("hubs.json")
@@ -186,8 +191,11 @@ public actor DirigeraPlugin: HomeswiftPlugin {
     /// Reads every device and scene of the hub and shows them.
     func refresh(_ hub: Hub) async {
         do {
-            let devices = try await hub.client.devices().compactMap(DirigeraDevice.init)
-            let scenes = (configuration.scenes ?? true) ? try await hub.client.scenes().compactMap(DirigeraScene.init) : []
+            // Both at once: two requests, each with its own round trip.
+            async let readDevices = hub.client.devices()
+            async let readScenes = (configuration.scenes ?? true) ? hub.client.scenes() : []
+            let devices = try await readDevices.compactMap(DirigeraDevice.init)
+            let scenes = try await readScenes.compactMap(DirigeraScene.init)
             if hub.error != nil { logger.info("The DIRIGERA hub at \(hub.host) answers again") }
             hub.error = nil
             hub.devices = Dictionary(devices.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -238,13 +246,11 @@ public actor DirigeraPlugin: HomeswiftPlugin {
     // MARK: Accessories
 
     func isExcluded(_ device: DirigeraDevice) -> Bool {
-        let excluded = Set((configuration.excludeDevices ?? []).map { $0.lowercased() })
-        return excluded.contains(device.name.lowercased()) || excluded.contains(device.id.lowercased())
+        excludedDevices.contains(device.name.lowercased()) || excludedDevices.contains(device.id.lowercased())
     }
 
     func visibleScenes(_ hub: Hub) -> [DirigeraScene] {
-        let excluded = Set((configuration.excludeScenes ?? []).map { $0.lowercased() })
-        return hub.scenes.filter { !excluded.contains($0.name.lowercased()) && !excluded.contains($0.id.lowercased()) }
+        hub.scenes.filter { !excludedScenes.contains($0.name.lowercased()) && !excludedScenes.contains($0.id.lowercased()) }
     }
 
     private func show(_ hub: Hub) async {
@@ -302,7 +308,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         let deviceID = device.id
         let fail: @Sendable (any Error) -> HAPStatusError = { _ in HAPStatusError(.serviceCommunicationFailure) }
         let service: Service
-        var writer: DirigeraLightWriter?
+        var writer: LightChangeBatcher?
         var battery: Service?
         switch device.kind {
         case .contact:
@@ -324,20 +330,24 @@ public actor DirigeraPlugin: HomeswiftPlugin {
                 optional.append(.colorTemperature.with(minValue: Double(max(140, range.lowerBound)), maxValue: Double(min(500, range.upperBound))))
             }
             let bulb = Service(.lightbulb, name: device.name, optional: optional, isPrimary: true)
-            let lightWriter = DirigeraLightWriter(
+            let commands = DirigeraLightCommands(
                 transitionMs: transitionMs,
-                currentColour: { [bulb] in (bulb[.hue]?.value.doubleValue ?? 0, bulb[.saturation]?.value.doubleValue ?? 0) },
-                send: { attributes, transition in try await client.patch(deviceID: deviceID, attributes: attributes, transitionMs: transition) })
+                currentColour: { [bulb] in (bulb[.hue]?.value.doubleValue ?? 0, bulb[.saturation]?.value.doubleValue ?? 0) })
+            let lightWriter = LightChangeBatcher { changes in
+                for (attributes, transition) in commands.commands(for: changes) { try await client.patch(deviceID: deviceID, attributes: attributes, transitionMs: transition) }
+            }
             bulb.characteristic(.on).onWrite { value in
                 do { try await lightWriter.set(.on(value.boolValue ?? false)) } catch { throw fail(error) }
             }
             bulb[.brightness]?.onWrite { value in
-                do { try await lightWriter.set(.brightness(max(1, value.intValue ?? 100))) } catch { throw fail(error) }
+                do { try await lightWriter.set(.brightness(Double(max(1, value.intValue ?? 100)))) } catch { throw fail(error) }
             }
             bulb[.hue]?.onWrite { value in
                 do { try await lightWriter.set(.hue(value.doubleValue ?? 0)) } catch { throw fail(error) }
             }
-            bulb[.saturation]?.onWrite { value in await lightWriter.enqueue(.saturation(value.doubleValue ?? 0)) }
+            bulb[.saturation]?.onWrite { value in
+                do { try await lightWriter.set(.saturation(value.doubleValue ?? 0)) } catch { throw fail(error) }
+            }
             bulb[.colorTemperature]?.onWrite { value in
                 do { try await lightWriter.set(.mirek(value.intValue ?? 300)) } catch { throw fail(error) }
             }
@@ -454,20 +464,17 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         return (paired, hub?.connected ?? false, hub?.pairing ?? false, secondsLeft, hub?.error, hub?.devices.count ?? 0, hub?.scenes.count ?? 0)
     }
 
+    /// Runs one of the hub's scenes: only an id the hub listed, as the page's and the Assistant's ids come from outside.
     func trigger(host: String, sceneID: String) async throws {
         guard let hub = hubs[host] else { throw DirigeraClient.Failure.status(404, "no such hub") }
+        guard hub.scenes.contains(where: { $0.id == sceneID }) else { throw DirigeraClient.Failure.status(404, "no such scene") }
         try await hub.client.trigger(sceneID: sceneID)
         triggered(sceneID)
     }
 
-    func set(host: String, deviceID: String, attributes: JSONValue) async throws {
-        guard let hub = hubs[host] else { throw DirigeraClient.Failure.status(404, "no such hub") }
-        try await hub.client.patch(deviceID: deviceID, attributes: attributes, transitionMs: attributes["isOn"] == nil ? transitionMs : nil)
-        await refresh(hub)
-    }
-
     func identify(host: String, deviceID: String) async throws {
         guard let hub = hubs[host] else { throw DirigeraClient.Failure.status(404, "no such hub") }
+        guard hub.devices[deviceID] != nil else { throw DirigeraClient.Failure.status(404, "no such device") }
         try await hub.client.identify(deviceID: deviceID)
     }
 }

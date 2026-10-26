@@ -4,10 +4,11 @@ import HomeswiftPlugin
 
 extension PhilipsHuePlugin {
     /// The page's routes (`Web/`): `GET status` the bridge and pairing, `GET discover` the bridges on the network,
-    /// `POST host` another address, `POST pair` and `POST unpair`, `GET lights` and `GET scenes` with their colours,
+    /// `POST host` another address, `POST pair`, `GET lights` and `GET scenes` with their colours,
     /// `POST recall` a scene, `POST light` a light's power, brightness, effect or flash, `POST identify` a light;
     /// `GET scene-picture`, `POST scene-picture` and `POST scene-picture-remove` the picture a person gave a scene.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
+        if let response = pictures.handle(request) { return response }
         switch (request.method, request.path) {
         case ("GET", "status"):
             let stored = storedBridge
@@ -16,7 +17,6 @@ extension PhilipsHuePlugin {
                 "paired": .bool(stored.applicationKey != nil), "pairing": .bool(isPairing),
                 "pairingSecondsLeft": pairingSecondsLeft.map { .number(Double($0)) } ?? .null, "error": lastError.map(JSONValue.string) ?? .null,
                 "lights": .number(Double(snapshot.lights.count)), "scenes": .number(Double(snapshot.scenes.count)),
-                "fromConfig": .bool(configuration.host?.isEmpty == false),
             ])
         case ("GET", "discover"):
             return PluginWebResponse(["hosts": .array(await discover().map(JSONValue.string))])
@@ -27,9 +27,6 @@ extension PhilipsHuePlugin {
         case ("POST", "pair"):
             let paired = await startPairing()
             return paired ? PluginWebResponse(["paired": true]) : .error(409, lastError ?? "The link button was not pressed in time.")
-        case ("POST", "unpair"):
-            unpair()
-            return PluginWebResponse(["paired": false])
         case ("GET", "lights"):
             return PluginWebResponse(["lights": .array(snapshot.lights.map { lightJSON($0) })])
         case ("GET", "scenes"):
@@ -50,20 +47,6 @@ extension PhilipsHuePlugin {
                 ]
             }
             return PluginWebResponse(["groups": .array(groups)])
-        case ("GET", "scene-picture"):
-            guard let id = request.query["id"], let data = pictures.dataURL(key: id) else { return .error(404, "no picture for that scene") }
-            return PluginWebResponse(["data": .string(data)])
-        case ("POST", "scene-picture"):
-            guard let id = request.body["id"]?.stringValue, let data = request.body["data"]?.stringValue else { return .error(400, "a scene and a picture are required") }
-            do {
-                return PluginWebResponse(["version": .string(try pictures.save(key: id, dataURL: data))])
-            } catch let error as PluginPictures.Failure {
-                return .error(error == .badKey ? 400 : 422, error.description)
-            }
-        case ("POST", "scene-picture-remove"):
-            guard let id = request.body["id"]?.stringValue else { return .error(400, "a scene is required") }
-            pictures.remove(key: id)
-            return PluginWebResponse(["removed": .string(id)])
         case ("GET", "assistant-scenes"):
             return PluginWebResponse(assistantScenes(room: request.query["room"]))
         case ("POST", "recall"):

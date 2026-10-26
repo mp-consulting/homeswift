@@ -137,7 +137,7 @@ struct PinningTransport: HTTPSending {
     let trust: HTTPClient.TrustOnFirstUse
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        let response = try await HTTPClient(tls: trust.tls).send(request)
+        let response = try await trust.client.send(request)
         trust.observe(response.certificateFingerprint)
         return response
     }

@@ -209,7 +209,7 @@ struct PluginPicturesTests {
         #expect(pictures.dataURL(key: "scene-1") == Self.url(Self.png, as: "image/png"))
         pictures.remove(key: "scene-1")
         #expect(pictures.dataURL(key: "scene-1") == nil)
-        #expect(pictures.version(key: "scene-1") == nil)
+        #expect(pictures.versions()["scene-1"] == nil)
     }
 
     @Test func refusesWhatIsNotAPicture() {
