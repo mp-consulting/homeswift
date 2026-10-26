@@ -2152,6 +2152,7 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
 .log-filter-panel { padding: 20px; display: flex; flex-direction: column; gap: 18px; }
 .log-level-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .log-level-row .search { flex: 1; max-width: 440px; min-width: 180px; }
+.log-level-row > .group { max-width: 100%; }
 .log-scope-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 16px; }
 .log-scope-row label { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .log-scope-row label > span { font-size: .75rem; font-weight: 600; color: var(--muted); }
@@ -2161,13 +2162,31 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
 .log-action-bar label.toggle { margin: 0; white-space: nowrap; }
 .log-card .log { padding: 18px 20px; line-height: 1.65; }
 .log-card .log > :hover { background: rgba(255, 255, 255, .04); }
+/* A level's count beside its name: lighter, digits of one width so the buttons do not shift as lines arrive. */
+.log-level-row .log-level-count { margin-inline-start: 6px; font-size: .8125rem; font-variant-numeric: tabular-nums; opacity: .6; }
+.log-level-row .group button.on .log-level-count { opacity: .85; }
 @media (max-width: 640px) {
-  .log-filter-panel { padding: 16px; }
-  .log-level-row > .group { display: grid; grid-template-columns: repeat(4, 1fr); width: 100%; }
-  .log-level-row .search { max-width: none; width: 100%; }
-  .log-scope-row { grid-template-columns: 1fr; }
-  .log-card .log-action-bar { padding: 12px 16px; }
-  .log-card .log-action-bar > .save-payloads { display: flex; }
+  /* On a phone the filters take three short rows: the levels (the count under each name), the search with Clear
+     filters as an icon (only while there is something to clear), and the two menus side by side, named by their
+     aria-label rather than a caption. */
+  .log-filter-panel { padding: 12px; gap: 10px; }
+  .log-level-row { gap: 8px; }
+  .log-level-row > .group { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); flex: 1 1 100%; border-radius: 16px; }
+  .log-level-row > .group button { display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 0; padding: 5px 4px; border-radius: 13px; line-height: 1.15; }
+  .log-level-row .log-level-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: .8125rem; font-weight: 600; }
+  .log-level-row .log-level-count { margin: 0; font-size: .6875rem; }
+  .log-level-row .search { flex: 1 1 0; width: auto; max-width: none; min-width: 0; }
+  .log-level-row .clear-filters { flex: none; width: 40px; height: 40px; margin: 0; padding: 0; gap: 0; font-size: 0; }
+  .log-level-row .clear-filters:disabled { display: none; }
+  .log-scope-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+  .log-scope-row label { gap: 0; margin: 0; }
+  .log-scope-row label > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .log-scope-row select.popup { margin: 0; padding-block: 8px; }
+  /* The action bar on one row: the count, then Copy as an icon, Follow and the menu (which has Save payloads). */
+  .log-card .log-action-bar { padding: 8px 12px; gap: 8px; }
+  .log-card .log-action-bar > .count { flex: 1 1 auto; }
+  .log-card .log-action-bar > button.action-with-icon { width: 40px; height: 40px; padding: 0; gap: 0; font-size: 0; flex: none; }
+}
 }
 
 select:not([multiple]) {
