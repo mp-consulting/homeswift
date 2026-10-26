@@ -197,14 +197,31 @@
   }
 
   // Install tabs and copy buttons.
+  // The selection is a thumb that slides to the chosen segment (site.css, .seg.thumb).
+  const seg = document.querySelector('.seg');
   const tabs = document.querySelectorAll('.seg button');
+  const moveThumb = () => {
+    const on = seg.querySelector('[aria-selected="true"]');
+    if (!on) return;
+    seg.style.setProperty('--x', `${on.offsetLeft}px`); seg.style.setProperty('--w', `${on.offsetWidth}px`);
+  };
+  if (seg) {
+    seg.classList.add('thumb'); moveThumb();
+    requestAnimationFrame(() => seg.classList.add('ready'));
+    addEventListener('resize', moveThumb);
+    document.fonts?.ready.then(moveThumb);
+  }
   tabs.forEach((b) => b.addEventListener('click', () => {
     tabs.forEach((t) => t.setAttribute('aria-selected', t === b));
+    moveThumb();
     document.querySelectorAll('#install .term').forEach((p) => { p.hidden = p.dataset.pane !== b.dataset.pane; });
   }));
   document.querySelectorAll('.copy').forEach((btn) => btn.addEventListener('click', () => {
     const text = btn.parentElement.querySelector('pre').innerText;
-    const done = () => { btn.textContent = L.copied; setTimeout(() => { btn.textContent = L.copy; }, 1400); };
+    const done = () => {
+      btn.textContent = L.copied; btn.classList.add('done');
+      setTimeout(() => { btn.textContent = L.copy; btn.classList.remove('done'); }, 1400);
+    };
     navigator.clipboard?.writeText(text).then(done, () => {
       const r = document.createRange(); r.selectNodeContents(btn.parentElement.querySelector('pre'));
       const s = getSelection(); s.removeAllRanges(); s.addRange(r); btn.textContent = L.selected;
