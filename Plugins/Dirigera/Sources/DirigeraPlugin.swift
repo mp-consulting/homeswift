@@ -65,6 +65,8 @@ public actor DirigeraPlugin: HomeswiftPlugin {
     private let tasks = TaskBag()
     private var logger: Logger { context.logger }
     private let store: JSONFile<[String: StoredHub]>
+    /// The pictures people gave scenes on the page, by scene id.
+    let pictures: PluginPictures
     private var stored: [String: StoredHub]
 
     /// One hub's connection and what it shows.
@@ -77,6 +79,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         var error: String?
         var connected = false
         var pairing = false
+        var pairingDeadline: ContinuousClock.Instant?
 
         init(host: String, client: DirigeraClient, trust: HTTPClient.TrustOnFirstUse) {
             self.host = host
@@ -113,6 +116,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         self.context = context
         self.dependencies = dependencies
         store = context.jsonFile("hubs.json")
+        pictures = context.pictures("scene-pictures")
         stored = store.load() ?? [:]
     }
 
@@ -410,10 +414,11 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         let hub = open(host)
         guard !hub.pairing else { return }
         hub.pairing = true
-        defer { hub.pairing = false }
+        defer { hub.pairing = false; hub.pairingDeadline = nil }
         let verifier = DirigeraClient.makeVerifier()
         let code = try await hub.client.authorize(verifier: verifier)
         let deadline = ContinuousClock.now + Self.pairingWindow
+        hub.pairingDeadline = deadline
         let name = "homeswift-\(ProcessInfo.processInfo.hostName.prefix(20))"
         while ContinuousClock.now < deadline {
             do {
@@ -439,10 +444,14 @@ public actor DirigeraPlugin: HomeswiftPlugin {
 
     func discover() async -> [String] { await dependencies.discover() }
 
-    func hubStatus(_ host: String) async -> (paired: Bool, connected: Bool, pairing: Bool, error: String?, devices: Int, scenes: Int) {
+    func hubStatus(_ host: String) async -> (paired: Bool, connected: Bool, pairing: Bool, pairingSecondsLeft: Int?, error: String?, devices: Int, scenes: Int) {
         let hub = hubs[host]
         let paired = await hub?.client.token != nil
-        return (paired, hub?.connected ?? false, hub?.pairing ?? false, hub?.error, hub?.devices.count ?? 0, hub?.scenes.count ?? 0)
+        let secondsLeft = hub?.pairingDeadline.map { deadline in
+            let left = (deadline - ContinuousClock.now).components
+            return max(0, Int(left.seconds) + (left.attoseconds > 0 ? 1 : 0))
+        }
+        return (paired, hub?.connected ?? false, hub?.pairing ?? false, secondsLeft, hub?.error, hub?.devices.count ?? 0, hub?.scenes.count ?? 0)
     }
 
     func trigger(host: String, sceneID: String) async throws {

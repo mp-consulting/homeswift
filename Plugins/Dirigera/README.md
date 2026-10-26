@@ -45,10 +45,16 @@ which run on their own schedule, are left out.
 
 With the web UI on, the plugin's page lists the hubs (their state, devices and scenes, **Pair** with a countdown, the
 hubs found on the network to pair, an address to add), then three tabs: **Devices**, every light, outlet and sensor
-drawn by the Accessories page's widgets; **Scenes**, a tile per scene (a tap runs it, the eye leaves it out of the Home
-app); **Settings**, the transition and the scenes switch.
+drawn by the Accessories page's widgets; **Scenes**, a tile per scene (a tap runs it; drop a picture on it, or choose
+one from its ⋯ menu, to give the scene its own, kept in the plugin's folder; the same menu leaves it out of the Home
+app); **Settings**, the transition on a 12-step speed scale (Very slow to Extreme; Fast, 100 ms, by default) and the scenes switch.
 
 ![Scenes](../../docs/images/plugins/dirigera-scenes.png)
+
+## The Assistant
+
+With the Assistant on, the web UI's chat and MCP clients get `Dirigera_list_scenes`, `Dirigera_run_scene` and
+`Dirigera_list_devices`: "it's movie time" finds the scene whose name and icon fit and runs it.
 
 ## How it works
 

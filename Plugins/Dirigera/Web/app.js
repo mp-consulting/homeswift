@@ -12,7 +12,20 @@
   let scenes = [];
   let found = [];
   let block = {};
+  // The end of each hub's minute to press its action button, by host: the hub's own while it pairs (this page or another
+  // started it), else the one this page's Pair started. A second's tick redraws the rows meanwhile.
   const pairing = new Map();
+  const asking = new Set();
+  let ticker = 0;
+  function followPairing() {
+    for (const hub of hubs) {
+      if (hub.pairing && hub.pairingSecondsLeft != null) pairing.set(hub.host, Date.now() + hub.pairingSecondsLeft * 1000);
+      else if (!hub.pairing && !asking.has(hub.host)) pairing.delete(hub.host);
+    }
+    const on = hubs.some((hub) => hub.pairing) || [...pairing.values()].some((until) => Date.now() < until);
+    if (on && !ticker) ticker = setInterval(drawHubs, 1000);
+    if (!on && ticker) { clearInterval(ticker); ticker = 0; }
+  }
 
   // MARK: Tabs
 
@@ -65,18 +78,20 @@
 
   const hubList = el("div");
   const foundList = el("div", { class: "found" });
-  const addressInput = el("input", { type: "text", placeholder: "192.168.1.30", inputmode: "url", autocomplete: "off" });
+  const addressInput = el("input", { type: "text", id: "hub-address", placeholder: "192.168.1.30", inputmode: "url", autocomplete: "off" });
   $("#hubs").append(hubList, foundList,
     el("details", { class: "address-box" },
       el("summary", { text: t("Add a hub") }),
+      // The title, then the input with its buttons on one row, so they line up at any width.
       el("div", { class: "address" },
-        el("label", { class: "field" }, el("span", { class: "field-title", text: t("Address") }), addressInput),
+        el("label", { class: "field-title", htmlFor: "hub-address", text: t("Address") }),
+        el("div", { class: "address-row" }, addressInput,
         el("button", { actionIcon: "search", text: t("Find"), onclick: (event) => act(event.currentTarget, async () => {
           ({ hosts: found } = await request("discover"));
           if (!found.length) alert(t("No hub answered on the network."));
           drawHubs();
         }) }),
-        el("button", { class: "primary", actionIcon: "key", text: t("Pair"), onclick: (event) => { const host = addressInput.value.trim(); if (host) pair(event.currentTarget, host); } }))));
+        el("button", { class: "primary", actionIcon: "key", text: t("Pair"), onclick: (event) => { const host = addressInput.value.trim(); if (host) pair(event.currentTarget, host); } })))));
 
   /// The hub rows, and the hubs found on the network that are not paired yet; the address form stays as typed.
   function drawHubs() {
@@ -88,8 +103,9 @@
 
   async function pair(button, host) {
     pairing.set(host, Date.now() + 60000);
+    asking.add(host);
+    followPairing();
     drawHubs();
-    const timer = setInterval(drawHubs, 1000);
     try {
       await request("pair", { method: "POST", body: { host } });
       // The hub goes in config.json, as homebridge-dirigera keeps it; its token stays in the plugin's folder.
@@ -103,7 +119,7 @@
       alert(e.message);
     } finally {
       pairing.delete(host);
-      clearInterval(timer);
+      asking.delete(host);
       await refresh();
     }
   }
@@ -187,21 +203,133 @@
       || (k === "off" && /off|away|leave/.test(name)) || (k === "book" && /read/.test(name)) || (k === "party" && /party|dinner|cozy/.test(name)));
     let hash = 0;
     for (const c of scene.name) hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
-    return { glyph: glyphs[key ?? "home"], gradient: `linear-gradient(135deg, ${tones[hash % tones.length]})` };
+    const tone = tones[hash % tones.length];
+    return { glyph: glyphs[key ?? "home"], gradient: `linear-gradient(135deg, ${tone})`, text: textStyle(tone.split(",")) };
+  }
+
+  /// How a tile's name reads best on its palette: "light" (dark text) or "deep" (white on a darker scrim), else white on
+  /// the usual scrim. The name spans about 35 to 70 % of the 135° gradient, so the colours there count (stops evenly
+  /// spaced, mixed in sRGB as the browser does); white has the scrim under it (about a third black at the name). Each
+  /// takes the contrast of its worst colour (WCAG's relative luminance) and the better one wins; when neither reaches
+  /// 4.5, the darker scrim does.
+  function textStyle(colours) {
+    const rgb = colours.map((hex) => /^#([0-9a-f]{6})$/i.exec(hex.trim())).map((match) => match && [0, 2, 4].map((i) => parseInt(match[1].slice(i, i + 2), 16)));
+    if (!rgb.length || rgb.includes(null)) return "";
+    const at = (t) => {
+      if (rgb.length === 1) return rgb[0];
+      const position = t * (rgb.length - 1);
+      const index = Math.min(Math.floor(position), rgb.length - 2);
+      return rgb[index].map((c, i) => c + (rgb[index + 1][i] - c) * (position - index));
+    };
+    const luminance = (channels) => {
+      const [r, g, b] = channels.map((c) => c / 255).map((c) => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const under = [0.35, 0.5, 0.7].map((t) => luminance(at(t)));
+    const white = Math.min(...under.map((l) => 1.05 / (l * 0.46 + 0.05)));
+    const dark = Math.min(...under.map((l) => (l + 0.05) / 0.062));
+    if (Math.max(white, dark) < 4.5) return "deep";
+    return dark > white ? "light" : "";
+  }
+
+  // MARK: Scene pictures
+
+  // A picture a person gave a scene: dropped on its tile or chosen from its menu, shrunk here to 640 pixels and sent as
+  // a JPEG data: URL (the bridge keeps JPEG, PNG and WebP, a megabyte at most). Fetched once per version.
+  const pictureCache = new Map();
+  async function pictureFor(scene) {
+    if (!scene.picture) return null;
+    const key = `${scene.id}@${scene.picture}`;
+    if (!pictureCache.has(key)) {
+      pictureCache.set(key, request(`scene-picture?id=${encodeURIComponent(scene.id)}`).then(({ data }) => data).catch(() => null));
+    }
+    return pictureCache.get(key);
+  }
+
+  async function shrink(file) {
+    if (!/^image\//.test(file.type)) throw new Error(t("This file is not a picture."));
+    const bitmap = await createImageBitmap(file).catch(() => { throw new Error(t("This file is not a picture.")); });
+    const scale = Math.min(1, 640 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    return canvas.toDataURL("image/jpeg", 0.85);
+  }
+
+  async function setPicture(scene, file, tileNode) {
+    tileNode.classList.add("busy");
+    try {
+      const data = await shrink(file);
+      const { version } = await request("scene-picture", { method: "POST", body: { id: scene.id, data } });
+      pictureCache.set(`${scene.id}@${version}`, Promise.resolve(data));
+      await refresh();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      tileNode.classList.remove("busy");
+    }
+  }
+
+  function choosePicture(scene, tileNode) {
+    const input = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp,image/heic" });
+    input.addEventListener("change", () => { if (input.files?.[0]) setPicture(scene, input.files[0], tileNode); });
+    input.click();
+  }
+
+  async function removePicture(scene) {
+    try { await request("scene-picture-remove", { method: "POST", body: { id: scene.id } }); await refresh(); } catch (e) { alert(e.message); }
+  }
+
+  /// The tile takes a dropped picture; the page takes none itself, so a picture dropped beside a tile does not open.
+  function dropZone(tileNode, scene) {
+    tileNode.addEventListener("dragover", (event) => {
+      if (![...(event.dataTransfer?.types ?? [])].includes("Files")) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      tileNode.classList.add("drop");
+    });
+    tileNode.addEventListener("dragleave", () => tileNode.classList.remove("drop"));
+    tileNode.addEventListener("drop", (event) => {
+      event.preventDefault();
+      tileNode.classList.remove("drop");
+      const file = event.dataTransfer?.files?.[0];
+      if (file) setPicture(scene, file, tileNode);
+    });
+  }
+  for (const type of ["dragover", "drop"]) document.addEventListener(type, (event) => { if (event.dataTransfer?.types?.includes("Files")) event.preventDefault(); });
+
+  /// The tile's menu: a picture for it, and whether the Home app shows it.
+  function sceneMenu(scene, tileNode, hideKey) {
+    const button = HomeswiftCommon.menuButton(t("Actions for {name}", { name: scene.name }), () => [
+      { label: scene.picture ? t("Change the picture…") : t("Choose a picture…"), icon: "camera", onSelect: () => choosePicture(scene, tileNode) },
+      scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: () => removePicture(scene) } : null,
+      { label: scene.hidden ? t("Show in the Home app") : t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleList("excludeScenes", hideKey) },
+    ]);
+    button.classList.add("eye");
+    button.addEventListener("click", (event) => event.stopPropagation());
+    button.addEventListener("keydown", (event) => event.stopPropagation());
+    return button;
+  }
+
+  /// Paints the tile with its picture once loaded; the colours stay until then, and when there is none.
+  function paintPicture(tileNode, scene) {
+    pictureFor(scene).then((data) => {
+      if (!data) return;
+      tileNode.style.backgroundImage = `url("${data}")`;
+      tileNode.classList.add("pictured");
+    });
   }
 
   function sceneTile(scene) {
-    const { glyph, gradient } = sceneStyle(scene);
+    const { glyph, gradient, text } = sceneStyle(scene);
     const art = document.createElement("span");
     art.className = "glyph";
     art.innerHTML = `<svg viewBox="0 0 24 24">${glyph}</svg>`;
-    const tileNode = el("div", { class: `scene ${scene.hidden ? "hidden-scene" : ""}`, role: "button", tabindex: 0, style: `background: ${gradient}`, "aria-label": t("Run {name}", { name: scene.name }) },
+    const tileNode = el("div", { class: `scene ${scene.hidden ? "hidden-scene" : ""} ${text}`, role: "button", tabindex: 0, style: `background: ${gradient}`, "aria-label": t("Run {name}", { name: scene.name }) },
       art,
-      el("button", {
-        type: "button", class: "eye", title: scene.hidden ? t("Show in the Home app") : t("Leave out of the Home app"),
-        "aria-label": scene.hidden ? t("Show in the Home app") : t("Leave out of the Home app"),
-        onclick: (event) => { event.stopPropagation(); toggleList("excludeScenes", scene.name); },
-      }, icon("eye")),
+      null,
       el("span", { class: "name", text: scene.name }));
     const run = async () => {
       tileNode.classList.add("busy");
@@ -214,6 +342,9 @@
     };
     tileNode.addEventListener("click", run);
     tileNode.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); run(); } });
+    tileNode.append(sceneMenu(scene, tileNode, scene.name));
+    dropZone(tileNode, scene);
+    paintPicture(tileNode, scene);
     return tileNode;
   }
 
@@ -231,17 +362,31 @@
   let dirty = false;
   const markDirty = () => { dirty = true; $("#save-state").textContent = t("Unsaved changes."); };
 
+  // The transition as a 12-step speed scale, slowest first; the block keeps its milliseconds (`transitionMs`), a value
+  // between steps showing as the nearest. Step 9, 100 ms, is the default.
+  const speedSteps = [2000, 1500, 1000, 800, 600, 400, 300, 200, 100, 60, 30, 0];
+  const speedNames = [[2, t("Very slow")], [4, t("Slow")], [7, t("Medium")], [9, t("Fast")], [11, t("Very fast")], [12, t("Extreme")]];
+  const speedName = (step) => speedNames.find(([last]) => step <= last)[1];
+  const stepFor = (ms) => speedSteps.reduce((best, value, index) => Math.abs(value - ms) < Math.abs(speedSteps[best] - ms) ? index : best, 0) + 1;
+  const speedText = (step) => {
+    const ms = speedSteps[step - 1];
+    return ms === 0 ? t("{speed} · at once", { speed: speedName(step) }) : t("{speed} · {ms} ms", { speed: speedName(step), ms });
+  };
+
   function buildSettings() {
     const value = el("output");
-    const slider = el("input", { type: "range", id: "transitionMs", min: 0, max: 2000, step: 50, "aria-label": t("Transition") });
-    const show = () => { value.textContent = Number(slider.value) === 0 ? t("Instant") : `${slider.value} ms`; };
+    const slider = el("input", { type: "range", class: "speed", id: "transitionMs", min: 1, max: 12, step: 1, "aria-label": t("Transition") });
+    const show = () => {
+      value.textContent = speedText(Number(slider.value));
+      slider.setAttribute("aria-valuetext", value.textContent);
+    };
     slider.addEventListener("input", () => { show(); markDirty(); });
-    const presets = [[0, t("Instant: flashes and fast moods")], [100, t("Quick (default)")], [500, t("Soft")]].map(([ms, label]) =>
-      el("button", { type: "button", text: label, onclick: () => { slider.value = ms; show(); markDirty(); } }));
+    // The names under the scale, each as wide as its steps.
+    const scale = el("div", { class: "speed-scale", "aria-hidden": "true" }, speedNames.map(([last, name], index) =>
+      el("span", { text: name, style: `grid-column: span ${last - (speedNames[index - 1]?.[0] ?? 0)}` })));
     $("#speed").append(
-      el("label", { class: "field" }, el("span", { class: "field-title", text: t("Transition") }), el("div", { class: "range" }, slider, value),
-        el("span", { class: "help", text: t("How long a light takes to reach a new level or colour. Shorter is snappier for moods.") })),
-      el("div", { class: "presets" }, presets));
+      el("label", { class: "field" }, el("span", { class: "range-head" }, el("span", { class: "field-title", text: t("Transition") }), value), slider, scale,
+        el("span", { class: "help", text: t("How fast a light reaches a new level or colour. Fast is the default; Extreme changes at once, snappiest for moods.") })));
     const input = el("input", { type: "checkbox", id: "scenes-toggle" });
     input.addEventListener("change", markDirty);
     $("#options").append(el("label", { class: "toggle" }, el("span", { class: "switch" }, input, el("span")),
@@ -252,7 +397,7 @@
 
   function fillSettings() {
     if (dirty) return;
-    $("#transitionMs").value = block.transitionMs ?? 100;
+    $("#transitionMs").value = stepFor(block.transitionMs ?? 100);
     $("#transitionMs").dispatchEvent(new Event("input"));
     dirty = false;
     $("#save-state").textContent = t("Changes are kept once you save.");
@@ -261,7 +406,7 @@
 
   async function save() {
     await updateBlock((draft) => {
-      setKey(draft, "transitionMs", Number($("#transitionMs").value), 100);
+      setKey(draft, "transitionMs", speedSteps[Number($("#transitionMs").value) - 1], 100);
       setKey(draft, "scenes", $("#scenes-toggle").checked, true);
     });
     dirty = false;
@@ -298,6 +443,7 @@
     } catch (e) {
       hubs = [];
     }
+    followPairing();
     drawHubs();
     drawDevices();
     drawScenes();

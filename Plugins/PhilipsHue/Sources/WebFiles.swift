@@ -27,8 +27,11 @@ h2 { margin: 0 0 10px; }
 .pairing .link-button { animation: press 1.6s var(--ease-out) infinite; }
 @keyframes press { 0%, 100% { box-shadow: 0 0 0 0 rgba(124, 77, 219, 0.45), inset 0 -2px 0 rgba(0, 0, 0, 0.08); } 50% { box-shadow: 0 0 0 10px rgba(124, 77, 219, 0), inset 0 -2px 0 rgba(0, 0, 0, 0.08); } }
 .countdown { font-variant-numeric: tabular-nums; }
-.address { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 12px; }
-.address .field { flex: 1; min-width: 200px; margin: 0; }
+.address { margin-top: 12px; }
+.address-row { display: flex; gap: 8px; align-items: center; }
+.address-row input { flex: 1; min-width: 0; width: auto; }
+.address-row button { flex: none; }
+.address .help { display: block; margin-top: 6px; }
 .found { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 
 /* Scenes: a section per room, a tile per scene painted with its colours. */
@@ -50,11 +53,13 @@ h2 { margin: 0 0 10px; }
 .scene.busy { pointer-events: none; }
 
 /* Settings. */
-.range { display: flex; align-items: center; gap: 12px; }
-.range input { flex: 1; width: auto; }
-.range output { min-width: 72px; text-align: right; font-variant-numeric: tabular-nums; }
-.presets { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
-.presets button { padding: 4px 11px; min-height: 0; font-size: 0.8125rem; border-radius: 999px; }
+.range-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.range-head output { font-weight: 600; font-variant-numeric: tabular-nums; }
+.field input.speed { width: 100%; }
+.speed-scale { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); margin: 4px 0 2px; font-size: 0.75rem; color: var(--muted); text-align: center; }
+.speed-scale span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; border-left: 1px solid var(--line); }
+.speed-scale span:first-child { border-left: 0; }
+@media (max-width: 640px) { .speed-scale { display: none; } }
 .save-card { position: sticky; bottom: 12px; z-index: 3; margin-top: 18px; }
 .save-card .save-bar { border-top: 0; padding-top: 0; }
 
@@ -71,6 +76,21 @@ h2 { margin: 0 0 10px; }
 .accessory-walls { margin: 0; }
 .hidden-devices { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; font-size: 0.875rem; }
 .hidden-devices:empty { display: none; }
+
+/* A scene's own picture fills its tile; dragging a picture over a tile outlines it. */
+.scene.pictured { background-size: cover !important; background-position: center !important; }
+.scene.pictured .glyph { display: none; }
+.scene.drop { box-shadow: 0 0 0 3px var(--accent), 0 6px 18px rgba(0, 0, 0, 0.18); transform: scale(1.02); }
+.scene .eye.menu-button { color: #fff; }
+/* A light palette takes dark text, without the scrim; a palette neither reads well on takes a darker scrim; a picture
+   keeps white text on the scrim, whatever its palette. */
+.scene.deep::after { background: linear-gradient(180deg, transparent 20%, rgba(0, 0, 0, 0.62)); }
+.scene.light:not(.pictured) { color: #1d1d1f; }
+.scene.light:not(.pictured)::after { display: none; }
+.scene.light:not(.pictured) .name { text-shadow: none; }
+.scene.light:not(.pictured) .glyph { color: rgba(29, 29, 31, 0.78); }
+.scene.light:not(.pictured) .eye.menu-button { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
+.scene.light:not(.pictured) .badge { background: #1d1d1f; color: #fff; }
 
 """#),
         "app.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
@@ -109,7 +129,19 @@ h2 { margin: 0 0 10px; }
 
   // MARK: The bridge
 
+  // The end of the minute the link button can be pressed in: the bridge's own when it is pairing (from this page, another,
+  // or the plugin at start without a key), else the one this page's Pair started. A second's tick redraws it meanwhile.
   let pairingUntil = 0;
+  let asking = false;
+  let ticker = 0;
+  function followPairing() {
+    if (status.pairing && status.pairingSecondsLeft != null) pairingUntil = Date.now() + status.pairingSecondsLeft * 1000;
+    else if (!status.pairing && !asking) pairingUntil = 0;
+    const on = status.pairing || Date.now() < pairingUntil;
+    if (on && !ticker) ticker = setInterval(drawBridge, 1000);
+    if (!on && ticker) { clearInterval(ticker); ticker = 0; }
+  }
+
   function drawBridge() {
     const card = $("#bridge");
     const paired = status.paired;
@@ -147,31 +179,46 @@ h2 { margin: 0 0 10px; }
     return span.firstChild;
   }
 
+  /// The address form, made once so the card's redraws leave it open and keep what was typed; until a person types, it
+  /// shows the address in config.json, else the bridge's.
+  let addressBox = null;
+  let addressInput = null;
+  let addressTyped = false;
   function addressForm() {
-    const input = el("input", { type: "text", value: block.host || status.host || "", placeholder: "192.168.1.20", inputmode: "url", autocomplete: "off" });
+    if (addressBox) {
+      if (!addressTyped && document.activeElement !== addressInput) addressInput.value = block.host || status.host || "";
+      return addressBox;
+    }
+    const input = addressInput = el("input", { type: "text", id: "bridge-address", value: block.host || status.host || "", placeholder: "192.168.1.20", inputmode: "url", autocomplete: "off" });
+    input.addEventListener("input", () => { addressTyped = true; });
     const found = el("div", { class: "found" });
-    return el("details", { class: "address-box" },
+    return addressBox = el("details", { class: "address-box" },
       el("summary", { text: t("Bridge address") }),
+      // The title, then the input with its buttons on one row (so they line up at any width), then the help.
       el("div", { class: "address" },
-        el("label", { class: "field" }, el("span", { class: "field-title", text: t("Address") }), input,
-          el("span", { class: "help", text: t("Leave it empty to find the bridge on the network.") })),
+        el("label", { class: "field-title", htmlFor: "bridge-address", text: t("Address") }),
+        el("div", { class: "address-row" }, input,
         el("button", { actionIcon: "search", text: t("Find"), onclick: (event) => act(event.currentTarget, async () => {
           const { hosts } = await request("discover");
-          found.replaceChildren(...(hosts.length ? hosts.map((host) => el("button", { text: host, onclick: () => { input.value = host; } })) : [el("span", { class: "muted", text: t("No bridge answered on the network.") })]));
+          found.replaceChildren(...(hosts.length ? hosts.map((host) => el("button", { actionIcon: "bridge", text: host, onclick: () => { input.value = host; addressTyped = true; } })) : [el("span", { class: "muted", text: t("No bridge answered on the network.") })]));
         }) }),
-        el("button", { class: "primary", text: t("Use"), onclick: (event) => act(event.currentTarget, async () => {
+        el("button", { class: "primary", actionIcon: "check", text: t("Use"), onclick: (event) => act(event.currentTarget, async () => {
           const host = input.value.trim();
           await updateBlock((draft) => { setKey(draft, "host", host, ""); });
           if (host) await request("host", { method: "POST", body: { host } });
+          block = await readBlock();
+          addressTyped = false;
           await refresh();
         }) })),
+        el("span", { class: "help", text: t("Leave it empty to find the bridge on the network.") })),
       found);
   }
 
   async function pair(button) {
     pairingUntil = Date.now() + 60000;
+    asking = true;
+    followPairing();
     drawBridge();
-    const timer = setInterval(drawBridge, 1000);
     try {
       await act(button, () => request("pair", { method: "POST", body: {} }), null);
       pairingUntil = 0;
@@ -179,7 +226,7 @@ h2 { margin: 0 0 10px; }
       pairingUntil = 0;
       alert(e.message);
     } finally {
-      clearInterval(timer);
+      asking = false;
       await refresh();
     }
   }
@@ -235,27 +282,142 @@ h2 { margin: 0 0 10px; }
 
   // MARK: Scenes
 
+  // MARK: Scene pictures
+
+  // A picture a person gave a scene: dropped on its tile or chosen from its menu, shrunk here to 640 pixels and sent as
+  // a JPEG data: URL (the bridge keeps JPEG, PNG and WebP, a megabyte at most). Fetched once per version.
+  const pictureCache = new Map();
+  async function pictureFor(scene) {
+    if (!scene.picture) return null;
+    const key = `${scene.id}@${scene.picture}`;
+    if (!pictureCache.has(key)) {
+      pictureCache.set(key, request(`scene-picture?id=${encodeURIComponent(scene.id)}`).then(({ data }) => data).catch(() => null));
+    }
+    return pictureCache.get(key);
+  }
+
+  async function shrink(file) {
+    if (!/^image\//.test(file.type)) throw new Error(t("This file is not a picture."));
+    const bitmap = await createImageBitmap(file).catch(() => { throw new Error(t("This file is not a picture.")); });
+    const scale = Math.min(1, 640 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    return canvas.toDataURL("image/jpeg", 0.85);
+  }
+
+  async function setPicture(scene, file, tileNode) {
+    tileNode.classList.add("busy");
+    try {
+      const data = await shrink(file);
+      const { version } = await request("scene-picture", { method: "POST", body: { id: scene.id, data } });
+      pictureCache.set(`${scene.id}@${version}`, Promise.resolve(data));
+      await refresh();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      tileNode.classList.remove("busy");
+    }
+  }
+
+  function choosePicture(scene, tileNode) {
+    const input = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp,image/heic" });
+    input.addEventListener("change", () => { if (input.files?.[0]) setPicture(scene, input.files[0], tileNode); });
+    input.click();
+  }
+
+  async function removePicture(scene) {
+    try { await request("scene-picture-remove", { method: "POST", body: { id: scene.id } }); await refresh(); } catch (e) { alert(e.message); }
+  }
+
+  /// The tile takes a dropped picture; the page takes none itself, so a picture dropped beside a tile does not open.
+  function dropZone(tileNode, scene) {
+    tileNode.addEventListener("dragover", (event) => {
+      if (![...(event.dataTransfer?.types ?? [])].includes("Files")) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      tileNode.classList.add("drop");
+    });
+    tileNode.addEventListener("dragleave", () => tileNode.classList.remove("drop"));
+    tileNode.addEventListener("drop", (event) => {
+      event.preventDefault();
+      tileNode.classList.remove("drop");
+      const file = event.dataTransfer?.files?.[0];
+      if (file) setPicture(scene, file, tileNode);
+    });
+  }
+  for (const type of ["dragover", "drop"]) document.addEventListener(type, (event) => { if (event.dataTransfer?.types?.includes("Files")) event.preventDefault(); });
+
+  /// The tile's menu: a picture for it, and whether the Home app shows it.
+  function sceneMenu(scene, tileNode, hideKey) {
+    const button = HomeswiftCommon.menuButton(t("Actions for {name}", { name: scene.name }), () => [
+      { label: scene.picture ? t("Change the picture…") : t("Choose a picture…"), icon: "camera", onSelect: () => choosePicture(scene, tileNode) },
+      scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: () => removePicture(scene) } : null,
+      { label: scene.hidden ? t("Show in the Home app") : t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleList("excludeScenes", hideKey) },
+    ]);
+    button.classList.add("eye");
+    button.addEventListener("click", (event) => event.stopPropagation());
+    button.addEventListener("keydown", (event) => event.stopPropagation());
+    return button;
+  }
+
+  /// Paints the tile with its picture once loaded; the colours stay until then, and when there is none.
+  function paintPicture(tileNode, scene) {
+    pictureFor(scene).then((data) => {
+      if (!data) return;
+      tileNode.style.backgroundImage = `url("${data}")`;
+      tileNode.classList.add("pictured");
+    });
+  }
+
+  /// How a tile's name reads best on its palette: "light" (dark text) or "deep" (white on a darker scrim), else white on
+  /// the usual scrim. The name spans about 35 to 70 % of the 135° gradient, so the colours there count (stops evenly
+  /// spaced, mixed in sRGB as the browser does); white has the scrim under it (about a third black at the name). Each
+  /// takes the contrast of its worst colour (WCAG's relative luminance) and the better one wins; when neither reaches
+  /// 4.5, the darker scrim does.
+  function textStyle(colours) {
+    const rgb = colours.map((hex) => /^#([0-9a-f]{6})$/i.exec(hex.trim())).map((match) => match && [0, 2, 4].map((i) => parseInt(match[1].slice(i, i + 2), 16)));
+    if (!rgb.length || rgb.includes(null)) return "";
+    const at = (t) => {
+      if (rgb.length === 1) return rgb[0];
+      const position = t * (rgb.length - 1);
+      const index = Math.min(Math.floor(position), rgb.length - 2);
+      return rgb[index].map((c, i) => c + (rgb[index + 1][i] - c) * (position - index));
+    };
+    const luminance = (channels) => {
+      const [r, g, b] = channels.map((c) => c / 255).map((c) => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const under = [0.35, 0.5, 0.7].map((t) => luminance(at(t)));
+    const white = Math.min(...under.map((l) => 1.05 / (l * 0.46 + 0.05)));
+    const dark = Math.min(...under.map((l) => (l + 0.05) / 0.062));
+    if (Math.max(white, dark) < 4.5) return "deep";
+    return dark > white ? "light" : "";
+  }
+
   function sceneTile(group, scene) {
     const colours = scene.colours?.length ? scene.colours : ["#8e8e93"];
     const background = colours.length === 1 ? colours[0] : `linear-gradient(135deg, ${colours.join(", ")})`;
     const button = el("div", {
-      class: `scene ${scene.active ? "active" : ""} ${scene.hidden ? "hidden-scene" : ""}`, role: "button", tabindex: 0, style: `background: ${background}`,
+      class: `scene ${scene.active ? "active" : ""} ${scene.hidden ? "hidden-scene" : ""} ${textStyle(colours)}`, role: "button", tabindex: 0, style: `background: ${background}`,
       "aria-label": t("Recall {name}", { name: scene.name }), "aria-pressed": String(scene.active),
     },
       scene.active ? el("span", { class: "badge", text: t("Active") }) : null,
-      el("button", {
-        type: "button", class: "eye", title: scene.hidden ? t("Show in the Home app") : t("Leave out of the Home app"),
-        "aria-label": scene.hidden ? t("Show in the Home app") : t("Leave out of the Home app"),
-        onclick: (event) => { event.stopPropagation(); toggleList("excludeScenes", `${group.name}/${scene.name}`); },
-      }, icon("eye")),
+      null,
       el("span", { class: "name", text: scene.name }),
-      scene.smart ? el("span", { class: "kind", text: t("Natural light") }) : null);
+      // A smart scene says so, unless its name already does.
+      scene.smart && !/natural light/i.test(scene.name) ? el("span", { class: "kind", text: t("Natural light") }) : null);
     const recall = async () => {
       button.classList.add("busy");
       try { await request("recall", { method: "POST", body: { id: scene.id } }); await refresh(); } catch (e) { alert(e.message); } finally { button.classList.remove("busy"); }
     };
     button.addEventListener("click", recall);
     button.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); recall(); } });
+    button.append(sceneMenu(scene, button, `${group.name}/${scene.name}`));
+    dropZone(button, scene);
+    paintPicture(button, scene);
     return button;
   }
 
@@ -289,47 +451,61 @@ h2 { margin: 0 0 10px; }
   let dirty = false;
   const markDirty = () => { dirty = true; $("#save-state").textContent = t("Unsaved changes."); };
 
+  // The transition as a 12-step speed scale, slowest first; the block keeps its milliseconds (`transitionMs`), a value
+  // between steps showing as the nearest. Step 9, 100 ms, is the default.
+  const speedSteps = [2000, 1500, 1000, 800, 600, 400, 300, 200, 100, 60, 30, 0];
+  const speedNames = [[2, t("Very slow")], [4, t("Slow")], [7, t("Medium")], [9, t("Fast")], [11, t("Very fast")], [12, t("Extreme")]];
+  const speedName = (step) => speedNames.find(([last]) => step <= last)[1];
+  const stepFor = (ms) => speedSteps.reduce((best, value, index) => Math.abs(value - ms) < Math.abs(speedSteps[best] - ms) ? index : best, 0) + 1;
+  const speedText = (step) => {
+    const ms = speedSteps[step - 1];
+    return ms === 0 ? t("{speed} · at once", { speed: speedName(step) }) : t("{speed} · {ms} ms", { speed: speedName(step), ms });
+  };
+
   function buildSettings() {
     const value = el("output");
-    const slider = el("input", { type: "range", id: "transitionMs", min: 0, max: 2000, step: 50, "aria-label": t("Transition") });
-    const show = () => { value.textContent = Number(slider.value) === 0 ? t("Instant") : `${slider.value} ms`; };
+    const slider = el("input", { type: "range", class: "speed", id: "transitionMs", min: 1, max: 12, step: 1, "aria-label": t("Transition") });
+    const show = () => {
+      value.textContent = speedText(Number(slider.value));
+      slider.setAttribute("aria-valuetext", value.textContent);
+    };
     slider.addEventListener("input", () => { show(); markDirty(); });
-    const presets = [[0, t("Instant: flashes and fast moods")], [100, t("Quick (default)")], [400, t("Soft, as the Hue app")]].map(([ms, label]) =>
-      el("button", { type: "button", text: label, onclick: () => { slider.value = ms; show(); markDirty(); } }));
+    // The names under the scale, each as wide as its steps.
+    const scale = el("div", { class: "speed-scale", "aria-hidden": "true" }, speedNames.map(([last, name], index) =>
+      el("span", { text: name, style: `grid-column: span ${last - (speedNames[index - 1]?.[0] ?? 0)}` })));
     const polling = el("input", { type: "number", id: "pollingInterval", min: 1, max: 300, step: 1, placeholder: "2", inputmode: "numeric" });
     polling.addEventListener("input", markDirty);
     $("#speed").append(
-      el("label", { class: "field" }, el("span", { class: "field-title", text: t("Transition") }), el("div", { class: "range" }, slider, value),
-        el("span", { class: "help", text: t("How long a light takes to reach a new colour or brightness. Shorter is snappier for moods and flashes.") })),
-      el("div", { class: "presets" }, presets),
+      el("label", { class: "field" }, el("span", { class: "range-head" }, el("span", { class: "field-title", text: t("Transition") }), value), slider, scale,
+        el("span", { class: "help", text: t("How fast a light reaches a new colour or brightness. Fast is the default; Extreme changes at once, snappiest for moods and flashes.") })),
       el("label", { class: "field" }, el("span", { class: "field-title", text: t("Polling interval (s)") }), polling,
         el("span", { class: "help", text: t("How often the bridge is asked for changes made in the Hue app or with a switch.") })));
     $("#options").append(...toggles.map(([id, , label, help]) => {
-      const input = el("input", { type: "checkbox", id });
+      const input = el("input", { type: "checkbox", id: `option-${id}` });
       input.addEventListener("change", markDirty);
       return el("label", { class: "toggle" }, el("span", { class: "switch" }, input, el("span")),
         el("span", {}, el("span", { class: "field-title", text: label }), el("span", { class: "help", text: help })));
     }));
-    show.call();
+    show();
     $("#save").addEventListener("click", (event) => act(event.currentTarget, save));
   }
 
   function fillSettings() {
     if (dirty) return;
-    $("#transitionMs").value = block.transitionMs ?? 100;
+    $("#transitionMs").value = stepFor(block.transitionMs ?? 100);
     $("#transitionMs").dispatchEvent(new Event("input"));
     dirty = false;
     $("#save-state").textContent = t("Changes are kept once you save.");
     $("#pollingInterval").value = block.pollingInterval ?? "";
-    for (const [id, fallback] of toggles) $(`#${id}`).checked = block[id] ?? fallback;
+    for (const [id, fallback] of toggles) $(`#option-${id}`).checked = block[id] ?? fallback;
   }
 
   async function save() {
     await updateBlock((draft) => {
-      setKey(draft, "transitionMs", Number($("#transitionMs").value), 100);
+      setKey(draft, "transitionMs", speedSteps[Number($("#transitionMs").value) - 1], 100);
       const polling = parseInt($("#pollingInterval").value, 10);
       setKey(draft, "pollingInterval", Number.isNaN(polling) ? undefined : Math.min(Math.max(polling, 1), 300), 2);
-      for (const [id, fallback] of toggles) setKey(draft, id, $(`#${id}`).checked, fallback);
+      for (const [id, fallback] of toggles) setKey(draft, id, $(`#option-${id}`).checked, fallback);
     });
     dirty = false;
     block = await readBlock();
@@ -366,6 +542,7 @@ h2 { margin: 0 0 10px; }
     } catch (e) {
       status = { error: e.message };
     }
+    followPairing();
     drawBridge();
     drawLights();
     drawScenes();
@@ -428,18 +605,21 @@ HomeswiftI18n.add({
     "On gradient lightstrips, a light for each colour point, so each part of the strip takes its own colour.": "Sur les rubans à dégradé, une lampe par point de couleur, pour que chaque partie du ruban ait sa couleur.",
     "Unsaved changes.": "Modifications non enregistrées.",
     "Transition": "Transition",
-    "Instant": "Instantané",
-    "Instant: flashes and fast moods": "Instantané : clignotements et ambiances rapides",
-    "Quick (default)": "Rapide (par défaut)",
-    "Soft, as the Hue app": "Douce, comme l'app Hue",
-    "How long a light takes to reach a new colour or brightness. Shorter is snappier for moods and flashes.": "Le temps que met une lampe pour atteindre une nouvelle couleur ou luminosité. Plus court, c'est plus vif pour les ambiances et les clignotements.",
+    "Very slow": "Très lente",
+    "Slow": "Lente",
+    "Medium": "Moyenne",
+    "Fast": "Rapide",
+    "Very fast": "Très rapide",
+    "Extreme": "Extrême",
+    "{speed} · at once": "{speed} · immédiate",
+    "{speed} · {ms} ms": "{speed} · {ms} ms",
+    "How fast a light reaches a new colour or brightness. Fast is the default; Extreme changes at once, snappiest for moods and flashes.": "La vitesse à laquelle une lampe atteint une nouvelle couleur ou luminosité. Rapide par défaut ; Extrême change aussitôt, le plus vif pour les ambiances et les clignotements.",
     "Polling interval (s)": "Intervalle d'interrogation (s)",
     "How often the bridge is asked for changes made in the Hue app or with a switch.": "La fréquence à laquelle le pont est interrogé sur les changements faits dans l'app Hue ou avec un interrupteur.",
     "Changes are kept once you save.": "Les modifications sont conservées une fois enregistrées.",
     "Saved. The plugin restarted with these settings.": "Enregistré. Le plugin a redémarré avec ces réglages.",
     "Your Hue Bridge, its lights with their effects, and the scenes of each room, straight from the bridge on your network.": "Votre pont Hue, ses lampes et leurs effets, et les scènes de chaque pièce, directement depuis le pont sur votre réseau.",
     "Settings": "Réglages",
-    "Tap a scene to recall it. Each room's scenes are switches in the Home app; the eye leaves one out.": "Touchez une scène pour la rappeler. Les scènes de chaque pièce sont des interrupteurs dans l'app Maison ; l'œil en retire une.",
     "Speed": "Vitesse",
     "In the Home app": "Dans l'app Maison",
     "Save Configuration": "Enregistrer la configuration",
@@ -449,7 +629,18 @@ HomeswiftI18n.add({
     "The link button was not pressed in time: pair again from the plugin's page.": "Le bouton de liaison n'a pas été pressé à temps : jumelez à nouveau depuis la page du plugin.",
     "No Hue Bridge found on the network: set its address on the plugin's page.": "Aucun pont Hue trouvé sur le réseau : indiquez son adresse sur la page du plugin.",
     "The Hue Bridge refused the application key: pair again from the plugin's page.": "Le pont Hue a refusé la clé d'application : jumelez à nouveau depuis la page du plugin.",
-    "Not in the Home app:": "Pas dans l'app Maison :"
+    "Not in the Home app:": "Pas dans l'app Maison :",
+    "Tap a scene to recall it. Drop a picture on a tile to give the scene one. Each room's scenes are switches in the Home app; a tile's ⋯ menu leaves one out.": "Touchez une scène pour la rappeler. Déposez une image sur une tuile pour la donner à la scène. Les scènes de chaque pièce sont des interrupteurs dans l'app Maison ; le menu ⋯ d'une tuile en retire une.",
+    "This file is not a picture.": "Ce fichier n'est pas une image.",
+    "Choose a picture…": "Choisir une image…",
+    "Change the picture…": "Changer l'image…",
+    "Remove the picture": "Retirer l'image",
+    "the picture must be a JPEG, PNG or WebP image": "l'image doit être au format JPEG, PNG ou WebP",
+    "the picture is larger than {0} KB": "l'image dépasse {0} Ko",
+    "the picture has no valid name": "l'image n'a pas de nom valide",
+    "a scene and a picture are required": "une scène et une image sont requises",
+    "a scene is required": "une scène est requise",
+    "no picture for that scene": "aucune image pour cette scène"
   },
   "es": {
     "Not found": "No encontrado",
@@ -499,18 +690,21 @@ HomeswiftI18n.add({
     "On gradient lightstrips, a light for each colour point, so each part of the strip takes its own colour.": "En las tiras con degradado, una luz por punto de color, para que cada parte de la tira tenga su color.",
     "Unsaved changes.": "Cambios sin guardar.",
     "Transition": "Transición",
-    "Instant": "Instantánea",
-    "Instant: flashes and fast moods": "Instantánea: parpadeos y ambientes rápidos",
-    "Quick (default)": "Rápida (predeterminada)",
-    "Soft, as the Hue app": "Suave, como la app Hue",
-    "How long a light takes to reach a new colour or brightness. Shorter is snappier for moods and flashes.": "Lo que tarda una luz en llegar a un nuevo color o brillo. Más corto es más ágil para ambientes y parpadeos.",
+    "Very slow": "Muy lenta",
+    "Slow": "Lenta",
+    "Medium": "Media",
+    "Fast": "Rápida",
+    "Very fast": "Muy rápida",
+    "Extreme": "Extrema",
+    "{speed} · at once": "{speed} · inmediata",
+    "{speed} · {ms} ms": "{speed} · {ms} ms",
+    "How fast a light reaches a new colour or brightness. Fast is the default; Extreme changes at once, snappiest for moods and flashes.": "La rapidez con la que una luz llega a un nuevo color o brillo. Rápida es la predeterminada; Extrema cambia al instante, lo más ágil para ambientes y parpadeos.",
     "Polling interval (s)": "Intervalo de consulta (s)",
     "How often the bridge is asked for changes made in the Hue app or with a switch.": "Cada cuánto se pregunta al puente por los cambios hechos en la app Hue o con un interruptor.",
     "Changes are kept once you save.": "Los cambios se conservan al guardar.",
     "Saved. The plugin restarted with these settings.": "Guardado. El plugin se ha reiniciado con estos ajustes.",
     "Your Hue Bridge, its lights with their effects, and the scenes of each room, straight from the bridge on your network.": "Tu puente Hue, sus luces con sus efectos y las escenas de cada habitación, directamente desde el puente en tu red.",
     "Settings": "Ajustes",
-    "Tap a scene to recall it. Each room's scenes are switches in the Home app; the eye leaves one out.": "Toca una escena para activarla. Las escenas de cada habitación son interruptores en la app Casa; el ojo quita una.",
     "Speed": "Velocidad",
     "In the Home app": "En la app Casa",
     "Save Configuration": "Guardar configuración",
@@ -520,7 +714,18 @@ HomeswiftI18n.add({
     "The link button was not pressed in time: pair again from the plugin's page.": "No se ha pulsado el botón de enlace a tiempo: vuelve a emparejar desde la página del plugin.",
     "No Hue Bridge found on the network: set its address on the plugin's page.": "No se ha encontrado ningún puente Hue en la red: indica su dirección en la página del plugin.",
     "The Hue Bridge refused the application key: pair again from the plugin's page.": "El puente Hue ha rechazado la clave de aplicación: vuelve a emparejar desde la página del plugin.",
-    "Not in the Home app:": "No están en la app Casa:"
+    "Not in the Home app:": "No están en la app Casa:",
+    "Tap a scene to recall it. Drop a picture on a tile to give the scene one. Each room's scenes are switches in the Home app; a tile's ⋯ menu leaves one out.": "Toca una escena para activarla. Suelta una imagen en un mosaico para dársela a la escena. Las escenas de cada habitación son interruptores en la app Casa; el menú ⋯ de un mosaico quita una.",
+    "This file is not a picture.": "Este archivo no es una imagen.",
+    "Choose a picture…": "Elegir una imagen…",
+    "Change the picture…": "Cambiar la imagen…",
+    "Remove the picture": "Quitar la imagen",
+    "the picture must be a JPEG, PNG or WebP image": "la imagen debe ser JPEG, PNG o WebP",
+    "the picture is larger than {0} KB": "la imagen supera los {0} KB",
+    "the picture has no valid name": "la imagen no tiene un nombre válido",
+    "a scene and a picture are required": "se necesitan una escena y una imagen",
+    "a scene is required": "se necesita una escena",
+    "no picture for that scene": "no hay imagen para esa escena"
   },
   "pt": {
     "Not found": "Não encontrada",
@@ -570,18 +775,21 @@ HomeswiftI18n.add({
     "On gradient lightstrips, a light for each colour point, so each part of the strip takes its own colour.": "Nas fitas com gradiente, uma luz por ponto de cor, para cada parte da fita ter a sua cor.",
     "Unsaved changes.": "Alterações por guardar.",
     "Transition": "Transição",
-    "Instant": "Instantânea",
-    "Instant: flashes and fast moods": "Instantânea: piscas e ambientes rápidos",
-    "Quick (default)": "Rápida (predefinida)",
-    "Soft, as the Hue app": "Suave, como a app Hue",
-    "How long a light takes to reach a new colour or brightness. Shorter is snappier for moods and flashes.": "O tempo que uma luz demora a chegar a uma nova cor ou brilho. Mais curto é mais vivo para ambientes e piscas.",
+    "Very slow": "Muito lenta",
+    "Slow": "Lenta",
+    "Medium": "Média",
+    "Fast": "Rápida",
+    "Very fast": "Muito rápida",
+    "Extreme": "Extrema",
+    "{speed} · at once": "{speed} · imediata",
+    "{speed} · {ms} ms": "{speed} · {ms} ms",
+    "How fast a light reaches a new colour or brightness. Fast is the default; Extreme changes at once, snappiest for moods and flashes.": "A rapidez com que uma luz chega a uma nova cor ou brilho. Rápida é a predefinida; Extrema muda de imediato, o mais vivo para ambientes e piscas.",
     "Polling interval (s)": "Intervalo de consulta (s)",
     "How often the bridge is asked for changes made in the Hue app or with a switch.": "Com que frequência a ponte é consultada sobre as alterações feitas na app Hue ou com um interruptor.",
     "Changes are kept once you save.": "As alterações ficam guardadas quando guardar.",
     "Saved. The plugin restarted with these settings.": "Guardado. O plugin reiniciou com estas definições.",
     "Your Hue Bridge, its lights with their effects, and the scenes of each room, straight from the bridge on your network.": "A ponte Hue, as luzes com os seus efeitos e as cenas de cada divisão, diretamente da ponte na sua rede.",
     "Settings": "Definições",
-    "Tap a scene to recall it. Each room's scenes are switches in the Home app; the eye leaves one out.": "Toque numa cena para a ativar. As cenas de cada divisão são interruptores na app Casa; o olho retira uma.",
     "Speed": "Velocidade",
     "In the Home app": "Na app Casa",
     "Save Configuration": "Guardar configuração",
@@ -591,7 +799,18 @@ HomeswiftI18n.add({
     "The link button was not pressed in time: pair again from the plugin's page.": "O botão de ligação não foi premido a tempo: emparelhe novamente a partir da página do plugin.",
     "No Hue Bridge found on the network: set its address on the plugin's page.": "Nenhuma ponte Hue encontrada na rede: indique o endereço na página do plugin.",
     "The Hue Bridge refused the application key: pair again from the plugin's page.": "A ponte Hue recusou a chave da aplicação: emparelhe novamente a partir da página do plugin.",
-    "Not in the Home app:": "Fora da app Casa:"
+    "Not in the Home app:": "Fora da app Casa:",
+    "Tap a scene to recall it. Drop a picture on a tile to give the scene one. Each room's scenes are switches in the Home app; a tile's ⋯ menu leaves one out.": "Toque numa cena para a ativar. Largue uma imagem num mosaico para a dar à cena. As cenas de cada divisão são interruptores na app Casa; o menu ⋯ de um mosaico retira uma.",
+    "This file is not a picture.": "Este ficheiro não é uma imagem.",
+    "Choose a picture…": "Escolher uma imagem…",
+    "Change the picture…": "Alterar a imagem…",
+    "Remove the picture": "Remover a imagem",
+    "the picture must be a JPEG, PNG or WebP image": "a imagem tem de ser JPEG, PNG ou WebP",
+    "the picture is larger than {0} KB": "a imagem tem mais de {0} KB",
+    "the picture has no valid name": "a imagem não tem um nome válido",
+    "a scene and a picture are required": "são necessárias uma cena e uma imagem",
+    "a scene is required": "é necessária uma cena",
+    "no picture for that scene": "não há imagem para essa cena"
   }
 });
 
@@ -621,8 +840,8 @@ HomeswiftI18n.add({
   <div id="bridge" class="card bridge-card"></div>
 
   <div class="group tabs main-tabs" role="tablist">
-    <button role="tab" data-tab="lights" class="on" aria-selected="true" aria-controls="tab-lights" data-i18n>Lights</button>
-    <button role="tab" data-tab="scenes" aria-selected="false" aria-controls="tab-scenes" data-i18n>Scenes</button>
+    <button role="tab" data-tab="lights" class="on" aria-selected="true" aria-controls="tab-lights" data-i18n data-action-icon="bulb">Lights</button>
+    <button role="tab" data-tab="scenes" aria-selected="false" aria-controls="tab-scenes" data-i18n data-action-icon="star">Scenes</button>
     <button role="tab" data-tab="settings" aria-selected="false" aria-controls="tab-settings" data-i18n data-action-icon="sliders">Settings</button>
   </div>
 
@@ -632,7 +851,7 @@ HomeswiftI18n.add({
   </section>
 
   <section id="tab-scenes" class="tab-pane hidden" role="tabpanel">
-    <p class="muted intro" data-i18n>Tap a scene to recall it. Each room's scenes are switches in the Home app; the eye leaves one out.</p>
+    <p class="muted intro" data-i18n>Tap a scene to recall it. Drop a picture on a tile to give the scene one. Each room's scenes are switches in the Home app; a tile's ⋯ menu leaves one out.</p>
     <div id="scenes"></div>
   </section>
 

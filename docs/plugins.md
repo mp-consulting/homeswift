@@ -118,7 +118,8 @@ public actor MyDevicesPlugin: HomeswiftPlugin {
   `characteristic.revert(to:after:)` puts a value back after a write the device refused;
   `context.removeAccessories(keeping:)` drops accessories of devices that are gone. In `HomeswiftPlugin`, `TaskBag`
   holds the tasks `stop()` cancels, `LatestCallGuard` lets the last of quick slider writes through,
-  `PersistedDictionary` and `context.jsonFile(_:as:)` keep values in owner-only JSON files, and `EveHistory` is
+  `PersistedDictionary` and `context.jsonFile(_:as:)` keep values in owner-only JSON files, `context.pictures(_:)` keeps
+pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their bytes; the Hue and DIRIGERA scene tiles), and `EveHistory` is
   fakegato-history for the Eve app.
 - **Cameras.** `CameraController` (and `DoorbellController`) mirror HAP-NodeJS's: implement
   `CameraStreamingDelegate` (`handleSnapshotRequest`, `prepareStream`, `handleStreamRequest`, async instead of

@@ -122,6 +122,8 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
   `Scripts/docs-screenshots.mjs` retakes the wall, phone and paused shots (docs/widgets.md, "Screenshots": a
   throwaway bridge, plugins paused, light mode, 2x); names are demonstration names, never the user's real ones,
   and the name map stays out of the repository.
+- Every button carries an icon beside its text: `actionIcon` in `el()`, `data-action-icon` in HTML (the names are
+  common.js's `icons`), tabs and plugin pages included; a button with only an icon has an `aria-label`.
 - The web UI: pages are plain HTML, CSS and JavaScript without dependencies or a build step; they are
   embedded, so edit `Web/` and rerun the embed script (the tests say when it is stale). The API is the
   `HomeswiftCatalog` surface; mutations need JSON bodies and a same-origin `Origin`. The OAuth endpoints outside

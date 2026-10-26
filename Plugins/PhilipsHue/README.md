@@ -60,14 +60,23 @@ countdown for the link button, and its address to change), then three tabs:
 
 - **Lights**: every light drawn by the Accessories page's own widgets (power, brightness, colours, white; effects and
   the rest in All controls), with **Identify**, **Leave out of the Home app** and its log in each widget's menu.
-- **Scenes**: each room's scenes as tiles painted with the scene's palette; a tap recalls one, the eye leaves it out of
-  the Home app.
-- **Settings**: the transition (with presets), the polling interval, and what the Home app shows.
+- **Scenes**: each room's scenes as tiles painted with the scene's palette; a tap recalls one. Drop a picture on a tile
+  (or choose one from its ⋯ menu) to give the scene its own: the page shrinks it to 640 pixels, and the bridge keeps it
+  in the plugin's folder (`scene-pictures/`, JPEG, PNG or WebP, checked by its bytes, 1 MB at most). The same menu
+  removes it, and leaves the scene out of the Home app.
+- **Settings**: the transition on a 12-step speed scale (Very slow to Extreme; Fast, 100 ms, by default), the polling interval, and what the Home app shows.
 
 ![Scenes, room by room](../../docs/images/plugins/hue-scenes.png)
 
-The tiles use each scene's palette from the bridge. The pictures the Hue app shows are Signify's artwork, served by
-their own service and not by the bridge's API, so the plugin does not show them.
+Without a picture of your own, a tile uses the scene's palette from the bridge. The pictures the Hue app shows are
+Signify's artwork, served by their own service and not by the bridge's API, so the plugin does not show them.
+
+## The Assistant
+
+With the Assistant on (a `HomeswiftAiKit` block), the web UI's chat and MCP clients get `PhilipsHue_list_scenes`,
+`PhilipsHue_recall_scene` and `PhilipsHue_list_lights`. The scene list gives each scene's room and its look in words
+("warm: orange, pink and red", "cool daylight white"), so "make the living room cozy" or "something like Tokyo" picks a
+fitting scene and recalls it.
 
 ## How it works
 

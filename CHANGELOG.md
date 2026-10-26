@@ -16,6 +16,11 @@ All notable changes to this project are documented here. The format follows
 - **IKEA DIRIGERA** plugin (`Dirigera`, homebridge-dirigera's block): lights, outlets, PARASOLL door and window
   sensors with their battery, and scenes (On triggers, Off within 30 seconds undoes), followed through the hub's
   websocket. Pairing with the hub's action button (OAuth with PKCE) from the plugin's page.
+- Scene pictures for Philips Hue and IKEA DIRIGERA: drop a picture on a scene's tile (or choose one from its menu) and
+  the tile shows it; the page shrinks it, the bridge keeps it in the plugin's folder (`PluginPictures`, JPEG, PNG or
+  WebP checked by their bytes, 1 MB at most).
+- The Assistant picks Philips Hue and IKEA DIRIGERA scenes: `list_scenes` describes each scene's look in words (warm or
+  cool, its colours), `recall_scene` and `run_scene` set the one that fits what was asked.
 - Govee: **Scenes over LAN** (`lanScenes`, per light, off by default) sends scenes, DIY effects and music mode
   straight to the light as `ptReal`, faster and without the cloud. The light does not confirm LAN commands, so one
   that ignores them gets no cloud or Bluetooth fallback.
@@ -24,7 +29,6 @@ All notable changes to this project are documented here. The format follows
 
 - The Assistant's prompts are Markdown files in `Sources/HomeswiftAI/Prompts/`, one per feature, embedded into the
   binary by `Scripts/embed-assets.swift prompts`; the prompts themselves are unchanged.
-
 - The writes of one HomeKit request run at the same time, as in HAP-NodeJS: a light's brightness and colour reach the
   plugin together, so colour changes from the Home app are faster. A request naming one characteristic twice is
   refused (422), as HAP-NodeJS does.

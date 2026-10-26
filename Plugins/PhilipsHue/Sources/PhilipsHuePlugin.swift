@@ -67,12 +67,15 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     private let tasks = TaskBag()
     private var logger: Logger { context.logger }
     private let store: JSONFile<StoredBridge>
+    /// The pictures people gave scenes on the page, by scene id.
+    let pictures: PluginPictures
     private var stored: StoredBridge
     private let trust: HTTPClient.TrustOnFirstUse
     private(set) var client: HueClient?
     private(set) var snapshot = HueSnapshot()
     private(set) var lastError: String?
     private var pairing: Task<Bool, Never>?
+    private var pairingDeadline: ContinuousClock.Instant?
     private var lights: [String: LightServices] = [:]
     private var sceneAccessories: [String: SceneServices] = [:]
 
@@ -103,6 +106,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         self.context = context
         self.dependencies = dependencies
         store = context.jsonFile("bridge.json")
+        pictures = context.pictures("scene-pictures")
         let stored = store.load() ?? StoredBridge()
         self.stored = stored
         let store = store
@@ -182,6 +186,8 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     private func pairLoop() async -> Bool {
         guard let client else { return false }
         let deadline = ContinuousClock.now + Self.pairingWindow
+        pairingDeadline = deadline
+        defer { pairingDeadline = nil }
         while ContinuousClock.now < deadline, !Task.isCancelled {
             do {
                 let key = try await client.pair(deviceType: "homeswift#\(ProcessInfo.processInfo.hostName.prefix(19))")
@@ -506,6 +512,12 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
 
     var storedBridge: StoredBridge { stored }
     var isPairing: Bool { pairing != nil }
+    /// The seconds left to press the link button, whoever started the pairing (the page, or the plugin at start).
+    var pairingSecondsLeft: Int? {
+        guard let pairingDeadline else { return nil }
+        let left = (pairingDeadline - ContinuousClock.now).components
+        return max(0, Int(left.seconds) + (left.attoseconds > 0 ? 1 : 0))
+    }
 
     /// Points the plugin at another bridge address (the page's), keeping the key when it is the same bridge.
     func use(host: String) async {

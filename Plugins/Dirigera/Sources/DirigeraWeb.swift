@@ -5,7 +5,8 @@ import HomeswiftPlugin
 extension DirigeraPlugin {
     /// The page's routes (`Web/`): `GET hubs` each hub with its state, `GET discover` the hubs on the network,
     /// `POST pair` and `POST unpair` a hub, `GET devices` and `GET scenes`, `POST trigger` a scene, `POST device` a light's
-    /// or outlet's power and level, `POST identify` a device.
+    /// or outlet's power and level, `POST identify` a device; `GET scene-picture`, `POST scene-picture` and
+    /// `POST scene-picture-remove` the picture a person gave a scene.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         let host = request.body["host"]?.stringValue ?? request.query["host"]
         switch (request.method, request.path) {
@@ -16,6 +17,7 @@ extension DirigeraPlugin {
                 list.append([
                     "host": .string(host), "name": configuration.hubs?.first { $0.host == host }?.name.map(JSONValue.string) ?? .null,
                     "paired": .bool(status.paired), "connected": .bool(status.connected), "pairing": .bool(status.pairing),
+                    "pairingSecondsLeft": status.pairingSecondsLeft.map { .number(Double($0)) } ?? .null,
                     "error": status.error.map(JSONValue.string) ?? .null, "devices": .number(Double(status.devices)), "scenes": .number(Double(status.scenes)),
                     "inConfig": .bool(configuration.hubs?.contains { $0.host == host } ?? false),
                 ])
@@ -45,16 +47,31 @@ extension DirigeraPlugin {
             return PluginWebResponse(["devices": .array(list)])
         case ("GET", "scenes"):
             var list: [JSONValue] = []
+            let versions = pictures.versions()
             for (host, hub) in hubs.sorted(by: { $0.key < $1.key }) {
                 let visible = Set(visibleScenes(hub).map(\.id))
                 for scene in hub.scenes {
                     list.append([
                         "host": .string(host), "id": .string(scene.id), "name": .string(scene.name), "icon": scene.icon.map(JSONValue.string) ?? .null,
-                        "hidden": .bool(!visible.contains(scene.id)),
+                        "hidden": .bool(!visible.contains(scene.id)), "picture": versions[scene.id].map(JSONValue.string) ?? .null,
                     ])
                 }
             }
             return PluginWebResponse(["scenes": .array(list)])
+        case ("GET", "scene-picture"):
+            guard let id = request.query["id"], let data = pictures.dataURL(key: id) else { return .error(404, "no picture for that scene") }
+            return PluginWebResponse(["data": .string(data)])
+        case ("POST", "scene-picture"):
+            guard let id = request.body["id"]?.stringValue, let data = request.body["data"]?.stringValue else { return .error(400, "a scene and a picture are required") }
+            do {
+                return PluginWebResponse(["version": .string(try pictures.save(key: id, dataURL: data))])
+            } catch let error as PluginPictures.Failure {
+                return .error(error == .badKey ? 400 : 422, error.description)
+            }
+        case ("POST", "scene-picture-remove"):
+            guard let id = request.body["id"]?.stringValue else { return .error(400, "a scene is required") }
+            pictures.remove(key: id)
+            return PluginWebResponse(["removed": .string(id)])
         case ("POST", "trigger"):
             guard let host, let id = request.body["id"]?.stringValue else { return .error(400, "a hub and a scene are required") }
             try await trigger(host: host, sceneID: id)

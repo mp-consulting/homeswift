@@ -344,6 +344,58 @@ struct PhilipsHueTests {
         await host.stop()
     }
 
+    /// A picture dropped on a scene's tile is kept, listed with the scene by version, served back and removed.
+    @Test func scenesTakePictures() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, scenesID)
+        let plugin = try #require(environment.plugin)
+        let picture = "data:image/jpeg;base64," + (Data([0xFF, 0xD8, 0xFF, 0xE0]) + Data(repeating: 9, count: 64)).base64EncodedString()
+        let saved = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "scene-picture", body: ["id": "scene-1", "data": .string(picture)], user: "admin"))
+        let version = try #require(saved.json["version"]?.stringValue)
+        let scenes = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "scenes", user: "admin"))
+        #expect(scenes.json["groups"]?[0]?["scenes"]?.arrayValue?.first { $0["id"] == "scene-1" }?["picture"] == .string(version))
+        let served = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "scene-picture", query: ["id": "scene-1"], user: "admin"))
+        #expect(served.json["data"] == .string(picture))
+        let refused = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "scene-picture", body: ["id": "scene-2", "data": "data:image/png;base64,PHN2Zz4="], user: "admin"))
+        #expect(refused.status == 422)
+        _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "scene-picture-remove", body: ["id": "scene-1"], user: "admin"))
+        let gone = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "scene-picture", query: ["id": "scene-1"], user: "admin"))
+        #expect(gone.status == 404)
+        await host.stop()
+    }
+
+    /// The Assistant lists the scenes with their look in words, then recalls the one it picked, through the actions.
+    @Test func theAssistantPicksAScene() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, scenesID)
+        let plugin = try #require(environment.plugin)
+        let actions = Dictionary(uniqueKeysWithValues: PhilipsHuePlugin.assistantActions.map { ($0.name, $0) })
+        let list = try #require(actions["list_scenes"]).request(arguments: ["room": "living room"], user: "admin")
+        let scenes = try await plugin.handleWebRequest(list).json["scenes"]?.arrayValue ?? []
+        #expect(scenes.count == 3)
+        let sunset = try #require(scenes.first { $0["name"] == "Savanna sunset" })
+        #expect(sunset["room"] == "Living room")
+        #expect(sunset["look"]?.stringValue?.hasPrefix("warm") == true)
+        #expect(scenes.first { $0["name"] == "Concentrate" }?["look"] == "cool daylight white")
+        #expect(scenes.first { $0["smart"] == true }?["look"]?.stringValue?.contains("time of day") == true)
+        #expect(try await plugin.handleWebRequest(try #require(actions["list_scenes"]).request(arguments: ["room": "Attic"], user: "admin")).json["scenes"] == [])
+
+        let recall = try #require(actions["recall_scene"]).request(arguments: ["id": "scene-2"], user: "admin")
+        #expect(try await plugin.handleWebRequest(recall).status == 200)
+        #expect(environment.bridge.puts.last?.path == "/clip/v2/resource/scene/scene-2")
+        await host.stop()
+    }
+
+    @Test func scenesAreDescribedInWords() {
+        #expect(SceneLook.colourName(hue: 25, saturation: 90) == "orange")
+        #expect(SceneLook.colourName(hue: 230, saturation: 40) == "pale blue")
+        #expect(SceneLook.colourName(hue: 0, saturation: 5) == "soft white")
+        #expect(SceneLook.describe(colours: [], whites: [454]) == "warm white")
+        let tropical = SceneLook.describe(colours: [HueColor.xy(hue: 240, saturation: 100), HueColor.xy(hue: 280, saturation: 90)], whites: [])
+        #expect(tropical.hasPrefix("cool:"))
+        #expect(SceneLook.describe(colours: [], whites: []) == "no colours set")
+    }
+
     @Test func schemaIsCurrent() throws {
         let file = try String(contentsOf: Self.root.appendingPathComponent("config.schema.json"), encoding: .utf8)
         #expect(PhilipsHuePlugin.configurationSchemaJSON == file.trimmingCharacters(in: .whitespacesAndNewlines),
