@@ -58,12 +58,7 @@
 
   /// The lights left out of the Home app, as buttons that bring one back; drawn again only when they change.
   function drawHidden(names) {
-    const hidden = $("#hidden-devices");
-    const key = JSON.stringify(names);
-    if (hidden.dataset.json === key) return;
-    hidden.dataset.json = key;
-    hidden.replaceChildren(...(names.length ? [el("span", { class: "muted", text: t("Not in the Home app:") }),
-      ...names.map((name) => el("button", { actionIcon: "eye", text: name, title: t("Show in the Home app"), onclick: () => toggleList("excludeLights", name) }))] : []));
+    homeswift.drawHidden($("#hidden-devices"), names, (name) => toggleList("excludeLights", name));
   }
 
   // The lights' finder, over the plugin's widgets: each light with its room from the bridge.
@@ -277,7 +272,9 @@
       history.replaceState(history.state, "", `${location.pathname}${next.size ? `?${next}` : ""}`);
     }
     const changed = () => { wantedRoom = room.value; keep(); draw(); };
-    search.addEventListener("input", changed);
+    // A search filters once the typing pauses, not on every key.
+    let typing = 0;
+    search.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(changed, 120); });
     room.addEventListener("change", changed);
     order.addEventListener("change", changed);
     function clear() {
@@ -509,11 +506,16 @@
     } catch (e) {
       status = { error: e.message };
     }
+    // Nothing redrawn when the bridge's answer is the same as the last one (the page polls every two seconds).
+    const shown = JSON.stringify([status, lights, groups]);
+    if (shown === lastShown) return;
+    lastShown = shown;
     drawBridge();
     drawLights();
     drawScenes();
   }
 
+  let lastShown = null;
   buildSettings();
   readBlock().then((value) => { block = value || {}; fillSettings(); drawBridge(); }).catch(() => {});
   poll(refresh, 2000);

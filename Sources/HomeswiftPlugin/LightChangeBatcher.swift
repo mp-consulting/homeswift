@@ -57,6 +57,12 @@ public actor LightChangeBatcher {
     /// When the last command went: a poll or an event right after it may still carry the old values.
     public private(set) var lastSent: ContinuousClock.Instant?
 
+    /// Whether a command went within `window`: a poll or an event right after it may still carry the old values, so a
+    /// plugin leaves those alone for that long.
+    public func isSettling(within window: Duration) -> Bool {
+        lastSent.map { ContinuousClock.now - $0 < window } ?? false
+    }
+
     public init(window: Duration = defaultWindow, send: @escaping @Sendable (Changes) async throws -> Void) {
         self.window = window
         self.send = send

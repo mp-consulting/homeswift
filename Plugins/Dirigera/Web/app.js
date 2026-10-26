@@ -86,14 +86,9 @@
     accessories = all.filter((accessory) => accessory.platform === "Dirigera" && accessory.platformName === homeswift.name && !accessory.id.startsWith("Dirigera:scenes:"));
   }
 
-  /// The devices left out of the Home app, as buttons that bring one back; drawn again only when they change.
+  /// The devices left out of the Home app, as buttons that bring one back.
   function drawHidden(names) {
-    const hidden = $("#hidden-devices");
-    const key = JSON.stringify(names);
-    if (hidden.dataset.json === key) return;
-    hidden.dataset.json = key;
-    hidden.replaceChildren(...(names.length ? [el("span", { class: "muted", text: t("Not in the Home app:") }),
-      ...names.map((name) => el("button", { actionIcon: "eye", text: name, title: t("Show in the Home app"), onclick: () => toggleList("excludeDevices", name) }))] : []));
+    homeswift.drawHidden($("#hidden-devices"), names, (name) => toggleList("excludeDevices", name));
   }
 
   let listening = false;

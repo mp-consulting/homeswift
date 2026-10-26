@@ -24,8 +24,7 @@ enum WebAssets {
   const dateTime = new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
   const fullDate = new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
   const when = (iso) => (iso ? dateTime.format(new Date(iso)) : "–");
-  const tenths = new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-  const size = (bytes) => bytes >= 1048576 ? `${tenths.format(bytes / 1048576)} MB` : bytes >= 1024 ? `${Math.round(bytes / 1024).toLocaleString(locale)} KB` : `${bytes.toLocaleString(locale)} B`;
+  const size = (bytes) => HomeswiftCommon.byteSize(bytes);
 
   /// The pages of Settings as a row of links, a glyph each, the current one lit (a phone puts the glyph over the name,
   /// the five across).
@@ -60,10 +59,7 @@ enum WebAssets {
   }
 
   /// Runs `work` with the button pressed: disabled, a spinner; errors go to `report`.
-  async function busy(button, work, report = (e) => alert(e.message)) {
-    if (button) { button.disabled = true; button.classList.add("busy"); }
-    try { return await work(); } catch (e) { report(e); } finally { if (button) { button.disabled = false; button.classList.remove("busy"); } }
-  }
+  const busy = (button, work, report) => HomeswiftCommon.busyButton(button, work, { report });
 
   const sectionHead = (title, note, ...tools) => el("div", { class: "section-head" }, el("h2", { text: title }), note ? el("span", { class: "muted", text: note }) : null, ...tools);
 
@@ -2060,11 +2056,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   /// Bytes as MB, or GB from 1 GB; `top`, the axis's highest, keeps a chart's ticks in one unit.
-  function formatBytes(bytes, top = bytes) {
-    const gigabytes = top >= 1024 ** 3;
-    const value = bytes / 1024 ** (gigabytes ? 3 : 2);
-    return `${value.toFixed(gigabytes || (value > 0 && value < 10) ? 1 : 0)} ${gigabytes ? "GB" : "MB"}`;
-  }
+  const formatBytes = (bytes, top = bytes) => HomeswiftCommon.byteSize(bytes, top);
   function formatPercent(value) { return `${value > 0 && value < 10 ? value.toFixed(1) : Math.round(value)}%`; }
   function formatMilliseconds(ms) {
     if (ms >= 1000) return `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)} s`;
@@ -4115,9 +4107,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   async function scaledImage(file) {
     if (!/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error(t("Choose a JPEG, PNG or WebP image."));
     const bitmap = await createImageBitmap(file);
-    const scale = Math.min(1, 2560 / Math.max(bitmap.width, bitmap.height));
-    const canvas = el("canvas", { width: Math.round(bitmap.width * scale), height: Math.round(bitmap.height * scale) });
-    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const canvas = HomeswiftCommon.scaledCanvas(bitmap, 2560);
+    bitmap.close?.();
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
     if (!blob) throw new Error(t("The image could not be read."));
     const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -6190,19 +6181,22 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     node.classList.add("action-with-icon");
     let url = actionIconURLs.get(name);
     if (!url) {
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icons[name] ?? icons.generic}</svg>`;
+      const attributes = Object.entries(iconAttributes(1.8, "black")).map(([key, value]) => `${key}="${value}"`).join(" ");
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" ${attributes}>${icons[name] ?? icons.generic}</svg>`;
       url = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
       actionIconURLs.set(name, url);
     }
     node.style.setProperty("--action-icon", url);
   }
 
+  /// The attributes of an icon: a line drawing (no fill) of `stroke` (the current colour by default) at `strokeWidth`.
+  const iconAttributes = (strokeWidth, stroke = "currentColor") => ({ viewBox: "0 0 24 24", fill: "none", stroke, "stroke-width": String(strokeWidth), "stroke-linecap": "round", "stroke-linejoin": "round" });
+
   /// An icon as an SVG element, drawn as the UI's icons are (lines of the current colour) by its own attributes, so
   /// one placed where no style sizes and strokes it is still a line drawing, not a filled shape; a style overrides them.
   function icon(name) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    for (const [key, value] of [["fill", "none"], ["stroke", "currentColor"], ["stroke-width", "2"], ["stroke-linecap", "round"], ["stroke-linejoin", "round"]]) svg.setAttribute(key, value);
+    for (const [key, value] of Object.entries(iconAttributes(2))) svg.setAttribute(key, value);
     svg.classList.add(`icon-${name}`);
     svg.innerHTML = icons[name] ?? icons.generic;
     return svg;
@@ -7137,7 +7131,45 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   document.addEventListener("keydown", (event) => { if (event.key === "Escape") hideFilterTip(); });
   window.addEventListener("resize", hideFilterTip);
 
+  /// Runs `work` with `button` busy: disabled, and its spinner shown after `delay` ms, so a quick action shows none. An
+  /// error goes to `report` (the default alerts it); `report` null rethrows it.
+  async function busyButton(button, work, { report = (e) => alert(e.message), delay = 0 } = {}) {
+    if (button) button.disabled = true;
+    const spin = button ? setTimeout(() => button.classList.add("busy"), delay) : null;
+    try {
+      return await work();
+    } catch (e) {
+      if (report === null) throw e;
+      report(e);
+    } finally {
+      clearTimeout(spin);
+      if (button) { button.classList.remove("busy"); button.disabled = false; }
+    }
+  }
+
+  /// A picture drawn on a canvas, its longer side at most `max` pixels: the canvas to encode.
+  function scaledCanvas(bitmap, max) {
+    const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  }
+
+  /// A byte count as every page shows sizes: whole KB under a megabyte, one decimal MB or GB. `scale` picks the unit
+  /// (the largest value a list shows, so its rows agree); it defaults to the count itself.
+  function byteSize(bytes, scale = bytes) {
+    const decimal = new Intl.NumberFormat(HomeswiftI18n.locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    const whole = new Intl.NumberFormat(HomeswiftI18n.locale, { maximumFractionDigits: 0 });
+    if (scale >= 1024 ** 3) return `${decimal.format(bytes / 1024 ** 3)} GB`;
+    if (scale >= 1024 ** 2) return `${decimal.format(bytes / 1024 ** 2)} MB`;
+    if (scale >= 1024) return `${whole.format(Math.round(bytes / 1024))} KB`;
+    return `${whole.format(bytes)} B`;
+  }
+
   window.HomeswiftCommon = {
+    busyButton, scaledCanvas, byteSize,
     $, el, icon, tile, clearFilters, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
@@ -10493,7 +10525,8 @@ HomeswiftI18n.add("es", {
   "Processors": "Procesadores",
   "Categories": "Categorías",
   "Yes": "Sí",
-  "No": "No"
+  "No": "No",
+  "Not in the Home app:": "No están en la app Casa:"
 });
 
 """#),
@@ -12593,7 +12626,8 @@ HomeswiftI18n.add("fr", {
   "Processors": "Processeurs",
   "Categories": "Catégories",
   "Yes": "Oui",
-  "No": "Non"
+  "No": "Non",
+  "Not in the Home app:": "Absents de l'app Maison :"
 });
 
 """#),
@@ -14693,7 +14727,8 @@ HomeswiftI18n.add("pt", {
   "Processors": "Processadores",
   "Categories": "Categorias",
   "Yes": "Sim",
-  "No": "Não"
+  "No": "Não",
+  "Not in the Home app:": "Fora da app Casa:"
 });
 
 """#),
@@ -15106,7 +15141,6 @@ HomeswiftI18n.add("pt", {
     pick.status = "checking";
     pick.result = null;
     pick.failure = null;
-    if (pick.text !== undefined && new Blob([pick.text]).size > MAX_BYTES) { fail(pick, t("The config is over 1 MB, the largest config homeswift reads.")); return; }
     renderIfShown(pick);
     app().api("/api/import/check", { method: "POST", body: requestBody(pick) }).then((report) => {
       if (picks[pick.source] !== pick) return;
@@ -15206,10 +15240,11 @@ HomeswiftI18n.add("pt", {
     return error.status ? t("homeswift answered with an error ({status}).", { status: error.status }) : t("homeswift could not be reached.");
   }
 
-  const sizeText = (bytes) => (bytes == null ? "" : t("{kilobytes} KB", { kilobytes: Math.max(1, Math.round(bytes / 1024)) }));
+  const sizeText = (bytes) => (bytes == null ? "" : HomeswiftCommon.byteSize(bytes));
+  const importDate = new Intl.DateTimeFormat(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" });
   const dateText = (iso) => {
     const date = iso ? new Date(iso) : null;
-    return date && !isNaN(date) ? new Intl.DateTimeFormat(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" }).format(date) : "";
+    return date && !isNaN(date) ? importDate.format(date) : "";
   };
 
   // ---- Step 2: review ----------------------------------------------------------
@@ -15875,20 +15910,7 @@ HomeswiftI18n.add("pt", {
 
   /// Runs `work` with the button disabled and, when it takes a moment, a spinner on it; answers what `work`
   /// answers. Errors go to `report`; with `report` null they are thrown to the caller once the button is back.
-  async function act(button, work, report = alert) {
-    button.disabled = true;
-    const spin = setTimeout(() => button.classList.add("busy"), 150);
-    try {
-      return await work();
-    } catch (e) {
-      if (report === null) throw e;
-      report(e.message);
-    } finally {
-      clearTimeout(spin);
-      button.classList.remove("busy");
-      button.disabled = false;
-    }
-  }
+  const act = (button, work, report = alert) => HomeswiftCommon.busyButton(button, work, { delay: 150, report: report === null ? null : (e) => report(e.message) });
 
   /// Adds `name` to the block's list `key` (an exclude list such as `excludeScenes`), or takes it out when it is
   /// there (in any case), and writes the block at once; an empty list leaves the block. Answers the block as
@@ -16027,11 +16049,7 @@ HomeswiftI18n.add("pt", {
     async function shrink(file) {
       if (!/^image\//.test(file.type)) throw new Error(t("This file is not a picture."));
       const bitmap = await createImageBitmap(file).catch(() => { throw new Error(t("This file is not a picture.")); });
-      const scale = Math.min(1, 640 / Math.max(bitmap.width, bitmap.height));
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-      canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const canvas = HomeswiftCommon.scaledCanvas(bitmap, 640);
       bitmap.close?.();
       return canvas.toDataURL("image/jpeg", 0.85);
     }
@@ -16250,9 +16268,19 @@ HomeswiftI18n.add("pt", {
     };
   }
 
+  /// The names a block's list leaves out of the Home app, as buttons that bring one back (`onShow(name)`); drawn again
+  /// only when they change.
+  function drawHidden(container, names, onShow) {
+    const key = JSON.stringify(names);
+    if (container.dataset.json === key) return;
+    container.dataset.json = key;
+    container.replaceChildren(...(names.length ? [el("span", { class: "muted", text: t("Not in the Home app:") }),
+      ...names.map((name) => el("button", { actionIcon: "eye", text: name, title: t("Show in the Home app"), onclick: () => onShow(name) }))] : []));
+  }
+
   window.homeswift = {
     platform, name, request, home: "/plugins", $, el, icon, tile, fact, assistant, explain, ask, breadcrumb, api, act, formatTemperature, temperature,
-    readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, toggleList, poll, renderKeyed,
+    readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, toggleList, drawHidden, poll, renderKeyed,
     canonicalMAC, isMAC, sameMAC, tabs, textStyle, speedScale, scenePictures, bridgePairing,
   };
 })();

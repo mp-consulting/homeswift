@@ -15,8 +15,7 @@
   const dateTime = new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
   const fullDate = new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
   const when = (iso) => (iso ? dateTime.format(new Date(iso)) : "–");
-  const tenths = new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-  const size = (bytes) => bytes >= 1048576 ? `${tenths.format(bytes / 1048576)} MB` : bytes >= 1024 ? `${Math.round(bytes / 1024).toLocaleString(locale)} KB` : `${bytes.toLocaleString(locale)} B`;
+  const size = (bytes) => HomeswiftCommon.byteSize(bytes);
 
   /// The pages of Settings as a row of links, a glyph each, the current one lit (a phone puts the glyph over the name,
   /// the five across).
@@ -51,10 +50,7 @@
   }
 
   /// Runs `work` with the button pressed: disabled, a spinner; errors go to `report`.
-  async function busy(button, work, report = (e) => alert(e.message)) {
-    if (button) { button.disabled = true; button.classList.add("busy"); }
-    try { return await work(); } catch (e) { report(e); } finally { if (button) { button.disabled = false; button.classList.remove("busy"); } }
-  }
+  const busy = (button, work, report) => HomeswiftCommon.busyButton(button, work, { report });
 
   const sectionHead = (title, note, ...tools) => el("div", { class: "section-head" }, el("h2", { text: title }), note ? el("span", { class: "muted", text: note }) : null, ...tools);
 

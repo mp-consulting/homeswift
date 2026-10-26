@@ -312,20 +312,7 @@
 
   /// Runs `work` with the button disabled and, when it takes a moment, a spinner on it; answers what `work`
   /// answers. Errors go to `report`; with `report` null they are thrown to the caller once the button is back.
-  async function act(button, work, report = alert) {
-    button.disabled = true;
-    const spin = setTimeout(() => button.classList.add("busy"), 150);
-    try {
-      return await work();
-    } catch (e) {
-      if (report === null) throw e;
-      report(e.message);
-    } finally {
-      clearTimeout(spin);
-      button.classList.remove("busy");
-      button.disabled = false;
-    }
-  }
+  const act = (button, work, report = alert) => HomeswiftCommon.busyButton(button, work, { delay: 150, report: report === null ? null : (e) => report(e.message) });
 
   /// Adds `name` to the block's list `key` (an exclude list such as `excludeScenes`), or takes it out when it is
   /// there (in any case), and writes the block at once; an empty list leaves the block. Answers the block as
@@ -464,11 +451,7 @@
     async function shrink(file) {
       if (!/^image\//.test(file.type)) throw new Error(t("This file is not a picture."));
       const bitmap = await createImageBitmap(file).catch(() => { throw new Error(t("This file is not a picture.")); });
-      const scale = Math.min(1, 640 / Math.max(bitmap.width, bitmap.height));
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-      canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const canvas = HomeswiftCommon.scaledCanvas(bitmap, 640);
       bitmap.close?.();
       return canvas.toDataURL("image/jpeg", 0.85);
     }
@@ -687,9 +670,19 @@
     };
   }
 
+  /// The names a block's list leaves out of the Home app, as buttons that bring one back (`onShow(name)`); drawn again
+  /// only when they change.
+  function drawHidden(container, names, onShow) {
+    const key = JSON.stringify(names);
+    if (container.dataset.json === key) return;
+    container.dataset.json = key;
+    container.replaceChildren(...(names.length ? [el("span", { class: "muted", text: t("Not in the Home app:") }),
+      ...names.map((name) => el("button", { actionIcon: "eye", text: name, title: t("Show in the Home app"), onclick: () => onShow(name) }))] : []));
+  }
+
   window.homeswift = {
     platform, name, request, home: "/plugins", $, el, icon, tile, fact, assistant, explain, ask, breadcrumb, api, act, formatTemperature, temperature,
-    readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, toggleList, poll, renderKeyed,
+    readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, toggleList, drawHidden, poll, renderKeyed,
     canonicalMAC, isMAC, sameMAC, tabs, textStyle, speedScale, scenePictures, bridgePairing,
   };
 })();

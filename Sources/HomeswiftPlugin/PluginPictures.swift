@@ -12,7 +12,7 @@ import Homeswift
 /// // In `handleWebRequest`, before the plugin's own routes: `GET`/`POST scene-picture`, `POST scene-picture-remove`.
 /// if let response = pictures.handle(request) { return response }
 /// ```
-public final class PluginPictures: Sendable {
+public final class PluginPictures: @unchecked Sendable {
     public enum Failure: Error, CustomStringConvertible, Equatable {
         case notAnImage
         case tooLarge(limit: Int)
@@ -31,10 +31,27 @@ public final class PluginPictures: Sendable {
     public static let maximumSize = 1024 * 1024
 
     public let directory: URL
+    /// The versions as last listed: kept until a picture is saved or removed, so a page's poll does not list the folder.
+    private let lock = NSLock()
+    private var listing: [String: String]?
+    nonisolated(unsafe) private static var stores: [String: PluginPictures] = [:]
 
     public init(directory: URL) {
         self.directory = directory
     }
+
+    /// The one store of a directory, so its listing is kept between requests.
+    static func shared(_ directory: URL) -> PluginPictures {
+        let key = directory.standardizedFileURL.path
+        return registry.withLock {
+            if let store = stores[key] { return store }
+            let store = PluginPictures(directory: directory)
+            stores[key] = store
+            return store
+        }
+    }
+
+    private static let registry = NSLock()
 
     /// Keeps a picture from a `data:image/…;base64,…` URL under `key`, replacing the one it had; answers its version.
     @discardableResult
@@ -49,6 +66,7 @@ public final class PluginPictures: Sendable {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try OwnerOnlyFile.write(data, to: file(name, kind.ext))
         for other in Self.kinds where other.ext != kind.ext { try? FileManager.default.removeItem(at: file(name, other.ext)) }
+        forgetListing()
         return version(of: name) ?? "1"
     }
 
@@ -64,11 +82,23 @@ public final class PluginPictures: Sendable {
     public func remove(key: String) {
         guard let name = Self.fileName(key) else { return }
         for kind in Self.kinds { try? FileManager.default.removeItem(at: file(name, kind.ext)) }
+        forgetListing()
+    }
+
+    private func forgetListing() {
+        lock.withLock { listing = nil }
     }
 
     /// Every key with a picture, and its version: a short token that changes when the picture does (its file's
     /// modification time). One listing of the directory, its dates included.
     public func versions() -> [String: String] {
+        if let known = lock.withLock({ listing }) { return known }
+        let read = listDirectory()
+        lock.withLock { listing = read }
+        return read
+    }
+
+    private func listDirectory() -> [String: String] {
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
         var result: [String: String] = [:]
         for url in files where Self.kinds.contains(where: { $0.ext == url.pathExtension }) {
@@ -138,6 +168,6 @@ public final class PluginPictures: Sendable {
 extension PluginContext {
     /// A picture store in a directory of the plugin's storage, by name: see `PluginPictures`.
     public func pictures(_ name: String) -> PluginPictures {
-        PluginPictures(directory: storageDirectory.appendingPathComponent(name, isDirectory: true))
+        PluginPictures.shared(storageDirectory.appendingPathComponent(name, isDirectory: true))
     }
 }
