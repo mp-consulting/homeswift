@@ -6,10 +6,24 @@
 h2 { margin: 0 0 10px; }
 .intro { margin: 0 0 14px; font-size: 0.875rem; }
 
-/* Scenes: a section per room, a tile per scene; a smart scene says so under its name. */
+/* Finding a scene: the search, room, order and filters (style.css's filter bar), the count at the end. */
+.scene-toolbar { margin: 0 0 16px; }
+.scene-toolbar .search { width: clamp(160px, 22vw, 280px); }
+.scene-toolbar .popup { max-width: 200px; }
+.scene-toolbar .count { margin-left: auto; font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
+
+/* Scenes: a section per room, a tile per scene; a smart scene says so under its name. A room's name folds it away. */
 .room { margin-bottom: 22px; }
 .room-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; }
 .room-head h2 { margin: 0; font-size: 1.0625rem; }
+.room-fold { display: inline-flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 6px 4px 0; border: 0; background: none; box-shadow: none; color: var(--text); font: inherit; }
+.room-fold:active:not(:disabled) { transform: none; opacity: 0.7; }
+.room-fold .chevron { width: 8px; height: 8px; flex: none; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); rotate: 45deg; translate: 0 -2px; transition: rotate var(--fast) var(--ease-out); }
+.room.folded .room-fold .chevron { rotate: -45deg; translate: 0 0; }
+.room-fold .room-count { font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
+.room.folded { margin-bottom: 6px; }
+.room.folded .scene-tiles { display: none; }
+@media (prefers-reduced-motion: reduce) { .room-fold .chevron { transition: none; } }
 .scene .kind { position: relative; z-index: 1; font-size: 0.75rem; opacity: 0.85; }
 
 /* An active scene's play button, at the tile's centre; lit while the scene plays. */

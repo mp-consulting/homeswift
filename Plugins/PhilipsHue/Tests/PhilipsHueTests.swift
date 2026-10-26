@@ -360,6 +360,17 @@ struct PhilipsHueTests {
         await host.stop()
     }
 
+    /// Whites set as xy (Hue's standard scenes on colour lights) are whites; reds and oranges below 1,600 K, and colours
+    /// off the line of whites, are not.
+    @Test func whitesAreToldFromColours() {
+        let whites = [(0.4575, 0.4099), (0.5019, 0.4152), (0.3690, 0.3719), (0.3143, 0.3301), (0.561, 0.4042), (0.5268, 0.4133)]
+        let colours = [(0.6, 0.35), (0.69, 0.31), (0.52, 0.44), (0.42, 0.27), (0.38, 0.31), (0.30, 0.25), (0.20, 0.35), (0.25, 0.27)]
+        for (x, y) in whites { #expect(HueColor.isWhite(HueXY(x: x, y: y)), "(\(x), \(y)) is a white") }
+        for (x, y) in colours { #expect(!HueColor.isWhite(HueXY(x: x, y: y)), "(\(x), \(y)) is a colour") }
+        let bright = HueSnapshot.scene(["metadata": ["name": "Bright"], "actions": [["action": ["color": ["xy": ["x": 0.4575, "y": 0.4099]]]]]], id: "s", group: "g")
+        #expect(!bright.colourful)
+    }
+
     /// A scene the bridge plays (`dynamic_palette`) is active and playing; a still one only active.
     @Test func aPlayingSceneSaysSo() {
         let playing = HueSnapshot.scene(["metadata": ["name": "Tropical twilight"], "status": ["active": "dynamic_palette"]], id: "s", group: "g")
@@ -439,8 +450,11 @@ struct PhilipsHueTests {
         let sunset = try #require(room["scenes"]?.arrayValue?.first { $0["id"] == "scene-1" })
         #expect(sunset["autoplay"] == false)
         #expect(sunset["palette"] == true)
-        // Concentrate sets a white per light, no palette: it cannot play.
-        #expect(room["scenes"]?.arrayValue?.first { $0["id"] == "scene-2" }?["palette"] == false)
+        #expect(sunset["colourful"] == true)
+        // Concentrate sets a white per light, no palette: it cannot play, and has no colours.
+        let concentrate = room["scenes"]?.arrayValue?.first { $0["id"] == "scene-2" }
+        #expect(concentrate?["palette"] == false)
+        #expect(concentrate?["colourful"] == false)
         _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "autoplay", body: ["id": "scene-1", "on": true], user: "admin"))
         #expect(environment.bridge.puts.last == .init(method: "PUT", path: "/clip/v2/resource/scene/scene-1", body: ["auto_dynamic": true]))
         let smart = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "autoplay", body: ["id": "smart-1", "on": true], user: "admin"))

@@ -62,6 +62,8 @@ struct HueScene: Sendable, Equatable {
     var autoplay = false
     /// Has a palette, so its colours can move: a scene made of fixed colours per light cannot play.
     var hasPalette = false
+    /// Has a colour that is not a white (Hue's standard scenes set whites as xy on colour lights).
+    var colourful = false
     /// The scene's colours, for its tile on the page: its palette, else the colours it sets.
     var colours: [HueXY] = []
     /// Its colour temperatures in mirek, when it sets whites.
@@ -193,6 +195,7 @@ struct HueSnapshot: Sendable, Equatable {
                 if let mirek = action["action"]?["color_temperature"]?["mirek"]?.intValue { scene.whites.append(mirek) }
             }
         }
+        scene.colourful = scene.colours.contains { !HueColor.isWhite($0) }
         return scene
     }
 }

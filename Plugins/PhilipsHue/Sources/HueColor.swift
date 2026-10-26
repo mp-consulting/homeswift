@@ -99,6 +99,26 @@ enum HueColor {
         value <= 0.0031308 ? 12.92 * value : 1.055 * pow(value, 1 / 2.4) - 0.055
     }
 
+    // MARK: Whites
+
+    /// Whether a colour reads as a white: within 0.006 of the line of whites (the Planckian locus in CIE 1960 uv, by
+    /// Krystek's approximation, 1,000 to 15,000 K) at 1,600 K or more. Hue's own whites (Nightlight's 1,700 K to
+    /// Energize's 6,400 K) are; the reds and oranges near the locus below 1,600 K, and anything off it, are colours.
+    static func isWhite(_ point: HueXY) -> Bool {
+        let d = -2 * point.x + 12 * point.y + 3
+        guard d > 0 else { return false }
+        let u = 4 * point.x / d, v = 6 * point.y / d
+        var nearest = (distance: Double.infinity, kelvin: 0.0)
+        for kelvin in stride(from: 1000.0, through: 15000, by: 50) {
+            let t2 = kelvin * kelvin
+            let lu = (0.860117757 + 1.54118254e-4 * kelvin + 1.28641212e-7 * t2) / (1 + 8.42420235e-4 * kelvin + 7.08145163e-7 * t2)
+            let lv = (0.317398726 + 4.22806245e-5 * kelvin + 4.20481691e-8 * t2) / (1 - 2.89741816e-5 * kelvin + 1.61456053e-7 * t2)
+            let distance = ((u - lu) * (u - lu) + (v - lv) * (v - lv)).squareRoot()
+            if distance < nearest.distance { nearest = (distance, kelvin) }
+        }
+        return nearest.distance < 0.006 && nearest.kelvin >= 1600
+    }
+
     // MARK: The gamut
 
     /// The point itself when the light can show it, else the closest point on the triangle's edges.
