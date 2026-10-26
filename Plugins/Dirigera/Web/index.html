@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IKEA DIRIGERA</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header><a class="brand" href="/" aria-label="Homeswift" title="Homeswift"><img src="/icon.svg" class="logo" alt=""></a></header>
+<main>
+  <div class="page-head">
+    <span class="tile large tone-blue" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></svg></span>
+    <div class="who">
+      <h1>IKEA DIRIGERA</h1>
+      <p class="muted" data-i18n>Your DIRIGERA hubs, their lights and outlets room by room, and their scenes, straight from the hub on your network.</p>
+    </div>
+  </div>
+
+  <div id="hubs" class="card bridge-card"></div>
+
+  <div class="group tabs main-tabs" role="tablist">
+    <button role="tab" data-tab="devices" class="on" aria-selected="true" aria-controls="tab-devices" data-i18n>Devices</button>
+    <button role="tab" data-tab="scenes" aria-selected="false" aria-controls="tab-scenes" data-i18n>Scenes</button>
+    <button role="tab" data-tab="settings" aria-selected="false" aria-controls="tab-settings" data-i18n data-action-icon="sliders">Settings</button>
+  </div>
+
+  <section id="tab-devices" class="tab-pane" role="tabpanel">
+    <div class="accessory-walls"><div class="wall" id="devices"></div></div>
+    <div id="hidden-devices" class="hidden-devices"></div>
+  </section>
+
+  <section id="tab-scenes" class="tab-pane hidden" role="tabpanel">
+    <p class="muted intro" data-i18n>Tap a scene to run it. In the Home app each scene is a switch: on runs it, off within 30 seconds undoes it. The eye leaves one out.</p>
+    <div id="scenes" class="scene-grid"></div>
+  </section>
+
+  <section id="tab-settings" class="tab-pane hidden" role="tabpanel">
+    <div class="card">
+      <h2 data-i18n>Speed</h2>
+      <div id="speed"></div>
+    </div>
+    <div class="card">
+      <h2 data-i18n>In the Home app</h2>
+      <div id="options"></div>
+    </div>
+    <div class="card save-card">
+      <div class="save-bar"><span id="save-state" class="muted" data-i18n>Changes are kept once you save.</span><button id="save" class="primary" data-i18n data-action-icon="check">Save Configuration</button></div>
+    </div>
+  </section>
+</main>
+<script src="/common.js"></script>
+<script src="/remote.js"></script>
+<script src="/camera.js"></script>
+<script src="/widgets.js"></script>
+<script src="/plugin.js"></script>
+<script src="i18n.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
