@@ -35,6 +35,13 @@ private final class Counts: @unchecked Sendable {
             try? await Task.sleep(for: .milliseconds(10))
             precondition(race.snapshot[0] == 1, "Deadline and completion must never replace twice")
         }
-        print("Restart tests passed: normal shutdown, stalled shutdown, late completion and 25 deadline races")
+        // A socket the bridge holds (a kept-alive connection) must not reach the process the exec starts.
+        let socket = Foundation.socket(AF_INET, SOCK_STREAM, 0)
+        precondition(socket > 2 && fcntl(socket, F_GETFD) & FD_CLOEXEC == 0, "A new socket starts without close-on-exec")
+        Restart.closeOnExec()
+        precondition(fcntl(socket, F_GETFD) & FD_CLOEXEC != 0, "Every descriptor above stderr must be close-on-exec")
+        precondition(fcntl(2, F_GETFD) & FD_CLOEXEC == 0, "stderr must survive the exec")
+        close(socket)
+        print("Restart tests passed: normal shutdown, stalled shutdown, late completion, 25 deadline races and close-on-exec")
     }
 }

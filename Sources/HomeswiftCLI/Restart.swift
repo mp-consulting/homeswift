@@ -36,11 +36,24 @@ enum Restart {
         let path = Bundle.main.executablePath ?? CommandLine.arguments[0]
         var arguments: [UnsafeMutablePointer<CChar>?] = CommandLine.arguments.map { strdup($0) }
         arguments.append(nil)
+        closeOnExec()
         execv(path, arguments)
         // Only on failure: a service manager with keep-alive brings the bridge back.
         FileHandle.standardError.write(Data("homeswift: restart failed (\(String(cString: strerror(errno)))); exiting for the service manager to start it again\n".utf8))
         // A failure status: a unit with Restart=on-failure (or launchd's SuccessfulExit = false) starts it again too.
         exit(1)
+    }
+
+    /// Marks every descriptor above stderr close-on-exec, so the fresh copy starts with none of this one's sockets.
+    /// Without it the web UI's kept-alive connections survived the exec, open but read by nobody: a browser sending
+    /// its next request on one waited for its timeout, and the page took half a minute to come back.
+    static func closeOnExec() {
+        let open = (try? FileManager.default.contentsOfDirectory(atPath: "/dev/fd"))?.compactMap { Int32($0) }
+            ?? Array(3..<Int32(min(sysconf(Int32(_SC_OPEN_MAX)), 65536)))
+        for descriptor in open where descriptor > 2 {
+            let flags = fcntl(descriptor, F_GETFD)
+            if flags >= 0 { _ = fcntl(descriptor, F_SETFD, flags | FD_CLOEXEC) }
+        }
     }
 }
 
