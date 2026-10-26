@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Philips Hue** plugin (`PhilipsHue`): lights, scenes and effects through a Hue Bridge's local API v2, no cloud.
+  Each light with brightness, colour and white, a switch per effect (candle, fireplace, prism…), each room's and
+  zone's scenes as switches (smart scenes too), optional Flash switches and gradient points. A light's changes go in
+  one command with a chosen transition (`transitionMs`, 0 for instant flashes). Pairing with the link button from
+  the plugin's page, which shows the lights as the Accessories page's widgets and the scenes as palette tiles.
 - Govee: **Scenes over LAN** (`lanScenes`, per light, off by default) sends scenes, DIY effects and music mode
   straight to the light as `ptReal`, faster and without the cloud. The light does not confirm LAN commands, so one
   that ignores them gets no cloud or Bluetooth fallback.
