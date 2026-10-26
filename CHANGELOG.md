@@ -13,6 +13,8 @@ All notable changes to this project are documented here. The format follows
   zone's scenes as switches (smart scenes too), optional Flash switches and gradient points. A light's changes go in
   one command with a chosen transition (`transitionMs`, 0 for instant flashes). Pairing with the link button from
   the plugin's page, which shows the lights as the Accessories page's widgets and the scenes as palette tiles.
+- Philips Hue: **room lights** (`roomLights`, off by default), a lightbulb per room and zone driving its
+  `grouped_light`: on, off and brightness for all its lights in one command, as the Hue app's room controls.
 - **IKEA DIRIGERA** plugin (`Dirigera`, homebridge-dirigera's block): lights, outlets, PARASOLL door and window
   sensors with their battery, and scenes (On triggers, Off within 30 seconds undoes), followed through the hub's
   websocket. Pairing with the hub's action button (OAuth with PKCE) from the plugin's page.

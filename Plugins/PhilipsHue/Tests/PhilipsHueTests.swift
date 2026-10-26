@@ -90,7 +90,10 @@ final class FakeBridge: HTTPSending, @unchecked Sendable {
         ["id": "zc-2", "type": "zigbee_connectivity", "owner": ["rid": "dev-2", "rtype": "device"], "status": "connected"],
         ["id": "room-1", "type": "room", "metadata": ["name": "Living room"], "children": [["rid": "dev-1", "rtype": "device"]],
          "services": [["rid": "group-1", "rtype": "grouped_light"]]],
-        ["id": "group-1", "type": "grouped_light", "on": ["on": true]],
+        ["id": "group-1", "type": "grouped_light", "on": ["on": true], "dimming": ["brightness": 60.0]],
+        ["id": "zone-1", "type": "zone", "metadata": ["name": "Upstairs"], "children": [["rid": "light-2", "rtype": "light"]],
+         "services": [["rid": "group-2", "rtype": "grouped_light"]]],
+        ["id": "group-2", "type": "grouped_light", "on": ["on": false], "dimming": ["brightness": 0.0]],
         ["id": "scene-1", "type": "scene", "metadata": ["name": "Savanna sunset"], "group": ["rid": "room-1", "rtype": "room"],
          "palette": ["color": [["color": ["xy": ["x": 0.6, "y": 0.35]], "dimming": ["brightness": 80]]]], "status": ["active": "static"]],
         ["id": "scene-2", "type": "scene", "metadata": ["name": "Concentrate"], "group": ["rid": "room-1", "rtype": "room"],
@@ -223,6 +226,39 @@ struct PhilipsHueTests {
         #expect(scenes.service(.switch, subtype: "scene:scene-1")?[.on]?.value == .bool(true))
         #expect(scenes.service(.switch, subtype: "scene:scene-2")?[.on]?.value == .bool(false))
         #expect(scenes.service(.switch, subtype: "scene:smart-1") != nil)
+        // Without roomLights, no room lightbulb, and a zone without scenes has no accessory.
+        #expect(scenes.service(.lightbulb) == nil)
+        #expect(!host.mainBridge.server.accessories.contains { $0.id == PhilipsHuePlugin.sceneAccessoryID(groupID: "zone-1") })
+        await host.stop()
+    }
+
+    /// With roomLights, a room's accessory leads with a lightbulb for its lights together: on and brightness go in one
+    /// command to its grouped_light, as the Hue app's room controls; a zone without scenes gets an accessory for it.
+    @Test func roomLightsDriveARoomAtOnce() async throws {
+        let host = try await environment.start(settings: ["host": "192.0.2.10", "roomLights": true])
+        let room = try await accessory(host, scenesID)
+        #expect(room.information.characteristic(.name).value == .string("Living room"))
+        let bulb = try #require(room.service(.lightbulb, subtype: "room"))
+        #expect(bulb.isPrimary)
+        #expect(room.service(.switch, subtype: "scene:scene-1")?.isPrimary == false)
+        #expect(bulb[.on]?.value == .bool(true))
+        #expect(bulb[.brightness]?.value == .int(60))
+        let zone = try await accessory(host, PhilipsHuePlugin.sceneAccessoryID(groupID: "zone-1"))
+        #expect(zone.services.filter { $0.type == .switch }.isEmpty)
+        #expect(zone.service(.lightbulb, subtype: "room")?[.on]?.value == .bool(false))
+
+        async let on: Void = bulb[.on]!.write(.bool(true))
+        async let level: Void = bulb[.brightness]!.write(.int(40))
+        _ = try await (on, level)
+        #expect(environment.bridge.puts.filter { $0.path.hasSuffix("/grouped_light/group-1") }
+            == [.init(method: "PUT", path: "/clip/v2/resource/grouped_light/group-1", body: ["on": ["on": true], "dimming": ["brightness": 40], "dynamics": ["duration": 100]])])
+        try await bulb[.on]!.write(.bool(false))
+        #expect(environment.bridge.puts.last == .init(method: "PUT", path: "/clip/v2/resource/grouped_light/group-1", body: ["on": ["on": false]]))
+
+        // The bridge's own changes reach it, once a command has settled.
+        environment.bridge.change("group-2") { $0["on"] = ["on": true]; $0["dimming"] = ["brightness": 25.0] }
+        await environment.plugin?.refresh()
+        #expect(zone.service(.lightbulb, subtype: "room")?[.brightness]?.value == .int(25))
         await host.stop()
     }
 
