@@ -82,7 +82,6 @@
     chart: '<path d="M4 4v16h16"/><path d="m7 15 4-5 3 3 5-6"/>',
     archive: '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/>',
     key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l2 2M15 8l2 2"/>',
-    link: '<path d="M9.5 14.5l5-5M8 11l-2 2a3.5 3.5 0 0 0 5 5l2-2M16 13l2-2a3.5 3.5 0 0 0-5-5l-2 2"/>',
     shield: '<path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/><path d="m9 12 2 2 4-4"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     close: '<path d="m6 6 12 12M18 6 6 18"/>',
@@ -93,7 +92,6 @@
     check: '<path d="m5 12 4.5 4.5L19 7"/>',
     warning: '<path d="m12 3 10 18H2zM12 9v5M12 17h.01"/>',
     download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
-    image: '<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="m21 15.5-4.5-4.5L7 19.5"/>',
     restore: '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/>',
     history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6M3.5 4.5V9H8"/><path d="M12 7.5V12l3 2"/>',
     sliders: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
@@ -102,21 +100,13 @@
     down: '<path d="M6 9l6 6 6-6"/>',
   };
 
-  /// A button's icon before its text (`actionIcon`, `data-action-icon`): the icon as an SVG data: URL in
-  /// `--action-icon`, which the stylesheet uses as a mask. Each icon's URL is made once.
-  const actionIconURLs = new Map();
+  /// An icon as an SVG element.
   function decorateAction(node, name) {
     node.classList.add("action-with-icon");
-    let url = actionIconURLs.get(name);
-    if (!url) {
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icons[name] ?? icons.generic}</svg>`;
-      url = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
-      actionIconURLs.set(name, url);
-    }
-    node.style.setProperty("--action-icon", url);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icons[name] ?? icons.generic}</svg>`;
+    node.style.setProperty("--action-icon", `url("data:image/svg+xml,${encodeURIComponent(svg)}")`);
   }
 
-  /// An icon as an SVG element.
   function icon(name) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 24 24");
@@ -873,9 +863,7 @@
   /// Applies the user's choices to this page (and remembers them in this browser): `data-theme` and
   /// `data-wallpaper` on the root element, which the stylesheet reads, and the unit temperatures show in.
   function applyPreferences(next) {
-    // The bridge answers all of the user's choices: they replace the page's, so a key it dropped (the version of
-    // a removed wallpaper) goes too.
-    if (next) preferences = { ...next };
+    if (next) preferences = { ...preferences, ...next };
     const root = document.documentElement;
     if (preferences.theme === "light" || preferences.theme === "dark") root.dataset.theme = preferences.theme; else delete root.dataset.theme;
     if (preferences.wallpaper && preferences.wallpaper !== "none") root.dataset.wallpaper = preferences.wallpaper; else delete root.dataset.wallpaper;

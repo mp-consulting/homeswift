@@ -7,3 +7,5 @@ DerivedData/
 # Claude Code agent worktrees
 .claude/worktrees/
 .claude/launch.json
+
+tmp/
