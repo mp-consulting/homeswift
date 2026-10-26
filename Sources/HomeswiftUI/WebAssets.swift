@@ -14261,7 +14261,8 @@ HomeswiftI18n.add("pt", {
     picks = {};
     tab = window.isSecureContext === true ? "upload" : "server";
     folder = { path: "", entries: null, error: false, loading: false };
-    stage = el("section", { class: "card import-card" });
+    // Named for screen readers: the wizard is a region of the page, and its steps are announced inside it.
+    stage = el("section", { class: "card import-card", "aria-label": t("Import a Homebridge config") });
     app().show(main,
       app().breadcrumb([t("Plugins"), "/plugins"], [t("Import a Homebridge config")]),
       app().pageHead(t("Import a Homebridge config"), t("Bring the platforms of an existing Homebridge into homeswift. You review every item before anything is saved.")),
