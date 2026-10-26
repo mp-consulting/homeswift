@@ -127,6 +127,13 @@ struct HueSnapshot: Sendable, Equatable {
             default: break
             }
         }
+        // The bridge keeps a scene's status after its room is switched off (a dimmer, the Hue app, the Home app):
+        // a scene is on, and plays, only while its room or zone is on.
+        let roomsOn = Dictionary(groups.map { ($0.id, $0.on) }, uniquingKeysWith: { first, _ in first })
+        for index in scenes.indices where roomsOn[scenes[index].groupID] == false {
+            scenes[index].active = false
+            scenes[index].playing = false
+        }
         lights.sort { ($0.name, $0.id) < ($1.name, $1.id) }
         groups.sort { ($0.kind, $0.name) < ($1.kind, $1.name) }
         scenes.sort { ($0.name, $0.id) < ($1.name, $1.id) }
