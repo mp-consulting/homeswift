@@ -1192,7 +1192,6 @@ HomeswiftI18n.add("fr", {
   "Open · {position} %": "Ouvert · {position} %",
   "Open [action]": "Ouvrir",
   "open [chat]": "ouverte",
-  "Open Config": "Ouvrir Config",
   "Open in the app": "Ouvrir dans l'app",
   "Open its page": "Ouvrir sa page",
   "Open its settings": "Ouvrir ses réglages",

@@ -1862,7 +1862,8 @@
         el("div", { class: "assistant-setup-note" },
           el("strong", { text: t("Choose how it runs") }),
           el("p", { text: t("Use Anthropic with an API key, or Apple Intelligence on a supported Mac with Apple Intelligence enabled.") })),
-        el("a", { class: "button primary", href: "/config", text: t("Open Config") }),
+        // Straight to the form that adds the Assistant's block, its provider and key in their fields.
+        el("a", { class: "button primary", actionIcon: "sparkle", href: "/plugins/add/HomeswiftAiKit", text: t("Set up") }),
         el("details", { class: "assistant-setup-example" },
           el("summary", { text: t("Configuration example") }),
           el("p", { class: "muted", text: t("Add this block to platforms in config.json and replace the API key. For Apple Intelligence, set provider to apple and omit apiKey.") }),
@@ -2078,8 +2079,11 @@
   /// An English plural title's singular, for a list's Add button: proxies → proxy, addresses → address, hosts → host (status stays).
   const singular = (text) => text.replace(/ies$/, "y").replace(/(ss|x|ch|sh)es$/, "$1").replace(/([^su])s$/, "$1");
 
-  /// A form from a Homebridge-style config.schema.json; key order follows the schema (and its layout).
+  /// A form from a Homebridge-style config.schema.json; key order follows the schema (and its layout). Its words come
+  /// from the schema's own `i18n` (`{ "fr": { "English": "Français" }, … }`), English where it has none.
   function buildForm(root, value) {
+    const words = (root.i18n && root.i18n[HomeswiftI18n.language]) || {};
+    const tr = (text) => (typeof text === "string" && text && words[text]) || text;
     const schema = root.schema || root;
     const properties = schema.properties || {};
     const requiredTop = new Set(Array.isArray(schema.required) ? schema.required : []);
@@ -2140,12 +2144,12 @@
       };
     };
     const makeField = (key, property, current, required, index) => {
-      const title = property.title || key;
-      const help = property.description ? el("div", { class: "help", text: property.description }) : null;
+      const title = tr(property.title) || key;
+      const help = property.description ? el("div", { class: "help", text: tr(property.description) }) : null;
       const wrap = (control) => el("label", { class: "field" }, el("span", { class: "field-title" }, title, required ? el("span", { class: "muted", text: ` · ${t("required")}` }) : null), control, help);
       const type = property.type;
       if (property["x-schema-form"]?.type === "schedule") return scheduleField(wrap, current);
-      const options = property.oneOf && property.oneOf.every((o) => Array.isArray(o.enum)) ? property.oneOf.map((o) => ({ value: o.enum[0], title: o.title ?? String(o.enum[0]) })) : property.enum ? property.enum.map((v) => ({ value: v, title: String(v) })) : null;
+      const options = property.oneOf && property.oneOf.every((o) => Array.isArray(o.enum)) ? property.oneOf.map((o) => ({ value: o.enum[0], title: tr(o.title) ?? String(o.enum[0]) })) : property.enum ? property.enum.map((v) => ({ value: v, title: String(v) })) : null;
       // A value config.json has that is not among the choices stays one, so a save does not drop it.
       if (options && current !== undefined && !options.some((o) => JSON.stringify(o.value) === JSON.stringify(current))) options.unshift({ value: current, title: String(current) });
       if (options) {
@@ -2165,15 +2169,18 @@
         } };
       }
       if (type === "integer" || type === "number") {
-        const input = el("input", { type: "number", value: current ?? "", placeholder: property.placeholder ?? property.default ?? "", min: property.minimum, max: property.maximum, step: property.step ?? (type === "integer" ? 1 : "any"), required });
+        const input = el("input", { type: "number", value: current ?? "", placeholder: tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", min: property.minimum, max: property.maximum, step: property.step ?? (type === "integer" ? 1 : "any"), required });
         return { element: wrap(input), get: () => (input.value === "" ? undefined : Number(input.value)) };
       }
       if (type === "object" && property.properties) {
         const nested = buildObject(property, current || {}, index);
-        return { element: el("fieldset", {}, el("legend", { text: title }), nested.element), get: () => { const v = nested.getValue(); return Object.keys(v).length ? v : undefined; } };
+        return { element: el("fieldset", {}, el("legend", { text: title }), help, nested.element), get: () => { const v = nested.getValue(); return Object.keys(v).length ? v : undefined; } };
       }
       if (type === "array") {
         const items = property.items || { type: "string" };
+        // What one entry is called, for its Add button and an unnamed row: the items' own title, else in English the
+        // list's title made singular.
+        const noun = items.title ? tr(items.title) : HomeswiftI18n.language === "en" ? singular(title) : null;
         const list = el("div", {});
         const rows = [];
         const addRow = (itemValue) => {
@@ -2185,7 +2192,7 @@
             const detail = el("span", { class: "entry-detail" });
             const describe = () => {
               const value = nested.getValue();
-              name.textContent = value.name || value.displayName || `${title.replace(/s$/, "")} ${rows.indexOf(entry) + 1}`;
+              name.textContent = value.name || value.displayName || `${noun ?? title} ${rows.indexOf(entry) + 1}`;
               detail.textContent = [value.ip || value.host, value.mac].filter(Boolean).join(" · ");
             };
             const row = el("details", { class: "entry", open: itemValue === undefined },
@@ -2215,20 +2222,21 @@
         };
         for (const item of Array.isArray(current) ? current : []) addRow(item);
         const element = el("fieldset", {}, el("legend", { text: title }), help, list,
-          el("button", { actionIcon: "plus", text: t("Add {item}", { item: singular(title).toLowerCase() }), onclick: () => addRow(undefined) }));
+          el("button", { actionIcon: "plus", text: noun ? t("Add {item}", { item: noun.toLowerCase() }) : t("Add"), onclick: () => addRow(undefined) }));
         return { element, get: () => { const v = rows.map((r) => r.get()).filter((x) => x !== undefined); return v.length ? v : undefined; } };
       }
-      const input = el("input", { type: property["x-schema-form"] && property["x-schema-form"].type === "password" ? "password" : "text", value: current ?? "", placeholder: property.placeholder ?? property.default ?? "", required });
+      const input = el("input", { type: property["x-schema-form"] && property["x-schema-form"].type === "password" ? "password" : "text", value: current ?? "", placeholder: tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", required });
       if (property["x-schema-form"]?.type === "file") return { element: el("div", {}, wrap(input), dropZone(key, input, property["x-schema-form"].accept)), get: () => (input.value === "" ? undefined : input.value) };
       return { element: wrap(input), get: () => (input.value === "" ? undefined : input.value) };
     };
 
-    /// Required fields and the ones that hold a value show; the rest wait under "More options".
+    /// Required fields and the ones that hold a value show; the rest wait under "More options", unless that would
+    /// hide them all (a box of empty settings, a budget, shows its fields rather than a closed box in a box).
     const isSet = (value) => value !== undefined && value !== null && value !== "" && !(Array.isArray(value) && !value.length);
     function splitFields(entries) {
       const shown = [], more = [];
       for (const { element, required, value } of entries) (required || isSet(value) ? shown : more).push(element);
-      if (!more.length) return shown;
+      if (!more.length || !shown.length) return [...shown, ...more];
       return [...shown, el("details", { class: "more-options" }, el("summary", { text: t("More options ({count})", { count: more.length }) }), el("div", { class: "fields" }, more))];
     }
 
@@ -2266,10 +2274,14 @@
       if (typeof item === "string") return item === "*" ? Object.keys(properties).map(render) : render(item);
       if (item && item.key) { const node = render(item.key); if (item.condition) watch(node, item.condition); return node; }
       if (item && Array.isArray(item.items)) {
-        const inner = item.items.map(layoutItem).flat().filter(Boolean);
+        let inner = item.items.map(layoutItem).flat().filter(Boolean);
         if (!inner.length) return null;
+        // A group holding one object of its own name (Budget in Budget) shows the object's fields, not a box titled
+        // again inside it.
+        const only = inner.length === 1 && inner[0].tagName === "FIELDSET" ? inner[0] : null;
+        if (only && item.title && only.querySelector(":scope > legend")?.textContent === tr(item.title)) inner = [...only.children].filter((child) => child.tagName !== "LEGEND");
         const node = item.type === "fieldset" || item.title
-          ? el("details", { class: "group-box", "data-section": item.section || slug(item.title || ""), open: !item.expandable || item.expanded !== false }, el("summary", {}, item.icon ? HomeswiftCommon.icon(item.icon) : null, el("span", { text: item.title || t("More") })), el("div", { class: "fields" }, ...inner))
+          ? el("details", { class: "group-box", "data-section": item.section || slug(item.title || ""), open: !item.expandable || item.expanded !== false }, el("summary", {}, item.icon ? HomeswiftCommon.icon(item.icon) : null, el("span", { text: tr(item.title) || t("More") })), el("div", { class: "fields" }, ...inner))
           : el("div", { class: "fields" }, ...inner);
         watch(node, item.condition);
         return node;

@@ -12,6 +12,7 @@
       "controllers": {
         "type": "array",
         "title": "UniFi Access Controllers",
+        "description": "The controllers to connect to, each with its address and a local user's login.",
 
         "items": {
           "type": "object",
@@ -65,7 +66,7 @@
               "title": "Controller Password",
               "required": true,
               "placeholder": "e.g. unifi-access-password",
-              "description": "UniFi Access password for this controller. Creating a homebridge-specific local user is strongly encouraged for security and sanity."
+              "description": "UniFi Access password for this controller. A local user made just for the bridge is strongly advised, for security."
             },
 
             "username": {
@@ -73,7 +74,7 @@
               "title": "Controller Username",
               "required": true,
               "placeholder": "e.g. some-unifi-access-user",
-              "description": "UniFi Access username for this controller. Creating a homebridge-specific local user is strongly encouraged for security and sanity."
+              "description": "UniFi Access username for this controller. A local user made just for the bridge is strongly advised, for security."
             },
 
             "verifyTls": {
@@ -92,19 +93,20 @@
         "title": "Plugin Name",
         "required": true,
         "default": "UniFi Access",
-        "description": "Name to use for Homebridge logging purposes. Default: UniFi Access."
+        "description": "Name shown in the logs. Default: UniFi Access."
       },
 
       "options": {
 
         "type": "array",
         "title": "Feature Options",
+        "description": "Options such as Disable.Device, one per entry, to show or hide devices and change how they appear. The plugin's page sets them too.",
 
         "items": {
           "type": "string",
           "title": "Feature Option",
           "required": false,
-          "description": "Enter only one option per entry. See the plugin documentation for the complete list of available options or use the feature options webUI tab above.",
+          "description": "One option per entry. The plugin's README lists them all, and its page sets them too.",
           "placeholder": "e.g. Disable.Device"
         }
       },
@@ -216,5 +218,106 @@
         }
       ]
     }
-  ]
+  ],
+  "i18n": {
+    "fr": {
+      "One option per entry. The plugin's README lists them all, and its page sets them too.": "Une option par entrée. Le README du plugin les liste toutes, et sa page les règle aussi.",
+      "Additional Settings (Optional)": "Réglages supplémentaires (facultatif)",
+      "Controller Address": "Adresse du contrôleur",
+      "Controller Name": "Nom du contrôleur",
+      "Controller Password": "Mot de passe du contrôleur",
+      "Controller Username": "Nom d'utilisateur du contrôleur",
+      "Delay between doorbell rings. Setting this to a non-zero value will prevent multiple rings of a doorbell over the specified duration.  Default: 0.": "Délai entre deux sonneries. Une valeur non nulle empêche une sonnette de sonner plusieurs fois pendant cette durée. Par défaut : 0.",
+      "Doorbell Ring Delay (seconds)": "Délai entre sonneries (secondes)",
+      "Feature Option": "Option de fonctionnalité",
+      "Feature Options": "Options de fonctionnalité",
+      "Hostname or IP address of your UniFi Access controller.": "Nom d'hôte ou adresse IP de votre contrôleur UniFi Access.",
+      "MQTT Base Topic": "Sujet MQTT de base",
+      "MQTT Broker URL": "URL du broker MQTT",
+      "MQTT Settings": "Réglages MQTT",
+      "Name for this UniFi Access controller to be used for logging purposes. Default: Defined by the controller.": "Nom de ce contrôleur UniFi Access dans les journaux. Par défaut : celui que donne le contrôleur.",
+      "Name shown in the logs. Default: UniFi Access.": "Nom affiché dans les journaux. Par défaut : UniFi Access.",
+      "Optional Settings": "Réglages facultatifs",
+      "Options such as Disable.Device, one per entry, to show or hide devices and change how they appear. The plugin's page sets them too.": "Des options comme Disable.Device, une par entrée, pour afficher ou masquer des appareils et changer leur présentation. La page du plugin les règle aussi.",
+      "Plugin Feature Options (Optional)": "Options de fonctionnalité du plugin (facultatif)",
+      "Plugin Name": "Nom du plugin",
+      "The base MQTT topic to publish to. Default: unifi/access.": "Le sujet MQTT de base où publier. Par défaut : unifi/access.",
+      "The controllers to connect to, each with its address and a local user's login.": "Les contrôleurs auxquels se connecter, chacun avec son adresse et l'identifiant d'un utilisateur local.",
+      "UniFi Access Controller": "Contrôleur UniFi Access",
+      "UniFi Access Controllers": "Contrôleurs UniFi Access",
+      "UniFi Access password for this controller. A local user made just for the bridge is strongly advised, for security.": "Le mot de passe UniFi Access de ce contrôleur. Créer un utilisateur local réservé au pont est vivement conseillé, par sécurité et par simplicité.",
+      "UniFi Access username for this controller. A local user made just for the bridge is strongly advised, for security.": "Le nom d'utilisateur UniFi Access de ce contrôleur. Créer un utilisateur local réservé au pont est vivement conseillé, par sécurité et par simplicité.",
+      "URL for the MQTT broker you'd like to publish event messages to. The broker can also lock and unlock doors (lock/set), so use one that requires a login. Default: None.": "L'URL du broker MQTT où publier les événements. Le broker peut aussi verrouiller et déverrouiller les portes (lock/set) : utilisez-en un qui demande une connexion. Par défaut : aucun.",
+      "Validate the controller's TLS certificate against trusted certificate authorities. Leave this disabled unless your controller uses a certificate signed by a trusted certificate authority - UniFi controllers use self-signed certificates by default. When disabled, the controller's certificate is pinned the first time the plugin connects, and a different certificate is refused thereafter. Default: disabled.": "Vérifier le certificat TLS du contrôleur auprès d'autorités de certification reconnues. Laissez cette option désactivée sauf si votre contrôleur utilise un certificat signé par une autorité reconnue : les contrôleurs UniFi utilisent par défaut des certificats autosignés. Désactivée, le certificat du contrôleur est épinglé à la première connexion du plugin, et un autre certificat est ensuite refusé. Par défaut : désactivé.",
+      "Validate the MQTT broker's TLS certificate when connecting over mqtts:// or ssl://. Only disable this if your broker uses a self-signed certificate. Default: enabled.": "Vérifier le certificat TLS du broker MQTT lors d'une connexion en mqtts:// ou ssl://. Ne désactivez cette option que si votre broker utilise un certificat autosigné. Par défaut : activé.",
+      "Verify MQTT Broker TLS Certificate": "Vérifier le certificat TLS du broker MQTT",
+      "Verify TLS Certificate": "Vérifier le certificat TLS"
+    },
+    "es": {
+      "One option per entry. The plugin's README lists them all, and its page sets them too.": "Una opción por entrada. El README del plugin las enumera todas, y su página también las ajusta.",
+      "Additional Settings (Optional)": "Ajustes adicionales (opcional)",
+      "Controller Address": "Dirección del controlador",
+      "Controller Name": "Nombre del controlador",
+      "Controller Password": "Contraseña del controlador",
+      "Controller Username": "Nombre de usuario del controlador",
+      "Delay between doorbell rings. Setting this to a non-zero value will prevent multiple rings of a doorbell over the specified duration.  Default: 0.": "Tiempo entre dos timbrazos. Un valor distinto de cero impide que un timbre suene varias veces durante ese tiempo. Predeterminado: 0.",
+      "Doorbell Ring Delay (seconds)": "Intervalo entre timbrazos (segundos)",
+      "Feature Option": "Opción de función",
+      "Feature Options": "Opciones de función",
+      "Hostname or IP address of your UniFi Access controller.": "Nombre de host o dirección IP de tu controlador UniFi Access.",
+      "MQTT Base Topic": "Tema MQTT base",
+      "MQTT Broker URL": "URL del bróker MQTT",
+      "MQTT Settings": "Ajustes de MQTT",
+      "Name for this UniFi Access controller to be used for logging purposes. Default: Defined by the controller.": "Nombre de este controlador UniFi Access en los registros. Predeterminado: el que indica el controlador.",
+      "Name shown in the logs. Default: UniFi Access.": "Nombre que se muestra en los registros. Predeterminado: UniFi Access.",
+      "Optional Settings": "Ajustes opcionales",
+      "Options such as Disable.Device, one per entry, to show or hide devices and change how they appear. The plugin's page sets them too.": "Opciones como Disable.Device, una por entrada, para mostrar u ocultar dispositivos y cambiar cómo aparecen. La página del plugin también las ajusta.",
+      "Plugin Feature Options (Optional)": "Opciones de función del plugin (opcional)",
+      "Plugin Name": "Nombre del plugin",
+      "The base MQTT topic to publish to. Default: unifi/access.": "El tema MQTT base en el que se publica. Predeterminado: unifi/access.",
+      "The controllers to connect to, each with its address and a local user's login.": "Los controladores a los que conectarse, cada uno con su dirección y los datos de acceso de un usuario local.",
+      "UniFi Access Controller": "Controlador UniFi Access",
+      "UniFi Access Controllers": "Controladores UniFi Access",
+      "UniFi Access password for this controller. A local user made just for the bridge is strongly advised, for security.": "La contraseña de UniFi Access de este controlador. Es muy recomendable crear un usuario local solo para el puente, por seguridad y por sencillez.",
+      "UniFi Access username for this controller. A local user made just for the bridge is strongly advised, for security.": "El nombre de usuario de UniFi Access de este controlador. Es muy recomendable crear un usuario local solo para el puente, por seguridad y por sencillez.",
+      "URL for the MQTT broker you'd like to publish event messages to. The broker can also lock and unlock doors (lock/set), so use one that requires a login. Default: None.": "La URL del bróker MQTT en el que publicar los eventos. El bróker también puede bloquear y desbloquear puertas (lock/set), así que usa uno que pida inicio de sesión. Predeterminado: ninguno.",
+      "Validate the controller's TLS certificate against trusted certificate authorities. Leave this disabled unless your controller uses a certificate signed by a trusted certificate authority - UniFi controllers use self-signed certificates by default. When disabled, the controller's certificate is pinned the first time the plugin connects, and a different certificate is refused thereafter. Default: disabled.": "Comprueba el certificado TLS del controlador con autoridades de certificación de confianza. Déjalo desactivado salvo que tu controlador use un certificado firmado por una autoridad de confianza: los controladores UniFi usan certificados autofirmados por defecto. Desactivado, el certificado del controlador se fija la primera vez que el plugin se conecta, y después se rechaza cualquier otro. Predeterminado: desactivado.",
+      "Validate the MQTT broker's TLS certificate when connecting over mqtts:// or ssl://. Only disable this if your broker uses a self-signed certificate. Default: enabled.": "Comprueba el certificado TLS del bróker MQTT al conectar por mqtts:// o ssl://. Desactívalo solo si tu bróker usa un certificado autofirmado. Predeterminado: activado.",
+      "Verify MQTT Broker TLS Certificate": "Comprobar el certificado TLS del bróker MQTT",
+      "Verify TLS Certificate": "Comprobar el certificado TLS"
+    },
+    "pt": {
+      "One option per entry. The plugin's README lists them all, and its page sets them too.": "Uma opção por entrada. O README do plugin lista-as todas, e a sua página também as define.",
+      "Additional Settings (Optional)": "Definições adicionais (opcional)",
+      "Controller Address": "Endereço do controlador",
+      "Controller Name": "Nome do controlador",
+      "Controller Password": "Palavra-passe do controlador",
+      "Controller Username": "Nome de utilizador do controlador",
+      "Delay between doorbell rings. Setting this to a non-zero value will prevent multiple rings of a doorbell over the specified duration.  Default: 0.": "Intervalo entre toques. Um valor diferente de zero impede que uma campainha toque várias vezes durante esse tempo. Predefinição: 0.",
+      "Doorbell Ring Delay (seconds)": "Intervalo entre toques da campainha (segundos)",
+      "Feature Option": "Opção de funcionalidade",
+      "Feature Options": "Opções de funcionalidade",
+      "Hostname or IP address of your UniFi Access controller.": "Nome de anfitrião ou endereço IP do controlador UniFi Access.",
+      "MQTT Base Topic": "Tópico MQTT base",
+      "MQTT Broker URL": "URL do broker MQTT",
+      "MQTT Settings": "Definições MQTT",
+      "Name for this UniFi Access controller to be used for logging purposes. Default: Defined by the controller.": "Nome deste controlador UniFi Access nos registos. Predefinição: o indicado pelo controlador.",
+      "Name shown in the logs. Default: UniFi Access.": "Nome mostrado nos registos. Predefinição: UniFi Access.",
+      "Optional Settings": "Definições opcionais",
+      "Options such as Disable.Device, one per entry, to show or hide devices and change how they appear. The plugin's page sets them too.": "Opções como Disable.Device, uma por entrada, para mostrar ou ocultar dispositivos e mudar a forma como aparecem. A página do plugin também as define.",
+      "Plugin Feature Options (Optional)": "Opções de funcionalidade do plugin (opcional)",
+      "Plugin Name": "Nome do plugin",
+      "The base MQTT topic to publish to. Default: unifi/access.": "O tópico MQTT base onde publicar. Predefinição: unifi/access.",
+      "The controllers to connect to, each with its address and a local user's login.": "Os controladores a que ligar, cada um com o seu endereço e as credenciais de um utilizador local.",
+      "UniFi Access Controller": "Controlador UniFi Access",
+      "UniFi Access Controllers": "Controladores UniFi Access",
+      "UniFi Access password for this controller. A local user made just for the bridge is strongly advised, for security.": "A palavra-passe UniFi Access deste controlador. Recomenda-se vivamente criar um utilizador local só para a ponte, por segurança e simplicidade.",
+      "UniFi Access username for this controller. A local user made just for the bridge is strongly advised, for security.": "O nome de utilizador UniFi Access deste controlador. Recomenda-se vivamente criar um utilizador local só para a ponte, por segurança e simplicidade.",
+      "URL for the MQTT broker you'd like to publish event messages to. The broker can also lock and unlock doors (lock/set), so use one that requires a login. Default: None.": "O URL do broker MQTT onde publicar os eventos. O broker também pode trancar e destrancar portas (lock/set), por isso use um que exija início de sessão. Predefinição: nenhum.",
+      "Validate the controller's TLS certificate against trusted certificate authorities. Leave this disabled unless your controller uses a certificate signed by a trusted certificate authority - UniFi controllers use self-signed certificates by default. When disabled, the controller's certificate is pinned the first time the plugin connects, and a different certificate is refused thereafter. Default: disabled.": "Verificar o certificado TLS do controlador junto de autoridades de certificação fidedignas. Deixe desativado, a menos que o controlador use um certificado assinado por uma autoridade fidedigna: os controladores UniFi usam certificados autoassinados por predefinição. Desativado, o certificado do controlador é fixado na primeira ligação do plugin, e outro certificado é depois recusado. Predefinição: desativado.",
+      "Validate the MQTT broker's TLS certificate when connecting over mqtts:// or ssl://. Only disable this if your broker uses a self-signed certificate. Default: enabled.": "Verificar o certificado TLS do broker MQTT ao ligar por mqtts:// ou ssl://. Desative apenas se o broker usar um certificado autoassinado. Predefinição: ativado.",
+      "Verify MQTT Broker TLS Certificate": "Verificar o certificado TLS do broker MQTT",
+      "Verify TLS Certificate": "Verificar o certificado TLS"
+    }
+  }
 }

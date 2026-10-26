@@ -52,6 +52,9 @@ says why).
   WebSocket fakes are in `HomeswiftNetworkTestSupport`. Tests use `MemoryStorage` and `advertise: false`.
 - **Linux:** Darwin-only APIs behind `#if canImport(...)`, `URLSession` with `#if canImport(FoundationNetworking)`.
 - **No secrets in the log:** tokens, passwords, keys and setup codes are never logged, at any level.
+- **A form that explains itself, in four languages:** every option in `config.schema.json` has a `description`,
+  choices are a `oneOf` of titled enums, and the schema's `i18n` translates its words into French, Spanish and
+  Portuguese ([translations.md](docs/translations.md#forms)).
 - **Generated files current:** after editing `config.schema.json` or `Web/`, run
   `swift Scripts/embed-assets.swift plugin Plugins/<Name> <Name>Plugin` (and the `web` command for a page).
 - **Credit:** the README names the plugin it ports, its authors and its license, and its copyright and permission
