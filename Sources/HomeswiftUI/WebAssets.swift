@@ -9199,7 +9199,7 @@ HomeswiftI18n.add("es", {
   "Run it automatically. Sunrise and sunset are for {place}.": "Para ejecutarla automáticamente. El amanecer y el atardecer son los de {place}.",
   "Run it automatically. Sunrise and sunset need a location: set it on the Scenes page.": "Para ejecutarla automáticamente. El amanecer y el atardecer necesitan una ubicación: defínela en la página Escenas.",
   "Run one homeswift per backup: two bridges with the same identity make the Home app drop them.": "Ejecuta un solo homeswift por copia: dos puentes con la misma identidad hacen que la app Casa los pierda.",
-  "Run the plugin again": "Volver a ejecutar el plugin",
+  "Runs the plugin again: it reconnects to its devices and they answer in the Home app.": "Vuelve a ejecutar el plugin: se reconecta a sus dispositivos y responden de nuevo en la app Casa.",
   "Running": "En ejecución",
   "Running · {time} left": "En marcha · quedan {time}",
   "Running, and everything is in the Home app": "En marcha, y todo está en la app Casa",
@@ -9354,7 +9354,7 @@ HomeswiftI18n.add("es", {
   "Stop": "Detener",
   "Stop {name}": "Detener {name}",
   "Stop {name}?": "¿Detener {name}?",
-  "Stop the plugin's calls to its devices for now": "Detener por ahora las llamadas del plugin a sus dispositivos",
+  "Stops the plugin until you resume it: no calls to its devices, which show No Response in the Home app.": "Detiene el plugin hasta que lo reanudes: no llama a sus dispositivos, que muestran Sin respuesta en la app Casa.",
   "Stopped": "Detenido",
   "Stopped [bridge]": "Detenido",
   "Stopped by hand": "Detenido manualmente",
@@ -11268,7 +11268,7 @@ HomeswiftI18n.add("fr", {
   "Run it automatically. Sunrise and sunset are for {place}.": "La lancer automatiquement. Le lever et le coucher du soleil sont ceux de {place}.",
   "Run it automatically. Sunrise and sunset need a location: set it on the Scenes page.": "La lancer automatiquement. Le lever et le coucher du soleil demandent une position : définissez-la sur la page Scènes.",
   "Run one homeswift per backup: two bridges with the same identity make the Home app drop them.": "Faites tourner un seul homeswift par sauvegarde : deux ponts de même identité amènent l'app Maison à les abandonner.",
-  "Run the plugin again": "Relancer le plugin",
+  "Runs the plugin again: it reconnects to its devices and they answer in the Home app.": "Relance le plugin : il se reconnecte à ses appareils, qui répondent à nouveau dans l'app Maison.",
   "Running": "En marche",
   "Running · {time} left": "En marche · reste {time}",
   "Running, and everything is in the Home app": "En marche, et tout est dans l'app Maison",
@@ -11423,7 +11423,7 @@ HomeswiftI18n.add("fr", {
   "Stop": "Arrêter",
   "Stop {name}": "Arrêter {name}",
   "Stop {name}?": "Arrêter {name} ?",
-  "Stop the plugin's calls to its devices for now": "Suspendre pour l'instant les appels du plugin à ses appareils",
+  "Stops the plugin until you resume it: no calls to its devices, which show No Response in the Home app.": "Arrête le plugin jusqu'à ce que vous le relanciez : aucun appel à ses appareils, qui affichent Pas de réponse dans l'app Maison.",
   "Stopped": "Arrêté",
   "Stopped [bridge]": "Arrêté",
   "Stopped by hand": "Arrêté manuellement",
@@ -13337,7 +13337,7 @@ HomeswiftI18n.add("pt", {
   "Run it automatically. Sunrise and sunset are for {place}.": "Executá-la automaticamente. O nascer e o pôr do sol são os de {place}.",
   "Run it automatically. Sunrise and sunset need a location: set it on the Scenes page.": "Executá-la automaticamente. O nascer e o pôr do sol precisam de uma localização: defina-a na página Cenas.",
   "Run one homeswift per backup: two bridges with the same identity make the Home app drop them.": "Execute um único homeswift por cópia: duas pontes com a mesma identidade fazem a app Casa perdê-las.",
-  "Run the plugin again": "Voltar a executar o plugin",
+  "Runs the plugin again: it reconnects to its devices and they answer in the Home app.": "Volta a executar o plugin: liga-se de novo aos seus dispositivos, que voltam a responder na app Casa.",
   "Running": "Em execução",
   "Running · {time} left": "Em funcionamento · faltam {time}",
   "Running, and everything is in the Home app": "Em execução, e está tudo na app Casa",
@@ -13492,7 +13492,7 @@ HomeswiftI18n.add("pt", {
   "Stop": "Parar",
   "Stop {name}": "Parar {name}",
   "Stop {name}?": "Parar {name}?",
-  "Stop the plugin's calls to its devices for now": "Parar por agora as chamadas do plugin aos seus dispositivos",
+  "Stops the plugin until you resume it: no calls to its devices, which show No Response in the Home app.": "Para o plugin até o retomar: nenhuma chamada aos seus dispositivos, que mostram Sem resposta na app Casa.",
   "Stopped": "Parado",
   "Stopped [bridge]": "Parada",
   "Stopped by hand": "Parada manualmente",
@@ -15074,17 +15074,23 @@ HomeswiftI18n.add("pt", {
   if (main) {
     // Pause, at the right of the breadcrumb: the plugin stops calling its devices (an app sharing the account
     // keeps its session) until Resume, which a banner offers while it is paused.
-    const toggle = el("button", { type: "button", class: "link pause-toggle hidden" });
-    main.prepend(el("nav", { class: "breadcrumb", "aria-label": t("Breadcrumb") }, trail, toggle));
+    const nav = el("nav", { class: "breadcrumb", "aria-label": t("Breadcrumb") }, trail);
+    main.prepend(nav);
     breadcrumb(null);
     api("/api/plugins").then(({ platforms }) => {
       const instance = platforms.find((p) => p.platform === platform && p.name === name);
       if (!instance) return;
-      const set = (paused) => act(toggle, () => HomeswiftCommon.setPaused(platform, name, paused).then(() => location.reload()));
-      toggle.replaceChildren(icon(instance.paused ? "play" : "pause"), el("span", { text: instance.paused ? t("Resume") : t("Pause") }));
-      toggle.title = instance.paused ? t("Run the plugin again") : t("Stop the plugin's calls to its devices for now");
-      toggle.onclick = () => set(!instance.paused);
-      toggle.classList.remove("hidden");
+      // A button as any other, once the plugin's state is known.
+      const toggle = el("button", {
+        type: "button", class: "small pause-toggle", actionIcon: instance.paused ? "play" : "pause", text: instance.paused ? t("Resume") : t("Pause"),
+        // What it does, in a tooltip (style.css's data-tip) that a screen reader reads as the description.
+        "data-tip": instance.paused ? t("Runs the plugin again: it reconnects to its devices and they answer in the Home app.")
+          : t("Stops the plugin until you resume it: no calls to its devices, which show No Response in the Home app."),
+        "data-tip-align": "end",
+        onclick: () => act(toggle, () => HomeswiftCommon.setPaused(platform, name, !instance.paused).then(() => location.reload())),
+      });
+      toggle.setAttribute("aria-description", toggle.dataset.tip);
+      nav.append(toggle);
       if (instance.paused) {
         main.querySelector(".breadcrumb").after(el("div", { class: "card page-note paused-note" },
           el("p", {}, el("strong", { text: t("Paused.") }), " ", t("The plugin makes no calls to its devices, and they show No Response in the Home app. This page needs it running.")),
@@ -15836,8 +15842,26 @@ nav a.active { background: linear-gradient(180deg, var(--accent-fill-top), var(-
 /* A plugin card's name opens its page; Pause sits at the right of a plugin page's breadcrumb. */
 .card-title { color: inherit; text-decoration: none; }
 .card-title:hover strong { text-decoration: underline; }
-.pause-toggle { display: inline-flex; align-items: center; gap: 5px; font-size: 0.8125rem; font-weight: 500; }
-.pause-toggle svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.pause-toggle { flex: none; }
+
+/* A tooltip: `data-tip` on a control, shown under it on hover and on keyboard focus; `data-tip-align="end"` lines it
+   up with the control's end, for one at the edge of the page. */
+[data-tip] { position: relative; }
+[data-tip]::after {
+  content: attr(data-tip); position: absolute; z-index: 20; top: calc(100% + 8px); left: 50%; translate: -50% -4px;
+  width: max-content; max-width: min(280px, 80vw); padding: 8px 12px; border-radius: 12px; pointer-events: none;
+  font-size: 0.8125rem; font-weight: 400; line-height: 1.4; text-align: left; white-space: normal; color: var(--text);
+  background: var(--material-solid); border: 1px solid var(--line); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  opacity: 0; visibility: hidden; transition: opacity var(--fast) var(--ease-out), translate var(--fast) var(--ease-out), visibility 0s linear var(--fast);
+}
+[data-tip-align="end"]::after { left: auto; right: 0; translate: 0 -4px; }
+[data-tip]:focus-visible::after { opacity: 1; visibility: visible; translate: -50% 0; transition-delay: 0s; }
+[data-tip-align="end"]:focus-visible::after { translate: 0 0; }
+@media (hover: hover) and (pointer: fine) {
+  [data-tip]:hover::after { opacity: 1; visibility: visible; translate: -50% 0; transition-delay: 0s; }
+  [data-tip-align="end"]:hover::after { translate: 0 0; }
+}
+@media (prefers-reduced-motion: reduce) { [data-tip]::after { transition: opacity var(--fast) linear; } }
 .expert-links { display: flex; gap: 8px; flex: none; }
 .settings-bar {
   position: sticky; bottom: 14px; z-index: 3; display: flex; align-items: center; gap: 10px; margin: 14px 0 0;
@@ -16059,6 +16083,9 @@ button:active:not(:disabled), a.button:active { transform: scale(0.97); transiti
 button.primary, a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: rgba(255, 255, 255, 0.4); box-shadow: 0 8px 20px rgba(255, 122, 26, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
 button.link { border: 0; background: none; box-shadow: none; color: var(--accent-ink); padding: 4px 6px; }
 button.link:active:not(:disabled) { transform: none; opacity: 0.6; }
+/* A smaller button, for a line of small text such as a page's breadcrumb. */
+button.small, a.button.small { padding: 4px 12px; font-size: 0.8125rem; }
+button.small.action-with-icon::before, a.button.small.action-with-icon::before { width: 14px; height: 14px; }
 button:disabled { opacity: .5; cursor: default; transform: none; }
 button:focus-visible, a.button:focus-visible, nav a:focus-visible, summary:focus-visible, .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
 input, select, textarea {
