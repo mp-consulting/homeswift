@@ -462,6 +462,7 @@ label > input, label > select { margin-top: 5px; }
 .grid > .card { margin: 0; min-width: 0; }
 .card.empty { text-align: center; padding: 28px 20px; grid-column: 1 / -1; }
 .card.empty p { margin: 0; }
+.scenes-empty > .button { margin-top: 12px; }
 /* An empty state's glyph: what would be here, in a soft disc above the words. */
 .empty-glyph { display: grid; place-items: center; width: 52px; height: 52px; margin: 0 auto 12px; border-radius: 50%; color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .empty-glyph svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -2297,7 +2298,7 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .accessory-group .group-controls { display: grid; gap: 10px; margin-top: 16px; }
 .group-controls label { display: flex; align-items: center; gap: 10px; font-size: .8125rem; }
 .group-controls label > span:first-child { flex: 1; }
-.group-controls input[type=range] { width: 100px; }
+.group-controls > .level { width: 100%; }
 .group-feedback { font-size: .75rem; color: var(--danger); }
 .group-feedback:empty { display: none; }
 .wall .widget.group-drop-target { outline: 3px solid var(--accent); outline-offset: 3px; }
@@ -2325,7 +2326,7 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .group-picker-columns h3 { font-size: .875rem; margin: 0 0 14px; }
 .group-selected-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .group-selected-heading h3 { margin: 0; }
-.group-transfer { width: 30px; height: 30px; padding: 0; flex: none; font-size: 20px; border-radius: 50%; }
+.group-transfer { width: 32px; min-width: 32px; height: 32px; min-height: 32px; padding: 0; flex: 0 0 32px; display: grid; place-items: center; font-size: 20px; line-height: 1; border-radius: 50%; }
 .accessories-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .accessories-toolbar > button:not(.menu-button) { display: inline-flex; align-items: center; gap: 7px; }
 .accessories-toolbar button > svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; }
@@ -2461,4 +2462,306 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   .mobile-nav-toggle, .mobile-nav-toggle[aria-expanded="true"] { background: var(--accent-fill); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+
+/* Keep dashboard content constrained while the footer spans the page. */
+#app:has(> main > .status-footer) { min-height: 100dvh; display: flex; flex-direction: column; }
+#app:has(> main > .status-footer) > header,
+#app:has(> main > .status-footer) > .banner { flex-shrink: 0; }
+main:has(> .status-footer) { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: none; margin: 0; padding-inline: 0; padding-bottom: 0; }
+main:has(> .status-footer) > .dash-widget { flex-shrink: 0; }
+main:has(> .status-footer) > .dash-widget:last-of-type { margin-bottom: 20px; }
+main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% - 24px); margin-inline: auto; }
+/* Status details remain visible even when the Overview widget is hidden. */
+/* A quiet utility bar: status first, metadata second, one compact action. */
+.status-footer {
+  --text: #edf0f5; --muted: #adb6c4; --accent-ink: #f4c49e; --warn: #f1c084; --ok: #75d5a0; --error: #ff9999;
+  display: flex; justify-content: space-between; align-items: center; flex-wrap: nowrap; gap: 20px;
+  width: 100%; flex-shrink: 0; margin: auto 0 0;
+  padding: 12px max(16px, calc((100% - 1076px) / 2));
+  border: 0; border-top: 1px solid rgba(255,255,255,.08); border-radius: 0;
+  background: #222833; color: var(--text);
+}
+.status-footer-summary { min-width: 0; flex: 1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 24px; font-size: .75rem; line-height: 1.5; }
+.status-footer-summary p { margin: 0; overflow-wrap: anywhere; }
+.status-footer-summary .health { gap: 8px; }
+.status-footer-summary .health strong { font-weight: 500; }
+.status-footer-summary .health::before { width: 6px; height: 6px; margin-top: calc(.75em - 3px); }
+.status-footer-summary .muted { font-variant-numeric: tabular-nums; }
+.status-footer > .link {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 36px; margin: 0; padding: 8px 10px; font-size: .75rem; line-height: 1.5;
+  color: var(--text); border: 1px solid rgba(255,255,255,.14); border-radius: 6px;
+  background: rgba(255,255,255,.04); white-space: nowrap;
+}
+.status-footer > .link:hover, .status-footer > .link[aria-expanded="true"] { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.28); }
+.status-footer > .link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
+@media (max-width: 640px) {
+  .status-footer { gap: 12px; padding: 12px 88px 12px 16px; }
+  .status-footer-summary { display: block; }
+  .status-footer-summary .muted { margin-top: 4px; padding-left: 14px; }
+  .status-footer > .link { width: 40px; min-height: 40px; padding: 10px; }
+  .status-footer-action-label { display: none; }
+}
+
+.status-footer-meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
+.status-footer .footer-update-check { margin: 0; padding: 0; min-height: 24px; font-size: inherit; line-height: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; }
+.footer-update-result:empty { display: none; }
+.footer-update-result { color: var(--muted); }
+@media (max-width: 640px) {
+  .status-footer-meta { margin-top: 4px; padding-left: 14px; }
+  .status-footer-summary .status-footer-meta .muted { margin: 0; padding: 0; }
+}
+
+/* Keep the version and its update action on one row, even on narrow screens. */
+.status-footer-meta > .muted { flex: 0 1 auto; max-width: calc(100% - 125px); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-footer .footer-update-check { flex: none; white-space: nowrap; }
+.footer-update-result { flex-basis: 100%; }
+@media (max-width: 640px) {
+  .status-footer { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: 4px 12px; }
+  .status-footer-summary { display: contents; }
+  .status-footer-summary .health { grid-column: 1; grid-row: 1; }
+  .status-footer > .link { grid-column: 2; grid-row: 1; }
+  .status-footer-meta { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
+}
+
+.status-footer-meta { flex-wrap: nowrap; }
+.status-footer-meta > .muted { max-width: none; }
+.status-footer .footer-update-check {
+  padding: 3px 8px; min-height: 28px; border: 1px solid rgba(255,255,255,.2); border-radius: 5px;
+  background: rgba(255,255,255,.05); text-decoration: none;
+}
+.status-footer .footer-update-check:hover { background: rgba(255,255,255,.12); }
+.status-footer .footer-update-check:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
+
+.status-footer .footer-update-check[data-update-state="current"] { --update-tone: var(--ok); }
+.status-footer .footer-update-check[data-update-state="available"] { --update-tone: var(--warn); }
+.status-footer .footer-update-check[data-update-state="error"] { --update-tone: var(--error); }
+.status-footer .footer-update-check {
+  color: var(--update-tone, var(--text));
+  border-color: color-mix(in srgb, var(--update-tone, var(--muted)) 45%, transparent);
+  background: color-mix(in srgb, var(--update-tone, var(--muted)) 10%, transparent);
+}
+.status-footer .footer-update-check:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--update-tone, var(--muted)) 20%, transparent);
+}
+
+.status-footer .footer-update-check { display: inline-flex; align-items: center; gap: 5px; }
+.status-footer .footer-update-check svg { width: 14px; height: 14px; flex: none; }
+.status-footer .footer-update-check[data-update-state="checking"] svg {
+  transform-origin: center;
+  animation: spin .8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-footer .footer-update-check[data-update-state="checking"] svg { animation: none; }
+}
+
+/* Reserve the widest translated status without exposing sizing text to assistive technology. */
+.footer-update-label { display: inline-grid; text-align: center; }
+.footer-update-label > span { grid-area: 1 / 1; }
+.footer-update-sizer { visibility: hidden; pointer-events: none; }
+
+.group-box > summary > svg { width: 18px; height: 18px; margin-right: 8px; vertical-align: -3px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+.view-switch > button { display: inline-flex; align-items: center; gap: 6px; }
+.view-switch > button > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+.expert-links > .button { display: inline-flex; align-items: center; gap: 6px; }
+.expert-links > .button > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+.settings-action { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.settings-action > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Decorative action icons survive loading/success label changes. */
+.action-with-icon { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.action-with-icon::before { content: ""; display: inline-block; width: 16px; height: 16px; flex: none; background: currentColor; mask: var(--action-icon) center / contain no-repeat; -webkit-mask: var(--action-icon) center / contain no-repeat; }
+
+.cached-search-results[hidden], .cached-search-results > [hidden], .cached-search-empty[hidden] { display: none !important; }
+
+.cached-search-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; min-width: 0; }
+.cached-search-tools .search { width: 220px; max-width: 100%; min-width: 0; }
+.cached-search-tools > button { flex-shrink: 0; }
+@media (max-width: 640px) {
+  .cached-search-tools { flex: 1 1 100%; }
+  .cached-search-tools .search { flex: 1; width: auto; }
+}
+
+.cached-search-tools > button { display: inline-flex; align-items: center; gap: 6px; }
+.cached-search-tools > button > svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.cached-filter-count:empty { display: none; }
+.section-head:has(.cached-search-tools) { flex-wrap: wrap; align-items: center; }
+
+.menu-item-label { min-width: 0; flex: 1; }
+.menu-item-count { flex: none; min-width: 2ch; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-size: .8125rem; }
+.menu-item-count + .menu-toggle { margin-left: 8px; }
+.menu [role]:hover > .menu-item-count, .menu [role]:focus-visible > .menu-item-count { color: inherit; }
+/* Keep the search and both menu triggers aligned when the header wraps. */
+.section-head:has(.cached-search-tools) { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+.cached-search-tools { grid-column: 1 / -1; width: 100%; margin-left: 0; }
+.cached-search-tools .search { flex: 1; width: auto; }
+.cached-search-tools > .menu-button { display: inline-flex; align-items: center; justify-content: center; }
+@media (min-width: 1000px) {
+  .section-head:has(.cached-search-tools) { grid-template-columns: auto auto minmax(0, 1fr); }
+  .cached-search-tools { grid-column: auto; justify-content: flex-end; }
+  .cached-search-tools .search { flex: 0 1 220px; }
+}
+
+.menu [data-tone="ok"] { --menu-status-color: var(--ok); }
+.menu [data-tone="warn"] { --menu-status-color: var(--warn); }
+.menu [data-tone="error"] { --menu-status-color: var(--error); }
+.menu [data-tone] > :is(svg, .menu-item-label, .menu-item-count) { color: var(--menu-status-color); }
+.menu [data-tone]:hover > :is(svg, .menu-item-label, .menu-item-count),
+.menu [data-tone]:focus-visible > :is(svg, .menu-item-label, .menu-item-count) { color: inherit; }
+.menu [data-tone][aria-checked="true"] > .menu-toggle { background: var(--menu-status-color); }
+
+.menu [role][aria-disabled="true"], .menu [role][aria-disabled="true"]:hover {
+  opacity: .45; cursor: default; background: transparent; color: var(--muted); transform: none;
+}
+
+/* Dim the whole filter, so icons, counts and switch tracks share its disabled state. */
+.menu [role][aria-disabled="true"] {
+  filter: grayscale(1);
+  box-shadow: none;
+}
+.menu [role][aria-disabled="true"] > :is(svg, .menu-item-label, .menu-item-count) {
+  color: var(--muted);
+}
+.group-type-filter button:disabled,
+.log-level-row .group button:disabled {
+  opacity: .4;
+  filter: grayscale(1);
+  box-shadow: none;
+  cursor: default;
+}
+.toggle:has(input:disabled) {
+  opacity: .4;
+  filter: grayscale(1);
+  cursor: default;
+}
+.toggle:has(input:disabled) .switch { cursor: default; }
+select option:disabled { color: var(--muted); }
+
+/* Editing is a layout preview with its own quiet header and bottom control strip. */
+.wall.editing > .widget:not(.lifted):not(.drag-slot) { outline: 1px solid color-mix(in srgb, var(--accent) 25%, var(--edge)); outline-offset: -1px; }
+.wall.editing > .widget::after { background: color-mix(in srgb, var(--bg) 65%, transparent); }
+.edit-caption { position: absolute; inset: 9px 12px auto; z-index: 3; display: flex; align-items: center; gap: 7px; font-size: .8125rem; font-weight: 600; color: var(--text); pointer-events: none; }
+.edit-caption > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.edit-grip { flex: none; color: var(--muted); font-size: 19px; line-height: 1; }
+.wall.editing .edit-bar { left: 8px; right: 37px; top: auto; bottom: 7px; transform: none; width: auto; max-width: none; padding: 3px; border-radius: 10px; background: var(--material-solid); box-shadow: var(--shadow-control); }
+.wall.editing .edit-bar button { width: auto; height: 26px; flex: 1 1 0; border-radius: 7px; font-size: .6875rem; }
+.wall.editing .edit-bar button[data-step] { flex: .7 1 0; font-size: 18px; }
+.wall.editing .edit-bar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.wall.editing .resize-handle { right: 4px; bottom: 8px; width: 29px; height: 29px; background: transparent; box-shadow: none; color: var(--accent-ink); }
+.wall.editing .resize-handle::after { left: 8px; top: 11px; }
+.wall.editing > .widget.size-small .edit-caption { top: 5px; font-size: .6875rem; }
+.wall.editing > .widget.size-small .edit-bar { bottom: 3px; padding: 2px; }
+.wall.editing > .widget.size-small .edit-bar button { height: 22px; }
+.wall.editing > .widget.size-small .resize-handle { bottom: 3px; }
+.wall.editing > .widget-summary > .w-bottom { visibility: hidden; }
+.wall.editing > .widget-summary > .w-top { position: absolute; left: 12px; right: 12px; top: 50%; transform: translateY(-50%); }
+.wall.editing > .widget.size-small > .w-top { visibility: hidden; }
+.wall.editing > .widget:not(.widget-summary) > .w-head { visibility: hidden; }
+
+.wall.editing > .accessory-group { cursor: default; }
+.wall.editing > .accessory-group > .server-head { visibility: hidden; }
+.edit-caption > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; color: var(--muted); }
+.wall.editing .group-edit-bar { right: 8px; gap: 4px; }
+.wall.editing .group-edit-bar button { height: 30px; flex: 1; padding: 0 8px; }
+.wall.editing > .accessory-group .group-feedback:not(:empty) { position: relative; z-index: 3; margin-bottom: 42px; }
+/* A corner grip leaves more of the bottom edge for the size controls. */
+.wall.editing .edit-bar:not(.group-edit-bar) { right: 24px; }
+.wall.editing .resize-handle,
+.wall.editing > .widget.size-small .resize-handle {
+  right: 0; bottom: 0; width: 28px; height: 28px; border-radius: 0 0 var(--radius) 0;
+  background: transparent; box-shadow: none;
+}
+.wall.editing .resize-handle::after {
+  left: auto; top: auto; right: 6px; bottom: 6px; width: 11px; height: 11px;
+  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+  border-radius: 0 0 3px 0; background: none; box-shadow: none; transform: none;
+}
+.wall.editing .resize-handle:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+
+/* Group cards share widget sizes and the same rounded corner resize target. */
+.accessory-group { min-height: 0; }
+.accessory-group.size-small .group-controls, .accessory-group.size-small .server-head .muted { display: none; }
+.accessory-group.size-small { padding: 8px 12px; }
+.accessory-group.size-small .server-head { margin: 0; }
+.accessory-group.size-medium { padding: 12px; }
+.accessory-group.size-medium .server-head .muted { display: none; }
+.wall.editing > .accessory-group { overflow: hidden; }
+.wall.editing > .accessory-group .edit-caption { right: 44px; }
+.wall.editing > .accessory-group > .server-head .menu-button {
+  visibility: visible; pointer-events: auto; position: absolute; top: 4px; right: 5px; z-index: 4;
+  width: 28px; height: 28px; min-height: 0; padding: 4px;
+}
+.wall.editing .resize-handle,
+.wall.editing > .widget.size-small .resize-handle { border-bottom-right-radius: 18px; }
+.wall.editing .resize-handle::after { width: 12px; height: 12px; border-bottom-right-radius: 9px; }
+
+.wall.editing > .accessory-group { cursor: grab; }
+.wall.editing > .accessory-group.lifted { cursor: grabbing; }
+
+/* Medium groups fit their compact controls inside the same footprint as other M tiles. */
+.accessory-group.size-medium { padding: 8px 10px; }
+.accessory-group.size-medium .server-head { gap: 8px; margin: 0; min-height: 30px; }
+.accessory-group.size-medium .server-head .tile { width: 28px; height: 28px; border-radius: 9px; }
+.accessory-group.size-medium .server-head .who { flex: 1; }
+.accessory-group.size-medium .server-head strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .75rem; }
+.accessory-group.size-medium .server-head .menu-button { width: 26px; height: 26px; min-height: 0; padding: 3px; }
+.accessory-group.size-medium .group-controls { gap: 4px; margin-top: 5px; }
+.accessory-group.size-medium .group-controls > label { min-height: 24px; font-size: .6875rem; gap: 5px; }
+.accessory-group.size-medium .group-controls input[type="checkbox"] { width: 36px; height: 22px; flex: none; }
+.accessory-group.size-medium .group-controls > .level { height: 26px; min-height: 26px; border-radius: 8px; }
+.accessory-group.size-medium .level-label, .accessory-group.size-medium .level-text { font-size: .625rem; }
+.accessory-group.size-medium .level-label { left: 7px; max-width: 58%; overflow: hidden; white-space: nowrap; }
+.accessory-group.size-medium .level-text { right: 7px; }
+.accessory-group.size-medium .group-feedback:empty { display: none; }
+/* Scale the complete switch, including its minimum width and thumb travel. */
+.accessory-group.size-medium .group-controls input[type="checkbox"] { width: 36px; min-width: 36px; height: 22px; border-radius: 11px; }
+.accessory-group.size-medium .group-controls input[type="checkbox"]::before { width: 16px; height: 16px; left: 2px; top: 2px; }
+.accessory-group.size-medium .group-controls input[type="checkbox"]:checked::before { transform: translateX(14px); }
+.accessory-group.size-medium .group-controls input[type="checkbox"]:indeterminate::before { transform: translateX(7px); }
+
+.wall.editing > .widget.lifted, .wall.editing > .widget.lifted * { pointer-events: none !important; }
+.wall.editing > .widget.group-drop-target { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wall.editing > .widget.group-drop-target::after { background: var(--accent); z-index: 5; }
+
+.wall.editing > .widget.group-drop-target { outline: 3px solid var(--accent); outline-offset: 3px; box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 20%, transparent); }
+.wall.editing > .widget.group-drop-target::after {
+  content: "+ " attr(data-drop-label); inset: 4px; border-radius: calc(var(--radius) - 4px);
+  background: color-mix(in srgb, var(--accent) 92%, var(--material-solid)); color: var(--accent-text);
+  font-size: .875rem; font-weight: 700; text-align: center; padding: 8px; line-height: 1.3;
+  display: flex; align-items: center; justify-content: center; z-index: 6;
+}
+.wall.editing > .widget.lifted { opacity: .65; }
+@media (max-width: 640px) {
+  .wall.editing > .widget.group-drop-target::after { font-size: .75rem; }
+}
+
+.group-room-field { display: grid; gap: 6px; margin: 12px 0 16px; }
+.group-room-field select { width: 100%; }
+
+.disabled-filter-tip {
+  position: fixed; inset: auto; margin: 0; width: max-content;
+  max-width: min(300px, calc(100vw - 24px)); padding: 10px 14px;
+  border: 1px solid var(--edge); border-radius: 12px;
+  background: var(--material-solid); color: var(--text);
+  box-shadow: var(--shadow-control); font-size: .8125rem; line-height: 1.4;
+  pointer-events: none;
+}
+
+/* Give reset actions breathing room in both wrapped toolbars and stacked pickers. */
+.clear-filters { margin-block: 12px; margin-inline-start: 12px; }
+.group-clear-filters { margin-inline-start: 0; }
+.menu .clear-filters-menu { margin-block: 12px; }
+
+@media (max-width: 650px) {
+  .accessory-group-dialog { padding: 0; overflow: hidden; }
+  .accessory-group-dialog > form { display: flex; flex-direction: column; max-height: calc(100dvh - 42px); }
+  .group-dialog-content { min-height: 0; overflow-y: auto; padding: 24px; overscroll-behavior: contain; }
+  .accessory-group-dialog > form > .actions {
+    flex: none; margin: 0; padding: 14px 24px max(14px, env(safe-area-inset-bottom));
+    background: var(--material-solid); border-top: 1px solid var(--line);
+  }
 }
