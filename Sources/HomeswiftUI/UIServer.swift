@@ -618,22 +618,17 @@ public final class UIServer: Sendable {
                 return .json(block)
             case ["logs"]:
                 // `from` (and `to`, now when left out) as ISO 8601: that span, from the archive on disk; else the latest lines.
-                // `accessory`, `bridge` (a device ID, or `all`): only the lines about them, picked before the limit.
+                // `accessory`, `bridge` (a device ID, or `all`), `plugin` (a block's name): only the lines about them,
+                // picked before the limit.
                 let found = request.query["accessory"].flatMap { catalog.find(id: $0) }
-                let accessory = found.map(Self.logMatcher(for:))
                 let bridges = catalog.host.bridges
                 let chosen = request.query["bridge"].map { id in id == "all" ? bridges : bridges.filter { $0.server.deviceID == id } }
-                let bridge = chosen.map(Self.logMatcher(for:))
-                let matching: (@Sendable (LogBuffer.Line) -> Bool)? = switch (accessory, bridge) {
-                case let (accessory?, bridge?): { accessory($0) && bridge($0) }
-                case let (accessory, bridge): accessory ?? bridge
-                }
+                // A plugin's lines carry its name as their label, as a bridge's own lines carry the bridge's.
+                let plugin = request.query["plugin"].flatMap { name in catalog.host.configuration.platforms.contains { $0.name == name } ? [name] : nil }
+                let labels = chosen.map { $0.map(\.name) } ?? plugin
+                let matching = Self.all(found.map(Self.logMatcher(for:)), labels.map(Self.logMatcher(labels:)))
                 // The same, on a row of the log on disk before it is parsed: what the row must hold to match.
-                let accessoryRow = found.flatMap(Self.rowFilter(for:)), bridgeRow = chosen.flatMap(Self.rowFilter(for:))
-                let mayMatch: (@Sendable (String) -> Bool)? = switch (accessoryRow, bridgeRow) {
-                case let (accessory?, bridge?): { accessory($0) && bridge($0) }
-                case let (accessory, bridge): accessory ?? bridge
-                }
+                let mayMatch = Self.all(found.flatMap(Self.rowFilter(for:)), labels.flatMap(Self.rowFilter(labels:)))
                 if let from = request.query["from"].flatMap(Self.date(iso:)) {
                     let to = request.query["to"].flatMap(Self.date(iso:)) ?? Date()
                     // The archive is read off the concurrency pool: up to a week of files.
@@ -1147,11 +1142,20 @@ public final class UIServer: Sendable {
         return { row in TextSearch.containsAny(row, asciiCaseless: ascii) || other.contains { TextSearch.contains(row, caseless: $0) } }
     }
 
-    /// Whether a row could be one of these bridges' own lines: it holds `"n":"<label>"` (nil for a label to escape).
-    static func rowFilter(for bridges: [PluginHost.Bridge]) -> (@Sendable (String) -> Bool)? {
-        let keys = bridges.map { #""n":"\#($0.name)""# }
-        guard !bridges.contains(where: { $0.name.contains("\"") || $0.name.contains("\\") || !TextSearch.isASCII($0.name) }) else { return nil }
+    /// Whether a row could be a line with one of these labels (a bridge's own lines, a plugin's): it holds
+    /// `"n":"<label>"` (nil for a label to escape).
+    static func rowFilter(labels: [String]) -> (@Sendable (String) -> Bool)? {
+        let keys = labels.map { #""n":"\#($0)""# }
+        guard !labels.contains(where: { $0.contains("\"") || $0.contains("\\") || !TextSearch.isASCII($0) }) else { return nil }
         return { row in keys.contains { TextSearch.contains(row, ascii: $0) } }
+    }
+
+    /// Both filters when there are two, the one there is, or none.
+    static func all<Value>(_ first: (@Sendable (Value) -> Bool)?, _ second: (@Sendable (Value) -> Bool)?) -> (@Sendable (Value) -> Bool)? {
+        switch (first, second) {
+        case let (first?, second?): { first($0) && second($0) }
+        case let (first, second): first ?? second
+        }
     }
 
     /// Whether a log line is about an accessory: the lines naming it, its id, the address its id carries or its
@@ -1170,9 +1174,9 @@ public final class UIServer: Sendable {
         }
     }
 
-    /// The lines of these bridges' own servers (connections, pairings, controllers), not their plugins'.
-    static func logMatcher(for bridges: [PluginHost.Bridge]) -> @Sendable (LogBuffer.Line) -> Bool {
-        let labels = Set(bridges.map(\.name))
+    /// The lines with one of these labels: a bridge's own server's (connections, pairings, controllers), a plugin's.
+    static func logMatcher(labels: [String]) -> @Sendable (LogBuffer.Line) -> Bool {
+        let labels = Set(labels)
         return { labels.contains($0.label) }
     }
 
