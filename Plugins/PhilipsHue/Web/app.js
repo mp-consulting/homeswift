@@ -1,12 +1,13 @@
-// The Philips Hue page: the bridge (found on the network or at an address, paired with its link button), the
-// lights as the Accessories page draws them (its widgets: power, brightness, colour; effects in All controls), the
-// scenes of each room as tiles painted with their palette (a tap recalls one, the eye leaves it out of the Home app),
-// and the settings: the transition and what the Home app shows. Refreshed every two seconds while visible; saving
-// writes this instance's block. The tabs, scene pictures, speed scale and tile text come from plugin.js.
+// The Philips Hue page: the bridge (found on the network or at an address, paired with its link button), the lights
+// as the Accessories page draws them (its widgets: power, brightness, colour; effects in All controls), the scenes of
+// each room as tiles painted with their palette (a tap recalls one, a tap on the active one switches its room off,
+// play makes its colours move, its ⋯ menu leaves it out of the Home app), and the settings: the transition and what
+// the Home app shows. Refreshed every two seconds while visible; saving writes this instance's block. The bridge
+// card, tabs, scene pictures, speed scale and tile text come from plugin.js.
 (() => {
   "use strict";
   const { t } = HomeswiftI18n;
-  const { $, el, icon, tile, request, explain, act, readBlock, updateBlock, setKey, poll, renderKeyed } = homeswift;
+  const { $, el, icon, request, act, readBlock, updateBlock, setKey, poll, renderKeyed } = homeswift;
 
   let status = {};
   let lights = [];
@@ -17,107 +18,32 @@
 
   // MARK: The bridge
 
-  // The end of the minute the link button can be pressed in: the bridge's own when it is pairing (from this page, another,
-  // or the plugin at start without a key), else the one this page's Pair started. A second's tick redraws it meanwhile.
-  let pairingUntil = 0;
-  let asking = false;
-  let ticker = 0;
-  function followPairing() {
-    if (status.pairing && status.pairingSecondsLeft != null) pairingUntil = Date.now() + status.pairingSecondsLeft * 1000;
-    else if (!status.pairing && !asking) pairingUntil = 0;
-    const on = status.pairing || Date.now() < pairingUntil;
-    if (on && !ticker) ticker = setInterval(drawBridge, 1000);
-    if (!on && ticker) { clearInterval(ticker); ticker = 0; }
-  }
+  // The card plugin.js draws for both lighting pages: the bridge, its pairing and the address form.
+  const bridge = homeswift.bridgePairing({
+    card: $("#bridge"), tone: "violet", button: "link",
+    texts: {
+      name: t("Hue Bridge"), pairTitle: t("Pair Homeswift with the bridge."), press: t("Press the round link button on top of the bridge."),
+      pairHelp: t("Pair, then press the link button on the bridge within a minute. The key stays in the plugin's folder, not in config.json."),
+      summary: t("Bridge address"), placeholder: "192.168.1.20", addressHelp: t("Leave it empty to find the bridge on the network."), none: t("No bridge answered on the network."),
+    },
+    facts: (item) => [[t("Address"), item.host], [t("Lights"), item.lights ?? 0], [t("Scenes"), item.scenes ?? 0]],
+    problem: (item) => ({
+      error: `The Hue Bridge at ${item.host} did not answer: ${item.error}`,
+      context: "The Homeswift Philips Hue plugin reads every resource of the bridge's local API v2 (GET https://<bridge>/clip/v2/resource) every two seconds with its application key.",
+      device: { host: item.host },
+    }),
+    discover: async () => (await request("discover")).hosts,
+    use: async (host) => {
+      await updateBlock((draft) => { setKey(draft, "host", host, ""); });
+      if (host) await request("host", { method: "POST", body: { host } });
+      block = await readBlock();
+    },
+    pair: () => request("pair", { method: "POST", body: {} }),
+    refresh: () => refresh(),
+  });
 
-  /// The address form, made once and kept at the end of the card, so it stays open and keeps what was typed; until a
-  /// person types, it shows the address in config.json, else the bridge's.
-  let addressTyped = false;
-  const addressInput = el("input", { type: "text", id: "bridge-address", placeholder: "192.168.1.20", inputmode: "url", autocomplete: "off" });
-  addressInput.addEventListener("input", () => { addressTyped = true; });
-  const foundList = el("div", { class: "found" });
-  const addressBox = el("details", { class: "address-box" },
-    el("summary", { text: t("Bridge address") }),
-    // The title, then the input with its buttons on one row (so they line up at any width), then the help.
-    el("div", { class: "address" },
-      el("label", { class: "field-title", htmlFor: "bridge-address", text: t("Address") }),
-      el("div", { class: "address-row" }, addressInput,
-        el("button", { actionIcon: "search", text: t("Find"), onclick: (event) => act(event.currentTarget, async () => {
-          const { hosts } = await request("discover");
-          foundList.replaceChildren(...(hosts.length ? hosts.map((host) => el("button", { actionIcon: "bridge", text: host, onclick: () => { addressInput.value = host; addressTyped = true; } })) : [el("span", { class: "muted", text: t("No bridge answered on the network.") })]));
-        }) }),
-        el("button", { class: "primary", actionIcon: "check", text: t("Use"), onclick: (event) => act(event.currentTarget, async () => {
-          const host = addressInput.value.trim();
-          await updateBlock((draft) => { setKey(draft, "host", host, ""); });
-          if (host) await request("host", { method: "POST", body: { host } });
-          block = await readBlock();
-          addressTyped = false;
-          await refresh();
-        }) })),
-      el("span", { class: "help", text: t("Leave it empty to find the bridge on the network.") })),
-    foundList);
-  $("#bridge").append(addressBox);
-
-  /// The card above the address form, drawn again only when what it shows changed; while pairing, the second's tick
-  /// only counts down.
-  let bridgeKey = "";
-  let countdown = null;
   function drawBridge() {
-    if (!addressTyped && document.activeElement !== addressInput) addressInput.value = block.host || status.host || "";
-    const paired = status.paired;
-    const pairing = status.pairing || Date.now() < pairingUntil;
-    const seconds = Math.max(0, Math.ceil((pairingUntil - Date.now()) / 1000));
-    const waiting = () => t("Waiting for the button… {seconds} s left.", { seconds });
-    const key = JSON.stringify([{ ...status, pairingSecondsLeft: null }, pairing]);
-    if (key === bridgeKey) {
-      if (countdown) countdown.textContent = waiting();
-      return;
-    }
-    bridgeKey = key;
-    const [state, kind] = !status.host ? [t("Not found"), "away"] : !paired ? [pairing ? t("Pairing…") : t("Not paired"), pairing ? "standby" : "away"]
-      : status.error ? [t("Not responding"), "away"] : [t("Connected"), "on"];
-    const facts = paired && status.host
-      ? el("div", { class: "facts" },
-        homeswift.fact(t("Address"), status.host), homeswift.fact(t("Lights"), String(status.lights ?? 0)), homeswift.fact(t("Scenes"), String(status.scenes ?? 0)))
-      : null;
-    const note = el("p", { class: "muted", text: pairing ? waiting() : t("Pair, then press the link button on the bridge within a minute. The key stays in the plugin's folder, not in config.json.") });
-    countdown = pairing ? note : null;
-    const pairBox = status.host && !paired ? el("div", { class: `pair-prompt ${pairing ? "pairing" : ""}` },
-      el("span", { class: "link-button", "aria-hidden": "true" }, icon("link")),
-      el("div", {},
-        el("p", {}, el("strong", { text: pairing ? t("Press the round link button on top of the bridge.") : t("Pair Homeswift with the bridge.") })),
-        note,
-        pairing ? null : el("div", { class: "actions" }, el("button", { class: "primary", actionIcon: "key", text: t("Pair"), onclick: (event) => pair(event.currentTarget) })))) : null;
-    const card = $("#bridge");
-    for (const node of [...card.children]) if (node !== addressBox) node.remove();
-    addressBox.before(...[
-      el("div", { class: "server-head" },
-        tile("bridge", paired && !status.error ? "violet" : "grey"),
-        el("div", { class: "who" }, el("strong", { text: t("Hue Bridge") }), el("div", { class: "muted", text: [status.host, status.bridgeID?.toUpperCase()].filter(Boolean).join(" · ") || t("Looking on the network…") })),
-        el("span", { class: `pill status ${kind}`, text: state })),
-      facts, pairBox,
-      status.error && paired ? explain({
-        error: `The Hue Bridge at ${status.host} did not answer: ${status.error}`,
-        context: "The Homeswift Philips Hue plugin reads every resource of the bridge's local API v2 (GET https://<bridge>/clip/v2/resource) every two seconds with its application key.",
-        device: { host: status.host },
-      }) : null].filter(Boolean));
-  }
-
-  async function pair(button) {
-    pairingUntil = Date.now() + 60000;
-    asking = true;
-    followPairing();
-    drawBridge();
-    try {
-      await act(button, () => request("pair", { method: "POST", body: {} }), null);
-      pairingUntil = 0;
-    } catch (e) {
-      pairingUntil = 0;
-      alert(e.message);
-    } finally {
-      asking = false;
-      await refresh();
-    }
+    bridge.draw([{ ...status, detail: [status.host, status.bridgeID?.toUpperCase()].filter(Boolean).join(" · ") }], { address: block.host || status.host || "" });
   }
 
   // MARK: Lights, as the Accessories page draws them
@@ -180,25 +106,86 @@
 
   // A scene's picture: dropped on its tile or chosen from its menu (plugin.js); its ⋯ menu also leaves it out of the
   // Home app, by "<room>/<scene>".
-  const pictures = homeswift.scenePictures({ refresh: () => refresh(), toggleHidden: (key) => toggleList("excludeScenes", key) });
+  const pictures = homeswift.scenePictures({
+    refresh: () => refresh(), toggleHidden: (key) => toggleList("excludeScenes", key),
+    // A smart scene follows the time of day: the bridge takes no transition for it.
+    more: (scene) => scene.smart ? [] : [{ label: t("Speed…"), icon: "sliders", onSelect: () => sceneSpeed(scene) }],
+  });
+
+  /// A scene's own transition, kept in the block's `sceneTransitions` by "<room>/<scene>": the speed scale of the
+  /// Settings tab, showing the scene's or else the Settings tab's. Saved at the Settings speed (or Use the default), the
+  /// scene has none of its own and follows the Settings speed when it changes.
+  function sceneSpeed(scene) {
+    const key = `${scene.room}/${scene.name}`;
+    // The Settings speed as its tab shows it, saved or not; the line under the scale says whether the scene follows it.
+    const global = speed.value();
+    const settingsText = speed.element.querySelector("output").textContent;
+    const note = el("p", { class: "muted scene-speed-note" });
+    const scale = homeswift.speedScale({
+      help: t("How fast the lights reach this scene. Without a speed of its own, a scene takes the one in Settings."),
+      onInput: () => showNote(),
+    });
+    const showNote = () => {
+      note.textContent = scale.value() === global ? t("Follows the Settings speed ({speed}).", { speed: settingsText })
+        : t("A speed of its own; Settings has {speed}.", { speed: settingsText });
+    };
+    scale.set(scene.transitionMs ?? global);
+    showNote();
+    const write = (ms) => updateBlock((draft) => {
+      const list = (draft.sceneTransitions || []).filter((entry) => String(entry.scene).toLowerCase() !== key.toLowerCase());
+      if (ms != null) list.push({ scene: key, transitionMs: ms });
+      if (list.length) draft.sceneTransitions = list; else delete draft.sceneTransitions;
+    });
+    const cancel = el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dialog.close() });
+    const reset = scene.transitionMs == null ? null : el("button", { type: "button", actionIcon: "restore", text: t("Use the default"),
+      onclick: (event) => act(event.currentTarget, async () => { await write(null); dialog.close(); setTimeout(refresh, 1500); }) });
+    const save = el("button", { type: "button", class: "primary", actionIcon: "check", text: t("Save"),
+      onclick: (event) => act(event.currentTarget, async () => {
+        const ms = scale.value() === global ? null : scale.value();
+        // Nothing to write when the scene keeps what it had (no restart of the plugin).
+        if (ms !== (scene.transitionMs ?? null)) { await write(ms); setTimeout(refresh, 1500); }
+        dialog.close();
+      }) });
+    const dialog = el("dialog", { class: "admin-dialog card", "aria-labelledby": "scene-speed-title" },
+      el("h2", { id: "scene-speed-title", text: t("Speed of {name}", { name: scene.name }) }),
+      scale.element, note,
+      el("div", { class: "actions" }, reset, cancel, save));
+    dialog.addEventListener("close", () => dialog.remove());
+    document.body.append(dialog);
+    dialog.showModal();
+  }
 
   function sceneTile(scene) {
     const colours = scene.colours?.length ? scene.colours : ["#8e8e93"];
     const background = colours.length === 1 ? colours[0] : `linear-gradient(135deg, ${colours.join(", ")})`;
     const button = el("div", {
       class: `scene ${scene.active ? "active" : ""} ${scene.hidden ? "hidden-scene" : ""} ${homeswift.textStyle(colours)}`, role: "button", tabindex: 0, style: `background: ${background}`,
-      "aria-label": t("Recall {name}", { name: scene.name }), "aria-pressed": String(scene.active),
+      // A toggle, as the scene's switch in the Home app: pressed while the scene is on.
+      "aria-label": scene.name, "aria-pressed": String(scene.active),
     },
       scene.active ? el("span", { class: "badge", text: t("Active") }) : null,
       el("span", { class: "name", text: scene.name }),
       // A smart scene says so, unless its name already does.
       scene.smart && !/natural light/i.test(scene.name) ? el("span", { class: "kind", text: t("Natural light") }) : null);
-    const recall = async () => {
+    const send = async (path, body) => {
       button.classList.add("busy");
-      try { await request("recall", { method: "POST", body: { id: scene.id } }); await refresh(); } catch (e) { alert(e.message); } finally { button.classList.remove("busy"); }
+      try { await request(path, { method: "POST", body }); await refresh(); } catch (e) { alert(e.message); } finally { button.classList.remove("busy"); }
     };
-    button.addEventListener("click", recall);
-    button.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); recall(); } });
+    const recall = (dynamic) => send("recall", { id: scene.id, dynamic });
+    // A tap recalls the scene; on an active one, it switches the room off, as the Home app's switch does.
+    const toggle = () => (scene.active ? send("scene-off", { id: scene.id }) : recall());
+    button.addEventListener("click", toggle);
+    button.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggle(); } });
+    // Once the scene is on, play, as the Hue app's button: its colours move until it is paused (recalled still). A
+    // smart scene follows the time of day and does not play.
+    if (scene.active && !scene.smart) {
+      const play = el("button", {
+        class: `play ${scene.playing ? "on" : ""}`, "aria-label": scene.playing ? t("Pause {name}", { name: scene.name }) : t("Play {name}", { name: scene.name }),
+        "aria-pressed": String(scene.playing), onclick: (event) => { event.stopPropagation(); recall(!scene.playing); },
+      }, icon(scene.playing ? "pause" : "play"));
+      play.addEventListener("keydown", (event) => event.stopPropagation());
+      button.append(play);
+    }
     return pictures.decorate(button, scene, `${scene.room}/${scene.name}`);
   }
 
@@ -313,7 +300,6 @@
     } catch (e) {
       status = { error: e.message };
     }
-    followPairing();
     drawBridge();
     drawLights();
     drawScenes();

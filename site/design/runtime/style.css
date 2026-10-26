@@ -317,7 +317,7 @@ button.add-button {
 .page-head button.add-button { width: 30px; height: 30px; }
 button.add-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
 @media (hover: hover) and (pointer: fine) {
-  button.add-button:hover { background: var(--accent-fill); color: var(--accent-text); transform: none; }
+  button.add-button:hover { background: var(--accent-fill); color: var(--accent-text); }
 }
 @media (pointer: coarse) { button.add-button { position: relative; } button.add-button::after { content: ""; position: absolute; inset: -8px; } }
 .pill.status.admin { color: var(--accent-ink); border-color: rgba(255, 122, 26, 0.4); }
@@ -368,11 +368,9 @@ button, a.button {
   transition: transform var(--fast) var(--ease-out), box-shadow var(--fast) var(--ease-out), opacity var(--fast) var(--ease-out);
 }
 a.button { display: inline-flex; align-items: center; justify-content: center; text-align: center; text-decoration: none; line-height: normal; }
-button:hover, a.button:hover { transform: translateY(-1px); }
 button:active:not(:disabled), a.button:active { transform: scale(0.97); transition-duration: 80ms; }
 button.primary, a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: rgba(255, 255, 255, 0.4); box-shadow: 0 8px 20px rgba(255, 122, 26, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
 button.link { border: 0; background: none; box-shadow: none; color: var(--accent-ink); padding: 4px 6px; }
-button.link:hover { transform: none; }
 button.link:active:not(:disabled) { transform: none; opacity: 0.6; }
 button:disabled { opacity: .5; cursor: default; transform: none; }
 button:focus-visible, a.button:focus-visible, nav a:focus-visible, summary:focus-visible, .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -403,7 +401,6 @@ select.popup {
   background-color: var(--control); border-color: var(--edge); box-shadow: var(--shadow-control), inset 0 1px 0 var(--edge-light);
   transition: transform var(--fast) var(--ease-out), box-shadow var(--fast) var(--ease-out), border-color var(--fast) var(--ease-out);
 }
-select.popup:hover { transform: translateY(-1px); }
 select.popup:active { transform: scale(0.97); transition-duration: 80ms; }
 select.popup:focus:not(:focus-visible) { border-color: var(--edge); box-shadow: var(--shadow-control), inset 0 1px 0 var(--edge-light); }
 select.popup:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(255, 122, 26, 0.18); }
@@ -562,7 +559,6 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
   background: var(--control); border: 1px solid var(--edge); box-shadow: inset 0 1px 0 var(--edge-light), var(--shadow-control);
 }
 .group button { border: 0; background: none; box-shadow: none; padding: 5px 13px; white-space: nowrap; transition: background-color var(--fast) var(--ease-out), transform var(--fast) var(--ease-out); }
-.group button:hover:not(:disabled) { transform: none; }
 .group button:hover:not(:disabled):not(.on) { background: var(--material-thin); }
 .group button.on { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); }
 /* A segmented control whose choices carry a glyph before their name (a phone shows the glyph alone). */
@@ -572,7 +568,6 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .mini-remote { display: grid; grid-template-columns: auto auto auto; align-items: center; justify-content: start; gap: 14px; }
 .mini-remote svg { display: block; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .mini-remote button { touch-action: manipulation; transition: transform var(--fast) var(--ease-out), color var(--fast) var(--ease-out), background-color var(--fast) var(--ease-out); }
-.mini-remote button:hover:not(:disabled) { transform: none; }
 .mini-remote button:active:not(:disabled) { transform: scale(0.9); transition-duration: 60ms; }
 .mini-remote button.sent { color: var(--accent-ink); }
 .mini-remote.is-disabled .pad, .mini-remote.is-disabled .round-keys, .mini-remote.is-disabled .remote-side { opacity: 0.45; }
@@ -854,7 +849,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .edit-bar { position: absolute; z-index: 3; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; gap: 0; padding: 4px; border-radius: 999px; max-width: calc(100% - 8px); width: max-content;
   background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
 .edit-bar button { min-width: 0; width: 26px; flex: 1 1 26px; height: 28px; padding: 0 2px; border: 0; background: none; box-shadow: none; border-radius: 999px; font-size: 0.75rem; font-weight: 600; color: var(--muted); }
-.edit-bar button:hover { transform: none; color: var(--text); }
+.edit-bar button:hover { color: var(--text); }
 .edit-bar button[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); }
 /* Dragged: the widget lifts over the page and follows the pointer; a dashed slot shows where it will land. In
    Edit, a finger on a widget drags it rather than scrolling the page. */
@@ -1257,7 +1252,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
   padding: 0 7px; margin: 0; border-radius: 6px; font: 600 0.6875rem/1.5 var(--mono); letter-spacing: 0.02em; vertical-align: baseline;
   color: var(--muted); background: var(--material-thin); border: 1px solid var(--line); box-shadow: none;
 }
-.log-details-toggle:hover { color: var(--text); transform: none; }
+.log-details-toggle:hover { color: var(--text); }
 .log-details-toggle[aria-expanded="true"] { color: var(--accent-ink); border-color: var(--accent); }
 .log-line .log-details { grid-column: 1 / -1; margin: 4px 0 6px; max-height: 420px; overflow: auto; font-size: 0.75rem; }
 .log-line.warning { background: rgba(201, 115, 26, 0.08); }
@@ -1444,7 +1439,7 @@ dd { margin: 0; }
 .chat-composer textarea:focus { box-shadow: none; }
 .chat-mic, .chat-send { flex: none; width: 34px; height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
 .chat-mic { border-color: transparent; background: none; box-shadow: none; color: var(--muted); }
-.chat-mic:hover { color: var(--text); background: var(--material-thin); transform: none; }
+.chat-mic:hover { color: var(--text); background: var(--material-thin); }
 .chat-mic.unavailable { opacity: 0.45; }
 .chat.listening .chat-mic {
   color: #fff; background: conic-gradient(from var(--ai-angle), var(--ai-colors)); animation: ai-turn 2s linear infinite;
@@ -1509,7 +1504,6 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
 .code-editor { --code-line: 1.55em; }
 .code-mark { position: absolute; left: 0; right: 0; height: var(--code-line); z-index: -1; background: rgba(255, 107, 107, 0.16); box-shadow: inset 3px 0 0 var(--error); }
 .line-link { padding: 0; margin: 0 6px 0 0; border: 0; background: none; box-shadow: none; font: inherit; font-weight: 600; color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
-.line-link:hover { transform: none; }
 .schema-problems { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 2px; }
 .code-editor > .code-input { position: relative; z-index: 1; color: transparent; background: transparent; caret-color: var(--text); resize: vertical; }
 .code-editor > .code-input::selection { color: transparent; background: rgba(10, 132, 255, 0.28); }
@@ -1672,9 +1666,8 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   /* The chat sheet sits over the tab bar, its field above the home indicator. */
   .chat-foot { margin-bottom: max(12px, env(safe-area-inset-bottom)); }
 }
-/* A touch has no hover: a lift or a tint applied on tap would stay until the next tap elsewhere. */
+/* A touch has no hover: a tint applied on tap would stay until the next tap elsewhere. */
 @media (hover: none) {
-  button:hover, a.button:hover, select.popup:hover { transform: none; }
   nav a:hover:not(.active) { background-color: transparent; }
 }
 @media (prefers-reduced-motion: reduce) { .tabbar a { transition: none; } }
@@ -1732,7 +1725,7 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   background: rgba(30, 32, 40, 0.42); -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%);
   border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: none;
 }
-.camera-button:hover { transform: none; background: rgba(30, 32, 40, 0.62); }
+.camera-button:hover { background: rgba(30, 32, 40, 0.62); }
 .camera-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .camera-message {
   position: absolute; inset: 0; display: grid; place-items: center; padding: 48px 16px; text-align: center; z-index: 1;
@@ -1794,8 +1787,6 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
   display: inline-flex; align-items: center; gap: 10px; flex: none; min-height: 44px; padding: 6px 16px 6px 6px;
   transition: transform var(--fast) var(--ease-out), box-shadow var(--normal) var(--ease-out);
 }
-.mood-room:hover, .mood-button:hover { transform: none; }
-@media (hover: hover) and (pointer: fine) { .mood-button:hover, .mood-room:hover { transform: translateY(-1px); } }
 .mood-button:active:not(:disabled), .mood-room:active { transform: scale(0.96); transition-duration: 80ms; }
 .mood-button.playing { box-shadow: 0 0 0 2px var(--accent), var(--shadow-control); }
 .mood-button.busy::after { margin-left: 0; }
@@ -2383,12 +2374,12 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .local-ui-settings .group-box > .fields > .fields { align-items: stretch; }
 .local-ui-settings .group-box > .fields > .fields > div { display: flex; flex-direction: column; min-width: 0; }
 .local-ui-settings .group-box > .fields > .fields > div > .drop-zone { margin-top: auto; }
-/* Separate section guidance from its actions. */
-.local-ui-settings .group-box fieldset > button,
-.local-ui-settings .group-box .help + button,
-.local-ui-settings .group-box p + button,
-.local-ui-settings .group-box .help + .actions { margin-top: 14px; }
-.local-ui-settings .group-box fieldset > .help { margin-bottom: 10px; }
+/* Separate section guidance from its actions, in every form: a list's help from its Add button. */
+fieldset > button,
+.group-box .help + button,
+.group-box p + button,
+.group-box .help + .actions { margin-top: 14px; }
+fieldset > .help { margin-bottom: 10px; }
 
 .scene-value-slider { display: flex; flex-direction: column; gap: 10px; width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--material-thin); }
 .scene-slider-value { align-self: flex-end; font-size: .9375rem; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -2468,7 +2459,7 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 
 .mobile-nav-divider { border: 0; border-top: 1px solid var(--edge); margin: 8px 4px; }
 
-.mobile-nav-account:hover { transform: none; background: var(--material-thin); }
+.mobile-nav-account:hover { background: var(--material-thin); }
 
 .account-settings-link, .account-settings-link:visited { color: var(--accent-ink); text-decoration: none; }
 .account-settings-link:hover { text-decoration: underline; text-underline-offset: 3px; }
@@ -2478,7 +2469,7 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .port-stepper > input::-webkit-inner-spin-button, .port-stepper > input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .port-stepper-buttons { position: absolute; inset: 4px 4px 4px auto; width: 34px; display: grid; grid-template-rows: 1fr 1fr; gap: 2px; }
 .port-stepper-buttons button { display: grid; place-items: center; min-height: 0; padding: 0; border: 0; border-radius: 6px; background: var(--material-thin); color: var(--muted); box-shadow: none; }
-.port-stepper-buttons button:hover { transform: none; background: var(--material-regular); color: var(--accent-ink); }
+.port-stepper-buttons button:hover { background: var(--material-regular); color: var(--accent-ink); }
 .port-stepper-buttons svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {

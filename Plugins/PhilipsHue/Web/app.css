@@ -1,22 +1,28 @@
 /* The Philips Hue page on the UI's materials: the bridge and its pairing, the lights as the Accessories page's
-   widgets, the scenes of each room as tiles painted with their palette, and the settings. The tabs, pairing, address
-   form, scene tiles, speed scale and save bar are style.css's, shared with the DIRIGERA page. */
+   widgets, the scenes of each room as tiles painted with their palette, and the settings. The bridge card, tabs,
+   scene tiles, speed scale and save bar are style.css's, shared with the DIRIGERA page. */
 
 .page-head { align-items: center; }
 h2 { margin: 0 0 10px; }
 .intro { margin: 0 0 14px; font-size: 0.875rem; }
-
-/* The bridge. */
-.bridge-card .server-head { display: flex; align-items: center; gap: 14px; }
-.bridge-card .who { flex: 1; min-width: 0; }
-.bridge-card .who strong { display: block; }
-.found { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 
 /* Scenes: a section per room, a tile per scene; a smart scene says so under its name. */
 .room { margin-bottom: 22px; }
 .room-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; }
 .room-head h2 { margin: 0; font-size: 1.0625rem; }
 .scene .kind { position: relative; z-index: 1; font-size: 0.75rem; opacity: 0.85; }
+
+/* An active scene's play button, at the tile's bottom right as the Hue app has it; lit while the scene plays. */
+.scene .play { position: absolute; right: 8px; bottom: 8px; z-index: 2; width: 34px; height: 34px; min-height: 0; padding: 0; border-radius: 50%; display: grid; place-items: center; background: rgba(0, 0, 0, 0.32); border: 0; color: #fff; box-shadow: none; }
+.scene .play svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.scene .play.on { background: rgba(255, 255, 255, 0.9); color: #1d1d1f; }
+.scene.light:not(.pictured) .play { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
+.scene.light:not(.pictured) .play.on { background: #1d1d1f; color: #fff; }
+/* The name keeps clear of the button. */
+.scene:has(.play) .name { padding-right: 36px; }
+
+/* A scene's speed dialog: whether it follows the Settings speed, under the scale. */
+.scene-speed-note { margin: 10px 0 14px; font-size: 0.875rem; }
 
 /* Lights as the Accessories page draws them; the ones left out of the Home app below, to bring back. */
 .accessory-walls { margin: 0; }

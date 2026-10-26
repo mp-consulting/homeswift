@@ -431,9 +431,10 @@
   /// Scene tiles' pictures: dropped on a tile or chosen from its ⋯ menu, shrunk here to 640 pixels and sent as a JPEG
   /// data: URL to the plugin's `scene-picture` route (POST; GET `scene-picture?id=` reads one, `scene-picture-remove`
   /// takes it away). A scene's `picture` is its version: each is fetched once, a newer one replacing it. `refresh`
-  /// runs after a change; `toggleHidden(key)` leaves the scene out of the Home app, or brings it back. Answers
-  /// `decorate(tileNode, scene, hideKey)`, which adds the tile's menu, takes drops and paints the picture.
-  function scenePictures({ refresh, toggleHidden }) {
+  /// runs after a change; `toggleHidden(key)` leaves the scene out of the Home app, or brings it back; `more(scene)`
+  /// the page's own items for the menu. Answers `decorate(tileNode, scene, hideKey)`, which adds the tile's menu, takes
+  /// drops and paints the picture.
+  function scenePictures({ refresh, toggleHidden, more = () => [] }) {
     if (!pictureDropGuard) {
       pictureDropGuard = true;
       for (const type of ["dragover", "drop"]) document.addEventListener(type, (event) => { if (event.dataTransfer?.types?.includes("Files")) event.preventDefault(); });
@@ -519,6 +520,7 @@
       const button = HomeswiftCommon.menuButton(t("Actions for {name}", { name: scene.name }), () => [
         { label: scene.picture ? t("Change the picture…") : t("Choose a picture…"), icon: "camera", onSelect: () => choosePicture(scene, tileNode) },
         scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: () => removePicture(scene) } : null,
+        ...more(scene),
         { label: scene.hidden ? t("Show in the Home app") : t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleHidden(hideKey) },
       ]);
       button.classList.add("eye");
@@ -541,9 +543,147 @@
     };
   }
 
+  /// The bridge card of the lighting pages, the same for a Hue Bridge and DIRIGERA hubs: a block per bridge (its tile,
+  /// name, address and state; its facts once paired, else the prompt to pair: Pair, then the countdown while its
+  /// button can be pressed), and the address form at the end of the card (Find lists the bridges on the network, a tap
+  /// fills the address in; the primary button uses it). The form is made once, so it stays open and keeps what was typed.
+  ///
+  /// `card` the element; `tone` the tile's colour once connected; `button` the icon on the drawn bridge button;
+  /// `texts`: `name` (a bridge without one), `pairTitle`, `pairHelp`, `press` (while pairing), `summary` (the form's),
+  /// `placeholder`, `addressHelp`, `none` (Find found nothing). `facts(bridge)` the [label, value] pairs of a paired
+  /// one; `menu(bridge)` more items of its ⋯ menu (Pair again is there once paired); `problem(bridge)` what
+  /// `explain` takes when it does not answer. `discover()` answers the hosts on the network, `use(host)` takes the
+  /// address, `pair(host)` pairs (resolves once paired, rejects otherwise), `refresh()` reads the state again.
+  ///
+  /// Answers `{ draw(bridges, { address }), pair(host) }`: `bridges` are `{ host, name, detail, paired, pairing,
+  /// pairingSecondsLeft, connected, error }` (`connected` false while connecting; `detail` replaces the address
+  /// under the name), `address` what the form shows until a person types.
+  function bridgePairing({ card, tone, button = "link", texts, facts = () => [], menu = () => [], problem, discover, use, pair, refresh }) {
+    // The end of each bridge's minute to press its button, by host: the bridge's own while it pairs (this page, another
+    // or the plugin at start), else the one this page's Pair started. A second's tick redraws meanwhile.
+    const pairingUntil = new Map();
+    const asking = new Set();
+    let bridges = [];
+    let address = "";
+    let ticker = 0;
+    const secondsLeft = (host) => Math.max(0, Math.ceil(((pairingUntil.get(host) ?? 0) - Date.now()) / 1000));
+    const isPairing = (bridge) => bridge.pairing || Date.now() < (pairingUntil.get(bridge.host) ?? 0);
+    const waiting = (host) => t("Waiting for the button… {seconds} s left.", { seconds: secondsLeft(host) });
+
+    function follow() {
+      for (const bridge of bridges) {
+        if (bridge.pairing && bridge.pairingSecondsLeft != null) pairingUntil.set(bridge.host, Date.now() + bridge.pairingSecondsLeft * 1000);
+        else if (!bridge.pairing && !asking.has(bridge.host)) pairingUntil.delete(bridge.host);
+      }
+      const on = bridges.some(isPairing);
+      if (on && !ticker) ticker = setInterval(redraw, 1000);
+      if (!on && ticker) { clearInterval(ticker); ticker = 0; }
+    }
+
+    let typed = false;
+    const input = el("input", { type: "text", id: "bridge-address", placeholder: texts.placeholder, inputmode: "url", autocomplete: "off" });
+    input.addEventListener("input", () => { typed = true; });
+    const found = el("div", { class: "found" });
+    const form = el("details", { class: "address-box" },
+      el("summary", { text: texts.summary }),
+      // The title, then the input with its buttons on one row (so they line up at any width), then the help.
+      el("div", { class: "address" },
+        el("label", { class: "field-title", htmlFor: "bridge-address", text: t("Address") }),
+        el("div", { class: "address-row" }, input,
+          el("button", { actionIcon: "search", text: t("Find"), onclick: (event) => act(event.currentTarget, async () => {
+            const hosts = await discover();
+            found.replaceChildren(...(hosts.length
+              ? hosts.map((host) => el("button", { actionIcon: "hub", text: host, onclick: () => { input.value = host; typed = true; } }))
+              : [el("span", { class: "muted", text: texts.none })]));
+          }) }),
+          el("button", { class: "primary", actionIcon: "check", text: t("Use"), onclick: (event) => act(event.currentTarget, async () => {
+            await use(input.value.trim());
+            typed = false;
+            found.replaceChildren();
+            await refresh();
+          }) })),
+        texts.addressHelp ? el("span", { class: "help", text: texts.addressHelp }) : null),
+      found);
+    const list = el("div", { class: "bridges" });
+    card.append(list, form);
+
+    /// The countdown texts of the bridges waiting for their button, by host: the second's tick updates only them.
+    const countdowns = new Map();
+
+    function block(bridge) {
+      const pairingNow = isPairing(bridge);
+      const [state, kind] = pairingNow ? [t("Pairing…"), "standby"] : !bridge.host ? [t("Not found"), "away"] : !bridge.paired ? [t("Not paired"), "away"]
+        : bridge.error ? [t("Not responding"), "away"] : bridge.connected === false ? [t("Connecting…"), "standby"] : [t("Connected"), "on"];
+      const items = [
+        bridge.paired && !pairingNow ? { label: t("Pair again"), icon: "key", onSelect: () => start(null, bridge.host) } : null,
+        ...menu(bridge),
+      ].filter(Boolean);
+      const note = el("p", { class: "muted", text: pairingNow ? waiting(bridge.host) : texts.pairHelp });
+      if (pairingNow) countdowns.set(bridge.host, note);
+      const pairs = facts(bridge);
+      return el("div", { class: "bridge" },
+        el("div", { class: "server-head" },
+          tile("bridge", bridge.paired && !bridge.error ? tone : "grey"),
+          el("div", { class: "who" }, el("strong", { text: bridge.name || texts.name }),
+            el("div", { class: "muted", text: bridge.detail || bridge.host || t("Looking on the network…") })),
+          el("span", { class: `pill status ${kind}`, text: state }),
+          // The ⋯ menu only when it has something: a bridge pairing for the first time has nothing.
+          items.length ? HomeswiftCommon.menuButton(t("Actions for {name}", { name: bridge.name || bridge.host || texts.name }), () => items) : null),
+        bridge.paired && bridge.host && !pairingNow && pairs.length ? el("div", { class: "facts" }, ...pairs.map(([label, value]) => fact(label, String(value)))) : null,
+        bridge.host && (!bridge.paired || pairingNow) ? el("div", { class: `pair-prompt ${pairingNow ? "pairing" : ""}` },
+          el("span", { class: "link-button", "aria-hidden": "true" }, icon(button)),
+          el("div", {},
+            el("p", {}, el("strong", { text: pairingNow ? texts.press : texts.pairTitle })),
+            note),
+          // At the row's end, on the drawn button's line.
+          pairingNow ? null : el("button", { class: "primary", actionIcon: "pair", text: t("Pair"), onclick: (event) => start(event.currentTarget, bridge.host) })) : null,
+        bridge.error && bridge.paired && !pairingNow && problem ? explain(problem(bridge)) : null);
+    }
+
+    /// The blocks, drawn again only when what they show changed; while a bridge pairs, the second's tick only counts down.
+    let key = "";
+    function redraw() {
+      if (!typed && document.activeElement !== input) input.value = address;
+      const next = JSON.stringify(bridges.map((bridge) => [{ ...bridge, pairingSecondsLeft: null }, isPairing(bridge)]));
+      if (next === key) {
+        for (const [host, text] of countdowns) text.textContent = waiting(host);
+        return;
+      }
+      key = next;
+      countdowns.clear();
+      list.replaceChildren(...bridges.map(block));
+    }
+
+    async function start(control, host) {
+      pairingUntil.set(host, Date.now() + 60000);
+      asking.add(host);
+      follow();
+      redraw();
+      try {
+        await (control ? act(control, () => pair(host), null) : pair(host));
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        pairingUntil.delete(host);
+        asking.delete(host);
+        await refresh();
+      }
+    }
+
+    return {
+      draw(next, options = {}) {
+        bridges = next;
+        address = options.address ?? "";
+        follow();
+        redraw();
+      },
+      pair: (host) => start(null, host),
+    };
+  }
+
   window.homeswift = {
     platform, name, request, home: "/plugins", $, el, icon, tile, fact, assistant, explain, ask, breadcrumb, api, act, formatTemperature, temperature,
     readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, toggleList, poll, renderKeyed,
-    canonicalMAC, isMAC, sameMAC, tabs, textStyle, speedScale, scenePictures,
+    canonicalMAC, isMAC, sameMAC, tabs, textStyle, speedScale, scenePictures, bridgePairing,
   };
 })();

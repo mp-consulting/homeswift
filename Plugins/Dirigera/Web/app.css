@@ -1,18 +1,10 @@
 /* The IKEA DIRIGERA page on the UI's materials: the hubs and their pairing, the devices as the Accessories page's
-   widgets, the hub's scenes as tiles, and the settings. The tabs, pairing, address form, scene tiles, speed scale
+   widgets, the hub's scenes as tiles, and the settings. The bridge card, tabs, scene tiles, speed scale
    and save bar are style.css's, shared with the Philips Hue page. */
 
 .page-head { align-items: center; }
 h2 { margin: 0 0 10px; }
 .intro { margin: 0 0 14px; font-size: 0.875rem; }
-
-/* The hubs. */
-.bridge-card .who strong { display: block; }
-.found { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-.hub { display: grid; gap: 4px; padding: 12px 0; border-top: 1px solid var(--line); }
-.hub:first-of-type { border-top: 0; padding-top: 0; }
-.hub-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.hub-row .who { flex: 1; min-width: 180px; }
 
 /* Scenes: the hub's icon on each tile (hidden under a picture), and a flash when one runs. */
 .scene .glyph { position: absolute; top: 12px; left: 14px; z-index: 1; width: 28px; height: 28px; color: rgba(255, 255, 255, 0.92); }

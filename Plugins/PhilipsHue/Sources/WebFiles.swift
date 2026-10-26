@@ -8,18 +8,12 @@ extension PhilipsHuePlugin {
     public static let webFiles: [String: WebFile] = [
         "app.css": WebFile(contentType: "text/css; charset=utf-8", body: #"""
 /* The Philips Hue page on the UI's materials: the bridge and its pairing, the lights as the Accessories page's
-   widgets, the scenes of each room as tiles painted with their palette, and the settings. The tabs, pairing, address
-   form, scene tiles, speed scale and save bar are style.css's, shared with the DIRIGERA page. */
+   widgets, the scenes of each room as tiles painted with their palette, and the settings. The bridge card, tabs,
+   scene tiles, speed scale and save bar are style.css's, shared with the DIRIGERA page. */
 
 .page-head { align-items: center; }
 h2 { margin: 0 0 10px; }
 .intro { margin: 0 0 14px; font-size: 0.875rem; }
-
-/* The bridge. */
-.bridge-card .server-head { display: flex; align-items: center; gap: 14px; }
-.bridge-card .who { flex: 1; min-width: 0; }
-.bridge-card .who strong { display: block; }
-.found { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 
 /* Scenes: a section per room, a tile per scene; a smart scene says so under its name. */
 .room { margin-bottom: 22px; }
@@ -27,20 +21,33 @@ h2 { margin: 0 0 10px; }
 .room-head h2 { margin: 0; font-size: 1.0625rem; }
 .scene .kind { position: relative; z-index: 1; font-size: 0.75rem; opacity: 0.85; }
 
+/* An active scene's play button, at the tile's bottom right as the Hue app has it; lit while the scene plays. */
+.scene .play { position: absolute; right: 8px; bottom: 8px; z-index: 2; width: 34px; height: 34px; min-height: 0; padding: 0; border-radius: 50%; display: grid; place-items: center; background: rgba(0, 0, 0, 0.32); border: 0; color: #fff; box-shadow: none; }
+.scene .play svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.scene .play.on { background: rgba(255, 255, 255, 0.9); color: #1d1d1f; }
+.scene.light:not(.pictured) .play { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
+.scene.light:not(.pictured) .play.on { background: #1d1d1f; color: #fff; }
+/* The name keeps clear of the button. */
+.scene:has(.play) .name { padding-right: 36px; }
+
+/* A scene's speed dialog: whether it follows the Settings speed, under the scale. */
+.scene-speed-note { margin: 10px 0 14px; font-size: 0.875rem; }
+
 /* Lights as the Accessories page draws them; the ones left out of the Home app below, to bring back. */
 .accessory-walls { margin: 0; }
 
 """#),
         "app.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
-// The Philips Hue page: the bridge (found on the network or at an address, paired with its link button), the
-// lights as the Accessories page draws them (its widgets: power, brightness, colour; effects in All controls), the
-// scenes of each room as tiles painted with their palette (a tap recalls one, the eye leaves it out of the Home app),
-// and the settings: the transition and what the Home app shows. Refreshed every two seconds while visible; saving
-// writes this instance's block. The tabs, scene pictures, speed scale and tile text come from plugin.js.
+// The Philips Hue page: the bridge (found on the network or at an address, paired with its link button), the lights
+// as the Accessories page draws them (its widgets: power, brightness, colour; effects in All controls), the scenes of
+// each room as tiles painted with their palette (a tap recalls one, a tap on the active one switches its room off,
+// play makes its colours move, its ⋯ menu leaves it out of the Home app), and the settings: the transition and what
+// the Home app shows. Refreshed every two seconds while visible; saving writes this instance's block. The bridge
+// card, tabs, scene pictures, speed scale and tile text come from plugin.js.
 (() => {
   "use strict";
   const { t } = HomeswiftI18n;
-  const { $, el, icon, tile, request, explain, act, readBlock, updateBlock, setKey, poll, renderKeyed } = homeswift;
+  const { $, el, icon, request, act, readBlock, updateBlock, setKey, poll, renderKeyed } = homeswift;
 
   let status = {};
   let lights = [];
@@ -51,107 +58,32 @@ h2 { margin: 0 0 10px; }
 
   // MARK: The bridge
 
-  // The end of the minute the link button can be pressed in: the bridge's own when it is pairing (from this page, another,
-  // or the plugin at start without a key), else the one this page's Pair started. A second's tick redraws it meanwhile.
-  let pairingUntil = 0;
-  let asking = false;
-  let ticker = 0;
-  function followPairing() {
-    if (status.pairing && status.pairingSecondsLeft != null) pairingUntil = Date.now() + status.pairingSecondsLeft * 1000;
-    else if (!status.pairing && !asking) pairingUntil = 0;
-    const on = status.pairing || Date.now() < pairingUntil;
-    if (on && !ticker) ticker = setInterval(drawBridge, 1000);
-    if (!on && ticker) { clearInterval(ticker); ticker = 0; }
-  }
+  // The card plugin.js draws for both lighting pages: the bridge, its pairing and the address form.
+  const bridge = homeswift.bridgePairing({
+    card: $("#bridge"), tone: "violet", button: "link",
+    texts: {
+      name: t("Hue Bridge"), pairTitle: t("Pair Homeswift with the bridge."), press: t("Press the round link button on top of the bridge."),
+      pairHelp: t("Pair, then press the link button on the bridge within a minute. The key stays in the plugin's folder, not in config.json."),
+      summary: t("Bridge address"), placeholder: "192.168.1.20", addressHelp: t("Leave it empty to find the bridge on the network."), none: t("No bridge answered on the network."),
+    },
+    facts: (item) => [[t("Address"), item.host], [t("Lights"), item.lights ?? 0], [t("Scenes"), item.scenes ?? 0]],
+    problem: (item) => ({
+      error: `The Hue Bridge at ${item.host} did not answer: ${item.error}`,
+      context: "The Homeswift Philips Hue plugin reads every resource of the bridge's local API v2 (GET https://<bridge>/clip/v2/resource) every two seconds with its application key.",
+      device: { host: item.host },
+    }),
+    discover: async () => (await request("discover")).hosts,
+    use: async (host) => {
+      await updateBlock((draft) => { setKey(draft, "host", host, ""); });
+      if (host) await request("host", { method: "POST", body: { host } });
+      block = await readBlock();
+    },
+    pair: () => request("pair", { method: "POST", body: {} }),
+    refresh: () => refresh(),
+  });
 
-  /// The address form, made once and kept at the end of the card, so it stays open and keeps what was typed; until a
-  /// person types, it shows the address in config.json, else the bridge's.
-  let addressTyped = false;
-  const addressInput = el("input", { type: "text", id: "bridge-address", placeholder: "192.168.1.20", inputmode: "url", autocomplete: "off" });
-  addressInput.addEventListener("input", () => { addressTyped = true; });
-  const foundList = el("div", { class: "found" });
-  const addressBox = el("details", { class: "address-box" },
-    el("summary", { text: t("Bridge address") }),
-    // The title, then the input with its buttons on one row (so they line up at any width), then the help.
-    el("div", { class: "address" },
-      el("label", { class: "field-title", htmlFor: "bridge-address", text: t("Address") }),
-      el("div", { class: "address-row" }, addressInput,
-        el("button", { actionIcon: "search", text: t("Find"), onclick: (event) => act(event.currentTarget, async () => {
-          const { hosts } = await request("discover");
-          foundList.replaceChildren(...(hosts.length ? hosts.map((host) => el("button", { actionIcon: "bridge", text: host, onclick: () => { addressInput.value = host; addressTyped = true; } })) : [el("span", { class: "muted", text: t("No bridge answered on the network.") })]));
-        }) }),
-        el("button", { class: "primary", actionIcon: "check", text: t("Use"), onclick: (event) => act(event.currentTarget, async () => {
-          const host = addressInput.value.trim();
-          await updateBlock((draft) => { setKey(draft, "host", host, ""); });
-          if (host) await request("host", { method: "POST", body: { host } });
-          block = await readBlock();
-          addressTyped = false;
-          await refresh();
-        }) })),
-      el("span", { class: "help", text: t("Leave it empty to find the bridge on the network.") })),
-    foundList);
-  $("#bridge").append(addressBox);
-
-  /// The card above the address form, drawn again only when what it shows changed; while pairing, the second's tick
-  /// only counts down.
-  let bridgeKey = "";
-  let countdown = null;
   function drawBridge() {
-    if (!addressTyped && document.activeElement !== addressInput) addressInput.value = block.host || status.host || "";
-    const paired = status.paired;
-    const pairing = status.pairing || Date.now() < pairingUntil;
-    const seconds = Math.max(0, Math.ceil((pairingUntil - Date.now()) / 1000));
-    const waiting = () => t("Waiting for the button… {seconds} s left.", { seconds });
-    const key = JSON.stringify([{ ...status, pairingSecondsLeft: null }, pairing]);
-    if (key === bridgeKey) {
-      if (countdown) countdown.textContent = waiting();
-      return;
-    }
-    bridgeKey = key;
-    const [state, kind] = !status.host ? [t("Not found"), "away"] : !paired ? [pairing ? t("Pairing…") : t("Not paired"), pairing ? "standby" : "away"]
-      : status.error ? [t("Not responding"), "away"] : [t("Connected"), "on"];
-    const facts = paired && status.host
-      ? el("div", { class: "facts" },
-        homeswift.fact(t("Address"), status.host), homeswift.fact(t("Lights"), String(status.lights ?? 0)), homeswift.fact(t("Scenes"), String(status.scenes ?? 0)))
-      : null;
-    const note = el("p", { class: "muted", text: pairing ? waiting() : t("Pair, then press the link button on the bridge within a minute. The key stays in the plugin's folder, not in config.json.") });
-    countdown = pairing ? note : null;
-    const pairBox = status.host && !paired ? el("div", { class: `pair-prompt ${pairing ? "pairing" : ""}` },
-      el("span", { class: "link-button", "aria-hidden": "true" }, icon("link")),
-      el("div", {},
-        el("p", {}, el("strong", { text: pairing ? t("Press the round link button on top of the bridge.") : t("Pair Homeswift with the bridge.") })),
-        note,
-        pairing ? null : el("div", { class: "actions" }, el("button", { class: "primary", actionIcon: "key", text: t("Pair"), onclick: (event) => pair(event.currentTarget) })))) : null;
-    const card = $("#bridge");
-    for (const node of [...card.children]) if (node !== addressBox) node.remove();
-    addressBox.before(...[
-      el("div", { class: "server-head" },
-        tile("bridge", paired && !status.error ? "violet" : "grey"),
-        el("div", { class: "who" }, el("strong", { text: t("Hue Bridge") }), el("div", { class: "muted", text: [status.host, status.bridgeID?.toUpperCase()].filter(Boolean).join(" · ") || t("Looking on the network…") })),
-        el("span", { class: `pill status ${kind}`, text: state })),
-      facts, pairBox,
-      status.error && paired ? explain({
-        error: `The Hue Bridge at ${status.host} did not answer: ${status.error}`,
-        context: "The Homeswift Philips Hue plugin reads every resource of the bridge's local API v2 (GET https://<bridge>/clip/v2/resource) every two seconds with its application key.",
-        device: { host: status.host },
-      }) : null].filter(Boolean));
-  }
-
-  async function pair(button) {
-    pairingUntil = Date.now() + 60000;
-    asking = true;
-    followPairing();
-    drawBridge();
-    try {
-      await act(button, () => request("pair", { method: "POST", body: {} }), null);
-      pairingUntil = 0;
-    } catch (e) {
-      pairingUntil = 0;
-      alert(e.message);
-    } finally {
-      asking = false;
-      await refresh();
-    }
+    bridge.draw([{ ...status, detail: [status.host, status.bridgeID?.toUpperCase()].filter(Boolean).join(" · ") }], { address: block.host || status.host || "" });
   }
 
   // MARK: Lights, as the Accessories page draws them
@@ -214,25 +146,86 @@ h2 { margin: 0 0 10px; }
 
   // A scene's picture: dropped on its tile or chosen from its menu (plugin.js); its ⋯ menu also leaves it out of the
   // Home app, by "<room>/<scene>".
-  const pictures = homeswift.scenePictures({ refresh: () => refresh(), toggleHidden: (key) => toggleList("excludeScenes", key) });
+  const pictures = homeswift.scenePictures({
+    refresh: () => refresh(), toggleHidden: (key) => toggleList("excludeScenes", key),
+    // A smart scene follows the time of day: the bridge takes no transition for it.
+    more: (scene) => scene.smart ? [] : [{ label: t("Speed…"), icon: "sliders", onSelect: () => sceneSpeed(scene) }],
+  });
+
+  /// A scene's own transition, kept in the block's `sceneTransitions` by "<room>/<scene>": the speed scale of the
+  /// Settings tab, showing the scene's or else the Settings tab's. Saved at the Settings speed (or Use the default), the
+  /// scene has none of its own and follows the Settings speed when it changes.
+  function sceneSpeed(scene) {
+    const key = `${scene.room}/${scene.name}`;
+    // The Settings speed as its tab shows it, saved or not; the line under the scale says whether the scene follows it.
+    const global = speed.value();
+    const settingsText = speed.element.querySelector("output").textContent;
+    const note = el("p", { class: "muted scene-speed-note" });
+    const scale = homeswift.speedScale({
+      help: t("How fast the lights reach this scene. Without a speed of its own, a scene takes the one in Settings."),
+      onInput: () => showNote(),
+    });
+    const showNote = () => {
+      note.textContent = scale.value() === global ? t("Follows the Settings speed ({speed}).", { speed: settingsText })
+        : t("A speed of its own; Settings has {speed}.", { speed: settingsText });
+    };
+    scale.set(scene.transitionMs ?? global);
+    showNote();
+    const write = (ms) => updateBlock((draft) => {
+      const list = (draft.sceneTransitions || []).filter((entry) => String(entry.scene).toLowerCase() !== key.toLowerCase());
+      if (ms != null) list.push({ scene: key, transitionMs: ms });
+      if (list.length) draft.sceneTransitions = list; else delete draft.sceneTransitions;
+    });
+    const cancel = el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dialog.close() });
+    const reset = scene.transitionMs == null ? null : el("button", { type: "button", actionIcon: "restore", text: t("Use the default"),
+      onclick: (event) => act(event.currentTarget, async () => { await write(null); dialog.close(); setTimeout(refresh, 1500); }) });
+    const save = el("button", { type: "button", class: "primary", actionIcon: "check", text: t("Save"),
+      onclick: (event) => act(event.currentTarget, async () => {
+        const ms = scale.value() === global ? null : scale.value();
+        // Nothing to write when the scene keeps what it had (no restart of the plugin).
+        if (ms !== (scene.transitionMs ?? null)) { await write(ms); setTimeout(refresh, 1500); }
+        dialog.close();
+      }) });
+    const dialog = el("dialog", { class: "admin-dialog card", "aria-labelledby": "scene-speed-title" },
+      el("h2", { id: "scene-speed-title", text: t("Speed of {name}", { name: scene.name }) }),
+      scale.element, note,
+      el("div", { class: "actions" }, reset, cancel, save));
+    dialog.addEventListener("close", () => dialog.remove());
+    document.body.append(dialog);
+    dialog.showModal();
+  }
 
   function sceneTile(scene) {
     const colours = scene.colours?.length ? scene.colours : ["#8e8e93"];
     const background = colours.length === 1 ? colours[0] : `linear-gradient(135deg, ${colours.join(", ")})`;
     const button = el("div", {
       class: `scene ${scene.active ? "active" : ""} ${scene.hidden ? "hidden-scene" : ""} ${homeswift.textStyle(colours)}`, role: "button", tabindex: 0, style: `background: ${background}`,
-      "aria-label": t("Recall {name}", { name: scene.name }), "aria-pressed": String(scene.active),
+      // A toggle, as the scene's switch in the Home app: pressed while the scene is on.
+      "aria-label": scene.name, "aria-pressed": String(scene.active),
     },
       scene.active ? el("span", { class: "badge", text: t("Active") }) : null,
       el("span", { class: "name", text: scene.name }),
       // A smart scene says so, unless its name already does.
       scene.smart && !/natural light/i.test(scene.name) ? el("span", { class: "kind", text: t("Natural light") }) : null);
-    const recall = async () => {
+    const send = async (path, body) => {
       button.classList.add("busy");
-      try { await request("recall", { method: "POST", body: { id: scene.id } }); await refresh(); } catch (e) { alert(e.message); } finally { button.classList.remove("busy"); }
+      try { await request(path, { method: "POST", body }); await refresh(); } catch (e) { alert(e.message); } finally { button.classList.remove("busy"); }
     };
-    button.addEventListener("click", recall);
-    button.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); recall(); } });
+    const recall = (dynamic) => send("recall", { id: scene.id, dynamic });
+    // A tap recalls the scene; on an active one, it switches the room off, as the Home app's switch does.
+    const toggle = () => (scene.active ? send("scene-off", { id: scene.id }) : recall());
+    button.addEventListener("click", toggle);
+    button.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggle(); } });
+    // Once the scene is on, play, as the Hue app's button: its colours move until it is paused (recalled still). A
+    // smart scene follows the time of day and does not play.
+    if (scene.active && !scene.smart) {
+      const play = el("button", {
+        class: `play ${scene.playing ? "on" : ""}`, "aria-label": scene.playing ? t("Pause {name}", { name: scene.name }) : t("Play {name}", { name: scene.name }),
+        "aria-pressed": String(scene.playing), onclick: (event) => { event.stopPropagation(); recall(!scene.playing); },
+      }, icon(scene.playing ? "pause" : "play"));
+      play.addEventListener("keydown", (event) => event.stopPropagation());
+      button.append(play);
+    }
     return pictures.decorate(button, scene, `${scene.room}/${scene.name}`);
   }
 
@@ -347,7 +340,6 @@ h2 { margin: 0 0 10px; }
     } catch (e) {
       status = { error: e.message };
     }
-    followPairing();
     drawBridge();
     drawLights();
     drawScenes();
@@ -363,29 +355,28 @@ h2 { margin: 0 0 10px; }
 // The Philips Hue page in French, Spanish and Portuguese (docs/translations.md).
 HomeswiftI18n.add({
   "fr": {
+    "Follows the Settings speed ({speed}).": "Suit la vitesse des Réglages ({speed}).",
+    "A speed of its own; Settings has {speed}.": "Une vitesse propre ; les Réglages ont {speed}.",
+    "Speed…": "Vitesse…",
+    "Speed of {name}": "Vitesse de {name}",
+    "Use the default": "Utiliser celle par défaut",
+    "How fast the lights reach this scene. Without a speed of its own, a scene takes the one in Settings.": "La vitesse à laquelle les lampes atteignent cette scène. Sans vitesse propre, une scène prend celle des Réglages.",
+    "Play {name}": "Lire {name}",
+    "Pause {name}": "Mettre {name} en pause",
     "Not found": "Introuvable",
-    "Pairing…": "Jumelage…",
-    "Not responding": "Ne répond pas",
     "Connected": "Connecté",
-    "Address": "Adresse",
     "Lights": "Lampes",
     "Press the round link button on top of the bridge.": "Appuyez sur le bouton rond de liaison sur le dessus du pont.",
     "Pair Homeswift with the bridge.": "Jumelez Homeswift avec le pont.",
-    "Waiting for the button… {seconds} s left.": "En attente du bouton… encore {seconds} s.",
     "Pair, then press the link button on the bridge within a minute. The key stays in the plugin's folder, not in config.json.": "Jumelez, puis appuyez sur le bouton de liaison du pont dans la minute. La clé reste dans le dossier du plugin, pas dans config.json.",
-    "Pair": "Jumeler",
     "Hue Bridge": "Pont Hue",
-    "Looking on the network…": "Recherche sur le réseau…",
     "Bridge address": "Adresse du pont",
     "Leave it empty to find the bridge on the network.": "Laissez vide pour trouver le pont sur le réseau.",
-    "Find": "Rechercher",
     "No bridge answered on the network.": "Aucun pont n'a répondu sur le réseau.",
-    "Use": "Utiliser",
     "Effects": "Effets",
     "Flash": "Clignoter",
     "Pair with the bridge to see its lights.": "Jumelez le pont pour voir ses lampes.",
     "The bridge has no lights yet: add them in the Hue app.": "Le pont n'a pas encore de lampes : ajoutez-les dans l'app Hue.",
-    "Recall {name}": "Rappeler {name}",
     "Active": "Active",
     "Natural light": "Lumière naturelle",
     "Pair with the bridge to see its scenes.": "Jumelez le pont pour voir ses scènes.",
@@ -420,7 +411,7 @@ HomeswiftI18n.add({
     "No Hue Bridge found on the network: set its address on the plugin's page.": "Aucun pont Hue trouvé sur le réseau : indiquez son adresse sur la page du plugin.",
     "The Hue Bridge refused the application key: pair again from the plugin's page.": "Le pont Hue a refusé la clé d'application : jumelez à nouveau depuis la page du plugin.",
     "Not in the Home app:": "Pas dans l'app Maison :",
-    "Tap a scene to recall it. Drop a picture on a tile to give the scene one. Each room's scenes are switches in the Home app; a tile's ⋯ menu leaves one out.": "Touchez une scène pour la rappeler. Déposez une image sur une tuile pour la donner à la scène. Les scènes de chaque pièce sont des interrupteurs dans l'app Maison ; le menu ⋯ d'une tuile en retire une.",
+    "Tap a scene to recall it, and again to switch its room off. Drop a picture on a tile to give the scene one. Each room's scenes are switches in the Home app; a tile's ⋯ menu leaves one out.": "Touchez une scène pour la rappeler, puis à nouveau pour éteindre sa pièce. Déposez une image sur une tuile pour la donner à la scène. Les scènes de chaque pièce sont des interrupteurs dans l'app Maison ; le menu ⋯ d'une tuile en retire une.",
     "the picture must be a JPEG, PNG or WebP image": "l'image doit être au format JPEG, PNG ou WebP",
     "the picture is larger than {0} KB": "l'image dépasse {0} Ko",
     "the picture has no valid name": "l'image n'a pas de nom valide",
@@ -429,29 +420,28 @@ HomeswiftI18n.add({
     "no picture for that scene": "aucune image pour cette scène"
   },
   "es": {
+    "Follows the Settings speed ({speed}).": "Sigue la velocidad de Ajustes ({speed}).",
+    "A speed of its own; Settings has {speed}.": "Una velocidad propia; Ajustes tiene {speed}.",
+    "Speed…": "Velocidad…",
+    "Speed of {name}": "Velocidad de {name}",
+    "Use the default": "Usar la predeterminada",
+    "How fast the lights reach this scene. Without a speed of its own, a scene takes the one in Settings.": "La rapidez con la que las luces llegan a esta escena. Sin velocidad propia, una escena usa la de Ajustes.",
+    "Play {name}": "Reproducir {name}",
+    "Pause {name}": "Pausar {name}",
     "Not found": "No encontrado",
-    "Pairing…": "Emparejando…",
-    "Not responding": "No responde",
     "Connected": "Conectado",
-    "Address": "Dirección",
     "Lights": "Luces",
     "Press the round link button on top of the bridge.": "Pulsa el botón redondo de enlace en la parte superior del puente.",
     "Pair Homeswift with the bridge.": "Empareja Homeswift con el puente.",
-    "Waiting for the button… {seconds} s left.": "Esperando el botón… quedan {seconds} s.",
     "Pair, then press the link button on the bridge within a minute. The key stays in the plugin's folder, not in config.json.": "Empareja y pulsa el botón de enlace del puente antes de un minuto. La clave se queda en la carpeta del plugin, no en config.json.",
-    "Pair": "Emparejar",
     "Hue Bridge": "Puente Hue",
-    "Looking on the network…": "Buscando en la red…",
     "Bridge address": "Dirección del puente",
     "Leave it empty to find the bridge on the network.": "Déjalo vacío para buscar el puente en la red.",
-    "Find": "Buscar",
     "No bridge answered on the network.": "Ningún puente ha respondido en la red.",
-    "Use": "Usar",
     "Effects": "Efectos",
     "Flash": "Parpadear",
     "Pair with the bridge to see its lights.": "Empareja el puente para ver sus luces.",
     "The bridge has no lights yet: add them in the Hue app.": "El puente aún no tiene luces: añádelas en la app Hue.",
-    "Recall {name}": "Activar {name}",
     "Active": "Activa",
     "Natural light": "Luz natural",
     "Pair with the bridge to see its scenes.": "Empareja el puente para ver sus escenas.",
@@ -486,7 +476,7 @@ HomeswiftI18n.add({
     "No Hue Bridge found on the network: set its address on the plugin's page.": "No se ha encontrado ningún puente Hue en la red: indica su dirección en la página del plugin.",
     "The Hue Bridge refused the application key: pair again from the plugin's page.": "El puente Hue ha rechazado la clave de aplicación: vuelve a emparejar desde la página del plugin.",
     "Not in the Home app:": "No están en la app Casa:",
-    "Tap a scene to recall it. Drop a picture on a tile to give the scene one. Each room's scenes are switches in the Home app; a tile's ⋯ menu leaves one out.": "Toca una escena para activarla. Suelta una imagen en un mosaico para dársela a la escena. Las escenas de cada habitación son interruptores en la app Casa; el menú ⋯ de un mosaico quita una.",
+    "Tap a scene to recall it, and again to switch its room off. Drop a picture on a tile to give the scene one. Each room's scenes are switches in the Home app; a tile's ⋯ menu leaves one out.": "Toca una escena para activarla, y otra vez para apagar su habitación. Suelta una imagen en un mosaico para dársela a la escena. Las escenas de cada habitación son interruptores en la app Casa; el menú ⋯ de un mosaico quita una.",
     "the picture must be a JPEG, PNG or WebP image": "la imagen debe ser JPEG, PNG o WebP",
     "the picture is larger than {0} KB": "la imagen supera los {0} KB",
     "the picture has no valid name": "la imagen no tiene un nombre válido",
@@ -495,29 +485,28 @@ HomeswiftI18n.add({
     "no picture for that scene": "no hay imagen para esa escena"
   },
   "pt": {
+    "Follows the Settings speed ({speed}).": "Segue a velocidade das Definições ({speed}).",
+    "A speed of its own; Settings has {speed}.": "Uma velocidade própria; as Definições têm {speed}.",
+    "Speed…": "Velocidade…",
+    "Speed of {name}": "Velocidade de {name}",
+    "Use the default": "Usar a predefinida",
+    "How fast the lights reach this scene. Without a speed of its own, a scene takes the one in Settings.": "A rapidez com que as luzes chegam a esta cena. Sem velocidade própria, uma cena usa a das Definições.",
+    "Play {name}": "Reproduzir {name}",
+    "Pause {name}": "Pausar {name}",
     "Not found": "Não encontrada",
-    "Pairing…": "A emparelhar…",
-    "Not responding": "Não responde",
     "Connected": "Ligada",
-    "Address": "Endereço",
     "Lights": "Luzes",
     "Press the round link button on top of the bridge.": "Prima o botão redondo de ligação no topo da ponte.",
     "Pair Homeswift with the bridge.": "Emparelhe o Homeswift com a ponte.",
-    "Waiting for the button… {seconds} s left.": "À espera do botão… faltam {seconds} s.",
     "Pair, then press the link button on the bridge within a minute. The key stays in the plugin's folder, not in config.json.": "Emparelhe e prima o botão de ligação da ponte no espaço de um minuto. A chave fica na pasta do plugin, não em config.json.",
-    "Pair": "Emparelhar",
     "Hue Bridge": "Ponte Hue",
-    "Looking on the network…": "A procurar na rede…",
     "Bridge address": "Endereço da ponte",
     "Leave it empty to find the bridge on the network.": "Deixe vazio para procurar a ponte na rede.",
-    "Find": "Procurar",
     "No bridge answered on the network.": "Nenhuma ponte respondeu na rede.",
-    "Use": "Usar",
     "Effects": "Efeitos",
     "Flash": "Piscar",
     "Pair with the bridge to see its lights.": "Emparelhe a ponte para ver as luzes.",
     "The bridge has no lights yet: add them in the Hue app.": "A ponte ainda não tem luzes: adicione-as na app Hue.",
-    "Recall {name}": "Ativar {name}",
     "Active": "Ativa",
     "Natural light": "Luz natural",
     "Pair with the bridge to see its scenes.": "Emparelhe a ponte para ver as cenas.",
@@ -552,7 +541,7 @@ HomeswiftI18n.add({
     "No Hue Bridge found on the network: set its address on the plugin's page.": "Nenhuma ponte Hue encontrada na rede: indique o endereço na página do plugin.",
     "The Hue Bridge refused the application key: pair again from the plugin's page.": "A ponte Hue recusou a chave da aplicação: emparelhe novamente a partir da página do plugin.",
     "Not in the Home app:": "Fora da app Casa:",
-    "Tap a scene to recall it. Drop a picture on a tile to give the scene one. Each room's scenes are switches in the Home app; a tile's ⋯ menu leaves one out.": "Toque numa cena para a ativar. Largue uma imagem num mosaico para a dar à cena. As cenas de cada divisão são interruptores na app Casa; o menu ⋯ de um mosaico retira uma.",
+    "Tap a scene to recall it, and again to switch its room off. Drop a picture on a tile to give the scene one. Each room's scenes are switches in the Home app; a tile's ⋯ menu leaves one out.": "Toque numa cena para a ativar, e outra vez para desligar a sua divisão. Largue uma imagem num mosaico para a dar à cena. As cenas de cada divisão são interruptores na app Casa; o menu ⋯ de um mosaico retira uma.",
     "the picture must be a JPEG, PNG or WebP image": "a imagem tem de ser JPEG, PNG ou WebP",
     "the picture is larger than {0} KB": "a imagem tem mais de {0} KB",
     "the picture has no valid name": "a imagem não tem um nome válido",
@@ -599,7 +588,7 @@ HomeswiftI18n.add({
   </section>
 
   <section id="tab-scenes" class="tab-pane hidden" role="tabpanel">
-    <p class="muted intro" data-i18n>Tap a scene to recall it. Drop a picture on a tile to give the scene one. Each room's scenes are switches in the Home app; a tile's ⋯ menu leaves one out.</p>
+    <p class="muted intro" data-i18n>Tap a scene to recall it, and again to switch its room off. Drop a picture on a tile to give the scene one. Each room's scenes are switches in the Home app; a tile's ⋯ menu leaves one out.</p>
     <div id="scenes"></div>
   </section>
 

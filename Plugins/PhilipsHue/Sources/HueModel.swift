@@ -56,6 +56,8 @@ struct HueScene: Sendable, Equatable {
     var groupID: String
     var active: Bool
     var smart = false
+    /// Active with its colours moving (the bridge's `dynamic_palette`), as the Hue app's play button leaves it.
+    var playing = false
     /// The scene's colours, for its tile on the page: its palette, else the colours it sets.
     var colours: [HueXY] = []
     /// Its colour temperatures in mirek, when it sets whites.
@@ -175,6 +177,7 @@ struct HueSnapshot: Sendable, Equatable {
         var scene = HueScene(
             id: id, name: resource["metadata"]?["name"]?.stringValue ?? "Scene", groupID: group,
             active: (resource["status"]?["active"]?.stringValue ?? "inactive") != "inactive", speed: resource["speed"]?.doubleValue)
+        scene.playing = resource["status"]?["active"]?.stringValue == "dynamic_palette"
         let palette = resource["palette"]
         scene.colours = (palette?["color"]?.arrayValue ?? []).compactMap { xy($0["color"]?["xy"]) }
         scene.whites = (palette?["color_temperature"]?.arrayValue ?? []).compactMap { $0["color_temperature"]?["mirek"]?.intValue }

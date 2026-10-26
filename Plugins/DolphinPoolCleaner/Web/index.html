@@ -22,7 +22,6 @@
   .robot { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 0; padding: 0; overflow: hidden; cursor: pointer; text-align: left;
     transition: transform 160ms var(--ease-out), box-shadow var(--normal) ease; }
   .robot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  @media (hover: hover) { .robot:hover { transform: translateY(-2px); } }
   .robot:active { transform: scale(0.99); }
   .robot .body { padding: 16px 18px; display: grid; gap: 10px; align-content: start; min-width: 0; }
   .robot .head { display: flex; align-items: center; gap: 10px; min-width: 0; }

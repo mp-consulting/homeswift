@@ -339,6 +339,35 @@ struct PhilipsHueTests {
         await host.stop()
     }
 
+    /// A scene with a transition of its own is recalled with it, from the page and from the Home app; the others keep
+    /// `transitionMs`.
+    @Test func aSceneTakesItsOwnTransition() async throws {
+        let host = try await environment.start(settings: [
+            "host": "192.0.2.10", "transitionMs": 400, "sceneTransitions": [["scene": "living room/Concentrate", "transitionMs": 3000]],
+        ])
+        let scenes = try await accessory(host, scenesID)
+        try await scenes.service(.switch, subtype: "scene:scene-2")![.on]!.write(.bool(true))
+        #expect(environment.bridge.puts.last == .init(method: "PUT", path: "/clip/v2/resource/scene/scene-2", body: ["recall": ["action": "active", "duration": 3000]]))
+        try await scenes.service(.switch, subtype: "scene:scene-1")![.on]!.write(.bool(true))
+        #expect(environment.bridge.puts.last?.body == ["recall": ["action": "active", "duration": 400]])
+        let plugin = try #require(environment.plugin)
+        _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "recall", body: ["id": "scene-2"], user: "admin"))
+        #expect(environment.bridge.puts.last?.body == ["recall": ["action": "active", "duration": 3000]])
+        let list = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "scenes", user: "admin"))
+        let room = try #require(list.json["groups"]?[0]?["scenes"]?.arrayValue)
+        #expect(room.first { $0["id"] == "scene-2" }?["transitionMs"] == 3000)
+        #expect(room.first { $0["id"] == "scene-1" }?["transitionMs"] == .null)
+        await host.stop()
+    }
+
+    /// A scene the bridge plays (`dynamic_palette`) is active and playing; a still one only active.
+    @Test func aPlayingSceneSaysSo() {
+        let playing = HueSnapshot.scene(["metadata": ["name": "Tropical twilight"], "status": ["active": "dynamic_palette"]], id: "s", group: "g")
+        #expect(playing.active && playing.playing)
+        let still = HueSnapshot.scene(["metadata": ["name": "Read"], "status": ["active": "static"]], id: "s", group: "g")
+        #expect(still.active && !still.playing)
+    }
+
     @Test func coloursConvert() {
         let red = HueColor.xy(hue: 0, saturation: 100, gamut: .c)
         #expect(abs(red.x - 0.692) < 0.01 && abs(red.y - 0.308) < 0.01)
@@ -390,8 +419,19 @@ struct PhilipsHueTests {
         #expect(room["name"] == "Living room")
         #expect(room["scenes"]?.arrayValue?.count == 3)
         #expect(room["scenes"]?[0]?["colours"]?.arrayValue?.isEmpty == false)
+        #expect(room["scenes"]?[0]?["playing"] == false)
         _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "recall", body: ["id": "scene-1"], user: "admin"))
-        #expect(environment.bridge.puts.contains { $0.path == "/clip/v2/resource/scene/scene-1" })
+        #expect(environment.bridge.puts.last == .init(method: "PUT", path: "/clip/v2/resource/scene/scene-1", body: ["recall": ["action": "active", "duration": 100]]))
+        // The tile's play button plays the scene, and stops it, whatever dynamicScenes says.
+        _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "recall", body: ["id": "scene-1", "dynamic": true], user: "admin"))
+        #expect(environment.bridge.puts.last?.body == ["recall": ["action": "dynamic_palette", "duration": 100]])
+        _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "recall", body: ["id": "scene-1", "dynamic": false], user: "admin"))
+        #expect(environment.bridge.puts.last?.body == ["recall": ["action": "active", "duration": 100]])
+        // Tapped again, an active scene switches its room off, as its switch in the Home app; a smart one stops.
+        _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "scene-off", body: ["id": "scene-1"], user: "admin"))
+        #expect(environment.bridge.puts.last == .init(method: "PUT", path: "/clip/v2/resource/grouped_light/group-1", body: ["on": ["on": false]]))
+        _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "scene-off", body: ["id": "smart-1"], user: "admin"))
+        #expect(environment.bridge.puts.last == .init(method: "PUT", path: "/clip/v2/resource/smart_scene/smart-1", body: ["recall": ["action": "deactivate"]]))
         _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "light", body: ["id": "light-2", "on": true, "brightness": 40], user: "admin"))
         #expect(environment.bridge.puts.last?.body == ["on": ["on": true], "dimming": ["brightness": 40], "dynamics": ["duration": 100]])
         _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "identify", body: ["id": "light-2"], user: "admin"))

@@ -5,7 +5,7 @@ import HomeswiftPlugin
 extension PhilipsHuePlugin {
     /// The page's routes (`Web/`): `GET status` the bridge and pairing, `GET discover` the bridges on the network,
     /// `POST host` another address, `POST pair`, `GET lights` and `GET scenes` with their colours,
-    /// `POST recall` a scene, `POST light` a light's power, brightness, effect or flash, `POST identify` a light;
+    /// `POST recall` a scene (`dynamic` plays it or stops it playing), `POST scene-off` its room, `POST light` a light's power, brightness, effect or flash, `POST identify` a light;
     /// `GET scene-picture`, `POST scene-picture` and `POST scene-picture-remove` the picture a person gave a scene.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         if let response = pictures.handle(request) { return response }
@@ -39,9 +39,10 @@ extension PhilipsHuePlugin {
                     "id": .string(group.id), "name": .string(group.name), "kind": .string(group.kind), "on": .bool(group.on),
                     "scenes": .array(scenes.map { scene in
                         [
-                            "id": .string(scene.id), "name": .string(scene.name), "active": .bool(scene.active), "smart": .bool(scene.smart),
+                            "id": .string(scene.id), "name": .string(scene.name), "active": .bool(scene.active), "playing": .bool(scene.playing), "smart": .bool(scene.smart),
                             "hidden": .bool(!visible.contains(scene.id)), "colours": .array(Self.swatches(scene).map(JSONValue.string)),
                             "picture": versions[scene.id].map(JSONValue.string) ?? .null,
+                            "transitionMs": ownTransition(scene, room: group.name).map { .number(Double($0)) } ?? .null,
                         ]
                     }),
                 ]
@@ -51,8 +52,12 @@ extension PhilipsHuePlugin {
             return PluginWebResponse(assistantScenes(room: request.query["room"]))
         case ("POST", "recall"):
             guard let id = request.body["id"]?.stringValue else { return .error(400, "a scene id is required") }
-            try await recall(sceneID: id)
+            try await recall(sceneID: id, dynamic: request.body["dynamic"]?.boolValue)
             return PluginWebResponse(["recalled": .string(id)])
+        case ("POST", "scene-off"):
+            guard let id = request.body["id"]?.stringValue else { return .error(400, "a scene id is required") }
+            try await switchOff(sceneID: id)
+            return PluginWebResponse(["off": .string(id)])
         case ("POST", "light"):
             guard let id = request.body["id"]?.stringValue, let light = snapshot.lights.first(where: { $0.id == id }) else { return .error(404, "no light with that id") }
             var body: [String: JSONValue] = [:]
