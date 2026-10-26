@@ -13,7 +13,16 @@ assert.equal(compatible([light, accessory('LockMechanism', ['On'])]), false);
 assert.equal(compatible([light, undefined]), false);
 assert.equal(compatible([light, { services: [...light.services, ...light.services] }]), false);
 assert.equal(compatible([light, accessory('WindowCovering', ['Target Position'])]), false);
-console.log('Passed: common controls, incompatible devices, missing members, and ambiguous services.');
+// A light with extra services (Hue: effect and Flash switches, gradient points as lightbulbs) joins through its primary one.
+const { controls } = context.window.HomeswiftGroups;
+const service = (type, chars, extra = {}) => ({ type, ...extra, characteristics: chars.map(type => ({ type, permissions: ['pr', 'pw'] })) });
+const hue = { services: [service('Lightbulb', ['On', 'Brightness', 'Hue'], { primary: true }), service('Switch', ['On'], { subtype: 'effect:candle' }),
+  service('Switch', ['On'], { subtype: 'flash' }), service('Lightbulb', ['On', 'Hue'], { subtype: 'point:0' })] };
+assert.equal(compatible([light, hue]), true);
+assert.deepEqual(Array.from(shared([light, hue])), ['On', 'Brightness', 'Hue']);
+assert.equal(controls(hue).get('On').service, 'Lightbulb');
+assert.equal(compatible([light, { services: hue.services.map(({ primary, ...rest }) => rest) }]), false);
+console.log('Passed: common controls, incompatible devices, missing members, ambiguous services, and a primary service among several.');
 
 // Render real group controls using each shipping catalog; check visible and accessible labels.
 for (const language of ['fr', 'es', 'pt']) {

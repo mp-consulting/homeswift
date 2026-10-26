@@ -6582,9 +6582,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   ];
   const deviceType = (a) => deviceTypes.find(([type]) => a.services.some((s) => s.type === type || (type === 'Fan' && s.type === 'Fanv2'))) || ['', 'accessory', t('Accessories')];
   const types = ['On', 'Active', 'Brightness', 'Color Temperature', 'Hue', 'Saturation', 'Rotation Speed', 'Target Position'];
+  // The services a group drives: the accessory's primary one when it has one of these kinds (a Hue light's lightbulb,
+  // not its effect, Flash or gradient-point services), else every one of these kinds.
+  const groupable = (a) => {
+    const services = (a?.services || []).filter((s) => allowed.has(s.type));
+    const primary = services.find((s) => s.primary);
+    return primary ? [primary] : services;
+  };
   const controls = (a) => {
     const result = new Map();
-    for (const s of a?.services || []) if (allowed.has(s.type)) {
+    for (const s of groupable(a)) {
       for (const c of s.characteristics) if (types.includes(c.type) && c.permissions.includes('pw')) {
         // Ambiguous multi-service accessories are not grouped.
         if (result.has(c.type)) return new Map();
@@ -6727,7 +6734,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const result = el('p', { class: 'group-feedback', role: 'status' });
       const body = el('div', { class: 'group-controls' });
       const draw = () => {
-        const states = people.flatMap((accessory) => (accessory?.services || []).filter((service) => allowed.has(service.type)).flatMap((service) => {
+        const states = people.flatMap((accessory) => groupable(accessory).flatMap((service) => {
           const state = service.characteristics.find((c) => c.type === 'On')
             || service.characteristics.find((c) => c.type === 'Active')
             || service.characteristics.find((c) => c.type === 'Current Position');
