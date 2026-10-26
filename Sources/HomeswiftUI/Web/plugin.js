@@ -621,7 +621,7 @@
       const [state, kind] = pairingNow ? [t("Pairing…"), "standby"] : !bridge.host ? [t("Not found"), "away"] : !bridge.paired ? [t("Not paired"), "away"]
         : bridge.error ? [t("Not responding"), "away"] : bridge.connected === false ? [t("Connecting…"), "standby"] : [t("Connected"), "on"];
       const items = [
-        bridge.paired && !pairingNow ? { label: t("Pair again"), icon: "key", onSelect: () => start(null, bridge.host) } : null,
+        bridge.paired && !pairingNow ? { label: t("Pair again"), icon: "pair", onSelect: () => start(null, bridge.host) } : null,
         ...menu(bridge),
       ].filter(Boolean);
       const note = el("p", { class: "muted", text: pairingNow ? waiting(bridge.host) : texts.pairHelp });
@@ -629,12 +629,12 @@
       const pairs = facts(bridge);
       return el("div", { class: "bridge" },
         el("div", { class: "server-head" },
-          tile("bridge", bridge.paired && !bridge.error ? tone : "grey"),
+          tile("hub", bridge.paired && !bridge.error ? tone : "grey"),
           el("div", { class: "who" }, el("strong", { text: bridge.name || texts.name }),
             el("div", { class: "muted", text: bridge.detail || bridge.host || t("Looking on the network…") })),
           el("span", { class: `pill status ${kind}`, text: state }),
           // The ⋯ menu only when it has something: a bridge pairing for the first time has nothing.
-          items.length ? HomeswiftCommon.menuButton(t("Actions for {name}", { name: bridge.name || bridge.host || texts.name }), () => items) : null),
+          items.length ? HomeswiftCommon.menuButton(t("Actions for {name}", { name: [bridge.name || texts.name, bridge.host].filter(Boolean).join(" ") }), () => items) : null),
         bridge.paired && bridge.host && !pairingNow && pairs.length ? el("div", { class: "facts" }, ...pairs.map(([label, value]) => fact(label, String(value)))) : null,
         bridge.host && (!bridge.paired || pairingNow) ? el("div", { class: `pair-prompt ${pairingNow ? "pairing" : ""}` },
           el("span", { class: "link-button", "aria-hidden": "true" }, icon(button)),
