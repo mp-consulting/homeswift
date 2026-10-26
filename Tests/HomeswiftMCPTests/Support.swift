@@ -21,6 +21,8 @@ actor DevicesPlugin: HomeswiftPlugin {
         /// Colour lightbulbs `Devices:bulb1`…, for the moods; the last one fails every write when `failingBulb` is set.
         var colourBulbs: Int?
         var failingBulb: Bool?
+        /// Each colour bulb write takes 300 ms, as a plugin that waits to send a light's values together.
+        var slowBulbs: Bool?
         /// A colour bulb mirrored from Apple Home (`Devices:mirrored`, in the room Salon), as Wingman adds one.
         var mirroredBulb: Bool?
         /// A second one, `Devices:mirrored2`, in this room.
@@ -67,6 +69,7 @@ actor DevicesPlugin: HomeswiftPlugin {
         for number in 0..<bulbs {
             let name = "bulb\(number + 1)"
             let fails = configuration.failingBulb == true && number == bulbs - 1
+            let slow = configuration.slowBulbs == true
             let light = Service(.lightbulb, name: "Bulb \(number + 1)", optional: [.brightness, .hue, .saturation, .colorTemperature], isPrimary: true)
             light.characteristic(.on).value = .bool(false)
             light.characteristic(.brightness).value = .int(40)
@@ -76,6 +79,7 @@ actor DevicesPlugin: HomeswiftPlugin {
             for (type, key) in [(CharacteristicType.on, "on"), (.brightness, "brightness"), (.hue, "hue"), (.saturation, "saturation"), (.colorTemperature, "colorTemperature")] {
                 light.characteristic(type).onWrite { value in
                     if fails { throw HAPStatusError(.serviceCommunicationFailure) }
+                    if slow { try await Task.sleep(for: .milliseconds(300)) }
                     writes.withLockedValue { $0.append(("\(name).\(key)", value)) }
                 }
             }

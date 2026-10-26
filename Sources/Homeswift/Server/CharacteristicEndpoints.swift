@@ -71,23 +71,26 @@ extension HAPConnection {
         }()
         if request.pid != nil { timedWrite = nil }
 
+        // As HAP-NodeJS: the same characteristic twice in one request is refused, since the writes run together.
+        let keys = request.characteristics.map { CharacteristicKey(aid: $0.aid, iid: $0.iid) }
+        guard Set(keys).count == keys.count else { return .hapStatus(422, .invalidValueInRequest) }
+
         var results: [CharacteristicJSON] = []
-        var needsBody = false
         let requestContext = requestContext
         // The accessories written (not those only subscribed to), for the timing observers.
         let start = ContinuousClock.now
         var written: Set<Int> = []
         defer { if !written.isEmpty { server.recordTiming(.request, aids: written, since: start) } }
+        // The writes to run: the result's index, the characteristic, the value and whether the value is read back.
+        var writes: [(index: Int, characteristic: Characteristic, value: HAPValue, readBack: Bool)] = []
         for item in request.characteristics {
             let key = CharacteristicKey(aid: item.aid, iid: item.iid)
             guard let characteristic = server.characteristic(aid: item.aid, iid: item.iid) else {
                 results.append(CharacteristicJSON(aid: item.aid, iid: item.iid, status: .resourceDoesNotExist))
-                needsBody = true
                 continue
             }
             let permissions = characteristic.type.permissions
             var status = HAPStatus.success
-            var readBack: HAPValue?
 
             if let ev = item.ev {
                 if permissions.contains(.events) {
@@ -102,26 +105,38 @@ extension HAPConnection {
                     status = .invalidValueInRequest
                 } else {
                     written.insert(item.aid)
+                    if characteristic.type.uuid == CharacteristicType.identify.uuid {
+                        server.logger.info("Identify requested", metadata: ["aid": "\(item.aid)", "accessory": "\(server.accessory(aid: item.aid)?.name ?? "?")"])
+                    }
+                    writes.append((results.count, characteristic, value, item.r == true && permissions.contains(.writeResponse)))
+                }
+            }
+            results.append(CharacteristicJSON(aid: item.aid, iid: item.iid, status: status))
+        }
+
+        // As HAP-NodeJS, the writes of one request run at the same time: a light's brightness, hue and saturation
+        // reach the plugin together, as plugins that wait a moment to send them as one command expect.
+        let origin = id
+        await withTaskGroup(of: (Int, HAPStatus, HAPValue?).self) { group in
+            for write in writes {
+                group.addTask {
                     do {
-                        if characteristic.type.uuid == CharacteristicType.identify.uuid {
-                            server.logger.info("Identify requested", metadata: ["aid": "\(item.aid)", "accessory": "\(server.accessory(aid: item.aid)?.name ?? "?")"])
-                        }
                         let stored = try await HAPRequestContext.$current.withValue(requestContext) {
-                            try await characteristic.write(value, origin: id)
+                            try await write.characteristic.write(write.value, origin: origin)
                         }
-                        if item.r == true, permissions.contains(.writeResponse) {
-                            readBack = stored
-                        }
+                        return (write.index, .success, write.readBack ? stored : HAPValue?.none)
                     } catch {
-                        status = self.status(for: error)
+                        return (write.index, (error as? HAPStatusError)?.status ?? .serviceCommunicationFailure, nil)
                     }
                 }
             }
-
-            if status != .success || readBack != nil { needsBody = true }
-            results.append(CharacteristicJSON(aid: item.aid, iid: item.iid, value: readBack, status: status))
+            for await (index, status, readBack) in group {
+                results[index].status = status.rawValue
+                results[index].value = readBack
+            }
         }
 
+        let needsBody = results.contains { $0.status != HAPStatus.success.rawValue || $0.value != nil }
         return needsBody ? .json(207, CharacteristicsJSON(characteristics: results)) : .noContent
     }
 

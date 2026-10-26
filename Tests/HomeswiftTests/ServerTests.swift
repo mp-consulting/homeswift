@@ -157,6 +157,47 @@ struct ServerTests {
         await server.stop()
     }
 
+    /// As HAP-NodeJS: the writes of one request run at the same time (a light's colour and brightness reach a plugin
+    /// together), the results keep the request's order, and one characteristic twice is refused.
+    @Test func writesOfOneRequestRunTogether() async throws {
+        let events = EventLog()
+        let on = lightbulb.characteristic(.on)
+        let brightness = lightbulb.characteristic(.brightness)
+        on.onWrite { _ in
+            await events.append("on started")
+            try await Task.sleep(for: .milliseconds(300))
+            await events.append("on done")
+        }
+        brightness.onWrite { _ in
+            await events.append("brightness started")
+            throw HAPStatusError(.resourceBusy)
+        }
+        let controller = try await pairedController()
+
+        let write = try await controller.json("PUT", "/characteristics", ["characteristics": [
+            ["aid": 2, "iid": on.iid, "value": true],
+            ["aid": 2, "iid": brightness.iid, "value": 40],
+        ]])
+        // Brightness started while On was still being written.
+        let lines = await events.lines
+        #expect(Set(lines.prefix(2)) == ["on started", "brightness started"])
+        #expect(lines.last == "on done")
+        #expect(write.status == 207)
+        let results = (write.json as? [String: Any])?["characteristics"] as? [[String: Any]]
+        #expect(results?.map { $0["iid"] as? Int } == [on.iid, brightness.iid])
+        #expect(results?.map { $0["status"] as? Int } == [HAPStatus.success.rawValue, HAPStatus.resourceBusy.rawValue])
+        #expect(on.value == .bool(true))
+
+        let twice = try await controller.json("PUT", "/characteristics", ["characteristics": [
+            ["aid": 2, "iid": on.iid, "value": false],
+            ["aid": 2, "iid": on.iid, "value": true],
+        ]])
+        #expect(twice.status == 422)
+        #expect(on.value == .bool(true))
+        await controller.close()
+        await server.stop()
+    }
+
     @Test func timesRequestsAndHandlers() async throws {
         let timings = TimingLog()
         server.observeTimings { timings.append($0) }
@@ -343,6 +384,11 @@ struct ServerTests {
 actor WriteLog {
     var values: [HAPValue] = []
     func append(_ value: HAPValue) { values.append(value) }
+}
+
+actor EventLog {
+    var lines: [String] = []
+    func append(_ line: String) { lines.append(line) }
 }
 
 /// The timings a server reports, as they come.

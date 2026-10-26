@@ -9,13 +9,13 @@ import Testing
 
 /// A bridge with the devices plugin's lamp and lock and `bulbs` colour bulbs, the last failing every write when
 /// `failing`; with `assistant`, an OpenAI-compatible provider the test answers for.
-private func moodConfig(bulbs: Int = 2, failing: Bool = false, assistant: Bool = false) -> String {
+private func moodConfig(bulbs: Int = 2, failing: Bool = false, slow: Bool = false, assistant: Bool = false) -> String {
     let ai = assistant ? #""provider": "openai-compatible", "model": "llama3.1", "baseUrl": "http://127.0.0.1:9/v1", "maxRetries": 0, "# : ""
     return """
         {
           "bridge": { "name": "Test Bridge", "username": "0E:11:22:33:44:57", "pin": "031-45-154", "port": 0 },
           "platforms": [
-            { "platform": "Devices", "name": "Devices", "colourBulbs": \(bulbs), "failingBulb": \(failing) },
+            { "platform": "Devices", "name": "Devices", "colourBulbs": \(bulbs), "failingBulb": \(failing), "slowBulbs": \(slow) },
             { "platform": "HomeswiftAiKit", \(ai)"mcp": { "http": { "enabled": false, "token": "mcp-token" } } }
           ]
         }
@@ -23,8 +23,8 @@ private func moodConfig(bulbs: Int = 2, failing: Bool = false, assistant: Bool =
 }
 
 /// A started environment whose lights (and lock) are in the room Den.
-private func den(bulbs: Int = 2, failing: Bool = false, model: (any HTTPTransport)? = nil) async throws -> (MCPTestEnvironment, DirectClient) {
-    let environment = try MCPTestEnvironment(config: moodConfig(bulbs: bulbs, failing: failing, assistant: model != nil), aiTransport: model)
+private func den(bulbs: Int = 2, failing: Bool = false, slow: Bool = false, model: (any HTTPTransport)? = nil) async throws -> (MCPTestEnvironment, DirectClient) {
+    let environment = try MCPTestEnvironment(config: moodConfig(bulbs: bulbs, failing: failing, slow: slow, assistant: model != nil), aiTransport: model)
     try await environment.start()
     let client = DirectClient(server: environment.server)
     try await client.initialize()
@@ -236,6 +236,27 @@ struct MoodTests {
         #expect(value(environment, "Devices:bulb1", .on) == .bool(false))
         #expect(value(environment, "Devices:bulb1", .brightness) == .int(40))
         #expect(value(environment, "Devices:bulb1", .hue)?.doubleValue == 10)
+    }
+
+    /// Every light of a step is written at the same time, and a light's brightness with its colour, saturation
+    /// before hue (a plugin sends the colour when the hue arrives): four lights whose writes take 300 ms each are set
+    /// in about 0.9 s, where one write after another took almost 5 s.
+    @Test func theLightsAreWrittenTogether() async throws {
+        let (environment, client) = try await den(bulbs: 4, slow: true)
+        defer { Task { await environment.stop() } }
+
+        let plan: JSONValue = ["name": "Teal", "steps": [["colors": [["hue": 180, "saturation": 90, "brightness": 70]], "seconds": 1]]]
+        let start = ContinuousClock.now
+        let set = try await client.tool("start_mood", ["plan": plan, "room": "Den"])
+        #expect(set["isError"] != true)
+        #expect(ContinuousClock.now - start < .seconds(2.5))
+        for bulb in 1...4 {
+            let keys = environment.written.map(\.0).filter { $0.hasPrefix("bulb\(bulb).") }
+            #expect(keys.firstIndex(of: "bulb\(bulb).saturation")! < keys.firstIndex(of: "bulb\(bulb).hue")!)
+            #expect(keys.last == "bulb\(bulb).on")
+            #expect(value(environment, "Devices:bulb\(bulb)", .hue)?.doubleValue == 180)
+        }
+        _ = try await client.tool("stop_mood")
     }
 
     /// A light that fails its writes leaves the show; the others keep playing.

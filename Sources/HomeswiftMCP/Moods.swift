@@ -12,8 +12,9 @@ import NIOConcurrencyHelpers
 // The collection is `MoodLibrary`; the Assistant writes new ones from a description
 // (`AssistantService.designMood`); an MCP client may pass its own plan.
 //
-// Only lightbulbs are touched, never a security control. Lights fade from one colour to the next, so a step lasts
-// at least half a second; a light that fails three writes in a row leaves the show (a lamp switched off at the wall).
+// Only lightbulbs are touched, never a security control. Every light of a step is written at the same time; many
+// lights fade from one colour to the next, so a step lasts at least a quarter of a second; a light that fails three
+// writes in a row leaves the show (a lamp switched off at the wall).
 
 /// What one light is set to. Brightness 0 or `on: false` turns it off.
 public struct MoodColor: Codable, Sendable, Equatable {
@@ -87,7 +88,7 @@ public struct Mood: Codable, Sendable, Equatable {
 enum MoodRules {
     static let maxSteps = 60
     static let maxColors = 12
-    static let minSeconds = 0.5
+    static let minSeconds = 0.25
     static let maxSeconds = 3600.0
     static let maxDuration = 3600.0
     static let defaultDuration = 60.0
@@ -599,12 +600,14 @@ extension HomeswiftCatalog {
         return run
     }
 
-    /// Puts back every light a run still holds a snapshot of.
+    /// Puts back every light a run still holds a snapshot of, all at the same time.
     private func restoreAll(_ run: MoodRun) async {
         let snapshots = run.snapshots.withLockedValue { $0 }
-        for light in run.lights {
-            guard let snapshot = snapshots[light.key] else { continue }
-            await restore(light, snapshot)
+        await withTaskGroup(of: Void.self) { group in
+            for light in run.lights {
+                guard let snapshot = snapshots[light.key] else { continue }
+                group.addTask { await self.restore(light, snapshot) }
+            }
         }
     }
 
@@ -617,14 +620,15 @@ extension HomeswiftCatalog {
         outer: repeat {
             for (index, step) in mood.steps.enumerated() {
                 if Task.isCancelled { break outer }
-                for (position, light) in active.enumerated() {
-                    let color = Self.pick(step, for: position)
-                    do {
-                        try await paint(light, color, jitter: step.jitter ?? 0, lastOn: &lastOn)
-                        failures[light.key] = 0
-                    } catch {
-                        failures[light.key, default: 0] += 1
-                        if failures[light.key, default: 0] >= MoodRules.maxFailures {
+                let stepStart = Date()
+                for (key, outcome) in await paintAll(step, on: active, lastOn: lastOn) {
+                    switch outcome {
+                    case .success(let on):
+                        lastOn[key] = on
+                        failures[key] = 0
+                    case .failure(let error):
+                        failures[key, default: 0] += 1
+                        if failures[key, default: 0] >= MoodRules.maxFailures, let light = active.first(where: { $0.key == key }) {
                             logger.warning("Mood \"\(mood.name)\": \(light.name) left the show after \(MoodRules.maxFailures) failed writes: \(error)")
                         }
                     }
@@ -633,7 +637,8 @@ extension HomeswiftCatalog {
                 if active.isEmpty { break outer }
                 let last = mood.loop != true && index == mood.steps.count - 1
                 if last, !mood.restoresAtEnd { break outer }
-                var wait = step.seconds
+                // The step lasts its seconds from when it began: the writes are part of it.
+                var wait = step.seconds - Date().timeIntervalSince(stepStart)
                 if let deadline { wait = min(wait, deadline.timeIntervalSinceNow) }
                 if wait > 0 {
                     do { try await Task.sleep(for: .seconds(wait)) } catch { break outer }
@@ -651,24 +656,42 @@ extension HomeswiftCatalog {
     /// Sets the lights once (a mood that does not move); the failures by light.
     private func applyOnce(_ step: MoodStep, to lights: [MoodLight]) async -> [String: String] {
         var failures: [String: String] = [:]
-        var lastOn: [String: Bool] = [:]
-        for (position, light) in lights.enumerated() {
-            do {
-                try await paint(light, Self.pick(step, for: position), jitter: step.jitter ?? 0, lastOn: &lastOn)
-            } catch {
-                failures[light.name] = "\(error)"
-            }
+        let names = Dictionary(lights.map { ($0.key, $0.name) }, uniquingKeysWith: { first, _ in first })
+        for (key, outcome) in await paintAll(step, on: lights, lastOn: [:]) {
+            if case .failure(let error) = outcome { failures[names[key] ?? key] = "\(error)" }
         }
         return failures
+    }
+
+    /// Paints a step on every light at the same time, so a fast step flashes the room at once rather than light by
+    /// light. By light: the On it now has (`lastOn` after), or why it failed.
+    private func paintAll(_ step: MoodStep, on lights: [MoodLight], lastOn: [String: Bool]) async -> [String: Result<Bool?, any Error>] {
+        await withTaskGroup(of: (String, Result<Bool?, any Error>).self) { group in
+            for (position, light) in lights.enumerated() {
+                let color = Self.pick(step, for: position)
+                let wasOn = lastOn[light.key]
+                group.addTask {
+                    do {
+                        return (light.key, .success(try await self.paint(light, color, jitter: step.jitter ?? 0, lastOn: wasOn)))
+                    } catch {
+                        return (light.key, .failure(error))
+                    }
+                }
+            }
+            var outcomes: [String: Result<Bool?, any Error>] = [:]
+            for await (key, outcome) in group { outcomes[key] = outcome }
+            return outcomes
+        }
     }
 
     static func pick(_ step: MoodStep, for position: Int) -> MoodColor {
         step.assign == .random ? step.colors.randomElement()! : step.colors[position % step.colors.count]
     }
 
-    /// The values a colour gives a light, in the order they are written: brightness, then the colour (hue and
-    /// saturation, or a white as colour temperature, or that white as hue and saturation on a light with no
-    /// colour temperature).
+    /// The values a colour gives a light, in the order they are written: brightness, then the colour (saturation
+    /// and hue, or a white as colour temperature, or that white as saturation and hue on a light with no colour
+    /// temperature). Saturation comes first: a plugin sends the colour when the hue arrives, with the saturation it
+    /// has then.
     func paintValues(_ light: MoodLight, _ color: MoodColor, jitter: Double) -> [(Characteristic, HAPValue)] {
         var values: [(Characteristic, HAPValue)] = []
         if let brightness = light.brightness, let level = color.brightness {
@@ -676,37 +699,38 @@ extension HomeswiftCatalog {
             values.append((brightness, MoodRules.hapNumber(max(1, min(100, shaken)), for: brightness)))
         }
         if let hue = light.hue, let saturation = light.saturation, color.hue != nil || color.saturation != nil {
-            if let value = color.hue { values.append((hue, MoodRules.hapNumber(value, for: hue))) }
             if let value = color.saturation { values.append((saturation, MoodRules.hapNumber(value, for: saturation))) }
+            if let value = color.hue { values.append((hue, MoodRules.hapNumber(value, for: hue))) }
         } else if let mired = color.colorTemperature {
             if let temperature = light.colorTemperature {
                 values.append((temperature, MoodRules.hapNumber(mired, for: temperature)))
             } else if let hue = light.hue, let saturation = light.saturation {
                 let converted = ColorUtils.colorTemperatureToHueAndSaturation(mired)
-                values.append((hue, MoodRules.hapNumber(converted.hue, for: hue)))
                 values.append((saturation, MoodRules.hapNumber(converted.saturation, for: saturation)))
+                values.append((hue, MoodRules.hapNumber(converted.hue, for: hue)))
             }
         }
         return values
     }
 
-    /// Writes a colour to a light, turning it on last so it lights up in the new colour. `lastOn` keeps what this
-    /// mood last set, so On is written only when it changes.
-    private func paint(_ light: MoodLight, _ color: MoodColor, jitter: Double, lastOn: inout [String: Bool]) async throws {
+    /// Writes a colour to a light, turning it on last so it lights up in the new colour. Brightness goes at the same
+    /// time as the colour, as the Home app sends them, so a plugin that waits a moment for both takes no longer.
+    /// `lastOn` is what this mood last set, so On is written only when it changes; answers what it is now.
+    private func paint(_ light: MoodLight, _ color: MoodColor, jitter: Double, lastOn: Bool?) async throws -> Bool? {
         if color.isOff {
-            if lastOn[light.key] != false {
-                try await write(light, light.on, .bool(false))
-                lastOn[light.key] = false
-            }
-            return
+            if lastOn != false { try await write(light, light.on, .bool(false)) }
+            return false
         }
-        for (characteristic, value) in paintValues(light, color, jitter: jitter) {
-            try await write(light, characteristic, value)
+        let values = paintValues(light, color, jitter: jitter)
+        let brightness = values.filter { $0.0 === light.brightness }
+        let colour = values.filter { $0.0 !== light.brightness }
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask { for (characteristic, value) in brightness { try await self.write(light, characteristic, value) } }
+            group.addTask { for (characteristic, value) in colour { try await self.write(light, characteristic, value) } }
+            try await group.waitForAll()
         }
-        if lastOn[light.key] != true {
-            if light.on.value.boolValue != true { try await write(light, light.on, .bool(true)) }
-            lastOn[light.key] = true
-        }
+        if lastOn != true, light.on.value.boolValue != true { try await write(light, light.on, .bool(true)) }
+        return true
     }
 
     private func write(_ light: MoodLight, _ characteristic: Characteristic, _ value: HAPValue) async throws {
@@ -792,8 +816,9 @@ extension HomeswiftCatalog {
                 name: "start_mood", title: "Play a mood on the lights",
                 description: "Sets the lights of a room (or of ids or a filter) to a mood: one from list_moods (mood), one described in words that the bridge's Assistant writes "
                     + "(description, e.g. \"a jazz bar\"), or your own plan. A plan is {name, steps: [{colors: [{on, brightness 0-100, hue 0-360, saturation 0-100, "
-                    + "colorTemperature 140-500 mired}], assign: spread|random, seconds >= 0.5, jitter 0-50}], loop, durationSeconds, restore}: light n takes colour n of a "
-                    + "step (spread) or a random one; lights fade, so fast effects use 0.5 to 1 s steps. A mood with one step that does not loop sets the lights, and "
+                    + "colorTemperature 140-500 mired}], assign: spread|random, seconds >= 0.25, jitter 0-50}], loop, durationSeconds, restore}: light n takes colour n of a "
+                    + "step (spread) or a random one; lights may fade, so flashes use 0.25 to 0.5 s steps, fast effects up to 1 s. "
+                    + "A mood with one step that does not loop sets the lights, and "
                     + "stop_mood undoes it for 12 hours; others play in the background (stop_mood) and put the lights back at the end when they loop or restore is true. "
                     + "Only lightbulbs change. dryRun shows the plan.",
                 inputSchema: [

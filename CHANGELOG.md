@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The writes of one HomeKit request run at the same time, as in HAP-NodeJS: a light's brightness and colour reach the
+  plugin together, so colour changes from the Home app are faster. A request naming one characteristic twice is
+  refused (422), as HAP-NodeJS does.
+- Moods change every light of a step at once, and steps can be as short as 0.25 s for fast flashes. A step's time now
+  includes its writes, and the lights are put back all at once.
+
+### Fixed
+
+- Moods write saturation before hue, so a plugin that sends the colour when the hue arrives no longer uses the
+  previous saturation.
+
 ## [0.12.0] - 2026-10-26
 
 ### Added
