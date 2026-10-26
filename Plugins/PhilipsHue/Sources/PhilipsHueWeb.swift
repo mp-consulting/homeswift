@@ -41,6 +41,8 @@ extension PhilipsHuePlugin {
                         [
                             "id": .string(scene.id), "name": .string(scene.name), "active": .bool(scene.active), "playing": .bool(scene.playing), "smart": .bool(scene.smart),
                             "autoplay": .bool(scene.autoplay), "palette": .bool(scene.hasPalette),
+                            // Colours, not only whites: what the page's Colour scenes filter keeps.
+                            "colourful": .bool(scene.colourful),
                             "hidden": .bool(!visible.contains(scene.id)), "colours": .array(Self.swatches(scene).map(JSONValue.string)),
                             "picture": versions[scene.id].map(JSONValue.string) ?? .null,
                             "transitionMs": ownTransition(scene, room: group.name).map { .number(Double($0)) } ?? .null,
