@@ -187,6 +187,12 @@ extension GoveePlugin {
                 { "title": "Red/Green/Blue", "enum": ["redgreenblue"] }
               ]
             },
+            "lanScenes": {
+              "title": "Scenes over LAN",
+              "type": "boolean",
+              "default": false,
+              "description": "Send scenes, DIY effects and music mode over LAN. The light does not confirm LAN commands: if a scene does nothing, turn this off."
+            },
             "brightnessStep": {
               "title": "Brightness Step",
               "type": "integer",
@@ -804,7 +810,8 @@ extension GoveePlugin {
                 "lightDevices[].adaptiveLightingShift",
                 "lightDevices[].brightnessStep",
                 "lightDevices[].awsBrightnessNoScale",
-                "lightDevices[].awsColourMode"
+                "lightDevices[].awsColourMode",
+                "lightDevices[].lanScenes"
               ]
             },
             {

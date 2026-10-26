@@ -149,7 +149,9 @@ struct DeviceSettings: Sendable, Equatable {
     }
 
     var commandOptions: TransportCommands.Options {
-        TransportCommands.Options(awsBrightnessNoScale: bool("awsBrightnessNoScale"), awsColourMode: string("awsColourMode") ?? GoveeConstants.Defaults.awsColourMode)
+        TransportCommands.Options(
+            awsBrightnessNoScale: bool("awsBrightnessNoScale"), awsColourMode: string("awsColourMode") ?? GoveeConstants.Defaults.awsColourMode,
+            lanScenes: bool("lanScenes"))
     }
 }
 

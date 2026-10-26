@@ -82,6 +82,8 @@
         { id: "awsColourMode", label: t("AWS Colour Mode"), type: "select", advanced: true,
           help: t("Which shape of colour command this model accepts over the cloud connection. Change it only if colours are ignored or come out wrong."),
           options: [["default", t("Default")], ["rgb", t("RGB")], ["redgreenblue", t("Red/Green/Blue")]] },
+        { id: "lanScenes", label: t("Scenes over LAN"), type: "checkbox", advanced: true,
+          help: t("Sends scenes, DIY effects and music mode straight to the light on your network, which is faster and works without the cloud. The light does not confirm LAN commands: if a scene does nothing, turn this off.") },
       ],
     },
     switchDevices: {

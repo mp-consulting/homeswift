@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Govee: **Scenes over LAN** (`lanScenes`, per light, off by default) sends scenes, DIY effects and music mode
+  straight to the light as `ptReal`, faster and without the cloud. The light does not confirm LAN commands, so one
+  that ignores them gets no cloud or Bluetooth fallback.
+
 ### Changed
 
 - The writes of one HomeKit request run at the same time, as in HAP-NodeJS: a light's brightness and colour reach the

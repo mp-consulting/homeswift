@@ -421,6 +421,22 @@ let forestParam = "AyYAAQAKAgH/GQG0CgoCyBQF//8AAP//////AP//lP8AFAGWAAAAACMAAg8FA
         #expect(TransportCommands(.stateHeat(true), model: "H7131").aws == AWSParams(cmd: "multiSync", data: ["command": [.string(Catalog.deviceStateCodes["on"]!)]]))
     }
 
+    /// With `lanScenes`, scenes, DIY effects and music mode also go over LAN as `ptReal`, with the cloud's frames
+    /// (a scene's BLE frames are for BLE only); without it they have no LAN form, as before.
+    @Test func scenesOverLAN() {
+        let options = TransportCommands.Options(lanScenes: true)
+        #expect(TransportCommands(.rgbScene(code: "AAA,BBB", bleCode: "CCC"), model: "H6008").lan == nil)
+        #expect(TransportCommands(.rgbScene(code: "AAA,BBB", bleCode: "CCC"), model: "H6008", options: options).lan == LANParams(cmd: "ptReal", data: ["command": ["AAA", "BBB"]]))
+        #expect(TransportCommands(.rgbScene(code: "", bleCode: "CCC"), model: "H6008", options: options).lan == nil)
+        #expect(TransportCommands(.ptReal("MwUBAA=="), model: "H6008", options: options).lan == LANParams(cmd: "ptReal", data: ["command": ["MwUBAA=="]]))
+        let music = SceneCodes.MusicMode(effect: .rhythm, sensitivity: 50, autoColour: true)
+        let frames = SceneCodes.encodeMusicMode(music)
+        #expect(TransportCommands(.musicMode(music), model: "H6008", options: options).lan == LANParams(cmd: "ptReal", data: ["command": .array(frames.map(JSONValue.string))]))
+        #expect(TransportCommands(.musicMode(music), model: "H6008").lan == nil)
+        // Colour and the rest keep their LAN form either way.
+        #expect(TransportCommands(.state(true), model: "H6008", options: options).lan == LANParams(cmd: "turn", data: ["value": 1]))
+    }
+
     @Test func bleFrames() {
         #expect(BLEParams.command(0x01, [1]).frames == [Govee.codeBytes([0x33, 0x01, 0x01])])
         #expect(BLEParams.ptReal(["MwEBAAAAAAAAAAAAAAAAAAAAADM="]).frames.first?.count == 20)
