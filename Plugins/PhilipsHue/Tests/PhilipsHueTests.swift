@@ -371,6 +371,21 @@ struct PhilipsHueTests {
         #expect(!bright.colourful)
     }
 
+    /// The bridge keeps a scene active after its room is switched off: the plugin sees it off, so a tap recalls it.
+    @Test func aSceneIsOffWithItsRoom() {
+        let resources: [JSONValue] = [
+            ["id": "room-1", "type": "room", "metadata": ["name": "Bedroom"], "services": [["rid": "grouped-1", "rtype": "grouped_light"]]],
+            ["id": "grouped-1", "type": "grouped_light", "on": ["on": false]],
+            ["id": "scene-1", "type": "scene", "metadata": ["name": "Tokyo"], "group": ["rid": "room-1", "rtype": "room"], "status": ["active": "dynamic_palette"]],
+        ]
+        let off = HueSnapshot(resources: resources)
+        #expect(off.scenes.first?.active == false)
+        #expect(off.scenes.first?.playing == false)
+        var on = resources
+        on[1] = ["id": "grouped-1", "type": "grouped_light", "on": ["on": true]]
+        #expect(HueSnapshot(resources: on).scenes.first?.playing == true)
+    }
+
     /// A scene the bridge plays (`dynamic_palette`) is active and playing; a still one only active.
     @Test func aPlayingSceneSaysSo() {
         let playing = HueSnapshot.scene(["metadata": ["name": "Tropical twilight"], "status": ["active": "dynamic_palette"]], id: "s", group: "g")
