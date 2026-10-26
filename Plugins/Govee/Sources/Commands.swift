@@ -92,6 +92,9 @@ struct TransportCommands: Sendable, Equatable {
     struct Options: Sendable, Equatable {
         var awsBrightnessNoScale = false
         var awsColourMode = "default"
+        /// Scenes, DIY effects and music mode go over LAN too, as `ptReal` with the frames the cloud takes. Off by
+        /// default: LAN commands are not acknowledged, so a model that ignores them would not fall back.
+        var lanScenes = false
     }
 
     /// `buildTransportCommands`: the command for AWS, BLE and LAN. `model` in any case.
@@ -140,16 +143,19 @@ struct TransportCommands: Sendable, Equatable {
         case .ptReal(let code):
             aws = AWSParams(cmd: "ptReal", data: ["command": [.string(code)]])
             ble = .ptReal([code])
+            if options.lanScenes { lan = LANParams(cmd: "ptReal", data: ["command": [.string(code)]]) }
         case .rgbScene(let code, let bleCode):
             // A scene is a sequence of 20-byte frames: AWS takes them in one message, BLE writes them in order.
             let awsFrames = SceneCodes.codeToFrames(code)
             let bleFrames = SceneCodes.codeToFrames(bleCode?.isEmpty == false ? bleCode! : code)
             if !awsFrames.isEmpty { aws = AWSParams(cmd: "ptReal", data: ["command": .array(awsFrames.map(JSONValue.string))]) }
             if !bleFrames.isEmpty { ble = .ptReal(bleFrames) }
+            if options.lanScenes, !awsFrames.isEmpty { lan = LANParams(cmd: "ptReal", data: ["command": .array(awsFrames.map(JSONValue.string))]) }
         case .musicMode(let mode):
             let frames = SceneCodes.encodeMusicMode(mode)
             aws = AWSParams(cmd: "ptReal", data: ["command": .array(frames.map(JSONValue.string))])
             ble = .ptReal(frames)
+            if options.lanScenes { lan = LANParams(cmd: "ptReal", data: ["command": .array(frames.map(JSONValue.string))]) }
         }
     }
 

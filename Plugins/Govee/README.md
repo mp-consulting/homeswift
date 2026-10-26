@@ -99,7 +99,9 @@ Each device type has its list: `lightDevices`, `switchDevices`, `thermoDevices`,
 
 - **Lights**: `showAs` (`default` or `switch`), `customIPAddress`, `customAddress` (Bluetooth MAC),
   `brightnessStep`, `adaptiveLightingShift` (-1 turns Adaptive Lighting off), `awsBrightnessNoScale`,
-  `awsColourMode` (`default`, `rgb`, `redgreenblue`), `scenes` (picked on the page), `musicModeLive`
+  `awsColourMode` (`default`, `rgb`, `redgreenblue`), `lanScenes` (scenes, DIY effects and music mode over LAN
+  as `ptReal`, off by default: the light does not acknowledge LAN commands, so one that ignores them gets no cloud
+  or Bluetooth fallback), `scenes` (picked on the page), `musicModeLive`
   (`enabled`, `effect`, `sensitivity`, `autoColour`, `soft`, `protocol`), and the older fixed slots `scene` to
   `sceneFour`, `diyMode` to `diyModeFour`, `musicMode`, `musicModeTwo`, `videoMode`, `videoModeTwo`,
   `segmented` to `segmentedFour` (`sceneCode`, `bleCode`, `showAs`).
