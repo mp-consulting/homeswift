@@ -330,8 +330,8 @@ Keep the platform name and the option names, and copy `config.schema.json` and t
 | `homebridge-ui/server.js`, `config.schema.json` | Keep the schema file; the settings page comes with the Homeswift UI |
 
 Ten of the plugins under `Plugins/` are ported this way; between them they use every transport above, cameras
-(UniFi Protect) and external accessories (Philips TV). The eleventh, Wingman, is Homeswift's own: it mirrors the Home
-app's accessories (below, "Mirrored accessories").
+(UniFi Protect) and external accessories (Philips TV). Three are Homeswift's own: Wingman mirrors the Home
+app's accessories (below, "Mirrored accessories"), and Philips Hue and IKEA DIRIGERA talk to their bridges' local APIs.
 
 ## Where plugins live
 
