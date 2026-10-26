@@ -1545,6 +1545,10 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
 .drop-zone.over { border-color: var(--accent); background: rgba(255, 122, 26, 0.08); color: var(--text); transform: scale(1.01); }
 .drop-zone.ok { border-style: solid; border-color: var(--ok); color: var(--ok); }
 .drop-zone.error { border-color: var(--error); color: var(--error); }
+/* Appearance's own wallpaper: drop an image on the card's zone, or tap it to choose one. */
+.wallpaper-drop { margin-top: 14px; padding: 18px 14px; gap: 10px; font-size: 0.875rem; }
+.wallpaper-drop svg { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.wallpaper-drop + .actions { margin-top: 10px; }
 .view-switch { margin-bottom: 12px; }
 .form-card > p.error:empty { display: none; }
 .chat-voice { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 6px 16px 0; font-size: 0.75rem; color: var(--muted); }
@@ -1932,9 +1936,9 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .appearance .group { margin-top: 10px; flex-wrap: wrap; }
 @media (max-width: 640px) {
   /* The choices fill the card's width; one that needs two rows (the languages) stretches each row's buttons to the
-     edge, so neither row is ragged. */
+     edge, so neither row is ragged; a button never shrinks below its text, it moves to the next row. */
   .appearance .group { display: flex; border-radius: 18px; }
-  .appearance .group button { flex: 1 1 5.5rem; min-width: 0; padding: 7px 6px; border-radius: 14px; }
+  .appearance .group button { flex: 1 1 5.5rem; padding: 7px 10px; border-radius: 14px; }
   /* The save message under the cards stays clear of the floating menu button. */
   .appearance + .status-line { margin-inline-end: calc(70px + env(safe-area-inset-right)); }
 }
