@@ -12,7 +12,11 @@ h1, h2, h3, .ask q, .way h3, .who strong, .plugin strong, .plugin span, .brain s
 @media (max-width: 480px) { .nav .gh span { display: none; } .nav .gh { padding: 9px; } .nav .lang { margin-right: 2px; padding-left: 10px; padding-right: 22px; background-position: calc(100% - 11px) 52%, calc(100% - 7px) 52%; } }
 
 /* Hero: the copy, then a stage with the house above the chat. */
-.home-hero .wrap { grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr); }
+/* The copy sits at the top beside the stage (which is much taller), not centred on it with a gap above. */
+.home-hero { padding-top: clamp(24px, 4.5vw, 56px); }
+.home-hero .wrap { grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr); align-items: start; }
+.home-hero .hero-copy { padding-top: clamp(0px, 2.5vw, 32px); }
+@media (max-width: 900px) { .home-hero .hero-copy { padding-top: 0; } }
 .chat-stage { container-type: inline-size; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 
 /* A miniature of the same two-column compact tiles shown in the bridge. */
@@ -40,14 +44,21 @@ h1, h2, h3, .ask q, .way h3, .who strong, .plugin strong, .plugin span, .brain s
 /* The chat: a glass panel, a scrolling log, suggestion chips and a composer. */
 .chat { display: flex; flex-direction: column; height: clamp(380px, 52vh, 470px); border-radius: var(--radius); background: var(--glass); border: 1px solid var(--glass-edge);
   -webkit-backdrop-filter: blur(24px) saturate(170%); backdrop-filter: blur(24px) saturate(170%); box-shadow: var(--shadow); overflow: hidden; }
-.chat-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.chat-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
 .chat-head div { display: grid; }
 .chat-head strong { font-size: 0.9375rem; font-weight: 600; }
 .chat-head div span { font-size: 0.75rem; color: var(--faint); }
 .spark { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; color: #fff; background: linear-gradient(160deg, #ffb15c, #f0442e); flex: none; }
 .spark svg { width: 17px; height: 17px; }
 
-.log { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 8px; overscroll-behavior: contain; scroll-behavior: smooth; }
+.log { flex: 1; overflow-y: auto; padding: 4px 14px 14px; display: flex; flex-direction: column; gap: 8px; overscroll-behavior: contain; scroll-behavior: smooth; }
+/* The scroll edge under the header: messages fade out as they pass beneath it, only once there is something above. */
+@property --edge { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@supports (animation-timeline: scroll()) {
+  .log { -webkit-mask-image: linear-gradient(transparent, #000 var(--edge)); mask-image: linear-gradient(transparent, #000 var(--edge));
+    animation: log-edge linear both; animation-timeline: scroll(self); animation-range: 0 24px; }
+}
+@keyframes log-edge { from { --edge: 0px; } to { --edge: 28px; } }
 .msg { max-width: 86%; padding: 9px 13px; border-radius: 18px; font-size: 0.9375rem; line-height: 1.4; animation: bubble-in 540ms var(--spring) backwards; transform-origin: 0 100%; }
 .msg.me { transform-origin: 100% 100%; align-self: flex-end; background: linear-gradient(180deg, var(--button-top), var(--button-bottom)); color: var(--on-accent); border-bottom-right-radius: 6px; }
 .msg.bot { align-self: flex-start; background: var(--bg-raised); border: 1px solid var(--line); border-bottom-left-radius: 6px; }
@@ -85,8 +96,8 @@ h1, h2, h3, .ask q, .way h3, .who strong, .plugin strong, .plugin span, .brain s
 .diff span:first-child { color: var(--muted); }
 .diff s { color: var(--faint); }
 .confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.confirm-actions button, .confirm-actions span { font: 600 0.875rem/1 var(--font); padding: 10px; border-radius: 12px; border: 0; cursor: pointer; text-align: center; transition: transform 100ms ease-out, opacity 200ms; -webkit-tap-highlight-color: transparent; }
-.confirm-actions button:active { transform: scale(0.97); }
+.confirm-actions button, .confirm-actions span { font: 600 0.875rem/1 var(--font); padding: 10px; border-radius: 12px; border: 0; cursor: pointer; text-align: center; transition: transform 400ms var(--spring), filter 160ms var(--ease-out), opacity 200ms; -webkit-tap-highlight-color: transparent; }
+.confirm-actions button:active { transform: scale(0.97); filter: brightness(0.94); transition: transform var(--press), filter var(--press); }
 .b-no { background: var(--track); color: var(--ink); }
 .b-yes { background: linear-gradient(180deg, var(--button-top), var(--button-bottom)); color: var(--on-accent); }
 .confirm.answered .confirm-actions { opacity: 0.5; pointer-events: none; }
@@ -95,19 +106,20 @@ h1, h2, h3, .ask q, .way h3, .who strong, .plugin strong, .plugin span, .brain s
 .chips { display: flex; gap: 6px; padding: 0 14px 10px; overflow-x: auto; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }
 .chips::-webkit-scrollbar { display: none; }
 .chips button { flex: none; font: 500 0.8125rem/1 var(--font); padding: 8px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg-raised); color: var(--ink); cursor: pointer; white-space: nowrap;
-  transition: transform 100ms ease-out, background-color 160ms var(--ease-out); -webkit-tap-highlight-color: transparent; }
+  transition: transform 400ms var(--spring), background-color 160ms var(--ease-out); -webkit-tap-highlight-color: transparent; }
 @media (hover: hover) { .chips button:hover { background: var(--tile-on); } }
-.chips button:active { transform: scale(0.96); }
+.chips button:active { transform: scale(0.96); background: var(--track); transition: transform var(--press), background-color var(--press); }
 .chips[aria-disabled="true"] button { opacity: 0.5; pointer-events: none; }
 
 .composer { display: flex; align-items: center; gap: 6px; margin: 0 10px 10px; padding: 5px; border-radius: 999px; background: var(--bg-raised); border: 1px solid var(--line); }
 .composer input { flex: 1; min-width: 0; border: 0; background: none; color: var(--ink); font: 1rem/1.3 var(--font); padding: 8px 4px; outline: none; }
 .composer input::placeholder { color: var(--faint); }
 .composer:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
-.mic, .send { width: 34px; height: 34px; border-radius: 50%; border: 0; display: grid; place-items: center; flex: none; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform 100ms ease-out; }
+.mic, .send { width: 34px; height: 34px; border-radius: 50%; border: 0; display: grid; place-items: center; flex: none; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform 400ms var(--spring), background-color 160ms var(--ease-out); }
 .mic { background: none; color: var(--muted); }
 .send { background: linear-gradient(180deg, var(--button-top), var(--button-bottom)); color: var(--on-accent); }
-.mic:active, .send:active { transform: scale(0.92); }
+.mic:active, .send:active { transform: scale(0.92); transition: transform var(--press), background-color var(--press); }
+.mic:active { background: var(--track); }
 .mic svg, .send svg { width: 18px; height: 18px; }
 .chat-stage .wire { margin-top: 0; }
 
@@ -120,7 +132,7 @@ h1, h2, h3, .ask q, .way h3, .who strong, .plugin strong, .plugin span, .brain s
 .consent-lead b { color: var(--ink); font-weight: 600; }
 .scopes { display: grid; gap: 8px; width: 100%; text-align: left; }
 .scope { display: grid; grid-template-columns: 20px minmax(0, 1fr); column-gap: 10px; row-gap: 2px; padding: 11px 12px; border-radius: 14px; border: 1px solid var(--line); background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer;
-  transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out); -webkit-tap-highlight-color: transparent; }
+  transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out), transform 400ms var(--spring); -webkit-tap-highlight-color: transparent; }
 .scope i { grid-row: span 2; width: 18px; height: 18px; margin-top: 1px; border-radius: 50%; border: 2px solid var(--faint); transition: border-color 160ms, border-width 160ms; }
 .scope strong { font-size: 0.9375rem; font-weight: 600; }
 .scope span { font-size: 0.8125rem; color: var(--muted); line-height: 1.35; }
@@ -224,12 +236,7 @@ h1, h2, h3, .ask q, .way h3, .who strong, .plugin strong, .plugin span, .brain s
   .chat { height: clamp(320px, calc(100svh - 340px), 440px); }
 }
 
-/* Motion. One spring for everything: critically damped, so nothing overshoots; 400 ms for a response of 0.3 s,
-   540 ms for 0.4 s. Browsers without linear() get a curve close to it. */
-:root { --spring: cubic-bezier(0.2, 0.9, 0.25, 1); }
-@supports (transition-timing-function: linear(0, 1)) {
-  :root { --spring: linear(0, 0.058, 0.181, 0.322, 0.456, 0.574, 0.672, 0.751, 0.813, 0.861, 0.897, 0.925, 0.945, 0.96, 0.971, 0.979, 0.985, 0.989, 0.992, 0.995, 0.997, 1); }
-}
+/* Motion: the spring (--spring) is site.css's. */
 @keyframes rise { from { opacity: 0; transform: translateY(14px); } }
 @keyframes tile-in { from { opacity: 0; transform: scale(0.92); } }
 @keyframes tick { from { opacity: 0; transform: translateY(5px); } }
@@ -248,15 +255,30 @@ h1, h2, h3, .ask q, .way h3, .who strong, .plugin strong, .plugin span, .brain s
 .status.tick { animation: tick 400ms var(--spring) backwards; }
 
 .chips button, .composer button, .confirm-actions button, .scope { touch-action: manipulation; }
-.scope:active { transform: scale(0.98); }
+.scope:active { transform: scale(0.98); transition: transform var(--press); }
+.lang { transition: background-color 160ms var(--ease-out), color 160ms var(--ease-out); -webkit-tap-highlight-color: transparent; }
+@media (hover: hover) { .lang:hover { color: var(--ink); } }
+.lang:active { background-color: color-mix(in srgb, var(--ink) 14%, transparent); transition-duration: 0ms; }
 
+/* Reduced motion: what arrives fades in place instead of rising, growing or bouncing; the typing dots and the tool
+   call's spinner pulse rather than move. */
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes pulse { 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) {
-  .motion .hero-copy > *, .motion .house .w, .motion .chat, .motion .chat-stage .wire, .status.tick, .note, .fence { animation: none; }
+  .motion .hero-copy > *, .motion .house .w, .motion .chat, .motion .chat-stage .wire { animation: fade-in 300ms ease backwards; animation-delay: 0ms; }
+  .status.tick, .note, .fence, .msg, .tool, .confirm { animation: fade-in 200ms ease backwards; }
   .motion [data-reveal]:not(.in) { transform: none; }
-  .msg, .tool, .confirm { animation: none; }
-  .typing i, .tool .st { animation: none; }
+  .house .w.touched { transform: none; }
+  .typing i { animation: pulse 1.2s ease-in-out infinite; }
+  .tool .st { animation: pulse 1.2s ease-in-out infinite; border-top-color: var(--faint); }
   .log { scroll-behavior: auto; }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .chat, .ask { background: var(--glass-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .chat, .ask, .mood { background: var(--glass-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (prefers-contrast: more) {
+  .chat, .ask, .mood { background: var(--glass-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .chat-head { border-bottom: 1px solid var(--line); }
+  .log { -webkit-mask-image: none; mask-image: none; animation: none; }
+  .msg.bot, .typing, .chips button, .composer, .scope, .brain, .consent { border-color: var(--line); }
 }

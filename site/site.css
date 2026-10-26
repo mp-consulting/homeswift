@@ -14,6 +14,14 @@
   --font: system-ui, -apple-system, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   --radius: 22px; --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  /* One spring for everything: critically damped, so nothing overshoots; 400 ms for a response of 0.3 s,
+     540 ms for 0.4 s. Browsers without linear() get a curve close to it. */
+  --spring: cubic-bezier(0.2, 0.9, 0.25, 1);
+  /* A press lands in 100 ms; the release springs back. */
+  --press: 100ms ease-out;
+}
+@supports (transition-timing-function: linear(0, 1)) {
+  :root { --spring: linear(0, 0.058, 0.181, 0.322, 0.456, 0.574, 0.672, 0.751, 0.813, 0.861, 0.897, 0.925, 0.945, 0.96, 0.971, 0.979, 0.985, 0.989, 0.992, 0.995, 0.997, 1); }
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -44,7 +52,7 @@ body { margin: 0; }
 img { max-width: 100%; }
 [hidden] { display: none !important; }
 body {
-  background: var(--bg); color: var(--ink); font: 1rem/1.55 var(--font); -webkit-font-smoothing: antialiased;
+  background: var(--bg); color: var(--ink); font: 1rem/1.55 var(--font); font-optical-sizing: auto; -webkit-font-smoothing: antialiased;
   background-image:
     radial-gradient(60rem 40rem at 0% -10%, var(--wash-warm), transparent 60%),
     radial-gradient(50rem 36rem at 100% 0%, var(--wash-cool), transparent 60%);
@@ -62,31 +70,45 @@ h1, h2, h3 { margin: 0; text-wrap: balance; }
 h1 { font-size: clamp(2.5rem, 6.4vw, 4.6rem); line-height: 1.02; letter-spacing: -0.035em; font-weight: 700; }
 h2 { font-size: clamp(1.9rem, 4vw, 3rem); line-height: 1.06; letter-spacing: -0.028em; font-weight: 700; }
 h3 { font-size: 1.125rem; line-height: 1.3; letter-spacing: -0.01em; font-weight: 600; }
-p { margin: 0; }
+p { margin: 0; text-wrap: pretty; }
 .lede { font-size: clamp(1.1rem, 1.6vw, 1.3rem); line-height: 1.45; color: var(--muted); letter-spacing: -0.005em; max-width: 34em; }
 .eyebrow { font-size: 0.8125rem; font-weight: 600; letter-spacing: 0.02em; color: var(--accent-ink); }
-.small { font-size: 0.8125rem; color: var(--faint); }
+.small { font-size: 0.8125rem; letter-spacing: 0.005em; color: var(--faint); }
 code, pre { font-family: var(--mono); }
 
 /* Nav: a translucent material, content scrolls under it; the edge is a soft fade, not a rule. */
 .nav { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; padding-block: 10px; }
-.nav-bar { display: flex; align-items: center; gap: 4px; padding: 6px 6px 6px 8px; border-radius: 999px;
+.nav-bar { position: relative; display: flex; align-items: center; gap: 4px; padding: 6px 6px 6px 8px; border-radius: 999px;
   background: var(--glass); -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
   border: 1px solid var(--glass-edge); box-shadow: var(--shadow-small); }
+/* The scroll edge: where content passes under the bar, a band blurs and fades it out (no rule). It appears only once
+   the page has scrolled, as the bar itself firms up from a lighter glass; browsers without scroll timelines keep both. */
+.nav::before { content: ""; position: absolute; inset: 0 0 -18px; pointer-events: none;
+  background: linear-gradient(var(--bg) 0%, color-mix(in srgb, var(--bg) 70%, transparent) 55%, transparent);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  -webkit-mask-image: linear-gradient(#000 60%, transparent); mask-image: linear-gradient(#000 60%, transparent); }
+@supports (animation-timeline: scroll()) {
+  .nav::before { animation: edge-in linear both; animation-timeline: scroll(root); animation-range: 0 64px; }
+  .nav-bar { animation: bar-firm linear both; animation-timeline: scroll(root); animation-range: 0 96px; }
+}
+@keyframes edge-in { from { opacity: 0; } }
+@keyframes bar-firm { from { box-shadow: none; background-color: color-mix(in srgb, var(--glass) 60%, transparent); } }
 .brand { display: flex; align-items: center; gap: 9px; padding-right: 10px; text-decoration: none; font-weight: 650; letter-spacing: -0.01em; }
 .brand svg { width: 30px; height: 30px; flex: none; }
 .nav-links { display: flex; gap: 2px; margin-right: auto; }
 .nav-links a { text-decoration: none; font-size: 0.9375rem; padding: 7px 12px; border-radius: 999px; color: var(--muted); transition: color 160ms var(--ease-out), background-color 160ms var(--ease-out); }
-.nav-links a:hover { color: var(--ink); background: var(--track); }
+@media (hover: hover) { .nav-links a:hover { color: var(--ink); background: var(--track); } }
+.nav-links a:active { color: var(--ink); background: var(--track); transition-duration: 0ms; }
 /* The section links never wrap: they leave the bar below 1000 px, where French or Portuguese labels (a third longer than
    English), six of them on the bridge page, or the home page's language picker would no longer fit beside the logo. */
 .nav-links a { white-space: nowrap; }
 @media (max-width: 1000px) { .nav-links { display: none; } .brand { margin-right: auto; } }
 .btn { display: inline-flex; align-items: center; gap: 8px; font: 600 0.9375rem/1 var(--font); letter-spacing: -0.005em; text-decoration: none; padding: 11px 18px; border-radius: 999px; border: 0; cursor: pointer; white-space: nowrap;
-  transition: transform 100ms ease-out, background-color 160ms var(--ease-out); -webkit-tap-highlight-color: transparent; }
-.btn:active { transform: scale(0.97); }
+  transition: transform 400ms var(--spring), filter 160ms var(--ease-out), background-color 160ms var(--ease-out); -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 .btn-primary { background: linear-gradient(180deg, var(--button-top), var(--button-bottom)); color: var(--on-accent); box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 35%, transparent), inset 0 1px 0 rgba(255,255,255,0.25); }
 .btn-plain { background: var(--bg-raised); color: var(--ink); box-shadow: var(--shadow-small); border: 1px solid var(--line); }
+@media (hover: hover) { .btn-primary:hover { filter: brightness(1.06); } .btn-plain:hover { background: var(--tile-on); } }
+.btn:active { transform: scale(0.97); filter: brightness(0.94); transition: transform var(--press), filter var(--press); }
 .btn svg { width: 17px; height: 17px; }
 .nav .btn { padding: 9px 14px; }
 
@@ -106,7 +128,7 @@ code, pre { font-family: var(--mono); }
   -webkit-backdrop-filter: blur(20px) saturate(160%); backdrop-filter: blur(20px) saturate(160%); box-shadow: var(--shadow);
   padding: 12px; display: flex; flex-direction: column; justify-content: space-between; gap: 8px; min-width: 0; overflow: hidden;
   -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
-  transition: background-color 200ms var(--ease-out), color 200ms var(--ease-out), transform 100ms ease-out; }
+  transition: background-color 200ms var(--ease-out), color 200ms var(--ease-out), transform 400ms var(--spring); }
 .w.medium { grid-row: span 2; }
 .wall .w.large { grid-column: span 2; grid-row: span 2; }
 .wall .w.xlarge { grid-column: span 2; grid-row: span 3; }
@@ -116,7 +138,7 @@ code, pre { font-family: var(--mono); }
 .wall .w.small .icon { width: 28px; height: 28px; border-radius: 50%; }
 .wall .w.small .who strong { white-space: nowrap; font-size: 0.75rem; }
 .w.tap { cursor: pointer; }
-.w.tap:active, .w.pressed { transform: scale(0.97); }
+.w.tap:active, .w.pressed { transform: scale(0.97); transition-duration: 200ms, 200ms, 100ms; transition-timing-function: var(--ease-out), var(--ease-out), ease-out; }
 .w.on.small { background: var(--tile-on); color: #15171c; }
 .w.on.small .status { color: rgba(21, 23, 28, 0.68); }
 .w-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -137,10 +159,13 @@ code, pre { font-family: var(--mono); }
 .big { font-size: 1.6rem; font-weight: 650; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
 
 /* Switch */
-.switch { margin-left: auto; width: 46px; height: 28px; border-radius: 999px; border: 0; padding: 0; background: var(--track); position: relative; cursor: pointer; flex: none; transition: background-color 200ms var(--ease-out); }
-.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.2); transition: transform 260ms var(--ease-out); }
+.switch { margin-left: auto; width: 46px; height: 28px; border-radius: 999px; border: 0; padding: 0; background: var(--track); position: relative; cursor: pointer; flex: none; transition: background-color 200ms var(--ease-out); -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 24px; height: 24px; border-radius: 999px; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.2); transition: transform 400ms var(--spring), width 400ms var(--spring); }
 .switch[aria-checked="true"] { background: var(--accent); }
 .switch[aria-checked="true"]::after { transform: translateX(18px); }
+/* Pressed, the knob stretches toward where it will go, as iOS's does. */
+.switch:active::after { width: 30px; transition-duration: 100ms; }
+.switch[aria-checked="true"]:active::after { transform: translateX(12px); }
 
 /* Slider: a bar that tracks the finger 1:1 from where it was grabbed. */
 .slider { position: relative; height: 44px; border-radius: 14px; background: var(--track); overflow: hidden; cursor: ew-resize; touch-action: none; }
@@ -152,14 +177,14 @@ code, pre { font-family: var(--mono); }
 
 /* Thermostat */
 .thermo { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.round { width: 34px; height: 34px; border-radius: 50%; border: 0; background: var(--bg-raised); color: var(--ink); box-shadow: var(--shadow-small); font: 500 1.25rem/1 var(--font); cursor: pointer; flex: none; transition: transform 100ms ease-out; }
-.round:active { transform: scale(0.92); }
+.round { width: 34px; height: 34px; border-radius: 50%; border: 0; background: var(--bg-raised); color: var(--ink); box-shadow: var(--shadow-small); font: 500 1.25rem/1 var(--font); cursor: pointer; flex: none; transition: transform 400ms var(--spring); -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.round:active { transform: scale(0.92); transition: transform var(--press); }
 .target { text-align: center; display: grid; }
 .target small, .inside small { font-size: 0.6875rem; color: var(--muted); }
 .inside { display: grid; }
 
 /* Shutter: drag it up or down; past either end it resists, then springs back. */
-.shutter { touch-action: none; cursor: ns-resize; }
+.shutter { touch-action: none; cursor: ns-resize; transition: background-color 200ms var(--ease-out), color 200ms var(--ease-out), transform 100ms ease-out; }
 .shutter .slats { position: absolute; inset: 0 0 auto; height: calc(var(--closed, 0) * 100%); pointer-events: none;
   background: repeating-linear-gradient(180deg, var(--track) 0 7px, transparent 7px 9px); border-bottom: 1px solid var(--line); }
 .shutter > * { position: relative; }
@@ -227,14 +252,26 @@ section { padding-block: clamp(56px, 8vw, 104px); }
 
 /* Install */
 .install { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 20px; align-items: start; }
-.seg { display: inline-flex; padding: 3px; border-radius: 12px; background: var(--track); gap: 2px; margin-bottom: 14px; max-width: 100%; overflow-x: auto; }
-.seg button { font: 500 0.875rem/1 var(--font); border: 0; padding: 9px 16px; border-radius: 9px; background: none; color: var(--muted); cursor: pointer; white-space: nowrap; transition: background-color 200ms var(--ease-out), color 200ms var(--ease-out); }
+.seg { position: relative; display: inline-flex; padding: 3px; border-radius: 12px; background: var(--track); gap: 2px; margin-bottom: 14px; max-width: 100%; overflow-x: auto; }
+.seg button { position: relative; z-index: 1; font: 500 0.875rem/1 var(--font); border: 0; padding: 9px 16px; border-radius: 9px; background: none; color: var(--muted); cursor: pointer; white-space: nowrap;
+  transition: background-color 200ms var(--ease-out), color 200ms var(--ease-out), transform 400ms var(--spring); -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.seg button:active { transform: scale(0.96); transition: transform var(--press); }
 .seg button[aria-selected="true"] { background: var(--bg-raised); color: var(--ink); box-shadow: var(--shadow-small); }
+/* With site.js, the selection is one thumb that slides between the segments (--x and --w), springing from wherever it is. */
+.seg.thumb::before { content: ""; position: absolute; top: 3px; bottom: 3px; left: 0; width: var(--w, 0); transform: translateX(var(--x, 0));
+  border-radius: 9px; background: var(--bg-raised); box-shadow: var(--shadow-small); }
+.seg.thumb.ready::before { transition: transform 400ms var(--spring), width 400ms var(--spring); }
+.seg.thumb button[aria-selected="true"] { background: none; box-shadow: none; }
+.term:not([hidden]) { animation: pane-in 280ms var(--ease-out); }
+@keyframes pane-in { from { opacity: 0; } }
 .term { position: relative; background: var(--code-bg); color: var(--code-ink); border-radius: 18px; padding: 18px 20px; overflow-x: auto; font-size: 0.8125rem; line-height: 1.7; }
 .term pre { margin: 0; white-space: pre; }
 .term .c { color: var(--code-com); } .term .k { color: var(--code-kw); } .term .s { color: var(--code-str); } .term .t { color: var(--code-type); }
-.copy { position: absolute; top: 10px; right: 10px; font: 500 0.75rem/1 var(--font); color: var(--code-ink); background: rgba(255,255,255,0.1); border: 0; border-radius: 8px; padding: 7px 10px; cursor: pointer; }
-.copy:active { transform: scale(0.96); }
+.copy { position: absolute; top: 10px; right: 10px; font: 500 0.75rem/1 var(--font); color: var(--code-ink); background: color-mix(in srgb, var(--code-ink) 12%, var(--code-bg)); border: 0; border-radius: 8px; padding: 7px 10px; cursor: pointer;
+  transition: transform 400ms var(--spring), background-color 160ms var(--ease-out); -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+@media (hover: hover) { .copy:hover { background: color-mix(in srgb, var(--code-ink) 18%, var(--code-bg)); } }
+.copy:active { transform: scale(0.96); background: color-mix(in srgb, var(--code-ink) 24%, var(--code-bg)); transition: transform var(--press), background-color var(--press); }
+.copy.done { background: color-mix(in srgb, var(--ok) 45%, var(--code-bg)); }
 .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; counter-reset: s; }
 .steps li { counter-increment: s; display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 14px; padding: 16px 0; border-top: 1px solid var(--line); }
 .steps li:first-child { border-top: 0; padding-top: 4px; }
@@ -267,13 +304,30 @@ footer .small { max-width: 34rem; }
   .row { grid-template-columns: minmax(0, 1fr) 4rem; }
   .row .bars { grid-column: 1 / -1; grid-row: 2; }
 }
+/* Reduced motion keeps the feedback that isn't movement: colour and opacity still cross-fade, briefly; nothing
+   slides, scales, stretches or springs. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { transition-duration: 0.01ms !important; }
+  *, *::before, *::after { transition-property: opacity, color, background-color, border-color, box-shadow, filter !important; transition-duration: 160ms !important; transition-timing-function: ease !important; }
   html { scroll-behavior: auto; }
-  .w.tap:active, .w.pressed, .btn:active { transform: none; }
+  .w.tap:active, .w.pressed, .btn:active, .round:active, .copy:active, .seg button:active { transform: none; }
+  .switch:active::after { width: 24px; }
+  .switch[aria-checked="true"]:active::after { transform: translateX(18px); }
+  .lock .hold, .lock.holding .hold { transition: none !important; }
 }
+/* Reduced transparency: the glass turns solid, and the scroll edge becomes a plain fade. */
 @media (prefers-reduced-transparency: reduce) {
   .nav-bar, .w, .wire, .plugin { background: var(--glass-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .nav::before { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .nav-bar { animation: none; }
+}
+/* More contrast: solid surfaces, defined edges, darker secondary text. */
+@media (prefers-contrast: more) {
+  :root { --muted: color-mix(in srgb, var(--ink) 82%, var(--bg)); --faint: color-mix(in srgb, var(--ink) 72%, var(--bg)); --line: color-mix(in srgb, var(--ink) 45%, transparent); --glass-edge: var(--line); --track: color-mix(in srgb, var(--ink) 16%, transparent); }
+  .nav-bar, .w, .wire, .plugin { background: var(--glass-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .nav-bar { animation: none; }
+  .nav::before { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--bg); -webkit-mask-image: none; mask-image: none; inset: 0; }
+  .btn-plain, .card, .bench, .seg, .round { border: 1px solid var(--line); }
+  :focus-visible { outline-width: 3px; }
 }
 
 /* Formerly inline: the sprite, the legend's keys, the feature glyphs' tones, the developers' title. */
