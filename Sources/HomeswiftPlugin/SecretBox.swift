@@ -12,6 +12,7 @@ import HomeswiftAI
 public struct SecretBox: Sendable {
     public static let prefix = Redaction.sealedPrefix
     public static let fileName = "secrets.key"
+    private static let creationLock = NSLock()
 
     private let key: SymmetricKey
 
@@ -35,6 +36,12 @@ public struct SecretBox: Sendable {
             return try fromKeyFile(Data(contentsOf: url), path: url.path)
         }
         guard create else { throw SecretBoxError.missingKeyFile(url.path) }
+        // Two saves at once must not each write a key: the second one waits and then uses the first one's.
+        creationLock.lock()
+        defer { creationLock.unlock() }
+        if FileManager.default.fileExists(atPath: url.path) {
+            return try fromKeyFile(Data(contentsOf: url), path: url.path)
+        }
         let raw = Secrets.randomBytes(32)
         let data = try JSONEncoder().encode(StoredKey(version: 1, key: raw.base64EncodedString()))
         try OwnerOnlyFile.write(data, to: url)

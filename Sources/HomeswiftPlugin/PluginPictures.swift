@@ -47,8 +47,8 @@ public final class PluginPictures: Sendable {
         guard data.count <= Self.maximumSize else { throw Failure.tooLarge(limit: Self.maximumSize) }
         guard let kind = Self.kind(of: data) else { throw Failure.notAnImage }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        for other in Self.kinds where other.ext != kind.ext { try? FileManager.default.removeItem(at: file(name, other.ext)) }
         try OwnerOnlyFile.write(data, to: file(name, kind.ext))
+        for other in Self.kinds where other.ext != kind.ext { try? FileManager.default.removeItem(at: file(name, other.ext)) }
         return version(of: name) ?? "1"
     }
 

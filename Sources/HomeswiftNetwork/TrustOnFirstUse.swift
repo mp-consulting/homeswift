@@ -33,13 +33,15 @@ extension HTTPClient {
         public var fingerprint: String? { state.withLockedValue { $0.fingerprint } }
 
         /// How to connect now: any certificate the first time, exactly the pinned one after.
-        public var tls: HTTPClient.TLS { fingerprint.map { .pinned($0) } ?? .any }
+        public var tls: HTTPClient.TLS { Self.tls(for: fingerprint) }
+
+        private static func tls(for fingerprint: String?) -> HTTPClient.TLS { fingerprint.map { .pinned($0) } ?? .any }
 
         /// A client connecting with `tls`, kept until the pin changes (pinned, or reset), so its TLS context is built
         /// once rather than for every request.
         public var client: HTTPClient {
             state.withLockedValue { state in
-                let tls: HTTPClient.TLS = state.fingerprint.map { .pinned($0) } ?? .any
+                let tls = Self.tls(for: state.fingerprint)
                 if let client = state.client, client.tls == tls { return client }
                 let client = HTTPClient(tls: tls)
                 state.client = client

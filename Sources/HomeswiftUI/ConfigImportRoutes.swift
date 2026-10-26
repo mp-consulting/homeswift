@@ -52,8 +52,8 @@ extension UIServer {
         let existing = try catalog.readConfig()
         // The check validates the merged config as it will run, so the existing sealed secrets are opened for it.
         let checked = try HomebridgeImport.check(data, registry: catalog.host.registry, existing: SecretBox.revealed(existing, storage: storage))
-        guard save else { return .json(try encodedJSON(checked.report)) }
-        guard checked.report.valid, let additions = checked.additions else { return .json(try encodedJSON(checked.report), status: 422) }
+        guard save else { return .json(try JSONValue(encoding: checked.report)) }
+        guard checked.report.valid, let additions = checked.additions else { return .json(try JSONValue(encoding: checked.report), status: 422) }
         // The checked values are plain: `writeConfig` seals them as it writes the file, and the running bridge gets the
         // secrets opened, so the plugins start with them.
         let merged = HomebridgeImport.merge(existing, additions: additions)
@@ -63,7 +63,7 @@ extension UIServer {
         } catch let changed as ConfigChanged {
             return .error(409, changed.description)
         }
-        var answer = try encodedJSON(checked.report).objectValue ?? [:]
+        var answer = try JSONValue(encoding: checked.report).objectValue ?? [:]
         for key in ["backup", "note", "restartNeeded"] { answer[key] = applied[key] ?? .null }
         return .json(.object(answer))
     }
@@ -122,10 +122,6 @@ extension UIServer {
         let target = relative.isEmpty ? base : base.appendingPathComponent(relative).resolvingSymlinksInPath().standardizedFileURL
         guard target.path == base.path || target.path.hasPrefix(base.path + "/") else { throw ImportRouteError.outsideStorage }
         return target
-    }
-
-    private func encodedJSON<T: Encodable>(_ value: T) throws -> JSONValue {
-        try JSONValue(encoding: value)
     }
 }
 

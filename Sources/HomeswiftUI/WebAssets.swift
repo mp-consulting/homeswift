@@ -19,7 +19,7 @@ enum WebAssets {
   const app = () => window.HomeswiftApp;
   const api = (...args) => app().api(...args);
 
-  const pages = [["", t("Bridge"), "bridge"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
+  const pages = [["", t("Overview"), "chart"], ["bridge", t("Bridge"), "bridge"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
 
   const dateTime = new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
   const fullDate = new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
@@ -68,7 +68,7 @@ enum WebAssets {
   const sectionHead = (title, note, ...tools) => el("div", { class: "section-head" }, el("h2", { text: title }), note ? el("span", { class: "muted", text: note }) : null, ...tools);
 
   async function view(main, [page = ""] = []) {
-    const draw = { "": bridgePage, "child-bridges": childBridgesPage, backups: backupsPage, audit: auditPage, assistant: (main) => app().assistantPage(main, subnav("assistant")) }[page];
+    const draw = { "": overviewPage, bridge: bridgePage, "child-bridges": childBridgesPage, backups: backupsPage, audit: auditPage, assistant: (main) => app().assistantPage(main, subnav("assistant")) }[page];
     if (!draw) { app().show(main, app().pageHead(t("Settings"), t("No such page.")), subnav(null)); return; }
     await draw(main);
   }
@@ -82,7 +82,7 @@ enum WebAssets {
     const uiBlock = plugins?.blocks.find((block) => block.platform === "HomeswiftUI");
     app().show(main,
       app().pageHead(t("Settings"), t("The bridge, its pairings and cached accessories, child bridges, backups and the audit log.")),
-      subnav(""),
+      subnav("bridge"),
       bridgeForm(settings, bridge, pairings.bridges.find((one) => one.kind === "main")),
       networkCard(settings),
       sectionHead(t("HomeKit pairings"), t("Who the Home app knows each server by")),
@@ -697,6 +697,525 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }));
     }
     load();
+  }
+
+  // ---- Overview: what homeswift runs, as a radial tree: homeswift at the centre, its bridges on the first ring, their
+  // plugins on the second, and each plugin's accessories as dots on the outer ring, in their branch's colour.
+
+  const svgNamespace = "http://www.w3.org/2000/svg";
+  /// An SVG element; children are nodes or strings, and null children are skipped.
+  function svgNode(tag, attrs = {}, ...children) {
+    const node = document.createElementNS(svgNamespace, tag);
+    for (const [key, value] of Object.entries(attrs)) if (value != null) node.setAttribute(key, value);
+    for (const child of children) if (child != null) node.append(typeof child === "string" ? document.createTextNode(child) : child);
+    return node;
+  }
+
+  // Radii in the 640-unit square: the bridges' ring, the plugins', and the accessories' outer ring.
+  const radial = { size: 880, centre: 440, top: 164, plugin: 245, group: 332, leaf: 396 };
+  // An accessory's disc (its radius) and the gap kept between two discs on the outer ring.
+  const disc = { radius: 11.5, gap: 14 };
+  // A branch (a bridge or a built-in block with its plugins) takes one of the reference palette's eight categorical slots,
+  // in fixed order; a ninth branch is grey (anti-patterns: never a generated hue).
+  const branchColors = ["--viz-1", "--viz-2", "--viz-3", "--viz-4", "--viz-5", "--viz-6", "--viz-7", "--viz-8"];
+  const short = (text, max) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
+  const categoryName = (key) => ({ lightbulb: t("Lightbulb"), switch: t("Switch") })[key] ?? key;
+  /// The icon that stands for a device's category (common.js's icons): a bulb, a switch, a lock, and so on.
+  const deviceIcons = [[/bulb|light/, "bulb"], [/switch/, "switch"], [/outlet/, "outlet"], [/fan/, "fan"], [/speaker/, "speaker"], [/lock/, "lock"],
+    [/thermo/, "thermo"], [/door|garage/, "door"], [/camera|doorbell/, "camera"], [/blind|window|shade|curtain|covering/, "blind"], [/sensor/, "sensor"], [/bridge/, "bridge"]];
+  const deviceIcon = (category = "") => deviceIcons.find(([pattern]) => pattern.test(category.toLowerCase()))?.[1] ?? "accessory";
+  /// A device's status for its tooltip: unavailable, else whether it is on, its brightness and its temperature when it reports them.
+  function deviceStatus(accessory) {
+    if (accessory.unavailable) return t("Unavailable");
+    const characteristics = (accessory.services ?? []).flatMap((service) => service.characteristics ?? []);
+    const value = (type) => characteristics.find((one) => one.type === type)?.value;
+    const parts = [];
+    if (typeof value("On") === "boolean") parts.push(value("On") ? t("On") : t("Off"));
+    if (typeof value("Brightness") === "number") parts.push(`${value("Brightness")}%`);
+    if (typeof value("CurrentTemperature") === "number") parts.push(`${Math.round(value("CurrentTemperature") * 10) / 10} °C`);
+    return parts.length ? parts.join(" · ") : t("Available");
+  }
+  const polar = (radius, angle) => [radial.centre + radius * Math.cos(angle), radial.centre + radius * Math.sin(angle)];
+
+  /// What the graph and its table show, from /api/status (bridges), /api/plugins (blocks and their platforms) and
+  /// /api/accessories. A plugin block sits under the bridge its platform entry names; a plugin's accessories are the
+  /// ones of its platform on that bridge, given to the first block that has them.
+  function overviewModel(status, plugins, accessories) {
+    const bridges = status.bridges ?? [];
+    const main = bridges.find((bridge) => !bridge.childBridge) ?? bridges[0];
+    const tops = bridges.map((bridge) => ({
+      kind: bridge.childBridge ? "child" : "bridge", name: bridge.name, paired: bridge.paired, children: [], raw: bridge, count: bridge.accessories ?? 0,
+      sub: tn("{n} accessory", "{n} accessories", bridge.accessories ?? 0, {}) }));
+    const topByName = new Map(tops.map((top) => [top.name, top]));
+    const entries = plugins?.platforms ?? [];
+    const claimed = new Set();
+    let pluginCount = 0, pausedCount = 0;
+    for (const block of plugins?.blocks ?? []) {
+      if (block.system) { tops.push({ kind: "system", name: block.name, children: [], sub: t("Built in") }); continue; }
+      const entry = entries.find((one) => one.name === block.name);
+      const bridgeName = entry?.bridge ?? main?.name;
+      const parent = topByName.get(bridgeName);
+      if (!parent) continue;
+      const key = `${block.platform}|${bridgeName}`;
+      const leaves = claimed.has(key) ? [] : accessories.filter((accessory) => accessory.platform === block.platform && accessory.bridge === bridgeName);
+      claimed.add(key);
+      const paused = Boolean(entry?.paused);
+      pluginCount += 1;
+      pausedCount += paused ? 1 : 0;
+      leaves.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+      parent.children.push({ kind: "plugin", name: block.name, platform: block.platform, bridgeName, paused, leaves,
+        sub: paused ? t("Paused") : leaves.length ? tn("{n} accessory", "{n} accessories", leaves.length, {}) : t("No accessories") });
+    }
+    // A plugin's accessories grouped by device type: one group per run of the same category (the leaves are sorted by it).
+    const groupsOf = (plugin) => {
+      const groups = [];
+      for (const leaf of plugin.leaves) {
+        let group = groups.at(-1);
+        if (!group || group.category !== leaf.category) {
+          group = { kind: "group", category: leaf.category, name: categoryName(leaf.category), icon: deviceIcon(leaf.category), plugin, leaves: [] };
+          groups.push(group);
+        }
+        group.leaves.push(leaf);
+      }
+      for (const group of groups) group.sub = tn("{n} accessory", "{n} accessories", group.leaves.length, {});
+      return groups;
+    };
+    // Angles, in slots: a group takes one slot per accessory, a half-slot separates the groups of a plugin, a bridge sits at
+    // the middle of its plugins, and a slot's gap separates the branches. Then the slots become angles from the top, clockwise.
+    let slot = 0;
+    for (const top of tops) {
+      if (!top.children.length) { top.slot = slot + 0.5; slot += 1; }
+      for (const plugin of top.children) {
+        plugin.groups = groupsOf(plugin);
+        const start = slot;
+        if (!plugin.groups.length) slot += 1;
+        for (const group of plugin.groups) {
+          group.first = slot;
+          group.slot = slot + group.leaves.length / 2;
+          slot += group.leaves.length + 0.5;
+        }
+        if (plugin.groups.length) slot -= 0.5;
+        plugin.slot = plugin.groups.length ? (start + slot) / 2 : start + 0.5;
+      }
+      if (top.children.length) top.slot = (top.children[0].slot + top.children.at(-1).slot) / 2;
+      slot += 1;
+    }
+    const total = Math.max(slot, 1);
+    // The rings grow with the accessories, so that neighbouring discs on the outer ring keep their gap.
+    const placed = tops.reduce((count, top) => count + top.children.reduce((sum, plugin) => sum + plugin.leaves.length, 0), 0);
+    radial.leaf = Math.max(396, (placed * (2 * disc.radius + disc.gap)) / (2 * Math.PI));
+    radial.plugin = radial.leaf * 0.62;
+    radial.group = radial.leaf * 0.84;
+    radial.top = radial.leaf * 0.42;
+    radial.size = 2 * (radial.leaf + 32);
+    radial.centre = radial.size / 2;
+    const angleOf = (value) => -Math.PI / 2 + (value / total) * Math.PI * 2;
+    tops.forEach((top, index) => {
+      top.color = index < branchColors.length ? `var(${branchColors[index]})` : "var(--muted)";
+      top.angle = angleOf(top.slot);
+      top.radius = radial.top;
+      for (const plugin of top.children) {
+        plugin.color = top.color;
+        plugin.angle = angleOf(plugin.slot);
+        plugin.radius = radial.plugin;
+        for (const group of plugin.groups) {
+          group.color = top.color;
+          group.angle = angleOf(group.slot);
+          group.radius = radial.group;
+          group.leaves.forEach((leaf, index) => { leaf.color = top.color; leaf.angle = angleOf(group.first + index + 0.5); leaf.radius = radial.leaf; });
+        }
+      }
+    });
+    return { tops, status, rootSub: t("Version {version}", { version: status.version ?? "" }),
+      counts: { bridges: bridges.length, accessories: accessories.length, unavailable: accessories.filter((one) => one.unavailable).length, plugins: pluginCount, paused: pausedCount } };
+  }
+
+  async function overviewPage(main) {
+    const [status, plugins, accessories] = await Promise.all([api("/api/status"), api("/api/plugins").catch(() => null), api("/api/accessories").catch(() => [])]);
+    const model = overviewModel(status, plugins, accessories);
+    const { counts } = model;
+    const kpi = (value, label, tone = "") => el("div", { class: `card kpi ${tone}` }, el("b", { text: String(value) }), el("span", { class: "muted", text: label }));
+    app().show(main,
+      app().pageHead(t("Settings"), t("What homeswift runs: its bridges, their plugins and the accessories each one publishes.")),
+      subnav(""),
+      el("div", { class: "kpis" },
+        kpi(counts.bridges, t("Bridges")), kpi(counts.plugins, t("Plugins")), kpi(counts.accessories, t("Accessories")),
+        kpi(counts.unavailable, t("Unavailable"), counts.unavailable ? "warn" : ""), kpi(counts.paused, t("Paused"))),
+      overviewCard(model));
+  }
+
+  /// An accessory's detail: its icon, name and status, its facts and every reading it reports (its own characteristics).
+  const characteristicNames = { On: () => t("On"), Brightness: () => t("Brightness"), Hue: () => t("Hue"), Saturation: () => t("Saturation"),
+    ColorTemperature: () => t("Color Temperature"), CurrentTemperature: () => t("Current Temperature"), CurrentRelativeHumidity: () => t("Humidity"), BatteryLevel: () => t("Battery") };
+  // HomeKit names come spaced ("Configured Name") or not: compared without the spaces.
+  const bareType = (type) => String(type).replace(/\s+/g, "");
+  const characteristicName = (type) => characteristicNames[bareType(type)]?.() ?? type;
+  const units = { percentage: "%", celsius: "°C", arcdegrees: "°", lux: " lx" };
+  function characteristicValue(one) {
+    if (typeof one.value === "boolean") return one.value ? t("On") : t("Off");
+    return typeof one.value === "number" ? `${Math.round(one.value * 10) / 10}${units[one.unit] ?? ""}` : String(one.value);
+  }
+  /// What a detail card shows: a name and icon (or the app's icon), a status, facts, and readings.
+  function accessoryDetails(accessory) {
+    const facts = [[t("Manufacturer"), accessory.manufacturer], [t("Model"), accessory.model], [t("Platform"), accessory.platformName ?? accessory.platform],
+      [t("Bridge"), accessory.bridge], [t("Type"), categoryName(accessory.category)]];
+    const administrative = new Set(["Name", "Identify", "Manufacturer", "Model", "SerialNumber", "FirmwareRevision", "HardwareRevision", "ConfiguredName"]);
+    // A device with several services (a switch's scenes, say) names each reading after its service.
+    const services = accessory.services ?? [];
+    const readings = services.flatMap((service) => {
+      const characteristics = service.characteristics ?? [];
+      const serviceName = characteristics.find((one) => bareType(one.type) === "ConfiguredName")?.value;
+      return characteristics.filter((one) => !administrative.has(bareType(one.type)) && one.value !== undefined && one.value !== null && typeof one.value !== "object")
+        .map((one) => [services.length > 1 && serviceName ? `${serviceName} · ${characteristicName(one.type)}` : characteristicName(one.type), characteristicValue(one)]);
+    });
+    return { name: accessory.name, icon: deviceIcon(accessory.category), status: deviceStatus(accessory), warn: Boolean(accessory.unavailable), facts, readings };
+  }
+  function bridgeDetails(top) {
+    const bridge = top.raw;
+    const type = top.kind === "system" ? t("Built in") : t(top.kind === "child" ? "Child bridge" : "Bridge");
+    return { name: top.name, icon: top.kind === "system" ? "system" : "bridge", warn: top.paired === false,
+      status: top.kind === "system" ? t("Built in") : top.paired ? t("Paired · {count}", { count: bridge.controllers ?? 0 }) : t("Not paired"),
+      facts: [[t("Type"), type], [t("Accessories"), top.count], [t("Port"), bridge?.port], [t("Device ID"), bridge?.deviceId], [t("Platforms"), bridge?.platforms?.join(", ")]] };
+  }
+  function pluginDetails(plugin) {
+    const categories = new Map();
+    for (const leaf of plugin.leaves) categories.set(leaf.category, (categories.get(leaf.category) ?? 0) + 1);
+    return { name: plugin.name, icon: /wingman/i.test(plugin.name) ? "wingman" : "plugin", status: plugin.sub, warn: false,
+      facts: [[t("Platform"), plugin.platform], [t("Bridge"), plugin.bridgeName], [t("State"), plugin.paused ? t("Paused") : t("Running")],
+        [t("Accessories"), plugin.leaves.length], [t("Unavailable"), plugin.leaves.filter((one) => one.unavailable).length],
+        [t("Categories"), [...categories].map(([key, count]) => `${categoryName(key)} ${count}`).join(", ")]] };
+  }
+  function homeswiftDetails(model) {
+    const system = model.status.system ?? {};
+    return { name: "Homeswift", image: "/icon.svg", warn: false, status: model.rootSub,
+      facts: [[t("Version"), model.status.version], [t("Bridges"), model.counts.bridges], [t("Plugins"), model.counts.plugins], [t("Accessories"), model.counts.accessories],
+        [t("Paused"), model.counts.paused], [t("Host"), system.hostname], [t("Operating system"), system.os], [t("Processors"), system.cpus],
+        [t("Memory"), system.memoryBytes ? `${Math.round(system.memoryBytes / 2 ** 30)} GB` : ""], [t("Update available"), model.status.update?.available ? t("Yes") : t("No")]] };
+  }
+  /// A detail card's content: the head with the icon and close, then its facts and readings.
+  function detailNodes(data, close) {
+    const glyph = data.image ? el("img", { src: data.image, alt: "", width: 28, height: 28 }) : HomeswiftCommon.icon(data.icon);
+    const shown = (facts) => facts.filter(([, value]) => value !== undefined && value !== null && value !== "");
+    return [
+      el("div", { class: "detail-head" }, el("span", { class: "detail-glyph" }, glyph),
+        el("div", { class: "who" }, el("strong", { text: data.name }), el("div", { class: `detail-status${data.warn ? " warn" : ""}`, text: data.status })), close),
+      el("dl", { class: "detail-facts" }, ...shown(data.facts).flatMap(([label, value]) => [el("dt", { text: label }), el("dd", { text: String(value) })])),
+      data.readings?.length ? el("dl", { class: "detail-readings" }, ...data.readings.flatMap(([label, value]) => [el("dt", { text: label }), el("dd", { text: value })])) : null,
+    ];
+  }
+
+  /// A device-type group: its plugin, its accessories and how many are unavailable, then each accessory with its status.
+  function groupDetails(group) {
+    const unavailable = group.leaves.filter((one) => one.unavailable).length;
+    return { name: group.name, icon: group.icon, status: group.sub, warn: unavailable > 0,
+      facts: [[t("Plugin"), group.plugin.name], [t("Bridge"), group.plugin.bridgeName], [t("Accessories"), group.leaves.length], [t("Unavailable"), unavailable]],
+      readings: group.leaves.map((one) => [one.name, deviceStatus(one)]) };
+  }
+
+  /// The card: the radial graph with zoom (a click on a bridge or plugin, Ctrl-scroll or a trackpad pinch, a touch pinch,
+  /// drag to pan, the buttons), a tooltip on hover and focus, the legend and a table of the same rows.
+  function overviewCard(model) {
+    if (!model.tops.length) return el("section", { class: "card overview-card" }, el("p", { class: "muted", text: t("Nothing runs here yet.") }));
+    const { svg, layer, targets, details } = drawGraph(model);
+    const tip = el("div", { class: "overview-tip", role: "tooltip", hidden: true });
+    const detail = el("div", { class: "overview-detail", role: "dialog", hidden: true });
+    const frame = el("div", { class: "overview-frame" }, svg, tip, detail);
+    let openNode = null;
+    const closeDetail = () => { detail.hidden = true; openNode = null; };
+    const openDetail = (node, anchored = true) => {
+      const data = details.get(node)();
+      const close = el("button", { type: "button", class: "detail-close", actionIcon: "close", "aria-label": t("Close"), title: t("Close"), onclick: closeDetail });
+      detail.replaceChildren(...detailNodes(data, close).filter(Boolean));
+      detail.setAttribute("aria-label", data.name);
+      detail.style.setProperty("--branch", node.style.getPropertyValue("--branch") || "var(--accent)");
+      tip.hidden = true;
+      detail.hidden = false;
+      openNode = node;
+      const frameBox = frame.getBoundingClientRect();
+      if (matchMedia("(max-width: 640px)").matches) {
+        // A phone: the card is docked under the graph at full width (CSS), so it is shown there, not beside the node.
+        detail.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      } else if (!anchored) {
+        detail.style.left = `${Math.max(0, frameBox.width - detail.offsetWidth - 8)}px`;
+        detail.style.top = "8px";
+      } else {
+        // Beside the node, on the side with room, and inside the frame.
+        const box = node.getBoundingClientRect();
+        const right = box.right - frameBox.left + 12;
+        const left = right + detail.offsetWidth <= frameBox.width ? right : box.left - frameBox.left - detail.offsetWidth - 12;
+        detail.style.left = `${Math.max(0, left)}px`;
+        detail.style.top = `${Math.max(0, Math.min(box.top - frameBox.top, frameBox.height - detail.offsetHeight))}px`;
+      }
+      close.focus({ preventScroll: true });
+    };
+    detail.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeDetail(); svg.focus({ preventScroll: true }); } });
+    const zoom = { k: 1, x: 0, y: 0 };
+    const maxZoom = 6;
+    const clamp = () => {
+      zoom.k = Math.min(maxZoom, Math.max(1, zoom.k));
+      zoom.x = Math.min(0, Math.max(radial.size * (1 - zoom.k), zoom.x));
+      zoom.y = Math.min(0, Math.max(radial.size * (1 - zoom.k), zoom.y));
+    };
+    const apply = () => {
+      layer.setAttribute("transform", `translate(${zoom.x} ${zoom.y}) scale(${zoom.k})`);
+      svg.classList.toggle("deep", zoom.k >= 1.6);
+    };
+    // The view that scales by `factor` around the world point `at` (a screen point in the graph's units).
+    const viewAt = (factor, at) => {
+      const k = Math.min(maxZoom, Math.max(1, zoom.k * factor));
+      const wx = (at.x - zoom.x) / zoom.k, wy = (at.y - zoom.y) / zoom.k;
+      const view = { k, x: at.x - k * wx, y: at.y - k * wy };
+      const clamped = { k: Math.min(maxZoom, Math.max(1, k)) };
+      clamped.x = Math.min(0, Math.max(radial.size * (1 - clamped.k), view.x));
+      clamped.y = Math.min(0, Math.max(radial.size * (1 - clamped.k), view.y));
+      return clamped;
+    };
+    const centre = { x: radial.size / 2, y: radial.size / 2 };
+    let animation = 0;
+    const animateTo = (view, ms = 340) => {
+      cancelAnimationFrame(animation);
+      const from = { ...zoom }, started = performance.now();
+      const step = (now) => {
+        const p = Math.min(1, (now - started) / ms), e = 1 - (1 - p) ** 3;
+        zoom.k = from.k + (view.k - from.k) * e;
+        zoom.x = from.x + (view.x - from.x) * e;
+        zoom.y = from.y + (view.y - from.y) * e;
+        clamp(); apply();
+        if (p < 1) animation = requestAnimationFrame(step);
+      };
+      animation = requestAnimationFrame(step);
+    };
+    // A bridge or plugin: its place on the rings, zoomed so that its branch fills the view.
+    let focused = null;
+    const focusOn = (node) => {
+      const target = targets.get(node);
+      if (focused === node) { focused = null; animateTo({ k: 1, x: 0, y: 0 }); return; }
+      focused = node;
+      const [wx, wy] = polar(target.radius, target.angle);
+      animateTo({ k: target.k, x: centre.x - target.k * wx, y: centre.y - target.k * wy });
+    };
+    const screenToGraph = (clientX, clientY) => {
+      const point = svg.createSVGPoint();
+      point.x = clientX;
+      point.y = clientY;
+      const mapped = point.matrixTransform(svg.getScreenCTM().inverse());
+      return { x: mapped.x, y: mapped.y };
+    };
+    svg.addEventListener("wheel", (event) => {
+      if (!event.ctrlKey && !event.metaKey && zoom.k === 1) return; // a plain scroll of the page at rest
+      event.preventDefault();
+      if (!event.ctrlKey && !event.metaKey) {
+        const scale = radial.size / svg.getBoundingClientRect().width;
+        zoom.x -= event.deltaX * scale; zoom.y -= event.deltaY * scale;
+        clamp(); apply();
+        return;
+      }
+      cancelAnimationFrame(animation);
+      Object.assign(zoom, viewAt(Math.exp(-event.deltaY * 0.004), screenToGraph(event.clientX, event.clientY)));
+      apply();
+    }, { passive: false });
+
+    // Pointers: one drags (a drag past a few pixels is no click), two pinch around their midpoint.
+    const pointers = new Map();
+    let drag = null, pinch = null, dragged = false;
+    svg.addEventListener("pointerdown", (event) => {
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      dragged = false;
+      cancelAnimationFrame(animation);
+      if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        pinch = { distance: Math.hypot(a.x - b.x, a.y - b.y), k: zoom.k };
+        drag = null;
+      } else {
+        drag = { x: event.clientX, y: event.clientY, zoomX: zoom.x, zoomY: zoom.y };
+      }
+    });
+    window.addEventListener("pointermove", (event) => {
+      if (!pointers.has(event.pointerId)) return;
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (pointers.size === 2 && pinch) {
+        const [a, b] = [...pointers.values()];
+        const distance = Math.hypot(a.x - b.x, a.y - b.y);
+        const midpoint = screenToGraph((a.x + b.x) / 2, (a.y + b.y) / 2);
+        const target = pinch.k * (distance / pinch.distance);
+        Object.assign(zoom, viewAt(target / zoom.k, midpoint));
+        dragged = true;
+        apply();
+        return;
+      }
+      if (drag && pointers.size === 1) {
+        const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
+        if (!dragged && Math.hypot(dx, dy) < 5) return;
+        dragged = true;
+        if (zoom.k > 1) {
+          const scale = radial.size / svg.getBoundingClientRect().width;
+          zoom.x = drag.zoomX + dx * scale; zoom.y = drag.zoomY + dy * scale;
+          clamp(); apply();
+        }
+      }
+    });
+    const release = (event) => {
+      pointers.delete(event.pointerId);
+      if (pointers.size < 2) pinch = null;
+      if (pointers.size === 0) drag = null;
+    };
+    window.addEventListener("pointerup", release);
+    window.addEventListener("pointercancel", release);
+
+    svg.addEventListener("click", (event) => {
+      if (dragged) return; // the end of a drag is not a click
+      const node = event.target.closest?.("[data-detail]");
+      if (node) {
+        if (openNode === node) closeDetail(); else openDetail(node, !node.hasAttribute("data-focus"));
+        if (node.hasAttribute("data-focus")) focusOn(node);
+        return;
+      }
+      closeDetail();
+      const target = event.target.closest?.("[data-focus]");
+      if (target) { focusOn(target); return; }
+      if (zoom.k > 1 && !event.target.closest?.(".pill, .plugin-node, .root")) { focused = null; animateTo({ k: 1, x: 0, y: 0 }); }
+    });
+    svg.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && zoom.k > 1) { focused = null; animateTo({ k: 1, x: 0, y: 0 }); return; }
+      if ((event.key === "Enter" || event.key === " ") && (event.target.dataset?.focus !== undefined || event.target.dataset?.detail !== undefined)) { event.preventDefault(); event.target.dispatchEvent(new MouseEvent("click", { bubbles: true })); }
+    });
+
+    const show = (target) => {
+      const box = target.getBoundingClientRect();
+      tip.textContent = target.dataset.tip;
+      tip.style.left = `${box.left + box.width / 2}px`;
+      tip.style.top = `${box.top}px`;
+      tip.hidden = false;
+    };
+    const hide = () => { tip.hidden = true; };
+    svg.addEventListener("pointerover", (event) => { const target = event.target.closest?.("[data-tip]"); if (target) show(target); });
+    svg.addEventListener("pointerout", (event) => { if (!event.relatedTarget?.closest?.("[data-tip]")) hide(); });
+    svg.addEventListener("focusin", (event) => { if (event.target.dataset?.tip) show(event.target); });
+    svg.addEventListener("focusout", hide);
+
+    const controls = el("div", { class: "overview-zoom" },
+      el("button", { type: "button", actionIcon: "plus", text: t("Zoom in"), onclick: () => animateTo(viewAt(1.6, centre)) }),
+      el("button", { type: "button", actionIcon: "minus", text: t("Zoom out"), onclick: () => animateTo(viewAt(1 / 1.6, centre)) }),
+      el("button", { type: "button", actionIcon: "restore", text: t("Reset view"), onclick: () => animateTo({ k: 1, x: 0, y: 0 }) }));
+    const legend = el("ul", { class: "overview-legend" },
+      ...model.tops.map((top) => el("li", {}, el("i", { class: "legend-mark", style: `--mark: ${top.color}` }), el("span", { text: top.name }))),
+      el("li", {}, el("i", { class: "legend-mark hollow" }), el("span", { text: t("Unavailable") })),
+      el("li", {}, el("i", { class: "legend-mark status paused" }), el("span", { text: t("Paused") })),
+      el("li", {}, el("i", { class: "legend-mark status warn" }), el("span", { text: t("Not paired") })));
+    return el("section", { class: "card overview-card" },
+      el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: t("Graph of the bridges, plugins and accessories") }),
+        el("div", { class: "muted", text: t("Pinch or Ctrl-scroll to zoom. Click a bridge to see its plugins and accessories.") }))),
+      frame, controls, legend,
+      el("p", { class: "muted note", text: t("Each dot is an accessory; a hollow one is unavailable.") }),
+      el("details", { class: "overview-more" }, el("summary", {}, HomeswiftCommon.icon("grid"), el("span", { text: t("Show as a table") })), overviewTable(model)));
+  }
+
+  /// The radial graph: the root at the centre, each bridge a label pill on the first ring (a tangent to it), each plugin a
+  /// dot on the second with its label shown when zoomed in, each accessory a dot on the outer ring. Returns the SVG, the
+  /// layer that zooms, and the zoom target of each focusable element.
+  function drawGraph(model) {
+    const root = { radius: 0, angle: 0 };
+    const edges = [], labels = [], dots = [], pills = [], plugins = [];
+    const targets = new Map();
+    const details = new Map();
+    // A curve from the parent along its own angle to the child along the child's, bowing through the middle ring.
+    const link = (from, to, classes = "", color = "") => {
+      const mid = (from.radius + to.radius) / 2;
+      const [x1, y1] = polar(from.radius, from.angle), [x2, y2] = polar(to.radius, to.angle);
+      const [c1x, c1y] = polar(mid, from.angle), [c2x, c2y] = polar(mid, to.angle);
+      return svgNode("path", { class: `edge ${classes}`, style: color ? `--branch: ${color}` : null, d: `M${x1} ${y1} C${c1x} ${c1y} ${c2x} ${c2y} ${x2} ${y2}` });
+    };
+    const charWidth = 8, pillHeight = 34;
+    // A bridge's pill, upright wherever it sits on the ring: its icon, then its name.
+    const pill = (top, classes, tip) => {
+      const [x, y] = polar(top.radius, top.angle);
+      const width = Math.min(230, top.name.length * charWidth + 50);
+      const glyph = HomeswiftCommon.icon(top.kind === "system" ? "system" : "bridge");
+      for (const [key, value] of [["x", -width / 2 + 8], ["y", -11], ["width", 22], ["height", 22]]) glyph.setAttribute(key, value);
+      const group = svgNode("g", { class: `pill ${classes}`, transform: `translate(${x} ${y})`, style: `--branch: ${top.color}`, "data-tip": tip, "data-focus": "", "data-detail": "", tabindex: 0, "aria-label": tip },
+        svgNode("rect", { class: "pill-box", x: -width / 2, y: -pillHeight / 2, width, height: pillHeight, rx: pillHeight / 2 }),
+        glyph,
+        svgNode("text", { class: "pill-name", x: 10, y: 0, "dominant-baseline": "central", "text-anchor": "middle" }, short(top.name, 22)));
+      targets.set(group, { radius: (radial.top + radial.plugin) / 2, angle: top.angle, k: 1.8 });
+      details.set(group, () => bridgeDetails(top));
+      return group;
+    };
+    // A plugin's dot, with its icon: Wingman's own, else the plugin's.
+    const plugin = (node, classes, tip) => {
+      const [x, y] = polar(node.radius, node.angle);
+      const glyph = HomeswiftCommon.icon(/wingman/i.test(node.name) ? "wingman" : "plugin");
+      for (const [key, value] of [["x", -8], ["y", -8], ["width", 16], ["height", 16]]) glyph.setAttribute(key, value);
+      const group = svgNode("g", { class: `plugin-node ${classes}`, transform: `translate(${x} ${y})`, style: `--branch: ${node.color}`, "data-tip": tip, "data-focus": "", "data-detail": "", tabindex: 0, "aria-label": tip },
+        svgNode("circle", { class: "plugin-dot", r: 12 }), glyph);
+      targets.set(group, { radius: (radial.plugin + radial.leaf) / 2, angle: node.angle, k: 2.6 });
+      details.set(group, () => pluginDetails(node));
+      return group;
+    };
+    // A device-type node: its icon, its name and count in the tooltip; a click shows its accessories.
+    const groupNode = (group) => {
+      const [x, y] = polar(group.radius, group.angle);
+      const glyph = HomeswiftCommon.icon(group.icon);
+      for (const [key, value] of [["x", -8], ["y", -8], ["width", 16], ["height", 16]]) glyph.setAttribute(key, value);
+      const tip = `${group.name} · ${group.sub}`;
+      const element = svgNode("g", { class: "group-node", transform: `translate(${x} ${y})`, style: `--branch: ${group.color}`, "data-tip": tip, "data-detail": "", "data-focus": "", tabindex: 0, "aria-label": tip },
+        svgNode("circle", { class: "group-dot", r: 13 }), glyph);
+      targets.set(element, { radius: (radial.group + radial.leaf) / 2, angle: group.angle, k: 2.8 });
+      details.set(element, () => groupDetails(group));
+      return element;
+    };
+    for (const top of model.tops) {
+      edges.push(link(root, top, "trunk", top.color));
+      pills.push(pill(top, `${top.kind === "system" ? "built-in" : "branch"}${top.paired === false ? " unpaired" : ""}`, `${top.name} · ${top.sub}`));
+      for (const branch of top.children) {
+        edges.push(link(top, branch, `branch${branch.paused ? " paused" : ""}`, top.color));
+        plugins.push(plugin(branch, `${branch.paused ? "paused" : ""}`, `${branch.name} · ${branch.sub}`));
+        const [lx, ly] = polar(radial.plugin, branch.angle);
+        // Upright labels, inward from the dot: the groups and accessories are outside it.
+        const right = Math.cos(branch.angle) >= 0;
+        labels.push(svgNode("text", { class: "plugin-label", x: lx + (right ? -16 : 16), y: ly, "dominant-baseline": "central", "text-anchor": right ? "end" : "start" }, short(branch.name, 24)));
+        for (const group of branch.groups) {
+          edges.push(link(branch, group, "branch", top.color));
+          plugins.push(groupNode(group));
+          const [gx, gy] = polar(radial.group, group.angle);
+          const groupRight = Math.cos(group.angle) >= 0;
+          labels.push(svgNode("text", { class: "group-label", x: gx + (groupRight ? -18 : 18), y: gy, "dominant-baseline": "central", "text-anchor": groupRight ? "end" : "start" }, short(group.name, 24)));
+        for (const accessory of group.leaves) {
+          edges.push(link(group, accessory, "leaf", top.color));
+          const [x, y] = polar(accessory.radius, accessory.angle);
+          const label = `${accessory.name} · ${categoryName(accessory.category)} · ${deviceStatus(accessory)}`;
+          const glyph = HomeswiftCommon.icon(deviceIcon(accessory.category));
+          for (const [key, value] of [["x", -8], ["y", -8], ["width", 16], ["height", 16]]) glyph.setAttribute(key, value);
+          const dot = svgNode("g", { class: `dot${accessory.unavailable ? " unavailable" : ""}`, transform: `translate(${x} ${y})`, style: `--branch: ${top.color}`, "data-tip": label, "data-detail": "", tabindex: 0, "aria-label": label },
+            svgNode("circle", { class: "dot-disc", r: 11.5 }), glyph);
+          details.set(dot, () => accessoryDetails(accessory));
+          dots.push(dot);
+        }
+        }
+      }
+    }
+    const rx = radial.centre, ry = radial.centre;
+    const centre = svgNode("g", { class: "root", "data-tip": `Homeswift · ${model.rootSub}`, "data-detail": "", tabindex: 0, "aria-label": `Homeswift · ${model.rootSub}` },
+      svgNode("image", { class: "root-icon", href: "/icon.svg", x: rx - 48, y: ry - 48, width: 96, height: 96 }),
+      svgNode("text", { class: "root-name", x: rx, y: ry + 66, "text-anchor": "middle" }, "Homeswift"));
+    details.set(centre, () => homeswiftDetails(model));
+    const layer = svgNode("g", { class: "zoom-layer" }, ...edges, ...dots, ...plugins, ...labels, ...pills, centre);
+    const svg = svgNode("svg", { class: "overview-graph", viewBox: `0 0 ${radial.size} ${radial.size}`, role: "group", "aria-label": t("Graph of the bridges, plugins and accessories") }, layer);
+    return { svg, layer, targets, details };
+  }
+
+  /// The same rows as the graph, for a screen reader or a search: bridges, then their plugins.
+  function overviewTable(model) {
+    const rows = model.tops.flatMap((top) => [
+      el("tr", { class: "overview-bridge" }, el("th", { scope: "row", text: top.name }),
+        el("td", { text: top.kind === "system" ? t("Built in") : t(top.kind === "child" ? "Child bridge" : "Bridge") }),
+        el("td", { text: top.kind === "system" ? "" : top.sub }),
+        el("td", { text: top.kind === "system" ? "" : top.paired ? t("Paired") : t("Not paired") })),
+      ...top.children.map((plugin) => el("tr", { class: "overview-plugin" }, el("th", { scope: "row", text: plugin.name }),
+        el("td", { text: t("Plugin") }), el("td", { text: plugin.sub }), el("td", { text: plugin.paused ? t("Paused") : "" }))),
+    ]);
+    return el("div", { class: "overview-table-wrap" }, el("table", { class: "overview-table" },
+      el("thead", {}, el("tr", {}, el("th", { scope: "col", text: t("Name") }), el("th", { scope: "col", text: t("Type") }), el("th", { scope: "col", text: t("Accessories") }), el("th", { scope: "col", text: t("State") }))),
+      el("tbody", {}, rows)));
   }
 
   window.HomeswiftAdmin = { view, history: showHistory, confirmAction };
@@ -5640,6 +6159,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     link: '<path d="M9.5 14.5l5-5M8 11l-2 2a3.5 3.5 0 0 0 5 5l2-2M16 13l2-2a3.5 3.5 0 0 0-5-5l-2 2"/>',
     shield: '<path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/><path d="m9 12 2 2 4-4"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    minus: '<path d="M5 12h14"/>',
     close: '<path d="m6 6 12 12M18 6 6 18"/>',
     search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
     copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"/>',
@@ -9946,7 +10466,34 @@ HomeswiftI18n.add("es", {
   "{n} platforms are saved in config.json.": "{n} plataformas se guardan en config.json.",
   "The config from before this save is kept as {backup}.": "La config de antes de este guardado se conserva como {backup}.",
   "Open the Plugins page": "Abrir la página Plugins",
-  "Saved. Restart homeswift to apply the rest.": "Guardado. Reinicia homeswift para aplicar el resto."
+  "Saved. Restart homeswift to apply the rest.": "Guardado. Reinicia homeswift para aplicar el resto.",
+
+  "What homeswift runs: its bridges, their plugins and the accessories each one publishes.": "Lo que homeswift ejecuta: sus puentes, sus plugins y los accesorios que publica cada uno.",
+  "Unavailable": "No disponible",
+  "Version {version}": "Versión {version}",
+  "Each dot is an accessory; a hollow one is unavailable.": "Cada punto es un accesorio; un punto hueco no está disponible.",
+  "Graph of the bridges, plugins and accessories": "Gráfico de puentes, plugins y accesorios",
+  "Nothing runs here yet.": "Aún no hay nada en marcha.",
+  "{n} accessory": "{n} accesorio",
+  "{n} accessories": "{n} accesorios",
+  "Paired": "Emparejado",
+  "No accessories": "Sin accesorios",
+  "Type": "Tipo",
+  "State": "Estado",
+
+  "Zoom in": "Acercar",
+  "Zoom out": "Alejar",
+  "Reset view": "Restablecer la vista",
+  "Pinch or Ctrl-scroll to zoom. Click a bridge to see its plugins and accessories.": "Pellizca o usa Ctrl + rueda para acercar. Haz clic en un puente para ver sus plugins y accesorios.",
+  "Platform": "Plataforma",
+  "Version": "Versión",
+  "Platforms": "Plataformas",
+  "Host": "Equipo",
+  "Operating system": "Sistema operativo",
+  "Processors": "Procesadores",
+  "Categories": "Categorías",
+  "Yes": "Sí",
+  "No": "No"
 });
 
 """#),
@@ -12019,7 +12566,34 @@ HomeswiftI18n.add("fr", {
   "{n} platforms are saved in config.json.": "{n} plateformes sont sauvegardées dans config.json.",
   "The config from before this save is kept as {backup}.": "La config d'avant cet enregistrement est gardée sous le nom {backup}.",
   "Open the Plugins page": "Ouvrir la page Plugins",
-  "Saved. Restart homeswift to apply the rest.": "Sauvegardé. Redémarrez homeswift pour appliquer le reste."
+  "Saved. Restart homeswift to apply the rest.": "Sauvegardé. Redémarrez homeswift pour appliquer le reste.",
+
+  "What homeswift runs: its bridges, their plugins and the accessories each one publishes.": "Ce que homeswift fait tourner : ses ponts, leurs plugins et les accessoires que chacun publie.",
+  "Unavailable": "Indisponible",
+  "Version {version}": "Version {version}",
+  "Each dot is an accessory; a hollow one is unavailable.": "Chaque point est un accessoire ; un point évidé est indisponible.",
+  "Graph of the bridges, plugins and accessories": "Graphe des ponts, plugins et accessoires",
+  "Nothing runs here yet.": "Rien ne tourne encore.",
+  "{n} accessory": "{n} accessoire",
+  "{n} accessories": "{n} accessoires",
+  "Paired": "Jumelé",
+  "No accessories": "Aucun accessoire",
+  "Type": "Type",
+  "State": "État",
+
+  "Zoom in": "Zoomer",
+  "Zoom out": "Dézoomer",
+  "Reset view": "Réinitialiser la vue",
+  "Pinch or Ctrl-scroll to zoom. Click a bridge to see its plugins and accessories.": "Pincez ou faites Ctrl + molette pour zoomer. Cliquez sur un pont pour voir ses plugins et accessoires.",
+  "Platform": "Plateforme",
+  "Version": "Version",
+  "Platforms": "Plateformes",
+  "Host": "Machine",
+  "Operating system": "Système",
+  "Processors": "Processeurs",
+  "Categories": "Catégories",
+  "Yes": "Oui",
+  "No": "Non"
 });
 
 """#),
@@ -14092,7 +14666,34 @@ HomeswiftI18n.add("pt", {
   "{n} platforms are saved in config.json.": "{n} plataformas guardadas no config.json.",
   "The config from before this save is kept as {backup}.": "A configuração de antes desta gravação fica guardada como {backup}.",
   "Open the Plugins page": "Abrir a página Plugins",
-  "Saved. Restart homeswift to apply the rest.": "Guardado. Reinicie o homeswift para aplicar o resto."
+  "Saved. Restart homeswift to apply the rest.": "Guardado. Reinicie o homeswift para aplicar o resto.",
+
+  "What homeswift runs: its bridges, their plugins and the accessories each one publishes.": "O que o homeswift executa: as suas pontes, os seus plugins e os acessórios que cada um publica.",
+  "Unavailable": "Indisponível",
+  "Version {version}": "Versão {version}",
+  "Each dot is an accessory; a hollow one is unavailable.": "Cada ponto é um acessório; um ponto vazado está indisponível.",
+  "Graph of the bridges, plugins and accessories": "Gráfico das pontes, plugins e acessórios",
+  "Nothing runs here yet.": "Ainda não há nada em execução.",
+  "{n} accessory": "{n} acessório",
+  "{n} accessories": "{n} acessórios",
+  "Paired": "Emparelhada",
+  "No accessories": "Nenhum acessório",
+  "Type": "Tipo",
+  "State": "Estado",
+
+  "Zoom in": "Aproximar",
+  "Zoom out": "Afastar",
+  "Reset view": "Repor a vista",
+  "Pinch or Ctrl-scroll to zoom. Click a bridge to see its plugins and accessories.": "Belisque ou use Ctrl + roda para aproximar. Clique numa ponte para ver os seus plugins e acessórios.",
+  "Platform": "Plataforma",
+  "Version": "Versão",
+  "Platforms": "Plataformas",
+  "Host": "Máquina",
+  "Operating system": "Sistema operacional",
+  "Processors": "Processadores",
+  "Categories": "Categorias",
+  "Yes": "Sim",
+  "No": "Não"
 });
 
 """#),
@@ -18761,6 +19362,94 @@ select option:disabled { color: var(--muted); }
   .import-summary { gap: 8px; }
   .import-count b { font-size: 1.25rem; }
 }
+
+/* Settings › Overview: the headline counts, then the graph of bridges, plugins and accessories, its legend and table. */
+:root { --viz-1: #2a78d6; --viz-2: #eb6834; --viz-3: #1baf7a; --viz-4: #eda100; --viz-5: #e87ba4; --viz-6: #008300; --viz-7: #6250d6; --viz-8: #e34948; }
+@media (prefers-color-scheme: dark) { :root:not(:where([data-theme="light"])) { --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #199e70; --viz-4: #c98500; --viz-5: #d55181; --viz-6: #008300; --viz-7: #9085e9; --viz-8: #e66767; } }
+:root[data-theme="dark"] { --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #199e70; --viz-4: #c98500; --viz-5: #d55181; --viz-6: #008300; --viz-7: #9085e9; --viz-8: #e66767; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.kpi { margin: 0; padding: 16px 18px; display: grid; gap: 2px; align-content: start; }
+.kpi b { font-size: 1.75rem; line-height: 1.1; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.kpi span { font-size: 0.8125rem; }
+.kpi.warn b { color: var(--warn); }
+.overview-card { display: grid; gap: 12px; }
+.overview-card .who { min-width: 0; }
+.overview-card .chart-head .muted { font-size: 0.8125rem; }
+.overview-frame { position: relative; }
+.overview-graph { display: block; width: 100%; max-width: 820px; height: auto; margin: 0 auto; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
+.overview-graph:focus { outline: none; }
+.overview-graph.deep { cursor: default; }
+.overview-graph .zoom-layer { transition: none; }
+.overview-graph .edge { fill: none; stroke: var(--branch, var(--muted)); stroke-opacity: 0.42; stroke-width: 1.2; }
+.overview-graph .edge.trunk { stroke-width: 2.2; stroke-opacity: 0.6; }
+.overview-graph .edge.leaf { stroke-width: 0.8; stroke-opacity: 0.22; }
+.overview-graph .edge.paused { stroke-dasharray: 3 3; }
+.overview-graph .dot-disc { fill: var(--material-solid); stroke: var(--branch); stroke-width: 1.4; }
+.overview-graph .dot svg { color: var(--branch); }
+.overview-graph .dot { cursor: pointer; outline: none; }
+.overview-graph .dot:hover .dot-disc, .overview-graph .dot:focus-visible .dot-disc { stroke-width: 2.4; }
+.overview-graph .dot:focus-visible .dot-disc { stroke: var(--accent); }
+.overview-graph .dot.unavailable .dot-disc { stroke-dasharray: 2 1.6; stroke-opacity: 0.7; }
+.overview-graph .dot.unavailable svg { opacity: 0.4; }
+.overview-graph .pill { cursor: pointer; outline: none; }
+.overview-graph .pill-box { fill: var(--material-solid); stroke: var(--line); stroke-width: 1; filter: drop-shadow(0 2px 6px rgba(20, 30, 50, 0.14)); }
+.overview-graph .pill.unpaired .pill-box { stroke: var(--warn); stroke-width: 1.6; }
+.overview-graph .pill.built-in .pill-box { stroke-dasharray: 3 2; }
+.overview-graph .pill-name { fill: var(--text); font: 650 13px var(--font); }
+.overview-graph .pill:focus-visible .pill-box, .overview-graph .plugin-node:focus-visible .plugin-dot { stroke: var(--accent); stroke-width: 2.5; }
+.overview-graph .plugin-node { cursor: pointer; outline: none; }
+.overview-graph .plugin-dot { fill: var(--material-solid); stroke: var(--branch); stroke-width: 2.6; }
+.overview-graph .plugin-node svg, .overview-graph .pill svg { color: var(--branch); }
+.overview-graph .plugin-node.paused .plugin-dot { stroke-dasharray: 3 2; }
+.overview-graph .plugin-label { fill: var(--text); font: 600 12px var(--font); opacity: 0; transition: opacity var(--normal) var(--ease-out); pointer-events: none; paint-order: stroke; stroke: var(--material-solid); stroke-width: 4px; stroke-linejoin: round; }
+.overview-graph.deep .plugin-label { opacity: 1; }
+.overview-graph .root { cursor: pointer; outline: none; }
+.overview-graph .root:focus-visible .root-name { fill: var(--accent); }
+.overview-graph .root-name { fill: var(--text); font: 650 24px var(--font); paint-order: stroke; stroke: var(--material-solid); stroke-width: 4px; stroke-linejoin: round; }
+.overview-zoom { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.overview-zoom button svg { width: 16px; height: 16px; }
+.overview-tip { position: fixed; z-index: 50; max-width: 260px; padding: 6px 10px; border-radius: 10px; font-size: 0.8125rem; line-height: 1.3; color: var(--text); background: var(--material-solid); box-shadow: var(--shadow-control), 0 0 0 1px var(--line); transform: translate(-50%, calc(-100% - 10px)); pointer-events: none; }
+.overview-tip[hidden] { display: none; }
+.overview-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; padding: 0; list-style: none; font-size: 0.8125rem; color: var(--muted); }
+.overview-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.legend-mark { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--mark); }
+.legend-mark.hollow { background: none; border: 1.6px solid var(--muted); }
+.legend-mark.status { background: var(--paused); }
+.legend-mark.status.warn { background: var(--warn); }
+.overview-more { margin: 0; }
+.overview-more > summary { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: var(--muted); font-size: 0.875rem; }
+.overview-more > summary svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.overview-table-wrap { overflow-x: auto; margin-top: 10px; }
+.overview-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+.overview-table th, .overview-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+.overview-table thead th { color: var(--muted); font-weight: 600; font-size: 0.8125rem; }
+.overview-table .overview-plugin th { padding-left: 26px; font-weight: 500; }
+.overview-table .overview-bridge th { font-weight: 650; }
+
+/* The accessory's detail, beside its icon: what it is, its status, and every reading it reports. */
+.overview-detail { position: absolute; z-index: 20; width: min(300px, calc(100% - 16px)); max-height: 380px; overflow: auto; padding: 14px 16px; border-radius: 18px; background: var(--material-solid); box-shadow: var(--shadow), 0 0 0 1px var(--line); display: grid; gap: 12px; align-content: start; }
+.overview-detail[hidden] { display: none; }
+.detail-head { display: flex; align-items: flex-start; gap: 10px; }
+.detail-head .who { min-width: 0; flex: 1; }
+.detail-head strong { overflow-wrap: anywhere; }
+.detail-glyph svg { width: 28px; height: 28px; color: var(--branch); }
+.detail-glyph img { width: 28px; height: 28px; border-radius: 8px; }
+.detail-status { font-size: 0.8125rem; color: var(--muted); }
+.detail-status.warn { color: var(--warn); }
+.detail-close { flex: none; align-self: flex-start; width: 32px; height: 32px; min-height: 32px; padding: 0; display: inline-grid; place-items: center; }
+@media (max-width: 640px) { .overview-detail { position: static; width: 100%; max-height: none; margin-top: 12px; box-shadow: var(--shadow-control); } }
+.detail-facts, .detail-readings { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 14px; margin: 0; font-size: 0.8125rem; }
+.detail-facts dt, .detail-readings dt { color: var(--muted); }
+.detail-facts dd, .detail-readings dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+/* A device-type node between a plugin and its accessories, named when zoomed in like the plugins. */
+.overview-graph .group-node { cursor: pointer; outline: none; }
+.overview-graph .group-dot { fill: var(--material-solid); stroke: var(--branch); stroke-width: 2; }
+.overview-graph .group-node svg { color: var(--branch); }
+.overview-graph .group-node:hover .group-dot, .overview-graph .group-node:focus-visible .group-dot { stroke-width: 2.8; }
+.overview-graph .group-node:focus-visible .group-dot { stroke: var(--accent); }
+.overview-graph .group-label { fill: var(--text); font: 600 12px var(--font); opacity: 0; transition: opacity var(--normal) var(--ease-out); pointer-events: none; paint-order: stroke; stroke: var(--material-solid); stroke-width: 4px; stroke-linejoin: round; }
+.overview-graph.deep .group-label { opacity: 1; }
 
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""

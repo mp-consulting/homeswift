@@ -2066,5 +2066,32 @@ HomeswiftI18n.add("es", {
   "{n} platforms are saved in config.json.": "{n} plataformas se guardan en config.json.",
   "The config from before this save is kept as {backup}.": "La config de antes de este guardado se conserva como {backup}.",
   "Open the Plugins page": "Abrir la página Plugins",
-  "Saved. Restart homeswift to apply the rest.": "Guardado. Reinicia homeswift para aplicar el resto."
+  "Saved. Restart homeswift to apply the rest.": "Guardado. Reinicia homeswift para aplicar el resto.",
+
+  "What homeswift runs: its bridges, their plugins and the accessories each one publishes.": "Lo que homeswift ejecuta: sus puentes, sus plugins y los accesorios que publica cada uno.",
+  "Unavailable": "No disponible",
+  "Version {version}": "Versión {version}",
+  "Each dot is an accessory; a hollow one is unavailable.": "Cada punto es un accesorio; un punto hueco no está disponible.",
+  "Graph of the bridges, plugins and accessories": "Gráfico de puentes, plugins y accesorios",
+  "Nothing runs here yet.": "Aún no hay nada en marcha.",
+  "{n} accessory": "{n} accesorio",
+  "{n} accessories": "{n} accesorios",
+  "Paired": "Emparejado",
+  "No accessories": "Sin accesorios",
+  "Type": "Tipo",
+  "State": "Estado",
+
+  "Zoom in": "Acercar",
+  "Zoom out": "Alejar",
+  "Reset view": "Restablecer la vista",
+  "Pinch or Ctrl-scroll to zoom. Click a bridge to see its plugins and accessories.": "Pellizca o usa Ctrl + rueda para acercar. Haz clic en un puente para ver sus plugins y accesorios.",
+  "Platform": "Plataforma",
+  "Version": "Versión",
+  "Platforms": "Plataformas",
+  "Host": "Equipo",
+  "Operating system": "Sistema operativo",
+  "Processors": "Procesadores",
+  "Categories": "Categorías",
+  "Yes": "Sí",
+  "No": "No"
 });

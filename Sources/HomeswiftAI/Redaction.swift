@@ -291,7 +291,8 @@ public enum Redaction {
     private static let urlPassword = try! NSRegularExpression(pattern: #"([A-Za-z][A-Za-z0-9+.-]*://[^:/@\s]+:)[^@\s/]+(@)"#)
 
     private static func maskURLPasswords(_ text: String) -> String {
-        urlPassword.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1\(placeholder)$2")
+        guard text.contains("://") else { return text }
+        return urlPassword.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1\(placeholder)$2")
     }
 
     /// `prefilter: false` runs every expression: what the tests compare the shortcut with.
