@@ -6755,11 +6755,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             busy = false; input.inert = editing; input.blur(); draw();
           };
           if (isBool) {
-            input = el('input', { type: 'checkbox', checked: Boolean(values[0]), disabled: editing });
+            // Some on, some off: the switch half lit, its thumb between, and how many are on under its name; a tap turns
+            // them all on, as a mixed checkbox goes to on. The switch stays where every switch is.
+            const on = values.filter((value) => Number(value) > 0).length;
+            input = el('input', { type: 'checkbox', checked: mixed ? false : Boolean(values[0]), disabled: editing });
             input.setAttribute('aria-label', HomeswiftI18n.message(type)); input.indeterminate = mixed;
             input.addEventListener('change', () => commit(type === 'Active' ? Number(input.checked) : input.checked));
-            return el('label', {}, el('span', { text: HomeswiftI18n.message(type) }), input,
-              mixed ? el('span', { class: 'muted', text: t('Mixed') }) : null);
+            const count = mixed ? el('span', { class: 'group-count', text: HomeswiftI18n.tn('{n} of {count} on [one]', '{n} of {count} on', on, { count: values.length }) }) : null;
+            if (count) input.setAttribute('aria-description', count.textContent);
+            return el('label', {}, el('span', { class: 'group-name' }, el('span', { text: HomeswiftI18n.message(type) }), count), input);
           }
           const { level, kelvin, whiteColor } = HomeswiftWidgets.controls;
           const min = temperature ? kelvin(high) : low, max = temperature ? kelvin(low) : high;
@@ -6773,8 +6777,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           input.setAttribute('aria-disabled', String(editing));
           control.set(temperature ? kelvin(values[0] || high) : values[0] ?? low);
           if (mixed) {
-            input.querySelector('.level-text').textContent = t('Mixed');
-            input.setAttribute('aria-valuetext', t('Mixed'));
+            // The spread, from the lowest to the highest member, rather than one member's value: "40–80 %".
+            const shown = values.map((value) => temperature ? kelvin(value || high) : Number(value) || 0);
+            const [least, most] = [Math.min(...shown), Math.max(...shown)];
+            const unit = temperature ? ' K' : type === 'Hue' ? '°' : ' %';
+            control.range(least, most, `${least}–${most}${unit}`);
           }
           return input;
         }).filter(Boolean));
@@ -7856,6 +7863,8 @@ HomeswiftI18n.add("es", {
   "Accessory group": "Grupo de accesorios",
   "Choose at least two accessories with shared controls.": "Elige al menos dos accesorios con controles comunes.",
   "Mixed": "Mixto",
+  "{n} of {count} on [one]": "{n} de {count} encendido",
+  "{n} of {count} on": "{n} de {count} encendidos",
   "Could not update: {names}": "No se pudo actualizar: {names}",
   "Some group members are unavailable.": "Algunos miembros del grupo no están disponibles.",
   "Edit group": "Editar grupo",
@@ -9809,6 +9818,8 @@ HomeswiftI18n.add("fr", {
   "Accessory group": "Groupe d’accessoires",
   "Choose at least two accessories with shared controls.": "Choisissez au moins deux accessoires avec des commandes communes.",
   "Mixed": "Mixte",
+  "{n} of {count} on [one]": "{n} sur {count} allumé",
+  "{n} of {count} on": "{n} sur {count} allumés",
   "Could not update: {names}": "Mise à jour impossible : {names}",
   "Some group members are unavailable.": "Certains membres du groupe sont indisponibles.",
   "Edit group": "Modifier le groupe",
@@ -11762,6 +11773,8 @@ HomeswiftI18n.add("pt", {
   "Accessory group": "Grupo de acessórios",
   "Choose at least two accessories with shared controls.": "Escolha pelo menos dois acessórios com controlos comuns.",
   "Mixed": "Misto",
+  "{n} of {count} on [one]": "{n} de {count} ligado",
+  "{n} of {count} on": "{n} de {count} ligados",
   "Could not update: {names}": "Não foi possível atualizar: {names}",
   "Some group members are unavailable.": "Alguns membros do grupo estão indisponíveis.",
   "Edit group": "Editar grupo",
@@ -15555,6 +15568,12 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .level.track { background: var(--track); }
 .level.track .level-label, .level.track .level-text { color: #2a2620; }
 .level-mark { position: absolute; top: 6px; bottom: 6px; width: 6px; margin-left: -3px; border-radius: 3px; background: var(--knob); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35); }
+/* Several values (a group's members): solid to the lowest, the same colour lighter to the highest; on a gradient
+   track, a frosted band between them in place of the knob. */
+.level-range { position: absolute; top: 0; bottom: 0; display: none; background: var(--fill, linear-gradient(90deg, var(--accent-2), var(--accent))); opacity: .4; }
+.level.ranged .level-range { display: block; }
+.level.track .level-range { top: 6px; bottom: 6px; border-radius: 4px; opacity: 1; background: rgba(255, 255, 255, 0.5); box-shadow: inset 0 0 0 2px var(--knob), 0 1px 4px rgba(0, 0, 0, 0.25); }
+.level.track.ranged .level-mark { display: none; }
 /* Tall: filled from the bottom, the value at the top, the label at the foot. */
 .level.vertical { height: auto; border-radius: 20px; cursor: ns-resize; }
 .level.vertical .level-fill { transform-origin: center bottom; }
@@ -16831,6 +16850,8 @@ input[type="checkbox"]:not(.switch input):not(.day input)::before {
 }
 input[type="checkbox"]:not(.switch input):not(.day input):checked { background: var(--accent); }
 input[type="checkbox"]:not(.switch input):not(.day input):checked::before { transform: translateX(20px); }
+/* Mixed (a group, some on): half lit, the thumb between. */
+input[type="checkbox"]:not(.switch input):not(.day input):indeterminate { background: color-mix(in srgb, var(--accent) 45%, rgba(120, 128, 142, 0.35)); }
 input[type="checkbox"]:not(.switch input):not(.day input):indeterminate::before { transform: translateX(10px); }
 input[type="checkbox"]:not(.switch input):not(.day input):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .45; cursor: not-allowed; }
@@ -16990,6 +17011,9 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .accessory-group .group-controls { display: grid; gap: 10px; margin-top: 16px; }
 .group-controls label { display: flex; align-items: center; gap: 10px; font-size: .8125rem; }
 .group-controls label > span:first-child { flex: 1; }
+/* Some members on, some off: the name, and how many are on under it. */
+.group-controls .group-name { display: grid; gap: 1px; }
+.group-controls .group-count { color: var(--muted); font-size: .75rem; font-variant-numeric: tabular-nums; }
 .group-controls > .level { width: 100%; }
 .group-feedback { font-size: .75rem; color: var(--danger); }
 .group-feedback:empty { display: none; }
@@ -17398,6 +17422,7 @@ select option:disabled { color: var(--muted); }
 .accessory-group.size-medium .server-head .menu-button { width: 26px; height: 26px; min-height: 0; padding: 3px; }
 .accessory-group.size-medium .group-controls { gap: 4px; margin-top: 5px; }
 .accessory-group.size-medium .group-controls > label { min-height: 24px; font-size: .6875rem; gap: 5px; }
+.accessory-group.size-medium .group-count { display: none; }
 .accessory-group.size-medium .group-controls input[type="checkbox"] { width: 36px; height: 22px; flex: none; }
 .accessory-group.size-medium .group-controls > .level { height: 26px; min-height: 26px; border-radius: 8px; }
 .accessory-group.size-medium .level-label, .accessory-group.size-medium .level-text { font-size: .625rem; }
@@ -17854,11 +17879,14 @@ self.addEventListener("notificationclick", (event) => {
     if (gradient) node.style.setProperty("--track", gradient);
     if (fill) node.style.setProperty("--fill", fill);
     const bar = gradient ? el("span", { class: "level-mark" }) : el("span", { class: "level-fill" });
+    // Several values at once (a group's lights): the span from the lowest to the highest.
+    const band = el("span", { class: "level-range" });
     const text = el("span", { class: "level-text" });
     // append() writes a null as the text "null": "" when there is no label.
-    node.append(bar, showLabel ? el("span", { class: "level-label", text: label }) : "", text);
+    node.append(band, bar, showLabel ? el("span", { class: "level-label", text: label }) : "", text);
     let value = min, dragging = false, keyTimer = null;
     function show(next) {
+      node.classList.remove("ranged");
       value = clamp(Math.round((next - min) / step) * step + min, min, max);
       const share = max > min ? (value - min) / (max - min) : 0;
       if (gradient && vertical) bar.style.top = `calc(100% - 10px - ${share} * (100% - 20px))`;
@@ -17894,7 +17922,25 @@ self.addEventListener("notificationclick", (event) => {
       keyTimer = setTimeout(() => { keyTimer = null; onCommit(value); }, 350);
     });
     show(min);
-    return { node, set: (next) => { if (!dragging && !keyTimer) show(next); } };
+    /// Shows `low` to `high` rather than one value, read as `reading`: solid up to the lowest, lighter up to the highest
+    /// (a band between them on a gradient track). Moving the slider shows one value again.
+    function range(low, high, reading) {
+      if (dragging || keyTimer) return;
+      const share = (one) => max > min ? clamp((one - min) / (max - min), 0, 1) : 0;
+      const [from, to] = [share(Math.min(low, high)), share(Math.max(low, high))];
+      show(Math.min(low, high));
+      if (gradient) {
+        band.style.left = `calc(10px + ${from} * (100% - 20px) - 3px)`;
+        band.style.width = `calc(${to - from} * (100% - 20px) + 6px)`;
+      } else {
+        band.style.left = `${from * 100}%`;
+        band.style.width = `${(to - from) * 100}%`;
+      }
+      node.classList.add("ranged");
+      text.textContent = reading;
+      node.setAttribute("aria-valuetext", reading);
+    }
+    return { node, set: (next) => { if (!dragging && !keyTimer) show(next); }, range };
   }
 
   /// A few positions as rising bars, as a fan's speeds read: the bar pressed and those under it lit.

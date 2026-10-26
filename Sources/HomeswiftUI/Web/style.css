@@ -884,6 +884,12 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .level.track { background: var(--track); }
 .level.track .level-label, .level.track .level-text { color: #2a2620; }
 .level-mark { position: absolute; top: 6px; bottom: 6px; width: 6px; margin-left: -3px; border-radius: 3px; background: var(--knob); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35); }
+/* Several values (a group's members): solid to the lowest, the same colour lighter to the highest; on a gradient
+   track, a frosted band between them in place of the knob. */
+.level-range { position: absolute; top: 0; bottom: 0; display: none; background: var(--fill, linear-gradient(90deg, var(--accent-2), var(--accent))); opacity: .4; }
+.level.ranged .level-range { display: block; }
+.level.track .level-range { top: 6px; bottom: 6px; border-radius: 4px; opacity: 1; background: rgba(255, 255, 255, 0.5); box-shadow: inset 0 0 0 2px var(--knob), 0 1px 4px rgba(0, 0, 0, 0.25); }
+.level.track.ranged .level-mark { display: none; }
 /* Tall: filled from the bottom, the value at the top, the label at the foot. */
 .level.vertical { height: auto; border-radius: 20px; cursor: ns-resize; }
 .level.vertical .level-fill { transform-origin: center bottom; }
@@ -2160,6 +2166,8 @@ input[type="checkbox"]:not(.switch input):not(.day input)::before {
 }
 input[type="checkbox"]:not(.switch input):not(.day input):checked { background: var(--accent); }
 input[type="checkbox"]:not(.switch input):not(.day input):checked::before { transform: translateX(20px); }
+/* Mixed (a group, some on): half lit, the thumb between. */
+input[type="checkbox"]:not(.switch input):not(.day input):indeterminate { background: color-mix(in srgb, var(--accent) 45%, rgba(120, 128, 142, 0.35)); }
 input[type="checkbox"]:not(.switch input):not(.day input):indeterminate::before { transform: translateX(10px); }
 input[type="checkbox"]:not(.switch input):not(.day input):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .45; cursor: not-allowed; }
@@ -2319,6 +2327,9 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .accessory-group .group-controls { display: grid; gap: 10px; margin-top: 16px; }
 .group-controls label { display: flex; align-items: center; gap: 10px; font-size: .8125rem; }
 .group-controls label > span:first-child { flex: 1; }
+/* Some members on, some off: the name, and how many are on under it. */
+.group-controls .group-name { display: grid; gap: 1px; }
+.group-controls .group-count { color: var(--muted); font-size: .75rem; font-variant-numeric: tabular-nums; }
 .group-controls > .level { width: 100%; }
 .group-feedback { font-size: .75rem; color: var(--danger); }
 .group-feedback:empty { display: none; }
@@ -2727,6 +2738,7 @@ select option:disabled { color: var(--muted); }
 .accessory-group.size-medium .server-head .menu-button { width: 26px; height: 26px; min-height: 0; padding: 3px; }
 .accessory-group.size-medium .group-controls { gap: 4px; margin-top: 5px; }
 .accessory-group.size-medium .group-controls > label { min-height: 24px; font-size: .6875rem; gap: 5px; }
+.accessory-group.size-medium .group-count { display: none; }
 .accessory-group.size-medium .group-controls input[type="checkbox"] { width: 36px; height: 22px; flex: none; }
 .accessory-group.size-medium .group-controls > .level { height: 26px; min-height: 26px; border-radius: 8px; }
 .accessory-group.size-medium .level-label, .accessory-group.size-medium .level-text { font-size: .625rem; }

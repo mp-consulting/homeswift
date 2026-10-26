@@ -44,6 +44,8 @@ HomeswiftI18n.add("pt", {
   "Accessory group": "Grupo de acessórios",
   "Choose at least two accessories with shared controls.": "Escolha pelo menos dois acessórios com controlos comuns.",
   "Mixed": "Misto",
+  "{n} of {count} on [one]": "{n} de {count} ligado",
+  "{n} of {count} on": "{n} de {count} ligados",
   "Could not update: {names}": "Não foi possível atualizar: {names}",
   "Some group members are unavailable.": "Alguns membros do grupo estão indisponíveis.",
   "Edit group": "Editar grupo",
