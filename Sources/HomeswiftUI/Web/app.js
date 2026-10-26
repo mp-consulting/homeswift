@@ -3057,7 +3057,8 @@
       for (const [index, button] of [...levels.children].entries()) {
         const [level, label] = levelChoices[index];
         const count = logState.lines.filter((line) => visible(line, needle, level)).length;
-        button.textContent = `${label} (${count})`;
+        button.replaceChildren(el("span", { class: "log-level-name", text: label }), el("span", { class: "log-level-count", text: String(count) }));
+        button.setAttribute("aria-label", `${label} (${count})`);
         button.disabled = count === 0 && level !== "trace" && level !== logState.level;
         button.title = button.disabled ? t("No log lines match the current search.") : "";
       }
