@@ -57,7 +57,9 @@ let package = Package(
         // on-device model, redaction, prompts, schema-checked JSON. No dependency beyond Foundation and swift-log.
         .target(
             name: "HomeswiftAI",
-            dependencies: [.product(name: "Logging", package: "swift-log")]
+            dependencies: [.product(name: "Logging", package: "swift-log")],
+            // The prompts' Markdown, embedded into PromptFiles.swift by Scripts/embed-assets.swift.
+            exclude: ["Prompts"]
         ),
         // The plugin API and the runtime that hosts plugins: config.json, cached accessories, child bridges.
         .target(
