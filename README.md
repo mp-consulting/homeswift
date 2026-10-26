@@ -24,8 +24,8 @@ services and characteristics, react to writes from the Home app, set values when
 Homeswift takes care of pairing, encryption, Bonjour and keeping the accessory's identity across launches.
 
 It is also a Homebridge written in Swift: the `homeswift` bridge reads a Homebridge-style `config.json` and
-runs the plugins compiled into it, one small binary, no Node.js, no npm. Eleven plugins come with it, from Elgato Key
-Lights to UniFi Protect cameras, and Wingman, which brings in the Home app's own accessories through a Mac; [docs/plugins.md](docs/plugins.md) explains how to write or port one. Its web UI
+runs the plugins compiled into it, one small binary, no Node.js, no npm. Thirteen plugins come with it, from Elgato Key
+Lights to UniFi Protect cameras, Philips Hue and IKEA DIRIGERA straight from their bridges, and Wingman, which brings in the Home app's own accessories through a Mac; [docs/plugins.md](docs/plugins.md) explains how to write or port one. Its web UI
 shows every accessory as a widget of its kind, on a wall you arrange. Drag and resize tiles, combine compatible
 lights, switches, fans or blinds into dashboard groups, and filter devices that do not respond. Lights with
 writable colour temperature can follow an opt-in Homeswift Natural Lighting schedule. See
@@ -164,8 +164,10 @@ over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (t
 | [eWeLink](Plugins/EWeLink) | `eWeLink` | SONOFF and other eWeLink devices: switches, outlets, lights, curtains, sensors, RF Bridge, Zigbee (cloud and LAN) |
 | [Elgato Key Lights](Plugins/ElgatoKeyLights) | `ElgatoKeyLights` | Key Light, Key Light Air, Key Light Mini, Ring Light |
 | [Govee](Plugins/Govee) | `Govee` | Govee lights, plugs, heaters, purifiers, humidifiers and sensors (cloud, AWS IoT, LAN, Bluetooth) |
+| [IKEA DIRIGERA](Plugins/Dirigera) | `Dirigera` | IKEA lights, outlets, door and window sensors and scenes, through a DIRIGERA hub on the network (paired from the web UI) |
 | [LG ThinQ](Plugins/LGThinQ) | `LGThinQ` | LG ThinQ appliances: air conditioners, purifiers, washers, dryers, fridges, ovens, dishwashers |
 | [Philips Ambilight TV](Plugins/PhilipsAmbilightTV) | `PhilipsAmbilightTV` | Philips Android TVs with Ambilight (JointSpace API, paired from the web UI) |
+| [Philips Hue](Plugins/PhilipsHue) | `PhilipsHue` | Hue lights, scenes, effects and gradients, through a Hue Bridge's local API v2 (paired from the web UI) |
 | [UniFi Access](Plugins/UniFiAccess) | `UniFi Access` | UniFi Access hubs and readers: door locks, doorbells, sensors, followed through the controller's events |
 | [UniFi Protect](Plugins/UniFiProtect) | `UniFi Protect` | UniFi Protect cameras and doorbells (live video, HomeKit Secure Video), sensors, lights, chimes |
 | [Wingman](Plugins/Wingman) | `Wingman` | The Home app's accessories (Matter ones too) through [Homeswift Wingman](https://github.com/mp-consulting/homeswift-wingman) on a Mac: in the web UI, moods, scenes and MCP, never published to HomeKit again |

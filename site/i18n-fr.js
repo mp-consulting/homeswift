@@ -116,6 +116,8 @@ HomeswiftI18n.add("fr", {
  "Lights": "Éclairage",
  "Sonoff": "Sonoff",
  "Pool cleaners": "Robots de piscine",
+ "Lights, scenes": "Lampes, scènes",
+ "Lights, outlets": "Lampes, prises",
  "Talking in five minutes.": "Cinq minutes, et vous lui parlez.",
  "# 1. The bridge. Host networking lets HomeKit find it over mDNS.": "# 1. Le pont. Le réseau de l’hôte permet à HomeKit de le trouver par mDNS.",
  "// 2. The assistant: one block in config.json, with a budget.": "// 2. L’assistant\u00a0: un bloc dans config.json, avec un budget.",
