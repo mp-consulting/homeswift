@@ -53,6 +53,10 @@
     const [state, kind] = waiting ? [t("Pairing…"), "standby"] : !hub.paired ? [t("Not paired"), "away"]
       : hub.error ? [t("Not responding"), "away"] : hub.connected ? [t("Connected"), "on"] : [t("Connecting…"), "standby"];
     const seconds = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+    const actions = [
+      hub.paired ? { label: t("Pair again"), icon: "key", onSelect: () => pair(null, hub.host) } : null,
+      hub.inConfig ? { label: t("Remove from config.json"), icon: "trash", danger: true, onSelect: () => removeHub(hub.host) } : null,
+    ].filter(Boolean);
     return el("div", { class: "hub" },
       el("div", { class: "hub-row" },
         tile("bridge", hub.paired && !hub.error ? "blue" : "grey"),
@@ -60,10 +64,8 @@
           el("div", { class: "muted", text: hub.paired ? [hub.host, tn("{n} device", "{n} devices", hub.devices), tn("{n} scene", "{n} scenes", hub.scenes)].join(" · ") : hub.host })),
         el("span", { class: `pill status ${kind}`, text: state }),
         hub.paired || waiting ? null : el("button", { class: "primary", actionIcon: "key", text: t("Pair"), onclick: (event) => pair(event.currentTarget, hub.host) }),
-        HomeswiftCommon.menuButton(t("Actions for {name}", { name: hub.name || hub.host }), () => [
-          hub.paired ? { label: t("Pair again"), icon: "key", onSelect: () => pair(null, hub.host) } : null,
-          hub.inConfig ? { label: t("Remove from config.json"), icon: "trash", danger: true, onSelect: () => removeHub(hub.host) } : null,
-        ])),
+        // The ⋯ menu only when it has something: a hub found on the network and pairing for the first time has nothing.
+        actions.length ? HomeswiftCommon.menuButton(t("Actions for {name}", { name: hub.name || hub.host }), () => actions) : null),
       waiting ? el("div", { class: "pair-steps pairing" },
         el("span", { class: "link-button", "aria-hidden": "true" }, icon("power")),
         el("div", {},
