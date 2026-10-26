@@ -23,13 +23,15 @@ final class FakeBridge: HTTPSending, @unchecked Sendable {
         var body: JSONValue
     }
 
-    private let state = NIOLockedValueBox<(linkButton: Bool, key: String, resources: [JSONValue], sent: [Sent], refuseKey: Bool)>(
-        (false, "app-key-1", FakeBridge.resources, [], false))
+    private let state = NIOLockedValueBox<(linkButton: Bool, key: String, resources: [JSONValue], sent: [Sent], refuseKey: Bool, bridgeID: String)>(
+        (false, "app-key-1", FakeBridge.resources, [], false, "C42996FFFEC76C08"))
 
     var sent: [Sent] { state.withLockedValue { $0.sent } }
     var puts: [Sent] { sent.filter { $0.method == "PUT" } }
     func pressLinkButton() { state.withLockedValue { $0.linkButton = true } }
     func refuseKey() { state.withLockedValue { $0.refuseKey = true } }
+    /// Answers `/api/config` as another bridge would.
+    func answer(asBridge id: String) { state.withLockedValue { $0.bridgeID = id } }
     /// Changes a resource as the Hue app would.
     func change(_ id: String, _ edit: @Sendable (inout [String: JSONValue]) -> Void) {
         state.withLockedValue { state in
@@ -54,7 +56,7 @@ final class FakeBridge: HTTPSending, @unchecked Sendable {
             guard snapshot.linkButton else { return json([["error": ["type": 101, "address": "", "description": "link button not pressed"]]]) }
             return json([["success": ["username": .string(snapshot.key), "clientkey": "secret"]]])
         case ("GET", "/api/config"):
-            return json(["bridgeid": "C42996FFFEC76C08", "name": "Hue Bridge"])
+            return json(["bridgeid": .string(snapshot.bridgeID), "name": "Hue Bridge"])
         default:
             guard request.header("hue-application-key") == snapshot.key, !snapshot.refuseKey else { return json(["errors": [["description": "unauthorized user"]]], status: 403) }
         }
@@ -169,6 +171,27 @@ struct PhilipsHueTests {
             return (try? String(contentsOf: file, encoding: .utf8))?.contains("app-key-1") == true
         })
         _ = try await accessory(host, stripID)
+        await host.stop()
+    }
+
+    /// At a new address the key goes only to the same bridge: another one there loses it, and pairing starts over.
+    @Test func aMovedBridgeKeepsItsKeyOnlyIfItIsTheSame() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, stripID)
+        let plugin = try #require(environment.plugin)
+        #expect(await eventually { await plugin.storedBridge.bridgeID != nil })
+        await plugin.use(host: "192.0.2.11")
+        #expect(await eventually { environment.bridge.sent.contains { $0.path == "/api/config" } })
+        let checked = environment.bridge.sent.count
+        #expect(await eventually { environment.bridge.sent.dropFirst(checked).contains { $0.path == "/clip/v2/resource" } })
+        #expect(await plugin.storedBridge.applicationKey == "app-key-1")
+
+        environment.bridge.answer(asBridge: "001788FFFE000001")
+        await plugin.use(host: "192.0.2.12")
+        #expect(await eventually { await plugin.storedBridge.applicationKey == nil })
+        let refused = environment.bridge.sent.count
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(!environment.bridge.sent.dropFirst(refused).contains { $0.path == "/clip/v2/resource" })
         await host.stop()
     }
 

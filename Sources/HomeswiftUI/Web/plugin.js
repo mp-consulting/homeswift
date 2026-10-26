@@ -321,9 +321,229 @@
     }
   }
 
+  /// Adds `name` to the block's list `key` (an exclude list such as `excludeScenes`), or takes it out when it is
+  /// there (in any case), and writes the block at once; an empty list leaves the block. Answers the block as
+  /// written, or null after an error, which it shows.
+  async function toggleList(key, name) {
+    try {
+      await updateBlock((draft) => {
+        const list = draft[key] || [];
+        const index = list.findIndex((item) => item.toLowerCase() === name.toLowerCase());
+        if (index >= 0) list.splice(index, 1); else list.push(name);
+        if (list.length) draft[key] = list; else delete draft[key];
+      });
+      return await readBlock();
+    } catch (e) {
+      alert(e.message);
+      return null;
+    }
+  }
+
+  // ---- Pieces of the lighting pages (Philips Hue, IKEA DIRIGERA) ------------------------------------------
+
+  /// The page's tabs: each `.main-tabs [data-tab]` button shows its `#tab-<name>` and hides the others. The one
+  /// last chosen opens again on the next visit, kept in localStorage under `storageKey`.
+  function tabs(storageKey) {
+    const buttons = [...document.querySelectorAll(".main-tabs [data-tab]")];
+    const select = (button) => {
+      for (const other of buttons) {
+        const on = other === button;
+        other.classList.toggle("on", on);
+        other.setAttribute("aria-selected", String(on));
+        $(`#tab-${other.dataset.tab}`)?.classList.toggle("hidden", !on);
+      }
+    };
+    for (const button of buttons) {
+      button.addEventListener("click", () => {
+        select(button);
+        try { localStorage.setItem(storageKey, button.dataset.tab); } catch {}
+      });
+    }
+    try {
+      const saved = localStorage.getItem(storageKey);
+      const button = saved && buttons.find((other) => other.dataset.tab === saved);
+      if (button) select(button);
+    } catch {}
+  }
+
+  /// How a scene tile's name reads best on its palette (`colours`, "#rrggbb" stops of a 135° gradient): "light" (dark
+  /// text) or "deep" (white on a darker scrim), else "" (white on the usual scrim). The name spans about 35 to 70 % of
+  /// the gradient, so the colours there count (stops evenly spaced, mixed in sRGB as the browser does); white has the
+  /// scrim under it (about a third black at the name). Each takes the contrast of its worst colour (WCAG's relative
+  /// luminance) and the better one wins; when neither reaches 4.5, the darker scrim does.
+  function textStyle(colours) {
+    const rgb = colours.map((hex) => /^#([0-9a-f]{6})$/i.exec(hex.trim())).map((match) => match && [0, 2, 4].map((i) => parseInt(match[1].slice(i, i + 2), 16)));
+    if (!rgb.length || rgb.includes(null)) return "";
+    const at = (position) => {
+      if (rgb.length === 1) return rgb[0];
+      const point = position * (rgb.length - 1);
+      const index = Math.min(Math.floor(point), rgb.length - 2);
+      return rgb[index].map((c, i) => c + (rgb[index + 1][i] - c) * (point - index));
+    };
+    const luminance = (channels) => {
+      const [r, g, b] = channels.map((c) => c / 255).map((c) => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const under = [0.35, 0.5, 0.7].map((position) => luminance(at(position)));
+    const white = Math.min(...under.map((l) => 1.05 / (l * 0.46 + 0.05)));
+    const dark = Math.min(...under.map((l) => (l + 0.05) / 0.062));
+    if (Math.max(white, dark) < 4.5) return "deep";
+    return dark > white ? "light" : "";
+  }
+
+  // The transition as a 12-step speed scale, slowest first; the block keeps its milliseconds (`transitionMs`), a
+  // value between steps showing as the nearest. Step 9, 100 ms, is the default.
+  const speedSteps = [2000, 1500, 1000, 800, 600, 400, 300, 200, 100, 60, 30, 0];
+  const stepFor = (ms) => speedSteps.reduce((best, value, index) => Math.abs(value - ms) < Math.abs(speedSteps[best] - ms) ? index : best, 0) + 1;
+
+  /// The Transition field: a slider over the speed scale, its reading, the scale's names under it and `help`.
+  /// `onInput` runs when a person moves it. Answers `{ element, set(ms), value() }`: `set` shows a duration (100 ms
+  /// when none) without calling `onInput`, `value` answers the chosen one in milliseconds.
+  function speedScale({ help, onInput } = {}) {
+    const names = [[2, t("Very slow")], [4, t("Slow")], [7, t("Medium")], [9, t("Fast")], [11, t("Very fast")], [12, t("Extreme")]];
+    const nameOf = (step) => names.find(([last]) => step <= last)[1];
+    const reading = el("output");
+    const slider = el("input", { type: "range", class: "speed", min: 1, max: 12, step: 1, "aria-label": t("Transition") });
+    const show = () => {
+      const step = Number(slider.value);
+      const ms = speedSteps[step - 1];
+      reading.textContent = ms === 0 ? t("{speed} · at once", { speed: nameOf(step) }) : t("{speed} · {ms} ms", { speed: nameOf(step), ms });
+      slider.setAttribute("aria-valuetext", reading.textContent);
+    };
+    slider.addEventListener("input", () => { show(); onInput?.(); });
+    // The names under the scale, each as wide as its steps.
+    const scale = el("div", { class: "speed-scale", "aria-hidden": "true" }, names.map(([last, text], index) =>
+      el("span", { text, style: `grid-column: span ${last - (names[index - 1]?.[0] ?? 0)}` })));
+    const element = el("label", { class: "field" },
+      el("span", { class: "range-head" }, el("span", { class: "field-title", text: t("Transition") }), reading), slider, scale,
+      help ? el("span", { class: "help", text: help }) : null);
+    show();
+    return {
+      element,
+      set(ms) { slider.value = stepFor(ms ?? 100); show(); },
+      value: () => speedSteps[Number(slider.value) - 1],
+    };
+  }
+
+  // A picture a person gave a scene takes no drop outside a tile, so one dropped beside a tile does not open.
+  let pictureDropGuard = false;
+
+  /// Scene tiles' pictures: dropped on a tile or chosen from its ⋯ menu, shrunk here to 640 pixels and sent as a JPEG
+  /// data: URL to the plugin's `scene-picture` route (POST; GET `scene-picture?id=` reads one, `scene-picture-remove`
+  /// takes it away). A scene's `picture` is its version: each is fetched once, a newer one replacing it. `refresh`
+  /// runs after a change; `toggleHidden(key)` leaves the scene out of the Home app, or brings it back. Answers
+  /// `decorate(tileNode, scene, hideKey)`, which adds the tile's menu, takes drops and paints the picture.
+  function scenePictures({ refresh, toggleHidden }) {
+    if (!pictureDropGuard) {
+      pictureDropGuard = true;
+      for (const type of ["dragover", "drop"]) document.addEventListener(type, (event) => { if (event.dataTransfer?.types?.includes("Files")) event.preventDefault(); });
+    }
+    /// Scene id → { version, data }, `data` a promise of the data: URL (null when it could not be read).
+    const cache = new Map();
+    function pictureFor(scene) {
+      if (!scene.picture) { cache.delete(scene.id); return Promise.resolve(null); }
+      const version = String(scene.picture);
+      const cached = cache.get(scene.id);
+      if (cached?.version === version) return cached.data;
+      const data = request(`scene-picture?id=${encodeURIComponent(scene.id)}`).then((answer) => answer.data).catch(() => {
+        // Not kept: the next draw asks again (the bridge was busy or restarting).
+        if (cache.get(scene.id)?.data === data) cache.delete(scene.id);
+        return null;
+      });
+      cache.set(scene.id, { version, data });
+      return data;
+    }
+
+    async function shrink(file) {
+      if (!/^image\//.test(file.type)) throw new Error(t("This file is not a picture."));
+      const bitmap = await createImageBitmap(file).catch(() => { throw new Error(t("This file is not a picture.")); });
+      const scale = Math.min(1, 640 / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      bitmap.close?.();
+      return canvas.toDataURL("image/jpeg", 0.85);
+    }
+
+    async function setPicture(scene, file, tileNode) {
+      tileNode.classList.add("busy");
+      try {
+        const data = await shrink(file);
+        const { version } = await request("scene-picture", { method: "POST", body: { id: scene.id, data } });
+        cache.set(scene.id, { version: String(version), data: Promise.resolve(data) });
+        await refresh();
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        tileNode.classList.remove("busy");
+      }
+    }
+
+    function choosePicture(scene, tileNode) {
+      const input = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp,image/heic" });
+      input.addEventListener("change", () => { if (input.files?.[0]) setPicture(scene, input.files[0], tileNode); });
+      input.click();
+    }
+
+    async function removePicture(scene) {
+      try {
+        await request("scene-picture-remove", { method: "POST", body: { id: scene.id } });
+        cache.delete(scene.id);
+        await refresh();
+      } catch (e) {
+        alert(e.message);
+      }
+    }
+
+    /// The tile takes a dropped picture.
+    function dropZone(tileNode, scene) {
+      tileNode.addEventListener("dragover", (event) => {
+        if (![...(event.dataTransfer?.types ?? [])].includes("Files")) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+        tileNode.classList.add("drop");
+      });
+      tileNode.addEventListener("dragleave", () => tileNode.classList.remove("drop"));
+      tileNode.addEventListener("drop", (event) => {
+        event.preventDefault();
+        tileNode.classList.remove("drop");
+        const file = event.dataTransfer?.files?.[0];
+        if (file) setPicture(scene, file, tileNode);
+      });
+    }
+
+    /// The tile's menu: a picture for it, and whether the Home app shows it. A click on it (menuButton stops those)
+    /// or a key does not reach the tile.
+    function sceneMenu(scene, tileNode, hideKey) {
+      const button = HomeswiftCommon.menuButton(t("Actions for {name}", { name: scene.name }), () => [
+        { label: scene.picture ? t("Change the picture…") : t("Choose a picture…"), icon: "camera", onSelect: () => choosePicture(scene, tileNode) },
+        scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: () => removePicture(scene) } : null,
+        { label: scene.hidden ? t("Show in the Home app") : t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleHidden(hideKey) },
+      ]);
+      button.classList.add("eye");
+      button.addEventListener("keydown", (event) => event.stopPropagation());
+      return button;
+    }
+
+    return {
+      decorate(tileNode, scene, hideKey) {
+        tileNode.append(sceneMenu(scene, tileNode, hideKey));
+        dropZone(tileNode, scene);
+        // The picture once loaded; the colours stay until then, and when there is none.
+        pictureFor(scene).then((data) => {
+          if (!data) return;
+          tileNode.style.backgroundImage = `url("${data}")`;
+          tileNode.classList.add("pictured");
+        });
+        return tileNode;
+      },
+    };
+  }
+
   window.homeswift = {
     platform, name, request, home: "/plugins", $, el, icon, tile, fact, assistant, explain, ask, breadcrumb, api, act, formatTemperature, temperature,
-    readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, poll, renderKeyed,
-    canonicalMAC, isMAC, sameMAC,
+    readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, toggleList, poll, renderKeyed,
+    canonicalMAC, isMAC, sameMAC, tabs, textStyle, speedScale, scenePictures,
   };
 })();

@@ -62,6 +62,9 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     static let flashDuration = 5000
 
     let configuration: Configuration
+    /// `excludeLights` and `excludeScenes`, lowercased once: every poll checks each light and scene against them.
+    private let excludedLights: Set<String>
+    private let excludedScenes: Set<String>
     let context: PluginContext
     let dependencies: Dependencies
     private let tasks = TaskBag()
@@ -76,6 +79,13 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     private(set) var lastError: String?
     private var pairing: Task<Bool, Never>?
     private var pairingDeadline: ContinuousClock.Instant?
+    /// The task that finds the bridge and polls it.
+    private var poller: Task<Void, Never>?
+    /// The bridge moved to another address: its key is sent there only once `/api/config` names the same bridge.
+    private var checkBridge = false
+    /// Counts reads of the bridge: a read that finishes after a later one began (the poll's, overtaken by the one after
+    /// a recall) is not applied, so the older state never comes back.
+    private var refreshes = 0
     private var lights: [String: LightServices] = [:]
     private var sceneAccessories: [String: SceneServices] = [:]
 
@@ -83,7 +93,8 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     struct LightServices {
         let accessory: Accessory
         let lightbulb: Service
-        let writer: HueLightWriter
+        let writer: LightChangeBatcher
+        let command: HueLightCommand
         var effects: [String: Service]
         let flash: Service?
         let points: [Service]
@@ -103,6 +114,8 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
 
     init(configuration: Configuration, context: PluginContext, dependencies: Dependencies) {
         self.configuration = configuration
+        excludedLights = Set((configuration.excludeLights ?? []).map { $0.lowercased() })
+        excludedScenes = Set((configuration.excludeScenes ?? []).map { $0.lowercased() })
         self.context = context
         self.dependencies = dependencies
         store = context.jsonFile("bridge.json")
@@ -124,11 +137,21 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     static func sceneAccessoryID(groupID: String) -> String { "\(platform):scenes:\(groupID)" }
 
     public func start() async throws {
-        tasks.add { [weak self] in await self?.run() }
+        restart()
+    }
+
+    /// Starts the poll again (another address, a new key). The bag keeps it so `stop` cancels it; the bag itself is not
+    /// cancelled here, as a cancelled bag starts nothing again.
+    private func restart() {
+        poller?.cancel()
+        let task = Task<Void, Never> { [weak self] in await self?.run() }
+        poller = task
+        tasks.add(task)
     }
 
     public func stop() async {
         pairing?.cancel()
+        poller?.cancel()
         tasks.cancelAll()
     }
 
@@ -160,10 +183,34 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         if stored.host != host, stored.host != nil {
             // Another bridge, or the same one at a new address: the certificate is checked again on first use.
             if configuration.host != nil { trust.reset() }
+            if stored.applicationKey != nil { checkBridge = true }
         }
         stored.host = host
         save()
-        client = HueClient(host: host, applicationKey: stored.applicationKey, transport: dependencies.transport(trust))
+        client = HueClient(host: host, applicationKey: checkBridge ? nil : stored.applicationKey, transport: dependencies.transport(trust))
+    }
+
+    /// At a new address, the key goes only to the bridge it belongs to: another one (or anything else answering there,
+    /// its certificate trusted on first use) loses it, and the plugin pairs again from the page.
+    private func checkMovedBridge(_ client: HueClient) async -> Bool {
+        guard checkBridge else { return true }
+        let answered: String?
+        do {
+            answered = try await client.configuration()["bridgeid"]?.stringValue
+        } catch {
+            lastError = "\(error)"
+            return false
+        }
+        checkBridge = false
+        if let answered, let known = stored.bridgeID, answered.lowercased() == known.lowercased() {
+            await client.setApplicationKey(stored.applicationKey)
+            return true
+        }
+        logger.warning("Another Hue Bridge answers at \(client.host): pair with it from the plugin's page")
+        lastError = "Another Hue Bridge answers at \(client.host): pair with it from the plugin's page."
+        stored.applicationKey = nil
+        save()
+        return false
     }
 
     private func save() {
@@ -217,10 +264,13 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     /// Reads every resource in one request, adds the lights and scenes that are new, shows the values of the others
     /// and drops what is gone.
     func refresh() async {
-        guard let client, stored.applicationKey != nil else { return }
+        guard let client, stored.applicationKey != nil, await checkMovedBridge(client) else { return }
+        refreshes += 1
+        let read = refreshes
         let resources: [JSONValue]
         do {
             resources = try await client.resources()
+            guard read == refreshes else { return }
         } catch HueClient.Failure.unauthorized {
             lastError = "The Hue Bridge refused the application key: pair again from the plugin's page."
             logger.warning("The Hue Bridge refused the application key; pair again from the plugin's page")
@@ -230,6 +280,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
             for services in lights.values { services.accessory.isUnavailable = true }
             return
         } catch {
+            guard read == refreshes else { return }
             if lastError == nil { logger.warning("Could not reach the Hue Bridge: \(error)") }
             lastError = "\(error)"
             for services in lights.values { services.accessory.isUnavailable = true }
@@ -262,12 +313,11 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     }
 
     func isExcluded(_ light: HueLight) -> Bool {
-        let excluded = Set((configuration.excludeLights ?? []).map { $0.lowercased() })
-        return excluded.contains(light.name.lowercased()) || excluded.contains(light.id.lowercased())
+        excludedLights.contains(light.name.lowercased()) || excludedLights.contains(light.id.lowercased())
     }
 
     func visibleScenes(of group: HueGroup) -> [HueScene] {
-        let excluded = Set((configuration.excludeScenes ?? []).map { $0.lowercased() })
+        let excluded = excludedScenes
         return snapshot.scenes.filter { scene in
             scene.groupID == group.id && !excluded.contains(scene.name.lowercased()) && !excluded.contains("\(group.name)/\(scene.name)".lowercased())
                 && !excluded.contains(scene.id.lowercased())
@@ -289,7 +339,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         if let services = lights[light.id], services.shape == shape {
             services.accessory.isUnavailable = !light.reachable
             if let sent = await services.writer.lastSent, ContinuousClock.now - sent < Self.settleTime { return }
-            Self.showValues(light, on: services, keeping: await services.writer.lastColour)
+            Self.showValues(light, on: services, keeping: services.command.lastColour)
             return
         }
         do {
@@ -340,10 +390,10 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         let lightbulb = Service(.lightbulb, name: light.name, optional: optional, isPrimary: true)
         let lightID = light.id
         let gamut = light.gamut ?? .c
-        let writer = HueLightWriter(
+        let command = HueLightCommand(
             lightID: lightID, gamut: gamut, transitionMs: transitionMs,
-            currentColour: { [lightbulb] in (lightbulb[.hue]?.value.doubleValue ?? 0, lightbulb[.saturation]?.value.doubleValue ?? 0) },
-            send: { body in try await client.put("light", id: lightID, body) })
+            currentColour: { [lightbulb] in (lightbulb[.hue]?.value.doubleValue ?? 0, lightbulb[.saturation]?.value.doubleValue ?? 0) })
+        let writer = LightChangeBatcher { changes in try await client.put("light", id: lightID, command.body(for: changes)) }
         let fail: @Sendable (any Error) -> HAPStatusError = { _ in HAPStatusError(.serviceCommunicationFailure) }
         lightbulb.characteristic(.on).onWrite { value in
             do { try await writer.set(.on(value.boolValue ?? false)) } catch { throw fail(error) }
@@ -354,8 +404,9 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         lightbulb[.hue]?.onWrite { value in
             do { try await writer.set(.hue(value.doubleValue ?? 0)) } catch { throw fail(error) }
         }
-        // Saturation goes with the hue that usually follows; it does not wait for the command.
-        lightbulb[.saturation]?.onWrite { value in await writer.enqueue(.saturation(value.doubleValue ?? 0)) }
+        lightbulb[.saturation]?.onWrite { value in
+            do { try await writer.set(.saturation(value.doubleValue ?? 0)) } catch { throw fail(error) }
+        }
         lightbulb[.colorTemperature]?.onWrite { value in
             do { try await writer.set(.mirek(value.intValue ?? 300)) } catch { throw fail(error) }
         }
@@ -422,7 +473,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
             serialNumber: light.id, firmwareRevision: light.firmware.isEmpty ? "1.0.0" : light.firmware, category: .lightbulb, services: services,
             // Identify is the device's, not the light service's (`PUT /resource/device/<id>`).
             onIdentify: { [deviceID = light.deviceID] in _ = try? await client.put("device", id: deviceID, ["identify": ["action": "identify"]]) })
-        let built = LightServices(accessory: accessory, lightbulb: lightbulb, writer: writer, effects: effects, flash: flash, points: points, shape: shape)
+        let built = LightServices(accessory: accessory, lightbulb: lightbulb, writer: writer, command: command, effects: effects, flash: flash, points: points, shape: shape)
         Self.showValues(light, on: built)
         accessory.isUnavailable = !light.reachable
         try context.add(accessory)
@@ -435,7 +486,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
             var h = service[.hue]?.value.doubleValue ?? 0, s = service[.saturation]?.value.doubleValue ?? 0
             if position == index { h = hue ?? h; s = saturation ?? s }
             let point = HueColor.xy(hue: h, saturation: s, gamut: gamut)
-            return ["color": ["xy": ["x": .number(HueLightWriter.round(point.x)), "y": .number(HueLightWriter.round(point.y))]]]
+            return ["color": ["xy": ["x": .number(HueLightCommand.round(point.x)), "y": .number(HueLightCommand.round(point.y))]]]
         }
         return ["gradient": ["points": .array(list)]]
     }
@@ -521,18 +572,14 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
 
     /// Points the plugin at another bridge address (the page's), keeping the key when it is the same bridge.
     func use(host: String) async {
-        tasks.cancelAll()
-        if stored.host != host { trust.reset() }
+        poller?.cancel()
+        if stored.host != host {
+            trust.reset()
+            if stored.applicationKey != nil { checkBridge = true }
+        }
         stored.host = host
         save()
-        tasks.add { [weak self] in await self?.run() }
-    }
-
-    /// Forgets the key, so the next start pairs again.
-    func unpair() {
-        stored.applicationKey = nil
-        save()
-        Task { await client?.setApplicationKey(nil) }
+        restart()
     }
 
     func startPairing() async -> Bool {
@@ -540,8 +587,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         let paired = await pair()
         if paired {
             await client?.setApplicationKey(stored.applicationKey)
-            tasks.cancelAll()
-            tasks.add { [weak self] in await self?.run() }
+            restart()
         }
         return paired
     }

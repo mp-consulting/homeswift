@@ -47,7 +47,7 @@ extension HAPConnection {
                 if ev { entry.ev = isSubscribed(to: CharacteristicKey(aid: aid, iid: iid)) }
                 results.append(entry)
             } catch {
-                results.append(CharacteristicJSON(aid: aid, iid: iid, status: status(for: error)))
+                results.append(CharacteristicJSON(aid: aid, iid: iid, status: Self.status(for: error)))
                 failed = true
             }
         }
@@ -116,24 +116,30 @@ extension HAPConnection {
 
         // As HAP-NodeJS, the writes of one request run at the same time: a light's brightness, hue and saturation
         // reach the plugin together, as plugins that wait a moment to send them as one command expect.
+        // One write runs in place; a subscription alone has none to run.
         let origin = id
-        await withTaskGroup(of: (Int, HAPStatus, HAPValue?).self) { group in
-            for write in writes {
-                group.addTask {
-                    do {
-                        let stored = try await HAPRequestContext.$current.withValue(requestContext) {
-                            try await write.characteristic.write(write.value, origin: origin)
-                        }
-                        return (write.index, .success, write.readBack ? stored : HAPValue?.none)
-                    } catch {
-                        return (write.index, (error as? HAPStatusError)?.status ?? .serviceCommunicationFailure, nil)
-                    }
+        let perform = { @Sendable (write: (index: Int, characteristic: Characteristic, value: HAPValue, readBack: Bool)) async -> (Int, HAPStatus, HAPValue?) in
+            do {
+                let stored = try await HAPRequestContext.$current.withValue(requestContext) {
+                    try await write.characteristic.write(write.value, origin: origin)
                 }
+                return (write.index, .success, write.readBack ? stored : HAPValue?.none)
+            } catch {
+                return (write.index, Self.status(for: error), nil)
             }
-            for await (index, status, readBack) in group {
-                results[index].status = status.rawValue
-                results[index].value = readBack
+        }
+        var outcomes: [(Int, HAPStatus, HAPValue?)] = []
+        if writes.count == 1 {
+            outcomes = [await perform(writes[0])]
+        } else if writes.count > 1 {
+            outcomes = await withTaskGroup(of: (Int, HAPStatus, HAPValue?).self) { group in
+                for write in writes { group.addTask { await perform(write) } }
+                return await group.reduce(into: []) { $0.append($1) }
             }
+        }
+        for (index, status, readBack) in outcomes {
+            results[index].status = status.rawValue
+            results[index].value = readBack
         }
 
         let needsBody = results.contains { $0.status != HAPStatus.success.rawValue || $0.value != nil }
@@ -158,7 +164,7 @@ extension HAPConnection {
         return .noContent
     }
 
-    private func status(for error: any Error) -> HAPStatus {
+    private static func status(for error: any Error) -> HAPStatus {
         (error as? HAPStatusError)?.status ?? .serviceCommunicationFailure
     }
 }

@@ -8,107 +8,39 @@ extension DirigeraPlugin {
     public static let webFiles: [String: WebFile] = [
         "app.css": WebFile(contentType: "text/css; charset=utf-8", body: #"""
 /* The IKEA DIRIGERA page on the UI's materials: the hubs and their pairing, the devices as the Accessories page's
-   widgets, the hub's scenes as tiles, and the settings. */
+   widgets, the hub's scenes as tiles, and the settings. The tabs, pairing, address form, scene tiles, speed scale
+   and save bar are style.css's, shared with the Philips Hue page. */
 
 .page-head { align-items: center; }
-.main-tabs { margin: 18px 0 14px; }
-.tab-pane { animation: fade var(--normal) var(--ease-out); }
 h2 { margin: 0 0 10px; }
 .intro { margin: 0 0 14px; font-size: 0.875rem; }
 
-/* The bridge. */
-.bridge-card .server-head { display: flex; align-items: center; gap: 14px; }
-.bridge-card .who { flex: 1; min-width: 0; }
+/* The hubs. */
 .bridge-card .who strong { display: block; }
-.pair-steps { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: center; margin-top: 14px; padding: 14px 16px; border-radius: 16px; background: var(--material-thin); border: 1px solid var(--line); }
-.pair-steps p { margin: 0; font-size: 0.875rem; }
-.link-button { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle at 50% 40%, #fff, #e6e8ee 70%); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.15); color: #3d4352; }
-.link-button svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-.pairing .link-button { animation: press 1.6s var(--ease-out) infinite; }
-@keyframes press { 0%, 100% { box-shadow: 0 0 0 0 rgba(124, 77, 219, 0.45), inset 0 -2px 0 rgba(0, 0, 0, 0.08); } 50% { box-shadow: 0 0 0 10px rgba(124, 77, 219, 0), inset 0 -2px 0 rgba(0, 0, 0, 0.08); } }
-.countdown { font-variant-numeric: tabular-nums; }
-.address { margin-top: 12px; }
-.address-row { display: flex; gap: 8px; align-items: center; }
-.address-row input { flex: 1; min-width: 0; width: auto; }
-.address-row button { flex: none; }
-.address .help { display: block; margin-top: 6px; }
 .found { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-
-/* Scenes: a section per room, a tile per scene painted with its colours. */
-.room { margin-bottom: 22px; }
-.room-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; }
-.room-head h2 { margin: 0; font-size: 1.0625rem; }
-.scene-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr)); gap: 10px; }
-.scene { position: relative; display: grid; align-content: end; min-height: 96px; padding: 12px 14px; border-radius: 18px; border: 1px solid var(--edge); color: #fff; text-align: left; cursor: pointer; overflow: hidden; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); transition: transform var(--fast) var(--ease-out), box-shadow var(--fast) var(--ease-out); }
-.scene::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 35%, rgba(0, 0, 0, 0.42)); pointer-events: none; }
-@media (hover: hover) and (pointer: fine) { .scene:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14); } }
-.scene:active { transform: scale(0.98); }
-.scene .name { position: relative; z-index: 1; font-weight: 600; font-size: 0.9375rem; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.scene .kind { position: relative; z-index: 1; font-size: 0.75rem; opacity: 0.85; }
-.scene.active { box-shadow: 0 0 0 3px var(--accent), 0 6px 18px rgba(0, 0, 0, 0.14); }
-.scene .badge { position: absolute; top: 10px; left: 12px; z-index: 1; font-size: 0.6875rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.85); color: #1d1d1f; }
-.scene .eye { position: absolute; top: 6px; right: 6px; z-index: 2; width: 30px; height: 30px; min-height: 0; padding: 0; border-radius: 50%; display: grid; place-items: center; background: rgba(0, 0, 0, 0.28); border: 0; color: #fff; box-shadow: none; }
-.scene .eye svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.scene.hidden-scene { filter: grayscale(0.85); opacity: 0.55; }
-.scene.busy { pointer-events: none; }
-
-/* Settings. */
-.range-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.range-head output { font-weight: 600; font-variant-numeric: tabular-nums; }
-.field input.speed { width: 100%; }
-.speed-scale { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); margin: 4px 0 2px; font-size: 0.75rem; color: var(--muted); text-align: center; }
-.speed-scale span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; border-left: 1px solid var(--line); }
-.speed-scale span:first-child { border-left: 0; }
-@media (max-width: 640px) { .speed-scale { display: none; } }
-.save-card { position: sticky; bottom: 12px; z-index: 3; margin-top: 18px; }
-.save-card .save-bar { border-top: 0; padding-top: 0; }
-
-@media (max-width: 640px) {
-  .pair-steps { grid-template-columns: 1fr; justify-items: start; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .tab-pane { animation: none; }
-  .pairing .link-button { animation: none; }
-  .scene { transition: none; }
-}
-
-/* Hubs and rooms. */
 .hub { display: grid; gap: 4px; padding: 12px 0; border-top: 1px solid var(--line); }
 .hub:first-of-type { border-top: 0; padding-top: 0; }
 .hub-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .hub-row .who { flex: 1; min-width: 180px; }
+
+/* Scenes: the hub's icon on each tile (hidden under a picture), and a flash when one runs. */
 .scene .glyph { position: absolute; top: 12px; left: 14px; z-index: 1; width: 28px; height: 28px; color: rgba(255, 255, 255, 0.92); }
 .scene .glyph svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.scene.pictured .glyph { display: none; }
+.scene.light:not(.pictured) .glyph { color: rgba(29, 29, 31, 0.78); }
 .scene.fired { animation: fired 0.9s var(--ease-out); }
 @keyframes fired { 0% { box-shadow: 0 0 0 0 rgba(255, 214, 10, 0.7); } 100% { box-shadow: 0 0 0 14px rgba(255, 214, 10, 0); } }
 @media (prefers-reduced-motion: reduce) { .scene.fired { animation: none; } }
 
-/* Lights as the Accessories page draws them; the ones left out of the Home app below, to bring back. */
+/* Devices as the Accessories page draws them; the ones left out of the Home app below, to bring back. */
 .accessory-walls { margin: 0; }
-.hidden-devices { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; font-size: 0.875rem; }
-.hidden-devices:empty { display: none; }
-
-/* A scene's own picture fills its tile; dragging a picture over a tile outlines it. */
-.scene.pictured { background-size: cover !important; background-position: center !important; }
-.scene.pictured .glyph { display: none; }
-.scene.drop { box-shadow: 0 0 0 3px var(--accent), 0 6px 18px rgba(0, 0, 0, 0.18); transform: scale(1.02); }
-.scene .eye.menu-button { color: #fff; }
-/* A light palette takes dark text, without the scrim; a palette neither reads well on takes a darker scrim; a picture
-   keeps white text on the scrim, whatever its palette. */
-.scene.deep::after { background: linear-gradient(180deg, transparent 20%, rgba(0, 0, 0, 0.62)); }
-.scene.light:not(.pictured) { color: #1d1d1f; }
-.scene.light:not(.pictured)::after { display: none; }
-.scene.light:not(.pictured) .name { text-shadow: none; }
-.scene.light:not(.pictured) .glyph { color: rgba(29, 29, 31, 0.78); }
-.scene.light:not(.pictured) .eye.menu-button { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
-.scene.light:not(.pictured) .badge { background: #1d1d1f; color: #fff; }
 
 """#),
         "app.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The IKEA DIRIGERA page: the hubs (from config.json and found on the network), each paired with its action button;
 // the lights, outlets and sensors as the Accessories page draws them (its widgets); the hubs' scenes as tiles (a tap
 // runs one, the eye leaves it out of the Home app); and the settings. Refreshed every two seconds while visible;
-// saving writes this instance's block.
+// saving writes this instance's block. The tabs, scene pictures, speed scale and tile text come from plugin.js.
 (() => {
   "use strict";
   const { t, tn } = HomeswiftI18n;
@@ -134,25 +66,12 @@ h2 { margin: 0 0 10px; }
     if (!on && ticker) { clearInterval(ticker); ticker = 0; }
   }
 
-  // MARK: Tabs
-
-  for (const button of document.querySelectorAll(".main-tabs [data-tab]")) {
-    button.addEventListener("click", () => {
-      for (const other of document.querySelectorAll(".main-tabs [data-tab]")) {
-        const on = other === button;
-        other.classList.toggle("on", on);
-        other.setAttribute("aria-selected", String(on));
-        $(`#tab-${other.dataset.tab}`).classList.toggle("hidden", !on);
-      }
-      try { localStorage.setItem("dirigera-tab", button.dataset.tab); } catch {}
-    });
-  }
-  try {
-    const saved = localStorage.getItem("dirigera-tab");
-    if (saved) document.querySelector(`.main-tabs [data-tab="${saved}"]`)?.click();
-  } catch {}
+  homeswift.tabs("dirigera-tab");
 
   // MARK: Hubs
+
+  /// The countdown texts of the hubs waiting for their button, by host: the second's tick updates them.
+  const countdowns = new Map();
 
   function hubRow(hub) {
     const until = pairing.get(hub.host) ?? 0;
@@ -173,16 +92,22 @@ h2 { margin: 0 0 10px; }
         hub.paired || waiting ? null : el("button", { class: "primary", actionIcon: "key", text: t("Pair"), onclick: (event) => pair(event.currentTarget, hub.host) }),
         // The ⋯ menu only when it has something: a hub found on the network and pairing for the first time has nothing.
         actions.length ? HomeswiftCommon.menuButton(t("Actions for {name}", { name: hub.name || hub.host }), () => actions) : null),
-      waiting ? el("div", { class: "pair-steps pairing" },
+      waiting ? el("div", { class: "pair-prompt pairing" },
         el("span", { class: "link-button", "aria-hidden": "true" }, icon("power")),
         el("div", {},
           el("p", {}, el("strong", { text: t("Press the action button under the hub.") })),
-          el("p", { class: "muted", text: t("Waiting for the button… {seconds} s left.", { seconds }) }))) : null,
+          countdown(hub.host, seconds))) : null,
       hub.error && hub.paired ? explain({
         error: `The DIRIGERA hub at ${hub.host} did not answer: ${hub.error}`,
         context: "The Homeswift DIRIGERA plugin reads GET https://<hub>:8443/v1/devices and /v1/scenes with its token, and follows the hub's websocket for changes.",
         device: { host: hub.host },
       }) : null);
+  }
+
+  function countdown(host, seconds) {
+    const text = el("p", { class: "muted", text: t("Waiting for the button… {seconds} s left.", { seconds }) });
+    countdowns.set(host, text);
+    return text;
   }
 
   const hubList = el("div");
@@ -202,10 +127,23 @@ h2 { margin: 0 0 10px; }
         }) }),
         el("button", { class: "primary", actionIcon: "key", text: t("Pair"), onclick: (event) => { const host = addressInput.value.trim(); if (host) pair(event.currentTarget, host); } })))));
 
-  /// The hub rows, and the hubs found on the network that are not paired yet; the address form stays as typed.
+  /// The hub rows, and the hubs found on the network that are not paired yet; the address form stays as typed. They
+  /// are drawn again only when what they show changed; while a hub pairs, the second's tick only counts down.
+  let hubsKey = "";
   function drawHubs() {
     const known = new Set(hubs.map((hub) => hub.host));
     const extra = found.filter((host) => !known.has(host));
+    const now = Date.now();
+    const key = JSON.stringify([hubs.map((hub) => ({ ...hub, pairingSecondsLeft: null, waiting: now < (pairing.get(hub.host) ?? 0) })), extra]);
+    if (key === hubsKey) {
+      for (const [host, text] of countdowns) {
+        const seconds = Math.max(0, Math.ceil(((pairing.get(host) ?? 0) - now) / 1000));
+        text.textContent = t("Waiting for the button… {seconds} s left.", { seconds });
+      }
+      return;
+    }
+    hubsKey = key;
+    countdowns.clear();
     hubList.replaceChildren(...(hubs.length ? hubs.map(hubRow) : [el("p", { class: "muted", text: t("No hub yet. Find one on the network or type its address.") })]));
     foundList.replaceChildren(...extra.map((host) => el("button", { actionIcon: "key", text: t("Pair {host}", { host }), onclick: (event) => pair(event.currentTarget, host) })));
   }
@@ -254,13 +192,22 @@ h2 { margin: 0 0 10px; }
     accessories = all.filter((accessory) => accessory.platform === "Dirigera" && accessory.platformName === homeswift.name && !accessory.id.startsWith("Dirigera:scenes:"));
   }
 
+  /// The devices left out of the Home app, as buttons that bring one back; drawn again only when they change.
+  function drawHidden(names) {
+    const hidden = $("#hidden-devices");
+    const key = JSON.stringify(names);
+    if (hidden.dataset.json === key) return;
+    hidden.dataset.json = key;
+    hidden.replaceChildren(...(names.length ? [el("span", { class: "muted", text: t("Not in the Home app:") }),
+      ...names.map((name) => el("button", { actionIcon: "eye", text: name, title: t("Show in the Home app"), onclick: () => toggleList("excludeDevices", name) }))] : []));
+  }
+
   let listening = false;
   async function drawDevices() {
     const list = $("#devices");
-    const hidden = $("#hidden-devices");
     if (!hubs.some((hub) => hub.paired)) {
       list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("Pair a hub to see its lights and outlets.") })));
-      hidden.replaceChildren();
+      drawHidden([]);
       return;
     }
     const key = devices.filter((item) => !item.hidden).map((item) => item.id).sort().join(",");
@@ -277,9 +224,7 @@ h2 { margin: 0 0 10px; }
         (item) => HomeswiftWidgets.card(accessories.find((accessory) => accessory.id === item.id), { size: "large", actions: actionsFor }));
       if (!listening) { HomeswiftWidgets.listen(); listening = true; }
     }
-    const left = devices.filter((item) => item.hidden);
-    hidden.replaceChildren(...(left.length ? [el("span", { class: "muted", text: t("Not in the Home app:") }),
-      ...left.map((item) => el("button", { actionIcon: "eye", text: item.name, title: t("Show in the Home app"), onclick: () => toggleList("excludeDevices", item.name) }))] : []));
+    drawHidden(devices.filter((item) => item.hidden).map((item) => item.name));
   }
 
   /// The widget's ⋯ menu, after All controls: what this page adds.
@@ -313,123 +258,12 @@ h2 { margin: 0 0 10px; }
     let hash = 0;
     for (const c of scene.name) hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
     const tone = tones[hash % tones.length];
-    return { glyph: glyphs[key ?? "home"], gradient: `linear-gradient(135deg, ${tone})`, text: textStyle(tone.split(",")) };
+    return { glyph: glyphs[key ?? "home"], gradient: `linear-gradient(135deg, ${tone})`, text: homeswift.textStyle(tone.split(",")) };
   }
 
-  /// How a tile's name reads best on its palette: "light" (dark text) or "deep" (white on a darker scrim), else white on
-  /// the usual scrim. The name spans about 35 to 70 % of the 135° gradient, so the colours there count (stops evenly
-  /// spaced, mixed in sRGB as the browser does); white has the scrim under it (about a third black at the name). Each
-  /// takes the contrast of its worst colour (WCAG's relative luminance) and the better one wins; when neither reaches
-  /// 4.5, the darker scrim does.
-  function textStyle(colours) {
-    const rgb = colours.map((hex) => /^#([0-9a-f]{6})$/i.exec(hex.trim())).map((match) => match && [0, 2, 4].map((i) => parseInt(match[1].slice(i, i + 2), 16)));
-    if (!rgb.length || rgb.includes(null)) return "";
-    const at = (t) => {
-      if (rgb.length === 1) return rgb[0];
-      const position = t * (rgb.length - 1);
-      const index = Math.min(Math.floor(position), rgb.length - 2);
-      return rgb[index].map((c, i) => c + (rgb[index + 1][i] - c) * (position - index));
-    };
-    const luminance = (channels) => {
-      const [r, g, b] = channels.map((c) => c / 255).map((c) => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    };
-    const under = [0.35, 0.5, 0.7].map((t) => luminance(at(t)));
-    const white = Math.min(...under.map((l) => 1.05 / (l * 0.46 + 0.05)));
-    const dark = Math.min(...under.map((l) => (l + 0.05) / 0.062));
-    if (Math.max(white, dark) < 4.5) return "deep";
-    return dark > white ? "light" : "";
-  }
-
-  // MARK: Scene pictures
-
-  // A picture a person gave a scene: dropped on its tile or chosen from its menu, shrunk here to 640 pixels and sent as
-  // a JPEG data: URL (the bridge keeps JPEG, PNG and WebP, a megabyte at most). Fetched once per version.
-  const pictureCache = new Map();
-  async function pictureFor(scene) {
-    if (!scene.picture) return null;
-    const key = `${scene.id}@${scene.picture}`;
-    if (!pictureCache.has(key)) {
-      pictureCache.set(key, request(`scene-picture?id=${encodeURIComponent(scene.id)}`).then(({ data }) => data).catch(() => null));
-    }
-    return pictureCache.get(key);
-  }
-
-  async function shrink(file) {
-    if (!/^image\//.test(file.type)) throw new Error(t("This file is not a picture."));
-    const bitmap = await createImageBitmap(file).catch(() => { throw new Error(t("This file is not a picture.")); });
-    const scale = Math.min(1, 640 / Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    bitmap.close?.();
-    return canvas.toDataURL("image/jpeg", 0.85);
-  }
-
-  async function setPicture(scene, file, tileNode) {
-    tileNode.classList.add("busy");
-    try {
-      const data = await shrink(file);
-      const { version } = await request("scene-picture", { method: "POST", body: { id: scene.id, data } });
-      pictureCache.set(`${scene.id}@${version}`, Promise.resolve(data));
-      await refresh();
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      tileNode.classList.remove("busy");
-    }
-  }
-
-  function choosePicture(scene, tileNode) {
-    const input = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp,image/heic" });
-    input.addEventListener("change", () => { if (input.files?.[0]) setPicture(scene, input.files[0], tileNode); });
-    input.click();
-  }
-
-  async function removePicture(scene) {
-    try { await request("scene-picture-remove", { method: "POST", body: { id: scene.id } }); await refresh(); } catch (e) { alert(e.message); }
-  }
-
-  /// The tile takes a dropped picture; the page takes none itself, so a picture dropped beside a tile does not open.
-  function dropZone(tileNode, scene) {
-    tileNode.addEventListener("dragover", (event) => {
-      if (![...(event.dataTransfer?.types ?? [])].includes("Files")) return;
-      event.preventDefault();
-      event.dataTransfer.dropEffect = "copy";
-      tileNode.classList.add("drop");
-    });
-    tileNode.addEventListener("dragleave", () => tileNode.classList.remove("drop"));
-    tileNode.addEventListener("drop", (event) => {
-      event.preventDefault();
-      tileNode.classList.remove("drop");
-      const file = event.dataTransfer?.files?.[0];
-      if (file) setPicture(scene, file, tileNode);
-    });
-  }
-  for (const type of ["dragover", "drop"]) document.addEventListener(type, (event) => { if (event.dataTransfer?.types?.includes("Files")) event.preventDefault(); });
-
-  /// The tile's menu: a picture for it, and whether the Home app shows it.
-  function sceneMenu(scene, tileNode, hideKey) {
-    const button = HomeswiftCommon.menuButton(t("Actions for {name}", { name: scene.name }), () => [
-      { label: scene.picture ? t("Change the picture…") : t("Choose a picture…"), icon: "camera", onSelect: () => choosePicture(scene, tileNode) },
-      scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: () => removePicture(scene) } : null,
-      { label: scene.hidden ? t("Show in the Home app") : t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleList("excludeScenes", hideKey) },
-    ]);
-    button.classList.add("eye");
-    button.addEventListener("click", (event) => event.stopPropagation());
-    button.addEventListener("keydown", (event) => event.stopPropagation());
-    return button;
-  }
-
-  /// Paints the tile with its picture once loaded; the colours stay until then, and when there is none.
-  function paintPicture(tileNode, scene) {
-    pictureFor(scene).then((data) => {
-      if (!data) return;
-      tileNode.style.backgroundImage = `url("${data}")`;
-      tileNode.classList.add("pictured");
-    });
-  }
+  // A scene's picture: dropped on its tile or chosen from its menu (plugin.js); its ⋯ menu also leaves it out of the
+  // Home app, by name.
+  const pictures = homeswift.scenePictures({ refresh: () => refresh(), toggleHidden: (name) => toggleList("excludeScenes", name) });
 
   function sceneTile(scene) {
     const { glyph, gradient, text } = sceneStyle(scene);
@@ -438,7 +272,6 @@ h2 { margin: 0 0 10px; }
     art.innerHTML = `<svg viewBox="0 0 24 24">${glyph}</svg>`;
     const tileNode = el("div", { class: `scene ${scene.hidden ? "hidden-scene" : ""} ${text}`, role: "button", tabindex: 0, style: `background: ${gradient}`, "aria-label": t("Run {name}", { name: scene.name }) },
       art,
-      null,
       el("span", { class: "name", text: scene.name }));
     const run = async () => {
       tileNode.classList.add("busy");
@@ -451,10 +284,7 @@ h2 { margin: 0 0 10px; }
     };
     tileNode.addEventListener("click", run);
     tileNode.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); run(); } });
-    tileNode.append(sceneMenu(scene, tileNode, scene.name));
-    dropZone(tileNode, scene);
-    paintPicture(tileNode, scene);
-    return tileNode;
+    return pictures.decorate(tileNode, scene, scene.name);
   }
 
   function drawScenes() {
@@ -471,84 +301,62 @@ h2 { margin: 0 0 10px; }
   let dirty = false;
   const markDirty = () => { dirty = true; $("#save-state").textContent = t("Unsaved changes."); };
 
-  // The transition as a 12-step speed scale, slowest first; the block keeps its milliseconds (`transitionMs`), a value
-  // between steps showing as the nearest. Step 9, 100 ms, is the default.
-  const speedSteps = [2000, 1500, 1000, 800, 600, 400, 300, 200, 100, 60, 30, 0];
-  const speedNames = [[2, t("Very slow")], [4, t("Slow")], [7, t("Medium")], [9, t("Fast")], [11, t("Very fast")], [12, t("Extreme")]];
-  const speedName = (step) => speedNames.find(([last]) => step <= last)[1];
-  const stepFor = (ms) => speedSteps.reduce((best, value, index) => Math.abs(value - ms) < Math.abs(speedSteps[best] - ms) ? index : best, 0) + 1;
-  const speedText = (step) => {
-    const ms = speedSteps[step - 1];
-    return ms === 0 ? t("{speed} · at once", { speed: speedName(step) }) : t("{speed} · {ms} ms", { speed: speedName(step), ms });
-  };
+  const speed = homeswift.speedScale({
+    help: t("How fast a light reaches a new level or colour. Fast is the default; Extreme changes at once, snappiest for moods."),
+    onInput: markDirty,
+  });
+  const scenesToggle = el("input", { type: "checkbox", id: "scenes-toggle" });
 
   function buildSettings() {
-    const value = el("output");
-    const slider = el("input", { type: "range", class: "speed", id: "transitionMs", min: 1, max: 12, step: 1, "aria-label": t("Transition") });
-    const show = () => {
-      value.textContent = speedText(Number(slider.value));
-      slider.setAttribute("aria-valuetext", value.textContent);
-    };
-    slider.addEventListener("input", () => { show(); markDirty(); });
-    // The names under the scale, each as wide as its steps.
-    const scale = el("div", { class: "speed-scale", "aria-hidden": "true" }, speedNames.map(([last, name], index) =>
-      el("span", { text: name, style: `grid-column: span ${last - (speedNames[index - 1]?.[0] ?? 0)}` })));
-    $("#speed").append(
-      el("label", { class: "field" }, el("span", { class: "range-head" }, el("span", { class: "field-title", text: t("Transition") }), value), slider, scale,
-        el("span", { class: "help", text: t("How fast a light reaches a new level or colour. Fast is the default; Extreme changes at once, snappiest for moods.") })));
-    const input = el("input", { type: "checkbox", id: "scenes-toggle" });
-    input.addEventListener("change", markDirty);
-    $("#options").append(el("label", { class: "toggle" }, el("span", { class: "switch" }, input, el("span")),
+    $("#speed").append(speed.element);
+    scenesToggle.addEventListener("change", markDirty);
+    $("#options").append(el("label", { class: "toggle" }, el("span", { class: "switch" }, scenesToggle, el("span")),
       el("span", {}, el("span", { class: "field-title", text: t("Scenes") }), el("span", { class: "help", text: t("A switch for each scene of the hub. On runs it; off within 30 seconds undoes it.") }))));
-    show();
     $("#save").addEventListener("click", (event) => act(event.currentTarget, save));
   }
 
   function fillSettings() {
     if (dirty) return;
-    $("#transitionMs").value = stepFor(block.transitionMs ?? 100);
-    $("#transitionMs").dispatchEvent(new Event("input"));
-    dirty = false;
+    speed.set(block.transitionMs);
     $("#save-state").textContent = t("Changes are kept once you save.");
-    $("#scenes-toggle").checked = block.scenes ?? true;
+    scenesToggle.checked = block.scenes ?? true;
   }
 
   async function save() {
     await updateBlock((draft) => {
-      setKey(draft, "transitionMs", speedSteps[Number($("#transitionMs").value) - 1], 100);
-      setKey(draft, "scenes", $("#scenes-toggle").checked, true);
+      setKey(draft, "transitionMs", speed.value(), 100);
+      setKey(draft, "scenes", scenesToggle.checked, true);
     });
     dirty = false;
     block = await readBlock();
     $("#save-state").textContent = t("Saved. The plugin restarted with these settings.");
   }
 
+  /// Adds or removes a name from one of the block's lists (`excludeDevices`, `excludeScenes`), saved at once.
   async function toggleList(key, name) {
-    try {
-      await updateBlock((draft) => {
-        const list = draft[key] || [];
-        const index = list.findIndex((item) => item.toLowerCase() === name.toLowerCase());
-        if (index >= 0) list.splice(index, 1); else list.push(name);
-        if (list.length) draft[key] = list; else delete draft[key];
-      });
-      block = await readBlock();
-      setTimeout(refresh, 1500);
-    } catch (e) {
-      alert(e.message);
-    }
+    const written = await homeswift.toggleList(key, name);
+    if (!written) return;
+    block = written;
+    setTimeout(refresh, 1500);
   }
 
   // MARK: Refresh
 
+  /// The hubs and the lists together; the lists count only once a hub is paired.
   async function refresh() {
+    const settle = (promise) => promise.then((value) => ({ value }), (error) => ({ error }));
     try {
-      ({ hubs } = await request("hubs"));
-      if (hubs.some((hub) => hub.paired)) {
-        [{ devices }, { scenes }] = await Promise.all([request("devices"), request("scenes")]);
+      const [answer, deviceList, sceneList] = await Promise.all([request("hubs"), settle(request("devices")), settle(request("scenes"))]);
+      if (answer.hubs.some((hub) => hub.paired)) {
+        const failed = deviceList.error ?? sceneList.error;
+        if (failed) throw failed;
+        ({ devices } = deviceList.value);
+        ({ scenes } = sceneList.value);
       } else {
         devices = [];
         scenes = [];
       }
+      ({ hubs } = answer);
     } catch (e) {
       hubs = [];
     }
@@ -571,13 +379,10 @@ h2 { margin: 0 0 10px; }
 HomeswiftI18n.add({
   "fr": {
     "Pairing…": "Jumelage…",
-    "Not paired": "Non jumelé",
     "Not responding": "Ne répond pas",
     "Connected": "Connecté",
-    "Connecting…": "Connexion…",
     "DIRIGERA hub": "Hub DIRIGERA",
     "Pair": "Jumeler",
-    "Actions for {name}": "Actions pour {name}",
     "Pair again": "Jumeler à nouveau",
     "Remove from config.json": "Retirer de config.json",
     "Press the action button under the hub.": "Appuyez sur le bouton d'action sous le hub.",
@@ -589,27 +394,14 @@ HomeswiftI18n.add({
     "No hub yet. Find one on the network or type its address.": "Pas encore de hub. Recherchez-en un sur le réseau ou saisissez son adresse.",
     "Pair {host}": "Jumeler {host}",
     "Remove the hub at {host} from config.json?": "Retirer le hub à {host} de config.json ?",
-    "Identify": "Identifier",
-    "Show in the Home app": "Afficher dans l'app Maison",
-    "Leave out of the Home app": "Retirer de l'app Maison",
-    "Show its log": "Afficher son journal",
     "Pair a hub to see its lights and outlets.": "Jumelez un hub pour voir ses lampes et ses prises.",
     "The hub has no lights or outlets yet: add them in the IKEA Home smart app.": "Le hub n'a pas encore de lampes ni de prises : ajoutez-les dans l'app IKEA Home smart.",
     "Run {name}": "Lancer {name}",
     "No scenes yet: make some in the IKEA Home smart app.": "Pas encore de scènes : créez-en dans l'app IKEA Home smart.",
     "Pair a hub to see its scenes.": "Jumelez un hub pour voir ses scènes.",
     "Unsaved changes.": "Modifications non enregistrées.",
-    "Transition": "Transition",
-    "Very slow": "Très lente",
-    "Slow": "Lente",
     "Medium": "Moyenne",
-    "Fast": "Rapide",
-    "Very fast": "Très rapide",
-    "Extreme": "Extrême",
-    "{speed} · at once": "{speed} · immédiate",
-    "{speed} · {ms} ms": "{speed} · {ms} ms",
     "How fast a light reaches a new level or colour. Fast is the default; Extreme changes at once, snappiest for moods.": "La vitesse à laquelle une lampe atteint une nouvelle intensité ou couleur. Rapide par défaut ; Extrême change aussitôt, le plus vif pour les ambiances.",
-    "Scenes": "Scènes",
     "A switch for each scene of the hub. On runs it; off within 30 seconds undoes it.": "Un interrupteur par scène du hub. L'allumer la lance ; l'éteindre dans les 30 secondes l'annule.",
     "Changes are kept once you save.": "Les modifications sont conservées une fois enregistrées.",
     "Saved. The plugin restarted with these settings.": "Enregistré. Le plugin a redémarré avec ces réglages.",
@@ -619,20 +411,12 @@ HomeswiftI18n.add({
     "{n} scenes": "{n} scènes",
     "Your DIRIGERA hubs, their lights and outlets room by room, and their scenes, straight from the hub on your network.": "Vos hubs DIRIGERA, leurs lampes et prises pièce par pièce, et leurs scènes, directement depuis le hub sur votre réseau.",
     "Devices": "Appareils",
-    "Settings": "Réglages",
-    "Speed": "Vitesse",
-    "In the Home app": "Dans l'app Maison",
     "Save Configuration": "Enregistrer la configuration",
     "an address is required": "une adresse est requise",
     "The action button was not pressed in time.": "Le bouton d'action n'a pas été pressé à temps.",
     "The DIRIGERA hub refused the token: pair again from the plugin's page.": "Le hub DIRIGERA a refusé le jeton : jumelez à nouveau depuis la page du plugin.",
-    "Battery": "Batterie",
     "Not in the Home app:": "Pas dans l'app Maison :",
     "Tap a scene to run it. Drop a picture on a tile to give the scene one. In the Home app each scene is a switch: on runs it, off within 30 seconds undoes it; a tile's ⋯ menu leaves one out.": "Touchez une scène pour la lancer. Déposez une image sur une tuile pour la donner à la scène. Dans l'app Maison, chaque scène est un interrupteur : l'allumer la lance, l'éteindre dans les 30 secondes l'annule ; le menu ⋯ d'une tuile en retire une.",
-    "This file is not a picture.": "Ce fichier n'est pas une image.",
-    "Choose a picture…": "Choisir une image…",
-    "Change the picture…": "Changer l'image…",
-    "Remove the picture": "Retirer l'image",
     "the picture must be a JPEG, PNG or WebP image": "l'image doit être au format JPEG, PNG ou WebP",
     "the picture is larger than {0} KB": "l'image dépasse {0} Ko",
     "the picture has no valid name": "l'image n'a pas de nom valide",
@@ -642,13 +426,10 @@ HomeswiftI18n.add({
   },
   "es": {
     "Pairing…": "Emparejando…",
-    "Not paired": "Sin emparejar",
     "Not responding": "No responde",
     "Connected": "Conectado",
-    "Connecting…": "Conectando…",
     "DIRIGERA hub": "Hub DIRIGERA",
     "Pair": "Emparejar",
-    "Actions for {name}": "Acciones para {name}",
     "Pair again": "Volver a emparejar",
     "Remove from config.json": "Quitar de config.json",
     "Press the action button under the hub.": "Pulsa el botón de acción de debajo del hub.",
@@ -660,27 +441,14 @@ HomeswiftI18n.add({
     "No hub yet. Find one on the network or type its address.": "Aún no hay ningún hub. Busca uno en la red o escribe su dirección.",
     "Pair {host}": "Emparejar {host}",
     "Remove the hub at {host} from config.json?": "¿Quitar el hub de {host} de config.json?",
-    "Identify": "Identificar",
-    "Show in the Home app": "Mostrar en la app Casa",
-    "Leave out of the Home app": "Quitar de la app Casa",
-    "Show its log": "Ver su registro",
     "Pair a hub to see its lights and outlets.": "Empareja un hub para ver sus luces y enchufes.",
     "The hub has no lights or outlets yet: add them in the IKEA Home smart app.": "El hub aún no tiene luces ni enchufes: añádelos en la app IKEA Home smart.",
     "Run {name}": "Activar {name}",
     "No scenes yet: make some in the IKEA Home smart app.": "Aún no hay escenas: créalas en la app IKEA Home smart.",
     "Pair a hub to see its scenes.": "Empareja un hub para ver sus escenas.",
     "Unsaved changes.": "Cambios sin guardar.",
-    "Transition": "Transición",
-    "Very slow": "Muy lenta",
-    "Slow": "Lenta",
     "Medium": "Media",
-    "Fast": "Rápida",
-    "Very fast": "Muy rápida",
-    "Extreme": "Extrema",
-    "{speed} · at once": "{speed} · inmediata",
-    "{speed} · {ms} ms": "{speed} · {ms} ms",
     "How fast a light reaches a new level or colour. Fast is the default; Extreme changes at once, snappiest for moods.": "La rapidez con la que una luz llega a un nuevo nivel o color. Rápida es la predeterminada; Extrema cambia al instante, lo más ágil para los ambientes.",
-    "Scenes": "Escenas",
     "A switch for each scene of the hub. On runs it; off within 30 seconds undoes it.": "Un interruptor por escena del hub. Encenderlo la activa; apagarlo antes de 30 segundos la deshace.",
     "Changes are kept once you save.": "Los cambios se conservan al guardar.",
     "Saved. The plugin restarted with these settings.": "Guardado. El plugin se ha reiniciado con estos ajustes.",
@@ -690,20 +458,12 @@ HomeswiftI18n.add({
     "{n} scenes": "{n} escenas",
     "Your DIRIGERA hubs, their lights and outlets room by room, and their scenes, straight from the hub on your network.": "Tus hubs DIRIGERA, sus luces y enchufes habitación por habitación y sus escenas, directamente desde el hub en tu red.",
     "Devices": "Dispositivos",
-    "Settings": "Ajustes",
-    "Speed": "Velocidad",
-    "In the Home app": "En la app Casa",
     "Save Configuration": "Guardar configuración",
     "an address is required": "se necesita una dirección",
     "The action button was not pressed in time.": "No se ha pulsado el botón de acción a tiempo.",
     "The DIRIGERA hub refused the token: pair again from the plugin's page.": "El hub DIRIGERA ha rechazado el token: vuelve a emparejar desde la página del plugin.",
-    "Battery": "Batería",
     "Not in the Home app:": "No están en la app Casa:",
     "Tap a scene to run it. Drop a picture on a tile to give the scene one. In the Home app each scene is a switch: on runs it, off within 30 seconds undoes it; a tile's ⋯ menu leaves one out.": "Toca una escena para activarla. Suelta una imagen en un mosaico para dársela a la escena. En la app Casa cada escena es un interruptor: encenderlo la activa y apagarlo antes de 30 segundos la deshace; el menú ⋯ de un mosaico quita una.",
-    "This file is not a picture.": "Este archivo no es una imagen.",
-    "Choose a picture…": "Elegir una imagen…",
-    "Change the picture…": "Cambiar la imagen…",
-    "Remove the picture": "Quitar la imagen",
     "the picture must be a JPEG, PNG or WebP image": "la imagen debe ser JPEG, PNG o WebP",
     "the picture is larger than {0} KB": "la imagen supera los {0} KB",
     "the picture has no valid name": "la imagen no tiene un nombre válido",
@@ -713,13 +473,10 @@ HomeswiftI18n.add({
   },
   "pt": {
     "Pairing…": "A emparelhar…",
-    "Not paired": "Não emparelhada",
     "Not responding": "Não responde",
     "Connected": "Ligada",
-    "Connecting…": "A ligar…",
     "DIRIGERA hub": "Hub DIRIGERA",
     "Pair": "Emparelhar",
-    "Actions for {name}": "Ações para {name}",
     "Pair again": "Emparelhar novamente",
     "Remove from config.json": "Remover de config.json",
     "Press the action button under the hub.": "Prima o botão de ação por baixo do hub.",
@@ -731,27 +488,14 @@ HomeswiftI18n.add({
     "No hub yet. Find one on the network or type its address.": "Ainda não há nenhum hub. Procure um na rede ou introduza o endereço.",
     "Pair {host}": "Emparelhar {host}",
     "Remove the hub at {host} from config.json?": "Remover o hub em {host} de config.json?",
-    "Identify": "Identificar",
-    "Show in the Home app": "Mostrar na app Casa",
-    "Leave out of the Home app": "Retirar da app Casa",
-    "Show its log": "Ver o registo",
     "Pair a hub to see its lights and outlets.": "Emparelhe um hub para ver as luzes e tomadas.",
     "The hub has no lights or outlets yet: add them in the IKEA Home smart app.": "O hub ainda não tem luzes nem tomadas: adicione-as na app IKEA Home smart.",
     "Run {name}": "Ativar {name}",
     "No scenes yet: make some in the IKEA Home smart app.": "Ainda não há cenas: crie-as na app IKEA Home smart.",
     "Pair a hub to see its scenes.": "Emparelhe um hub para ver as cenas.",
     "Unsaved changes.": "Alterações por guardar.",
-    "Transition": "Transição",
-    "Very slow": "Muito lenta",
-    "Slow": "Lenta",
     "Medium": "Média",
-    "Fast": "Rápida",
-    "Very fast": "Muito rápida",
-    "Extreme": "Extrema",
-    "{speed} · at once": "{speed} · imediata",
-    "{speed} · {ms} ms": "{speed} · {ms} ms",
     "How fast a light reaches a new level or colour. Fast is the default; Extreme changes at once, snappiest for moods.": "A rapidez com que uma luz chega a um novo nível ou cor. Rápida é a predefinida; Extrema muda de imediato, o mais vivo para os ambientes.",
-    "Scenes": "Cenas",
     "A switch for each scene of the hub. On runs it; off within 30 seconds undoes it.": "Um interruptor por cena do hub. Ligá-lo ativa-a; desligá-lo nos 30 segundos seguintes anula-a.",
     "Changes are kept once you save.": "As alterações ficam guardadas quando guardar.",
     "Saved. The plugin restarted with these settings.": "Guardado. O plugin reiniciou com estas definições.",
@@ -761,20 +505,12 @@ HomeswiftI18n.add({
     "{n} scenes": "{n} cenas",
     "Your DIRIGERA hubs, their lights and outlets room by room, and their scenes, straight from the hub on your network.": "Os hubs DIRIGERA, as luzes e tomadas divisão a divisão e as cenas, diretamente do hub na sua rede.",
     "Devices": "Dispositivos",
-    "Settings": "Definições",
-    "Speed": "Velocidade",
-    "In the Home app": "Na app Casa",
     "Save Configuration": "Guardar configuração",
     "an address is required": "é necessário um endereço",
     "The action button was not pressed in time.": "O botão de ação não foi premido a tempo.",
     "The DIRIGERA hub refused the token: pair again from the plugin's page.": "O hub DIRIGERA recusou o token: emparelhe novamente a partir da página do plugin.",
-    "Battery": "Bateria",
     "Not in the Home app:": "Fora da app Casa:",
     "Tap a scene to run it. Drop a picture on a tile to give the scene one. In the Home app each scene is a switch: on runs it, off within 30 seconds undoes it; a tile's ⋯ menu leaves one out.": "Toque numa cena para a ativar. Largue uma imagem num mosaico para a dar à cena. Na app Casa cada cena é um interruptor: ligá-lo ativa-a e desligá-lo nos 30 segundos seguintes anula-a; o menu ⋯ de um mosaico retira uma.",
-    "This file is not a picture.": "Este ficheiro não é uma imagem.",
-    "Choose a picture…": "Escolher uma imagem…",
-    "Change the picture…": "Alterar a imagem…",
-    "Remove the picture": "Remover a imagem",
     "the picture must be a JPEG, PNG or WebP image": "a imagem tem de ser JPEG, PNG ou WebP",
     "the picture is larger than {0} KB": "a imagem tem mais de {0} KB",
     "the picture has no valid name": "a imagem não tem um nome válido",
@@ -822,7 +558,7 @@ HomeswiftI18n.add({
 
   <section id="tab-scenes" class="tab-pane hidden" role="tabpanel">
     <p class="muted intro" data-i18n>Tap a scene to run it. Drop a picture on a tile to give the scene one. In the Home app each scene is a switch: on runs it, off within 30 seconds undoes it; a tile's ⋯ menu leaves one out.</p>
-    <div id="scenes" class="scene-grid"></div>
+    <div id="scenes" class="scene-tiles"></div>
   </section>
 
   <section id="tab-settings" class="tab-pane hidden" role="tabpanel">

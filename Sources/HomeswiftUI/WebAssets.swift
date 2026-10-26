@@ -586,24 +586,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       window.history.replaceState(null, "", `/settings/audit?${query}`);
       if (!since.value) query.delete("since");
       count.textContent = t("Loading…");
-      // Count each alternative against the current text and the other selected filter.
-      for (const [control, choices, key] of [[outcome, outcomes, "outcome"], [since, spans, "since"]]) {
-        control.counts.clear(); control.paint();
-        Promise.all(choices.map(async ([value]) => {
-          const candidate = new URLSearchParams(query);
-          if (value) candidate.set(key, value); else candidate.delete(key);
-          candidate.set("limit", "1");
-          try { return [value, (await api(`/api/audit?${candidate}`)).total]; }
-          catch { return [value, null]; }
-        })).then((counts) => {
-          if (own !== loads) return;
-          control.counts = new Map(counts.filter(([, count]) => count != null));
-          control.paint();
-        });
-      }
+      for (const control of [outcome, since]) { control.counts.clear(); control.paint(); }
+      // The server counts each alternative against the current text and the other selected filter, in the same pass.
+      query.set("spans", spans.map(([value]) => value).join(","));
       let found;
       try { found = await api(`/api/audit?${query}`); } catch (e) { if (own === loads) count.textContent = e.message; return; }
       if (own !== loads) return;
+      for (const [control, key] of [[outcome, "outcome"], [since, "since"]]) {
+        control.counts = new Map(Object.entries(found.counts?.[key] ?? {}));
+        control.paint();
+      }
       if (!found.enabled) {
         count.textContent = "";
         body.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("The audit log is off: the HomeswiftAiKit block's mcp.http says auditLog: false.") })));
@@ -5574,6 +5566,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     chart: '<path d="M4 4v16h16"/><path d="m7 15 4-5 3 3 5-6"/>',
     archive: '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/>',
     key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l2 2M15 8l2 2"/>',
+    link: '<path d="M9.5 14.5l5-5M8 11l-2 2a3.5 3.5 0 0 0 5 5l2-2M16 13l2-2a3.5 3.5 0 0 0-5-5l-2 2"/>',
     shield: '<path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/><path d="m9 12 2 2 4-4"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     close: '<path d="m6 6 12 12M18 6 6 18"/>',
@@ -5593,13 +5586,21 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     down: '<path d="M6 9l6 6 6-6"/>',
   };
 
-  /// An icon as an SVG element.
+  /// A button's icon before its text (`actionIcon`, `data-action-icon`): the icon as an SVG data: URL in
+  /// `--action-icon`, which the stylesheet uses as a mask. Each icon's URL is made once.
+  const actionIconURLs = new Map();
   function decorateAction(node, name) {
     node.classList.add("action-with-icon");
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icons[name] ?? icons.generic}</svg>`;
-    node.style.setProperty("--action-icon", `url("data:image/svg+xml,${encodeURIComponent(svg)}")`);
+    let url = actionIconURLs.get(name);
+    if (!url) {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icons[name] ?? icons.generic}</svg>`;
+      url = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+      actionIconURLs.set(name, url);
+    }
+    node.style.setProperty("--action-icon", url);
   }
 
+  /// An icon as an SVG element.
   function icon(name) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 24 24");
@@ -6356,7 +6357,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// Applies the user's choices to this page (and remembers them in this browser): `data-theme` and
   /// `data-wallpaper` on the root element, which the stylesheet reads, and the unit temperatures show in.
   function applyPreferences(next) {
-    if (next) preferences = { ...preferences, ...next };
+    // The bridge answers all of the user's choices: they replace the page's, so a key it dropped (the version of
+    // a removed wallpaper) goes too.
+    if (next) preferences = { ...next };
     const root = document.documentElement;
     if (preferences.theme === "light" || preferences.theme === "dark") root.dataset.theme = preferences.theme; else delete root.dataset.theme;
     if (preferences.wallpaper && preferences.wallpaper !== "none") root.dataset.wallpaper = preferences.wallpaper; else delete root.dataset.wallpaper;
@@ -9710,7 +9713,22 @@ HomeswiftI18n.add("es", {
   "Your sign-in to this bridge's web UI, as an administrator.": "Tu inicio de sesión en la interfaz web de este puente, como administrador.",
   "Your sign-in to this bridge's web UI.": "Tu inicio de sesión en la interfaz web de este puente.",
   "Your user key and an application token from pushover.net.": "Tu clave de usuario y un token de aplicación de pushover.net.",
-  "your username adds nothing": "tu nombre de usuario no aporta nada"
+  "your username adds nothing": "tu nombre de usuario no aporta nada",
+
+  "Very slow": "Muy lenta",
+  "Slow": "Lenta",
+  "Fast": "Rápida",
+  "Very fast": "Muy rápida",
+  "Extreme": "Extrema",
+  "{speed} · at once": "{speed} · inmediata",
+  "{speed} · {ms} ms": "{speed} · {ms} ms",
+  "Transition": "Transición",
+  "This file is not a picture.": "Este archivo no es una imagen.",
+  "Change the picture…": "Cambiar la imagen…",
+  "Choose a picture…": "Elegir una imagen…",
+  "Remove the picture": "Quitar la imagen",
+  "Show in the Home app": "Mostrar en la app Casa",
+  "Leave out of the Home app": "Quitar de la app Casa"
 });
 
 """#),
@@ -11643,7 +11661,22 @@ HomeswiftI18n.add("fr", {
   "Your sign-in to this bridge's web UI, as an administrator.": "Votre connexion à l'interface web de ce pont, en tant qu'administrateur.",
   "Your sign-in to this bridge's web UI.": "Votre connexion à l'interface web de ce pont.",
   "Your user key and an application token from pushover.net.": "Votre clé utilisateur et un jeton d'application de pushover.net.",
-  "your username adds nothing": "votre nom d'utilisateur n'apporte rien"
+  "your username adds nothing": "votre nom d'utilisateur n'apporte rien",
+
+  "Very slow": "Très lente",
+  "Slow": "Lente",
+  "Fast": "Rapide",
+  "Very fast": "Très rapide",
+  "Extreme": "Extrême",
+  "{speed} · at once": "{speed} · immédiate",
+  "{speed} · {ms} ms": "{speed} · {ms} ms",
+  "Transition": "Transition",
+  "This file is not a picture.": "Ce fichier n'est pas une image.",
+  "Change the picture…": "Changer l'image…",
+  "Choose a picture…": "Choisir une image…",
+  "Remove the picture": "Retirer l'image",
+  "Show in the Home app": "Afficher dans l'app Maison",
+  "Leave out of the Home app": "Retirer de l'app Maison"
 });
 
 """#),
@@ -13576,7 +13609,22 @@ HomeswiftI18n.add("pt", {
   "Your sign-in to this bridge's web UI, as an administrator.": "O seu início de sessão na interface web desta ponte, como administrador.",
   "Your sign-in to this bridge's web UI.": "O seu início de sessão na interface web desta ponte.",
   "Your user key and an application token from pushover.net.": "A chave de utilizador e um token de aplicação de pushover.net.",
-  "your username adds nothing": "o nome de utilizador não acrescenta nada"
+  "your username adds nothing": "o nome de utilizador não acrescenta nada",
+
+  "Very slow": "Muito lenta",
+  "Slow": "Lenta",
+  "Fast": "Rápida",
+  "Very fast": "Muito rápida",
+  "Extreme": "Extrema",
+  "{speed} · at once": "{speed} · imediata",
+  "{speed} · {ms} ms": "{speed} · {ms} ms",
+  "Transition": "Transição",
+  "This file is not a picture.": "Este ficheiro não é uma imagem.",
+  "Change the picture…": "Alterar a imagem…",
+  "Choose a picture…": "Escolher uma imagem…",
+  "Remove the picture": "Remover a imagem",
+  "Show in the Home app": "Mostrar na app Casa",
+  "Leave out of the Home app": "Retirar da app Casa"
 });
 
 """#),
@@ -14245,10 +14293,230 @@ HomeswiftI18n.add("pt", {
     }
   }
 
+  /// Adds `name` to the block's list `key` (an exclude list such as `excludeScenes`), or takes it out when it is
+  /// there (in any case), and writes the block at once; an empty list leaves the block. Answers the block as
+  /// written, or null after an error, which it shows.
+  async function toggleList(key, name) {
+    try {
+      await updateBlock((draft) => {
+        const list = draft[key] || [];
+        const index = list.findIndex((item) => item.toLowerCase() === name.toLowerCase());
+        if (index >= 0) list.splice(index, 1); else list.push(name);
+        if (list.length) draft[key] = list; else delete draft[key];
+      });
+      return await readBlock();
+    } catch (e) {
+      alert(e.message);
+      return null;
+    }
+  }
+
+  // ---- Pieces of the lighting pages (Philips Hue, IKEA DIRIGERA) ------------------------------------------
+
+  /// The page's tabs: each `.main-tabs [data-tab]` button shows its `#tab-<name>` and hides the others. The one
+  /// last chosen opens again on the next visit, kept in localStorage under `storageKey`.
+  function tabs(storageKey) {
+    const buttons = [...document.querySelectorAll(".main-tabs [data-tab]")];
+    const select = (button) => {
+      for (const other of buttons) {
+        const on = other === button;
+        other.classList.toggle("on", on);
+        other.setAttribute("aria-selected", String(on));
+        $(`#tab-${other.dataset.tab}`)?.classList.toggle("hidden", !on);
+      }
+    };
+    for (const button of buttons) {
+      button.addEventListener("click", () => {
+        select(button);
+        try { localStorage.setItem(storageKey, button.dataset.tab); } catch {}
+      });
+    }
+    try {
+      const saved = localStorage.getItem(storageKey);
+      const button = saved && buttons.find((other) => other.dataset.tab === saved);
+      if (button) select(button);
+    } catch {}
+  }
+
+  /// How a scene tile's name reads best on its palette (`colours`, "#rrggbb" stops of a 135° gradient): "light" (dark
+  /// text) or "deep" (white on a darker scrim), else "" (white on the usual scrim). The name spans about 35 to 70 % of
+  /// the gradient, so the colours there count (stops evenly spaced, mixed in sRGB as the browser does); white has the
+  /// scrim under it (about a third black at the name). Each takes the contrast of its worst colour (WCAG's relative
+  /// luminance) and the better one wins; when neither reaches 4.5, the darker scrim does.
+  function textStyle(colours) {
+    const rgb = colours.map((hex) => /^#([0-9a-f]{6})$/i.exec(hex.trim())).map((match) => match && [0, 2, 4].map((i) => parseInt(match[1].slice(i, i + 2), 16)));
+    if (!rgb.length || rgb.includes(null)) return "";
+    const at = (position) => {
+      if (rgb.length === 1) return rgb[0];
+      const point = position * (rgb.length - 1);
+      const index = Math.min(Math.floor(point), rgb.length - 2);
+      return rgb[index].map((c, i) => c + (rgb[index + 1][i] - c) * (point - index));
+    };
+    const luminance = (channels) => {
+      const [r, g, b] = channels.map((c) => c / 255).map((c) => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const under = [0.35, 0.5, 0.7].map((position) => luminance(at(position)));
+    const white = Math.min(...under.map((l) => 1.05 / (l * 0.46 + 0.05)));
+    const dark = Math.min(...under.map((l) => (l + 0.05) / 0.062));
+    if (Math.max(white, dark) < 4.5) return "deep";
+    return dark > white ? "light" : "";
+  }
+
+  // The transition as a 12-step speed scale, slowest first; the block keeps its milliseconds (`transitionMs`), a
+  // value between steps showing as the nearest. Step 9, 100 ms, is the default.
+  const speedSteps = [2000, 1500, 1000, 800, 600, 400, 300, 200, 100, 60, 30, 0];
+  const stepFor = (ms) => speedSteps.reduce((best, value, index) => Math.abs(value - ms) < Math.abs(speedSteps[best] - ms) ? index : best, 0) + 1;
+
+  /// The Transition field: a slider over the speed scale, its reading, the scale's names under it and `help`.
+  /// `onInput` runs when a person moves it. Answers `{ element, set(ms), value() }`: `set` shows a duration (100 ms
+  /// when none) without calling `onInput`, `value` answers the chosen one in milliseconds.
+  function speedScale({ help, onInput } = {}) {
+    const names = [[2, t("Very slow")], [4, t("Slow")], [7, t("Medium")], [9, t("Fast")], [11, t("Very fast")], [12, t("Extreme")]];
+    const nameOf = (step) => names.find(([last]) => step <= last)[1];
+    const reading = el("output");
+    const slider = el("input", { type: "range", class: "speed", min: 1, max: 12, step: 1, "aria-label": t("Transition") });
+    const show = () => {
+      const step = Number(slider.value);
+      const ms = speedSteps[step - 1];
+      reading.textContent = ms === 0 ? t("{speed} · at once", { speed: nameOf(step) }) : t("{speed} · {ms} ms", { speed: nameOf(step), ms });
+      slider.setAttribute("aria-valuetext", reading.textContent);
+    };
+    slider.addEventListener("input", () => { show(); onInput?.(); });
+    // The names under the scale, each as wide as its steps.
+    const scale = el("div", { class: "speed-scale", "aria-hidden": "true" }, names.map(([last, text], index) =>
+      el("span", { text, style: `grid-column: span ${last - (names[index - 1]?.[0] ?? 0)}` })));
+    const element = el("label", { class: "field" },
+      el("span", { class: "range-head" }, el("span", { class: "field-title", text: t("Transition") }), reading), slider, scale,
+      help ? el("span", { class: "help", text: help }) : null);
+    show();
+    return {
+      element,
+      set(ms) { slider.value = stepFor(ms ?? 100); show(); },
+      value: () => speedSteps[Number(slider.value) - 1],
+    };
+  }
+
+  // A picture a person gave a scene takes no drop outside a tile, so one dropped beside a tile does not open.
+  let pictureDropGuard = false;
+
+  /// Scene tiles' pictures: dropped on a tile or chosen from its ⋯ menu, shrunk here to 640 pixels and sent as a JPEG
+  /// data: URL to the plugin's `scene-picture` route (POST; GET `scene-picture?id=` reads one, `scene-picture-remove`
+  /// takes it away). A scene's `picture` is its version: each is fetched once, a newer one replacing it. `refresh`
+  /// runs after a change; `toggleHidden(key)` leaves the scene out of the Home app, or brings it back. Answers
+  /// `decorate(tileNode, scene, hideKey)`, which adds the tile's menu, takes drops and paints the picture.
+  function scenePictures({ refresh, toggleHidden }) {
+    if (!pictureDropGuard) {
+      pictureDropGuard = true;
+      for (const type of ["dragover", "drop"]) document.addEventListener(type, (event) => { if (event.dataTransfer?.types?.includes("Files")) event.preventDefault(); });
+    }
+    /// Scene id → { version, data }, `data` a promise of the data: URL (null when it could not be read).
+    const cache = new Map();
+    function pictureFor(scene) {
+      if (!scene.picture) { cache.delete(scene.id); return Promise.resolve(null); }
+      const version = String(scene.picture);
+      const cached = cache.get(scene.id);
+      if (cached?.version === version) return cached.data;
+      const data = request(`scene-picture?id=${encodeURIComponent(scene.id)}`).then((answer) => answer.data).catch(() => {
+        // Not kept: the next draw asks again (the bridge was busy or restarting).
+        if (cache.get(scene.id)?.data === data) cache.delete(scene.id);
+        return null;
+      });
+      cache.set(scene.id, { version, data });
+      return data;
+    }
+
+    async function shrink(file) {
+      if (!/^image\//.test(file.type)) throw new Error(t("This file is not a picture."));
+      const bitmap = await createImageBitmap(file).catch(() => { throw new Error(t("This file is not a picture.")); });
+      const scale = Math.min(1, 640 / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      bitmap.close?.();
+      return canvas.toDataURL("image/jpeg", 0.85);
+    }
+
+    async function setPicture(scene, file, tileNode) {
+      tileNode.classList.add("busy");
+      try {
+        const data = await shrink(file);
+        const { version } = await request("scene-picture", { method: "POST", body: { id: scene.id, data } });
+        cache.set(scene.id, { version: String(version), data: Promise.resolve(data) });
+        await refresh();
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        tileNode.classList.remove("busy");
+      }
+    }
+
+    function choosePicture(scene, tileNode) {
+      const input = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp,image/heic" });
+      input.addEventListener("change", () => { if (input.files?.[0]) setPicture(scene, input.files[0], tileNode); });
+      input.click();
+    }
+
+    async function removePicture(scene) {
+      try {
+        await request("scene-picture-remove", { method: "POST", body: { id: scene.id } });
+        cache.delete(scene.id);
+        await refresh();
+      } catch (e) {
+        alert(e.message);
+      }
+    }
+
+    /// The tile takes a dropped picture.
+    function dropZone(tileNode, scene) {
+      tileNode.addEventListener("dragover", (event) => {
+        if (![...(event.dataTransfer?.types ?? [])].includes("Files")) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+        tileNode.classList.add("drop");
+      });
+      tileNode.addEventListener("dragleave", () => tileNode.classList.remove("drop"));
+      tileNode.addEventListener("drop", (event) => {
+        event.preventDefault();
+        tileNode.classList.remove("drop");
+        const file = event.dataTransfer?.files?.[0];
+        if (file) setPicture(scene, file, tileNode);
+      });
+    }
+
+    /// The tile's menu: a picture for it, and whether the Home app shows it. A click on it (menuButton stops those)
+    /// or a key does not reach the tile.
+    function sceneMenu(scene, tileNode, hideKey) {
+      const button = HomeswiftCommon.menuButton(t("Actions for {name}", { name: scene.name }), () => [
+        { label: scene.picture ? t("Change the picture…") : t("Choose a picture…"), icon: "camera", onSelect: () => choosePicture(scene, tileNode) },
+        scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: () => removePicture(scene) } : null,
+        { label: scene.hidden ? t("Show in the Home app") : t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleHidden(hideKey) },
+      ]);
+      button.classList.add("eye");
+      button.addEventListener("keydown", (event) => event.stopPropagation());
+      return button;
+    }
+
+    return {
+      decorate(tileNode, scene, hideKey) {
+        tileNode.append(sceneMenu(scene, tileNode, hideKey));
+        dropZone(tileNode, scene);
+        // The picture once loaded; the colours stay until then, and when there is none.
+        pictureFor(scene).then((data) => {
+          if (!data) return;
+          tileNode.style.backgroundImage = `url("${data}")`;
+          tileNode.classList.add("pictured");
+        });
+        return tileNode;
+      },
+    };
+  }
+
   window.homeswift = {
     platform, name, request, home: "/plugins", $, el, icon, tile, fact, assistant, explain, ask, breadcrumb, api, act, formatTemperature, temperature,
-    readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, poll, renderKeyed,
-    canonicalMAC, isMAC, sameMAC,
+    readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, toggleList, poll, renderKeyed,
+    canonicalMAC, isMAC, sameMAC, tabs, textStyle, speedScale, scenePictures,
   };
 })();
 
@@ -17134,6 +17402,72 @@ select option:disabled { color: var(--muted); }
     flex: none; margin: 0; padding: 14px 24px max(14px, env(safe-area-inset-bottom));
     background: var(--material-solid); border-top: 1px solid var(--line);
   }
+}
+
+/* ---- The lighting plugins' pages (Philips Hue, IKEA DIRIGERA): their tabs, a bridge's pairing with its button,
+   its address, scene tiles painted with their palette or a picture, the transition's speed scale and the save bar.
+   plugin.js has their pieces (tabs, scenePictures, textStyle, speedScale). */
+.main-tabs { margin: 18px 0 14px; }
+.tab-pane { animation: fade var(--normal) var(--ease-out); }
+
+/* Pairing: press the bridge's button, which pulses while the bridge waits. */
+.pair-prompt { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: center; margin-top: 14px; padding: 14px 16px; border-radius: 16px; background: var(--material-thin); border: 1px solid var(--line); }
+.pair-prompt p { margin: 0; font-size: 0.875rem; }
+.link-button { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle at 50% 40%, #fff, #e6e8ee 70%); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.15); color: #3d4352; }
+.link-button svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.pairing .link-button { animation: press 1.6s var(--ease-out) infinite; }
+@keyframes press { 0%, 100% { box-shadow: 0 0 0 0 rgba(124, 77, 219, 0.45), inset 0 -2px 0 rgba(0, 0, 0, 0.08); } 50% { box-shadow: 0 0 0 10px rgba(124, 77, 219, 0), inset 0 -2px 0 rgba(0, 0, 0, 0.08); } }
+.address { margin-top: 12px; }
+.address-row { display: flex; gap: 8px; align-items: center; }
+.address-row input { flex: 1; min-width: 0; width: auto; }
+.address-row button { flex: none; }
+.address .help { display: block; margin-top: 6px; }
+
+/* Scene tiles: a scene's palette as a gradient, or its picture, under a scrim that keeps the name readable. */
+.scene-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr)); gap: 10px; margin-bottom: 28px; }
+.scene { position: relative; display: grid; align-content: end; min-height: 96px; padding: 12px 14px; border-radius: 18px; border: 1px solid var(--edge); color: #fff; text-align: left; cursor: pointer; overflow: hidden; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); transition: transform var(--fast) var(--ease-out), box-shadow var(--fast) var(--ease-out); }
+.scene::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 35%, rgba(0, 0, 0, 0.42)); pointer-events: none; }
+@media (hover: hover) and (pointer: fine) { .scene:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14); } }
+.scene:active { transform: scale(0.98); }
+.scene .name { position: relative; z-index: 1; font-weight: 600; font-size: 0.9375rem; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.scene.active { box-shadow: 0 0 0 3px var(--accent), 0 6px 18px rgba(0, 0, 0, 0.14); }
+.scene .badge { position: absolute; top: 10px; left: 12px; z-index: 1; font-size: 0.6875rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.85); color: #1d1d1f; }
+.scene .eye { position: absolute; top: 6px; right: 6px; z-index: 2; width: 30px; height: 30px; min-height: 0; padding: 0; border-radius: 50%; display: grid; place-items: center; background: rgba(0, 0, 0, 0.28); border: 0; color: #fff; box-shadow: none; }
+.scene .eye svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.scene.hidden-scene { filter: grayscale(0.85); opacity: 0.55; }
+.scene.busy { pointer-events: none; }
+/* A scene's own picture fills its tile; dragging a picture over a tile outlines it. */
+.scene.pictured { background-size: cover !important; background-position: center !important; }
+.scene.drop { box-shadow: 0 0 0 3px var(--accent), 0 6px 18px rgba(0, 0, 0, 0.18); transform: scale(1.02); }
+/* A light palette takes dark text, without the scrim; a palette neither reads well on takes a darker scrim; a picture
+   keeps white text on the scrim, whatever its palette. */
+.scene.deep::after { background: linear-gradient(180deg, transparent 20%, rgba(0, 0, 0, 0.62)); }
+.scene.light:not(.pictured) { color: #1d1d1f; }
+.scene.light:not(.pictured)::after { display: none; }
+.scene.light:not(.pictured) .name { text-shadow: none; }
+.scene.light:not(.pictured) .eye { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
+.scene.light:not(.pictured) .badge { background: #1d1d1f; color: #fff; }
+
+/* The transition's speed scale, the devices left out of the Home app, and the save bar. */
+.range-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.range-head output { font-weight: 600; font-variant-numeric: tabular-nums; }
+.field input.speed { width: 100%; }
+.speed-scale { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); margin: 4px 0 2px; font-size: 0.75rem; color: var(--muted); text-align: center; }
+.speed-scale span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; border-left: 1px solid var(--line); }
+.speed-scale span:first-child { border-left: 0; }
+.hidden-devices { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; font-size: 0.875rem; }
+.hidden-devices:empty { display: none; }
+.save-card { position: sticky; bottom: 12px; z-index: 3; margin-top: 18px; }
+.save-card .save-bar { border-top: 0; padding-top: 0; }
+
+@media (max-width: 640px) {
+  .speed-scale { display: none; }
+  .pair-prompt { grid-template-columns: 1fr; justify-items: start; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tab-pane { animation: none; }
+  .pairing .link-button { animation: none; }
+  .scene { transition: none; }
 }
 
 """#),

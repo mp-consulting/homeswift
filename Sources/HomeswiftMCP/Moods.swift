@@ -688,10 +688,9 @@ extension HomeswiftCatalog {
         step.assign == .random ? step.colors.randomElement()! : step.colors[position % step.colors.count]
     }
 
-    /// The values a colour gives a light, in the order they are written: brightness, then the colour (saturation
-    /// and hue, or a white as colour temperature, or that white as saturation and hue on a light with no colour
-    /// temperature). Saturation comes first: a plugin sends the colour when the hue arrives, with the saturation it
-    /// has then.
+    /// The values a colour gives a light: brightness, then the colour (saturation and hue, or a white as colour
+    /// temperature, or that white as saturation and hue on a light with no colour temperature). They are written at
+    /// the same time, as the Home app writes them, so their order does not matter.
     func paintValues(_ light: MoodLight, _ color: MoodColor, jitter: Double) -> [(Characteristic, HAPValue)] {
         var values: [(Characteristic, HAPValue)] = []
         if let brightness = light.brightness, let level = color.brightness {
@@ -713,20 +712,18 @@ extension HomeswiftCatalog {
         return values
     }
 
-    /// Writes a colour to a light, turning it on last so it lights up in the new colour. Brightness goes at the same
-    /// time as the colour, as the Home app sends them, so a plugin that waits a moment for both takes no longer.
+    /// Writes a colour to a light, turning it on last so it lights up in the new colour. Its values go at the same
+    /// time, as the Home app sends them, so a plugin that gathers a moment's changes sends them as one command.
     /// `lastOn` is what this mood last set, so On is written only when it changes; answers what it is now.
     private func paint(_ light: MoodLight, _ color: MoodColor, jitter: Double, lastOn: Bool?) async throws -> Bool? {
         if color.isOff {
             if lastOn != false { try await write(light, light.on, .bool(false)) }
             return false
         }
-        let values = paintValues(light, color, jitter: jitter)
-        let brightness = values.filter { $0.0 === light.brightness }
-        let colour = values.filter { $0.0 !== light.brightness }
         try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask { for (characteristic, value) in brightness { try await self.write(light, characteristic, value) } }
-            group.addTask { for (characteristic, value) in colour { try await self.write(light, characteristic, value) } }
+            for (characteristic, value) in paintValues(light, color, jitter: jitter) {
+                group.addTask { try await self.write(light, characteristic, value) }
+            }
             try await group.waitForAll()
         }
         if lastOn != true, light.on.value.boolValue != true { try await write(light, light.on, .bool(true)) }

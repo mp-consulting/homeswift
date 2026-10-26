@@ -224,6 +224,15 @@ struct AdminToolTests {
         #expect(environment.catalog.auditEntriesJSON(.init(outcome: "failed"))["total"] == 0)
         #expect(environment.catalog.auditEntriesJSON(.init(tool: "config"))["total"] == 2)
         #expect(environment.catalog.auditEntriesJSON(.init(since: Date().addingTimeInterval(60)))["total"] == 0)
+
+        // With spans, each outcome and each range is counted against the other filters, in the same answer.
+        var query = HomeswiftCatalog.AuditQuery(client: "c", outcome: "ok")
+        query.spans = [("24h", Date().addingTimeInterval(-86400)), ("future", Date().addingTimeInterval(60)), ("", nil)]
+        let counted = environment.catalog.auditEntriesJSON(query)
+        #expect(counted["total"] == 1)
+        #expect(counted["counts"]?["outcome"] == ["": 2, "ok": 1, "failed": 0, "notConfirmed": 1])
+        #expect(counted["counts"]?["since"] == ["24h": 1, "future": 0, "": 1])
+        #expect(environment.catalog.auditEntriesJSON(.init())["counts"] == nil)
     }
 
     @Test func listsAndRestoresConfigBackups() async throws {

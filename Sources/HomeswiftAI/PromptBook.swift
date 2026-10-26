@@ -14,12 +14,21 @@ enum PromptBook {
     }()
 
     /// The text `key` with its `{{name}}` placeholders filled. A missing text or value is a mistake of this module, caught
-    /// by `PromptTests`, so it traps rather than sending a broken prompt.
+    /// by `PromptTests`, so it traps rather than sending a broken prompt. The placeholders are the template's own, filled
+    /// in one pass: a value is never read for placeholders, so a person's text with `{{` in it goes in as written.
     static func text(_ key: String, _ values: [String: String] = [:]) -> String {
-        guard var text = texts[key] else { preconditionFailure("no prompt \(key) in Prompts/") }
-        for (name, value) in values { text = text.replacingOccurrences(of: "{{\(name)}}", with: value) }
-        precondition(!text.contains("{{"), "prompt \(key) has a placeholder left: \(text)")
-        return text
+        guard let template = texts[key] else { preconditionFailure("no prompt \(key) in Prompts/") }
+        var text = ""
+        var rest = template[...]
+        while let open = rest.range(of: "{{") {
+            text += rest[..<open.lowerBound]
+            guard let close = rest[open.upperBound...].range(of: "}}") else { preconditionFailure("prompt \(key) has an unclosed {{") }
+            let name = String(rest[open.upperBound..<close.lowerBound])
+            guard let value = values[name] else { preconditionFailure("prompt \(key) has no value for {{\(name)}}") }
+            text += value
+            rest = rest[close.upperBound...]
+        }
+        return text + rest
     }
 
     /// The texts of one file, by heading.

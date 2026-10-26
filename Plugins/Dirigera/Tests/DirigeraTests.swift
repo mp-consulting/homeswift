@@ -289,6 +289,18 @@ struct DirigeraTests {
         #expect(scenes.json["scenes"]?.arrayValue?.map { $0["name"] } == ["Movie night"])
         _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "trigger", body: ["host": "192.0.2.20", "id": "scene-1"], user: "admin"))
         #expect(environment.hub.sent.contains { $0.path == "/v1/scenes/scene-1/trigger" })
+        // Only an id the hub listed reaches it, as one path segment.
+        let sentBefore = environment.hub.sent.count
+        for id in ["scene-9", "../devices/bulb-1", "scene-1/../x?y"] {
+            await #expect(throws: (any Error).self) {
+                _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "trigger", body: ["host": "192.0.2.20", "id": .string(id)], user: "admin"))
+            }
+        }
+        await #expect(throws: (any Error).self) {
+            _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "identify", body: ["host": "192.0.2.20", "id": "../scenes"], user: "admin"))
+        }
+        #expect(environment.hub.sent.count == sentBefore)
+        #expect(DirigeraClient.segment("a/../b?c#d%e.f") == "a%2F%2E%2E%2Fb%3Fc%23d%25e%2Ef")
         let sofaAccessory = try await accessory(host, sofaID)
         try await sofaAccessory.information.characteristic(.identify).write(.bool(true))
         #expect(environment.hub.sent.last == .init(method: "PUT", path: "/v1/devices/bulb-1/identify", body: #"{"period":5}"#))

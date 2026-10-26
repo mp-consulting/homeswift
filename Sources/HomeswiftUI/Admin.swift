@@ -126,6 +126,13 @@ extension UIServer {
                     guard let date = Self.date(iso: since) ?? HomeswiftCatalog.parseTimeBound(since) else { return .error(400, "since: an ISO time, or 1h, 24h, 7d") }
                     query.since = date
                 }
+                // `spans=24h,7d,30d,` (an empty name for everything): the counts the page shows by each choice.
+                if let spans = request.query["spans"] {
+                    for name in spans.split(separator: ",", omittingEmptySubsequences: false).map(String.init).prefix(12) {
+                        guard name.isEmpty || HomeswiftCatalog.parseTimeBound(name) != nil else { return .error(400, "spans: names such as 24h, 7d") }
+                        query.spans.append((name, name.isEmpty ? nil : HomeswiftCatalog.parseTimeBound(name)))
+                    }
+                }
                 return .json(catalog.auditEntriesJSON(query))
             default:
                 return .error(404, "unknown API route")

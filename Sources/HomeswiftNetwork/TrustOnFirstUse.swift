@@ -8,13 +8,15 @@ extension HTTPClient {
     ///
     /// ```swift
     /// let trust = HTTPClient.TrustOnFirstUse(pinned: saved) { fingerprint in store.set(fingerprint, for: host) }
-    /// let response = try await HTTPClient(tls: trust.tls).send(request)
+    /// let response = try await trust.client.send(request)
     /// if trust.observe(response.certificateFingerprint) { logger.info("Pinned \(host)'s certificate") }
     /// ```
     public final class TrustOnFirstUse: Sendable {
         private struct State {
             var fingerprint: String?
             var reported: Set<String> = []
+            /// The client for `fingerprint`, made once: a new one would build its TLS context again for each request.
+            var client: HTTPClient?
         }
 
         private let state: NIOLockedValueBox<State>
@@ -32,6 +34,18 @@ extension HTTPClient {
 
         /// How to connect now: any certificate the first time, exactly the pinned one after.
         public var tls: HTTPClient.TLS { fingerprint.map { .pinned($0) } ?? .any }
+
+        /// A client connecting with `tls`, kept until the pin changes (pinned, or reset), so its TLS context is built
+        /// once rather than for every request.
+        public var client: HTTPClient {
+            state.withLockedValue { state in
+                let tls: HTTPClient.TLS = state.fingerprint.map { .pinned($0) } ?? .any
+                if let client = state.client, client.tls == tls { return client }
+                let client = HTTPClient(tls: tls)
+                state.client = client
+                return client
+            }
+        }
 
         /// Records the certificate a connection saw (`HTTPResponse.certificateFingerprint`). Returns true when it was
         /// pinned now, after calling `onPinned`; false when one was pinned already or `presented` is not a fingerprint.

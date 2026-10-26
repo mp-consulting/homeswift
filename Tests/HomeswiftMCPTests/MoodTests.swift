@@ -238,9 +238,9 @@ struct MoodTests {
         #expect(value(environment, "Devices:bulb1", .hue)?.doubleValue == 10)
     }
 
-    /// Every light of a step is written at the same time, and a light's brightness with its colour, saturation
-    /// before hue (a plugin sends the colour when the hue arrives): four lights whose writes take 300 ms each are set
-    /// in about 0.9 s, where one write after another took almost 5 s.
+    /// Every light of a step is written at the same time, and a light's values together, as the Home app writes them:
+    /// four lights whose writes take 300 ms each are set in about 0.6 s (the values, then On), where one write after
+    /// another took almost 5 s.
     @Test func theLightsAreWrittenTogether() async throws {
         let (environment, client) = try await den(bulbs: 4, slow: true)
         defer { Task { await environment.stop() } }
@@ -249,10 +249,10 @@ struct MoodTests {
         let start = ContinuousClock.now
         let set = try await client.tool("start_mood", ["plan": plan, "room": "Den"])
         #expect(set["isError"] != true)
-        #expect(ContinuousClock.now - start < .seconds(2.5))
+        #expect(ContinuousClock.now - start < .seconds(2))
         for bulb in 1...4 {
             let keys = environment.written.map(\.0).filter { $0.hasPrefix("bulb\(bulb).") }
-            #expect(keys.firstIndex(of: "bulb\(bulb).saturation")! < keys.firstIndex(of: "bulb\(bulb).hue")!)
+            #expect(Set(keys.dropLast()) == ["bulb\(bulb).brightness", "bulb\(bulb).saturation", "bulb\(bulb).hue"])
             #expect(keys.last == "bulb\(bulb).on")
             #expect(value(environment, "Devices:bulb\(bulb)", .hue)?.doubleValue == 180)
         }

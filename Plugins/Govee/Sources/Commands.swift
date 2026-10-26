@@ -143,20 +143,19 @@ struct TransportCommands: Sendable, Equatable {
         case .ptReal(let code):
             aws = AWSParams(cmd: "ptReal", data: ["command": [.string(code)]])
             ble = .ptReal([code])
-            if options.lanScenes { lan = LANParams(cmd: "ptReal", data: ["command": [.string(code)]]) }
         case .rgbScene(let code, let bleCode):
             // A scene is a sequence of 20-byte frames: AWS takes them in one message, BLE writes them in order.
             let awsFrames = SceneCodes.codeToFrames(code)
             let bleFrames = SceneCodes.codeToFrames(bleCode?.isEmpty == false ? bleCode! : code)
             if !awsFrames.isEmpty { aws = AWSParams(cmd: "ptReal", data: ["command": .array(awsFrames.map(JSONValue.string))]) }
             if !bleFrames.isEmpty { ble = .ptReal(bleFrames) }
-            if options.lanScenes, !awsFrames.isEmpty { lan = LANParams(cmd: "ptReal", data: ["command": .array(awsFrames.map(JSONValue.string))]) }
         case .musicMode(let mode):
             let frames = SceneCodes.encodeMusicMode(mode)
             aws = AWSParams(cmd: "ptReal", data: ["command": .array(frames.map(JSONValue.string))])
             ble = .ptReal(frames)
-            if options.lanScenes { lan = LANParams(cmd: "ptReal", data: ["command": .array(frames.map(JSONValue.string))]) }
         }
+        // With LAN scenes, a scene, DIY effect or music mode also goes over LAN, as the same ptReal frames as the cloud's.
+        if options.lanScenes, lan == nil, let aws, aws.cmd == "ptReal" { lan = LANParams(cmd: aws.cmd, data: aws.data) }
     }
 
     init(aws: AWSParams? = nil, ble: BLEParams? = nil, lan: LANParams? = nil) {
