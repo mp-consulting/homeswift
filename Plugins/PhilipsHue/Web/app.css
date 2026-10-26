@@ -6,11 +6,24 @@
 h2 { margin: 0 0 10px; }
 .intro { margin: 0 0 14px; font-size: 0.875rem; }
 
-/* Finding a scene: the search, room, order and filters (style.css's filter bar), the count at the end. */
-.scene-toolbar { margin: 0 0 16px; }
-.scene-toolbar .search { width: clamp(160px, 22vw, 280px); }
-.scene-toolbar .popup { max-width: 200px; }
-.scene-toolbar .count { margin-left: auto; font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
+/* Finding a light or a scene: one row (the search takes the room left), held under the header while the list
+   scrolls, in its glass; on a phone, the search over its three menus, scrolling with the page. While a search or a
+   filter narrows the list, how many it keeps and Clear filters under it. */
+.finder {
+  position: sticky; top: 84px; z-index: 1; display: grid; grid-template-columns: minmax(160px, 1fr) minmax(0, 200px) auto auto;
+  gap: 8px; align-items: center; margin: 0 0 14px; padding: 6px; border-radius: 999px;
+  background-color: var(--material-chrome); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+  border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
+}
+.finder .search { width: 100%; min-width: 0; }
+.finder .popup { width: 100%; max-width: none; margin: 0; }
+.finder > button { white-space: nowrap; }
+@media (max-width: 640px) {
+  .finder { position: static; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 0; border-radius: 0; background: none; border: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .finder .search { grid-column: 1 / -1; }
+  .finder > button { justify-content: center; }
+}
+@media (prefers-reduced-transparency: reduce) { .finder { -webkit-backdrop-filter: none; backdrop-filter: none; } }
 
 /* Scenes: a section per room, a tile per scene; a smart scene says so under its name. A room's name folds it away. */
 .room { margin-bottom: 22px; }

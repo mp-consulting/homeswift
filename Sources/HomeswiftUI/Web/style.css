@@ -2258,17 +2258,21 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .plugin-instance .meta { padding: 16px 0; gap: 16px; flex-wrap: wrap; }
 .plugin-instance .card-foot { gap: 12px; align-items: center; }
 .plugin-card-actions { display: flex; align-items: center; gap: 10px; flex: none; }
+/* Finding a plugin to add: the search and the order on one row; how many a search keeps under it, with the way back
+   (finder-status, shared with the lighting pages' toolbars). */
+.catalog-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; margin: 0 0 12px; }
+.catalog-toolbar .search { width: 100%; max-width: none; }
+.catalog-toolbar .popup { margin: 0; }
+.finder-status { display: flex; align-items: center; gap: 10px; margin: -4px 0 14px; padding: 0 6px; font-size: 0.8125rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.finder-status:empty { display: none; }
 .plugin-catalog { gap: 14px; }
 .plugin-catalog .catalog { padding: 20px; }
 .plugin-catalog .catalog[hidden] { display: none; }
 .plugin-catalog .server-head { margin-bottom: 20px; }
 .plugin-catalog .actions { justify-content: flex-end; }
-.section-head:has(+ .plugin-catalog) { flex-wrap: wrap; gap: 12px; }
-.section-head:has(+ .plugin-catalog) .search { margin-left: auto; max-width: 320px; }
 @media (max-width: 600px) {
   .plugin-instance .card-foot { flex-wrap: wrap; }
   .plugin-card-actions { margin-left: auto; }
-  .section-head:has(+ .plugin-catalog) .search { width: 100%; max-width: none; }
 }
 
 /* Compact plugin management: keep each catalog entry on a single row. */

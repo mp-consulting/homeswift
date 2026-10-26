@@ -1373,7 +1373,7 @@
         el("div", { class: "card-foot" },
           el("span", { class: "muted", text: instance?.paused ? t("No calls to its devices; they show No Response in the Home app.")
             : instance ? "" : block.system ? t("A block of the runtime itself.") : plugin ? t("It did not start: the log says why.") : t("No plugin compiled into this homeswift provides this platform.") }),
-          el("div", { class: "plugin-card-actions" }, el("a", { class: "button", href: opens, text: plugin?.hasPages && instance && !instance.paused ? t("Open its page") : t("Settings") }), menuButton(t("Actions for {name}", { name: block.name }), () => blockActions(block, plugin, instance)))));
+          el("div", { class: "plugin-card-actions" }, el("a", { class: "button", href: opens, actionIcon: plugin?.hasPages && instance && !instance.paused ? "open" : "gear", text: plugin?.hasPages && instance && !instance.paused ? t("Open its page") : t("Settings") }), menuButton(t("Actions for {name}", { name: block.name }), () => blockActions(block, plugin, instance)))));
     };
 
     /// What the menu of a plugin's card offers: its page, the block as a form or as JSON (Expert), pause or
@@ -1402,8 +1402,8 @@
         el("div", { class: "actions" }, plugin.hasPages
           // A plugin with its own page sets itself up there (pairing a TV, finding lights), as Homebridge's
           // custom UIs do: Add writes an empty block and opens the page.
-          ? el("button", { class: used ? "" : "primary", text: used ? t("Add another") : t("Add"), onclick: (event) => addWithPage(plugin, event.currentTarget) })
-          : el("a", { class: `button ${used ? "" : "primary"}`, href: `/plugins/add/${encodeURIComponent(plugin.platform)}`, text: used ? t("Add another") : t("Add") })));
+          ? el("button", { class: used ? "" : "primary", actionIcon: "plus", text: used ? t("Add another") : t("Add"), onclick: (event) => addWithPage(plugin, event.currentTarget) })
+          : el("a", { class: `button ${used ? "" : "primary"}`, actionIcon: "plus", href: `/plugins/add/${encodeURIComponent(plugin.platform)}`, text: used ? t("Add another") : t("Add") })));
     }));
 
     async function addWithPage(plugin, button) {
@@ -1418,9 +1418,10 @@
       }
     }
 
-    const catalogCount = el("span", { class: "pill", text: String(plugins.plugins.length) });
-    const catalogSearch = el("input", { type: "search", class: "search", placeholder: t("Filter text"), "aria-label": t("Add a plugin") });
-    const noMatches = el("p", { class: "card empty", hidden: true, text: t("Nothing in this range matches.") });
+    // A search and the order on one row; while a search narrows the list, how many it keeps and the way back under it.
+    const catalogSearch = el("input", { type: "search", class: "search", placeholder: t("Search plugins"), "aria-label": t("Search plugins") });
+    const catalogStatus = el("div", { class: "finder-status", "aria-live": "polite" });
+    const noMatches = el("p", { class: "card empty", hidden: true, text: t("No plugin matches the search.") });
     const catalogEntries = [...catalog.children].map((card, index) => ({ card, plugin: plugins.plugins[index], used: plugins.blocks.some((block) => block.platform === plugins.plugins[index].platform) }));
     const sortOptions = [["name", t("Name A–Z")], ["used", t("In use first")], ["available", t("Available first")]];
     const sort = el("select", { class: "popup", "aria-label": t("Sort plugins") }, sortOptions.map(([value, text]) => el("option", { value, text })));
@@ -1446,14 +1447,16 @@
         card.hidden = !`${plugin.name} ${plugin.platform}`.toLocaleLowerCase().includes(query);
         if (!card.hidden) visible++;
       });
-      catalogCount.textContent = String(visible);
+      catalogStatus.replaceChildren(...(query ? [el("span", { text: t("{shown} of {total} plugins", { shown: visible, total: catalogEntries.length }) }),
+        el("button", { type: "button", class: "small", actionIcon: "restore", text: t("Clear filters"), onclick: () => { catalogSearch.value = ""; catalogSearch.dispatchEvent(new Event("input")); catalogSearch.focus(); } })] : []));
       noMatches.hidden = visible > 0;
     });
     show(main,
       pageHead(t("Plugins"), t("The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.")),
       plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: t("No plugin provides {platforms}: those blocks are ignored.", { platforms: plugins.unknownPlatforms.join(", ") }) })) : null,
       plugins.blocks.some((block) => !block.system) ? el("div", { class: "grid plugin-instances" }, plugins.blocks.map(blockCard)) : window.HomeswiftImport.offer(),
-      el("div", { class: "section-head" }, el("h2", { text: t("Add a plugin") }), el("span", { class: "muted", text: t("compiled into this homeswift") }), catalogSearch, catalogCount, sort, HomeswiftCommon.clearFilters([[catalogSearch, ""]])),
+      el("div", { class: "section-head" }, el("h2", { text: t("Add a plugin") }), el("span", { class: "muted", text: t("compiled into this homeswift") })),
+      el("div", { class: "catalog-toolbar" }, catalogSearch, sort), catalogStatus,
       catalog, noMatches);
   };
 

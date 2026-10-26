@@ -2079,7 +2079,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("div", { class: "card-foot" },
           el("span", { class: "muted", text: instance?.paused ? t("No calls to its devices; they show No Response in the Home app.")
             : instance ? "" : block.system ? t("A block of the runtime itself.") : plugin ? t("It did not start: the log says why.") : t("No plugin compiled into this homeswift provides this platform.") }),
-          el("div", { class: "plugin-card-actions" }, el("a", { class: "button", href: opens, text: plugin?.hasPages && instance && !instance.paused ? t("Open its page") : t("Settings") }), menuButton(t("Actions for {name}", { name: block.name }), () => blockActions(block, plugin, instance)))));
+          el("div", { class: "plugin-card-actions" }, el("a", { class: "button", href: opens, actionIcon: plugin?.hasPages && instance && !instance.paused ? "open" : "gear", text: plugin?.hasPages && instance && !instance.paused ? t("Open its page") : t("Settings") }), menuButton(t("Actions for {name}", { name: block.name }), () => blockActions(block, plugin, instance)))));
     };
 
     /// What the menu of a plugin's card offers: its page, the block as a form or as JSON (Expert), pause or
@@ -2108,8 +2108,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("div", { class: "actions" }, plugin.hasPages
           // A plugin with its own page sets itself up there (pairing a TV, finding lights), as Homebridge's
           // custom UIs do: Add writes an empty block and opens the page.
-          ? el("button", { class: used ? "" : "primary", text: used ? t("Add another") : t("Add"), onclick: (event) => addWithPage(plugin, event.currentTarget) })
-          : el("a", { class: `button ${used ? "" : "primary"}`, href: `/plugins/add/${encodeURIComponent(plugin.platform)}`, text: used ? t("Add another") : t("Add") })));
+          ? el("button", { class: used ? "" : "primary", actionIcon: "plus", text: used ? t("Add another") : t("Add"), onclick: (event) => addWithPage(plugin, event.currentTarget) })
+          : el("a", { class: `button ${used ? "" : "primary"}`, actionIcon: "plus", href: `/plugins/add/${encodeURIComponent(plugin.platform)}`, text: used ? t("Add another") : t("Add") })));
     }));
 
     async function addWithPage(plugin, button) {
@@ -2124,9 +2124,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
     }
 
-    const catalogCount = el("span", { class: "pill", text: String(plugins.plugins.length) });
-    const catalogSearch = el("input", { type: "search", class: "search", placeholder: t("Filter text"), "aria-label": t("Add a plugin") });
-    const noMatches = el("p", { class: "card empty", hidden: true, text: t("Nothing in this range matches.") });
+    // A search and the order on one row; while a search narrows the list, how many it keeps and the way back under it.
+    const catalogSearch = el("input", { type: "search", class: "search", placeholder: t("Search plugins"), "aria-label": t("Search plugins") });
+    const catalogStatus = el("div", { class: "finder-status", "aria-live": "polite" });
+    const noMatches = el("p", { class: "card empty", hidden: true, text: t("No plugin matches the search.") });
     const catalogEntries = [...catalog.children].map((card, index) => ({ card, plugin: plugins.plugins[index], used: plugins.blocks.some((block) => block.platform === plugins.plugins[index].platform) }));
     const sortOptions = [["name", t("Name A–Z")], ["used", t("In use first")], ["available", t("Available first")]];
     const sort = el("select", { class: "popup", "aria-label": t("Sort plugins") }, sortOptions.map(([value, text]) => el("option", { value, text })));
@@ -2152,14 +2153,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         card.hidden = !`${plugin.name} ${plugin.platform}`.toLocaleLowerCase().includes(query);
         if (!card.hidden) visible++;
       });
-      catalogCount.textContent = String(visible);
+      catalogStatus.replaceChildren(...(query ? [el("span", { text: t("{shown} of {total} plugins", { shown: visible, total: catalogEntries.length }) }),
+        el("button", { type: "button", class: "small", actionIcon: "restore", text: t("Clear filters"), onclick: () => { catalogSearch.value = ""; catalogSearch.dispatchEvent(new Event("input")); catalogSearch.focus(); } })] : []));
       noMatches.hidden = visible > 0;
     });
     show(main,
       pageHead(t("Plugins"), t("The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.")),
       plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: t("No plugin provides {platforms}: those blocks are ignored.", { platforms: plugins.unknownPlatforms.join(", ") }) })) : null,
       plugins.blocks.some((block) => !block.system) ? el("div", { class: "grid plugin-instances" }, plugins.blocks.map(blockCard)) : window.HomeswiftImport.offer(),
-      el("div", { class: "section-head" }, el("h2", { text: t("Add a plugin") }), el("span", { class: "muted", text: t("compiled into this homeswift") }), catalogSearch, catalogCount, sort, HomeswiftCommon.clearFilters([[catalogSearch, ""]])),
+      el("div", { class: "section-head" }, el("h2", { text: t("Add a plugin") }), el("span", { class: "muted", text: t("compiled into this homeswift") })),
+      el("div", { class: "catalog-toolbar" }, catalogSearch, sort), catalogStatus,
       catalog, noMatches);
   };
 
@@ -5576,9 +5579,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     sparkle: '<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/>',
     ungroup: '<rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><path d="M3 9V3h6M3 3l5 5M15 21h6v-6M21 21l-5-5"/>',
     group: '<rect x="3" y="8" width="13" height="13" rx="3"/><path d="M8 8V6a3 3 0 0 1 3-3h7a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3h-2M7 14.5h5M9.5 12v5"/>',
-    bridge: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/>',
-    // A lighting bridge or hub (Hue Bridge, DIRIGERA): the box on the shelf, its light, and the radio it speaks.
-    hub: '<rect x="4" y="13" width="16" height="7.5" rx="2.5"/><path d="M8 16.75h.01M8.5 9.5a5 5 0 0 1 7 0M6 7a8.5 8.5 0 0 1 12 0"/>',
+    // A bridge, Homeswift's own or a Hue Bridge or DIRIGERA hub: the box on the shelf, its light, the radio it speaks.
+    bridge: '<rect x="4" y="13" width="16" height="7.5" rx="2.5"/><path d="M8 16.75h.01M8.5 9.5a5 5 0 0 1 7 0M6 7a8.5 8.5 0 0 1 12 0"/>',
     // Plays again and again: a scene's Autoplay, a play inside a turning arrow.
     loop: '<path d="M19.8 16.5A9 9 0 1 1 18.4 5.6"/><path d="M20.5 3v5.5H15z" fill="currentColor"/><path d="M10 8.5v7l5.5-3.5z" fill="currentColor"/>',
     // Pairing: two links of a chain on the diagonal.
@@ -5663,10 +5665,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     node.style.setProperty("--action-icon", url);
   }
 
-  /// An icon as an SVG element.
+  /// An icon as an SVG element, drawn as the UI's icons are (lines of the current colour) by its own attributes, so
+  /// one placed where no style sizes and strokes it is still a line drawing, not a filled shape; a style overrides them.
   function icon(name) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 24 24");
+    for (const [key, value] of [["fill", "none"], ["stroke", "currentColor"], ["stroke-width", "2"], ["stroke-linecap", "round"], ["stroke-linejoin", "round"]]) svg.setAttribute(key, value);
     svg.classList.add(`icon-${name}`);
     svg.innerHTML = icons[name] ?? icons.generic;
     return svg;
@@ -8992,6 +8996,9 @@ HomeswiftI18n.add("es", {
   "Not in use": "Sin usar",
   "Not occupied": "Desocupado",
   "Not paired": "Sin emparejar",
+  "Search plugins": "Buscar plugins",
+  "{shown} of {total} plugins": "{shown} de {total} plugins",
+  "No plugin matches the search.": "Ningún plugin coincide con la búsqueda.",
   "Pairing…": "Emparejando…",
   "Not found": "No encontrado",
   "Not responding": "No responde",
@@ -11063,6 +11070,9 @@ HomeswiftI18n.add("fr", {
   "Not in use": "Inutilisé",
   "Not occupied": "Inoccupé",
   "Not paired": "Non jumelé",
+  "Search plugins": "Rechercher des plugins",
+  "{shown} of {total} plugins": "{shown} plugins sur {total}",
+  "No plugin matches the search.": "Aucun plugin ne correspond à la recherche.",
   "Pairing…": "Jumelage…",
   "Not found": "Introuvable",
   "Not responding": "Ne répond pas",
@@ -13134,6 +13144,9 @@ HomeswiftI18n.add("pt", {
   "Not in use": "Sem utilização",
   "Not occupied": "Desocupado",
   "Not paired": "Não emparelhada",
+  "Search plugins": "Procurar plugins",
+  "{shown} of {total} plugins": "{shown} de {total} plugins",
+  "No plugin matches the search.": "Nenhum plugin corresponde à pesquisa.",
   "Pairing…": "A emparelhar…",
   "Not found": "Não encontrado",
   "Not responding": "Não responde",
@@ -15539,7 +15552,7 @@ HomeswiftI18n.add("pt", {
           el("button", { actionIcon: "search", text: t("Find"), onclick: (event) => act(event.currentTarget, async () => {
             const hosts = await discover();
             found.replaceChildren(...(hosts.length
-              ? hosts.map((host) => el("button", { actionIcon: "hub", text: host, onclick: () => { input.value = host; typed = true; } }))
+              ? hosts.map((host) => el("button", { actionIcon: "bridge", text: host, onclick: () => { input.value = host; typed = true; } }))
               : [el("span", { class: "muted", text: texts.none })]));
           }) }),
           el("button", { class: "primary", actionIcon: "check", text: t("Use"), onclick: (event) => act(event.currentTarget, async () => {
@@ -15569,7 +15582,7 @@ HomeswiftI18n.add("pt", {
       const pairs = facts(bridge);
       return el("div", { class: "bridge" },
         el("div", { class: "server-head" },
-          tile("hub", bridge.paired && !bridge.error ? tone : "grey"),
+          tile("bridge", bridge.paired && !bridge.error ? tone : "grey"),
           el("div", { class: "who" }, el("strong", { text: bridge.name || texts.name }),
             el("div", { class: "muted", text: bridge.detail || bridge.host || t("Looking on the network…") })),
           el("span", { class: `pill status ${kind}`, text: state }),
@@ -18003,17 +18016,21 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .plugin-instance .meta { padding: 16px 0; gap: 16px; flex-wrap: wrap; }
 .plugin-instance .card-foot { gap: 12px; align-items: center; }
 .plugin-card-actions { display: flex; align-items: center; gap: 10px; flex: none; }
+/* Finding a plugin to add: the search and the order on one row; how many a search keeps under it, with the way back
+   (finder-status, shared with the lighting pages' toolbars). */
+.catalog-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; margin: 0 0 12px; }
+.catalog-toolbar .search { width: 100%; max-width: none; }
+.catalog-toolbar .popup { margin: 0; }
+.finder-status { display: flex; align-items: center; gap: 10px; margin: -4px 0 14px; padding: 0 6px; font-size: 0.8125rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.finder-status:empty { display: none; }
 .plugin-catalog { gap: 14px; }
 .plugin-catalog .catalog { padding: 20px; }
 .plugin-catalog .catalog[hidden] { display: none; }
 .plugin-catalog .server-head { margin-bottom: 20px; }
 .plugin-catalog .actions { justify-content: flex-end; }
-.section-head:has(+ .plugin-catalog) { flex-wrap: wrap; gap: 12px; }
-.section-head:has(+ .plugin-catalog) .search { margin-left: auto; max-width: 320px; }
 @media (max-width: 600px) {
   .plugin-instance .card-foot { flex-wrap: wrap; }
   .plugin-card-actions { margin-left: auto; }
-  .section-head:has(+ .plugin-catalog) .search { width: 100%; max-width: none; }
 }
 
 /* Compact plugin management: keep each catalog entry on a single row. */

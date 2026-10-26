@@ -1,6 +1,11 @@
 // The Philips Hue page in French, Spanish and Portuguese (docs/translations.md).
 HomeswiftI18n.add({
   "fr": {
+    "Search lights": "Rechercher des lampes",
+    "Colour lights": "Lampes couleur",
+    "With effects": "Avec des effets",
+    "{shown} of {total} lights": "{shown} lampes sur {total}",
+    "No light matches the search and filters.": "Aucune lampe ne correspond à la recherche et aux filtres.",
     "Search scenes": "Rechercher des scènes",
     "All rooms": "Toutes les pièces",
     "Order": "Ordre",
@@ -80,6 +85,11 @@ HomeswiftI18n.add({
     "no picture for that scene": "aucune image pour cette scène"
   },
   "es": {
+    "Search lights": "Buscar luces",
+    "Colour lights": "Luces de color",
+    "With effects": "Con efectos",
+    "{shown} of {total} lights": "{shown} de {total} luces",
+    "No light matches the search and filters.": "Ninguna luz coincide con la búsqueda y los filtros.",
     "Search scenes": "Buscar escenas",
     "All rooms": "Todas las habitaciones",
     "Order": "Orden",
@@ -159,6 +169,11 @@ HomeswiftI18n.add({
     "no picture for that scene": "no hay imagen para esa escena"
   },
   "pt": {
+    "Search lights": "Procurar luzes",
+    "Colour lights": "Luzes a cores",
+    "With effects": "Com efeitos",
+    "{shown} of {total} lights": "{shown} de {total} luzes",
+    "No light matches the search and filters.": "Nenhuma luz corresponde à pesquisa e aos filtros.",
     "Search scenes": "Procurar cenas",
     "All rooms": "Todas as divisões",
     "Order": "Ordem",

@@ -599,7 +599,7 @@
           el("button", { actionIcon: "search", text: t("Find"), onclick: (event) => act(event.currentTarget, async () => {
             const hosts = await discover();
             found.replaceChildren(...(hosts.length
-              ? hosts.map((host) => el("button", { actionIcon: "hub", text: host, onclick: () => { input.value = host; typed = true; } }))
+              ? hosts.map((host) => el("button", { actionIcon: "bridge", text: host, onclick: () => { input.value = host; typed = true; } }))
               : [el("span", { class: "muted", text: texts.none })]));
           }) }),
           el("button", { class: "primary", actionIcon: "check", text: t("Use"), onclick: (event) => act(event.currentTarget, async () => {
@@ -629,7 +629,7 @@
       const pairs = facts(bridge);
       return el("div", { class: "bridge" },
         el("div", { class: "server-head" },
-          tile("hub", bridge.paired && !bridge.error ? tone : "grey"),
+          tile("bridge", bridge.paired && !bridge.error ? tone : "grey"),
           el("div", { class: "who" }, el("strong", { text: bridge.name || texts.name }),
             el("div", { class: "muted", text: bridge.detail || bridge.host || t("Looking on the network…") })),
           el("span", { class: `pill status ${kind}`, text: state }),
