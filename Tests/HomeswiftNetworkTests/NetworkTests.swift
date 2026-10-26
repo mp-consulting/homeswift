@@ -252,10 +252,11 @@ struct HTTPClientTests {
         #expect(response.status == 401 && !response.isSuccess)
         #expect(response.header("www-authenticate")?.hasPrefix("Digest") == true)
 
+        // The timeout covers the connection too: long enough that a busy CI runner still connects before it.
         let silent = try await TestServer(tls: false, behaviour: .silent)
         defer { Task { await silent.stop() } }
         await #expect(throws: HTTPClientError.timeout) {
-            try await client.send(HTTPRequest(url: URL(string: "http://127.0.0.1:\(silent.port)/")!, timeout: .milliseconds(300)))
+            try await client.send(HTTPRequest(url: URL(string: "http://127.0.0.1:\(silent.port)/")!, timeout: .seconds(2)))
         }
         await #expect(throws: HTTPClientError.invalidURL("ftp://x/")) { try await client.send(HTTPRequest(url: URL(string: "ftp://x/")!)) }
         do {

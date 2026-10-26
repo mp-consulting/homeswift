@@ -1,5 +1,27 @@
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "No accessories match the current search.": "Ningún accesorio coincide con la búsqueda actual.",
+  "No log lines match the current search.": "Ninguna línea del registro coincide con la búsqueda actual.",
+  "No audit entries match the current filters.": "Ninguna entrada de auditoría coincide con los filtros actuales.",
+  "No modified options match the current search.": "Ninguna opción modificada coincide con la búsqueda actual.",
+
+  "Keep current rooms": "Mantener las habitaciones actuales",
+  "Moves the selected accessories in Homeswift only. HomeKit rooms stay unchanged.": "Mueve los accesorios seleccionados solo en Homeswift. Las habitaciones de HomeKit no cambian.",
+  "Release to group": "Suelta para agrupar",
+  "Reset room order": "Restablecer el orden de las habitaciones",
+  "Reorder rooms": "Reordenar habitaciones",
+  "Show hidden": "Mostrar ocultos",
+  "Clear filters": "Borrar filtros",
+  "{count} of {total} match": "{count} de {total} coinciden",
+  "Search cached accessories": "Buscar accesorios en caché",
+  "Up to date": "Actualizado",
+  "Update available": "Actualización disponible",
+  "Check for updates": "Buscar actualizaciones",
+  "Homeswift is up to date.": "Homeswift está actualizado.",
+  "Could not check for updates. Try again.": "No se pudieron buscar actualizaciones. Inténtalo de nuevo.",
+  "Move to room…": "Mover a una habitación…",
+  "Moves every member of this group in Homeswift only. HomeKit rooms stay unchanged.": "Mueve todos los miembros de este grupo solo en Homeswift. Las habitaciones de HomeKit no cambian.",
+
   "Sign-in": "Inicio de sesión",
   "Increase port": "Aumentar el puerto",
   "Decrease port": "Reducir el puerto",
