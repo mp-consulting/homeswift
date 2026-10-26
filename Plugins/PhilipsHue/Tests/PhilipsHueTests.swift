@@ -178,23 +178,20 @@ struct PhilipsHueTests {
     }
 
     /// At a new address the key goes only to the same bridge: another one there loses it, and pairing starts over.
-    @Test func aMovedBridgeKeepsItsKeyOnlyIfItIsTheSame() async throws {
+    /// A bridge ID is public, so an address that changes never gets the key: it is dropped, and no resource is read
+    /// with it until the page pairs again.
+    @Test func aMovedBridgeLosesItsKeyUntilPairedAgain() async throws {
         let host = try await environment.start()
         _ = try await accessory(host, stripID)
         let plugin = try #require(environment.plugin)
         #expect(await eventually { await plugin.storedBridge.bridgeID != nil })
         await plugin.use(host: "192.0.2.11")
-        #expect(await eventually { environment.bridge.sent.contains { $0.path == "/api/config" } })
-        let checked = environment.bridge.sent.count
-        #expect(await eventually { environment.bridge.sent.dropFirst(checked).contains { $0.path == "/clip/v2/resource" } })
-        #expect(await plugin.storedBridge.applicationKey == "app-key-1")
-
-        environment.bridge.answer(asBridge: "001788FFFE000001")
-        await plugin.use(host: "192.0.2.12")
         #expect(await eventually { await plugin.storedBridge.applicationKey == nil })
-        let refused = environment.bridge.sent.count
+        // Let a read that was already on its way land, then check that none starts with the dropped key.
         try await Task.sleep(for: .milliseconds(300))
-        #expect(!environment.bridge.sent.dropFirst(refused).contains { $0.path == "/clip/v2/resource" })
+        let before = environment.bridge.sent.count
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(!environment.bridge.sent.dropFirst(before).contains { $0.path == "/clip/v2/resource" })
         await host.stop()
     }
 

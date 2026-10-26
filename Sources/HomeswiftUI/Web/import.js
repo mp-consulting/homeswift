@@ -248,7 +248,6 @@
     pick.status = "checking";
     pick.result = null;
     pick.failure = null;
-    if (pick.text !== undefined && new Blob([pick.text]).size > MAX_BYTES) { fail(pick, t("The config is over 1 MB, the largest config homeswift reads.")); return; }
     renderIfShown(pick);
     app().api("/api/import/check", { method: "POST", body: requestBody(pick) }).then((report) => {
       if (picks[pick.source] !== pick) return;
@@ -348,10 +347,11 @@
     return error.status ? t("homeswift answered with an error ({status}).", { status: error.status }) : t("homeswift could not be reached.");
   }
 
-  const sizeText = (bytes) => (bytes == null ? "" : t("{kilobytes} KB", { kilobytes: Math.max(1, Math.round(bytes / 1024)) }));
+  const sizeText = (bytes) => (bytes == null ? "" : HomeswiftCommon.byteSize(bytes));
+  const importDate = new Intl.DateTimeFormat(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" });
   const dateText = (iso) => {
     const date = iso ? new Date(iso) : null;
-    return date && !isNaN(date) ? new Intl.DateTimeFormat(HomeswiftI18n.locale, { dateStyle: "medium", timeStyle: "short" }).format(date) : "";
+    return date && !isNaN(date) ? importDate.format(date) : "";
   };
 
   // ---- Step 2: review ----------------------------------------------------------

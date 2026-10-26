@@ -176,6 +176,11 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         while !Task.isCancelled {
             await refresh(hub)
             guard let token = await hub.client.token else { return }
+            // The events connection does not record the hub's certificate, so it waits for a request that did (the pin).
+            guard hub.trust.fingerprint != nil else {
+                try? await Task.sleep(for: .seconds(5))
+                continue
+            }
             do {
                 let events = try await dependencies.events(hub.host, token, hub.trust.tls)
                 hub.connected = true
@@ -233,7 +238,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
             device.apply(event["data"]?["attributes"], reachable: event["data"]?["isReachable"]?.boolValue)
             hub.devices[id] = device
             if let services = accessories[id] {
-                if let writer = services.writer, await writer.isSettling { return }
+                if let writer = services.writer, await writer.isSettling(within: DirigeraLightCommands.settleTime) { return }
                 Self.showValues(device, on: services)
             }
         case "deviceAdded", "deviceRemoved", "sceneCreated", "sceneUpdated", "sceneDeleted", "deviceConfigurationChanged":
@@ -263,7 +268,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
             let shape = Self.shape(of: device)
             if let services = accessories[device.id], services.shape == shape {
                 services.accessory.isUnavailable = !device.reachable
-                if let writer = services.writer, await writer.isSettling { continue }
+                if let writer = services.writer, await writer.isSettling(within: DirigeraLightCommands.settleTime) { continue }
                 Self.showValues(device, on: services)
                 continue
             }
@@ -425,6 +430,8 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         guard !hub.pairing else { return }
         hub.pairing = true
         defer { hub.pairing = false; hub.pairingDeadline = nil }
+        // A fresh pairing starts from no pin: a certificate pinned earlier (a bad first connection) is not kept.
+        hub.trust.reset()
         let verifier = DirigeraClient.makeVerifier()
         let code = try await hub.client.authorize(verifier: verifier)
         let deadline = ContinuousClock.now + Self.pairingWindow

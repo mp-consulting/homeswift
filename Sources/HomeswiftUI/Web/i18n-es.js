@@ -2093,5 +2093,6 @@ HomeswiftI18n.add("es", {
   "Processors": "Procesadores",
   "Categories": "Categorías",
   "Yes": "Sí",
-  "No": "No"
+  "No": "No",
+  "Not in the Home app:": "No están en la app Casa:"
 });

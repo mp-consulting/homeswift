@@ -835,11 +835,7 @@
   }
 
   /// Bytes as MB, or GB from 1 GB; `top`, the axis's highest, keeps a chart's ticks in one unit.
-  function formatBytes(bytes, top = bytes) {
-    const gigabytes = top >= 1024 ** 3;
-    const value = bytes / 1024 ** (gigabytes ? 3 : 2);
-    return `${value.toFixed(gigabytes || (value > 0 && value < 10) ? 1 : 0)} ${gigabytes ? "GB" : "MB"}`;
-  }
+  const formatBytes = (bytes, top = bytes) => HomeswiftCommon.byteSize(bytes, top);
   function formatPercent(value) { return `${value > 0 && value < 10 ? value.toFixed(1) : Math.round(value)}%`; }
   function formatMilliseconds(ms) {
     if (ms >= 1000) return `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)} s`;
@@ -2890,9 +2886,8 @@
   async function scaledImage(file) {
     if (!/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error(t("Choose a JPEG, PNG or WebP image."));
     const bitmap = await createImageBitmap(file);
-    const scale = Math.min(1, 2560 / Math.max(bitmap.width, bitmap.height));
-    const canvas = el("canvas", { width: Math.round(bitmap.width * scale), height: Math.round(bitmap.height * scale) });
-    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const canvas = HomeswiftCommon.scaledCanvas(bitmap, 2560);
+    bitmap.close?.();
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
     if (!blob) throw new Error(t("The image could not be read."));
     const bytes = new Uint8Array(await blob.arrayBuffer());

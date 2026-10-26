@@ -122,19 +122,22 @@
     node.classList.add("action-with-icon");
     let url = actionIconURLs.get(name);
     if (!url) {
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icons[name] ?? icons.generic}</svg>`;
+      const attributes = Object.entries(iconAttributes(1.8, "black")).map(([key, value]) => `${key}="${value}"`).join(" ");
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" ${attributes}>${icons[name] ?? icons.generic}</svg>`;
       url = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
       actionIconURLs.set(name, url);
     }
     node.style.setProperty("--action-icon", url);
   }
 
+  /// The attributes of an icon: a line drawing (no fill) of `stroke` (the current colour by default) at `strokeWidth`.
+  const iconAttributes = (strokeWidth, stroke = "currentColor") => ({ viewBox: "0 0 24 24", fill: "none", stroke, "stroke-width": String(strokeWidth), "stroke-linecap": "round", "stroke-linejoin": "round" });
+
   /// An icon as an SVG element, drawn as the UI's icons are (lines of the current colour) by its own attributes, so
   /// one placed where no style sizes and strokes it is still a line drawing, not a filled shape; a style overrides them.
   function icon(name) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    for (const [key, value] of [["fill", "none"], ["stroke", "currentColor"], ["stroke-width", "2"], ["stroke-linecap", "round"], ["stroke-linejoin", "round"]]) svg.setAttribute(key, value);
+    for (const [key, value] of Object.entries(iconAttributes(2))) svg.setAttribute(key, value);
     svg.classList.add(`icon-${name}`);
     svg.innerHTML = icons[name] ?? icons.generic;
     return svg;
@@ -1069,7 +1072,45 @@
   document.addEventListener("keydown", (event) => { if (event.key === "Escape") hideFilterTip(); });
   window.addEventListener("resize", hideFilterTip);
 
+  /// Runs `work` with `button` busy: disabled, and its spinner shown after `delay` ms, so a quick action shows none. An
+  /// error goes to `report` (the default alerts it); `report` null rethrows it.
+  async function busyButton(button, work, { report = (e) => alert(e.message), delay = 0 } = {}) {
+    if (button) button.disabled = true;
+    const spin = button ? setTimeout(() => button.classList.add("busy"), delay) : null;
+    try {
+      return await work();
+    } catch (e) {
+      if (report === null) throw e;
+      report(e);
+    } finally {
+      clearTimeout(spin);
+      if (button) { button.classList.remove("busy"); button.disabled = false; }
+    }
+  }
+
+  /// A picture drawn on a canvas, its longer side at most `max` pixels: the canvas to encode.
+  function scaledCanvas(bitmap, max) {
+    const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  }
+
+  /// A byte count as every page shows sizes: whole KB under a megabyte, one decimal MB or GB. `scale` picks the unit
+  /// (the largest value a list shows, so its rows agree); it defaults to the count itself.
+  function byteSize(bytes, scale = bytes) {
+    const decimal = new Intl.NumberFormat(HomeswiftI18n.locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    const whole = new Intl.NumberFormat(HomeswiftI18n.locale, { maximumFractionDigits: 0 });
+    if (scale >= 1024 ** 3) return `${decimal.format(bytes / 1024 ** 3)} GB`;
+    if (scale >= 1024 ** 2) return `${decimal.format(bytes / 1024 ** 2)} MB`;
+    if (scale >= 1024) return `${whole.format(Math.round(bytes / 1024))} KB`;
+    return `${whole.format(bytes)} B`;
+  }
+
   window.HomeswiftCommon = {
+    busyButton, scaledCanvas, byteSize,
     $, el, icon, tile, clearFilters, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
