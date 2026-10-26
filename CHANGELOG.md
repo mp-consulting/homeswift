@@ -6,28 +6,40 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-- Improve accessory and group editing with room ordering, resize handles, move arrows, and clearer drag-to-group targets.
-- Add search-aware filter counts, disabled-state explanations, and consistent Clear filters controls across the UI.
-- Keep group-editor actions visible on small screens and filter available members by room and device type.
-- Add a compact Status footer with manual update checks and status icons; align action icons across plugin pages.
+## [0.12.0] - 2026-10-26
 
-- Forward Identify through Wingman for supported devices and hide the action on accessories without an identification handler.
+### Added
 
-- Add an administrator-only Move to room action for groups, updating all members in Homeswift without changing HomeKit rooms.
+- Move to room for accessory groups (administrators): every member moves in Homeswift, HomeKit rooms stay unchanged.
+  The group editor filters the available accessories by room and device type.
+- Identify through Wingman for the devices Apple Home can identify; the action is hidden on accessories without one.
+- A compact Status footer with a manual update check and status icons.
+- Filter counts that follow the search, explanations on disabled filters, and the same Clear filters control across
+  the UI.
 
-- Use the light widgets’ pill sliders for accessory groups, with a warm-to-cool Kelvin track for colour temperature.
+### Changed
 
-- Keep accessory groups in their members’ room or plugin section instead of moving them to the first section.
-
-- Use Wingman’s winged-house icon on its plugin page, plugin cards and website listing.
+- Accessory and group editing: room ordering, resize handles, move arrows and clearer drag-to-group targets.
+- Accessory groups use the light widgets' pill sliders, with a warm-to-cool kelvin track for colour temperature, and
+  stay in their members' room or plugin section instead of moving to the first section.
+- Group-editor actions stay visible on small screens. Plugin pages share the same action icons, and Wingman shows its
+  winged-house icon on its plugin page, plugin cards and the website.
 
 ### Fixed
 
-- Observe Daikin curl subprocess termination before launch and drain both output pipes concurrently, preventing the macOS CI process-wait hang and full-pipe deadlocks.
-
-- Prevent a cancelled UniFi Protect timeout from overriding a completed operation, which could drop RTSP recording initialization and intermittently fail Linux CI.
-
-- Show why a Wingman write or Identify failed (such as Apple Home's "Missing entitlement for API" or a lost pairing) instead of "did not answer: the device may be off or out of reach"; MCP clients receive those words as untrusted data.
+- A failed Wingman write or Identify says why (Apple Home's "Missing entitlement for API", a lost pairing) instead of
+  "did not answer: the device may be off or out of reach". MCP clients receive those words as untrusted data.
+- Natural Lighting no longer pauses itself when a lamp rounds the temperature it was sent to its own kelvin steps. A
+  manual change that fails leaves the schedule running, and turning it on applies the light even while the minute
+  update is writing other lamps.
+- Webhook error messages keep short header values and usernames readable: only secrets of four characters or more
+  are masked.
+- The port check accepts the web UI's own port when only its address changes.
+- An accessory group keeps controlling its remaining members when one of them is missing.
+- Daikin's curl transport watches for the process to end before launching it and drains both output pipes at once,
+  preventing the macOS CI hang and full-pipe deadlocks.
+- A cancelled UniFi Protect timeout no longer overrides a completed operation, which could drop RTSP recording
+  initialisation and intermittently fail Linux CI.
 
 ## [0.11.0] - 2026-10-25
 
@@ -906,7 +918,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/mp-consulting/homeswift/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/mp-consulting/homeswift/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/mp-consulting/homeswift/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/mp-consulting/homeswift/compare/v0.8.0...v0.9.0
