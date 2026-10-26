@@ -2773,23 +2773,28 @@
       options.map(([option, text]) => el("button", { type: "button", role: "radio", text, class: option === value ? "on" : "", "aria-checked": String(option === value),
         onclick: () => { if (option !== value) choose({ [key]: option }); } })));
 
-    const picker = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp", class: "hidden" });
-    /// A wallpaper of the viewer's own, from the picker or dropped on the zone.
-    const useImage = async (file) => {
-      if (!file) return;
+    const picker = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp", multiple: true, class: "hidden" });
+    /// Wallpapers of the viewer's own, from the picker or dropped on the zone, one after the other: the bridge
+    /// shows each it adds, so the last is the wallpaper.
+    const useImages = async (files) => {
+      if (!files.length) return;
       message.className = "status-line muted";
-      message.textContent = t("Preparing the image…");
+      let added = 0;
       try {
-        const data = await scaledImage(file);
-        preferences = HomeswiftCommon.applyPreferences(await api("/api/preferences/wallpaper", { method: "PUT", body: { data } }));
-        message.textContent = t("Your image is the wallpaper now.");
-        draw();
+        for (const file of files) {
+          message.textContent = files.length > 1 ? t("Preparing image {n} of {count}…", { n: added + 1, count: files.length }) : t("Preparing the image…");
+          const data = await scaledImage(file);
+          preferences = HomeswiftCommon.applyPreferences(await api("/api/preferences/wallpaper", { method: "PUT", body: { data } }));
+          added++;
+        }
+        message.textContent = added > 1 ? tn("{n} image added; the last is the wallpaper now.", "{n} images added; the last is the wallpaper now.", added) : t("Your image is the wallpaper now.");
       } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
+      draw();
     };
-    picker.addEventListener("change", () => { const file = picker.files[0]; picker.value = ""; useImage(file); });
+    picker.addEventListener("change", () => { const files = [...picker.files]; picker.value = ""; useImages(files); });
     const imageZone = () => {
-      const zone = el("div", { class: "drop-zone wallpaper-drop", role: "button", tabIndex: 0, "aria-label": t("Drop or choose an image for the wallpaper") },
-        HomeswiftCommon.icon("image"), el("span", {}, t("Drop an image here, or "), el("strong", { text: t("choose one [image]") })));
+      const zone = el("div", { class: "drop-zone wallpaper-drop", role: "button", tabIndex: 0, "aria-label": t("Drop or choose images for the wallpaper") },
+        HomeswiftCommon.icon("image"), el("span", {}, t("Drop images here, or "), el("strong", { text: t("choose them [images]") })));
       zone.addEventListener("click", () => picker.click());
       zone.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); picker.click(); } });
       zone.addEventListener("dragover", (event) => {
@@ -2798,12 +2803,25 @@
         zone.classList.add("over");
       });
       zone.addEventListener("dragleave", () => zone.classList.remove("over"));
-      zone.addEventListener("drop", (event) => { event.preventDefault(); zone.classList.remove("over"); useImage(event.dataTransfer?.files?.[0]); });
+      zone.addEventListener("drop", (event) => { event.preventDefault(); zone.classList.remove("over"); useImages([...(event.dataTransfer?.files ?? [])]); });
       return zone;
     };
     const body = el("div", { class: "appearance" });
     function draw() {
-      const own = preferences.wallpaper === "custom" || preferences.wallpaperVersion;
+      const own = preferences.wallpaperImages || [];
+      const shown = preferences.wallpaper === "custom" ? preferences.wallpaperImage : null;
+      // Each image of the viewer's own: its tile chooses it, its ✕ removes it (beside the tile: a button holds no button).
+      const ownTile = (id, index) => {
+        const name = own.length > 1 ? t("Your image {n}", { n: index + 1 }) : t("Your image");
+        const choice = el("button", { type: "button", role: "radio", class: `wallpaper-choice${shown === id ? " on" : ""}`, "aria-checked": String(shown === id),
+          onclick: () => { if (shown !== id) choose({ wallpaper: "custom", wallpaperImage: id }); } },
+          el("span", { class: "wallpaper-swatch", style: `background: url("/api/preferences/wallpaper/${encodeURIComponent(id)}") center / cover no-repeat` }), el("span", { text: name }));
+        const remove = own.length > 1 ? t("Remove your image {n}", { n: index + 1 }) : t("Remove your image");
+        return el("div", { class: "wallpaper-own" }, choice,
+          el("button", { type: "button", class: "wallpaper-remove", "aria-label": remove, title: remove, onclick: async () => {
+            try { preferences = HomeswiftCommon.applyPreferences(await api(`/api/preferences/wallpaper/${encodeURIComponent(id)}`, { method: "DELETE" })); draw(); } catch (e) { alert(e.message); }
+          } }, HomeswiftCommon.icon("close")));
+      };
       body.replaceChildren(
         el("div", { class: "card" }, el("h2", { text: t("Theme") }),
           el("p", { class: "muted", text: t("Automatic follows the system's light or dark appearance.") }),
@@ -2811,15 +2829,12 @@
         el("div", { class: "card" }, el("h2", { text: t("Wallpaper") }),
           el("p", { class: "muted", text: t("Behind the glass of every page.") }),
           el("div", { class: "wallpapers", role: "radiogroup", "aria-label": t("Wallpaper") },
-            [...wallpaperChoices, ...(own ? [["custom", t("Your image")]] : [])].map(([value, text]) =>
+            wallpaperChoices.map(([value, text]) =>
               el("button", { type: "button", role: "radio", class: `wallpaper-choice${preferences.wallpaper === value ? " on" : ""}`, "aria-checked": String(preferences.wallpaper === value),
                 onclick: () => { if (preferences.wallpaper !== value) choose({ wallpaper: value }); } },
-                el("span", { class: "wallpaper-swatch", "data-swatch": value }), el("span", { text })))),
+                el("span", { class: "wallpaper-swatch", "data-swatch": value }), el("span", { text }))),
+            own.map(ownTile)),
           imageZone(),
-          own ? el("div", { class: "actions" },
-            el("button", { actionIcon: "trash", class: "link danger", text: t("Remove your image"), onclick: async () => {
-              try { preferences = HomeswiftCommon.applyPreferences(await api("/api/preferences/wallpaper", { method: "DELETE" })); draw(); } catch (e) { alert(e.message); }
-            } })) : null,
           picker),
         el("div", { class: "card" }, el("h2", { text: t("Temperatures") }),
           el("p", { class: "muted", text: t("How accessories and plugin pages show them. HomeKit and the Home app keep their own setting.") }),

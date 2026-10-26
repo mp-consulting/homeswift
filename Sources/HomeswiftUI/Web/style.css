@@ -1548,7 +1548,6 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
 /* Appearance's own wallpaper: drop an image on the card's zone, or tap it to choose one. */
 .wallpaper-drop { margin-top: 14px; padding: 18px 14px; gap: 10px; font-size: 0.875rem; }
 .wallpaper-drop svg { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.wallpaper-drop + .actions { margin-top: 10px; }
 .view-switch { margin-bottom: 12px; }
 .form-card > p.error:empty { display: none; }
 .chat-voice { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 6px 16px 0; font-size: 0.75rem; color: var(--muted); }
@@ -1932,6 +1931,16 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .wallpaper-choice { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 6px 6px 8px; border-radius: 16px; font-weight: 500; }
 .wallpaper-choice.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
 .wallpaper-swatch { display: block; height: 64px; border-radius: 11px; border: 1px solid var(--line); }
+/* Your own image's tile, with a ✕ on its corner that removes the image. */
+.wallpaper-own { position: relative; display: grid; }
+.wallpaper-remove {
+  position: absolute; top: -7px; right: -7px; width: 26px; height: 26px; min-height: 0; padding: 0; border-radius: 50%;
+  display: grid; place-items: center; background: var(--control); color: var(--text);
+}
+.wallpaper-remove svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
+.wallpaper-remove:hover:not(:disabled) { color: var(--error); transform: none; }
+/* A finger's worth of target around the small badge. */
+.wallpaper-remove::after { content: ""; position: absolute; inset: -8px; border-radius: 50%; }
 .appearance { display: grid; gap: 16px; }
 .appearance .group { margin-top: 10px; flex-wrap: wrap; }
 @media (max-width: 640px) {

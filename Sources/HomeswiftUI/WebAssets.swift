@@ -3479,23 +3479,28 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       options.map(([option, text]) => el("button", { type: "button", role: "radio", text, class: option === value ? "on" : "", "aria-checked": String(option === value),
         onclick: () => { if (option !== value) choose({ [key]: option }); } })));
 
-    const picker = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp", class: "hidden" });
-    /// A wallpaper of the viewer's own, from the picker or dropped on the zone.
-    const useImage = async (file) => {
-      if (!file) return;
+    const picker = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp", multiple: true, class: "hidden" });
+    /// Wallpapers of the viewer's own, from the picker or dropped on the zone, one after the other: the bridge
+    /// shows each it adds, so the last is the wallpaper.
+    const useImages = async (files) => {
+      if (!files.length) return;
       message.className = "status-line muted";
-      message.textContent = t("Preparing the image…");
+      let added = 0;
       try {
-        const data = await scaledImage(file);
-        preferences = HomeswiftCommon.applyPreferences(await api("/api/preferences/wallpaper", { method: "PUT", body: { data } }));
-        message.textContent = t("Your image is the wallpaper now.");
-        draw();
+        for (const file of files) {
+          message.textContent = files.length > 1 ? t("Preparing image {n} of {count}…", { n: added + 1, count: files.length }) : t("Preparing the image…");
+          const data = await scaledImage(file);
+          preferences = HomeswiftCommon.applyPreferences(await api("/api/preferences/wallpaper", { method: "PUT", body: { data } }));
+          added++;
+        }
+        message.textContent = added > 1 ? tn("{n} image added; the last is the wallpaper now.", "{n} images added; the last is the wallpaper now.", added) : t("Your image is the wallpaper now.");
       } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
+      draw();
     };
-    picker.addEventListener("change", () => { const file = picker.files[0]; picker.value = ""; useImage(file); });
+    picker.addEventListener("change", () => { const files = [...picker.files]; picker.value = ""; useImages(files); });
     const imageZone = () => {
-      const zone = el("div", { class: "drop-zone wallpaper-drop", role: "button", tabIndex: 0, "aria-label": t("Drop or choose an image for the wallpaper") },
-        HomeswiftCommon.icon("image"), el("span", {}, t("Drop an image here, or "), el("strong", { text: t("choose one [image]") })));
+      const zone = el("div", { class: "drop-zone wallpaper-drop", role: "button", tabIndex: 0, "aria-label": t("Drop or choose images for the wallpaper") },
+        HomeswiftCommon.icon("image"), el("span", {}, t("Drop images here, or "), el("strong", { text: t("choose them [images]") })));
       zone.addEventListener("click", () => picker.click());
       zone.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); picker.click(); } });
       zone.addEventListener("dragover", (event) => {
@@ -3504,12 +3509,25 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         zone.classList.add("over");
       });
       zone.addEventListener("dragleave", () => zone.classList.remove("over"));
-      zone.addEventListener("drop", (event) => { event.preventDefault(); zone.classList.remove("over"); useImage(event.dataTransfer?.files?.[0]); });
+      zone.addEventListener("drop", (event) => { event.preventDefault(); zone.classList.remove("over"); useImages([...(event.dataTransfer?.files ?? [])]); });
       return zone;
     };
     const body = el("div", { class: "appearance" });
     function draw() {
-      const own = preferences.wallpaper === "custom" || preferences.wallpaperVersion;
+      const own = preferences.wallpaperImages || [];
+      const shown = preferences.wallpaper === "custom" ? preferences.wallpaperImage : null;
+      // Each image of the viewer's own: its tile chooses it, its ✕ removes it (beside the tile: a button holds no button).
+      const ownTile = (id, index) => {
+        const name = own.length > 1 ? t("Your image {n}", { n: index + 1 }) : t("Your image");
+        const choice = el("button", { type: "button", role: "radio", class: `wallpaper-choice${shown === id ? " on" : ""}`, "aria-checked": String(shown === id),
+          onclick: () => { if (shown !== id) choose({ wallpaper: "custom", wallpaperImage: id }); } },
+          el("span", { class: "wallpaper-swatch", style: `background: url("/api/preferences/wallpaper/${encodeURIComponent(id)}") center / cover no-repeat` }), el("span", { text: name }));
+        const remove = own.length > 1 ? t("Remove your image {n}", { n: index + 1 }) : t("Remove your image");
+        return el("div", { class: "wallpaper-own" }, choice,
+          el("button", { type: "button", class: "wallpaper-remove", "aria-label": remove, title: remove, onclick: async () => {
+            try { preferences = HomeswiftCommon.applyPreferences(await api(`/api/preferences/wallpaper/${encodeURIComponent(id)}`, { method: "DELETE" })); draw(); } catch (e) { alert(e.message); }
+          } }, HomeswiftCommon.icon("close")));
+      };
       body.replaceChildren(
         el("div", { class: "card" }, el("h2", { text: t("Theme") }),
           el("p", { class: "muted", text: t("Automatic follows the system's light or dark appearance.") }),
@@ -3517,15 +3535,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("div", { class: "card" }, el("h2", { text: t("Wallpaper") }),
           el("p", { class: "muted", text: t("Behind the glass of every page.") }),
           el("div", { class: "wallpapers", role: "radiogroup", "aria-label": t("Wallpaper") },
-            [...wallpaperChoices, ...(own ? [["custom", t("Your image")]] : [])].map(([value, text]) =>
+            wallpaperChoices.map(([value, text]) =>
               el("button", { type: "button", role: "radio", class: `wallpaper-choice${preferences.wallpaper === value ? " on" : ""}`, "aria-checked": String(preferences.wallpaper === value),
                 onclick: () => { if (preferences.wallpaper !== value) choose({ wallpaper: value }); } },
-                el("span", { class: "wallpaper-swatch", "data-swatch": value }), el("span", { text })))),
+                el("span", { class: "wallpaper-swatch", "data-swatch": value }), el("span", { text }))),
+            own.map(ownTile)),
           imageZone(),
-          own ? el("div", { class: "actions" },
-            el("button", { actionIcon: "trash", class: "link danger", text: t("Remove your image"), onclick: async () => {
-              try { preferences = HomeswiftCommon.applyPreferences(await api("/api/preferences/wallpaper", { method: "DELETE" })); draw(); } catch (e) { alert(e.message); }
-            } })) : null,
           picker),
         el("div", { class: "card" }, el("h2", { text: t("Temperatures") }),
           el("p", { class: "muted", text: t("How accessories and plugin pages show them. HomeKit and the Home app keep their own setting.") }),
@@ -8300,7 +8315,6 @@ HomeswiftI18n.add("es", {
   "Child lock": "Bloqueo infantil",
   "Choose a JPEG, PNG or WebP image.": "Elige una imagen JPEG, PNG o WebP.",
   "choose it": "elígela",
-  "choose one [image]": "elige una",
   "choose it [file]": "elígelo",
   "choose read, control or admin, up to what your account may do": "elige read, control o admin, hasta lo que tu cuenta pueda hacer",
   "Christmas": "Navidad",
@@ -8468,8 +8482,14 @@ HomeswiftI18n.add("es", {
   "Drop a backup (.tar) here, or {choose}": "Suelta aquí una copia de seguridad (.tar) o {choose}",
   "Drop or choose a backup to restore": "Suelta o elige una copia de seguridad para restaurar",
   "Drop or choose the file for {key}": "Suelta o elige el archivo para {key}",
-  "Drop an image here, or ": "Suelta una imagen aquí, o ",
-  "Drop or choose an image for the wallpaper": "Suelta o elige una imagen para el fondo de pantalla",
+  "Preparing image {n} of {count}…": "Preparando la imagen {n} de {count}…",
+  "{n} image added; the last is the wallpaper now.": "{n} imagen añadida; la última es ahora el fondo de pantalla.",
+  "{n} images added; the last is the wallpaper now.": "{n} imágenes añadidas; la última es ahora el fondo de pantalla.",
+  "Drop or choose images for the wallpaper": "Suelta o elige imágenes para el fondo de pantalla",
+  "Drop images here, or ": "Suelta imágenes aquí, o ",
+  "choose them [images]": "elígelas",
+  "Your image {n}": "Tu imagen {n}",
+  "Remove your image {n}": "Eliminar tu imagen {n}",
   "Drop the file here, or ": "Suelta el archivo aquí, o ",
   "Dry": "Seco",
   "Duration": "Duración",
@@ -10248,7 +10268,6 @@ HomeswiftI18n.add("fr", {
   "Child lock": "Sécurité enfants",
   "Choose a JPEG, PNG or WebP image.": "Choisissez une image JPEG, PNG ou WebP.",
   "choose it": "choisissez-la",
-  "choose one [image]": "choisissez-en une",
   "choose it [file]": "choisissez-le",
   "choose read, control or admin, up to what your account may do": "choisissez read, control ou admin, dans la limite de ce que votre compte peut faire",
   "Christmas": "Noël",
@@ -10416,8 +10435,14 @@ HomeswiftI18n.add("fr", {
   "Drop a backup (.tar) here, or {choose}": "Déposez une sauvegarde (.tar) ici, ou {choose}",
   "Drop or choose a backup to restore": "Déposez ou choisissez une sauvegarde à restaurer",
   "Drop or choose the file for {key}": "Déposez ou choisissez le fichier pour {key}",
-  "Drop an image here, or ": "Déposez une image ici, ou ",
-  "Drop or choose an image for the wallpaper": "Déposez ou choisissez une image pour le fond d'écran",
+  "Preparing image {n} of {count}…": "Préparation de l'image {n} sur {count}…",
+  "{n} image added; the last is the wallpaper now.": "{n} image ajoutée ; la dernière est maintenant le fond d'écran.",
+  "{n} images added; the last is the wallpaper now.": "{n} images ajoutées ; la dernière est maintenant le fond d'écran.",
+  "Drop or choose images for the wallpaper": "Déposez ou choisissez des images pour le fond d'écran",
+  "Drop images here, or ": "Déposez des images ici, ou ",
+  "choose them [images]": "choisissez-les",
+  "Your image {n}": "Votre image {n}",
+  "Remove your image {n}": "Supprimer votre image {n}",
   "Drop the file here, or ": "Déposez le fichier ici, ou ",
   "Dry": "Pas de fuite",
   "Duration": "Durée",
@@ -12196,7 +12221,6 @@ HomeswiftI18n.add("pt", {
   "Child lock": "Bloqueio para crianças",
   "Choose a JPEG, PNG or WebP image.": "Escolha uma imagem JPEG, PNG ou WebP.",
   "choose it": "escolha-a",
-  "choose one [image]": "escolha uma",
   "choose it [file]": "escolha-o",
   "choose read, control or admin, up to what your account may do": "escolha read, control ou admin, até ao que a conta pode fazer",
   "Christmas": "Natal",
@@ -12364,8 +12388,14 @@ HomeswiftI18n.add("pt", {
   "Drop a backup (.tar) here, or {choose}": "Largue aqui uma cópia de segurança (.tar) ou {choose}",
   "Drop or choose a backup to restore": "Largue ou escolha uma cópia de segurança para restaurar",
   "Drop or choose the file for {key}": "Largue ou escolha o ficheiro para {key}",
-  "Drop an image here, or ": "Largue uma imagem aqui, ou ",
-  "Drop or choose an image for the wallpaper": "Largue ou escolha uma imagem para o papel de parede",
+  "Preparing image {n} of {count}…": "A preparar a imagem {n} de {count}…",
+  "{n} image added; the last is the wallpaper now.": "{n} imagem adicionada; a última é agora o papel de parede.",
+  "{n} images added; the last is the wallpaper now.": "{n} imagens adicionadas; a última é agora o papel de parede.",
+  "Drop or choose images for the wallpaper": "Largue ou escolha imagens para o papel de parede",
+  "Drop images here, or ": "Largue imagens aqui, ou ",
+  "choose them [images]": "escolha-as",
+  "Your image {n}": "A sua imagem {n}",
+  "Remove your image {n}": "Remover a sua imagem {n}",
   "Drop the file here, or ": "Largue o ficheiro aqui, ou ",
   "Dry": "Seco",
   "Duration": "Duração",
@@ -16179,7 +16209,6 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
 /* Appearance's own wallpaper: drop an image on the card's zone, or tap it to choose one. */
 .wallpaper-drop { margin-top: 14px; padding: 18px 14px; gap: 10px; font-size: 0.875rem; }
 .wallpaper-drop svg { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.wallpaper-drop + .actions { margin-top: 10px; }
 .view-switch { margin-bottom: 12px; }
 .form-card > p.error:empty { display: none; }
 .chat-voice { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 6px 16px 0; font-size: 0.75rem; color: var(--muted); }
@@ -16563,6 +16592,16 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .wallpaper-choice { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 6px 6px 8px; border-radius: 16px; font-weight: 500; }
 .wallpaper-choice.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
 .wallpaper-swatch { display: block; height: 64px; border-radius: 11px; border: 1px solid var(--line); }
+/* Your own image's tile, with a ✕ on its corner that removes the image. */
+.wallpaper-own { position: relative; display: grid; }
+.wallpaper-remove {
+  position: absolute; top: -7px; right: -7px; width: 26px; height: 26px; min-height: 0; padding: 0; border-radius: 50%;
+  display: grid; place-items: center; background: var(--control); color: var(--text);
+}
+.wallpaper-remove svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
+.wallpaper-remove:hover:not(:disabled) { color: var(--error); transform: none; }
+/* A finger's worth of target around the small badge. */
+.wallpaper-remove::after { content: ""; position: absolute; inset: -8px; border-radius: 50%; }
 .appearance { display: grid; gap: 16px; }
 .appearance .group { margin-top: 10px; flex-wrap: wrap; }
 @media (max-width: 640px) {
