@@ -344,7 +344,8 @@ binary. Once the API is stable, a plugin can still move out: its directory is al
 and a Package.swift that depends on `homeswift` plus a `Plugins.swift` listing it builds a custom binary.
 
 Settings pages: a plugin ships `config.schema.json`, and the Homeswift UI renders it as Homebridge Config UI X
-does. A custom page (`homebridge-ui/public`) goes in `Plugins/<Name>/Web/`, served by the UI, with its server-side
+does, every option explained by its `description` and its words translated by the schema's `i18n`
+([translations.md](translations.md#forms)). A custom page (`homebridge-ui/public`) goes in `Plugins/<Name>/Web/`, served by the UI, with its server-side
 routes in the plugin's `handleWebRequest` (see [ui.md](ui.md)); the Assistant's "Explain" is the runtime's, for
 every plugin.
 

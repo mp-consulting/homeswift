@@ -1,5 +1,6 @@
 import Foundation
 import HomeswiftAI
+import HomeswiftUI
 import Testing
 
 /// The pages' strings and their catalogs (docs/translations.md): every `t("…")` and `tn("…", "…")` literal and every
@@ -41,6 +42,75 @@ import Testing
                 for (language, entries) in try Self.catalog(own) { catalogs[language, default: [:]].merge(entries) { _, plugin in plugin } }
             }
             try Self.expectTranslated(directory: directory, catalogs: catalogs)
+        }
+    }
+
+    /// Every form a schema draws (each plugin's config.schema.json, the Assistant's, the web UI's): each field says
+    /// what it does, a choice names its values, a list names one entry, and each of those words has a French, Spanish
+    /// and Portuguese translation in the schema's own `i18n` that keeps its placeholders.
+    @Test func formsAreExplainedAndTranslated() throws {
+        var schemas: [(name: String, text: String)] = [("HomeswiftAiKit", AIConfiguration.schemaJSON), ("HomeswiftUI", UIConfiguration.schemaJSON)]
+        let plugins = Self.root.appendingPathComponent("Plugins")
+        for name in try FileManager.default.contentsOfDirectory(atPath: plugins.path).sorted() {
+            let file = plugins.appendingPathComponent(name).appendingPathComponent("config.schema.json")
+            if FileManager.default.fileExists(atPath: file.path) { schemas.append((name, try String(contentsOf: file, encoding: .utf8))) }
+        }
+        for (name, text) in schemas {
+            let root = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any], "\(name): the schema is not a JSON object")
+            let schema = root["schema"] as? [String: Any] ?? [:]
+            // An older schema lists its fields directly under `schema`.
+            let properties = schema["properties"] as? [String: Any] ?? (schema["type"] == nil ? schema : [:])
+            var words = Set<String>()
+            Self.collect(properties, path: name, words: &words)
+            Self.collectLayout(root["layout"], words: &words)
+            let i18n = root["i18n"] as? [String: [String: String]] ?? [:]
+            for word in words.sorted() {
+                for language in Self.languages {
+                    let translation = i18n[language]?[word]
+                    #expect(translation?.isEmpty == false, "\(name): no \(language) translation of \"\(word)\"")
+                    if let translation, !translation.isEmpty {
+                        #expect(Self.placeholders(translation) == Self.placeholders(word), "\(name): the \(language) translation of \"\(word)\" changes its placeholders")
+                    }
+                }
+            }
+        }
+    }
+
+    /// The words of a schema's fields, checking as it goes that each is explained, names its choices and its entries.
+    static func collect(_ properties: [String: Any], path: String, words: inout Set<String>) {
+        for (key, value) in properties {
+            guard let property = value as? [String: Any] else { continue }
+            let at = "\(path).\(key)"
+            if let title = property["title"] as? String { words.insert(title) }
+            // A placeholder with words ("Enter your password") is translated; an example value (an address) is not.
+            for placeholder in [property["placeholder"], (property["x-schema-form"] as? [String: Any])?["placeholder"]] {
+                if let placeholder = placeholder as? String, placeholder.range(of: #"[A-Za-z]{3,}\s"#, options: .regularExpression) != nil { words.insert(placeholder) }
+            }
+            let description = property["description"] as? String
+            #expect(description?.isEmpty == false, "\(at) has no description")
+            if let description { words.insert(description) }
+            #expect(property["enum"] == nil || property["oneOf"] != nil, "\(at) lists its choices bare: name them with a oneOf of titled enums")
+            for choice in property["oneOf"] as? [[String: Any]] ?? [] { if let title = choice["title"] as? String { words.insert(title) } }
+            if let nested = property["properties"] as? [String: Any] { collect(nested, path: at, words: &words) }
+            if let items = property["items"] as? [String: Any] {
+                if let nested = items["properties"] as? [String: Any] {
+                    let title = items["title"] as? String
+                    #expect(title?.isEmpty == false, "\(at)'s items have no title: what one entry is called, for its Add button")
+                    if let title { words.insert(title) }
+                    collect(nested, path: at + "[]", words: &words)
+                } else {
+                    // A list of plain values shows its item's title and description beside each entry.
+                    for key in ["title", "description"] { if let text = items[key] as? String { words.insert(text) } }
+                }
+            }
+        }
+    }
+
+    static func collectLayout(_ layout: Any?, words: inout Set<String>) {
+        for item in layout as? [Any] ?? [] {
+            guard let item = item as? [String: Any] else { continue }
+            if let title = item["title"] as? String { words.insert(title) }
+            collectLayout(item["items"], words: &words)
         }
     }
 

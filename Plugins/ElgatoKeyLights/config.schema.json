@@ -11,7 +11,7 @@
         "type": "string",
         "required": true,
         "default": "Elgato Key Lights",
-        "description": "Plugin name as displayed in the homebridge log"
+        "description": "Plugin name as shown in the logs"
       },
       "pollingRate": {
         "title": "Polling Rate (in milliseconds)",
@@ -30,7 +30,7 @@
           { "title": "Restore last settings used", "enum": [1] },
           { "title": "Restore default settings", "enum": [2] }
         ],
-        "description": "The behaviour when powering the lights on"
+        "description": "What the lights do when switched on: their last settings, or the default brightness and colour temperature below. Empty keeps the light's own setting."
       },
       "powerOnBrightness": {
         "title": "Default Power On Brightness (in percent)",
@@ -39,7 +39,7 @@
         "placeholder": 20,
         "minimum": 0,
         "maximum": 100,
-        "description": "The default brightness setting of the lights"
+        "description": "The brightness the lights switch on at with Restore default settings"
       },
       "powerOnTemperature": {
         "title": "Default Power On Colour Temperature (in Kelvin)",
@@ -49,14 +49,14 @@
         "minimum": 2900,
         "maximum": 7000,
         "step": 50,
-        "description": "The default colour temperature setting of the lights"
+        "description": "The colour temperature the lights switch on at with Restore default settings"
       },
       "switchOnDurationMs": {
         "title": "Switch On Duration (in milliseconds)",
         "type": "integer",
         "required": false,
         "default": 100,
-        "description": "The duration of the switch on sequence"
+        "description": "How long the lights take to fade in when switched on"
 
       },
       "switchOffDurationMs": {
@@ -64,7 +64,7 @@
         "type": "integer",
         "required": false,
         "placeholder": 300,
-        "description": "The duration of the switch off sequence"
+        "description": "How long the lights take to fade out when switched off"
 
       },
       "colorChangeDurationMs": {
@@ -72,7 +72,7 @@
         "type": "integer",
         "required": false,
         "placeholder": 100,
-        "description": "The duration of the colour change sequence"
+        "description": "How long the lights take to move to a new colour temperature"
       },
       "useIP": {
         "title": "Use IP address instead of hostname",
@@ -83,40 +83,48 @@
       "devices": {
         "title": "Devices",
         "type": "array",
+        "description": "Settings for each light, by MAC address. Every light on the network is added without an entry here.",
         "items": {
+          "title": "Light",
           "type": "object",
           "properties": {
             "name": {
               "title": "Name",
               "type": "string",
-              "required": true
+              "required": true,
+              "description": "The light's name in the logs, and on the plugin's page while it is offline. Display Name sets the name in HomeKit."
             },
             "mac": {
               "title": "MAC Address",
               "type": "string",
-              "required": true
+              "required": true,
+              "description": "The light's MAC address, in any usual spelling. The log prints it when a light is found."
             },
             "host": {
               "title": "Hostname",
-              "type": "string"
+              "type": "string",
+              "description": "Reach the light at this host name without Bonjour, for example in a container without multicast."
             },
             "ip": {
               "title": "IP Address",
-              "type": "string"
+              "type": "string",
+              "description": "Reach the light at this address without Bonjour. Used before the host name."
             },
             "port": {
               "title": "Port",
               "type": "integer",
-              "default": 9123
+              "default": 9123,
+              "description": "The port of the light's HTTP API, 9123 by default."
             },
             "model": {
               "title": "Model",
-              "type": "string"
+              "type": "string",
+              "description": "The light's model, saved by the plugin's page and shown there while the light is offline."
             },
             "displayName": {
               "title": "Display Name",
               "type": "string",
-              "description": "Custom name for HomeKit"
+              "description": "The name in HomeKit, instead of the one the light reports"
             },
             "powerOnBehavior": {
               "title": "Power On Behaviour",
@@ -126,24 +134,28 @@
                 { "title": "Restore last settings used", "enum": [1] },
                 { "title": "Restore default settings", "enum": [2] }
               ],
-              "default": 0
+              "default": 0,
+              "description": "What this light does when switched on. Use global setting takes the one above."
             },
             "powerOnBrightness": {
               "title": "Default Brightness (%)",
               "type": "integer",
               "minimum": 0,
-              "maximum": 100
+              "maximum": 100,
+              "description": "This light's brightness with Restore default settings, instead of the one above."
             },
             "powerOnTemperature": {
               "title": "Default Temperature (K)",
               "type": "integer",
               "minimum": 2900,
-              "maximum": 7000
+              "maximum": 7000,
+              "description": "This light's colour temperature with Restore default settings, instead of the one above."
             },
             "enabled": {
               "title": "Enabled",
               "type": "boolean",
-              "default": true
+              "default": true,
+              "description": "Off keeps the light out of HomeKit, and removes it if it was there."
             }
           }
         }
@@ -184,5 +196,151 @@
 				"useIP"
 			]
 		}
-  ]
+  ],
+  "i18n": {
+    "fr": {
+      "Advanced": "Avancé",
+      "By default, the hostname of the light is used for the connection. If this causes issues in your environment, you can enable this option to use the IP address instead.": "Par défaut, la connexion utilise le nom d'hôte de la lampe. Si cela pose problème dans votre environnement, activez cette option pour utiliser plutôt l'adresse IP.",
+      "Colour Change Duration (in milliseconds)": "Durée du changement de couleur (en millisecondes)",
+      "Default Brightness (%)": "Luminosité par défaut (%)",
+      "Default Power On Brightness (in percent)": "Luminosité à l'allumage par défaut (en pourcentage)",
+      "Default Power On Colour Temperature (in Kelvin)": "Température de couleur à l'allumage par défaut (en kelvins)",
+      "Default Temperature (K)": "Température par défaut (K)",
+      "Devices": "Appareils",
+      "Display Name": "Nom affiché",
+      "Durations": "Durées",
+      "Enabled": "Activée",
+      "Hostname": "Nom d'hôte",
+      "How long the lights take to fade in when switched on": "Le temps que mettent les lampes à s'allumer progressivement",
+      "How long the lights take to fade out when switched off": "Le temps que mettent les lampes à s'éteindre progressivement",
+      "How long the lights take to move to a new colour temperature": "Le temps que mettent les lampes pour passer à une nouvelle température de couleur",
+      "IP Address": "Adresse IP",
+      "Light": "Lampe",
+      "MAC Address": "Adresse MAC",
+      "Model": "Modèle",
+      "Name": "Nom",
+      "Off keeps the light out of HomeKit, and removes it if it was there.": "Désactivée, la lampe reste hors de HomeKit, et en est retirée si elle y était.",
+      "Plugin name as shown in the logs": "Nom du plugin tel qu'affiché dans les journaux",
+      "Polling Rate (in milliseconds)": "Fréquence d'interrogation (en millisecondes)",
+      "Port": "Port",
+      "Power On Behaviour": "Comportement à l'allumage",
+      "Reach the light at this address without Bonjour. Used before the host name.": "Joindre la lampe à cette adresse sans Bonjour. Utilisée avant le nom d'hôte.",
+      "Reach the light at this host name without Bonjour, for example in a container without multicast.": "Joindre la lampe à ce nom d'hôte sans Bonjour, par exemple dans un conteneur sans multicast.",
+      "Restore default settings": "Rétablir les réglages par défaut",
+      "Restore last settings used": "Rétablir les derniers réglages utilisés",
+      "Settings for each light, by MAC address. Every light on the network is added without an entry here.": "Les réglages de chaque lampe, par adresse MAC. Toutes les lampes du réseau sont ajoutées sans entrée ici.",
+      "Switch Off Duration (in milliseconds)": "Durée d'extinction (en millisecondes)",
+      "Switch On Duration (in milliseconds)": "Durée d'allumage (en millisecondes)",
+      "The brightness the lights switch on at with Restore default settings": "La luminosité à laquelle les lampes s'allument avec Rétablir les réglages par défaut",
+      "The colour temperature the lights switch on at with Restore default settings": "La température de couleur à laquelle les lampes s'allument avec Rétablir les réglages par défaut",
+      "The light's MAC address, in any usual spelling. The log prints it when a light is found.": "L'adresse MAC de la lampe, sous n'importe quelle forme courante. Le journal l'affiche quand une lampe est trouvée.",
+      "The light's model, saved by the plugin's page and shown there while the light is offline.": "Le modèle de la lampe, enregistré par la page du plugin et affiché sur celle-ci tant que la lampe est hors ligne.",
+      "The light's name in the logs, and on the plugin's page while it is offline. Display Name sets the name in HomeKit.": "Le nom de la lampe dans les journaux, et sur la page du plugin tant qu'elle est hors ligne. Nom affiché fixe le nom dans HomeKit.",
+      "The name in HomeKit, instead of the one the light reports": "Le nom dans HomeKit, au lieu de celui que donne la lampe",
+      "The polling rate for light status in milliseconds (minimum 250)": "La fréquence d'interrogation de l'état des lampes en millisecondes (250 minimum)",
+      "The port of the light's HTTP API, 9123 by default.": "Le port de l'API HTTP de la lampe, 9123 par défaut.",
+      "This light's brightness with Restore default settings, instead of the one above.": "La luminosité de cette lampe avec Rétablir les réglages par défaut, au lieu de celle ci-dessus.",
+      "This light's colour temperature with Restore default settings, instead of the one above.": "La température de couleur de cette lampe avec Rétablir les réglages par défaut, au lieu de celle ci-dessus.",
+      "Use global setting": "Utiliser le réglage global",
+      "Use IP address instead of hostname": "Utiliser l'adresse IP au lieu du nom d'hôte",
+      "What the lights do when switched on: their last settings, or the default brightness and colour temperature below. Empty keeps the light's own setting.": "Ce que font les lampes à l'allumage : reprendre leurs derniers réglages, ou la luminosité et la température de couleur par défaut ci-dessous. Vide garde le réglage de la lampe.",
+      "What this light does when switched on. Use global setting takes the one above.": "Ce que fait cette lampe à l'allumage. Utiliser le réglage global prend celui ci-dessus."
+    },
+    "es": {
+      "Advanced": "Avanzado",
+      "By default, the hostname of the light is used for the connection. If this causes issues in your environment, you can enable this option to use the IP address instead.": "Por defecto, la conexión usa el nombre de host de la luz. Si eso da problemas en tu entorno, activa esta opción para usar la dirección IP.",
+      "Colour Change Duration (in milliseconds)": "Duración del cambio de color (en milisegundos)",
+      "Default Brightness (%)": "Brillo predeterminado (%)",
+      "Default Power On Brightness (in percent)": "Brillo al encender predeterminado (en porcentaje)",
+      "Default Power On Colour Temperature (in Kelvin)": "Temperatura de color al encender predeterminada (en kelvin)",
+      "Default Temperature (K)": "Temperatura predeterminada (K)",
+      "Devices": "Dispositivos",
+      "Display Name": "Nombre visible",
+      "Durations": "Duraciones",
+      "Enabled": "Activada",
+      "Hostname": "Nombre de host",
+      "How long the lights take to fade in when switched on": "Lo que tardan las luces en encenderse gradualmente",
+      "How long the lights take to fade out when switched off": "Lo que tardan las luces en apagarse gradualmente",
+      "How long the lights take to move to a new colour temperature": "Lo que tardan las luces en pasar a una nueva temperatura de color",
+      "IP Address": "Dirección IP",
+      "Light": "Luz",
+      "MAC Address": "Dirección MAC",
+      "Model": "Modelo",
+      "Name": "Nombre",
+      "Off keeps the light out of HomeKit, and removes it if it was there.": "Desactivada, la luz queda fuera de HomeKit, y se quita si ya estaba.",
+      "Plugin name as shown in the logs": "Nombre del plugin tal como aparece en los registros",
+      "Polling Rate (in milliseconds)": "Frecuencia de consulta (en milisegundos)",
+      "Port": "Puerto",
+      "Power On Behaviour": "Comportamiento al encender",
+      "Reach the light at this address without Bonjour. Used before the host name.": "Conecta con la luz en esta dirección sin Bonjour. Se usa antes que el nombre de host.",
+      "Reach the light at this host name without Bonjour, for example in a container without multicast.": "Conecta con la luz en este nombre de host sin Bonjour, por ejemplo en un contenedor sin multicast.",
+      "Restore default settings": "Restaurar los ajustes predeterminados",
+      "Restore last settings used": "Restaurar los últimos ajustes usados",
+      "Settings for each light, by MAC address. Every light on the network is added without an entry here.": "Los ajustes de cada luz, por dirección MAC. Todas las luces de la red se añaden sin entrada aquí.",
+      "Switch Off Duration (in milliseconds)": "Duración del apagado (en milisegundos)",
+      "Switch On Duration (in milliseconds)": "Duración del encendido (en milisegundos)",
+      "The brightness the lights switch on at with Restore default settings": "El brillo con el que se encienden las luces con Restaurar los ajustes predeterminados",
+      "The colour temperature the lights switch on at with Restore default settings": "La temperatura de color con la que se encienden las luces con Restaurar los ajustes predeterminados",
+      "The light's MAC address, in any usual spelling. The log prints it when a light is found.": "La dirección MAC de la luz, en cualquier formato habitual. El registro la muestra cuando se encuentra una luz.",
+      "The light's model, saved by the plugin's page and shown there while the light is offline.": "El modelo de la luz, que guarda la página del plugin y muestra mientras la luz está desconectada.",
+      "The light's name in the logs, and on the plugin's page while it is offline. Display Name sets the name in HomeKit.": "El nombre de la luz en los registros, y en la página del plugin mientras está desconectada. Nombre visible fija el nombre en HomeKit.",
+      "The name in HomeKit, instead of the one the light reports": "El nombre en HomeKit, en lugar del que indica la luz",
+      "The polling rate for light status in milliseconds (minimum 250)": "La frecuencia de consulta del estado de las luces en milisegundos (250 como mínimo)",
+      "The port of the light's HTTP API, 9123 by default.": "El puerto de la API HTTP de la luz, 9123 por defecto.",
+      "This light's brightness with Restore default settings, instead of the one above.": "El brillo de esta luz con Restaurar los ajustes predeterminados, en lugar del de arriba.",
+      "This light's colour temperature with Restore default settings, instead of the one above.": "La temperatura de color de esta luz con Restaurar los ajustes predeterminados, en lugar de la de arriba.",
+      "Use global setting": "Usar el ajuste global",
+      "Use IP address instead of hostname": "Usar la dirección IP en lugar del nombre de host",
+      "What the lights do when switched on: their last settings, or the default brightness and colour temperature below. Empty keeps the light's own setting.": "Lo que hacen las luces al encenderse: sus últimos ajustes, o el brillo y la temperatura de color predeterminados de abajo. Vacío conserva el ajuste de la luz.",
+      "What this light does when switched on. Use global setting takes the one above.": "Lo que hace esta luz al encenderse. Usar el ajuste global toma el de arriba."
+    },
+    "pt": {
+      "Advanced": "Avançado",
+      "By default, the hostname of the light is used for the connection. If this causes issues in your environment, you can enable this option to use the IP address instead.": "Por predefinição, a ligação usa o nome de anfitrião da luz. Se isso causar problemas no seu ambiente, ative esta opção para usar o endereço IP.",
+      "Colour Change Duration (in milliseconds)": "Duração da mudança de cor (em milissegundos)",
+      "Default Brightness (%)": "Brilho predefinido (%)",
+      "Default Power On Brightness (in percent)": "Brilho ao ligar predefinido (em percentagem)",
+      "Default Power On Colour Temperature (in Kelvin)": "Temperatura de cor ao ligar predefinida (em kelvin)",
+      "Default Temperature (K)": "Temperatura predefinida (K)",
+      "Devices": "Dispositivos",
+      "Display Name": "Nome apresentado",
+      "Durations": "Durações",
+      "Enabled": "Ativada",
+      "Hostname": "Nome de anfitrião",
+      "How long the lights take to fade in when switched on": "O tempo que as luzes demoram a acender gradualmente",
+      "How long the lights take to fade out when switched off": "O tempo que as luzes demoram a apagar gradualmente",
+      "How long the lights take to move to a new colour temperature": "O tempo que as luzes demoram a passar para uma nova temperatura de cor",
+      "IP Address": "Endereço IP",
+      "Light": "Luz",
+      "MAC Address": "Endereço MAC",
+      "Model": "Modelo",
+      "Name": "Nome",
+      "Off keeps the light out of HomeKit, and removes it if it was there.": "Desativada, a luz fica fora do HomeKit, e é removida se já lá estava.",
+      "Plugin name as shown in the logs": "Nome do plugin tal como aparece nos registos",
+      "Polling Rate (in milliseconds)": "Frequência de consulta (em milissegundos)",
+      "Port": "Porta",
+      "Power On Behaviour": "Comportamento ao ligar",
+      "Reach the light at this address without Bonjour. Used before the host name.": "Contactar a luz neste endereço sem Bonjour. Usado antes do nome de anfitrião.",
+      "Reach the light at this host name without Bonjour, for example in a container without multicast.": "Contactar a luz neste nome de anfitrião sem Bonjour, por exemplo num contentor sem multicast.",
+      "Restore default settings": "Repor as definições predefinidas",
+      "Restore last settings used": "Repor as últimas definições usadas",
+      "Settings for each light, by MAC address. Every light on the network is added without an entry here.": "As definições de cada luz, por endereço MAC. Todas as luzes da rede são adicionadas sem entrada aqui.",
+      "Switch Off Duration (in milliseconds)": "Duração ao desligar (em milissegundos)",
+      "Switch On Duration (in milliseconds)": "Duração ao ligar (em milissegundos)",
+      "The brightness the lights switch on at with Restore default settings": "O brilho com que as luzes acendem com Repor as definições predefinidas",
+      "The colour temperature the lights switch on at with Restore default settings": "A temperatura de cor com que as luzes acendem com Repor as definições predefinidas",
+      "The light's MAC address, in any usual spelling. The log prints it when a light is found.": "O endereço MAC da luz, em qualquer formato habitual. O registo mostra-o quando uma luz é encontrada.",
+      "The light's model, saved by the plugin's page and shown there while the light is offline.": "O modelo da luz, guardado pela página do plugin e mostrado nela enquanto a luz está offline.",
+      "The light's name in the logs, and on the plugin's page while it is offline. Display Name sets the name in HomeKit.": "O nome da luz nos registos, e na página do plugin enquanto está offline. Nome apresentado define o nome no HomeKit.",
+      "The name in HomeKit, instead of the one the light reports": "O nome no HomeKit, em vez do que a luz indica",
+      "The polling rate for light status in milliseconds (minimum 250)": "A frequência de consulta do estado das luzes em milissegundos (250 no mínimo)",
+      "The port of the light's HTTP API, 9123 by default.": "A porta da API HTTP da luz, 9123 por predefinição.",
+      "This light's brightness with Restore default settings, instead of the one above.": "O brilho desta luz com Repor as definições predefinidas, em vez do indicado acima.",
+      "This light's colour temperature with Restore default settings, instead of the one above.": "A temperatura de cor desta luz com Repor as definições predefinidas, em vez da indicada acima.",
+      "Use global setting": "Usar a definição global",
+      "Use IP address instead of hostname": "Usar o endereço IP em vez do nome de anfitrião",
+      "What the lights do when switched on: their last settings, or the default brightness and colour temperature below. Empty keeps the light's own setting.": "O que as luzes fazem ao ligar: as últimas definições, ou o brilho e a temperatura de cor predefinidos abaixo. Vazio mantém a definição da luz.",
+      "What this light does when switched on. Use global setting takes the one above.": "O que esta luz faz ao ligar. Usar a definição global usa a indicada acima."
+    }
+  }
 }

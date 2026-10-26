@@ -16,6 +16,7 @@ extension GoveePlugin {
     "properties": {
       "name": {
         "title": "Name",
+        "description": "Names this instance in the log and in its data directory.",
         "type": "string",
         "default": "Govee"
       },
@@ -23,7 +24,7 @@ extension GoveePlugin {
         "title": "Govee Account Email",
         "type": "string",
         "format": "email",
-        "description": "Your Govee account email address."
+        "description": "Your Govee account email address. Without an account, the plugin uses LAN and Bluetooth only."
       },
       "password": {
         "title": "Govee Account Password",
@@ -42,7 +43,7 @@ extension GoveePlugin {
         "title": "Ignore Matter Devices",
         "type": "boolean",
         "default": false,
-        "description": "If enabled, Matter-enabled devices will be ignored."
+        "description": "If enabled, Matter-capable models are left out, so you can add them to HomeKit natively."
       },
       "disableDeviceLogging": {
         "title": "Disable Device Logging",
@@ -54,66 +55,66 @@ extension GoveePlugin {
         "title": "Debug Logging",
         "type": "boolean",
         "default": false,
-        "description": "If enabled, verbose debug logging will be output to the log."
+        "description": "If enabled, debug lines are logged at the info level, so they show without homeswift -D."
       },
       "httpRefreshTime": {
         "title": "HTTP Refresh Time (seconds)",
         "type": "integer",
         "minimum": 30,
         "default": 30,
-        "description": "How often to poll the Govee API for device updates."
+        "description": "How often the device list is read from Govee's cloud for sensor readings. 30 seconds at least."
       },
       "awsDisable": {
         "title": "Disable AWS IoT Connection",
         "type": "boolean",
         "default": false,
-        "description": "If enabled, the AWS IoT connection will be disabled."
+        "description": "If enabled, commands and real-time status no longer go through Govee's cloud over AWS IoT."
       },
       "bleDisable": {
         "title": "Disable Bluetooth (BLE)",
         "type": "boolean",
         "default": false,
-        "description": "If enabled, Bluetooth Low Energy control will be disabled."
+        "description": "If enabled, Bluetooth is used neither for commands nor for sensor readings."
       },
       "bleRefreshTime": {
         "title": "BLE Refresh Time (seconds)",
         "type": "integer",
         "minimum": 60,
         "default": 300,
-        "description": "How often to scan for BLE sensor readings."
+        "description": "How often thermo-hygrometers are read from their Bluetooth advertisements. 60 seconds at least."
       },
       "bleControlInterval": {
         "title": "BLE Control Interval (ms)",
         "type": "integer",
         "minimum": 500,
         "default": 500,
-        "description": "Minimum interval between BLE commands."
+        "description": "The least time between two Bluetooth commands. Values from 5 to 499 are read as seconds, as older configurations meant."
       },
       "lanDisable": {
         "title": "Disable LAN Control",
         "type": "boolean",
         "default": false,
-        "description": "If enabled, LAN control will be disabled."
+        "description": "If enabled, devices are neither found nor controlled on the local network."
       },
       "lanRefreshTime": {
         "title": "LAN Refresh Time (seconds)",
         "type": "integer",
         "minimum": 15,
         "default": 30,
-        "description": "How often to poll LAN devices for state updates."
+        "description": "How often LAN devices are asked for their state."
       },
       "lanScanInterval": {
         "title": "LAN Scan Interval (seconds)",
         "type": "integer",
         "minimum": 30,
         "default": 60,
-        "description": "How often to scan for new LAN devices."
+        "description": "How often the local network is scanned for LAN devices. 30 seconds at least."
       },
       "colourSafeMode": {
         "title": "Colour Safe Mode",
         "type": "boolean",
         "default": false,
-        "description": "If enabled, uses a slower but more reliable method for setting colours."
+        "description": "If enabled, colours are set in a slower but more reliable way, without colour temperature or Adaptive Lighting."
       },
       "homebridgeStoragePath": {
         "title": "Homebridge Storage Path",
@@ -123,26 +124,28 @@ extension GoveePlugin {
       },
       "lightDevices": {
         "title": "Light Devices",
+        "description": "Settings for individual lights, by device ID.",
         "type": "array",
         "items": {
+          "title": "Light",
           "type": "object",
           "properties": {
             "label": {
               "title": "Label",
               "type": "string",
-              "description": "Custom name for this device."
+              "description": "A name to tell this device apart on the plugin's page, in place of its ID. HomeKit keeps the name Govee gives it."
             },
             "deviceId": {
               "title": "Device ID",
               "type": "string",
               "required": true,
-              "description": "The Govee device ID."
+              "description": "The Govee device ID this entry applies to, as Discover Devices adds it."
             },
             "ignoreDevice": {
               "title": "Ignore Device",
               "type": "boolean",
               "default": false,
-              "description": "If enabled, this device will not be exposed to HomeKit."
+              "description": "If enabled, this device is not added to HomeKit."
             },
             "showAs": {
               "title": "Show As",
@@ -152,30 +155,30 @@ extension GoveePlugin {
                 { "title": "Light (default)", "enum": ["default"] },
                 { "title": "Switch", "enum": ["switch"] }
               ],
-              "description": "How to expose this device in HomeKit."
+              "description": "Light gives brightness and colour in HomeKit; Switch only turns the light on and off."
             },
             "customAddress": {
               "title": "Custom BLE Address",
               "type": "string",
-              "description": "Override the BLE address for this device."
+              "description": "The light's Bluetooth MAC address, used instead of the one Govee reports."
             },
             "customIPAddress": {
               "title": "Custom IP Address",
               "type": "string",
-              "description": "Override the LAN IP address for this device."
+              "description": "The light's IP address, for a light the LAN scan does not reach (across VLANs, for example). Give it a fixed address in your router."
             },
             "adaptiveLightingShift": {
               "title": "Adaptive Lighting Shift",
               "type": "integer",
               "minimum": -1,
               "default": 0,
-              "description": "Shift the adaptive lighting curve (in mired). Set to -1 to disable adaptive lighting."
+              "description": "Shifts the Adaptive Lighting curve, in mired. -1 turns Adaptive Lighting off."
             },
             "awsBrightnessNoScale": {
               "title": "AWS Brightness No Scale",
               "type": "boolean",
               "default": false,
-              "description": "If enabled, brightness is sent as 0-100 instead of 0-255."
+              "description": "If enabled, brightness goes over AWS as 0-100 instead of 0-254, for models that read it unscaled."
             },
             "awsColourMode": {
               "title": "AWS Colour Mode",
@@ -185,7 +188,8 @@ extension GoveePlugin {
                 { "title": "Default", "enum": ["default"] },
                 { "title": "RGB", "enum": ["rgb"] },
                 { "title": "Red/Green/Blue", "enum": ["redgreenblue"] }
-              ]
+              ],
+              "description": "The colour command sent over AWS. Some older models take only the legacy color command: try RGB or Red/Green/Blue if colours do nothing."
             },
             "lanScenes": {
               "title": "Scenes over LAN",
@@ -199,24 +203,26 @@ extension GoveePlugin {
               "minimum": 1,
               "maximum": 100,
               "default": 1,
-              "description": "Step size for brightness adjustments."
+              "description": "The step of the light's brightness slider in HomeKit, in percent."
             },
             "scenes": {
               "title": "Scenes",
               "type": "array",
-              "description": "Scenes picked from the Govee scene library. Each one becomes its own switch in HomeKit. Use the 'Browse Govee Scenes' button in the plugin settings UI to choose them.",
+              "description": "Scenes picked from the Govee scene library. Each one becomes its own switch in HomeKit. Pick them in the Scene Library tab of the light's editor on the plugin's page.",
               "items": {
+                "title": "Scene",
                 "type": "object",
                 "properties": {
                   "name": { "title": "Name", "type": "string", "required": true, "description": "Name shown in HomeKit." },
                   "sceneCode": { "title": "Scene Code", "type": "string", "required": true, "description": "Comma-separated base64 command frames." },
                   "bleCode": { "title": "BLE Code", "type": "string", "description": "Optional Bluetooth override; defaults to the scene code." },
-                  "sceneId": { "title": "Govee Scene ID", "type": "integer" },
-                  "variantId": { "title": "Variant ID", "type": "integer" },
-                  "iconUrl": { "title": "Icon URL", "type": "string" },
-                  "iconUrlDark": { "title": "Icon URL (dark)", "type": "string" },
+                  "sceneId": { "title": "Govee Scene ID", "type": "integer", "description": "Govee's ID for the scene or DIY effect. With Kind, it identifies the scene's switch in HomeKit." },
+                  "variantId": { "title": "Variant ID", "type": "integer", "description": "The scene variant the plugin's page picked, kept for reference." },
+                  "iconUrl": { "title": "Icon URL", "type": "string", "description": "The scene's icon from the Govee library, shown on the plugin's page." },
+                  "iconUrlDark": { "title": "Icon URL (dark)", "type": "string", "description": "The scene's dark icon from the Govee library, shown on the plugin's page." },
                   "kind": {
                     "title": "Kind",
+                    "description": "Whether this is a scene from the library or one of your DIY effects.",
                     "type": "string",
                     "default": "scene",
                     "oneOf": [
@@ -232,9 +238,10 @@ extension GoveePlugin {
               "type": "object",
               "description": "Expose music mode as its own HomeKit tile whose brightness controls microphone sensitivity, instead of a fixed pasted code.",
               "properties": {
-                "enabled": { "title": "Enable", "type": "boolean", "default": false },
+                "enabled": { "title": "Enable", "type": "boolean", "default": false, "description": "If enabled, the light gets a music mode tile in HomeKit." },
                 "effect": {
                   "title": "Effect",
+                  "description": "The music effect the light plays.",
                   "type": "string",
                   "default": "rhythm",
                   "oneOf": [
@@ -244,7 +251,7 @@ extension GoveePlugin {
                     { "title": "Spectrum", "enum": ["spectrum"] }
                   ]
                 },
-                "sensitivity": { "title": "Default Sensitivity", "type": "integer", "minimum": 0, "maximum": 100, "default": 50 },
+                "sensitivity": { "title": "Default Sensitivity", "type": "integer", "minimum": 0, "maximum": 100, "default": 50, "description": "The microphone sensitivity at start, from 0 to 100. The tile's brightness changes it." },
                 "autoColour": { "title": "Auto Colour", "type": "boolean", "default": true, "description": "Let the light choose colours. Turn off to control the music colour from HomeKit." },
                 "soft": { "title": "Soft Variant", "type": "boolean", "default": false, "description": "Rhythm only: the gentler of the two rhythm styles." },
                 "protocol": {
@@ -261,146 +268,162 @@ extension GoveePlugin {
             },
             "scene": {
               "title": "Scene 1",
+              "description": "An older fixed slot that plays a scene code.",
               "type": "object",
               "properties": {
-                "sceneCode": { "title": "Scene Code", "type": "string" },
-                "bleCode": { "title": "BLE Code", "type": "string" },
-                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+                "sceneCode": { "title": "Scene Code", "type": "string", "description": "The code to send, as comma-separated base64 command frames. Empty leaves the slot out." },
+                "bleCode": { "title": "BLE Code", "type": "string", "description": "Optional Bluetooth override; defaults to the scene code." },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "description": "Eve Characteristic adds a toggle to the light that apps such as Eve show; Switch adds a switch of its own in HomeKit.", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
               }
             },
             "sceneTwo": {
               "title": "Scene 2",
+              "description": "An older fixed slot that plays a scene code.",
               "type": "object",
               "properties": {
-                "sceneCode": { "title": "Scene Code", "type": "string" },
-                "bleCode": { "title": "BLE Code", "type": "string" },
-                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+                "sceneCode": { "title": "Scene Code", "type": "string", "description": "The code to send, as comma-separated base64 command frames. Empty leaves the slot out." },
+                "bleCode": { "title": "BLE Code", "type": "string", "description": "Optional Bluetooth override; defaults to the scene code." },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "description": "Eve Characteristic adds a toggle to the light that apps such as Eve show; Switch adds a switch of its own in HomeKit.", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
               }
             },
             "sceneThree": {
               "title": "Scene 3",
+              "description": "An older fixed slot that plays a scene code.",
               "type": "object",
               "properties": {
-                "sceneCode": { "title": "Scene Code", "type": "string" },
-                "bleCode": { "title": "BLE Code", "type": "string" },
-                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+                "sceneCode": { "title": "Scene Code", "type": "string", "description": "The code to send, as comma-separated base64 command frames. Empty leaves the slot out." },
+                "bleCode": { "title": "BLE Code", "type": "string", "description": "Optional Bluetooth override; defaults to the scene code." },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "description": "Eve Characteristic adds a toggle to the light that apps such as Eve show; Switch adds a switch of its own in HomeKit.", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
               }
             },
             "sceneFour": {
               "title": "Scene 4",
+              "description": "An older fixed slot that plays a scene code.",
               "type": "object",
               "properties": {
-                "sceneCode": { "title": "Scene Code", "type": "string" },
-                "bleCode": { "title": "BLE Code", "type": "string" },
-                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+                "sceneCode": { "title": "Scene Code", "type": "string", "description": "The code to send, as comma-separated base64 command frames. Empty leaves the slot out." },
+                "bleCode": { "title": "BLE Code", "type": "string", "description": "Optional Bluetooth override; defaults to the scene code." },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "description": "Eve Characteristic adds a toggle to the light that apps such as Eve show; Switch adds a switch of its own in HomeKit.", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
               }
             },
             "musicMode": {
               "title": "Music Mode 1",
+              "description": "An older fixed slot that plays a music mode code.",
               "type": "object",
               "properties": {
-                "sceneCode": { "title": "Scene Code", "type": "string" },
-                "bleCode": { "title": "BLE Code", "type": "string" },
-                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+                "sceneCode": { "title": "Scene Code", "type": "string", "description": "The code to send, as comma-separated base64 command frames. Empty leaves the slot out." },
+                "bleCode": { "title": "BLE Code", "type": "string", "description": "Optional Bluetooth override; defaults to the scene code." },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "description": "Eve Characteristic adds a toggle to the light that apps such as Eve show; Switch adds a switch of its own in HomeKit.", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
               }
             },
             "musicModeTwo": {
               "title": "Music Mode 2",
+              "description": "An older fixed slot that plays a music mode code.",
               "type": "object",
               "properties": {
-                "sceneCode": { "title": "Scene Code", "type": "string" },
-                "bleCode": { "title": "BLE Code", "type": "string" },
-                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+                "sceneCode": { "title": "Scene Code", "type": "string", "description": "The code to send, as comma-separated base64 command frames. Empty leaves the slot out." },
+                "bleCode": { "title": "BLE Code", "type": "string", "description": "Optional Bluetooth override; defaults to the scene code." },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "description": "Eve Characteristic adds a toggle to the light that apps such as Eve show; Switch adds a switch of its own in HomeKit.", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
               }
             },
             "videoMode": {
               "title": "Video Mode 1",
+              "description": "An older fixed slot that plays a video mode code.",
               "type": "object",
               "properties": {
-                "sceneCode": { "title": "Scene Code", "type": "string" },
-                "bleCode": { "title": "BLE Code", "type": "string" },
-                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+                "sceneCode": { "title": "Scene Code", "type": "string", "description": "The code to send, as comma-separated base64 command frames. Empty leaves the slot out." },
+                "bleCode": { "title": "BLE Code", "type": "string", "description": "Optional Bluetooth override; defaults to the scene code." },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "description": "Eve Characteristic adds a toggle to the light that apps such as Eve show; Switch adds a switch of its own in HomeKit.", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
               }
             },
             "videoModeTwo": {
               "title": "Video Mode 2",
+              "description": "An older fixed slot that plays a video mode code.",
               "type": "object",
               "properties": {
-                "sceneCode": { "title": "Scene Code", "type": "string" },
-                "bleCode": { "title": "BLE Code", "type": "string" },
-                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+                "sceneCode": { "title": "Scene Code", "type": "string", "description": "The code to send, as comma-separated base64 command frames. Empty leaves the slot out." },
+                "bleCode": { "title": "BLE Code", "type": "string", "description": "Optional Bluetooth override; defaults to the scene code." },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "description": "Eve Characteristic adds a toggle to the light that apps such as Eve show; Switch adds a switch of its own in HomeKit.", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
               }
             },
             "diyMode": {
               "title": "DIY Mode 1",
+              "description": "An older fixed slot that plays a DIY effect code.",
               "type": "object",
               "properties": {
-                "sceneCode": { "title": "Scene Code", "type": "string" },
-                "bleCode": { "title": "BLE Code", "type": "string" },
-                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+                "sceneCode": { "title": "Scene Code", "type": "string", "description": "The code to send, as comma-separated base64 command frames. Empty leaves the slot out." },
+                "bleCode": { "title": "BLE Code", "type": "string", "description": "Optional Bluetooth override; defaults to the scene code." },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "description": "Eve Characteristic adds a toggle to the light that apps such as Eve show; Switch adds a switch of its own in HomeKit.", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
               }
             },
             "diyModeTwo": {
               "title": "DIY Mode 2",
+              "description": "An older fixed slot that plays a DIY effect code.",
               "type": "object",
               "properties": {
-                "sceneCode": { "title": "Scene Code", "type": "string" },
-                "bleCode": { "title": "BLE Code", "type": "string" },
-                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+                "sceneCode": { "title": "Scene Code", "type": "string", "description": "The code to send, as comma-separated base64 command frames. Empty leaves the slot out." },
+                "bleCode": { "title": "BLE Code", "type": "string", "description": "Optional Bluetooth override; defaults to the scene code." },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "description": "Eve Characteristic adds a toggle to the light that apps such as Eve show; Switch adds a switch of its own in HomeKit.", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
               }
             },
             "diyModeThree": {
               "title": "DIY Mode 3",
+              "description": "An older fixed slot that plays a DIY effect code.",
               "type": "object",
               "properties": {
-                "sceneCode": { "title": "Scene Code", "type": "string" },
-                "bleCode": { "title": "BLE Code", "type": "string" },
-                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+                "sceneCode": { "title": "Scene Code", "type": "string", "description": "The code to send, as comma-separated base64 command frames. Empty leaves the slot out." },
+                "bleCode": { "title": "BLE Code", "type": "string", "description": "Optional Bluetooth override; defaults to the scene code." },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "description": "Eve Characteristic adds a toggle to the light that apps such as Eve show; Switch adds a switch of its own in HomeKit.", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
               }
             },
             "diyModeFour": {
               "title": "DIY Mode 4",
+              "description": "An older fixed slot that plays a DIY effect code.",
               "type": "object",
               "properties": {
-                "sceneCode": { "title": "Scene Code", "type": "string" },
-                "bleCode": { "title": "BLE Code", "type": "string" },
-                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+                "sceneCode": { "title": "Scene Code", "type": "string", "description": "The code to send, as comma-separated base64 command frames. Empty leaves the slot out." },
+                "bleCode": { "title": "BLE Code", "type": "string", "description": "Optional Bluetooth override; defaults to the scene code." },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "description": "Eve Characteristic adds a toggle to the light that apps such as Eve show; Switch adds a switch of its own in HomeKit.", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
               }
             },
             "segmented": {
               "title": "Segment 1",
+              "description": "An older fixed slot that plays a segment code.",
               "type": "object",
               "properties": {
-                "sceneCode": { "title": "Segment Code", "type": "string" },
-                "bleCode": { "title": "BLE Code", "type": "string" },
-                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+                "sceneCode": { "title": "Segment Code", "type": "string", "description": "The code to send, as comma-separated base64 command frames. Empty leaves the slot out." },
+                "bleCode": { "title": "BLE Code", "type": "string", "description": "Optional Bluetooth override; defaults to the scene code." },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "description": "Eve Characteristic adds a toggle to the light that apps such as Eve show; Switch adds a switch of its own in HomeKit.", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
               }
             },
             "segmentedTwo": {
               "title": "Segment 2",
+              "description": "An older fixed slot that plays a segment code.",
               "type": "object",
               "properties": {
-                "sceneCode": { "title": "Segment Code", "type": "string" },
-                "bleCode": { "title": "BLE Code", "type": "string" },
-                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+                "sceneCode": { "title": "Segment Code", "type": "string", "description": "The code to send, as comma-separated base64 command frames. Empty leaves the slot out." },
+                "bleCode": { "title": "BLE Code", "type": "string", "description": "Optional Bluetooth override; defaults to the scene code." },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "description": "Eve Characteristic adds a toggle to the light that apps such as Eve show; Switch adds a switch of its own in HomeKit.", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
               }
             },
             "segmentedThree": {
               "title": "Segment 3",
+              "description": "An older fixed slot that plays a segment code.",
               "type": "object",
               "properties": {
-                "sceneCode": { "title": "Segment Code", "type": "string" },
-                "bleCode": { "title": "BLE Code", "type": "string" },
-                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+                "sceneCode": { "title": "Segment Code", "type": "string", "description": "The code to send, as comma-separated base64 command frames. Empty leaves the slot out." },
+                "bleCode": { "title": "BLE Code", "type": "string", "description": "Optional Bluetooth override; defaults to the scene code." },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "description": "Eve Characteristic adds a toggle to the light that apps such as Eve show; Switch adds a switch of its own in HomeKit.", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
               }
             },
             "segmentedFour": {
               "title": "Segment 4",
+              "description": "An older fixed slot that plays a segment code.",
               "type": "object",
               "properties": {
-                "sceneCode": { "title": "Segment Code", "type": "string" },
-                "bleCode": { "title": "BLE Code", "type": "string" },
-                "showAs": { "title": "Show As", "type": "string", "default": "default", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
+                "sceneCode": { "title": "Segment Code", "type": "string", "description": "The code to send, as comma-separated base64 command frames. Empty leaves the slot out." },
+                "bleCode": { "title": "BLE Code", "type": "string", "description": "Optional Bluetooth override; defaults to the scene code." },
+                "showAs": { "title": "Show As", "type": "string", "default": "default", "description": "Eve Characteristic adds a toggle to the light that apps such as Eve show; Switch adds a switch of its own in HomeKit.", "oneOf": [{ "title": "Eve Characteristic", "enum": ["default"] }, { "title": "Switch", "enum": ["switch"] }] }
               }
             }
           }
@@ -408,25 +431,28 @@ extension GoveePlugin {
       },
       "switchDevices": {
         "title": "Switch/Outlet Devices",
+        "description": "Settings for individual plugs and power strips, by device ID.",
         "type": "array",
         "items": {
+          "title": "Plug",
           "type": "object",
           "properties": {
             "label": {
               "title": "Label",
               "type": "string",
-              "description": "Custom name for this device."
+              "description": "A name to tell this device apart on the plugin's page, in place of its ID. HomeKit keeps the name Govee gives it."
             },
             "deviceId": {
               "title": "Device ID",
               "type": "string",
               "required": true,
-              "description": "The Govee device ID."
+              "description": "The Govee device ID this entry applies to, as Discover Devices adds it."
             },
             "ignoreDevice": {
               "title": "Ignore Device",
               "type": "boolean",
-              "default": false
+              "default": false,
+              "description": "If enabled, this device is not added to HomeKit."
             },
             "showAs": {
               "title": "Show As",
@@ -444,304 +470,363 @@ extension GoveePlugin {
                 { "title": "Audio Receiver", "enum": ["audio"] },
                 { "title": "Set-Top Box", "enum": ["box"] },
                 { "title": "Streaming Stick", "enum": ["stick"] }
-              ]
+              ],
+              "description": "What the plug appears as in HomeKit. Plugs with two or three outlets take only Outlet. Audio Receiver, Set-Top Box and Streaming Stick are televisions: the Home app shows one per bridge."
             },
             "temperatureSource": {
               "title": "Temperature Source",
               "type": "string",
-              "description": "Device ID of a temperature sensor to use for heater/cooler simulation."
+              "description": "The device ID of the thermo-hygrometer whose temperature a plug shown as a heater or cooler follows."
             }
           }
         }
       },
       "leakDevices": {
         "title": "Leak Sensor Devices",
+        "description": "Settings for individual leak sensors, by device ID.",
         "type": "array",
         "items": {
+          "title": "Leak Sensor",
           "type": "object",
           "properties": {
             "label": {
               "title": "Label",
-              "type": "string"
+              "type": "string",
+              "description": "A name to tell this device apart on the plugin's page, in place of its ID. HomeKit keeps the name Govee gives it."
             },
             "deviceId": {
               "title": "Device ID",
               "type": "string",
-              "required": true
+              "required": true,
+              "description": "The Govee device ID this entry applies to, as Discover Devices adds it."
             },
             "ignoreDevice": {
               "title": "Ignore Device",
               "type": "boolean",
-              "default": false
+              "default": false,
+              "description": "If enabled, this device is not added to HomeKit."
             },
             "lowBattThreshold": {
               "title": "Low Battery Threshold (%)",
               "type": "integer",
               "minimum": 1,
               "maximum": 100,
-              "default": 20
+              "default": 20,
+              "description": "Below this battery level, HomeKit reports the battery as low."
             }
           }
         }
       },
       "thermoDevices": {
         "title": "Temperature/Humidity Sensor Devices",
+        "description": "Settings for individual thermo-hygrometers, by device ID.",
         "type": "array",
         "items": {
+          "title": "Thermo-Hygrometer",
           "type": "object",
           "properties": {
             "label": {
               "title": "Label",
-              "type": "string"
+              "type": "string",
+              "description": "A name to tell this device apart on the plugin's page, in place of its ID. HomeKit keeps the name Govee gives it."
             },
             "deviceId": {
               "title": "Device ID",
               "type": "string",
-              "required": true
+              "required": true,
+              "description": "The Govee device ID this entry applies to, as Discover Devices adds it."
             },
             "ignoreDevice": {
               "title": "Ignore Device",
               "type": "boolean",
-              "default": false
+              "default": false,
+              "description": "If enabled, this device is not added to HomeKit."
             },
             "lowBattThreshold": {
               "title": "Low Battery Threshold (%)",
               "type": "integer",
               "minimum": 1,
               "maximum": 100,
-              "default": 20
+              "default": 20,
+              "description": "Below this battery level, HomeKit reports the battery as low."
             },
             "showExtraSwitch": {
               "title": "Show Extra Switch",
               "type": "boolean",
               "default": false,
-              "description": "Show an extra switch for alert control."
+              "description": "If enabled, the sensor appears as a thermostat that only shows the temperature, instead of a temperature sensor."
             }
           }
         }
       },
       "fanDevices": {
         "title": "Fan Devices",
+        "description": "Settings for individual fans, by device ID.",
         "type": "array",
         "items": {
+          "title": "Fan",
           "type": "object",
           "properties": {
             "label": {
               "title": "Label",
-              "type": "string"
+              "type": "string",
+              "description": "A name to tell this device apart on the plugin's page, in place of its ID. HomeKit keeps the name Govee gives it."
             },
             "deviceId": {
               "title": "Device ID",
               "type": "string",
-              "required": true
+              "required": true,
+              "description": "The Govee device ID this entry applies to, as Discover Devices adds it."
             },
             "ignoreDevice": {
               "title": "Ignore Device",
               "type": "boolean",
-              "default": false
+              "default": false,
+              "description": "If enabled, this device is not added to HomeKit."
             },
             "hideLight": {
               "title": "Hide Light",
               "type": "boolean",
               "default": false,
-              "description": "Hide the light control if the fan has one."
+              "description": "If enabled, the fan's light, when it has one, is not added to HomeKit."
             }
           }
         }
       },
       "heaterDevices": {
         "title": "Heater Devices",
+        "description": "Settings for individual heaters, by device ID.",
         "type": "array",
         "items": {
+          "title": "Heater",
           "type": "object",
           "properties": {
             "label": {
               "title": "Label",
-              "type": "string"
+              "type": "string",
+              "description": "A name to tell this device apart on the plugin's page, in place of its ID. HomeKit keeps the name Govee gives it."
             },
             "deviceId": {
               "title": "Device ID",
               "type": "string",
-              "required": true
+              "required": true,
+              "description": "The Govee device ID this entry applies to, as Discover Devices adds it."
             },
             "ignoreDevice": {
               "title": "Ignore Device",
               "type": "boolean",
-              "default": false
+              "default": false,
+              "description": "If enabled, this device is not added to HomeKit."
             },
             "tempReporting": {
               "title": "Temperature Reporting",
               "type": "boolean",
               "default": false,
-              "description": "Enable temperature reporting from the heater."
+              "description": "For heaters that report the temperature: they appear with heat and auto modes and a target temperature."
             }
           }
         }
       },
       "humidifierDevices": {
         "title": "Humidifier Devices",
+        "description": "Settings for individual humidifiers, by device ID.",
         "type": "array",
         "items": {
+          "title": "Humidifier",
           "type": "object",
           "properties": {
             "label": {
               "title": "Label",
-              "type": "string"
+              "type": "string",
+              "description": "A name to tell this device apart on the plugin's page, in place of its ID. HomeKit keeps the name Govee gives it."
             },
             "deviceId": {
               "title": "Device ID",
               "type": "string",
-              "required": true
+              "required": true,
+              "description": "The Govee device ID this entry applies to, as Discover Devices adds it."
             },
             "ignoreDevice": {
               "title": "Ignore Device",
               "type": "boolean",
-              "default": false
+              "default": false,
+              "description": "If enabled, this device is not added to HomeKit."
             }
           }
         }
       },
       "dehumidifierDevices": {
         "title": "Dehumidifier Devices",
+        "description": "Settings for individual dehumidifiers, by device ID.",
         "type": "array",
         "items": {
+          "title": "Dehumidifier",
           "type": "object",
           "properties": {
             "label": {
               "title": "Label",
-              "type": "string"
+              "type": "string",
+              "description": "A name to tell this device apart on the plugin's page, in place of its ID. HomeKit keeps the name Govee gives it."
             },
             "deviceId": {
               "title": "Device ID",
               "type": "string",
-              "required": true
+              "required": true,
+              "description": "The Govee device ID this entry applies to, as Discover Devices adds it."
             },
             "ignoreDevice": {
               "title": "Ignore Device",
               "type": "boolean",
-              "default": false
+              "default": false,
+              "description": "If enabled, this device is not added to HomeKit."
             }
           }
         }
       },
       "purifierDevices": {
         "title": "Air Purifier Devices",
+        "description": "Settings for individual air purifiers, by device ID.",
         "type": "array",
         "items": {
+          "title": "Air Purifier",
           "type": "object",
           "properties": {
             "label": {
               "title": "Label",
-              "type": "string"
+              "type": "string",
+              "description": "A name to tell this device apart on the plugin's page, in place of its ID. HomeKit keeps the name Govee gives it."
             },
             "deviceId": {
               "title": "Device ID",
               "type": "string",
-              "required": true
+              "required": true,
+              "description": "The Govee device ID this entry applies to, as Discover Devices adds it."
             },
             "ignoreDevice": {
               "title": "Ignore Device",
               "type": "boolean",
-              "default": false
+              "default": false,
+              "description": "If enabled, this device is not added to HomeKit."
             }
           }
         }
       },
       "diffuserDevices": {
         "title": "Diffuser Devices",
+        "description": "Settings for individual diffusers, by device ID.",
         "type": "array",
         "items": {
+          "title": "Diffuser",
           "type": "object",
           "properties": {
             "label": {
               "title": "Label",
-              "type": "string"
+              "type": "string",
+              "description": "A name to tell this device apart on the plugin's page, in place of its ID. HomeKit keeps the name Govee gives it."
             },
             "deviceId": {
               "title": "Device ID",
               "type": "string",
-              "required": true
+              "required": true,
+              "description": "The Govee device ID this entry applies to, as Discover Devices adds it."
             },
             "ignoreDevice": {
               "title": "Ignore Device",
               "type": "boolean",
-              "default": false
+              "default": false,
+              "description": "If enabled, this device is not added to HomeKit."
             }
           }
         }
       },
       "kettleDevices": {
         "title": "Kettle Devices",
+        "description": "Settings for individual kettles, by device ID.",
         "type": "array",
         "items": {
+          "title": "Kettle",
           "type": "object",
           "properties": {
             "label": {
               "title": "Label",
-              "type": "string"
+              "type": "string",
+              "description": "A name to tell this device apart on the plugin's page, in place of its ID. HomeKit keeps the name Govee gives it."
             },
             "deviceId": {
               "title": "Device ID",
               "type": "string",
-              "required": true
+              "required": true,
+              "description": "The Govee device ID this entry applies to, as Discover Devices adds it."
             },
             "ignoreDevice": {
               "title": "Ignore Device",
               "type": "boolean",
-              "default": false
+              "default": false,
+              "description": "If enabled, this device is not added to HomeKit."
             },
             "hideModeGreenTea": {
               "title": "Hide Green Tea Mode",
               "type": "boolean",
-              "default": false
+              "default": false,
+              "description": "If enabled, the Green Tea switch is not added to HomeKit."
             },
             "hideModeOolongTea": {
               "title": "Hide Oolong Tea Mode",
               "type": "boolean",
-              "default": false
+              "default": false,
+              "description": "If enabled, the Oolong Tea switch is not added to HomeKit."
             },
             "hideModeCoffee": {
               "title": "Hide Coffee Mode",
               "type": "boolean",
-              "default": false
+              "default": false,
+              "description": "If enabled, the Coffee switch is not added to HomeKit."
             },
             "hideModeBlackTea": {
               "title": "Hide Black Tea Mode",
               "type": "boolean",
-              "default": false
+              "default": false,
+              "description": "If enabled, the Black Tea/Boil switch is not added to HomeKit."
             },
             "showCustomMode1": {
               "title": "Show Custom Mode 1",
               "type": "boolean",
-              "default": false
+              "default": false,
+              "description": "If enabled, a switch for the kettle's custom mode 1 is added to HomeKit."
             },
             "showCustomMode2": {
               "title": "Show Custom Mode 2",
               "type": "boolean",
-              "default": false
+              "default": false,
+              "description": "If enabled, a switch for the kettle's custom mode 2 is added to HomeKit."
             }
           }
         }
       },
       "iceMakerDevices": {
         "title": "Ice Maker Devices",
+        "description": "Settings for individual ice makers, by device ID.",
         "type": "array",
         "items": {
+          "title": "Ice Maker",
           "type": "object",
           "properties": {
             "label": {
               "title": "Label",
-              "type": "string"
+              "type": "string",
+              "description": "A name to tell this device apart on the plugin's page, in place of its ID. HomeKit keeps the name Govee gives it."
             },
             "deviceId": {
               "title": "Device ID",
               "type": "string",
-              "required": true
+              "required": true,
+              "description": "The Govee device ID this entry applies to, as Discover Devices adds it."
             },
             "ignoreDevice": {
               "title": "Ignore Device",
               "type": "boolean",
-              "default": false
+              "default": false,
+              "description": "If enabled, this device is not added to HomeKit."
             }
           }
         }
@@ -961,7 +1046,621 @@ extension GoveePlugin {
         }
       ]
     }
-  ]
+  ],
+  "i18n": {
+    "fr": {
+      "Account Settings": "Compte",
+      "Adaptive Lighting Shift": "Décalage de l'Éclairage adaptatif",
+      "Advanced Settings": "Réglages avancés",
+      "Air Purifier": "Purificateur d'air",
+      "Air Purifier Devices": "Purificateurs d'air",
+      "An older fixed slot that plays a DIY effect code.": "Un ancien emplacement fixe qui joue un code d'effet DIY.",
+      "An older fixed slot that plays a music mode code.": "Un ancien emplacement fixe qui joue un code de mode musique.",
+      "An older fixed slot that plays a scene code.": "Un ancien emplacement fixe qui joue un code de scène.",
+      "An older fixed slot that plays a segment code.": "Un ancien emplacement fixe qui joue un code de segment.",
+      "An older fixed slot that plays a video mode code.": "Un ancien emplacement fixe qui joue un code de mode vidéo.",
+      "Audio Receiver": "Récepteur audio",
+      "Auto Colour": "Couleur automatique",
+      "AWS Brightness No Scale": "Luminosité AWS sans mise à l'échelle",
+      "AWS Colour Mode": "Mode de couleur AWS",
+      "Below this battery level, HomeKit reports the battery as low.": "Sous ce niveau, HomeKit signale la batterie comme faible.",
+      "BLE Code": "Code BLE",
+      "BLE Control Interval (ms)": "Intervalle des commandes BLE (ms)",
+      "BLE Refresh Time (seconds)": "Intervalle d'actualisation BLE (secondes)",
+      "Brightness Step": "Pas de luminosité",
+      "Colour Safe Mode": "Mode couleur fiable",
+      "Comma-separated base64 command frames.": "Trames de commande en base64, séparées par des virgules.",
+      "Connection Settings": "Connexions",
+      "Cooler": "Climatiseur",
+      "Custom BLE Address": "Adresse BLE personnalisée",
+      "Custom IP Address": "Adresse IP personnalisée",
+      "Debug Logging": "Journal de débogage",
+      "Default": "Par défaut",
+      "Default (Switch)": "Par défaut (interrupteur)",
+      "Default Sensitivity": "Sensibilité par défaut",
+      "Dehumidifier": "Déshumidificateur",
+      "Dehumidifier Devices": "Déshumidificateurs",
+      "Device Configuration": "Appareils",
+      "Device ID": "Identifiant de l'appareil",
+      "Diffuser": "Diffuseur",
+      "Diffuser Devices": "Diffuseurs",
+      "Disable AWS IoT Connection": "Désactiver la connexion AWS IoT",
+      "Disable Bluetooth (BLE)": "Désactiver le Bluetooth (BLE)",
+      "Disable Device Logging": "Désactiver le journal des appareils",
+      "Disable LAN Control": "Désactiver le contrôle LAN",
+      "DIY Effect": "Effet DIY",
+      "DIY Mode 1": "Mode DIY 1",
+      "DIY Mode 2": "Mode DIY 2",
+      "DIY Mode 3": "Mode DIY 3",
+      "DIY Mode 4": "Mode DIY 4",
+      "DIY Modes": "Modes DIY",
+      "Effect": "Effet",
+      "Enable": "Activer",
+      "Energic": "Énergique",
+      "Eve Characteristic": "Caractéristique Eve",
+      "Eve Characteristic adds a toggle to the light that apps such as Eve show; Switch adds a switch of its own in HomeKit.": "Caractéristique Eve ajoute à la lampe une bascule que des apps comme Eve affichent ; Interrupteur ajoute un interrupteur à part dans HomeKit.",
+      "Expose music mode as its own HomeKit tile whose brightness controls microphone sensitivity, instead of a fixed pasted code.": "Présente le mode musique comme une vignette HomeKit à part, dont la luminosité règle la sensibilité du micro, au lieu d'un code fixe collé.",
+      "Fan": "Ventilateur",
+      "Fan Devices": "Ventilateurs",
+      "For heaters that report the temperature: they appear with heat and auto modes and a target temperature.": "Pour les radiateurs qui relèvent la température : ils apparaissent avec les modes chauffage et auto et une température cible.",
+      "General Settings": "Général",
+      "Govee Account Email": "E-mail du compte Govee",
+      "Govee Account Password": "Mot de passe du compte Govee",
+      "Govee Scene ID": "Identifiant de scène Govee",
+      "Govee's ID for the scene or DIY effect. With Kind, it identifies the scene's switch in HomeKit.": "L'identifiant Govee de la scène ou de l'effet DIY. Avec Type, il identifie l'interrupteur de la scène dans HomeKit.",
+      "Heater": "Radiateur",
+      "Heater Devices": "Radiateurs",
+      "Hide Black Tea Mode": "Masquer le mode thé noir",
+      "Hide Coffee Mode": "Masquer le mode café",
+      "Hide Green Tea Mode": "Masquer le mode thé vert",
+      "Hide Light": "Masquer la lampe",
+      "Hide Oolong Tea Mode": "Masquer le mode thé oolong",
+      "Homebridge Storage Path": "Dossier de stockage de Homebridge",
+      "Homeswift only: the Homebridge storage path whose Govee login (govee_cache and persist/govee.pfx) the first start imports. ~/.homebridge when it exists.": "Propre à Homeswift : le dossier de stockage de Homebridge dont le premier démarrage importe la connexion Govee (govee_cache et persist/govee.pfx). ~/.homebridge s'il existe.",
+      "How often LAN devices are asked for their state.": "La fréquence à laquelle l'état des appareils LAN est demandé.",
+      "How often the device list is read from Govee's cloud for sensor readings. 30 seconds at least.": "La fréquence de lecture de la liste des appareils dans le cloud de Govee, pour les relevés des capteurs. 30 secondes au moins.",
+      "How often the local network is scanned for LAN devices. 30 seconds at least.": "La fréquence de recherche des appareils LAN sur le réseau local. 30 secondes au moins.",
+      "How often thermo-hygrometers are read from their Bluetooth advertisements. 60 seconds at least.": "La fréquence de lecture des thermo-hygromètres dans leurs annonces Bluetooth. 60 secondes au moins.",
+      "HTTP Refresh Time (seconds)": "Intervalle d'actualisation HTTP (secondes)",
+      "Humidifier": "Humidificateur",
+      "Humidifier Devices": "Humidificateurs",
+      "Ice Maker": "Machine à glaçons",
+      "Ice Maker Devices": "Machines à glaçons",
+      "Icon URL": "URL de l'icône",
+      "Icon URL (dark)": "URL de l'icône (sombre)",
+      "If enabled, a switch for the kettle's custom mode 1 is added to HomeKit.": "Si activé, un interrupteur pour le mode personnalisé 1 de la bouilloire est ajouté à HomeKit.",
+      "If enabled, a switch for the kettle's custom mode 2 is added to HomeKit.": "Si activé, un interrupteur pour le mode personnalisé 2 de la bouilloire est ajouté à HomeKit.",
+      "If enabled, Bluetooth is used neither for commands nor for sensor readings.": "Si activé, le Bluetooth ne sert ni aux commandes ni aux relevés des capteurs.",
+      "If enabled, brightness goes over AWS as 0-100 instead of 0-254, for models that read it unscaled.": "Si activé, la luminosité passe par AWS de 0 à 100 au lieu de 0 à 254, pour les modèles qui la lisent sans mise à l'échelle.",
+      "If enabled, colours are set in a slower but more reliable way, without colour temperature or Adaptive Lighting.": "Si activé, les couleurs sont réglées d'une façon plus lente mais plus fiable, sans température de couleur ni Éclairage adaptatif.",
+      "If enabled, commands and real-time status no longer go through Govee's cloud over AWS IoT.": "Si activé, les commandes et l'état en temps réel ne passent plus par le cloud de Govee via AWS IoT.",
+      "If enabled, debug lines are logged at the info level, so they show without homeswift -D.": "Si activé, les lignes de débogage sont journalisées au niveau info, pour qu'elles s'affichent sans homeswift -D.",
+      "If enabled, device state changes will not be logged.": "Si activé, les changements d'état des appareils ne sont pas journalisés.",
+      "If enabled, devices are neither found nor controlled on the local network.": "Si activé, les appareils ne sont ni recherchés ni contrôlés sur le réseau local.",
+      "If enabled, Matter-capable models are left out, so you can add them to HomeKit natively.": "Si activé, les modèles compatibles Matter sont laissés de côté, pour que vous puissiez les ajouter à HomeKit directement.",
+      "If enabled, the Black Tea/Boil switch is not added to HomeKit.": "Si activé, l'interrupteur Thé noir/Ébullition n'est pas ajouté à HomeKit.",
+      "If enabled, the Coffee switch is not added to HomeKit.": "Si activé, l'interrupteur Café n'est pas ajouté à HomeKit.",
+      "If enabled, the fan's light, when it has one, is not added to HomeKit.": "Si activé, la lampe du ventilateur, s'il en a une, n'est pas ajoutée à HomeKit.",
+      "If enabled, the Green Tea switch is not added to HomeKit.": "Si activé, l'interrupteur Thé vert n'est pas ajouté à HomeKit.",
+      "If enabled, the light gets a music mode tile in HomeKit.": "Si activé, la lampe reçoit une vignette de mode musique dans HomeKit.",
+      "If enabled, the Oolong Tea switch is not added to HomeKit.": "Si activé, l'interrupteur Thé oolong n'est pas ajouté à HomeKit.",
+      "If enabled, the sensor appears as a thermostat that only shows the temperature, instead of a temperature sensor.": "Si activé, le capteur apparaît comme un thermostat qui affiche seulement la température, au lieu d'un capteur de température.",
+      "If enabled, this device is not added to HomeKit.": "Si activé, cet appareil n'est pas ajouté à HomeKit.",
+      "Ignore Device": "Ignorer l'appareil",
+      "Ignore Matter Devices": "Ignorer les appareils Matter",
+      "Kettle": "Bouilloire",
+      "Kettle Devices": "Bouilloires",
+      "Kind": "Type",
+      "Label": "Nom",
+      "LAN Refresh Time (seconds)": "Intervalle d'actualisation LAN (secondes)",
+      "LAN Scan Interval (seconds)": "Intervalle de recherche LAN (secondes)",
+      "Leak Sensor": "Capteur de fuite",
+      "Leak Sensor Devices": "Capteurs de fuite",
+      "Leak Sensors": "Capteurs de fuite",
+      "Legacy": "Ancien",
+      "Let the light choose colours. Turn off to control the music colour from HomeKit.": "Laisse la lampe choisir les couleurs. Désactivez-le pour régler la couleur de la musique depuis HomeKit.",
+      "Light": "Lampe",
+      "Light (default)": "Lampe (par défaut)",
+      "Light Devices": "Lampes",
+      "Light gives brightness and colour in HomeKit; Switch only turns the light on and off.": "Lampe offre la luminosité et la couleur dans HomeKit ; Interrupteur ne fait qu'allumer et éteindre la lampe.",
+      "Low Battery Threshold (%)": "Seuil de batterie faible (%)",
+      "Modern": "Moderne",
+      "Music & Video Modes": "Modes musique et vidéo",
+      "Music Mode (live)": "Mode musique (en direct)",
+      "Music Mode 1": "Mode musique 1",
+      "Music Mode 2": "Mode musique 2",
+      "Name": "Nom",
+      "Name shown in HomeKit.": "Le nom affiché dans HomeKit.",
+      "Names this instance in the log and in its data directory.": "Nomme cette instance dans le journal et dans son dossier de données.",
+      "Older Govee lights use an earlier music command. Switch to Legacy if music mode does nothing.": "Les lampes Govee plus anciennes utilisent une commande musique antérieure. Passez à Ancien si le mode musique ne fait rien.",
+      "Only needed the first time this plugin logs in (or after Govee flags a new device). If the connection test reports that a code was emailed to you, paste the code from that email here, then test again. Once login succeeds you can leave it in place; it is ignored on subsequent logins.": "Nécessaire seulement à la première connexion de ce plugin (ou quand Govee signale un nouvel appareil). Si le test de connexion indique qu'un code vous a été envoyé par e-mail, collez ici le code de cet e-mail, puis testez à nouveau. Une fois la connexion réussie, vous pouvez le laisser en place ; il est ignoré aux connexions suivantes.",
+      "Optional Bluetooth override; defaults to the scene code.": "Remplacement facultatif pour le Bluetooth ; le code de scène par défaut.",
+      "Outlet": "Prise",
+      "Plug": "Prise",
+      "Protocol": "Protocole",
+      "Red/Green/Blue": "Rouge/vert/bleu",
+      "RGB": "RVB",
+      "Rhythm": "Rythme",
+      "Rhythm only: the gentler of the two rhythm styles.": "Rythme uniquement : le plus doux des deux styles de rythme.",
+      "Rolling": "Défilement",
+      "Scene": "Scène",
+      "Scene 1": "Scène 1",
+      "Scene 2": "Scène 2",
+      "Scene 3": "Scène 3",
+      "Scene 4": "Scène 4",
+      "Scene Code": "Code de scène",
+      "Scenes": "Scènes",
+      "Scenes over LAN": "Scènes par le LAN",
+      "Scenes picked from the Govee scene library. Each one becomes its own switch in HomeKit. Pick them in the Scene Library tab of the light's editor on the plugin's page.": "Les scènes choisies dans la bibliothèque de scènes Govee. Chacune devient un interrupteur dans HomeKit. Choisissez-les dans l'onglet Bibliothèque de scènes de l'éditeur de la lampe, sur la page du plugin.",
+      "Segment 1": "Segment 1",
+      "Segment 2": "Segment 2",
+      "Segment 3": "Segment 3",
+      "Segment 4": "Segment 4",
+      "Segment Code": "Code de segment",
+      "Segmented Control": "Contrôle par segments",
+      "Send scenes, DIY effects and music mode over LAN. The light does not confirm LAN commands: if a scene does nothing, turn this off.": "Envoie les scènes, les effets DIY et le mode musique par le LAN. La lampe ne confirme pas les commandes LAN : si une scène ne fait rien, désactivez cette option.",
+      "Set-Top Box": "Décodeur",
+      "Settings for individual air purifiers, by device ID.": "Les réglages de chaque purificateur d'air, par identifiant d'appareil.",
+      "Settings for individual dehumidifiers, by device ID.": "Les réglages de chaque déshumidificateur, par identifiant d'appareil.",
+      "Settings for individual diffusers, by device ID.": "Les réglages de chaque diffuseur, par identifiant d'appareil.",
+      "Settings for individual fans, by device ID.": "Les réglages de chaque ventilateur, par identifiant d'appareil.",
+      "Settings for individual heaters, by device ID.": "Les réglages de chaque radiateur, par identifiant d'appareil.",
+      "Settings for individual humidifiers, by device ID.": "Les réglages de chaque humidificateur, par identifiant d'appareil.",
+      "Settings for individual ice makers, by device ID.": "Les réglages de chaque machine à glaçons, par identifiant d'appareil.",
+      "Settings for individual kettles, by device ID.": "Les réglages de chaque bouilloire, par identifiant d'appareil.",
+      "Settings for individual leak sensors, by device ID.": "Les réglages de chaque capteur de fuite, par identifiant d'appareil.",
+      "Settings for individual lights, by device ID.": "Les réglages de chaque lampe, par identifiant d'appareil.",
+      "Settings for individual plugs and power strips, by device ID.": "Les réglages de chaque prise et multiprise, par identifiant d'appareil.",
+      "Settings for individual thermo-hygrometers, by device ID.": "Les réglages de chaque thermo-hygromètre, par identifiant d'appareil.",
+      "Shifts the Adaptive Lighting curve, in mired. -1 turns Adaptive Lighting off.": "Décale la courbe de l'Éclairage adaptatif, en mired. -1 désactive l'Éclairage adaptatif.",
+      "Show As": "Afficher comme",
+      "Show Custom Mode 1": "Afficher le mode personnalisé 1",
+      "Show Custom Mode 2": "Afficher le mode personnalisé 2",
+      "Show Extra Switch": "Afficher un interrupteur supplémentaire",
+      "Soft Variant": "Variante douce",
+      "Spectrum": "Spectre",
+      "Streaming Stick": "Clé de streaming",
+      "Switch": "Interrupteur",
+      "Switch/Outlet Devices": "Interrupteurs et prises",
+      "Tap/Faucet": "Robinet",
+      "Temperature Reporting": "Relevé de température",
+      "Temperature Source": "Source de température",
+      "Temperature/Humidity Sensor Devices": "Capteurs de température/humidité",
+      "Temperature/Humidity Sensors": "Capteurs de température/humidité",
+      "The code to send, as comma-separated base64 command frames. Empty leaves the slot out.": "Le code à envoyer, en trames de commande base64 séparées par des virgules. Vide, l'emplacement est ignoré.",
+      "The colour command sent over AWS. Some older models take only the legacy color command: try RGB or Red/Green/Blue if colours do nothing.": "La commande de couleur envoyée par AWS. Certains modèles anciens n'acceptent que l'ancienne commande color : essayez RVB ou Rouge/vert/bleu si les couleurs ne font rien.",
+      "The device ID of the thermo-hygrometer whose temperature a plug shown as a heater or cooler follows.": "L'identifiant du thermo-hygromètre dont une prise affichée comme radiateur ou climatiseur suit la température.",
+      "The Govee device ID this entry applies to, as Discover Devices adds it.": "L'identifiant Govee de l'appareil concerné, tel que Découvrir les appareils l'ajoute.",
+      "The least time between two Bluetooth commands. Values from 5 to 499 are read as seconds, as older configurations meant.": "Le délai minimal entre deux commandes Bluetooth. Les valeurs de 5 à 499 sont lues en secondes, comme le voulaient les anciennes configurations.",
+      "The light's Bluetooth MAC address, used instead of the one Govee reports.": "L'adresse MAC Bluetooth de la lampe, utilisée à la place de celle que Govee indique.",
+      "The light's IP address, for a light the LAN scan does not reach (across VLANs, for example). Give it a fixed address in your router.": "L'adresse IP de la lampe, pour une lampe que la recherche LAN n'atteint pas (entre VLAN, par exemple). Donnez-lui une adresse fixe dans votre routeur.",
+      "The microphone sensitivity at start, from 0 to 100. The tile's brightness changes it.": "La sensibilité du micro au démarrage, de 0 à 100. La luminosité de la vignette la modifie.",
+      "The music effect the light plays.": "L'effet musical que joue la lampe.",
+      "A name to tell this device apart on the plugin's page, in place of its ID. HomeKit keeps the name Govee gives it.": "Un nom pour reconnaître cet appareil sur la page du plugin, à la place de son identifiant. HomeKit garde le nom que Govee lui donne.",
+      "The scene variant the plugin's page picked, kept for reference.": "La variante de scène choisie par la page du plugin, gardée pour mémoire.",
+      "The scene's dark icon from the Govee library, shown on the plugin's page.": "L'icône sombre de la scène, tirée de la bibliothèque Govee, affichée sur la page du plugin.",
+      "The scene's icon from the Govee library, shown on the plugin's page.": "L'icône de la scène, tirée de la bibliothèque Govee, affichée sur la page du plugin.",
+      "The step of the light's brightness slider in HomeKit, in percent.": "Le pas du curseur de luminosité de la lampe dans HomeKit, en pourcentage.",
+      "Thermo-Hygrometer": "Thermo-hygromètre",
+      "Valve": "Vanne",
+      "Variant ID": "Identifiant de variante",
+      "Verification Code": "Code de vérification",
+      "Video Mode 1": "Mode vidéo 1",
+      "Video Mode 2": "Mode vidéo 2",
+      "What the plug appears as in HomeKit. Plugs with two or three outlets take only Outlet. Audio Receiver, Set-Top Box and Streaming Stick are televisions: the Home app shows one per bridge.": "Ce que la prise représente dans HomeKit. Les prises à deux ou trois sorties n'acceptent que Prise. Récepteur audio, Décodeur et Clé de streaming sont des téléviseurs : l'app Maison en affiche un par pont.",
+      "Whether this is a scene from the library or one of your DIY effects.": "S'il s'agit d'une scène de la bibliothèque ou de l'un de vos effets DIY.",
+      "Your Govee account email address. Without an account, the plugin uses LAN and Bluetooth only.": "L'adresse e-mail de votre compte Govee. Sans compte, le plugin utilise seulement le LAN et le Bluetooth.",
+      "Your Govee account password.": "Le mot de passe de votre compte Govee."
+    },
+    "es": {
+      "Account Settings": "Cuenta",
+      "Adaptive Lighting Shift": "Desplazamiento de la Iluminación adaptativa",
+      "Advanced Settings": "Ajustes avanzados",
+      "Air Purifier": "Purificador de aire",
+      "Air Purifier Devices": "Purificadores de aire",
+      "An older fixed slot that plays a DIY effect code.": "Una antigua ranura fija que reproduce un código de efecto DIY.",
+      "An older fixed slot that plays a music mode code.": "Una antigua ranura fija que reproduce un código de modo música.",
+      "An older fixed slot that plays a scene code.": "Una antigua ranura fija que reproduce un código de escena.",
+      "An older fixed slot that plays a segment code.": "Una antigua ranura fija que reproduce un código de segmento.",
+      "An older fixed slot that plays a video mode code.": "Una antigua ranura fija que reproduce un código de modo vídeo.",
+      "Audio Receiver": "Receptor de audio",
+      "Auto Colour": "Color automático",
+      "AWS Brightness No Scale": "Brillo AWS sin escalar",
+      "AWS Colour Mode": "Modo de color AWS",
+      "Below this battery level, HomeKit reports the battery as low.": "Por debajo de este nivel, HomeKit indica que la batería está baja.",
+      "BLE Code": "Código BLE",
+      "BLE Control Interval (ms)": "Intervalo entre comandos BLE (ms)",
+      "BLE Refresh Time (seconds)": "Intervalo de actualización BLE (segundos)",
+      "Brightness Step": "Paso de brillo",
+      "Colour Safe Mode": "Modo de color seguro",
+      "Comma-separated base64 command frames.": "Tramas de comando en base64, separadas por comas.",
+      "Connection Settings": "Conexiones",
+      "Cooler": "Enfriador",
+      "Custom BLE Address": "Dirección BLE personalizada",
+      "Custom IP Address": "Dirección IP personalizada",
+      "Debug Logging": "Registro de depuración",
+      "Default": "Predeterminado",
+      "Default (Switch)": "Predeterminado (interruptor)",
+      "Default Sensitivity": "Sensibilidad predeterminada",
+      "Dehumidifier": "Deshumidificador",
+      "Dehumidifier Devices": "Deshumidificadores",
+      "Device Configuration": "Dispositivos",
+      "Device ID": "ID del dispositivo",
+      "Diffuser": "Difusor",
+      "Diffuser Devices": "Difusores",
+      "Disable AWS IoT Connection": "Desactivar la conexión AWS IoT",
+      "Disable Bluetooth (BLE)": "Desactivar el Bluetooth (BLE)",
+      "Disable Device Logging": "Desactivar el registro de dispositivos",
+      "Disable LAN Control": "Desactivar el control por LAN",
+      "DIY Effect": "Efecto DIY",
+      "DIY Mode 1": "Modo DIY 1",
+      "DIY Mode 2": "Modo DIY 2",
+      "DIY Mode 3": "Modo DIY 3",
+      "DIY Mode 4": "Modo DIY 4",
+      "DIY Modes": "Modos DIY",
+      "Effect": "Efecto",
+      "Enable": "Activar",
+      "Energic": "Enérgico",
+      "Eve Characteristic": "Característica de Eve",
+      "Eve Characteristic adds a toggle to the light that apps such as Eve show; Switch adds a switch of its own in HomeKit.": "Característica de Eve añade a la luz un conmutador que muestran apps como Eve; Interruptor añade un interruptor propio en HomeKit.",
+      "Expose music mode as its own HomeKit tile whose brightness controls microphone sensitivity, instead of a fixed pasted code.": "Muestra el modo música como un mosaico propio en HomeKit, cuyo brillo controla la sensibilidad del micrófono, en lugar de un código fijo pegado.",
+      "Fan": "Ventilador",
+      "Fan Devices": "Ventiladores",
+      "For heaters that report the temperature: they appear with heat and auto modes and a target temperature.": "Para los calefactores que informan de la temperatura: aparecen con los modos calor y automático y una temperatura objetivo.",
+      "General Settings": "General",
+      "Govee Account Email": "Correo de la cuenta de Govee",
+      "Govee Account Password": "Contraseña de la cuenta de Govee",
+      "Govee Scene ID": "ID de escena de Govee",
+      "Govee's ID for the scene or DIY effect. With Kind, it identifies the scene's switch in HomeKit.": "El ID de Govee de la escena o del efecto DIY. Junto con Tipo, identifica el interruptor de la escena en HomeKit.",
+      "Heater": "Calefactor",
+      "Heater Devices": "Calefactores",
+      "Hide Black Tea Mode": "Ocultar el modo té negro",
+      "Hide Coffee Mode": "Ocultar el modo café",
+      "Hide Green Tea Mode": "Ocultar el modo té verde",
+      "Hide Light": "Ocultar la luz",
+      "Hide Oolong Tea Mode": "Ocultar el modo té oolong",
+      "Homebridge Storage Path": "Ruta de almacenamiento de Homebridge",
+      "Homeswift only: the Homebridge storage path whose Govee login (govee_cache and persist/govee.pfx) the first start imports. ~/.homebridge when it exists.": "Solo en Homeswift: la ruta de almacenamiento de Homebridge cuyo inicio de sesión de Govee (govee_cache y persist/govee.pfx) importa el primer arranque. ~/.homebridge si existe.",
+      "How often LAN devices are asked for their state.": "Cada cuánto se pide su estado a los dispositivos LAN.",
+      "How often the device list is read from Govee's cloud for sensor readings. 30 seconds at least.": "Cada cuánto se lee la lista de dispositivos en la nube de Govee para las lecturas de los sensores. 30 segundos como mínimo.",
+      "How often the local network is scanned for LAN devices. 30 seconds at least.": "Cada cuánto se buscan dispositivos LAN en la red local. 30 segundos como mínimo.",
+      "How often thermo-hygrometers are read from their Bluetooth advertisements. 60 seconds at least.": "Cada cuánto se leen los termohigrómetros en sus anuncios Bluetooth. 60 segundos como mínimo.",
+      "HTTP Refresh Time (seconds)": "Intervalo de actualización HTTP (segundos)",
+      "Humidifier": "Humidificador",
+      "Humidifier Devices": "Humidificadores",
+      "Ice Maker": "Máquina de hielo",
+      "Ice Maker Devices": "Máquinas de hielo",
+      "Icon URL": "URL del icono",
+      "Icon URL (dark)": "URL del icono (oscuro)",
+      "If enabled, a switch for the kettle's custom mode 1 is added to HomeKit.": "Si está activado, se añade a HomeKit un interruptor para el modo personalizado 1 del hervidor.",
+      "If enabled, a switch for the kettle's custom mode 2 is added to HomeKit.": "Si está activado, se añade a HomeKit un interruptor para el modo personalizado 2 del hervidor.",
+      "If enabled, Bluetooth is used neither for commands nor for sensor readings.": "Si está activado, el Bluetooth no se usa ni para los comandos ni para las lecturas de los sensores.",
+      "If enabled, brightness goes over AWS as 0-100 instead of 0-254, for models that read it unscaled.": "Si está activado, el brillo se envía por AWS de 0 a 100 en lugar de 0 a 254, para los modelos que lo leen sin escalar.",
+      "If enabled, colours are set in a slower but more reliable way, without colour temperature or Adaptive Lighting.": "Si está activado, los colores se ajustan de una forma más lenta pero más fiable, sin temperatura de color ni Iluminación adaptativa.",
+      "If enabled, commands and real-time status no longer go through Govee's cloud over AWS IoT.": "Si está activado, los comandos y el estado en tiempo real dejan de pasar por la nube de Govee a través de AWS IoT.",
+      "If enabled, debug lines are logged at the info level, so they show without homeswift -D.": "Si está activado, las líneas de depuración se registran en el nivel info, así se ven sin homeswift -D.",
+      "If enabled, device state changes will not be logged.": "Si está activado, los cambios de estado de los dispositivos no se registran.",
+      "If enabled, devices are neither found nor controlled on the local network.": "Si está activado, los dispositivos no se buscan ni se controlan en la red local.",
+      "If enabled, Matter-capable models are left out, so you can add them to HomeKit natively.": "Si está activado, se omiten los modelos compatibles con Matter, para que puedas añadirlos a HomeKit de forma nativa.",
+      "If enabled, the Black Tea/Boil switch is not added to HomeKit.": "Si está activado, el interruptor Té negro/Hervir no se añade a HomeKit.",
+      "If enabled, the Coffee switch is not added to HomeKit.": "Si está activado, el interruptor Café no se añade a HomeKit.",
+      "If enabled, the fan's light, when it has one, is not added to HomeKit.": "Si está activado, la luz del ventilador, si tiene, no se añade a HomeKit.",
+      "If enabled, the Green Tea switch is not added to HomeKit.": "Si está activado, el interruptor Té verde no se añade a HomeKit.",
+      "If enabled, the light gets a music mode tile in HomeKit.": "Si está activado, la luz tiene un mosaico de modo música en HomeKit.",
+      "If enabled, the Oolong Tea switch is not added to HomeKit.": "Si está activado, el interruptor Té oolong no se añade a HomeKit.",
+      "If enabled, the sensor appears as a thermostat that only shows the temperature, instead of a temperature sensor.": "Si está activado, el sensor aparece como un termostato que solo muestra la temperatura, en lugar de un sensor de temperatura.",
+      "If enabled, this device is not added to HomeKit.": "Si está activado, este dispositivo no se añade a HomeKit.",
+      "Ignore Device": "Ignorar el dispositivo",
+      "Ignore Matter Devices": "Ignorar los dispositivos Matter",
+      "Kettle": "Hervidor",
+      "Kettle Devices": "Hervidores",
+      "Kind": "Tipo",
+      "Label": "Nombre",
+      "LAN Refresh Time (seconds)": "Intervalo de actualización LAN (segundos)",
+      "LAN Scan Interval (seconds)": "Intervalo de búsqueda LAN (segundos)",
+      "Leak Sensor": "Sensor de fugas",
+      "Leak Sensor Devices": "Sensores de fugas",
+      "Leak Sensors": "Sensores de fugas",
+      "Legacy": "Antiguo",
+      "Let the light choose colours. Turn off to control the music colour from HomeKit.": "Deja que la luz elija los colores. Desactívalo para controlar el color de la música desde HomeKit.",
+      "Light": "Luz",
+      "Light (default)": "Luz (predeterminado)",
+      "Light Devices": "Luces",
+      "Light gives brightness and colour in HomeKit; Switch only turns the light on and off.": "Luz ofrece brillo y color en HomeKit; Interruptor solo enciende y apaga la luz.",
+      "Low Battery Threshold (%)": "Umbral de batería baja (%)",
+      "Modern": "Moderno",
+      "Music & Video Modes": "Modos música y vídeo",
+      "Music Mode (live)": "Modo música (en directo)",
+      "Music Mode 1": "Modo música 1",
+      "Music Mode 2": "Modo música 2",
+      "Name": "Nombre",
+      "Name shown in HomeKit.": "El nombre que se muestra en HomeKit.",
+      "Names this instance in the log and in its data directory.": "Da nombre a esta instancia en el registro y en su carpeta de datos.",
+      "Older Govee lights use an earlier music command. Switch to Legacy if music mode does nothing.": "Las luces Govee más antiguas usan un comando de música anterior. Cambia a Antiguo si el modo música no hace nada.",
+      "Only needed the first time this plugin logs in (or after Govee flags a new device). If the connection test reports that a code was emailed to you, paste the code from that email here, then test again. Once login succeeds you can leave it in place; it is ignored on subsequent logins.": "Solo hace falta la primera vez que este plugin inicia sesión (o cuando Govee detecta un dispositivo nuevo). Si la prueba de conexión indica que te han enviado un código por correo, pega aquí el código de ese correo y vuelve a probar. Una vez iniciada la sesión puedes dejarlo; se ignora en los siguientes inicios de sesión.",
+      "Optional Bluetooth override; defaults to the scene code.": "Sustitución opcional para Bluetooth; por defecto, el código de escena.",
+      "Outlet": "Enchufe",
+      "Plug": "Enchufe",
+      "Protocol": "Protocolo",
+      "Red/Green/Blue": "Rojo/verde/azul",
+      "RGB": "RGB",
+      "Rhythm": "Ritmo",
+      "Rhythm only: the gentler of the two rhythm styles.": "Solo Ritmo: el más suave de los dos estilos de ritmo.",
+      "Rolling": "Desplazamiento",
+      "Scene": "Escena",
+      "Scene 1": "Escena 1",
+      "Scene 2": "Escena 2",
+      "Scene 3": "Escena 3",
+      "Scene 4": "Escena 4",
+      "Scene Code": "Código de escena",
+      "Scenes": "Escenas",
+      "Scenes over LAN": "Escenas por LAN",
+      "Scenes picked from the Govee scene library. Each one becomes its own switch in HomeKit. Pick them in the Scene Library tab of the light's editor on the plugin's page.": "Las escenas elegidas en la biblioteca de escenas de Govee. Cada una se convierte en un interruptor en HomeKit. Elígelas en la pestaña Biblioteca de escenas del editor de la luz, en la página del plugin.",
+      "Segment 1": "Segmento 1",
+      "Segment 2": "Segmento 2",
+      "Segment 3": "Segmento 3",
+      "Segment 4": "Segmento 4",
+      "Segment Code": "Código de segmento",
+      "Segmented Control": "Control por segmentos",
+      "Send scenes, DIY effects and music mode over LAN. The light does not confirm LAN commands: if a scene does nothing, turn this off.": "Envía las escenas, los efectos DIY y el modo música por LAN. La luz no confirma los comandos LAN: si una escena no hace nada, desactiva esta opción.",
+      "Set-Top Box": "Descodificador",
+      "Settings for individual air purifiers, by device ID.": "Los ajustes de cada purificador de aire, por ID de dispositivo.",
+      "Settings for individual dehumidifiers, by device ID.": "Los ajustes de cada deshumidificador, por ID de dispositivo.",
+      "Settings for individual diffusers, by device ID.": "Los ajustes de cada difusor, por ID de dispositivo.",
+      "Settings for individual fans, by device ID.": "Los ajustes de cada ventilador, por ID de dispositivo.",
+      "Settings for individual heaters, by device ID.": "Los ajustes de cada calefactor, por ID de dispositivo.",
+      "Settings for individual humidifiers, by device ID.": "Los ajustes de cada humidificador, por ID de dispositivo.",
+      "Settings for individual ice makers, by device ID.": "Los ajustes de cada máquina de hielo, por ID de dispositivo.",
+      "Settings for individual kettles, by device ID.": "Los ajustes de cada hervidor, por ID de dispositivo.",
+      "Settings for individual leak sensors, by device ID.": "Los ajustes de cada sensor de fugas, por ID de dispositivo.",
+      "Settings for individual lights, by device ID.": "Los ajustes de cada luz, por ID de dispositivo.",
+      "Settings for individual plugs and power strips, by device ID.": "Los ajustes de cada enchufe y regleta, por ID de dispositivo.",
+      "Settings for individual thermo-hygrometers, by device ID.": "Los ajustes de cada termohigrómetro, por ID de dispositivo.",
+      "Shifts the Adaptive Lighting curve, in mired. -1 turns Adaptive Lighting off.": "Desplaza la curva de la Iluminación adaptativa, en mired. -1 desactiva la Iluminación adaptativa.",
+      "Show As": "Mostrar como",
+      "Show Custom Mode 1": "Mostrar el modo personalizado 1",
+      "Show Custom Mode 2": "Mostrar el modo personalizado 2",
+      "Show Extra Switch": "Mostrar un interruptor adicional",
+      "Soft Variant": "Variante suave",
+      "Spectrum": "Espectro",
+      "Streaming Stick": "Stick de streaming",
+      "Switch": "Interruptor",
+      "Switch/Outlet Devices": "Interruptores y enchufes",
+      "Tap/Faucet": "Grifo",
+      "Temperature Reporting": "Informe de temperatura",
+      "Temperature Source": "Fuente de temperatura",
+      "Temperature/Humidity Sensor Devices": "Sensores de temperatura/humedad",
+      "Temperature/Humidity Sensors": "Sensores de temperatura/humedad",
+      "The code to send, as comma-separated base64 command frames. Empty leaves the slot out.": "El código que se envía, en tramas de comando base64 separadas por comas. Si está vacío, la ranura se omite.",
+      "The colour command sent over AWS. Some older models take only the legacy color command: try RGB or Red/Green/Blue if colours do nothing.": "El comando de color que se envía por AWS. Algunos modelos antiguos solo aceptan el antiguo comando color: prueba RGB o Rojo/verde/azul si los colores no hacen nada.",
+      "The device ID of the thermo-hygrometer whose temperature a plug shown as a heater or cooler follows.": "El ID del termohigrómetro cuya temperatura sigue un enchufe mostrado como calefactor o enfriador.",
+      "The Govee device ID this entry applies to, as Discover Devices adds it.": "El ID de Govee del dispositivo al que se aplica esta entrada, tal como lo añade Detectar dispositivos.",
+      "The least time between two Bluetooth commands. Values from 5 to 499 are read as seconds, as older configurations meant.": "El tiempo mínimo entre dos comandos Bluetooth. Los valores de 5 a 499 se leen como segundos, como querían las configuraciones antiguas.",
+      "The light's Bluetooth MAC address, used instead of the one Govee reports.": "La dirección MAC Bluetooth de la luz, que se usa en lugar de la que indica Govee.",
+      "The light's IP address, for a light the LAN scan does not reach (across VLANs, for example). Give it a fixed address in your router.": "La dirección IP de la luz, para una luz que la búsqueda LAN no alcanza (entre VLAN, por ejemplo). Dale una dirección fija en tu router.",
+      "The microphone sensitivity at start, from 0 to 100. The tile's brightness changes it.": "La sensibilidad del micrófono al arrancar, de 0 a 100. El brillo del mosaico la cambia.",
+      "The music effect the light plays.": "El efecto musical que reproduce la luz.",
+      "A name to tell this device apart on the plugin's page, in place of its ID. HomeKit keeps the name Govee gives it.": "Un nombre para distinguir este dispositivo en la página del plugin, en lugar de su ID. HomeKit mantiene el nombre que le da Govee.",
+      "The scene variant the plugin's page picked, kept for reference.": "La variante de escena que eligió la página del plugin, guardada como referencia.",
+      "The scene's dark icon from the Govee library, shown on the plugin's page.": "El icono oscuro de la escena, de la biblioteca de Govee, que se muestra en la página del plugin.",
+      "The scene's icon from the Govee library, shown on the plugin's page.": "El icono de la escena, de la biblioteca de Govee, que se muestra en la página del plugin.",
+      "The step of the light's brightness slider in HomeKit, in percent.": "El paso del control de brillo de la luz en HomeKit, en porcentaje.",
+      "Thermo-Hygrometer": "Termohigrómetro",
+      "Valve": "Válvula",
+      "Variant ID": "ID de variante",
+      "Verification Code": "Código de verificación",
+      "Video Mode 1": "Modo vídeo 1",
+      "Video Mode 2": "Modo vídeo 2",
+      "What the plug appears as in HomeKit. Plugs with two or three outlets take only Outlet. Audio Receiver, Set-Top Box and Streaming Stick are televisions: the Home app shows one per bridge.": "Lo que el enchufe representa en HomeKit. Los enchufes de dos o tres tomas solo admiten Enchufe. Receptor de audio, Descodificador y Stick de streaming son televisores: la app Casa muestra uno por puente.",
+      "Whether this is a scene from the library or one of your DIY effects.": "Si es una escena de la biblioteca o uno de tus efectos DIY.",
+      "Your Govee account email address. Without an account, the plugin uses LAN and Bluetooth only.": "La dirección de correo de tu cuenta de Govee. Sin cuenta, el plugin solo usa LAN y Bluetooth.",
+      "Your Govee account password.": "La contraseña de tu cuenta de Govee."
+    },
+    "pt": {
+      "Account Settings": "Conta",
+      "Adaptive Lighting Shift": "Desvio da Iluminação adaptativa",
+      "Advanced Settings": "Definições avançadas",
+      "Air Purifier": "Purificador de ar",
+      "Air Purifier Devices": "Purificadores de ar",
+      "An older fixed slot that plays a DIY effect code.": "Uma antiga posição fixa que reproduz um código de efeito DIY.",
+      "An older fixed slot that plays a music mode code.": "Uma antiga posição fixa que reproduz um código de modo música.",
+      "An older fixed slot that plays a scene code.": "Uma antiga posição fixa que reproduz um código de cena.",
+      "An older fixed slot that plays a segment code.": "Uma antiga posição fixa que reproduz um código de segmento.",
+      "An older fixed slot that plays a video mode code.": "Uma antiga posição fixa que reproduz um código de modo vídeo.",
+      "Audio Receiver": "Recetor de áudio",
+      "Auto Colour": "Cor automática",
+      "AWS Brightness No Scale": "Brilho AWS sem escala",
+      "AWS Colour Mode": "Modo de cor AWS",
+      "Below this battery level, HomeKit reports the battery as low.": "Abaixo deste nível, o HomeKit indica a bateria como fraca.",
+      "BLE Code": "Código BLE",
+      "BLE Control Interval (ms)": "Intervalo entre comandos BLE (ms)",
+      "BLE Refresh Time (seconds)": "Intervalo de atualização BLE (segundos)",
+      "Brightness Step": "Passo de brilho",
+      "Colour Safe Mode": "Modo de cor seguro",
+      "Comma-separated base64 command frames.": "Tramas de comando em base64, separadas por vírgulas.",
+      "Connection Settings": "Ligações",
+      "Cooler": "Arrefecedor",
+      "Custom BLE Address": "Endereço BLE personalizado",
+      "Custom IP Address": "Endereço IP personalizado",
+      "Debug Logging": "Registo de depuração",
+      "Default": "Predefinido",
+      "Default (Switch)": "Predefinido (interruptor)",
+      "Default Sensitivity": "Sensibilidade predefinida",
+      "Dehumidifier": "Desumidificador",
+      "Dehumidifier Devices": "Desumidificadores",
+      "Device Configuration": "Dispositivos",
+      "Device ID": "ID do dispositivo",
+      "Diffuser": "Difusor",
+      "Diffuser Devices": "Difusores",
+      "Disable AWS IoT Connection": "Desativar a ligação AWS IoT",
+      "Disable Bluetooth (BLE)": "Desativar o Bluetooth (BLE)",
+      "Disable Device Logging": "Desativar o registo dos dispositivos",
+      "Disable LAN Control": "Desativar o controlo por LAN",
+      "DIY Effect": "Efeito DIY",
+      "DIY Mode 1": "Modo DIY 1",
+      "DIY Mode 2": "Modo DIY 2",
+      "DIY Mode 3": "Modo DIY 3",
+      "DIY Mode 4": "Modo DIY 4",
+      "DIY Modes": "Modos DIY",
+      "Effect": "Efeito",
+      "Enable": "Ativar",
+      "Energic": "Enérgico",
+      "Eve Characteristic": "Característica Eve",
+      "Eve Characteristic adds a toggle to the light that apps such as Eve show; Switch adds a switch of its own in HomeKit.": "Característica Eve acrescenta à luz um comutador que apps como a Eve mostram; Interruptor acrescenta um interruptor próprio no HomeKit.",
+      "Expose music mode as its own HomeKit tile whose brightness controls microphone sensitivity, instead of a fixed pasted code.": "Apresenta o modo música como um mosaico próprio no HomeKit, cujo brilho controla a sensibilidade do microfone, em vez de um código fixo colado.",
+      "Fan": "Ventoinha",
+      "Fan Devices": "Ventoinhas",
+      "For heaters that report the temperature: they appear with heat and auto modes and a target temperature.": "Para aquecedores que indicam a temperatura: aparecem com os modos aquecimento e automático e uma temperatura alvo.",
+      "General Settings": "Geral",
+      "Govee Account Email": "E-mail da conta Govee",
+      "Govee Account Password": "Palavra-passe da conta Govee",
+      "Govee Scene ID": "ID de cena Govee",
+      "Govee's ID for the scene or DIY effect. With Kind, it identifies the scene's switch in HomeKit.": "O ID Govee da cena ou do efeito DIY. Com Tipo, identifica o interruptor da cena no HomeKit.",
+      "Heater": "Aquecedor",
+      "Heater Devices": "Aquecedores",
+      "Hide Black Tea Mode": "Ocultar o modo chá preto",
+      "Hide Coffee Mode": "Ocultar o modo café",
+      "Hide Green Tea Mode": "Ocultar o modo chá verde",
+      "Hide Light": "Ocultar a luz",
+      "Hide Oolong Tea Mode": "Ocultar o modo chá oolong",
+      "Homebridge Storage Path": "Caminho de armazenamento do Homebridge",
+      "Homeswift only: the Homebridge storage path whose Govee login (govee_cache and persist/govee.pfx) the first start imports. ~/.homebridge when it exists.": "Só no Homeswift: o caminho de armazenamento do Homebridge cuja sessão Govee (govee_cache e persist/govee.pfx) o primeiro arranque importa. ~/.homebridge, se existir.",
+      "How often LAN devices are asked for their state.": "A frequência com que se pede o estado aos dispositivos LAN.",
+      "How often the device list is read from Govee's cloud for sensor readings. 30 seconds at least.": "A frequência com que a lista de dispositivos é lida na nuvem da Govee para as leituras dos sensores. 30 segundos no mínimo.",
+      "How often the local network is scanned for LAN devices. 30 seconds at least.": "A frequência com que a rede local é pesquisada à procura de dispositivos LAN. 30 segundos no mínimo.",
+      "How often thermo-hygrometers are read from their Bluetooth advertisements. 60 seconds at least.": "A frequência com que os termo-higrómetros são lidos nos seus anúncios Bluetooth. 60 segundos no mínimo.",
+      "HTTP Refresh Time (seconds)": "Intervalo de atualização HTTP (segundos)",
+      "Humidifier": "Humidificador",
+      "Humidifier Devices": "Humidificadores",
+      "Ice Maker": "Máquina de gelo",
+      "Ice Maker Devices": "Máquinas de gelo",
+      "Icon URL": "URL do ícone",
+      "Icon URL (dark)": "URL do ícone (escuro)",
+      "If enabled, a switch for the kettle's custom mode 1 is added to HomeKit.": "Se ativado, é adicionado ao HomeKit um interruptor para o modo personalizado 1 da chaleira.",
+      "If enabled, a switch for the kettle's custom mode 2 is added to HomeKit.": "Se ativado, é adicionado ao HomeKit um interruptor para o modo personalizado 2 da chaleira.",
+      "If enabled, Bluetooth is used neither for commands nor for sensor readings.": "Se ativado, o Bluetooth não é usado nem para comandos nem para leituras dos sensores.",
+      "If enabled, brightness goes over AWS as 0-100 instead of 0-254, for models that read it unscaled.": "Se ativado, o brilho é enviado por AWS de 0 a 100 em vez de 0 a 254, para os modelos que o leem sem escala.",
+      "If enabled, colours are set in a slower but more reliable way, without colour temperature or Adaptive Lighting.": "Se ativado, as cores são definidas de forma mais lenta mas mais fiável, sem temperatura de cor nem Iluminação adaptativa.",
+      "If enabled, commands and real-time status no longer go through Govee's cloud over AWS IoT.": "Se ativado, os comandos e o estado em tempo real deixam de passar pela nuvem da Govee através do AWS IoT.",
+      "If enabled, debug lines are logged at the info level, so they show without homeswift -D.": "Se ativado, as linhas de depuração ficam no registo com o nível info, para aparecerem sem homeswift -D.",
+      "If enabled, device state changes will not be logged.": "Se ativado, as mudanças de estado dos dispositivos não ficam no registo.",
+      "If enabled, devices are neither found nor controlled on the local network.": "Se ativado, os dispositivos não são procurados nem controlados na rede local.",
+      "If enabled, Matter-capable models are left out, so you can add them to HomeKit natively.": "Se ativado, os modelos compatíveis com Matter ficam de fora, para poderem ser adicionados ao HomeKit de forma nativa.",
+      "If enabled, the Black Tea/Boil switch is not added to HomeKit.": "Se ativado, o interruptor Chá preto/Ferver não é adicionado ao HomeKit.",
+      "If enabled, the Coffee switch is not added to HomeKit.": "Se ativado, o interruptor Café não é adicionado ao HomeKit.",
+      "If enabled, the fan's light, when it has one, is not added to HomeKit.": "Se ativado, a luz da ventoinha, se a tiver, não é adicionada ao HomeKit.",
+      "If enabled, the Green Tea switch is not added to HomeKit.": "Se ativado, o interruptor Chá verde não é adicionado ao HomeKit.",
+      "If enabled, the light gets a music mode tile in HomeKit.": "Se ativado, a luz recebe um mosaico de modo música no HomeKit.",
+      "If enabled, the Oolong Tea switch is not added to HomeKit.": "Se ativado, o interruptor Chá oolong não é adicionado ao HomeKit.",
+      "If enabled, the sensor appears as a thermostat that only shows the temperature, instead of a temperature sensor.": "Se ativado, o sensor aparece como um termóstato que só mostra a temperatura, em vez de um sensor de temperatura.",
+      "If enabled, this device is not added to HomeKit.": "Se ativado, este dispositivo não é adicionado ao HomeKit.",
+      "Ignore Device": "Ignorar o dispositivo",
+      "Ignore Matter Devices": "Ignorar os dispositivos Matter",
+      "Kettle": "Chaleira",
+      "Kettle Devices": "Chaleiras",
+      "Kind": "Tipo",
+      "Label": "Nome",
+      "LAN Refresh Time (seconds)": "Intervalo de atualização LAN (segundos)",
+      "LAN Scan Interval (seconds)": "Intervalo de pesquisa LAN (segundos)",
+      "Leak Sensor": "Sensor de fugas",
+      "Leak Sensor Devices": "Sensores de fugas",
+      "Leak Sensors": "Sensores de fugas",
+      "Legacy": "Antigo",
+      "Let the light choose colours. Turn off to control the music colour from HomeKit.": "Deixa a luz escolher as cores. Desativar para controlar a cor da música a partir do HomeKit.",
+      "Light": "Luz",
+      "Light (default)": "Luz (predefinido)",
+      "Light Devices": "Luzes",
+      "Light gives brightness and colour in HomeKit; Switch only turns the light on and off.": "Luz oferece brilho e cor no HomeKit; Interruptor só liga e desliga a luz.",
+      "Low Battery Threshold (%)": "Limiar de bateria fraca (%)",
+      "Modern": "Moderno",
+      "Music & Video Modes": "Modos música e vídeo",
+      "Music Mode (live)": "Modo música (em direto)",
+      "Music Mode 1": "Modo música 1",
+      "Music Mode 2": "Modo música 2",
+      "Name": "Nome",
+      "Name shown in HomeKit.": "O nome mostrado no HomeKit.",
+      "Names this instance in the log and in its data directory.": "Dá nome a esta instância no registo e na sua pasta de dados.",
+      "Older Govee lights use an earlier music command. Switch to Legacy if music mode does nothing.": "As luzes Govee mais antigas usam um comando de música anterior. Mudar para Antigo se o modo música não fizer nada.",
+      "Only needed the first time this plugin logs in (or after Govee flags a new device). If the connection test reports that a code was emailed to you, paste the code from that email here, then test again. Once login succeeds you can leave it in place; it is ignored on subsequent logins.": "Só é necessário da primeira vez que este plugin inicia sessão (ou quando a Govee assinala um novo dispositivo). Se o teste de ligação indicar que foi enviado um código por e-mail, colar aqui o código desse e-mail e testar de novo. Depois de iniciar sessão, pode ficar no lugar; é ignorado nos inícios de sessão seguintes.",
+      "Optional Bluetooth override; defaults to the scene code.": "Substituição opcional para Bluetooth; por omissão, o código da cena.",
+      "Outlet": "Tomada",
+      "Plug": "Tomada",
+      "Protocol": "Protocolo",
+      "Red/Green/Blue": "Vermelho/verde/azul",
+      "RGB": "RGB",
+      "Rhythm": "Ritmo",
+      "Rhythm only: the gentler of the two rhythm styles.": "Só Ritmo: o mais suave dos dois estilos de ritmo.",
+      "Rolling": "Deslizante",
+      "Scene": "Cena",
+      "Scene 1": "Cena 1",
+      "Scene 2": "Cena 2",
+      "Scene 3": "Cena 3",
+      "Scene 4": "Cena 4",
+      "Scene Code": "Código da cena",
+      "Scenes": "Cenas",
+      "Scenes over LAN": "Cenas por LAN",
+      "Scenes picked from the Govee scene library. Each one becomes its own switch in HomeKit. Pick them in the Scene Library tab of the light's editor on the plugin's page.": "As cenas escolhidas na biblioteca de cenas Govee. Cada uma torna-se um interruptor no HomeKit. Escolhem-se no separador Biblioteca de cenas do editor da luz, na página do plugin.",
+      "Segment 1": "Segmento 1",
+      "Segment 2": "Segmento 2",
+      "Segment 3": "Segmento 3",
+      "Segment 4": "Segmento 4",
+      "Segment Code": "Código do segmento",
+      "Segmented Control": "Controlo por segmentos",
+      "Send scenes, DIY effects and music mode over LAN. The light does not confirm LAN commands: if a scene does nothing, turn this off.": "Envia as cenas, os efeitos DIY e o modo música por LAN. A luz não confirma os comandos LAN: se uma cena não fizer nada, desativar esta opção.",
+      "Set-Top Box": "Box de TV",
+      "Settings for individual air purifiers, by device ID.": "As definições de cada purificador de ar, por ID de dispositivo.",
+      "Settings for individual dehumidifiers, by device ID.": "As definições de cada desumidificador, por ID de dispositivo.",
+      "Settings for individual diffusers, by device ID.": "As definições de cada difusor, por ID de dispositivo.",
+      "Settings for individual fans, by device ID.": "As definições de cada ventoinha, por ID de dispositivo.",
+      "Settings for individual heaters, by device ID.": "As definições de cada aquecedor, por ID de dispositivo.",
+      "Settings for individual humidifiers, by device ID.": "As definições de cada humidificador, por ID de dispositivo.",
+      "Settings for individual ice makers, by device ID.": "As definições de cada máquina de gelo, por ID de dispositivo.",
+      "Settings for individual kettles, by device ID.": "As definições de cada chaleira, por ID de dispositivo.",
+      "Settings for individual leak sensors, by device ID.": "As definições de cada sensor de fugas, por ID de dispositivo.",
+      "Settings for individual lights, by device ID.": "As definições de cada luz, por ID de dispositivo.",
+      "Settings for individual plugs and power strips, by device ID.": "As definições de cada tomada e extensão elétrica, por ID de dispositivo.",
+      "Settings for individual thermo-hygrometers, by device ID.": "As definições de cada termo-higrómetro, por ID de dispositivo.",
+      "Shifts the Adaptive Lighting curve, in mired. -1 turns Adaptive Lighting off.": "Desloca a curva da Iluminação adaptativa, em mired. -1 desativa a Iluminação adaptativa.",
+      "Show As": "Mostrar como",
+      "Show Custom Mode 1": "Mostrar o modo personalizado 1",
+      "Show Custom Mode 2": "Mostrar o modo personalizado 2",
+      "Show Extra Switch": "Mostrar um interruptor adicional",
+      "Soft Variant": "Variante suave",
+      "Spectrum": "Espetro",
+      "Streaming Stick": "Pen de streaming",
+      "Switch": "Interruptor",
+      "Switch/Outlet Devices": "Interruptores e tomadas",
+      "Tap/Faucet": "Torneira",
+      "Temperature Reporting": "Leitura de temperatura",
+      "Temperature Source": "Fonte de temperatura",
+      "Temperature/Humidity Sensor Devices": "Sensores de temperatura/humidade",
+      "Temperature/Humidity Sensors": "Sensores de temperatura/humidade",
+      "The code to send, as comma-separated base64 command frames. Empty leaves the slot out.": "O código a enviar, em tramas de comando base64 separadas por vírgulas. Vazio, a posição é ignorada.",
+      "The colour command sent over AWS. Some older models take only the legacy color command: try RGB or Red/Green/Blue if colours do nothing.": "O comando de cor enviado por AWS. Alguns modelos antigos só aceitam o antigo comando color: experimentar RGB ou Vermelho/verde/azul se as cores não fizerem nada.",
+      "The device ID of the thermo-hygrometer whose temperature a plug shown as a heater or cooler follows.": "O ID do termo-higrómetro cuja temperatura uma tomada mostrada como aquecedor ou arrefecedor segue.",
+      "The Govee device ID this entry applies to, as Discover Devices adds it.": "O ID Govee do dispositivo a que esta entrada se aplica, tal como Descobrir dispositivos o adiciona.",
+      "The least time between two Bluetooth commands. Values from 5 to 499 are read as seconds, as older configurations meant.": "O tempo mínimo entre dois comandos Bluetooth. Os valores de 5 a 499 são lidos como segundos, como pretendiam as configurações antigas.",
+      "The light's Bluetooth MAC address, used instead of the one Govee reports.": "O endereço MAC Bluetooth da luz, usado em vez do que a Govee indica.",
+      "The light's IP address, for a light the LAN scan does not reach (across VLANs, for example). Give it a fixed address in your router.": "O endereço IP da luz, para uma luz que a pesquisa LAN não alcança (entre VLAN, por exemplo). Convém atribuir-lhe um endereço fixo no router.",
+      "The microphone sensitivity at start, from 0 to 100. The tile's brightness changes it.": "A sensibilidade do microfone no arranque, de 0 a 100. O brilho do mosaico altera-a.",
+      "The music effect the light plays.": "O efeito musical que a luz reproduz.",
+      "A name to tell this device apart on the plugin's page, in place of its ID. HomeKit keeps the name Govee gives it.": "Um nome para distinguir este dispositivo na página do plugin, em vez do seu ID. O HomeKit mantém o nome que a Govee lhe dá.",
+      "The scene variant the plugin's page picked, kept for reference.": "A variante de cena escolhida pela página do plugin, guardada como referência.",
+      "The scene's dark icon from the Govee library, shown on the plugin's page.": "O ícone escuro da cena, da biblioteca Govee, mostrado na página do plugin.",
+      "The scene's icon from the Govee library, shown on the plugin's page.": "O ícone da cena, da biblioteca Govee, mostrado na página do plugin.",
+      "The step of the light's brightness slider in HomeKit, in percent.": "O passo do controlo de brilho da luz no HomeKit, em percentagem.",
+      "Thermo-Hygrometer": "Termo-higrómetro",
+      "Valve": "Válvula",
+      "Variant ID": "ID da variante",
+      "Verification Code": "Código de verificação",
+      "Video Mode 1": "Modo vídeo 1",
+      "Video Mode 2": "Modo vídeo 2",
+      "What the plug appears as in HomeKit. Plugs with two or three outlets take only Outlet. Audio Receiver, Set-Top Box and Streaming Stick are televisions: the Home app shows one per bridge.": "O que a tomada representa no HomeKit. As tomadas com duas ou três saídas só aceitam Tomada. Recetor de áudio, Box de TV e Pen de streaming são televisores: a app Casa mostra um por ponte.",
+      "Whether this is a scene from the library or one of your DIY effects.": "Se é uma cena da biblioteca ou um dos efeitos DIY da conta.",
+      "Your Govee account email address. Without an account, the plugin uses LAN and Bluetooth only.": "O endereço de e-mail da conta Govee. Sem conta, o plugin usa apenas LAN e Bluetooth.",
+      "Your Govee account password.": "A palavra-passe da conta Govee."
+    }
+  }
 }
 """#
 }

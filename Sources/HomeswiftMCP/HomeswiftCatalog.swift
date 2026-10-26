@@ -800,7 +800,11 @@ public struct HomeswiftCatalog: Sendable {
                 let platform = try call.string("platform")
                 guard let entry = catalog.host.registry.entry(for: platform) else { return .error("No plugin for platform \(platform)") }
                 guard let text = entry.configurationSchemaJSON else { return .error("\(entry.name) has no config schema") }
-                return ToolResult(text: text, structured: try? JSONValue(string: text))
+                // The form's translations (`i18n`) are for people: a client gets the schema without them.
+                guard case .object(var schema)? = try? JSONValue(string: text), schema.removeValue(forKey: "i18n") != nil else {
+                    return ToolResult(text: text, structured: try? JSONValue(string: text))
+                }
+                return .json(.object(schema))
             },
             MCPTool(
                 name: "get_config", title: "Read config.json",
