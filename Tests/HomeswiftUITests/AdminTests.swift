@@ -108,7 +108,7 @@ struct AdminPageTests {
         #expect(renamed.status == 200)
         #expect(try environment.server.catalog.readConfig()["bridge"]?["name"] == "Renamed")
         #expect(try environment.server.catalog.readConfig()["bridge"]?["port"] == nil)
-        #expect(try environment.server.catalog.readConfig()["bridge"]?["pin"] == "031-45-154")
+        #expect(try environment.server.catalog.readConfig()["bridge"]?["pin"]?.stringValue?.hasPrefix(SecretBox.prefix) == true)
 
         // Pairings and caches: the destructive ones need confirm.
         #expect(try await browser.get("/api/pairings").json?["bridges"]?[0]?["kind"] == "main")

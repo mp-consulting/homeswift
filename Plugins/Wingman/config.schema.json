@@ -23,7 +23,7 @@
             "name": { "title": "Name", "type": "string" },
             "host": { "title": "Address", "type": "string", "description": "Bonjour updates it when Wingman moves." },
             "port": { "title": "Port", "type": "integer", "placeholder": 8619, "minimum": 1, "maximum": 65535 },
-            "token": { "title": "Token", "type": "string", "description": "From pairing." },
+            "token": { "title": "Token", "type": "string", "x-schema-form": { "type": "password" }, "description": "From pairing." },
             "fingerprint": { "title": "Certificate SHA-256", "type": "string", "description": "Pinned at pairing." }
           }
         }

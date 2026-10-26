@@ -28,7 +28,7 @@ extension UIServer {
     func adminAPI(_ route: [String], _ request: Request, caller: Caller) async throws -> Reply? {
         let username = caller.username
         let method = request.method
-        // The config import: administrators only, checked in the import routes.
+        // The config import: administrators only, checked here before the import routes run.
         if route.first == "import" {
             guard caller.isAdmin else { return .error(403, "only an administrator can do this") }
             return try await importAPI(route, request)
@@ -89,7 +89,7 @@ extension UIServer {
             case (.GET, ["config", "backups"]):
                 return .json(catalog.configBackupsJSON())
             case let (.GET, path) where path.count == 3 && path[0] == "config":
-                return .text(try catalog.configBackupText(named: path[2]), contentType: "application/json")
+                return .text(try catalog.configBackupDisplay(named: path[2]), contentType: "application/json")
             case let (.POST, path) where path.count == 4 && path[0] == "config" && path[3] == "restore":
                 let result = try await catalog.restoreConfigBackup(path[2])
                 logger.info("Web UI restored a config.json backup", metadata: ["user": "\(username)", "backup": "\(path[2])"])

@@ -32,7 +32,7 @@ extension DirigeraPlugin {
             },
             "token": {
               "title": "Authentication Token",
-              "type": "string",
+              "type": "string", "x-schema-form": { "type": "password" },
               "required": false,
               "description": "Optional: a token from homebridge-dirigera. Pairing on the plugin's page keeps its own in the plugin's folder."
             },

@@ -240,7 +240,8 @@ public enum ConfigurationError: Error, CustomStringConvertible, Equatable, Senda
         switch self {
         case .notAnObject: "config.json must be a JSON object"
         case .invalidValue(let key, let expected): "config.json: \"\(key)\" must be \(expected)"
-        case .invalidSetupCode(let pin): "config.json: \"\(pin)\" is not a valid setup code (eight digits as XXX-XX-XXX, not trivial)"
+        // The value is not printed: a setup code is never logged, and this text reaches the log at startup.
+        case .invalidSetupCode: "config.json: the bridge's setup code is not valid (eight digits as XXX-XX-XXX, not trivial)"
         case .invalidUsername(let username): "config.json: \"\(username)\" is not a valid username (six hex octets, XX:XX:XX:XX:XX:XX)"
         }
     }

@@ -62,7 +62,6 @@ struct ConfigImportServerTests {
 
         let saved = try await admin.post("/api/import/save", ["source": "paste", "text": .string(Self.homebridge)])
         #expect(saved.status == 200)
-        #expect(saved.json?["saved"]?.intValue == 1)
         // The save applies at once: the imported block runs without a restart.
         #expect(environment.host.platforms.contains { $0.platform == "Lamps" && $0.name == "Garden" })
         #expect(saved.json?["backup"]?.stringValue?.hasPrefix("config-") == true)

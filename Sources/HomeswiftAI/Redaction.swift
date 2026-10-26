@@ -7,11 +7,16 @@ import Foundation
 /// write round trip is lossless. `redactText` is the best-effort version for free text such as logs.
 public enum Redaction {
     public static let placeholder = "__REDACTED__"
+    /// The prefix of a secret sealed in config.json (`SecretBox`): its text is ciphertext, never shown.
+    public static let sealedPrefix = "enc:v1:"
 
     /// Keys whose values are secrets: password, mqttPass, apiKey, clientSecret, bridge.pin.
-    private static let secretKey = try! NSRegularExpression(pattern: #"pass(word|wd|phrase)?$|secret|token|api[-_]?key|private[-_]?key|credential|^pin$|authorization|cookie|session[-_]?(id|key)$|^sid$|signature|^otp$"#, options: [.caseInsensitive])
+    /// The key rule as a pattern: the server sends it to the page, so the page never keeps its own copy.
+    public static let secretKeyPattern = #"pass$|pass(word|wd|phrase)|secret|token|api[-_]?key|private[-_]?key|credential|^pin$|authorization|cookie|session[-_]?(id|key)$|^sid$|signature|^otp$"#
+    public static let notSecretKeyPattern = #"(max|min|context|input|output|total|daily|monthly)\w*tokens$"#
+    private static let secretKey = try! NSRegularExpression(pattern: secretKeyPattern, options: [.caseInsensitive])
     /// Keys that look secret but hold token counts: maxOutputTokens, contextTokens, a budget's dailyTokens.
-    private static let notSecretKey = try! NSRegularExpression(pattern: #"(max|min|context|input|output|total|daily|monthly)\w*tokens$"#, options: [.caseInsensitive])
+    private static let notSecretKey = try! NSRegularExpression(pattern: notSecretKeyPattern, options: [.caseInsensitive])
     /// `key: value`, `key=value` and `"key": "value"` pairs whose key names a secret (including HomeKit's
     /// pin and setup code).
     private static let secretPair = try! NSRegularExpression(
@@ -48,6 +53,14 @@ public enum Redaction {
         case .number: true
         default: false
         }
+    }
+
+    /// A URL with a user name and password in it (`rtsp://user:pass@host/stream`): a credential whatever its key.
+    public static func isCredentialURL(_ text: String) -> Bool {
+        guard let scheme = text.range(of: "://") else { return false }
+        let rest = text[scheme.upperBound...]
+        let authority = rest.prefix { $0 != "/" && $0 != "?" }
+        return authority.contains("@")
     }
 
     /// The placeholder, or a `SecretVault` handle: a value that already hides a secret.
@@ -93,6 +106,8 @@ public enum Redaction {
             return .object(object.reduce(into: [:]) { result, entry in
                 result[entry.key] = redactSecrets(entry.value, underSecretKey: underSecretKey || isSecretKey(entry.key), replacing: replacing)
             })
+        case .string(let text) where (isCredentialURL(text) || text.hasPrefix(sealedPrefix)) && !isConcealed(text):
+            return replacing(value)
         default:
             return underSecretKey && isSecretValue(value) ? replacing(value) : value
         }
@@ -269,7 +284,14 @@ public enum Redaction {
     /// The expressions cost hundreds of microseconds a line, so ASCII text skips those it cannot match (it lacks
     /// what each one needs); other text goes through all of them, since case folding reaches past ASCII.
     public static func redactText(_ text: String) -> String {
-        redactText(text, prefilter: true)
+        maskURLPasswords(redactText(text, prefilter: true))
+    }
+
+    /// `scheme://user:password@host` with the password replaced by the placeholder.
+    private static let urlPassword = try! NSRegularExpression(pattern: #"([A-Za-z][A-Za-z0-9+.-]*://[^:/@\s]+:)[^@\s/]+(@)"#)
+
+    private static func maskURLPasswords(_ text: String) -> String {
+        urlPassword.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1\(placeholder)$2")
     }
 
     /// `prefilter: false` runs every expression: what the tests compare the shortcut with.

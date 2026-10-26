@@ -40,7 +40,13 @@ extension HomeswiftCatalog {
         return ["backups": .array(Array(entries)), "kept": 20, "folder": .string(backupsDirectory.path)]
     }
 
-    /// A config.json backup's text, as it was saved.
+    /// A config backup as the web UI shows it: its secrets (sealed or, from before sealing, plain) as the placeholder.
+    public func configBackupDisplay(named name: String) throws -> String {
+        let config = try JSONValue(data: Data(configBackupText(named: name).utf8))
+        return String(decoding: Redaction.redactSecrets(config).encoded(pretty: true), as: UTF8.self)
+    }
+
+    /// A config.json backup's text, as it was saved (the restore reads it, so it keeps the secrets).
     public func configBackupText(named name: String) throws -> String {
         guard backups().contains(name) else { throw CatalogError("No config backup \(name)") }
         return try String(contentsOf: backupsDirectory.appendingPathComponent(name), encoding: .utf8)

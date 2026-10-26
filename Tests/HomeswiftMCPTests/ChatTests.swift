@@ -1,5 +1,6 @@
 import Foundation
 import HomeswiftAI
+import HomeswiftPlugin
 import NIOConcurrencyHelpers
 import Testing
 
@@ -67,7 +68,7 @@ import Testing
         let config = try JSONValue(data: Data(contentsOf: environment.configURL))
         let devices = config["platforms"]?[0]?["devices"]?.arrayValue ?? []
         #expect(devices.count == 1)
-        #expect(devices.first?["password"] == "s3cret-pass")
+        #expect(devices.first?["password"]?.stringValue?.hasPrefix(SecretBox.prefix) == true)
         #expect(devices.first?["name"] == "Bedroom TV")
         #expect(events.started == ["Devices_pair", "put_list_entry"])
         #expect(environment.auditEntries.contains { $0["tool"] == "put_list_entry" && $0["client"] == "web UI chat" && $0["ok"] == true })
@@ -113,7 +114,7 @@ import Testing
         #expect(!output.isError, "\(output.text)")
         let config = try JSONValue(data: Data(contentsOf: environment.configURL))
         #expect(config["platforms"]?[0]?["devices"]?[0]?["name"] == "New")
-        #expect(config["platforms"]?[0]?["devices"]?[0]?["password"] == "kept-secret")
+        #expect(config["platforms"]?[0]?["devices"]?[0]?["password"]?.stringValue?.hasPrefix(SecretBox.prefix) == true)
         await environment.stop()
     }
 

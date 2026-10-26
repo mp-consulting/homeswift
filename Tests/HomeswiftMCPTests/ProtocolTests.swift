@@ -1,6 +1,7 @@
 import Foundation
 import Homeswift
 import HomeswiftAI
+import HomeswiftPlugin
 import Testing
 
 @testable import HomeswiftMCP
@@ -366,7 +367,7 @@ struct ProtocolTests {
         #expect(patched["isError"] == nil)
         let written = try JSONValue(data: Data(contentsOf: environment.configURL))
         #expect(written["platforms"]?[0]?["pollingRate"] == 500)
-        #expect(written["platforms"]?[0]?["token"] == "secret-token")
+        #expect(written["platforms"]?[0]?["token"]?.stringValue?.hasPrefix(SecretBox.prefix) == true)
         #expect(written["platforms"]?[0]?["name"] == nil)
         let backups = try await client.tool("list_config_backups")["structuredContent"]?["backups"]?.arrayValue ?? []
         #expect(backups.count == 1)
@@ -380,8 +381,9 @@ struct ProtocolTests {
         #expect(replaced["isError"] == nil)
         let final = try JSONValue(data: Data(contentsOf: environment.configURL))
         #expect(final["platforms"]?.arrayValue?.count == 1)
-        #expect(final["platforms"]?[0]?["token"] == "secret-token")
-        #expect(final["bridge"]?["pin"] == "031-45-154")
+        // Saved secrets are sealed in config.json (the plain value is never written).
+        #expect(final["platforms"]?[0]?["token"]?.stringValue?.hasPrefix(SecretBox.prefix) == true)
+        #expect(final["bridge"]?["pin"]?.stringValue?.hasPrefix(SecretBox.prefix) == true)
         let invalid = try await client.tool("update_config", ["config": ["bridge": ["pin": "111-11-111"]]], answer: ["action": "accept", "content": ["confirm": true]])
         #expect(try await client.tool("update_config", ["config": [:], "extra": 1])["isError"] == true)
         #expect(invalid["isError"] == true)

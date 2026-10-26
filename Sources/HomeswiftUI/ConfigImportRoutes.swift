@@ -11,7 +11,7 @@ import NIOHTTP1
 extension UIServer {
     /// The import routes, or a 404 for an unknown one under `/api/import`.
     func importAPI(_ route: [String], _ request: Request) async throws -> Reply {
-        let storage = catalog.backupsDirectory.deletingLastPathComponent()
+        let storage = catalog.storageDirectory
         do {
             switch (request.method, route) {
             case (.GET, ["import", "browse"]):
@@ -32,7 +32,7 @@ extension UIServer {
     /// are appended, the bridge is set only for an empty config (`HomebridgeImport.check` decides), and the
     /// secrets are sealed with the bridge's key, which is made here on the first save.
     private func importCheck(_ request: Request, storage: URL, save: Bool) async throws -> Reply {
-        let body = try JSONValue(data: request.body)
+        guard let body = try? JSONValue(data: request.body) else { return .error(400, "the request body is not JSON") }
         guard let source = body["source"]?.stringValue, ["paste", "upload", "server"].contains(source) else {
             return .error(400, "source must be paste, upload or server")
         }
@@ -50,22 +50,21 @@ extension UIServer {
         }
 
         let existing = try catalog.readConfig()
-        let checked = try HomebridgeImport.check(data, registry: catalog.host.registry, existing: existing)
+        // The check validates the merged config as it will run, so the existing sealed secrets are opened for it.
+        let checked = try HomebridgeImport.check(data, registry: catalog.host.registry, existing: SecretBox.revealed(existing, storage: storage))
         guard save else { return .json(try encodedJSON(checked.report)) }
-        guard checked.report.valid else { return .json(try encodedJSON(checked.report), status: 422) }
-
-        let box = try SecretBox.load(storage: storage, create: true)
-        let sealed = try HomebridgeImport.check(data, registry: catalog.host.registry, existing: existing, seal: box.seal)
-        guard let additions = sealed.additions else { return .json(try encodedJSON(sealed.report), status: 422) }
-        // The file keeps the sealed secrets; the running bridge gets them opened, so the plugins start with them.
+        guard checked.report.valid, let additions = checked.additions else { return .json(try encodedJSON(checked.report), status: 422) }
+        // The checked values are plain: `writeConfig` seals them as it writes the file, and the running bridge gets the
+        // secrets opened, so the plugins start with them.
         let merged = HomebridgeImport.merge(existing, additions: additions)
-        let opened = try box.revealing(HomeswiftConfiguration.decode(merged.encoded()))
-        let applied = try await catalog.applySealed(merged, opened: opened)
-        var answer = try encodedJSON(sealed.report).objectValue ?? [:]
-        answer["saved"] = .number(Double(sealed.report.summary.platforms))
-        answer["backup"] = applied["backup"] ?? .null
-        answer["note"] = applied["note"] ?? .null
-        answer["restartNeeded"] = applied["restartNeeded"] ?? .null
+        let applied: JSONValue
+        do {
+            applied = try await catalog.applySealed(merged, expecting: existing)
+        } catch let changed as ConfigChanged {
+            return .error(409, changed.description)
+        }
+        var answer = try encodedJSON(checked.report).objectValue ?? [:]
+        for key in ["backup", "note", "restartNeeded"] { answer[key] = applied[key] ?? .null }
         return .json(.object(answer))
     }
 
@@ -79,7 +78,6 @@ extension UIServer {
         let keys: [URLResourceKey] = [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey]
         let children = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles])
         var entries: [JSONValue] = []
-        let formatter = ISO8601DateFormatter()
         for child in children.sorted(by: { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }) {
             let name = child.lastPathComponent
             let values = try child.resourceValues(forKeys: Set(keys))
@@ -92,7 +90,7 @@ extension UIServer {
                 "path": .string(relative),
                 "kind": .string(isDirectory ? "folder" : "file"),
                 "size": .number(Double(values.fileSize ?? 0)),
-                "modified": .string(values.contentModificationDate.map(formatter.string(from:)) ?? ""),
+                "modified": .string(values.contentModificationDate.map { Timestamp.iso8601($0) } ?? ""),
             ]))
         }
         let folders = entries.filter { $0["kind"]?.stringValue == "folder" }
@@ -112,7 +110,9 @@ extension UIServer {
 
     /// The bridge's state (its signing key and pairings), the UI's state, and the key for sealed secrets: never a config.
     static func isStateFile(_ name: String) -> Bool {
-        name == SecretBox.fileName || name == "homeswift.json" || name.hasPrefix("ui-")
+        // Case-insensitive: the default macOS volume resolves `UI-users.json` to `ui-users.json`.
+        let lowered = name.lowercased()
+        return lowered == SecretBox.fileName || lowered == "homeswift.json" || lowered.hasPrefix("ui-")
     }
 
     /// `relative` under `storage`, with links resolved: a path that leaves the storage folder is refused.
@@ -125,7 +125,7 @@ extension UIServer {
     }
 
     private func encodedJSON<T: Encodable>(_ value: T) throws -> JSONValue {
-        try JSONValue(data: JSONEncoder().encode(value))
+        try JSONValue(encoding: value)
     }
 }
 

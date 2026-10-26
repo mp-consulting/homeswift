@@ -21,6 +21,8 @@
   --accent-ink: #b0460a; --accent-fill-top: #c4500c; --accent-fill: #ab3f0a;
   /* Chart series, slots 1 and 2 of a palette checked for colour-blind separation and contrast, each mode its own step. */
   --series-1: #2a78d6; --series-2: #eb6834;
+  /* Blue that carries small text (the Encrypted pill) at 4.5:1 on its tint; --series-1 stays for marks and bars. */
+  --series-1-ink: #1d5fae;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --radius: 22px; --blur-thick: 32px; --blur: 20px;
@@ -39,7 +41,7 @@
     --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0) 45%);
     --text: #f3f4f7; --muted: #a2a9b5; --line: rgba(255, 255, 255, 0.1);
     --warn: #e9a04a; --paused: #8e8cff; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #ff8f3d;
-    --series-1: #3987e5; --series-2: #d95926;
+    --series-1: #3987e5; --series-2: #d95926; --series-1-ink: #6aa6ee;
   }
 }
 /* A theme chosen in the web UI (/appearance) rather than the system's: common.js sets data-theme. */
@@ -57,7 +59,7 @@
   --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0) 45%);
   --text: #f3f4f7; --muted: #a2a9b5; --line: rgba(255, 255, 255, 0.1);
   --warn: #e9a04a; --paused: #8e8cff; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #ff8f3d;
-  --series-1: #3987e5; --series-2: #d95926;
+  --series-1: #3987e5; --series-2: #d95926; --series-1-ink: #6aa6ee;
 }
 * { box-sizing: border-box; }
 html { min-height: 100%; background: var(--bg); }
@@ -1909,6 +1911,7 @@ a.link:hover { text-decoration: underline; }
 .row-block > div:not(.row):not(:empty) { padding: 0 16px 12px; }
 pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .notice-list p { margin: 4px 0; font-size: 0.875rem; }
+.secret-note { margin: 0 0 8px; font-size: 0.8125rem; color: var(--warn); }
 .admin-dialog { margin: auto; width: min(520px, calc(100% - 24px)); max-height: calc(100% - 48px); overflow: auto; padding: 20px 22px; color: var(--text); background-color: var(--material-solid); }
 .admin-dialog.wide { width: min(980px, calc(100% - 24px)); }
 .admin-dialog::backdrop { background: rgba(10, 14, 24, 0.35); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
@@ -2926,7 +2929,8 @@ select option:disabled { color: var(--muted); }
 .import-crumbs .crumb { padding: 4px 8px; font-size: 0.8125rem; }
 .import-crumbs .crumb[aria-current="page"] { font-weight: 600; }
 .import-files { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 42vh; overflow: auto; overscroll-behavior: contain; }
-.import-file { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: start; gap: 2px; padding: 10px 12px; text-align: left; border-radius: 14px; }
+.import-file { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: start; gap: 2px; padding: 10px 12px; text-align: left; border-radius: 14px; transition: transform var(--fast) var(--ease-out); }
+.import-file:active { transform: scale(0.98); }
 .import-file .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .import-file .meta { font-size: 0.75rem; color: var(--muted); }
 .import-file[aria-pressed="true"] { border-color: var(--accent); background: var(--material-thin); }
@@ -2953,11 +2957,11 @@ select option:disabled { color: var(--muted); }
 .import-value.masked { letter-spacing: 0.12em; }
 .import-pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; white-space: nowrap; }
 .import-pill.imported { color: var(--ok); background: rgba(21, 122, 66, 0.12); }
-.import-pill.encrypted { color: var(--series-1); background: rgba(42, 120, 214, 0.12); }
+.import-pill.encrypted { color: var(--series-1-ink); background: rgba(42, 120, 214, 0.12); }
 .import-pill.dropped { color: var(--muted); background: rgba(89, 97, 112, 0.12); }
 .import-item .chev { width: 16px; height: 16px; fill: none; stroke: var(--muted); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; transition: transform var(--fast) var(--ease-out); }
 .import-item[open] .chev { transform: rotate(180deg); }
-.import-detail-list { margin: 0; padding: 0 14px 12px; display: grid; gap: 8px; font-size: 0.875rem; }
+.import-detail-list { margin: 0; padding: 0 14px 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; font-size: 0.875rem; }
 .import-detail-list > div { display: grid; gap: 2px; }
 .import-detail-list dt { font-size: 0.75rem; color: var(--muted); font-weight: 600; }
 .import-detail-list dd { margin: 0; }
@@ -2977,7 +2981,7 @@ select option:disabled { color: var(--muted); }
 .import-offer-card .actions { justify-content: center; flex-wrap: wrap; }
 .import-offer-title { font-weight: 600; font-size: 1rem; }
 @media (max-width: 520px) {
-  .import-item > summary { grid-template-columns: minmax(0, 1fr) auto; }
+  .import-item > summary { grid-template-columns: minmax(0, 1fr) auto auto; }
   .import-value { grid-column: 1 / -1; justify-self: start; max-width: none; grid-row: 2; }
   .import-summary { gap: 8px; }
   .import-count b { font-size: 1.25rem; }

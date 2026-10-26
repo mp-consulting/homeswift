@@ -142,6 +142,7 @@ final class ScriptedProvider: Provider, @unchecked Sendable {
         #expect(!Redaction.isSecretKey("dailyTokens"))
         #expect(!Redaction.isSecretKey("monthlyTokens"))
         #expect(Redaction.isSecretKey("token"))
+        #expect(Redaction.isSecretKey("passwordHash") && Redaction.isSecretKey("mqttPasswordFile") && !Redaction.isSecretKey("passport"))
     }
 }
 

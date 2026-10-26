@@ -21,8 +21,6 @@ public enum HomebridgeImport {
     static let bridgeKeys: Set<String> = ["name", "username", "port", "pin", "advertiser", "bind"]
     /// The child bridge settings (`_bridge`) Homeswift reads.
     static let childBridgeKeys: Set<String> = ["name", "username", "port", "pin", "manufacturer", "model", "firmwareRevision"]
-    /// Key names that hold a credential the bridge must send back to a service, so they are sealed.
-    static let secretNameMarkers = ["password", "passwd", "secret", "token", "credential", "apikey", "api_key"]
 
     public enum Outcome: String, Codable, Sendable { case imported, encrypted, dropped }
 
@@ -61,7 +59,6 @@ public enum HomebridgeImport {
         public var platforms: Int
         public var dropped: Int
         public var encrypted: Int
-        public var bridge: Bool
     }
 
     public struct Report: Codable, Sendable, Equatable {
@@ -116,20 +113,6 @@ public enum HomebridgeImport {
         var schema: JSONValue?
     }
 
-    /// The import's markers, and the assistant's own list of secret keys (`Redaction`), so the two never disagree.
-    static func isSecretName(_ key: String) -> Bool {
-        let lowered = key.lowercased()
-        return secretNameMarkers.contains { lowered.contains($0) } || Redaction.isSecretKey(key)
-    }
-
-    /// A URL with a user name and password in it, such as an RTSP stream address.
-    static func isCredentialURL(_ text: String) -> Bool {
-        guard let scheme = text.range(of: "://") else { return false }
-        let rest = text[scheme.upperBound...]
-        let authority = rest.prefix { $0 != "/" && $0 != "?" }
-        return authority.contains("@")
-    }
-
     /// The name a Homebridge package and a platform name share: `homebridge-unifi-protect` and `UniFi Protect`.
     static func normalized(_ name: String) -> String {
         var text = name.lowercased()
@@ -137,14 +120,10 @@ public enum HomebridgeImport {
         return String(text.filter { $0.isLetter || $0.isNumber })
     }
 
-    static func maskedPIN(_ pin: String) -> String {
-        String(pin.map { $0.isNumber ? "•" : $0 })
-    }
-
     struct Converter {
         let platforms: [String: Supported]
         let seal: ((String) throws -> String)?
-        var report = Report(valid: false, syntax: nil, problems: [], warnings: [], summary: Summary(platforms: 0, dropped: 0, encrypted: 0, bridge: false), items: [])
+        var report = Report(valid: false, syntax: nil, problems: [], warnings: [], summary: Summary(platforms: 0, dropped: 0, encrypted: 0), items: [])
         var kept: [JSONValue] = []
         /// The normalized Homebridge platform names read, for the disabled-plugins check.
         var seenPlatforms: Set<String> = []
@@ -173,11 +152,16 @@ public enum HomebridgeImport {
                 report.problems.append(Message("notObject"))
                 return finish(additions: nil)
             }
+            // Revealing opens every string that starts with the prefix, anywhere in the config, so a plain value that
+            // carries it could never open and would stop the bridge at startup. Refused, whatever its key.
+            if SecretBox.holdsSealed(root) {
+                report.problems.append(Message("sealedLookingValue"))
+            }
 
             var additions: [String: JSONValue] = [:]
             if let bridge = top["bridge"] {
                 if let object = bridge.objectValue {
-                    additions["bridge"] = convertBridge(object)
+                    additions["bridge"] = try convertBridge(object)
                 } else {
                     report.problems.append(Message("bridgeNotObject"))
                 }
@@ -214,7 +198,7 @@ public enum HomebridgeImport {
         mutating func finishChecked(additions: [String: JSONValue], existing: JSONValue?) -> Result {
             let allExisting = existing?["platforms"]?.arrayValue ?? []
             // The runtime's own blocks (the web UI, the Assistant) are not plugins: they do not count for the bridge rule.
-            let existingPlugins = allExisting.filter { block in
+            let hasPlugins = allExisting.contains { block in
                 !RuntimePlatforms.all.contains(block["platform"]?.stringValue ?? "")
             }
             let taken = Set(allExisting.compactMap(Self.identity))
@@ -227,18 +211,30 @@ public enum HomebridgeImport {
                 seen.insert(identity)
             }
             var additions = additions
-            if !existingPlugins.isEmpty, additions["bridge"] != nil {
+            if hasPlugins, additions["bridge"] != nil {
                 additions["bridge"] = nil
                 report.warnings.append(Message("bridgeKeptExisting"))
             }
-            report.summary.bridge = additions["bridge"] != nil
             if kept.isEmpty, additions["bridge"] == nil {
                 report.problems.append(Message("nothingToImport"))
             }
-            if report.problems.isEmpty {
+            // A sealed run (seal set) validates nothing: a sealed PIN would fail the setup-code check. The check run did.
+            if report.problems.isEmpty, seal == nil {
                 validate(additions, existing: existing)
             }
             return finish(additions: additions)
+        }
+
+        /// `text` sealed. A check run (no seal) keeps the text as it is.
+        func sealText(_ text: String) throws -> String {
+            guard let seal else { return text }
+            return try seal(text)
+        }
+
+        /// A bridge PIN, sealed and listed as encrypted.
+        mutating func sealedPIN(_ text: String, path: String, group: String) throws -> JSONValue {
+            report.items.append(Item(group: group, path: path, outcome: .encrypted, value: nil, count: nil, note: nil))
+            return .string(try sealText(text))
         }
 
         mutating func validate(_ additions: [String: JSONValue], existing: JSONValue?) {
@@ -258,9 +254,11 @@ public enum HomebridgeImport {
             return Result(report: report, additions: report.valid ? additions.map { .object($0) } : nil)
         }
 
+        /// A runtime block exists once, whatever its name, so its name is not part of its identity.
         static func identity(_ block: JSONValue) -> Identity? {
             guard let platform = block["platform"]?.stringValue else { return nil }
-            return Identity(platform: platform, name: block["name"]?.stringValue ?? platform)
+            let name = RuntimePlatforms.all.contains(platform) ? platform : block["name"]?.stringValue ?? platform
+            return Identity(platform: platform, name: name)
         }
 
         struct Identity: Hashable {
@@ -270,7 +268,7 @@ public enum HomebridgeImport {
 
         // MARK: Bridge
 
-        mutating func convertBridge(_ object: [String: JSONValue]) -> JSONValue {
+        mutating func convertBridge(_ object: [String: JSONValue]) throws -> JSONValue {
             var out: [String: JSONValue] = [:]
             for key in object.keys.sorted() {
                 let value = object[key] ?? .null
@@ -278,10 +276,13 @@ public enum HomebridgeImport {
                     report.items.append(Item(group: "Bridge", path: key, outcome: .dropped, value: nil, count: nil, note: Message("notUsed")))
                     continue
                 }
+                if key == "pin", let text = value.stringValue {
+                    out[key] = try sealedPIN(text, path: key, group: "Bridge")
+                    continue
+                }
                 out[key] = value
                 if let text = value.stringValue {
-                    let shown = key == "pin" ? HomebridgeImport.maskedPIN(text) : text
-                    report.items.append(Item(group: "Bridge", path: key, outcome: .imported, value: shown, count: nil, note: nil))
+                    report.items.append(Item(group: "Bridge", path: key, outcome: .imported, value: text, count: nil, note: nil))
                 } else if let number = value.doubleValue {
                     report.items.append(Item(group: "Bridge", path: key, outcome: .imported, value: String(Int(number)), count: nil, note: nil))
                 }
@@ -322,9 +323,9 @@ public enum HomebridgeImport {
             for key in object.keys.sorted() where key != "platform" && key != "name" {
                 let value = object[key] ?? .null
                 switch key {
-                case "bridge":
+                case "_bridge":
                     if let child = value.objectValue {
-                        block["_bridge"] = convertChild(child, group: name)
+                        block["_bridge"] = try convertChild(child, group: name)
                     }
                 case "platforms":
                     report.items.append(Item(group: name, path: key, outcome: .dropped, value: nil, count: nil, note: Message("nestedConfig")))
@@ -341,12 +342,16 @@ public enum HomebridgeImport {
             kept.append(.object(block))
         }
 
-        mutating func convertChild(_ object: [String: JSONValue], group: String) -> JSONValue {
+        mutating func convertChild(_ object: [String: JSONValue], group: String) throws -> JSONValue {
             var out: [String: JSONValue] = [:]
             for key in object.keys.sorted() {
                 let value = object[key] ?? .null
                 guard HomebridgeImport.childBridgeKeys.contains(key) else {
                     report.items.append(Item(group: group, path: "bridge.\(key)", outcome: .dropped, value: nil, count: nil, note: Message("notUsed")))
+                    continue
+                }
+                if key == "pin", let text = value.stringValue {
+                    out[key] = try sealedPIN(text, path: "bridge.pin", group: group)
                     continue
                 }
                 out[key] = value
@@ -357,14 +362,15 @@ public enum HomebridgeImport {
         /// The value kept under `path`, its secrets sealed. `schema` is the node of the plugin's schema the value
         /// is checked against (nil: no schema, so every key is kept). Only top-level plain values are listed one
         /// by one; a list or an object is listed once with its size, and its secrets each on their own line.
-        mutating func record(_ value: JSONValue, key: String, path: String, group: String, schema: JSONValue?, depth: Int) throws -> JSONValue? {
+        mutating func record(_ value: JSONValue, key: String, path: String, group: String, schema: JSONValue?, depth: Int, underSecret: Bool = false) throws -> JSONValue? {
             let secret = schema?["x-schema-form"]?["type"]?.stringValue == "password"
+            // A password-type field, a secret name, or anything under one: sealed, and its children are too.
+            let sealedHere = underSecret || secret || Redaction.isSecretKey(key)
             switch value {
             case .string(let text):
-                if !text.isEmpty, secret || HomebridgeImport.isSecretName(key) || HomebridgeImport.isCredentialURL(text) {
+                if !text.isEmpty, sealedHere || Redaction.isCredentialURL(text) {
                     report.items.append(Item(group: group, path: path, outcome: .encrypted, value: nil, count: nil, note: nil))
-                    guard let seal else { return value }
-                    return .string(try seal(text))
+                    return .string(try sealText(text))
                 }
                 if depth == 0 {
                     report.items.append(Item(group: group, path: path, outcome: .imported, value: String(text.prefix(80)), count: nil, note: nil))
@@ -372,7 +378,7 @@ public enum HomebridgeImport {
                 return value
             case .number, .bool:
                 // A number cannot be sealed as text and read back as a number, so a numeric secret is left out.
-                if secret || HomebridgeImport.isSecretName(key) {
+                if sealedHere {
                     report.items.append(Item(group: group, path: path, outcome: .dropped, value: nil, count: nil, note: Message("numericSecret")))
                     return nil
                 }
@@ -387,7 +393,7 @@ public enum HomebridgeImport {
                 let itemSchema = schema?["items"]
                 var out: [JSONValue] = []
                 for (index, element) in elements.enumerated() {
-                    if let kept = try record(element, key: key, path: "\(path)[\(index)]", group: group, schema: itemSchema, depth: depth + 1) {
+                    if let kept = try record(element, key: key, path: "\(path)[\(index)]", group: group, schema: itemSchema, depth: depth + 1, underSecret: underSecret) {
                         out.append(kept)
                     }
                 }
@@ -404,7 +410,7 @@ public enum HomebridgeImport {
                         report.items.append(Item(group: group, path: "\(path).\(child)", outcome: .dropped, value: nil, count: nil, note: Message("notSetting", ["platform": group])))
                         continue
                     }
-                    if let kept = try record(childValue, key: child, path: "\(path).\(child)", group: group, schema: properties?[child], depth: depth + 1) {
+                    if let kept = try record(childValue, key: child, path: "\(path).\(child)", group: group, schema: properties?[child], depth: depth + 1, underSecret: sealedHere) {
                         out[child] = kept
                     }
                 }

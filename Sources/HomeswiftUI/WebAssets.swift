@@ -736,6 +736,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // ---- Authentication ------------------------------------------------------
 
   let auth = null;
+  // The server's secret-key rule (see the settings page): set with the plugin list, read by the JSON secret note.
+  let secretRule = null;
 
   async function loadAuth() {
     auth = await api("/api/auth/state");
@@ -2191,6 +2193,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   views.settings = async (main, [first, second, third]) => {
     const isNew = first === "add";
     const [plugins, config] = await Promise.all([api("/api/plugins"), api("/api/config", { raw: true }).then(JSON.parse)]);
+    // A bridge that does not send the rule (an older build) leaves the note off, rather than failing the page.
+    secretRule = plugins.secretRule ? { keys: new RegExp(plugins.secretRule.keys, "i"), except: new RegExp(plugins.secretRule.except, "i"), placeholder: plugins.secretRule.placeholder } : null;
     const found = isNew ? null : plugins.blocks.find((b) => b.slug === first);
     if (!isNew && !found) {
       show(main, breadcrumb([t("Plugins"), "/plugins"], [t("Settings")]),
@@ -2234,13 +2238,25 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const textarea = el("textarea", { class: "short", value: JSON.stringify(current, null, 2), spellcheck: false, "aria-label": t("The block as JSON") });
     const editor = jsonEditor(textarea);
     const fromJSON = () => { const value = JSON.parse(textarea.value); delete value.platform; return value; };
+    // The same key names the server seals (Redaction's rule). A secret typed in JSON is encrypted on save, so the note
+    // says where it is easier to set one; it shows only while the JSON on screen holds a secret.
+    // The server's rule (Redaction): the page reads it from /api/plugins, set when the settings page loads them.
+    const isSecretKey = (key) => Boolean(secretRule) && secretRule.keys.test(key) && !secretRule.except.test(key);
+    const holdsSecret = (value, underSecret = false) => {
+      if (typeof value === "string") return underSecret && value !== "" && value !== secretRule?.placeholder;
+      if (Array.isArray(value)) return value.some((item) => holdsSecret(item, underSecret));
+      if (value && typeof value === "object") return Object.entries(value).some(([key, child]) => holdsSecret(child, underSecret || isSecretKey(key)));
+      return false;
+    };
+    const secretNote = el("p", { class: "secret-note", role: "note", text: t("A secret set in JSON is encrypted in config.json when you save. Set it in Form or on the plugin's own page, where it is easier to get right.") });
+    secretNote.hidden = true;
     if (schema) {
       // The form first; the block as JSON one tap away, for what the form does not show. Each view starts
       // from the other's value, and Save takes the one on screen.
       let mode = view === "json" ? "json" : "form";
       let form = buildForm(schema, current);
       const formView = el("div", { class: mode === "form" ? "" : "hidden" }, form.element);
-      const jsonView = el("div", { class: mode === "json" ? "" : "hidden" }, el("p", { class: "muted", text: t("The block as config.json keeps it.") }), editor);
+      const jsonView = el("div", { class: mode === "json" ? "" : "hidden" }, el("p", { class: "muted", text: t("The block as config.json keeps it.") }), secretNote, editor);
       const switchError = el("p", { class: "error" });
       const tabs = el("div", { class: "group view-switch", role: "tablist", "aria-label": t("Edit as") },
         [["form", t("Form")], ["json", "JSON"]].map(([value, text]) => el("button", { type: "button", role: "tab", "data-mode": value, class: value === mode ? "on" : "", "aria-selected": String(value === mode), onclick: () => {
@@ -2271,7 +2287,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         body.dispatchEvent(new Event("input", { bubbles: true }));
       };
     } else {
-      body = el("div", { class: "card form-card" }, el("p", { class: "muted", text: t("This block has no settings form; edit it as JSON.") }), editor);
+      body = el("div", { class: "card form-card" }, el("p", { class: "muted", text: t("This block has no settings form; edit it as JSON.") }), secretNote, editor);
       getValue = fromJSON;
     }
 
@@ -2290,6 +2306,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const jsonShown = () => textarea.isConnected && !textarea.closest(".hidden");
     const update = () => {
       const result = jsonShown() ? editor.check() : null;
+      secretNote.hidden = !(result && "value" in result && holdsSecret(result.value));
       if (result && !("value" in result)) {
         message.className = "error";
         message.replaceChildren(...lineLink(result, editor), result.message);
@@ -5556,6 +5573,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const icons = {
     wingman: '<g transform="translate(0 4.32) scale(.048)"><g fill="currentColor" stroke="none"><path d="M8 12C65 48 155 88 180 110C198 121 204 136 195 148L165 177C180 144 170 131 149 121C47 95 6 88 8 12Z M36 112L150 152L132 177C64 163 42 161 36 112Z M58 177L121 193L109 221C77 220 63 203 58 177Z"/><g transform="translate(500 0) scale(-1 1)"><path d="M8 12C65 48 155 88 180 110C198 121 204 136 195 148L165 177C180 144 170 131 149 121C47 95 6 88 8 12Z M36 112L150 152L132 177C64 163 42 161 36 112Z M58 177L121 193L109 221C77 220 63 203 58 177Z"/></g></g><path d="M136 220L250 104L364 220M153 205V305H347V205" fill="none" stroke="currentColor" stroke-width="29" stroke-linecap="round" stroke-linejoin="round"/></g>',
     power: '<path d="M12 3v9M6.3 5.8a8 8 0 1 0 11.4 0"/>',
+    sparkle: '<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/>',
     ungroup: '<rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><path d="M3 9V3h6M3 3l5 5M15 21h6v-6M21 21l-5-5"/>',
     group: '<rect x="3" y="8" width="13" height="13" rx="3"/><path d="M8 8V6a3 3 0 0 1 3-3h7a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3h-2M7 14.5h5M9.5 12v5"/>',
     bridge: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/>',
@@ -9466,6 +9484,7 @@ HomeswiftI18n.add("es", {
   "the backup has no config.json": "la copia de seguridad no tiene config.json",
   "the backup's config.json cannot run: {0}": "el config.json de la copia de seguridad no puede funcionar: {0}",
   "The block as config.json keeps it.": "El bloque tal como lo guarda config.json.",
+  "A secret set in JSON is encrypted in config.json when you save. Set it in Form or on the plugin's own page, where it is easier to get right.": "Un secreto escrito en JSON se cifra en config.json al guardar. Escríbelo en Formulario o en la página del propio plugin, donde es más fácil acertar.",
   "The block as JSON": "El bloque en JSON",
   "the block must keep its platform": "el bloque debe conservar su plataforma",
   "The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.": "Los bloques de config.json. Al guardar se aplica al momento: el plugin se recarga y conserva sus accesorios.",
@@ -9855,6 +9874,7 @@ HomeswiftI18n.add("es", {
   "Platform {index} has no name.": "La plataforma {index} no tiene nombre.",
   "The disabled plugins must be a list.": "Los plugins desactivados deben ser una lista.",
   "The platform {name} is listed twice.": "La plataforma {name} aparece dos veces.",
+  "A value starts with enc:v1:, the prefix homeswift gives the secrets it seals. Remove the prefix, or set the secret as plain text in Homebridge.": "Un valor empieza por enc:v1:, el prefijo que homeswift da a los secretos que cifra. Quita ese prefijo o escribe el secreto como texto plano en Homebridge.",
   "Nothing in this file can be imported. Check that the file is your Homebridge config.json and that its platforms are ones homeswift runs.": "Nada de este archivo se puede importar. Comprueba que es el config.json de tu Homebridge y que sus plataformas son las que homeswift ejecuta.",
   "homeswift cannot use this config.": "homeswift no puede usar esta config.",
   "homeswift cannot read part of this config.": "homeswift no puede leer una parte de esta config.",
@@ -11535,6 +11555,7 @@ HomeswiftI18n.add("fr", {
   "the backup has no config.json": "la sauvegarde n'a pas de config.json",
   "the backup's config.json cannot run: {0}": "le config.json de la sauvegarde ne peut pas fonctionner : {0}",
   "The block as config.json keeps it.": "Le bloc tel que config.json le conserve.",
+  "A secret set in JSON is encrypted in config.json when you save. Set it in Form or on the plugin's own page, where it is easier to get right.": "Un secret saisi en JSON est chiffré dans config.json à l'enregistrement. Saisissez-le dans Formulaire ou sur la page du plugin, où il est plus facile de le régler juste.",
   "The block as JSON": "Le bloc en JSON",
   "the block must keep its platform": "le bloc doit garder sa plateforme",
   "The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.": "Les blocs de config.json. Un enregistrement s'applique aussitôt : le plugin se recharge en gardant ses accessoires.",
@@ -11924,6 +11945,7 @@ HomeswiftI18n.add("fr", {
   "Platform {index} has no name.": "La plateforme {index} n'a pas de nom.",
   "The disabled plugins must be a list.": "Les plugins désactivés doivent être une liste.",
   "The platform {name} is listed twice.": "La plateforme {name} est listée deux fois.",
+  "A value starts with enc:v1:, the prefix homeswift gives the secrets it seals. Remove the prefix, or set the secret as plain text in Homebridge.": "Une valeur commence par enc:v1:, le préfixe que homeswift donne aux secrets qu'il chiffre. Retirez ce préfixe, ou saisissez le secret en clair dans Homebridge.",
   "Nothing in this file can be imported. Check that the file is your Homebridge config.json and that its platforms are ones homeswift runs.": "Rien dans ce fichier ne peut être importé. Vérifiez qu'il s'agit du config.json de votre Homebridge et que ses plateformes sont celles que homeswift exécute.",
   "homeswift cannot use this config.": "homeswift ne peut pas utiliser cette config.",
   "homeswift cannot read part of this config.": "homeswift ne peut pas lire une partie de cette config.",
@@ -13604,6 +13626,7 @@ HomeswiftI18n.add("pt", {
   "the backup has no config.json": "a cópia de segurança não tem config.json",
   "the backup's config.json cannot run: {0}": "o config.json da cópia de segurança não pode funcionar: {0}",
   "The block as config.json keeps it.": "O bloco tal como o config.json o guarda.",
+  "A secret set in JSON is encrypted in config.json when you save. Set it in Form or on the plugin's own page, where it is easier to get right.": "Um segredo definido em JSON fica cifrado no config.json ao guardar. Defina-o no Formulário ou na página do próprio plugin, onde é mais fácil acertar.",
   "The block as JSON": "O bloco em JSON",
   "the block must keep its platform": "o bloco tem de manter a sua plataforma",
   "The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.": "Os blocos do config.json. Ao guardar, aplica-se de imediato: o plugin recarrega e mantém os acessórios.",
@@ -13993,6 +14016,7 @@ HomeswiftI18n.add("pt", {
   "Platform {index} has no name.": "A plataforma {index} não tem nome.",
   "The disabled plugins must be a list.": "Os plugins desativados têm de ser uma lista.",
   "The platform {name} is listed twice.": "A plataforma {name} está listada duas vezes.",
+  "A value starts with enc:v1:, the prefix homeswift gives the secrets it seals. Remove the prefix, or set the secret as plain text in Homebridge.": "Um valor começa por enc:v1:, o prefixo que o homeswift dá aos segredos que cifra. Remova esse prefixo ou escreva o segredo em texto simples no Homebridge.",
   "Nothing in this file can be imported. Check that the file is your Homebridge config.json and that its platforms are ones homeswift runs.": "Nada neste ficheiro pode ser importado. Verifique se é o config.json do seu Homebridge e se as suas plataformas são as que o homeswift executa.",
   "homeswift cannot use this config.": "O homeswift não consegue usar esta configuração.",
   "homeswift cannot read part of this config.": "O homeswift não consegue ler uma parte desta configuração.",
@@ -14310,7 +14334,7 @@ HomeswiftI18n.add("pt", {
       stepsList(0),
       el("h2", { text: t("Choose your Homebridge config") }),
       el("p", { class: "lede", text: t("Pick the config.json, or paste its text. Nothing is saved until you review it.") }),
-      el("div", { class: "group view-switch import-tabs", role: "tablist", "aria-label": t("How to add the config") }, tabButtons),
+      el("div", { class: "group view-switch import-tabs", role: "tablist", "aria-label": t("How to add the config"), onkeydown: tabKeys }, tabButtons),
       el("div", { class: "import-panel-box", id: "import-panel", role: "tabpanel", "aria-labelledby": `import-tab-${tab}` }, panel),
       checkBox,
       el("div", { class: "actions import-foot" }, el("p", { class: "fine muted", text: t("Nothing is saved until you review it.") }), nextButton));
@@ -14320,6 +14344,19 @@ HomeswiftI18n.add("pt", {
   function switchTab(name) {
     tab = name;
     chooseStep();
+  }
+
+  // The ARIA tabs pattern: Left and Right move between the source tabs, Home and End go to the ends. Focus follows
+  // the selection, since the tabs are drawn again on each switch.
+  function tabKeys(event) {
+    const names = tabList().map(([name]) => name);
+    const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+    if (!step && event.key !== "Home" && event.key !== "End") return;
+    event.preventDefault();
+    const at = names.indexOf(tab);
+    const next = event.key === "Home" ? 0 : event.key === "End" ? names.length - 1 : (at + step + names.length) % names.length;
+    switchTab(names[next]);
+    document.getElementById(`import-tab-${names[next]}`)?.focus();
   }
 
   const notice = (text) => el("p", { class: "import-notice", role: "note" }, icon("warning"), text);
@@ -14515,6 +14552,7 @@ HomeswiftI18n.add("pt", {
       case "platformNameMissing": return t("Platform {index} has no name.", { index: Number(args.index) + 1 });
       case "disabledPluginsNotList": return t("The disabled plugins must be a list.");
       case "duplicatePlatform": return t("The platform {name} is listed twice.", { name: args.name });
+      case "sealedLookingValue": return t("A value starts with enc:v1:, the prefix homeswift gives the secrets it seals. Remove the prefix, or set the secret as plain text in Homebridge.");
       case "nothingToImport": return t("Nothing in this file can be imported. Check that the file is your Homebridge config.json and that its platforms are ones homeswift runs.");
       case "invalidConfig": return el("span", {}, t("homeswift cannot use this config."), " ", el("code", { class: "import-detail", text: String(args.detail ?? "") }));
       default: return t("homeswift cannot read part of this config.");
@@ -14552,18 +14590,30 @@ HomeswiftI18n.add("pt", {
 
   // ---- Step 2: review ----------------------------------------------------------
 
-  const outcomeLabel = (outcome) => (outcome === "encrypted" ? t("Encrypted") : outcome === "dropped" ? t("Dropped") : t("Imported"));
+  // What each outcome reads as: its pill, what its value shows, what is saved, and what it does when no note says more.
+  const OUTCOMES = {
+    imported: {
+      label: () => t("Imported"),
+      saved: () => t("Plain text in config.json"),
+      effect: () => t("Kept as written; the plugin reads it when it starts."),
+    },
+    encrypted: {
+      label: () => t("Encrypted"),
+      saved: () => t("Encrypted in config.json, with the key in the bridge's owner-only key file"),
+      effect: () => t("The secret is sealed with the bridge's key and decrypted in memory when homeswift starts. It is never logged or shown in the web UI."),
+    },
+    dropped: {
+      label: () => t("Dropped"),
+      saved: () => t("Not saved"),
+      effect: () => t("homeswift has no equivalent, so nothing is saved."),
+    },
+  };
+  const outcomeOf = (item) => OUTCOMES[item.outcome] || OUTCOMES.imported;
 
   function valueText(item) {
     if (item.outcome === "encrypted") return SECRET;
     if (item.count != null) return tn("{n} entry", "{n} entries", item.count);
     return item.value ?? "";
-  }
-
-  function savedAs(item) {
-    if (item.outcome === "dropped") return t("Not saved");
-    if (item.outcome === "encrypted") return t("Encrypted in config.json, with the key in the bridge's owner-only key file");
-    return t("Plain text in config.json");
   }
 
   function noteText({ code, args = {} }) {
@@ -14579,12 +14629,11 @@ HomeswiftI18n.add("pt", {
     }
   }
 
+  // A note says why a setting is kept, dropped or paused; without one, the outcome says what happens.
   function effectText(item) {
     const lines = [];
-    if (item.outcome === "encrypted") lines.push(t("The secret is sealed with the bridge's key and decrypted in memory when homeswift starts. It is never logged or shown in the web UI."));
+    if (item.outcome === "encrypted" || !item.note) lines.push(outcomeOf(item).effect());
     if (item.note) lines.push(noteText(item.note));
-    else if (item.outcome === "imported") lines.push(t("Kept as written; the plugin reads it when it starts."));
-    else if (item.outcome === "dropped") lines.push(t("homeswift has no equivalent, so nothing is saved."));
     return lines.join(" ");
   }
 
@@ -14595,10 +14644,10 @@ HomeswiftI18n.add("pt", {
       el("summary", {},
         el("span", { class: "import-key", text: item.path }),
         el("span", { class: `import-value${item.outcome === "encrypted" ? " masked" : ""}`, text: valueText(item) }),
-        el("span", { class: `import-pill ${item.outcome}`, text: outcomeLabel(item.outcome) }),
+        el("span", { class: `import-pill ${item.outcome}`, text: outcomeOf(item).label() }),
         chevron),
       el("dl", { class: "import-detail-list" },
-        el("div", {}, el("dt", { text: t("Saved as") }), el("dd", { text: savedAs(item) })),
+        el("div", {}, el("dt", { text: t("Saved as") }), el("dd", { text: outcomeOf(item).saved() })),
         el("div", {}, el("dt", { text: t("What it does") }), el("dd", { text: effectText(item) }))));
   }
 
@@ -14687,7 +14736,7 @@ HomeswiftI18n.add("pt", {
     stage.replaceChildren(
       stepsList(2),
       el("h2", { text: t("Your config is imported") }),
-      el("p", { class: "lede", text: tn("{n} platform is saved in config.json.", "{n} platforms are saved in config.json.", outcome.saved ?? 0) }),
+      el("p", { class: "lede", text: tn("{n} platform is saved in config.json.", "{n} platforms are saved in config.json.", outcome.summary?.platforms ?? 0) }),
       el("p", { class: "muted", text: t("The config from before this save is kept as {backup}.", { backup: outcome.backup }) }),
       restart,
       el("div", { class: "actions" },
@@ -15716,6 +15765,8 @@ HomeswiftI18n.add("pt", {
   --accent-ink: #b0460a; --accent-fill-top: #c4500c; --accent-fill: #ab3f0a;
   /* Chart series, slots 1 and 2 of a palette checked for colour-blind separation and contrast, each mode its own step. */
   --series-1: #2a78d6; --series-2: #eb6834;
+  /* Blue that carries small text (the Encrypted pill) at 4.5:1 on its tint; --series-1 stays for marks and bars. */
+  --series-1-ink: #1d5fae;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --radius: 22px; --blur-thick: 32px; --blur: 20px;
@@ -15734,7 +15785,7 @@ HomeswiftI18n.add("pt", {
     --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0) 45%);
     --text: #f3f4f7; --muted: #a2a9b5; --line: rgba(255, 255, 255, 0.1);
     --warn: #e9a04a; --paused: #8e8cff; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #ff8f3d;
-    --series-1: #3987e5; --series-2: #d95926;
+    --series-1: #3987e5; --series-2: #d95926; --series-1-ink: #6aa6ee;
   }
 }
 /* A theme chosen in the web UI (/appearance) rather than the system's: common.js sets data-theme. */
@@ -15752,7 +15803,7 @@ HomeswiftI18n.add("pt", {
   --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0) 45%);
   --text: #f3f4f7; --muted: #a2a9b5; --line: rgba(255, 255, 255, 0.1);
   --warn: #e9a04a; --paused: #8e8cff; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #ff8f3d;
-  --series-1: #3987e5; --series-2: #d95926;
+  --series-1: #3987e5; --series-2: #d95926; --series-1-ink: #6aa6ee;
 }
 * { box-sizing: border-box; }
 html { min-height: 100%; background: var(--bg); }
@@ -17604,6 +17655,7 @@ a.link:hover { text-decoration: underline; }
 .row-block > div:not(.row):not(:empty) { padding: 0 16px 12px; }
 pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .notice-list p { margin: 4px 0; font-size: 0.875rem; }
+.secret-note { margin: 0 0 8px; font-size: 0.8125rem; color: var(--warn); }
 .admin-dialog { margin: auto; width: min(520px, calc(100% - 24px)); max-height: calc(100% - 48px); overflow: auto; padding: 20px 22px; color: var(--text); background-color: var(--material-solid); }
 .admin-dialog.wide { width: min(980px, calc(100% - 24px)); }
 .admin-dialog::backdrop { background: rgba(10, 14, 24, 0.35); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
@@ -18621,7 +18673,8 @@ select option:disabled { color: var(--muted); }
 .import-crumbs .crumb { padding: 4px 8px; font-size: 0.8125rem; }
 .import-crumbs .crumb[aria-current="page"] { font-weight: 600; }
 .import-files { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 42vh; overflow: auto; overscroll-behavior: contain; }
-.import-file { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: start; gap: 2px; padding: 10px 12px; text-align: left; border-radius: 14px; }
+.import-file { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: start; gap: 2px; padding: 10px 12px; text-align: left; border-radius: 14px; transition: transform var(--fast) var(--ease-out); }
+.import-file:active { transform: scale(0.98); }
 .import-file .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .import-file .meta { font-size: 0.75rem; color: var(--muted); }
 .import-file[aria-pressed="true"] { border-color: var(--accent); background: var(--material-thin); }
@@ -18648,11 +18701,11 @@ select option:disabled { color: var(--muted); }
 .import-value.masked { letter-spacing: 0.12em; }
 .import-pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; white-space: nowrap; }
 .import-pill.imported { color: var(--ok); background: rgba(21, 122, 66, 0.12); }
-.import-pill.encrypted { color: var(--series-1); background: rgba(42, 120, 214, 0.12); }
+.import-pill.encrypted { color: var(--series-1-ink); background: rgba(42, 120, 214, 0.12); }
 .import-pill.dropped { color: var(--muted); background: rgba(89, 97, 112, 0.12); }
 .import-item .chev { width: 16px; height: 16px; fill: none; stroke: var(--muted); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; transition: transform var(--fast) var(--ease-out); }
 .import-item[open] .chev { transform: rotate(180deg); }
-.import-detail-list { margin: 0; padding: 0 14px 12px; display: grid; gap: 8px; font-size: 0.875rem; }
+.import-detail-list { margin: 0; padding: 0 14px 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; font-size: 0.875rem; }
 .import-detail-list > div { display: grid; gap: 2px; }
 .import-detail-list dt { font-size: 0.75rem; color: var(--muted); font-weight: 600; }
 .import-detail-list dd { margin: 0; }
@@ -18672,7 +18725,7 @@ select option:disabled { color: var(--muted); }
 .import-offer-card .actions { justify-content: center; flex-wrap: wrap; }
 .import-offer-title { font-weight: 600; font-size: 1rem; }
 @media (max-width: 520px) {
-  .import-item > summary { grid-template-columns: minmax(0, 1fr) auto; }
+  .import-item > summary { grid-template-columns: minmax(0, 1fr) auto auto; }
   .import-value { grid-column: 1 / -1; justify-self: start; max-width: none; grid-row: 2; }
   .import-summary { gap: 8px; }
   .import-count b { font-size: 1.25rem; }
