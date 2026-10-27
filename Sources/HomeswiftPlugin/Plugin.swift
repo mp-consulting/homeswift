@@ -281,6 +281,7 @@ public final class PluginContext: @unchecked Sendable {
     private let assistantBackground: String?
     private let recordSink: @Sendable (String, Double, EnergyTag?) -> Void
     private let energyImportSink: @Sendable ([EnergyHourImport]) -> Void
+    private let energyProgressSink: @Sendable (EnergyImportProgress) -> Void
 
     /// Records a reading for the Status page's history: a minute keeps the count, sum, lowest and highest of each
     /// series. The series is `plugin:<platform>:<series>`, so two plugins cannot collide. Cheap; call it per reading.
@@ -295,6 +296,16 @@ public final class PluginContext: @unchecked Sendable {
     /// the bridge recorded itself keeps its own figures. Watt-hours; leave out (nil) what the history does not have.
     public func importEnergy(_ hours: [EnergyHourImport]) {
         energyImportSink(hours)
+    }
+
+    /// Says where an energy import stands, for the Status page's history: as it runs (`done` of `total`), when it is done
+    /// (what it covers) and when it fails (why). The latest report is shown; a plugin that imports again reports again.
+    public func reportEnergyImport(_ progress: EnergyImportProgress) {
+        var progress = progress
+        progress.source = key
+        progress.name = name
+        progress.updated = Date()
+        energyProgressSink(progress)
     }
     // Mutable state is behind the lock; the class is otherwise immutable.
     private let list = NIOLockedValueBox<Entries>(Entries())
@@ -330,8 +341,10 @@ public final class PluginContext: @unchecked Sendable {
         platform: String, name: String, key: String, logger: Logger, bridge: PluginHost.Bridge, cache: AccessoryCache, storageURL: URL,
         assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories, assistantBackground: String? = nil,
         recordSink: @escaping @Sendable (String, Double, EnergyTag?) -> Void = { _, _, _ in },
-        energyImportSink: @escaping @Sendable ([EnergyHourImport]) -> Void = { _ in }
+        energyImportSink: @escaping @Sendable ([EnergyHourImport]) -> Void = { _ in },
+        energyProgressSink: @escaping @Sendable (EnergyImportProgress) -> Void = { _ in }
     ) {
+        self.energyProgressSink = energyProgressSink
         self.recordSink = recordSink
         self.energyImportSink = energyImportSink
         self.assistantBackground = assistantBackground

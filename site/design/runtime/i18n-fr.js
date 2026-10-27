@@ -2216,5 +2216,10 @@ HomeswiftI18n.add("fr", {
   "Energy by month": "Énergie par mois",
   "Nothing recorded in this period": "Rien d’enregistré sur cette période",
   "Imported hours have no grid or battery figures: the rest of their home use is not split by source.": "Les heures importées n’ont pas de chiffres de réseau ni de batterie : le reste de leur consommation n’est pas réparti par source.",
-  "Recorded days only": "Jours enregistrés seulement"
+  "Recorded days only": "Jours enregistrés seulement",
+  "Importing the {name} history": "Import de l’historique {name}",
+  "{done} of {total}": "{done} sur {total}",
+  "The {name} history could not be imported: {message}": "L’historique {name} n’a pas pu être importé : {message}",
+  "History from {name} since {date}, updated {ago}": "Historique {name} depuis le {date}, mis à jour {ago}",
+  "History from {name}, updated {ago}": "Historique {name}, mis à jour {ago}"
 });

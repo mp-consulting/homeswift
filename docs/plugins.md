@@ -132,6 +132,9 @@ pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their byt
   the long-term archive (the Status page's month and year views) a history the bridge did not record, such as a cloud's
   hours before the bridge ran: `EnergyHourImport`s of watt-hours (`EnergyFlows`, nil for what the history lacks). Each
   import replaces what the plugin imported for those hours; an hour the bridge recorded itself keeps its own figures.
+  `context.reportEnergyImport(EnergyImportProgress(state: .running, done: 3, total: 10))` shows the import's progress
+  on the Status page (then `.done` with `from` and `through`, or `.failed` with a `message` a person can act on);
+  import in parts and report after each, so the history fills in as it goes.
   `Metrics.energy(from:to:)` and `Metrics.archive.periods(_:from:to:timeZone:)` give the same figures
   (charted power, levels, each day's kWh) to other code, such as the Assistant.
   ```swift

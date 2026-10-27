@@ -2275,11 +2275,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const previous = el("button", { type: "button", class: "menu-button", "aria-label": t("Previous period"), onclick: () => move(-1) }, HomeswiftCommon.icon("back"));
     const next = el("button", { type: "button", class: "menu-button", "aria-label": t("Next period"), onclick: () => move(1) }, HomeswiftCommon.icon("forward"));
     const periodLabel = el("strong", { class: "energy-period", "aria-live": "polite" });
-    // The period's totals, over the bars.
+    // Where each plugin's import of the history stands, then the period's totals, over the bars.
+    const importsNode = el("div", { class: "energy-imports", role: "status" });
     const summary = el("div", { class: "energy-totals" });
+    let importPoll = null;
     days.node.insertBefore(el("div", { class: "energy-history-bar" },
       el("div", { class: "group", role: "radiogroup", "aria-label": t("Period") }, viewButtons),
       el("div", { class: "energy-period-nav" }, previous, periodLabel, next)), days.body);
+    days.node.insertBefore(importsNode, days.body);
     days.node.insertBefore(summary, days.body);
     let earliest = null, historyAsked = 0;
     const today = el("div", { class: "energy-today" });
@@ -2377,6 +2380,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       return date >= new Date(now.getFullYear(), now.getMonth(), now.getDate());
     }
     async function loadHistory() {
+      clearTimeout(importPoll);
       const asked = ++historyAsked;
       keepAddress();
       let history;
@@ -2386,7 +2390,33 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         days.detail.textContent = e.message;
         return;
       }
-      if (asked === historyAsked) fillHistory(history);
+      if (asked !== historyAsked) return;
+      fillHistory(history);
+      fillImports(history.imports ?? []);
+    }
+
+    /// An import under way: its progress, the bars filling in as it goes (the history is asked again every few
+    /// seconds); one done: what it covers and when it last ran, quietly; one failed: why.
+    function fillImports(imports) {
+      clearTimeout(importPoll);
+      const longDay = new Intl.DateTimeFormat(HomeswiftI18n.locale, { day: "numeric", month: "long", year: "numeric" });
+      const day = (text) => longDay.format(parseDay(text));
+      importsNode.replaceChildren(...imports.map((one) => {
+        if (one.state === "running") {
+          return el("div", { class: "energy-import running" },
+            el("div", { class: "energy-import-line" }, el("span", { text: t("Importing the {name} history", { name: one.name }) }),
+              one.total ? el("b", { text: t("{done} of {total}", { done: one.done, total: one.total }) }) : null),
+            el("progress", { max: Math.max(one.total, 1), value: one.total ? one.done : null, "aria-label": t("Importing the {name} history", { name: one.name }) }));
+        }
+        if (one.state === "failed") {
+          return el("div", { class: "energy-import failed" }, HomeswiftCommon.icon("warning"),
+            el("span", { text: t("The {name} history could not be imported: {message}", { name: one.name, message: one.message ?? "" }) }));
+        }
+        return el("div", { class: "energy-import done muted" }, HomeswiftCommon.icon("history"),
+          el("span", { text: one.from ? t("History from {name} since {date}, updated {ago}", { name: one.name, date: day(one.from), ago: HomeswiftCommon.ago(one.updated) })
+            : t("History from {name}, updated {ago}", { name: one.name, ago: HomeswiftCommon.ago(one.updated) }) }));
+      }));
+      if (imports.some((one) => one.state === "running")) importPoll = setTimeout(() => { if (section.isConnected && !document.hidden) loadHistory(); }, 3000);
     }
 
     /// The period's energy as bars, oldest first: above zero where the home's energy came from (solar as it was
@@ -11810,7 +11840,12 @@ HomeswiftI18n.add("es", {
   "Energy by month": "Energía por mes",
   "Nothing recorded in this period": "Nada registrado en este periodo",
   "Imported hours have no grid or battery figures: the rest of their home use is not split by source.": "Las horas importadas no tienen datos de red ni de batería: el resto de su consumo no se desglosa por fuente.",
-  "Recorded days only": "Solo días registrados"
+  "Recorded days only": "Solo días registrados",
+  "Importing the {name} history": "Importando el historial de {name}",
+  "{done} of {total}": "{done} de {total}",
+  "The {name} history could not be imported: {message}": "No se pudo importar el historial de {name}: {message}",
+  "History from {name} since {date}, updated {ago}": "Historial de {name} desde el {date}, actualizado {ago}",
+  "History from {name}, updated {ago}": "Historial de {name}, actualizado {ago}"
 });
 
 """#),
@@ -14033,7 +14068,12 @@ HomeswiftI18n.add("fr", {
   "Energy by month": "Énergie par mois",
   "Nothing recorded in this period": "Rien d’enregistré sur cette période",
   "Imported hours have no grid or battery figures: the rest of their home use is not split by source.": "Les heures importées n’ont pas de chiffres de réseau ni de batterie : le reste de leur consommation n’est pas réparti par source.",
-  "Recorded days only": "Jours enregistrés seulement"
+  "Recorded days only": "Jours enregistrés seulement",
+  "Importing the {name} history": "Import de l’historique {name}",
+  "{done} of {total}": "{done} sur {total}",
+  "The {name} history could not be imported: {message}": "L’historique {name} n’a pas pu être importé : {message}",
+  "History from {name} since {date}, updated {ago}": "Historique {name} depuis le {date}, mis à jour {ago}",
+  "History from {name}, updated {ago}": "Historique {name}, mis à jour {ago}"
 });
 
 """#),
@@ -16256,7 +16296,12 @@ HomeswiftI18n.add("pt", {
   "Energy by month": "Energia por mês",
   "Nothing recorded in this period": "Nada registado neste período",
   "Imported hours have no grid or battery figures: the rest of their home use is not split by source.": "As horas importadas não têm valores de rede nem de bateria: o resto do seu consumo não é dividido por fonte.",
-  "Recorded days only": "Só dias registados"
+  "Recorded days only": "Só dias registados",
+  "Importing the {name} history": "A importar o histórico de {name}",
+  "{done} of {total}": "{done} de {total}",
+  "The {name} history could not be imported: {message}": "Não foi possível importar o histórico de {name}: {message}",
+  "History from {name} since {date}, updated {ago}": "Histórico de {name} desde {date}, atualizado {ago}",
+  "History from {name}, updated {ago}": "Histórico de {name}, atualizado {ago}"
 });
 
 """#),
@@ -19173,6 +19218,20 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .energy-history-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .energy-period-nav { display: flex; align-items: center; gap: 6px; }
 .energy-period { min-width: 12ch; text-align: center; font-size: 0.9375rem; font-variant-numeric: tabular-nums; }
+/* An import of the history: while it runs, its progress in a thin accent bar; done, one quiet line; failed, a warning. */
+.energy-imports { display: grid; gap: 8px; }
+.energy-imports:empty { display: none; }
+.energy-import { display: flex; align-items: center; gap: 8px; font-size: 0.8125rem; }
+.energy-import > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.energy-import.running { display: grid; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--material-thin); }
+.energy-import-line { display: flex; justify-content: space-between; gap: 12px; }
+.energy-import-line b { font-variant-numeric: tabular-nums; font-weight: 600; }
+.energy-import progress { -webkit-appearance: none; appearance: none; width: 100%; height: 6px; border: 0; border-radius: 3px; overflow: hidden; background: var(--line); }
+.energy-import progress::-webkit-progress-bar { background: var(--line); border-radius: 3px; }
+.energy-import progress::-webkit-progress-value { background: var(--accent); border-radius: 3px; transition: width var(--normal) var(--ease-out); }
+.energy-import progress::-moz-progress-bar { background: var(--accent); border-radius: 3px; }
+.energy-import.failed { color: var(--warn); }
+
 /* The period's totals over the bars: a muted label with its colour key over a proportional figure. */
 .energy-totals { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 28px; padding: 2px 0 4px; }
 .energy-total { display: grid; gap: 2px; align-content: start; }

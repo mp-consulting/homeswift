@@ -53,7 +53,9 @@ with a new code). More users are added on the **Users** page (see below).
   the grid), and the period's totals under it. The history is the bridge's long-term archive (`metrics/energy-hours.json`,
   kept for years): each hour of what it recorded, and what plugins import, such as a device cloud's solar and home use
   since a system was set up. An hour the bridge recorded most of keeps its own figures; an imported hour has no grid or
-  battery figures, so the rest of its home use shows as **Not split**, in grey.
+  battery figures, so the rest of its home use shows as **Not split**, in grey. While a plugin imports, the card shows
+  its progress (**Importing the … history**, 4 of 10) and the bars fill in as each part arrives; once done, one
+  line says what the history covers and when it last ran, and a failed import says why.
   Each entity keeps one colour in every chart (solar yellow, the home blue, the batteries aqua, the grid violet), from
   the charts' palette checked for colour blindness in both modes. **Show as a table** lists the points and the days (solar produced, home used, grid import and export, battery charged and
   discharged, the share of the home's use solar covered). Days are counted from each minute's average power, midnight

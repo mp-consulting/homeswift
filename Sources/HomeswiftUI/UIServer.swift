@@ -691,7 +691,8 @@ public final class UIServer: Sendable {
                     return .error(400, "period is week, month or year, and date YYYY-MM-DD")
                 }
                 let periods = metrics.archive.periods(period == "year" ? .month : .day, from: span.from, to: span.to, timeZone: timeZone)
-                return .json(Self.energyHistoryJSON(periods, period: period, earliest: metrics.archive.earliest, timeZone: timeZone))
+                return .json(Self.energyHistoryJSON(periods, period: period, earliest: metrics.archive.earliest, timeZone: timeZone,
+                                                    imports: catalog.host.energyImportProgress))
             case ["metrics", "energy"]:
                 // The Energy section: the readings plugins tag with a role (`EnergyTag`), from `from` to `to` (the last
                 // hour without them), and the energy of today and the 7 days before, midnight to midnight in `timeZone`
@@ -1333,7 +1334,10 @@ public final class UIServer: Sendable {
 
     /// The history's bars: each day (`date` YYYY-MM-DD) or month (YYYY-MM) with its kWh, null where nothing is known (an
     /// import has no grid or battery), where the home's use came from, and how many hours were recorded or imported.
-    static func energyHistoryJSON(_ periods: [EnergyPeriod], period: String, earliest: Date?, timeZone: TimeZone) -> JSONValue {
+    /// `imports`: where each plugin's import stands (`state` running, done or failed; `done` of `total` steps; `from`
+    /// and `through` the days it covers; `updated`, ISO 8601; `message` why it failed).
+    static func energyHistoryJSON(_ periods: [EnergyPeriod], period: String, earliest: Date?, timeZone: TimeZone,
+                                  imports: [EnergyImportProgress] = []) -> JSONValue {
         let format = DateFormatter()
         format.locale = Locale(identifier: "en_US_POSIX")
         format.timeZone = timeZone
@@ -1345,6 +1349,14 @@ public final class UIServer: Sendable {
         return [
             "period": .string(period),
             "earliest": earliest.map { label($0, false) } ?? .null,
+            "imports": .array(imports.map { one in
+                [
+                    "name": .string(one.name), "state": .string(one.state.rawValue),
+                    "done": .number(Double(one.done)), "total": .number(Double(one.total)),
+                    "from": one.from.map { label($0, false) } ?? .null, "through": one.through.map { label($0, false) } ?? .null,
+                    "updated": .string(Timestamp.iso8601(one.updated)), "message": one.message.map(JSONValue.string) ?? .null,
+                ]
+            }),
             "bars": .array(periods.map { one in
                 let flows = one.flows
                 return [

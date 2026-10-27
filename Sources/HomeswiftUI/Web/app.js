@@ -898,11 +898,14 @@
     const previous = el("button", { type: "button", class: "menu-button", "aria-label": t("Previous period"), onclick: () => move(-1) }, HomeswiftCommon.icon("back"));
     const next = el("button", { type: "button", class: "menu-button", "aria-label": t("Next period"), onclick: () => move(1) }, HomeswiftCommon.icon("forward"));
     const periodLabel = el("strong", { class: "energy-period", "aria-live": "polite" });
-    // The period's totals, over the bars.
+    // Where each plugin's import of the history stands, then the period's totals, over the bars.
+    const importsNode = el("div", { class: "energy-imports", role: "status" });
     const summary = el("div", { class: "energy-totals" });
+    let importPoll = null;
     days.node.insertBefore(el("div", { class: "energy-history-bar" },
       el("div", { class: "group", role: "radiogroup", "aria-label": t("Period") }, viewButtons),
       el("div", { class: "energy-period-nav" }, previous, periodLabel, next)), days.body);
+    days.node.insertBefore(importsNode, days.body);
     days.node.insertBefore(summary, days.body);
     let earliest = null, historyAsked = 0;
     const today = el("div", { class: "energy-today" });
@@ -1000,6 +1003,7 @@
       return date >= new Date(now.getFullYear(), now.getMonth(), now.getDate());
     }
     async function loadHistory() {
+      clearTimeout(importPoll);
       const asked = ++historyAsked;
       keepAddress();
       let history;
@@ -1009,7 +1013,33 @@
         days.detail.textContent = e.message;
         return;
       }
-      if (asked === historyAsked) fillHistory(history);
+      if (asked !== historyAsked) return;
+      fillHistory(history);
+      fillImports(history.imports ?? []);
+    }
+
+    /// An import under way: its progress, the bars filling in as it goes (the history is asked again every few
+    /// seconds); one done: what it covers and when it last ran, quietly; one failed: why.
+    function fillImports(imports) {
+      clearTimeout(importPoll);
+      const longDay = new Intl.DateTimeFormat(HomeswiftI18n.locale, { day: "numeric", month: "long", year: "numeric" });
+      const day = (text) => longDay.format(parseDay(text));
+      importsNode.replaceChildren(...imports.map((one) => {
+        if (one.state === "running") {
+          return el("div", { class: "energy-import running" },
+            el("div", { class: "energy-import-line" }, el("span", { text: t("Importing the {name} history", { name: one.name }) }),
+              one.total ? el("b", { text: t("{done} of {total}", { done: one.done, total: one.total }) }) : null),
+            el("progress", { max: Math.max(one.total, 1), value: one.total ? one.done : null, "aria-label": t("Importing the {name} history", { name: one.name }) }));
+        }
+        if (one.state === "failed") {
+          return el("div", { class: "energy-import failed" }, HomeswiftCommon.icon("warning"),
+            el("span", { text: t("The {name} history could not be imported: {message}", { name: one.name, message: one.message ?? "" }) }));
+        }
+        return el("div", { class: "energy-import done muted" }, HomeswiftCommon.icon("history"),
+          el("span", { text: one.from ? t("History from {name} since {date}, updated {ago}", { name: one.name, date: day(one.from), ago: HomeswiftCommon.ago(one.updated) })
+            : t("History from {name}, updated {ago}", { name: one.name, ago: HomeswiftCommon.ago(one.updated) }) }));
+      }));
+      if (imports.some((one) => one.state === "running")) importPoll = setTimeout(() => { if (section.isConnected && !document.hidden) loadHistory(); }, 3000);
     }
 
     /// The period's energy as bars, oldest first: above zero where the home's energy came from (solar as it was

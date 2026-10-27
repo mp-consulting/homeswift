@@ -70,6 +70,35 @@ public struct EnergyHourImport: Sendable, Equatable {
     }
 }
 
+/// Where a plugin's energy import stands, for the Status page: running (`done` of `total` steps, such as months),
+/// done (the history covers `from` to `through`) or failed (`message` says why, in words a person can act on). The
+/// plugin reports it with `PluginContext.reportEnergyImport`; the host fills in `source` (the plugin's key), `name`
+/// (its block's name) and `updated`.
+public struct EnergyImportProgress: Sendable, Equatable {
+    public enum State: String, Sendable {
+        case running, done, failed
+    }
+
+    public var source = ""
+    public var name = ""
+    public var state: State
+    public var done: Int
+    public var total: Int
+    public var from: Date?
+    public var through: Date?
+    public var message: String?
+    public var updated = Date(timeIntervalSince1970: 0)
+
+    public init(state: State, done: Int = 0, total: Int = 0, from: Date? = nil, through: Date? = nil, message: String? = nil) {
+        self.state = state
+        self.done = done
+        self.total = total
+        self.from = from
+        self.through = through
+        self.message = message
+    }
+}
+
 /// A day's or a month's energy from the archive, in watt-hours, with where the home's use came from: solar as it was
 /// produced, the batteries, the grid, or not split (an hour known by its home use only).
 public struct EnergyPeriod: Sendable, Equatable {

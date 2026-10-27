@@ -602,6 +602,8 @@ struct MetricsAPITests {
         let bars = try #require(month["bars"]?.arrayValue)
         #expect(bars.count == 31)
         #expect(month["earliest"]?.stringValue == "2026-03-03")
+        // No plugin has imported: no import to show.
+        #expect(month["imports"]?.arrayValue == [])
         let third = bars[2]
         #expect(third["date"]?.stringValue == "2026-03-03")
         #expect(third["solar"]?.doubleValue == 1.5)

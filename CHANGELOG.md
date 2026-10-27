@@ -22,6 +22,8 @@ All notable changes to this project are documented here. The format follows
   The Energy section's history shows a **Week**, **Month** or **Year** at a time, with the periods before and after and
   their totals; an imported hour's home use without a grid or battery split shows as **Not split**.
   `/api/metrics/energy/history` answers it.
+- A plugin's energy import reports its progress (`PluginContext.reportEnergyImport`): the Energy history
+  shows it running, with the bars filling in, then what it covers and when it last ran, or why it failed.
 - A battery on its own accessory (a power station) has its own widget on the Accessories page: the battery graphic
   (bars for the level, a bolt while charging) and its level at every size.
 
