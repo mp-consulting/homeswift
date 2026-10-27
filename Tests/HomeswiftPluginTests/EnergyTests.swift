@@ -92,13 +92,16 @@ struct EnergyTests {
 
     @Test func daysEndAtMidnightInTheTimeZoneAsked() {
         // 23:50 to 00:10 in Paris (UTC+1 in January): ten minutes each side of midnight.
-        let clock = NIOLockedValueBox(Date(timeIntervalSince1970: 1_800_000_000 - 8 * 3600 + 22 * 3600 + 50 * 60 + 5))
+        // 1_800_000_000 is 08:00 UTC: back to midnight, then on to 22:50:05 UTC. One literal, which Linux's compiler
+        // type-checks in time.
+        let start: TimeInterval = 1_800_000_000 + 14 * 3600 + 50 * 60 + 5
+        let clock = NIOLockedValueBox(Date(timeIntervalSince1970: start))
         let metrics = Metrics(directory: nil, now: { clock.withLockedValue { $0 } })
         metrics.tag("plugin:Test:home", EnergyTag(role: .home, device: "House"))
         record(metrics, clock, minutes: 20, ["plugin:Test:home": 600])
         let paris = TimeZone(identifier: "Europe/Paris")!
         let days = metrics.energy(from: clock.withLockedValue { $0 }.addingTimeInterval(-3600), to: clock.withLockedValue { $0 }, days: 2, timeZone: paris).days
-        #expect(days.map(\.minutes) == [10, 10])
+        #expect(days.map(\EnergyDay.minutes) == [10, 10])
         #expect(abs(days[0].home - 0.1) < 1e-9)
         #expect(days[0].solarShare == 0)
     }
