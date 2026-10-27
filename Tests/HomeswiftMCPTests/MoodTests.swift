@@ -221,6 +221,27 @@ struct MoodTests {
         #expect(await eventually { (try? String(contentsOf: file, encoding: .utf8))?.contains(run) == false })
     }
 
+    /// After a restart, a run past its 12 hours is dropped; a light the bridge does not have yet is kept in the file,
+    /// for a later start, without holding the run.
+    @Test func aRestartDropsWhatExpiredAndKeepsWhatIsMissing() async throws {
+        let (environment, _) = try await den()
+        defer { Task { await environment.stop() } }
+        let snapshot = MoodSnapshot(on: .bool(false), brightness: .int(40), adaptive: false)
+        let old = SavedHeldMood(id: "old", mood: Mood(name: "Old", steps: []), startedAt: Date().addingTimeInterval(-13 * 3600), by: "test",
+                                snapshots: ["Devices:bulb1#0": snapshot])
+        let pending = SavedHeldMood(id: "pending", mood: Mood(name: "Pending", steps: []), startedAt: Date(), by: "test",
+                                    snapshots: ["Devices:bulb1#0": snapshot, "Devices:later#0": snapshot])
+        try environment.catalog.home.heldMoods.update { $0 = [old, pending] }
+
+        environment.catalog.restoreHeldMoods()
+        let running = environment.catalog.home.runningMoods.withLockedValue { $0 }
+        #expect(Set(running.keys) == ["pending"])
+        #expect(running["pending"]?.lights.map(\.key) == ["Devices:bulb1#0"])
+        let saved = environment.catalog.home.heldMoods.value
+        #expect(saved.map(\.id) == ["pending"])
+        #expect(saved.first?.snapshots.keys.sorted() == ["Devices:bulb1#0", "Devices:later#0"])
+    }
+
     /// A scene the hub refuses changes nothing: no run is held, and the answer comes without waiting for the lights.
     @Test func aFailedPluginSceneHoldsNothing() async throws {
         let (environment, client) = try await den()
