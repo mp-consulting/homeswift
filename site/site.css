@@ -285,6 +285,40 @@ section { padding-block: clamp(56px, 8vw, 104px); }
 .dev li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 10px; }
 .dev li::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-top: 0.6em; }
 
+/* The graph section: a drawing of the Accessories page's graph (plugins in the web UI's palette, an unavailable
+   accessory hollow) with a camera's card over its corner; on a narrow screen the card sits under it. */
+.graph-lede { margin-top: 14px; font-size: 1.0625rem; }
+.graph-stage { position: relative; background: var(--bg-raised); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-small); padding: clamp(12px, 2vw, 20px); }
+.graph-toolbar { display: flex; gap: 8px; font-size: 0.8125rem; color: var(--muted); }
+.graph-pill { padding: 6px 12px; border-radius: 999px; background: color-mix(in srgb, var(--ink) 5%, transparent); }
+.graph-search { flex: 1; }
+.graph-art { display: block; width: 100%; height: auto; }
+.graph-art path { fill: none; stroke: var(--tone, var(--faint)); }
+.graph-art .g-trunk { stroke-width: 2; stroke-opacity: 0.55; }
+.graph-art .g-branch { stroke-width: 1.3; stroke-opacity: 0.55; }
+.graph-art .g-leaf { stroke-width: 0.8; stroke-opacity: 0.3; }
+.graph-art .g-node circle { fill: var(--bg-raised); stroke: var(--tone, var(--faint)); stroke-width: 2; }
+.graph-art .g-node use { color: var(--tone, var(--faint)); }
+.graph-art .g-bridge circle { stroke-width: 2.4; filter: drop-shadow(0 2px 6px rgba(20, 30, 50, 0.14)); }
+.graph-art .g-plugin circle { stroke-width: 2.4; }
+.graph-art .g-dot circle { stroke-width: 1.4; }
+.graph-art .g-off circle { stroke-dasharray: 2 1.6; stroke-opacity: 0.7; }
+.graph-art .g-off use { opacity: 0.4; }
+.graph-art .g1 { --tone: #2a78d6; } .graph-art .g2 { --tone: #1baf7a; } .graph-art .g3 { --tone: #eb6834; } .graph-art .g4 { --tone: #6250d6; } .graph-art .g5 { --tone: #e87ba4; }
+.graph-card { position: absolute; right: clamp(12px, 3vw, 24px); bottom: clamp(12px, 3vw, 24px); width: min(230px, 46%); background: var(--bg-raised); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 12px; display: grid; gap: 8px; font-size: 0.75rem; }
+.graph-card-head { display: flex; gap: 8px; align-items: center; }
+.graph-card-head i { flex: none; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: #1baf7a; background: color-mix(in srgb, #1baf7a 14%, transparent); }
+.graph-card-head svg { width: 16px; height: 16px; }
+.graph-card-head b { display: block; font-size: 0.8125rem; }
+.graph-card-head small { color: var(--muted); }
+.graph-shot { position: relative; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; background: linear-gradient(160deg, #9fc6a8, #4f7f68 55%, #2d4a3e); }
+.graph-shot img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.graph-shot span { position: absolute; top: 6px; right: 6px; font-size: 0.5625rem; font-weight: 700; letter-spacing: 0.04em; color: #fff; background: rgba(0, 0, 0, 0.45); padding: 2px 6px; border-radius: 999px; }
+.graph-card dl { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--ink) 4%, transparent); }
+.graph-card dt { color: var(--muted); }
+.graph-card dd { margin: 0; }
+@media (max-width: 760px) { .graph-card { position: static; width: auto; margin-top: 10px; } }
+
 footer { padding-block: 40px 56px; border-top: 1px solid var(--line); }
 footer .wrap { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: center; justify-content: space-between; }
 footer nav { display: flex; flex-wrap: wrap; gap: 6px 20px; font-size: 0.875rem; }

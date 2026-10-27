@@ -41,6 +41,9 @@
     <symbol id="i-bulb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1 2V16h5.2v-.2c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></symbol>
     <symbol id="i-thermo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 14.8V5a2 2 0 1 0-4 0v9.8a4 4 0 1 0 4 0z"/></symbol>
     <symbol id="i-blind" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 8h16M4 12h16M12 12v4"/></symbol>
+    <symbol id="i-cam" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="13.5" height="12" rx="2.5"/><path d="m16 10.5 5.5-3.5v10L16 13.5"/></symbol>
+    <symbol id="i-bridge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="13" width="16" height="7" rx="2"/><path d="M8 16.5h.01M8.5 9.5a5 5 0 0 1 7 0M6 7a8.5 8.5 0 0 1 12 0"/></symbol>
+    <symbol id="i-plugin" viewBox="0 0 24 24" fill="currentColor"><g transform="translate(12 12) scale(1.18) rotate(45) translate(-12 -12)"><rect x="8" y="4" width="1.8" height="6" rx=".9"/><rect x="14.2" y="4" width="1.8" height="6" rx=".9"/><path d="M7 9h10v3a5 5 0 0 1-10 0Z"/><rect x="10.9" y="15" width="2.2" height="5" rx="1"/></g></symbol>
     <symbol id="i-plug" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="3" width="12" height="18" rx="3"/><path d="M10.5 9v2M13.5 9v2"/></symbol>
     <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
     <symbol id="i-unlock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.7-1.5"/></symbol>
@@ -194,6 +197,94 @@
           <h3>Tourne là où tourne votre maison</h3>
           <p>Un conteneur pour amd64 et arm64, un paquet Synology pour DSM 7, ou un simple binaire sur macOS 14 et Linux.</p>
         </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="graph">
+    <div class="wrap dev">
+      <div>
+        <p class="eyebrow">Graphe</p>
+        <h2 class="dev-title">Toute votre maison, sur une seule page.</h2>
+        <p class="lede graph-lede">La page Accessoires dessine ce que Homeswift fait tourner sous forme de carte : ses ponts, les plugins de chacun, leurs types d'appareils et chaque accessoire, chaque plugin dans sa couleur avec le logo de sa marque.</p>
+        <ul>
+          <li>Cherchez un nom ou une marque, ou filtrez par pont, par type d'appareil ou sur ce qui ne répond pas : le graphe se réorganise autour de ce qui reste.</li>
+          <li>Cliquez sur un nœud pour sa fiche : l'image en direct d'une caméra, les mesures d'un capteur groupées par service, chaque valeur expliquée au survol.</li>
+          <li>Pincez, faites défiler ou cliquez sur une branche pour zoomer ; un tableau donne les mêmes lignes aux lecteurs d'écran.</li>
+        </ul>
+      </div>
+      <!-- A drawing of the Accessories page's graph (demonstration names), not a screenshot: plugins in the palette's
+           colours, their device types, accessories on the outer ring, one unavailable; a camera's card over it. -->
+      <div class="graph-stage">
+        <div class="graph-toolbar" aria-hidden="true"><span class="graph-pill graph-search">Rechercher des accessoires</span><span class="graph-pill">Filtres</span></div>
+        <svg class="graph-art" viewBox="-250 -250 500 500" role="img" aria-label="Un graphe : Homeswift au centre, deux ponts, cinq plugins dans leurs couleurs et leurs accessoires sur l'anneau extérieur">
+          <path class="g-trunk" d="M0.0 0.0C38.3 7.1 38.3 7.1 76.7 14.2"/>
+          <path class="g-trunk" d="M-0.0 -0.0C-38.3 -7.1 -38.3 -7.1 -76.7 -14.2"/>
+          <path class="g-branch g1" d="M76.7 14.2C101.3 18.8 62.7 -81.7 77.9 -101.5"/>
+          <path class="g-branch g1" d="M77.9 -101.5C91.3 -119.0 91.3 -119.0 104.7 -136.5"/>
+          <path class="g-leaf g1" d="M104.7 -136.5C118.7 -154.7 25.5 -193.3 28.5 -216.1"/>
+          <path class="g-leaf g1" d="M104.7 -136.5C118.7 -154.7 74.6 -180.2 83.4 -201.4"/>
+          <path class="g-leaf g1" d="M104.7 -136.5C118.7 -154.7 118.7 -154.7 132.7 -173.0"/>
+          <path class="g-leaf g1" d="M104.7 -136.5C118.7 -154.7 154.7 -118.7 173.0 -132.7"/>
+          <path class="g-leaf g1" d="M104.7 -136.5C118.7 -154.7 180.2 -74.6 201.4 -83.4"/>
+          <path class="g-branch g2" d="M76.7 14.2C101.3 18.8 93.0 44.3 115.5 55.1"/>
+          <path class="g-branch g2" d="M115.5 55.1C135.4 64.6 135.4 64.6 155.2 74.0"/>
+          <path class="g-leaf g2" d="M155.2 74.0C176.0 83.9 191.7 35.5 214.3 39.7"/>
+          <path class="g-leaf g2" d="M155.2 74.0C176.0 83.9 176.0 83.9 196.8 93.9"/>
+          <path class="g-leaf g2" d="M155.2 74.0C176.0 83.9 148.3 126.6 165.8 141.6"/>
+          <path class="g-branch g3" d="M76.7 14.2C101.3 18.8 2.7 103.0 3.4 128.0"/>
+          <path class="g-branch g3" d="M3.4 128.0C3.9 149.9 3.9 149.9 4.5 171.9"/>
+          <path class="g-leaf g3" d="M4.5 171.9C5.1 194.9 55.4 187.0 61.9 209.0"/>
+          <path class="g-leaf g3" d="M4.5 171.9C5.1 194.9 5.1 194.9 5.7 217.9"/>
+          <path class="g-leaf g3" d="M4.5 171.9C5.1 194.9 -45.5 189.6 -50.9 212.0"/>
+          <path class="g-branch g4" d="M-76.7 -14.2C-101.3 -18.8 -90.5 49.1 -112.5 61.1"/>
+          <path class="g-branch g4" d="M-112.5 61.1C-131.8 71.6 -131.8 71.6 -151.2 82.1"/>
+          <path class="g-leaf g4" d="M-151.2 82.1C-171.4 93.0 -141.4 134.2 -158.1 150.1"/>
+          <path class="g-leaf g4" d="M-151.2 82.1C-171.4 93.0 -171.4 93.0 -191.6 104.0"/>
+          <path class="g-leaf g4" d="M-151.2 82.1C-171.4 93.0 -189.6 45.5 -212.0 50.9"/>
+          <path class="g-branch g5" d="M-76.7 -14.2C-101.3 -18.8 -76.5 -68.9 -95.1 -85.6"/>
+          <path class="g-branch g5" d="M-95.1 -85.6C-111.5 -100.4 -111.5 -100.4 -127.8 -115.1"/>
+          <path class="g-leaf g5" d="M-127.8 -115.1C-144.9 -130.5 -183.8 -65.1 -205.5 -72.8"/>
+          <path class="g-leaf g5" d="M-127.8 -115.1C-144.9 -130.5 -160.7 -110.4 -179.7 -123.5"/>
+          <path class="g-leaf g5" d="M-127.8 -115.1C-144.9 -130.5 -126.6 -148.3 -141.6 -165.8"/>
+          <path class="g-leaf g5" d="M-127.8 -115.1C-144.9 -130.5 -83.9 -176.0 -93.9 -196.8"/>
+          <g class="g-node g-bridge" transform="translate(76.7 14.2)"><circle r="15"/><use href="#i-bridge" x="-8.5" y="-8.5" width="17" height="17"/></g>
+          <g class="g-node g-bridge" transform="translate(-76.7 -14.2)"><circle r="15"/><use href="#i-bridge" x="-8.5" y="-8.5" width="17" height="17"/></g>
+          <g class="g-node g-plugin g1" transform="translate(77.9 -101.5)"><circle r="11"/><use href="#i-plugin" x="-6.5" y="-6.5" width="13" height="13"/></g>
+          <g class="g-node g1" transform="translate(104.7 -136.5)"><circle r="11.5"/><use href="#i-bulb" x="-6.5" y="-6.5" width="13" height="13"/></g>
+          <g class="g-node g-dot g1" transform="translate(28.5 -216.1)"><circle r="10"/><use href="#i-bulb" x="-6" y="-6" width="12" height="12"/></g>
+          <g class="g-node g-dot g1" transform="translate(83.4 -201.4)"><circle r="10"/><use href="#i-bulb" x="-6" y="-6" width="12" height="12"/></g>
+          <g class="g-node g-dot g1" transform="translate(132.7 -173.0)"><circle r="10"/><use href="#i-bulb" x="-6" y="-6" width="12" height="12"/></g>
+          <g class="g-node g-dot g1" transform="translate(173.0 -132.7)"><circle r="10"/><use href="#i-bulb" x="-6" y="-6" width="12" height="12"/></g>
+          <g class="g-node g-dot g1" transform="translate(201.4 -83.4)"><circle r="10"/><use href="#i-bulb" x="-6" y="-6" width="12" height="12"/></g>
+          <g class="g-node g-plugin g2" transform="translate(115.5 55.1)"><circle r="11"/><use href="#i-plugin" x="-6.5" y="-6.5" width="13" height="13"/></g>
+          <g class="g-node g2" transform="translate(155.2 74.0)"><circle r="11.5"/><use href="#i-cam" x="-6.5" y="-6.5" width="13" height="13"/></g>
+          <g class="g-node g-dot g2" transform="translate(214.3 39.7)"><circle r="10"/><use href="#i-cam" x="-6" y="-6" width="12" height="12"/></g>
+          <g class="g-node g-dot g2" transform="translate(196.8 93.9)"><circle r="10"/><use href="#i-cam" x="-6" y="-6" width="12" height="12"/></g>
+          <g class="g-node g-dot g2 g-off" transform="translate(165.8 141.6)"><circle r="10"/><use href="#i-cam" x="-6" y="-6" width="12" height="12"/></g>
+          <g class="g-node g-plugin g3" transform="translate(3.4 128.0)"><circle r="11"/><use href="#i-plugin" x="-6.5" y="-6.5" width="13" height="13"/></g>
+          <g class="g-node g3" transform="translate(4.5 171.9)"><circle r="11.5"/><use href="#i-thermo" x="-6.5" y="-6.5" width="13" height="13"/></g>
+          <g class="g-node g-dot g3" transform="translate(61.9 209.0)"><circle r="10"/><use href="#i-thermo" x="-6" y="-6" width="12" height="12"/></g>
+          <g class="g-node g-dot g3" transform="translate(5.7 217.9)"><circle r="10"/><use href="#i-thermo" x="-6" y="-6" width="12" height="12"/></g>
+          <g class="g-node g-dot g3" transform="translate(-50.9 212.0)"><circle r="10"/><use href="#i-thermo" x="-6" y="-6" width="12" height="12"/></g>
+          <g class="g-node g-plugin g4" transform="translate(-112.5 61.1)"><circle r="11"/><use href="#i-plugin" x="-6.5" y="-6.5" width="13" height="13"/></g>
+          <g class="g-node g4" transform="translate(-151.2 82.1)"><circle r="11.5"/><use href="#i-plug" x="-6.5" y="-6.5" width="13" height="13"/></g>
+          <g class="g-node g-dot g4" transform="translate(-158.1 150.1)"><circle r="10"/><use href="#i-plug" x="-6" y="-6" width="12" height="12"/></g>
+          <g class="g-node g-dot g4" transform="translate(-191.6 104.0)"><circle r="10"/><use href="#i-plug" x="-6" y="-6" width="12" height="12"/></g>
+          <g class="g-node g-dot g4" transform="translate(-212.0 50.9)"><circle r="10"/><use href="#i-plug" x="-6" y="-6" width="12" height="12"/></g>
+          <g class="g-node g-plugin g5" transform="translate(-95.1 -85.6)"><circle r="11"/><use href="#i-plugin" x="-6.5" y="-6.5" width="13" height="13"/></g>
+          <g class="g-node g5" transform="translate(-127.8 -115.1)"><circle r="11.5"/><use href="#i-blind" x="-6.5" y="-6.5" width="13" height="13"/></g>
+          <g class="g-node g-dot g5" transform="translate(-205.5 -72.8)"><circle r="10"/><use href="#i-blind" x="-6" y="-6" width="12" height="12"/></g>
+          <g class="g-node g-dot g5" transform="translate(-179.7 -123.5)"><circle r="10"/><use href="#i-blind" x="-6" y="-6" width="12" height="12"/></g>
+          <g class="g-node g-dot g5" transform="translate(-141.6 -165.8)"><circle r="10"/><use href="#i-blind" x="-6" y="-6" width="12" height="12"/></g>
+          <g class="g-node g-dot g5" transform="translate(-93.9 -196.8)"><circle r="10"/><use href="#i-blind" x="-6" y="-6" width="12" height="12"/></g>
+          <use href="#logo" x="-24" y="-24" width="48" height="48"/>
+        </svg>
+        <div class="graph-card" aria-hidden="true">
+          <div class="graph-card-head"><i><svg><use href="#i-cam"/></svg></i><div><b>Caméra du jardin</b><small>Disponible</small></div></div>
+          <div class="graph-shot"><img src="../backyard.jpg" alt="" width="640" height="426" loading="lazy" decoding="async"><span>LIVE</span></div>
+          <dl><dt>Mouvement</dt><dd>Aucun mouvement</dd><dt>Flux vidéo ×2</dt><dd>Actif</dd><dt>Vision nocturne</dt><dd>Activée</dd></dl>
+        </div>
       </div>
     </div>
   </section>

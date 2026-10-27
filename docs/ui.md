@@ -65,6 +65,15 @@ with a new code). More users are added on the **Users** page (see below).
   camera's Setup Endpoints) are not shown, nor what only HomeKit uses. Temperatures show in the unit chosen on
   the Appearance page. [widgets.md](widgets.md) has it all, with
   screenshots and what a plugin does to get good widgets.
+- **Accessories › Graph** (`/accessories/graph`; the page's tabs are **Wall** and **Graph**): a radial
+  graph of homeswift at the centre,
+  each bridge an icon on the first ring, its plugins on the second, each device type on the third, and each accessory
+  a disc on the outer ring with its icon, each plugin's branch in a colour of its own (the legend lists them); names are in the tooltips and cards, and the icons
+  of a ring are spaced so that they never overlap. Click a bridge or plugin to zoom into its branch;
+  Ctrl-scroll, a trackpad pinch, a touch pinch, drag and the zoom buttons move the view. Click any node for a card
+  with its facts and readings (grouped by service, each with a tooltip saying what it is), and its accessories, each a click from its own card (on a phone the card sits
+  under the graph). A search field and a Filters menu (unavailable, bridges, device types) redraw the graph with what
+  matches. A table shows the same rows.
 - **Accessory groups**: **Create group** opens a two-column picker: available accessories on the left, selected
   members on the right, with search and device-type filters. In Edit mode, hold a compatible tile over another
   tile's centre and drop to start a group. Groups expose shared writable controls; they are not HomeKit accessories.
@@ -137,9 +146,9 @@ with a new code). More users are added on the **Users** page (see below).
   `/common.js`, take the accessory from `/api/accessories`, add `HomeswiftWidgets.card(accessory, { size })` (`small`,
   `medium` or `large`; the kind's own size when left out) to a `.wall`, open every control with
   `HomeswiftWidgets.open(accessory)`, and call `HomeswiftWidgets.listen()` once for live values.
-- **Addresses** are paths: `/status`, `/accessories`, `/quick`, `/scenes` (and `/scenes/<id>`, `/scenes/new`),
+- **Addresses** are paths: `/status`, `/accessories` (and `/accessories/graph`), `/quick`, `/scenes` (and `/scenes/<id>`, `/scenes/new`),
   `/notifications`, `/plugins`, `/plugins/<slug>` and its `/expert`,
-  `/plugins/add/<platform>`, `/config`, `/account`, `/appearance`, `/users`, `/settings` (the Overview) and its `/bridge`, `/child-bridges`, `/backups`, `/assistant` and
+  `/plugins/add/<platform>`, `/config`, `/account`, `/appearance`, `/users`, `/settings` (which opens `/settings/bridge`) and its `/bridge`, `/child-bridges`, `/backups`, `/assistant` and
   `/audit?since=7d&outcome=failed&tool=…&client=…`, and `/logs/<accessory>?bridge=<bridge or all>&plugin=<plugin>&since=24h&level=warning&q=text` (`bridge` and `plugin` are not both given: 400)
   (the accessory by its name's slug, or its id; the plugin by its slug, and `/logs/<platform>` from a plugin's page; `since` is `1h`, `6h`, `24h`, `today`, `yesterday`, `7d` or `custom` with
   `from` and `to`). A link changes the view in place, Back and Forward work, and an address can be kept or
@@ -179,12 +188,7 @@ with a new code). More users are added on the **Users** page (see below).
   syntax error's line is marked as you type.
 - **Settings**, for administrators, after the Homebridge UI's settings, child bridges, config backups and
   restart pages:
-  - **Overview** (`/settings`, the default): the headline counts, then a radial graph of homeswift at the centre,
-    each bridge a pill on the first ring, its plugins on the second, each device type as a node, and each accessory
-    a disc on the outer ring with its icon, in its branch's colour. Click a bridge or plugin to zoom into its branch;
-    Ctrl-scroll, a trackpad pinch, a touch pinch, drag and the zoom buttons move the view. Click any node for a card
-    with its facts, status and readings (on a phone the card sits under the graph). A table shows the same rows.
-  - **Bridge** (`/settings/bridge`): config.json's `bridge` block as a form (name, port, setup code, manufacturer, model, firmware;
+  - **Bridge** (`/settings/bridge`, where `/settings` opens): config.json's `bridge` block as a form (name, port, setup code, manufacturer, model, firmware;
     saving restarts homeswift; the device ID stays), the network (the addresses, the advertiser), each
     server's HomeKit pairing with **Reset pairings…** in its ⋯ menu, the cached accessories (stale ones
     first) with **Remove from the cache…** and **Reset every cache…**, and a link to the schedules and proxy

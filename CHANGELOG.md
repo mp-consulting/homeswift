@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The graph of bridges, plugins and accessories moves from Settings › Overview to a **Graph** tab of the Accessories
+  page (`/accessories/graph`, for every signed-in user). Settings › Overview goes, and `/settings` opens Bridge. Every value of a
+  node's card has a tooltip saying what it is; an accessory's readings are grouped by service and worded as on the
+  Accessories page, a camera's alike streams as one group with their count, and doorbells have a bell icon. A camera's
+  card opens with its picture, live while it is open as on the Accessories page. The legend keeps the states alone.
+- The graph colours each plugin's branch (the plugin, its device types, accessories and links) on its own; bridges
+  are neutral.
+- Each plugin has its own icon on the Plugins page and the graph: its brand's logo where Simple Icons has one
+  (Philips Hue, LG, Ubiquiti, Elgato, IKEA), else what it controls (a bulb for Govee, a thermostat for Daikin…).
+- Plugins: your plugins have the catalog's search and sort (by name, needing attention first, or by accessories),
+  under a **Your plugins** heading.
+- Plugins: a running plugin shows a quiet green dot (the other states keep their words), a card no longer repeats its
+  name as its platform, the notice about blocks no plugin runs names them as the cards do, and on a phone the search
+  takes its own row.
+- The graph: bridges, plugins and device types are icons alone (their names are in the tooltip and the
+  card), and the icons on each ring are spaced so that they never overlap, the rings growing when they need room.
+- The graph: a search field and a Filters menu (unavailable, bridges, device types, each with its count) redraw
+  the graph and its table with only what matches, on smaller rings (a few results as a fan, zoomed to fit). A bridge's, plugin's or device type's card lists its accessories with
+  their icons and status, each opening its own card (with a way back); facts sit in inset groups; categories have names
+  in every language; the centre shows the app's icon alone, smaller.
+
 ## [0.13.0] - 2026-10-27
 
 ### Added
