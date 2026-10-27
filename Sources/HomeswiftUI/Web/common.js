@@ -716,29 +716,242 @@
   /// text transparent, so editing, selection and undo stay the browser's. Returns the wrapper to show, with
   /// `check()` (parses the text and marks the line of a syntax error), `markPaths(paths)` (marks where each
   /// path is, or its nearest parent; returns `{ offset, line }` for each) and `reveal(offset)`.
+  ///
+  /// A block that spans lines folds from the chevron beside its first line (Option-click: every block at its
+  /// indentation; ⌘⌥[ and ⌘⌥] at the caret): its inside becomes one "…" in the textarea, the text kept aside.
+  /// The textarea's `value` and `setRangeText` are the whole text, so the page reads, sets and saves it as before;
+  /// an edit that would reach into a fold opens it first, and one that damages a fold anyway is undone.
   function jsonEditor(textarea) {
     const layer = el("pre", { class: "code-layer", "aria-hidden": "true" });
-    const wrapper = el("div", { class: "code-editor" }, layer, textarea);
+    const rail = el("div", { class: "code-folds" });
+    const gutter = el("div", { class: "code-gutter" }, rail);
+    const wrapper = el("div", { class: "code-editor" }, layer, textarea, gutter);
     textarea.classList.add("code-input");
-    let scheduled = false;
-    // The line of a syntax error (check), else the places of a save's problems (markPaths), which an edit clears.
+    const native = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value");
+    const shown = () => native.get.call(textarea);
+    // Each fold: where its "…" is in the text on screen, and the text it stands for. Sorted by place.
+    let folds = [];
+    const expand = (text, list = folds, from = 0) => {
+      let out = "", last = 0;
+      for (const fold of list) { out += text.slice(last, fold.at - from) + fold.hidden; last = fold.at - from + 1; }
+      return out + text.slice(last);
+    };
+    /// An offset in the whole text as one on screen, and the fold it is inside, if any.
+    const onScreen = (offset) => {
+      let shift = 0;
+      for (const fold of folds) {
+        const start = fold.at + shift;
+        if (offset <= start) break;
+        if (offset < start + fold.hidden.length) return { at: fold.at, fold };
+        shift += fold.hidden.length - 1;
+      }
+      return { at: offset - shift };
+    };
+    /// Puts `text` on screen keeping the scroll and the selection, moved by `move(offset)`.
+    const replace = (text, move) => {
+      const { scrollTop, scrollLeft, selectionStart, selectionEnd } = textarea;
+      const focused = document.activeElement === textarea;
+      native.set.call(textarea, text);
+      if (focused) textarea.setSelectionRange(move(selectionStart), move(selectionEnd));
+      textarea.scrollTop = scrollTop;
+      textarea.scrollLeft = scrollLeft;
+      before = shown();
+      schedule();
+    };
+    const open = (chosen) => {
+      if (!chosen.length) return;
+      const text = shown();
+      let out = "", last = 0, growth = 0;
+      const moved = [];
+      for (const fold of folds) {
+        if (!chosen.includes(fold)) { moved.push({ ...fold, at: fold.at + growth }); continue; }
+        out += text.slice(last, fold.at) + fold.hidden;
+        last = fold.at + 1;
+        growth += fold.hidden.length - 1;
+      }
+      const opened = folds.filter((fold) => chosen.includes(fold));
+      folds = moved;
+      replace(out + text.slice(last), (offset) => offset + opened.filter((fold) => fold.at < offset).reduce((sum, fold) => sum + fold.hidden.length - 1, 0));
+    };
+    /// Folds the blocks `[start, end]` (the offsets of their brackets on screen), last first so the others hold.
+    const close = (blocks) => {
+      let text = shown();
+      for (const { start, end } of [...blocks].sort((a, b) => b.start - a.start)) {
+        if (end - start < 2) continue;
+        const inside = folds.filter((fold) => fold.at > start && fold.at < end);
+        const hidden = expand(text.slice(start + 1, end), inside, start + 1);
+        const shrink = end - start - 2;
+        folds = folds.filter((fold) => !inside.includes(fold)).map((fold) => (fold.at > end ? { ...fold, at: fold.at - shrink } : fold));
+        folds.push({ at: start + 1, hidden });
+        folds.sort((a, b) => a.at - b.at);
+        text = text.slice(0, start + 1) + "…" + text.slice(end);
+      }
+      // The caret inside a block that folds goes to its "…"; one after it moves back with the text.
+      replace(text, (offset) => {
+        let at = offset;
+        for (const { start, end } of blocks) at -= offset >= end ? end - start - 2 : offset > start + 1 ? offset - start - 1 : 0;
+        return at;
+      });
+    };
+    Object.defineProperty(textarea, "value", {
+      configurable: true,
+      get: () => expand(shown()),
+      set: (text) => { folds = []; native.set.call(textarea, text); before = shown(); },
+    });
+    textarea.setRangeText = (text, start = textarea.selectionStart, end = textarea.selectionEnd, mode = "preserve") => {
+      // A fold in the range opens first, and the range takes in its text.
+      const hit = folds.filter((fold) => fold.at >= start && fold.at < end);
+      end += hit.reduce((sum, fold) => sum + fold.hidden.length - 1, 0);
+      open(hit);
+      const growth = text.length - (end - start);
+      HTMLTextAreaElement.prototype.setRangeText.call(textarea, text, start, end, mode);
+      folds = folds.map((fold) => (fold.at >= end ? { ...fold, at: fold.at + growth } : fold));
+      before = shown();
+      schedule();
+    };
+
+    // Edits around folds. `before` is the text on screen before the edit, `pending` where the browser will change it
+    // when that is known; anything else is found by comparing the two texts.
+    let before = shown(), pending = null;
+    textarea.addEventListener("beforeinput", (event) => {
+      const { selectionStart: start, selectionEnd: end } = textarea;
+      const text = shown(), type = event.inputType;
+      const lineStart = text.lastIndexOf("\n", start - 2) + 1;
+      const after = (from) => { const index = text.indexOf("\n", from); return index < 0 ? text.length : index; };
+      const lineEnd = after(after(end) + 1);
+      const reach = start !== end ? [start, end]
+        : type === "deleteContentBackward" ? [start - 1, start] : type === "deleteContentForward" ? [start, start + 1]
+        : type.startsWith("delete") ? (type.endsWith("Backward") ? [lineStart, start] : [start, lineEnd]) : [start, start];
+      const hit = folds.filter((fold) => fold.at >= reach[0] && fold.at < reach[1]);
+      if (hit.length) { event.preventDefault(); open(hit); return; }
+      before = text;
+      pending = type.startsWith("history") || (start === end && type.startsWith("delete") && reach[1] - reach[0] !== 1) ? null : reach;
+    });
+    textarea.addEventListener("input", (event) => {
+      const text = shown(), growth = text.length - before.length;
+      let changed = pending;
+      if (!changed) {
+        let prefix = 0;
+        while (prefix < before.length && prefix < text.length && before[prefix] === text[prefix]) prefix++;
+        let suffix = 0;
+        while (suffix < Math.min(before.length, text.length) - prefix && before[before.length - 1 - suffix] === text[text.length - 1 - suffix]) suffix++;
+        changed = [prefix, before.length - suffix];
+      }
+      pending = null;
+      if (folds.some((fold) => fold.at >= changed[0] && fold.at < changed[1])) {
+        // An edit took a "…" with it: back to the whole text as it was, nothing lost.
+        const whole = expand(before);
+        folds = [];
+        event.stopImmediatePropagation();
+        replace(whole, () => whole.length);
+        textarea.dispatchEvent(new Event("input"));
+        return;
+      }
+      folds = folds.map((fold) => (fold.at >= changed[1] ? { ...fold, at: fold.at + growth } : fold));
+      before = text;
+    }, { capture: true });
+    // A click on a "…" opens it.
+    textarea.addEventListener("click", () => {
+      if (textarea.selectionStart !== textarea.selectionEnd) return;
+      const caret = textarea.selectionStart;
+      open(folds.filter((fold) => fold.at === caret || fold.at === caret - 1));
+    });
+
+    let scheduled = false, blocks = [];
+    // The line of a syntax error (check), else the places of a save's problems (markPaths), which an edit clears;
+    // offsets in the whole text.
     let syntax = null, placed = [];
+    /// The blocks on screen that span lines, by the line they open on (the first that opens there).
+    const findBlocks = (text) => {
+      const found = new Map(), stack = [];
+      let line = 1;
+      for (let i = 0; i < text.length; i++) {
+        const character = text[i];
+        if (character === "\n") line++;
+        else if (character === '"') { for (i++; i < text.length && text[i] !== '"' && text[i] !== "\n"; i++) if (text[i] === "\\") i++; if (text[i] === "\n") line++; }
+        else if (character === "{" || character === "[") stack.push({ start: i, line });
+        else if (character === "}" || character === "]") {
+          const opener = stack.pop();
+          if (opener && opener.line !== line && !found.has(opener.line)) found.set(opener.line, { start: opener.start, end: i, line: opener.line });
+        }
+      }
+      return found;
+    };
+    const indentOf = (text, line) => { const start = lineStarts(text)[line - 1]; let i = start; while (text[i] === " ") i++; return i - start; };
+    let starts = null, startsOf = null;
+    const lineStarts = (text) => {
+      if (startsOf !== text) { starts = [0]; for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) starts.push(i + 1); startsOf = text; }
+      return starts;
+    };
+    const lineOf = (text, offset) => {
+      const list = lineStarts(text);
+      let low = 0, high = list.length - 1;
+      while (low < high) { const mid = (low + high + 1) >> 1; if (list[mid] <= offset) low = mid; else high = mid - 1; }
+      return low + 1;
+    };
+    const toggle = (line, all) => {
+      const text = shown();
+      const folded = folds.filter((fold) => lineOf(text, fold.at) === line);
+      if (folded.length) {
+        if (!all) return open(folded);
+        const indent = indentOf(text, line);
+        return open(folds.filter((fold) => indentOf(text, lineOf(text, fold.at)) === indent));
+      }
+      const block = blocks.get(line);
+      if (!block) return;
+      if (!all) return close([block]);
+      const indent = indentOf(text, line);
+      close([...blocks.values()].filter((one) => indentOf(text, one.line) === indent));
+    };
     const paint = () => {
       scheduled = false;
+      const text = shown();
+      const content = document.createDocumentFragment();
+      let last = 0;
+      for (const fold of folds) {
+        content.append(jsonHighlight(text.slice(last, fold.at)), el("span", { class: "code-fold", text: "…" }));
+        last = fold.at + 1;
+      }
       // A final newline needs a character after it to take its line.
-      layer.replaceChildren(jsonHighlight(textarea.value), "\n");
+      content.append(jsonHighlight(text.slice(last)), "\n");
+      layer.replaceChildren(content);
       // A marked line: a band under its text, as many line heights down as the line is from the top.
-      const top = getComputedStyle(layer).paddingTop;
+      const top = "var(--code-pad)";
       const marks = syntax === null ? placed : [syntax];
-      for (const line of new Set(marks.map((offset) => lineAt(textarea.value, offset)))) {
+      for (const line of new Set(marks.map((offset) => lineOf(text, onScreen(offset).at)))) {
         layer.append(el("span", { class: "code-mark", style: `top: calc(${top} + ${line - 1} * var(--code-line))` }));
       }
+      // The chevrons: one on each line a block opens on, turned on a folded one.
+      blocks = findBlocks(text);
+      const foldedLines = new Set(folds.map((fold) => lineOf(text, fold.at)));
+      const toggles = [];
+      for (const line of new Set([...blocks.keys(), ...foldedLines])) {
+        const folded = foldedLines.has(line);
+        const label = folded ? t("Expand") : t("Collapse");
+        toggles.push(el("button", { type: "button", class: `code-fold-toggle${folded ? " folded" : ""}`, tabindex: "-1", "aria-label": label, title: label,
+          "aria-expanded": String(!folded), style: `top: calc(${top} + ${line - 1} * var(--code-line))`,
+          onclick: (event) => toggle(line, event.altKey) }, icon("down")));
+      }
+      rail.replaceChildren(...toggles);
+      sync();
+    };
+    const sync = () => {
       layer.scrollTop = textarea.scrollTop;
       layer.scrollLeft = textarea.scrollLeft;
+      rail.style.transform = `translateY(${-textarea.scrollTop}px)`;
     };
     const schedule = () => { if (!scheduled) { scheduled = true; requestAnimationFrame(paint); } };
     textarea.addEventListener("input", () => { placed = []; schedule(); });
-    textarea.addEventListener("scroll", () => { layer.scrollTop = textarea.scrollTop; layer.scrollLeft = textarea.scrollLeft; });
+    textarea.addEventListener("scroll", sync);
+    // ⌘⌥[ folds the block the caret's line opens (else the one it is in), ⌘⌥] opens a fold on it.
+    textarea.addEventListener("keydown", (event) => {
+      if (!(event.metaKey || event.ctrlKey) || !event.altKey || (event.code !== "BracketLeft" && event.code !== "BracketRight")) return;
+      event.preventDefault();
+      const text = shown(), caret = textarea.selectionStart, line = lineOf(text, caret);
+      if (event.code === "BracketRight") return open(folds.filter((fold) => lineOf(text, fold.at) === line));
+      const around = blocks.get(line) ?? [...blocks.values()].filter((block) => block.start < caret && block.end >= caret).sort((a, b) => b.start - a.start)[0];
+      if (around) close([around]);
+    });
     // After the text is set in code: the problems' places no longer hold.
     wrapper.repaint = () => { placed = []; paint(); };
     wrapper.check = () => {
@@ -748,25 +961,43 @@
       return result;
     };
     wrapper.markPaths = (paths) => {
-      const { places } = jsonLocate(textarea.value);
+      const whole = textarea.value;
+      const { places } = jsonLocate(whole);
       const found = paths.map((path) => {
         let place = path;
         while (place.length && !places.has(JSON.stringify(place))) place = place.slice(0, -1);
         const offset = places.get(JSON.stringify(place)) ?? 0;
-        return { offset, line: lineAt(textarea.value, offset) };
+        return { offset, line: lineAt(whole, offset) };
       });
       placed = found.map((place) => place.offset);
       schedule();
       return found;
     };
-    // The caret on the line, the line a third of the way down.
+    // The caret on the line, the line a third of the way down; the folds around it open.
     wrapper.reveal = (offset) => {
+      for (let place = onScreen(offset); place.fold; place = onScreen(offset)) open([place.fold]);
+      const at = onScreen(offset).at;
       textarea.focus({ preventScroll: true });
-      textarea.setSelectionRange(offset, offset);
+      textarea.setSelectionRange(at, at);
       const lineHeight = parseFloat(getComputedStyle(textarea).lineHeight) || 20;
-      textarea.scrollTop = Math.max(0, (lineAt(textarea.value, offset) - 1) * lineHeight - textarea.clientHeight / 3);
+      textarea.scrollTop = Math.max(0, (lineOf(shown(), at) - 1) * lineHeight - textarea.clientHeight / 3);
       wrapper.scrollIntoView({ block: "nearest" });
     };
+    // A copy or a cut takes the whole text of the folds it covers.
+    const copyWhole = (event) => {
+      const { selectionStart: start, selectionEnd: end } = textarea;
+      if (start === end || !folds.some((fold) => fold.at >= start && fold.at < end)) return;
+      event.preventDefault();
+      const inside = folds.filter((fold) => fold.at >= start && fold.at < end);
+      event.clipboardData.setData("text/plain", expand(shown().slice(start, end), inside, start));
+      if (event.type !== "cut") return;
+      folds = folds.filter((fold) => !inside.includes(fold)).map((fold) => (fold.at >= end ? { ...fold, at: fold.at - (end - start) } : fold));
+      HTMLTextAreaElement.prototype.setRangeText.call(textarea, "", start, end, "start");
+      before = shown();
+      textarea.dispatchEvent(new Event("input"));
+    };
+    textarea.addEventListener("copy", copyWhole);
+    textarea.addEventListener("cut", copyWhole);
     paint();
     return wrapper;
   }
