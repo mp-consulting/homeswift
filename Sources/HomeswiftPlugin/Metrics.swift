@@ -138,6 +138,8 @@ public final class Metrics: @unchecked Sendable {
         var sampler: Task<Void, Never>?
         /// The Energy section's series, by series name.
         var tags: [String: EnergyTag] = [:]
+        /// The last minute the archive's recorded hours were made again from, so `persist` adds no minute twice.
+        var archivedThrough: Date?
     }
 
     private let state = NIOLockedValueBox(State())
@@ -162,11 +164,18 @@ public final class Metrics: @unchecked Sendable {
         // The hours the kept minutes cover whole are made again from them: a minute counted before a restart is not
         // counted twice, and one the archive missed (a crash before its write) is back.
         archive = EnergyArchive(url: directory?.appendingPathComponent(EnergyArchive.fileName))
-        if let first = loaded.first?.start {
-            let hour = TimeInterval(EnergyArchive.hourStart(first))
-            let from = Date(timeIntervalSince1970: hour == first.timeIntervalSince1970 ? hour : hour + 3600)
-            archive.rebuildRecorded(Self.energyMinutes(loaded.map { ($0.start, $0.values) }, tags: tags).map { ($0.start, $0.watts) }, from: from)
-        }
+        state.withLockedValue { Self.rebuild(archive, from: &$0) }
+    }
+
+    /// Makes the archive's recorded hours again from the kept minutes, from the first hour they cover whole: at start,
+    /// and when a series' tag changes (a series first tagged after its minutes were kept, as on the first start of a
+    /// bridge that recorded before the Energy section).
+    private static func rebuild(_ archive: EnergyArchive, from state: inout State) {
+        guard let first = state.minutes.first?.start else { return }
+        let hour = TimeInterval(EnergyArchive.hourStart(first))
+        let from = Date(timeIntervalSince1970: hour == first.timeIntervalSince1970 ? hour : hour + 3600)
+        archive.rebuildRecorded(energyMinutes(state.minutes.map { ($0.start, $0.values) }, tags: state.tags).map { ($0.start, $0.watts) }, from: from)
+        state.archivedThrough = state.minutes.last?.start
     }
 
     /// Follows the host's servers and samples the process until `stop()`.
@@ -266,9 +275,10 @@ public final class Metrics: @unchecked Sendable {
 
     /// Gives `series` a role in the Energy section; kept on disk when it changes.
     public func tag(_ series: String, _ tag: EnergyTag) {
-        let tags = state.withLockedValue { state -> [String: EnergyTag]? in
+        let tags = state.withLockedValue { [archive] state -> [String: EnergyTag]? in
             guard state.tags[series] != tag else { return nil }
             state.tags[series] = tag
+            Self.rebuild(archive, from: &state)
             return state.tags
         }
         guard let tags, let directory else { return }
@@ -388,8 +398,11 @@ public final class Metrics: @unchecked Sendable {
 
     private func persist(_ minute: Minute) {
         // The minute's energy, into its hour of the archive.
-        let tags = state.withLockedValue { $0.tags }
-        if let watts = Self.energyMinutes([(minute.start, minute.values)], tags: tags).first?.watts { archive.addRecorded(minute.start, watts: watts) }
+        // Under the lock, so a rebuild from a tag change and this add never both count it.
+        state.withLockedValue { [archive] state in
+            if let through = state.archivedThrough, minute.start <= through { return }
+            if let watts = Self.energyMinutes([(minute.start, minute.values)], tags: state.tags).first?.watts { archive.addRecorded(minute.start, watts: watts) }
+        }
         guard let directory else { return }
         let line = Self.entry(minute) + [0x0A]
         let name = "\(Self.prefix)\(Self.day(minute.start)).jsonl"

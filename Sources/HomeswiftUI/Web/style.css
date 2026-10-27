@@ -1219,7 +1219,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .energy-today .card > div { display: contents; }
 .energy-today .tile { width: 30px; height: 30px; border-radius: 9px; }
 .energy-today .tile svg { width: 17px; height: 17px; }
-.energy-today span { font-size: 0.8125rem; color: var(--muted); }
+.energy-today .card > div > span { font-size: 0.8125rem; color: var(--muted); }
 .energy-today b, .energy-today small { grid-column: 1 / -1; }
 .energy-today b { font-size: 1.75rem; line-height: 1.1; font-weight: 650; letter-spacing: -0.02em; white-space: nowrap; }
 .energy-today small { font-size: 0.75rem; color: var(--muted); margin-top: -4px; }

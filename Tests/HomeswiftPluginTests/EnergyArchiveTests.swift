@@ -126,6 +126,26 @@ struct EnergyArchiveTests {
         #expect(near(before, 900))
     }
 
+    /// A series tagged after its minutes were kept, as on the first start of a bridge that recorded before the Energy
+    /// section: the kept minutes count, once.
+    @Test func aLateTagCountsTheKeptMinutesOnce() {
+        let clock = NIOLockedValueBox(hour.addingTimeInterval(5))
+        let metrics = Metrics(directory: nil, now: { clock.withLockedValue { $0 } })
+        for _ in 0..<60 {
+            metrics.record(600, series: "plugin:Test:home")
+            clock.withLockedValue { $0 = $0.addingTimeInterval(60) }
+        }
+        metrics.tag("plugin:Test:home", EnergyTag(role: .home, device: "House"))
+        for _ in 0..<30 {
+            metrics.record(600, series: "plugin:Test:home")
+            clock.withLockedValue { $0 = $0.addingTimeInterval(60) }
+        }
+        metrics.record(0, series: "plugin:Test:untagged")
+        let day = metrics.archive.periods(.day, from: hour, to: hour, timeZone: utc)[0]
+        #expect(near(day.flows.home, 900))
+        #expect(day.recordedHours == 2, "the whole hour kept before the tag, and the half hour after it")
+    }
+
     @Test func importsMadeBeforeAnyoneFollowsArriveLater() {
         let feed = EnergyImportFeed()
         feed.publish("Cloud", [EnergyHourImport(start: hour, flows: EnergyFlows(solar: 1))])
