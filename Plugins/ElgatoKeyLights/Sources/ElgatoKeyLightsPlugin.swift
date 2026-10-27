@@ -83,6 +83,8 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
     }
 
     public static let platform = "ElgatoKeyLights"
+
+    public static let icon: String? = "logo-elgato"
     public static let name = "Elgato Key Lights"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json.
 

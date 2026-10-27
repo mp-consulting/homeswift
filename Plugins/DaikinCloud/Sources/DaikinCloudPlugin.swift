@@ -16,6 +16,7 @@ import NIOPosix
 /// Onecta app's email and password. See README.md.
 public actor DaikinCloudPlugin: HomeswiftPlugin {
     public static let platform = "DaikinCloud"
+    public static let icon: String? = "thermo"
     public static let name = "Daikin Cloud"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json;
     // `webFiles` in WebFiles.swift, generated from ../Web.

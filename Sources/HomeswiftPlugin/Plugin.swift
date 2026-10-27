@@ -43,6 +43,11 @@ public protocol HomeswiftPlugin: Sendable {
     /// Shown by `homeswift plugins`, e.g. `"Elgato Key Lights"`. Defaults to `platform`.
     static var name: String { get }
 
+    /// The web UI's icon for the plugin (its Plugins page card, its node on the graph): a name from the web UI's
+    /// icons in `Sources/HomeswiftUI/Web/common.js`, its brand's logo (`"logo-elgato"`) where one is there, else what
+    /// it controls (`"bulb"`, `"thermo"`). A new logo goes into common.js's `logos`. Defaults to nil: a plug.
+    static var icon: String? { get }
+
     /// The plugin's `config.schema.json` as text (key order kept), for the settings form of the web UI and
     /// the Assistant's config copilot. `Scripts/embed-assets.swift plugin` generates it from the file.
     /// Defaults to nil: no form, only the raw block.
@@ -90,6 +95,7 @@ public protocol HomeswiftPlugin: Sendable {
 
 extension HomeswiftPlugin {
     public static var name: String { platform }
+    public static var icon: String? { nil }
     public static var configurationSchemaJSON: String? { nil }
     public static var webFiles: [String: WebFile] { [:] }
     public static var assistantActions: [AssistantAction] { [] }

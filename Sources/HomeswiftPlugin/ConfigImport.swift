@@ -16,7 +16,7 @@ public enum HomebridgeImport {
     public static let maxBytes = 1_048_576
 
     /// Homebridge platform names Homeswift runs under another name.
-    static let renamedPlatforms = ["HomebridgeAiKit": AIConfiguration.platform]
+    public static let renamedPlatforms = ["HomebridgeAiKit": AIConfiguration.platform]
     /// The bridge settings Homeswift reads; anything else in the bridge block is dropped.
     static let bridgeKeys: Set<String> = ["name", "username", "port", "pin", "advertiser", "bind"]
     /// The child bridge settings (`_bridge`) Homeswift reads.

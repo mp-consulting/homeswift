@@ -12,6 +12,7 @@ import NIOConcurrencyHelpers
 /// MQTT carries the events and lock commands. See README.md.
 public actor UniFiAccessPlugin: HomeswiftPlugin {
     public static let platform = "UniFi Access"
+    public static let icon: String? = "logo-ubiquiti"
     public static let name = "UniFi Access"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json;
     // `webFiles` in WebFiles.swift, generated from ../Web.

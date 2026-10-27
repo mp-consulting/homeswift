@@ -46,6 +46,7 @@ public actor MyDevicesPlugin: HomeswiftPlugin {
 
     public static let platform = "MyDevices"     // the block's "platform" key
     public static let name = "My Devices"        // for `homeswift plugins` and the logs
+    public static let icon: String? = "bulb"     // the web UI's icon: a brand's logo in common.js, or what it controls
 
     let configuration: Configuration
     let context: PluginContext

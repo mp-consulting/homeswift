@@ -14,6 +14,7 @@ import Logging
 /// HTTP device list for sensors, and BLE advertisements for thermo-hygrometers.
 public actor GoveePlugin: HomeswiftPlugin {
     public static let platform = "Govee"
+    public static let icon: String? = "bulb"
     public static let name = "Govee"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json;
     // `webFiles` in WebFiles.swift, generated from ../Web.

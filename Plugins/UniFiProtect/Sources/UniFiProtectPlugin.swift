@@ -11,6 +11,7 @@ import Logging
 /// Homebridge plugin's `UniFi Protect` block. See README.md.
 public actor UniFiProtectPlugin: HomeswiftPlugin {
     public static let platform = "UniFi Protect"
+    public static let icon: String? = "logo-ubiquiti"
     public static let name = "UniFi Protect"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json;
     // `webFiles` in WebFiles.swift, generated from ../Web.

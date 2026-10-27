@@ -140,7 +140,7 @@
 
   /// An icon as an SVG element, drawn as the UI's icons are (lines of the current colour) by its own attributes, so
   /// one placed where no style sizes and strokes it is still a line drawing, not a filled shape; a style overrides them.
-  // Brand logos of the plugins that have one, from Simple Icons (CC0, simple-icons 16.33.0; THIRD-PARTY-NOTICES.md):
+  // Brand logos the plugins name as their icon (`HomeswiftPlugin.icon`), from Simple Icons (CC0, simple-icons 16.33.0; THIRD-PARTY-NOTICES.md):
   // filled shapes, in the icon's colour. A square mark is drawn smaller than its 24-unit square for the margin the
   // stroked icons have; a wordmark (Hue, LG, IKEA) is already short, so it keeps the full width, Hue's thin letters
   // traced a little heavier to stay readable at node size.
@@ -154,13 +154,6 @@
   const wordmarks = new Set(["logo-hue", "logo-lg", "logo-ikea"]);
   for (const [name, d] of Object.entries(logos)) icons[name] = `<path d="${d}"${wordmarks.has(name) ? "" : ` transform="translate(3.6 3.6) scale(.7)"`} style="fill: currentColor; ${
     name === "logo-hue" ? "stroke: currentColor; stroke-width: .7; stroke-linejoin: round" : "stroke: none"}"/>`;
-  /// A plugin's icon by its platform: its brand's logo when Simple Icons has it, else what it controls (the Assistant's
-  /// sparkle for an AI kit), else `fallback`.
-  const pluginIcons = { PhilipsHue: "logo-hue", LGThinQ: "logo-lg", "UniFi Protect": "logo-ubiquiti", "UniFi Access": "logo-ubiquiti",
-    ElgatoKeyLights: "logo-elgato", Dirigera: "logo-ikea", Wingman: "wingman", Govee: "bulb", eWeLink: "switch", DaikinCloud: "thermo",
-    DysonPureCool: "wind", DolphinPoolCleaner: "drop", PhilipsAmbilightTV: "tv", EcoFlow: "power", HomeswiftAiKit: "sparkle",
-    HomebridgeAiKit: "sparkle" };
-  const pluginIcon = (platform, fallback = "plugin") => pluginIcons[platform] ?? fallback;
 
   function icon(name) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -1146,7 +1139,7 @@
 
   window.HomeswiftCommon = {
     busyButton, scaledCanvas, byteSize,
-    $, el, icon, pluginIcon, subnav, tile, clearFilters, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
+    $, el, icon, subnav, tile, clearFilters, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
 })();

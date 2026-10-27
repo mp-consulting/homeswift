@@ -719,9 +719,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     targetController: t("Remote"), wifiRouter: t("Wi-Fi router"), audioReceiver: t("Audio receiver"), tvSetTopBox: t("Set-top box"),
     tvStreamingStick: t("Streaming stick") };
   const categoryName = (key = "") => categoryNames[key] ?? key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (first) => first.toUpperCase());
-  /// The icon that stands for a device's category: its widget tile's (a doorbell's bell, to tell it from the cameras),
-  /// else a generic one.
-  const deviceIcon = (category) => (category === "videoDoorbell" ? "bell" : HomeswiftWidgets.categoryIcon(category) ?? "generic");
+  /// The icon that stands for a device's category: its widget tile's, else a generic one.
+  const deviceIcon = (category) => HomeswiftWidgets.categoryIcon(category) ?? "generic";
   /// A device's status for its tooltip: unavailable, else whether it is on, its brightness and its temperature when it reports them.
   function deviceStatus(accessory) {
     if (accessory.unavailable) return t("Unavailable");
@@ -769,7 +768,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       pluginCount += 1;
       pausedCount += paused ? 1 : 0;
       leaves.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
-      parent.children.push({ kind: "plugin", name: block.name, platform: block.platform, bridgeName, paused, leaves, color,
+      parent.children.push({ kind: "plugin", name: block.name, platform: block.platform, icon: block.icon ?? "plugin", bridgeName, paused, leaves, color,
         sub: paused ? t("Paused") : leaves.length ? tn("{n} accessory", "{n} accessories", leaves.length, {}) : t("No accessories") });
     }
     for (const top of tops) top.color = "var(--muted)";
@@ -969,7 +968,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const categories = new Map();
     for (const leaf of plugin.leaves) categories.set(leaf.category, (categories.get(leaf.category) ?? 0) + 1);
     const unavailable = plugin.leaves.filter((one) => one.unavailable).length;
-    return { name: plugin.name, icon: HomeswiftCommon.pluginIcon(plugin.platform), status: plugin.sub, warn: unavailable > 0,
+    return { name: plugin.name, icon: plugin.icon, status: plugin.sub, warn: unavailable > 0,
       facts: [factRow("platform", plugin.platform), factRow("bridge", plugin.bridgeName), factRow("state", plugin.paused ? t("Paused") : t("Running")),
         factRow("unavailable", unavailable || null), factRow("categories", [...categories].map(([key, count]) => `${categoryName(key)} ${count}`).join(", "))],
       items: accessoryItems(plugin.leaves) };
@@ -1326,7 +1325,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       for (const branch of top.children) {
         edges.push(link(top, branch, `branch${branch.paused ? " paused" : ""}`, branch.color));
         nodes.push(node(branch, { classes: `node plugin-node${branch.paused ? " paused" : ""}`, radius: nodeRadius.plugin,
-          icon: HomeswiftCommon.pluginIcon(branch.platform), tip: `${branch.name} · ${branch.sub}`,
+          icon: branch.icon, tip: `${branch.name} · ${branch.sub}`,
           card: () => pluginDetails(branch), zoom: { radius: (rings.plugin + rings.leaf) / 2, k: 2.6 } }));
         for (const group of branch.groups) {
           edges.push(link(branch, group, "branch", branch.color));

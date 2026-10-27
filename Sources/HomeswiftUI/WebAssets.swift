@@ -728,9 +728,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     targetController: t("Remote"), wifiRouter: t("Wi-Fi router"), audioReceiver: t("Audio receiver"), tvSetTopBox: t("Set-top box"),
     tvStreamingStick: t("Streaming stick") };
   const categoryName = (key = "") => categoryNames[key] ?? key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (first) => first.toUpperCase());
-  /// The icon that stands for a device's category: its widget tile's (a doorbell's bell, to tell it from the cameras),
-  /// else a generic one.
-  const deviceIcon = (category) => (category === "videoDoorbell" ? "bell" : HomeswiftWidgets.categoryIcon(category) ?? "generic");
+  /// The icon that stands for a device's category: its widget tile's, else a generic one.
+  const deviceIcon = (category) => HomeswiftWidgets.categoryIcon(category) ?? "generic";
   /// A device's status for its tooltip: unavailable, else whether it is on, its brightness and its temperature when it reports them.
   function deviceStatus(accessory) {
     if (accessory.unavailable) return t("Unavailable");
@@ -778,7 +777,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       pluginCount += 1;
       pausedCount += paused ? 1 : 0;
       leaves.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
-      parent.children.push({ kind: "plugin", name: block.name, platform: block.platform, bridgeName, paused, leaves, color,
+      parent.children.push({ kind: "plugin", name: block.name, platform: block.platform, icon: block.icon ?? "plugin", bridgeName, paused, leaves, color,
         sub: paused ? t("Paused") : leaves.length ? tn("{n} accessory", "{n} accessories", leaves.length, {}) : t("No accessories") });
     }
     for (const top of tops) top.color = "var(--muted)";
@@ -978,7 +977,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const categories = new Map();
     for (const leaf of plugin.leaves) categories.set(leaf.category, (categories.get(leaf.category) ?? 0) + 1);
     const unavailable = plugin.leaves.filter((one) => one.unavailable).length;
-    return { name: plugin.name, icon: HomeswiftCommon.pluginIcon(plugin.platform), status: plugin.sub, warn: unavailable > 0,
+    return { name: plugin.name, icon: plugin.icon, status: plugin.sub, warn: unavailable > 0,
       facts: [factRow("platform", plugin.platform), factRow("bridge", plugin.bridgeName), factRow("state", plugin.paused ? t("Paused") : t("Running")),
         factRow("unavailable", unavailable || null), factRow("categories", [...categories].map(([key, count]) => `${categoryName(key)} ${count}`).join(", "))],
       items: accessoryItems(plugin.leaves) };
@@ -1335,7 +1334,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       for (const branch of top.children) {
         edges.push(link(top, branch, `branch${branch.paused ? " paused" : ""}`, branch.color));
         nodes.push(node(branch, { classes: `node plugin-node${branch.paused ? " paused" : ""}`, radius: nodeRadius.plugin,
-          icon: HomeswiftCommon.pluginIcon(branch.platform), tip: `${branch.name} · ${branch.sub}`,
+          icon: branch.icon, tip: `${branch.name} · ${branch.sub}`,
           card: () => pluginDetails(branch), zoom: { radius: (rings.plugin + rings.leaf) / 2, k: 2.6 } }));
         for (const group of branch.groups) {
           edges.push(link(branch, group, "branch", branch.color));
@@ -2743,7 +2742,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const kindName = [plugin?.name, block.platform].find((name) => name && bare(name) !== bare(block.name));
       return el("div", { class: "card server plugin-instance" },
         el("div", { class: "server-head" },
-          tile(HomeswiftCommon.pluginIcon(block.platform, block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
+          tile(block.icon ?? (block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
           el("div", { class: "who" }, el("a", { class: "card-title", href: opens }, el("strong", { text: block.name })),
             el("div", { class: "muted", text: [kindName, block.childBridge ? t("child bridge") : null].filter(Boolean).join(" · ") })),
           // In this dense list, running is the usual state: a quiet dot; the others (paused, no plugin, built in) say so
@@ -2780,7 +2779,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const catalogEntries = plugins.plugins.map((plugin) => {
       const used = plugins.blocks.some((block) => block.platform === plugin.platform);
       const card = el("div", { class: "card server catalog" },
-        el("div", { class: "server-head" }, tile(HomeswiftCommon.pluginIcon(plugin.platform), "orange"),
+        el("div", { class: "server-head" }, tile(plugin.icon ?? "plugin", "orange"),
           el("div", { class: "who" }, el("strong", { text: plugin.name }), el("div", { class: "muted", text: plugin.platform })),
           used ? el("span", { class: "pill status standby", text: t("In use [used]") }) : null),
         el("div", { class: "actions" }, plugin.hasPages
@@ -3112,7 +3111,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     show(main,
       breadcrumb([t("Plugins"), "/plugins"], [block.name, isNew ? "/plugins" : settingsLink(block)], [isNew ? t("Add") : hasPage ? t("Expert") : t("Settings")]),
       el("div", { class: "page-head settings-head" },
-        tile(HomeswiftCommon.pluginIcon(block.platform, block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
+        tile(block.icon ?? (block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
         el("div", { class: "who" },
           el("h1", { text: isNew ? t("Add {name}", { name: plugin.name }) : block.name }),
           el("p", { class: "muted", text: [...new Set([plugin ? plugin.name : platform, platform])].filter((part) => part !== block.name).concat(
@@ -5054,6 +5053,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const ringBadge = el("span", { class: "camera-badge ring hidden" });
     const recordingBadge = el("span", { class: "camera-badge recording hidden", text: t("Recording"), title: t("HomeKit Secure Video records this camera's events") });
     const message = el("div", { class: "camera-message", text: t("Connecting…") });
+    // No picture from the camera: an old television's snow behind the message, drawn small and scaled up.
+    const snow = el("canvas", { class: "camera-snow", width: 160, height: 90, "aria-hidden": "true" });
     const sound = button("muted", t("Unmute"), () => {
       video.muted = !video.muted;
       sound.replaceChildren(glyph(video.muted ? "muted" : "sound"));
@@ -5071,7 +5072,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     });
     const refresh = button("refresh", t("Refresh"), () => { state.noLive = false; restart(); });
     const element = el("div", { class: "camera-view", "data-camera": camera.id },
-      still, video, message,
+      still, video, snow, message,
       el("div", { class: "camera-top" },
         el("strong", { class: "camera-name", text: camera.name }),
         el("span", { class: "camera-badges" }, liveBadge, stillBadge, recordingBadge, motionBadge, ringBadge)),
@@ -5087,8 +5088,27 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     });
     const url = (what, query = "") => `/api/cameras/${encodeURIComponent(camera.id)}/${what}${query}`;
 
-    function show(what, text = "") {
-      // "live" the video, "still" the snapshot, "message" a line over a dim picture.
+    // The snow's frames, a few a second while the view runs; one frame under reduced motion.
+    let snowFrame = 0, snowDrawn = 0;
+    function drawSnow(now) {
+      if (!element.classList.contains("no-signal") || !state.running) { snowFrame = 0; return; }
+      if (now - snowDrawn > 60) {
+        snowDrawn = now;
+        const context = snow.getContext("2d"), image = context.createImageData(snow.width, snow.height);
+        const pixels = new Uint32Array(image.data.buffer);
+        for (let i = 0; i < pixels.length; i++) { const v = (Math.random() * 256) | 0; pixels[i] = 0xff000000 | (v << 16) | (v << 8) | v; }
+        context.putImageData(image, 0, 0);
+      }
+      snowFrame = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : requestAnimationFrame(drawSnow);
+    }
+    function snowing(on) {
+      element.classList.toggle("no-signal", on);
+      if (on && !snowFrame) snowFrame = requestAnimationFrame(drawSnow);
+    }
+
+    function show(what, text = "", { noSignal = false } = {}) {
+      // "live" the video, "still" the snapshot, "message" a line over a dim picture (over snow when the camera sends none).
+      snowing(what === "message" && noSignal && !still.src);
       element.classList.toggle("is-live", what === "live");
       element.classList.toggle("has-still", !!still.src);
       message.textContent = text;
@@ -5130,7 +5150,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           await sleep(SNAPSHOT_EVERY, signal);
         } catch (error) {
           if (signal.aborted) return;
-          show("message", error.status === 409 ? t("Turned off in the Home app") : error.status === 503 ? t("Paused") : t("No picture from the camera"));
+          const unavailable = error.status !== 409 && error.status !== 503;
+          show("message", error.status === 409 ? t("Turned off in the Home app") : error.status === 503 ? t("Paused") : t("No picture from the camera"), { noSignal: unavailable });
           // A camera that fails is asked less often.
           await sleep(SNAPSHOT_EVERY * 4, signal);
         }
@@ -6386,7 +6407,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   /// An icon as an SVG element, drawn as the UI's icons are (lines of the current colour) by its own attributes, so
   /// one placed where no style sizes and strokes it is still a line drawing, not a filled shape; a style overrides them.
-  // Brand logos of the plugins that have one, from Simple Icons (CC0, simple-icons 16.33.0; THIRD-PARTY-NOTICES.md):
+  // Brand logos the plugins name as their icon (`HomeswiftPlugin.icon`), from Simple Icons (CC0, simple-icons 16.33.0; THIRD-PARTY-NOTICES.md):
   // filled shapes, in the icon's colour. A square mark is drawn smaller than its 24-unit square for the margin the
   // stroked icons have; a wordmark (Hue, LG, IKEA) is already short, so it keeps the full width, Hue's thin letters
   // traced a little heavier to stay readable at node size.
@@ -6400,13 +6421,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const wordmarks = new Set(["logo-hue", "logo-lg", "logo-ikea"]);
   for (const [name, d] of Object.entries(logos)) icons[name] = `<path d="${d}"${wordmarks.has(name) ? "" : ` transform="translate(3.6 3.6) scale(.7)"`} style="fill: currentColor; ${
     name === "logo-hue" ? "stroke: currentColor; stroke-width: .7; stroke-linejoin: round" : "stroke: none"}"/>`;
-  /// A plugin's icon by its platform: its brand's logo when Simple Icons has it, else what it controls (the Assistant's
-  /// sparkle for an AI kit), else `fallback`.
-  const pluginIcons = { PhilipsHue: "logo-hue", LGThinQ: "logo-lg", "UniFi Protect": "logo-ubiquiti", "UniFi Access": "logo-ubiquiti",
-    ElgatoKeyLights: "logo-elgato", Dirigera: "logo-ikea", Wingman: "wingman", Govee: "bulb", eWeLink: "switch", DaikinCloud: "thermo",
-    DysonPureCool: "wind", DolphinPoolCleaner: "drop", PhilipsAmbilightTV: "tv", EcoFlow: "power", HomeswiftAiKit: "sparkle",
-    HomebridgeAiKit: "sparkle" };
-  const pluginIcon = (platform, fallback = "plugin") => pluginIcons[platform] ?? fallback;
 
   function icon(name) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -7392,7 +7406,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   window.HomeswiftCommon = {
     busyButton, scaledCanvas, byteSize,
-    $, el, icon, pluginIcon, subnav, tile, clearFilters, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
+    $, el, icon, subnav, tile, clearFilters, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
 })();
@@ -18564,6 +18578,10 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   font-size: 0.8125rem; font-weight: 500; color: rgba(255, 255, 255, 0.82); background: rgba(10, 12, 18, 0.35);
 }
 .camera-view:not(.has-still) > .camera-message { background: radial-gradient(80% 80% at 50% 40%, #232836, #10131a); }
+/* No picture from the camera: television snow, scan lines over it, the message on top. */
+.camera-snow { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; opacity: 0; transition: opacity var(--normal) var(--ease-out); pointer-events: none; }
+.camera-view.no-signal > .camera-snow { opacity: 0.5; }
+.camera-view.no-signal > .camera-message { background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.22) 0 1px, transparent 1px 3px), radial-gradient(80% 80% at 50% 45%, rgba(16, 19, 26, 0.15), rgba(16, 19, 26, 0.7)); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); }
 .camera-meta { font-size: 0.8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: -2px; }
 @media (hover: hover) and (pointer: fine) {
   .camera-controls { opacity: 0; }
@@ -21501,7 +21519,7 @@ self.addEventListener("notificationclick", (event) => {
     sensor: ["sensor", "teal"], fan: ["fan", "teal"], airPurifier: ["wind", "teal"], speaker: ["speaker", "blue"], homePod: ["speaker", "blue"],
     audioReceiver: ["speaker", "blue"], doorLock: ["lock", "violet"], thermostat: ["thermo", "yellow"], heater: ["thermo", "yellow"], airConditioner: ["thermo", "teal"],
     garageDoorOpener: ["gate", "violet"], door: ["door", "violet"], window: ["door", "violet"], windowCovering: ["blind", "violet"],
-    ipCamera: ["camera", "grey"], videoDoorbell: ["camera", "grey"], faucet: ["drop", "blue"], sprinkler: ["drop", "blue"], securitySystem: ["shield", "violet"],
+    ipCamera: ["camera", "grey"], videoDoorbell: ["bell", "grey"], faucet: ["drop", "blue"], sprinkler: ["drop", "blue"], securitySystem: ["shield", "violet"],
   };
 
   /// What no widget claims: the power in the header and the primary service's rows; in full, the rest under More.

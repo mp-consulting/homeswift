@@ -49,6 +49,8 @@ public actor DirigeraPlugin: HomeswiftPlugin {
     }
 
     public static let platform = "Dirigera"
+
+    public static let icon: String? = "logo-ikea"
     public static let name = "IKEA DIRIGERA"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json.
 

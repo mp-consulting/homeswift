@@ -13,6 +13,7 @@ import Logging
 /// the one of `@mp-consulting/homebridge-ewelink`, so a Homebridge block works unchanged. See README.md.
 public actor EWeLinkPlugin: HomeswiftPlugin {
     public static let platform = "eWeLink"
+    public static let icon: String? = "switch"
     public static let name = "eWeLink"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json;
     // `webFiles` in WebFiles.swift, generated from ../Web.

@@ -60,6 +60,8 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     }
 
     public static let platform = "PhilipsHue"
+
+    public static let icon: String? = "logo-hue"
     public static let name = "Philips Hue"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json.
 
