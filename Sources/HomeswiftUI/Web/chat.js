@@ -598,10 +598,11 @@
       listening = false;
       recognition = null;
       panel.sheet.classList.remove("listening");
-      if (send && finalText.trim() && running) voiceNote = t("Your words are in the field: send them once the answer is done.");
+      const heard = send && finalText.trim();
+      if (heard && running) voiceNote = t("Your words are in the field: send them once the answer is done.");
       renderControls();
       const text = panel.input.value.trim();
-      if (send && finalText.trim() && text && !running) submit(text, true);
+      if (heard && text && !running) submit(text, true);
     };
     try {
       current.start();

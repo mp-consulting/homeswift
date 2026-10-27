@@ -23,11 +23,11 @@ h2 { margin: 0 0 10px; }
 .scene.fired { animation: fired 0.9s var(--ease-out); }
 @keyframes fired { 0% { box-shadow: 0 0 0 0 rgba(255, 214, 10, 0.7); } 100% { box-shadow: 0 0 0 14px rgba(255, 214, 10, 0); } }
 @media (prefers-reduced-motion: reduce) { .scene.fired { animation: none; } }
-/* A scene on the hub's schedule (wake-up): greyed and dashed, a clock badge, nothing to tap. */
-.scene.unusable { filter: grayscale(1); opacity: 0.5; border-style: dashed; cursor: default; box-shadow: none; }
+/* A scene on the hub's schedule (wake-up): greyed as a hidden one, dashed, a clock badge, nothing to tap. */
+.scene.unusable { border-style: dashed; cursor: default; box-shadow: none; }
 .scene.unusable:hover, .scene.unusable:active { box-shadow: none; transform: none; }
 .scene .badge.scheduled { left: auto; right: 10px; display: inline-flex; align-items: center; gap: 4px; }
-.scene .badge.scheduled svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.scene .badge.scheduled svg { width: 12px; height: 12px; }
 
 /* Devices as the Accessories page draws them; the ones left out of the Home app below, to bring back. */
 .accessory-walls { margin: 0; }
@@ -42,7 +42,7 @@ h2 { margin: 0 0 10px; }
 (() => {
   "use strict";
   const { t } = HomeswiftI18n;
-  const { $, el, request, act, readBlock, updateBlock, setKey, poll, renderKeyed } = homeswift;
+  const { $, el, icon, request, act, readBlock, updateBlock, setKey, poll, renderKeyed } = homeswift;
 
   let hubs = [];
   let devices = [];
@@ -190,28 +190,19 @@ h2 { margin: 0 0 10px; }
   // Home app, by name.
   const pictures = homeswift.scenePictures({ refresh: () => refresh(), toggleHidden: (name) => toggleList("excludeScenes", name) });
 
-  // Wake-up and playlist scenes run on the hub's schedule: shown greyed with a badge, they neither run nor reach the
-  // Home app.
-  function scheduledTile(scene) {
-    const { glyph, gradient, text } = sceneStyle(scene);
-    const art = document.createElement("span");
-    art.className = "glyph";
-    art.innerHTML = `<svg viewBox="0 0 24 24">${glyph}</svg>`;
-    const badge = document.createElement("span");
-    badge.className = "badge scheduled";
-    badge.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M5 3 2 6M19 3l3 3"/></svg>';
-    badge.append(scene.type === "wakeUpScene" ? t("Wake-up") : t("Scheduled"));
-    const why = t("Runs on the hub's schedule: it cannot be run from here or from the Home app.");
-    return el("div", { class: `scene unusable ${text}`, title: why, "aria-disabled": "true", style: `background: ${gradient}`, "aria-label": `${scene.name}. ${why}` },
-      art, badge, el("span", { class: "name", text: scene.name }));
-  }
-
   function sceneTile(scene) {
-    if (scene.runnable === false) return scheduledTile(scene);
     const { glyph, gradient, text } = sceneStyle(scene);
     const art = document.createElement("span");
     art.className = "glyph";
     art.innerHTML = `<svg viewBox="0 0 24 24">${glyph}</svg>`;
+    // Wake-up and playlist scenes run on the hub's schedule: greyed with a badge, they neither run nor reach the
+    // Home app.
+    if (scene.runnable === false) {
+      const why = t("Runs on the hub's schedule: it cannot be run from here or from the Home app.");
+      return el("div", { class: `scene hidden-scene unusable ${text}`, title: why, "aria-disabled": "true", style: `background: ${gradient}`, "aria-label": `${scene.name}. ${why}` },
+        art, el("span", { class: "badge scheduled" }, icon("history"), scene.type === "wakeUpScene" ? t("Wake-up") : t("Scheduled")),
+        el("span", { class: "name", text: scene.name }));
+    }
     const tileNode = el("div", { class: `scene ${scene.hidden ? "hidden-scene" : ""} ${text}`, role: "button", tabindex: 0, style: `background: ${gradient}`, "aria-label": t("Run {name}", { name: scene.name }) },
       art,
       el("span", { class: "name", text: scene.name }));

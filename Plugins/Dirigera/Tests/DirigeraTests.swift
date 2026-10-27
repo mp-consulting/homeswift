@@ -306,7 +306,9 @@ struct DirigeraTests {
         #expect(environment.hub.sent.contains { $0.path == "/v1/scenes/scene-1/trigger" })
         // Only a runnable scene the hub listed reaches it, its id as one path segment.
         let sentBefore = environment.hub.sent.count
-        for id in ["scene-9", "scene-2", "../devices/bulb-1", "scene-1/../x?y"] {
+        let wakeUp = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "trigger", body: ["host": "192.0.2.20", "id": "scene-2"], user: "admin"))
+        #expect(wakeUp.status == 409)
+        for id in ["scene-9", "../devices/bulb-1", "scene-1/../x?y"] {
             await #expect(throws: (any Error).self) {
                 _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "trigger", body: ["host": "192.0.2.20", "id": .string(id)], user: "admin"))
             }

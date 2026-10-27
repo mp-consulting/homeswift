@@ -13,6 +13,8 @@ All notable changes to this project are documented here. The format follows
   `/api/metrics/values` answers a series over a range.
 - A battery on its own accessory (a power station) has its own widget on the Accessories page: the battery graphic
   (bars for the level, a bolt while charging) and its level at every size.
+- The IKEA DIRIGERA page shows the hub's wake-up scenes, greyed and dashed with a Wake-up badge: they run on the
+  hub's schedule, so they cannot be run there and stay out of HomeKit.
 
 ### Changed
 
@@ -44,6 +46,11 @@ All notable changes to this project are documented here. The format follows
   the graph and its table with only what matches, on smaller rings (a few results as a fan, zoomed to fit). A bridge's, plugin's or device type's card lists its accessories with
   their icons and status, each opening its own card (with a way back); facts sit in inset groups; categories have names
   in every language; the centre shows the app's icon alone, smaller.
+
+### Fixed
+
+- The Assistant's mic listens on every press: a press while an answer ran, while a change waited for Allow, or
+  while the last dictation was finishing did nothing. During an answer the words wait in the field.
 
 ## [0.13.0] - 2026-10-27
 

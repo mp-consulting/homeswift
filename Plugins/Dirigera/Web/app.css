@@ -14,11 +14,11 @@ h2 { margin: 0 0 10px; }
 .scene.fired { animation: fired 0.9s var(--ease-out); }
 @keyframes fired { 0% { box-shadow: 0 0 0 0 rgba(255, 214, 10, 0.7); } 100% { box-shadow: 0 0 0 14px rgba(255, 214, 10, 0); } }
 @media (prefers-reduced-motion: reduce) { .scene.fired { animation: none; } }
-/* A scene on the hub's schedule (wake-up): greyed and dashed, a clock badge, nothing to tap. */
-.scene.unusable { filter: grayscale(1); opacity: 0.5; border-style: dashed; cursor: default; box-shadow: none; }
+/* A scene on the hub's schedule (wake-up): greyed as a hidden one, dashed, a clock badge, nothing to tap. */
+.scene.unusable { border-style: dashed; cursor: default; box-shadow: none; }
 .scene.unusable:hover, .scene.unusable:active { box-shadow: none; transform: none; }
 .scene .badge.scheduled { left: auto; right: 10px; display: inline-flex; align-items: center; gap: 4px; }
-.scene .badge.scheduled svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.scene .badge.scheduled svg { width: 12px; height: 12px; }
 
 /* Devices as the Accessories page draws them; the ones left out of the Home app below, to bring back. */
 .accessory-walls { margin: 0; }

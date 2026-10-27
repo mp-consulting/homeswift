@@ -62,6 +62,10 @@ extension DirigeraPlugin {
             return PluginWebResponse(["scenes": .array(list)])
         case ("POST", "trigger"):
             guard let host, let id = request.body["id"]?.stringValue else { return .error(400, "a hub and a scene are required") }
+            // A wake-up scene runs on the hub's schedule: the plugin refuses it, the hub is not asked.
+            if let scene = hubs[host]?.scenes.first(where: { $0.id == id }), !scene.isRunnable {
+                return .error(409, "\(scene.name) runs on the hub's own schedule and cannot be run")
+            }
             try await trigger(host: host, sceneID: id)
             return PluginWebResponse(["triggered": .string(id)])
         case ("POST", "identify"):

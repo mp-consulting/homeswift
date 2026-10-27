@@ -476,8 +476,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
     /// Runs one of the hub's scenes: only an id the hub listed, as the page's and the Assistant's ids come from outside.
     func trigger(host: String, sceneID: String) async throws {
         guard let hub = hubs[host] else { throw DirigeraClient.Failure.status(404, "no such hub") }
-        guard let scene = hub.scenes.first(where: { $0.id == sceneID }) else { throw DirigeraClient.Failure.status(404, "no such scene") }
-        guard scene.isRunnable else { throw DirigeraClient.Failure.status(409, "\(scene.name) runs on its own schedule and cannot be run") }
+        guard hub.scenes.contains(where: { $0.id == sceneID }) else { throw DirigeraClient.Failure.status(404, "no such scene") }
         try await hub.client.trigger(sceneID: sceneID)
         triggered(sceneID)
     }
