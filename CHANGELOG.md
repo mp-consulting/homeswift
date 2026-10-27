@@ -80,6 +80,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Appearance keeps several wallpapers of your own (up to 12, in `ui-wallpapers/<user>/`): a tile each with its
+  thumbnail, a tap to show it and a ✕ on its corner to remove it. They come from a drop zone with an image icon in place
+  of the button, which takes several files at once. The preferences list them (`wallpaperImages`, `wallpaperImage` the
+  one shown); `GET` and `DELETE /api/preferences/wallpaper/<id>` serve and remove one. The image an earlier version kept
+  moves into the folder.
 - **Settings › Overview**, the default Settings page: headline counts, then a radial graph of homeswift at the centre,
   each bridge a pill on the first ring, its plugins on the second, each device type as a node, and each accessory a
   disc with its device-type icon on the outer ring. Click a bridge or plugin to zoom into its branch (Ctrl-scroll,
@@ -105,6 +110,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- On a phone the Logs filters take three short rows instead of six: the four levels in one row with the count under
+  each name, the search with Clear filters as an icon (shown when there is something to clear), the two menus side by
+  side; the action bar fits on one row, Copy as an icon. Elsewhere a level's count is a lighter number after its name.
+- On a phone the settings bar fits on one row beside the menu button (Revert as an icon), and Appearance's choices fill
+  the card's width, a row of languages never ragged and a button never narrower than its text.
 - Settings: the Bridge page moves to `/settings/bridge`; `/settings` opens the Overview.
 - Philips Hue and IKEA DIRIGERA: a moved bridge loses its key until it is paired again from the plugin's page (a bridge
   ID is public, so it proves nothing), and a fresh pairing starts from no pinned certificate.
@@ -124,6 +134,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A restart from the web UI came back in 25 to 30 seconds: the new process kept the browser's open connections,
+  which nothing read, and the page's checks waited out their timeouts. Descriptors are close-on-exec before the
+  restart; the page is back in under two seconds.
+- `?section=proxy` (the "Schedules and proxy" card's link) opens and scrolls to the web UI's reverse proxy settings.
+- A list's Add button says "Add trusted reverse proxy", not "proxie" (-ies, -es and -us titles).
+- Removing your own wallpaper image takes its tile away too: the page kept the removed image's version.
 - A password in a URL is masked up to its last `@`, also when the user name holds an `@` or the password a `/`; a
   structured URL with such a password counts as a credential.
 - Passcode, `pwd`, `pw` and `auth` fields count as secrets; an `adminTokens` key no longer passes as a token count.

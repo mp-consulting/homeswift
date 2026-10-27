@@ -46,6 +46,10 @@ jobs:
         timeout-minutes: 25
         run: Scripts/ci-test.sh
 
+      - name: Restart
+        # Restart.swift on its own (the CLI's tests cannot exec): the deadline, and no descriptor kept across the exec.
+        run: swiftc -parse-as-library -o "$RUNNER_TEMP/test-restart" Sources/HomeswiftCLI/Restart.swift Scripts/test-restart.swift && "$RUNNER_TEMP/test-restart"
+
       - name: Build
         run: swift build -c release
 
@@ -61,6 +65,10 @@ jobs:
       - name: Test
         timeout-minutes: 25
         run: Scripts/ci-test.sh
+
+      - name: Restart
+        # Restart.swift on its own (the CLI's tests cannot exec): the deadline, and no descriptor kept across the exec.
+        run: swiftc -parse-as-library -o "$RUNNER_TEMP/test-restart" Sources/HomeswiftCLI/Restart.swift Scripts/test-restart.swift && "$RUNNER_TEMP/test-restart"
 
       - name: Build
         run: swift build -c release
