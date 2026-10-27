@@ -92,9 +92,8 @@ struct EnergyTests {
 
     @Test func daysEndAtMidnightInTheTimeZoneAsked() {
         // 23:50 to 00:10 in Paris (UTC+1 in January): ten minutes each side of midnight.
-        // 1_800_000_000 is 08:00 UTC: back to midnight, then on to 22:50:05 UTC. One literal, which Linux's compiler
-        // type-checks in time.
-        let start: TimeInterval = 1_800_000_000 + 14 * 3600 + 50 * 60 + 5
+        // 2027-01-15 22:50:05 UTC as one literal: Linux's compiler times out type-checking the sum that makes it.
+        let start: TimeInterval = 1_800_053_405
         let clock = NIOLockedValueBox(Date(timeIntervalSince1970: start))
         let metrics = Metrics(directory: nil, now: { clock.withLockedValue { $0 } })
         metrics.tag("plugin:Test:home", EnergyTag(role: .home, device: "House"))
