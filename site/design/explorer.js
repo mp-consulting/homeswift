@@ -158,6 +158,11 @@
     }
     panel.append(grid);host.append(panel);
     for (const [name,text] of [["Layout","Columns start at 176 px; phones keep two columns. Compact rows are at least 64 px with a 10 px gap. L and XL fit whole rows to their controls."],["Type & shape","System type, a 22 px accessory radius, 40 px summary icons, and a clear name/status hierarchy."],["Interaction","Keyboard focus, named controls, deliberate security actions and reduced-motion support are part of the component contract."]]) host.append(el("section",{className:"story-panel"},el("h2",{text:t(name)}),el("p",{className:"rule",text:t(text)})));
+    // The production time range, live: presets, then Custom…'s pop-over (HomeswiftCommon.rangeControl).
+    const range = HomeswiftCommon.rangeControl(new URLSearchParams(), { presets: [["1h", t("1 hour")], ["24h", t("24 hours")], ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("7 days")]], fallback: "24h", changed: () => {} });
+    host.append(el("section", { className: "story-panel" }, el("h2", { text: t("Time range") }),
+      el("p", { className: "rule", text: t("Every time range is one segmented control: presets first, then Custom…, a pop-over anchored to it with a month to pick the first and last day and the From and To times. No browser date picker.") }),
+      range.control));
   }
   function select() {
     const choseStory = fromNavigation || $("stories").contains(document.activeElement);

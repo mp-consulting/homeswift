@@ -20,7 +20,8 @@ Filters separate widgets, characteristics and foundations.
 - **Characteristics** render the production inspector row for that characteristic, with its exact format,
   permissions, ranges, steps, units, enum values, maximum string length and supporting services. Fields the
   UI deliberately hides, including protocol payloads, explain why they have no standalone control.
-- **Foundations** show the live colour tokens and the rules for spacing, typography, shape and interaction.
+- **Foundations** show the live colour tokens and the rules for spacing, typography, shape and interaction, and
+  the time range control every page uses (`HomeswiftCommon.rangeControl`: presets, then Custom…'s pop-over), live.
 
 Use the canvas toolbar to choose a viewport or Fit, simulate a paused or unavailable accessory, or remove
 write permissions. The Controls panel simulates incoming readings even for read-only characteristics.

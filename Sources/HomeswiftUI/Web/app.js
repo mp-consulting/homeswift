@@ -727,7 +727,8 @@
   /// Logs page's). A range that ends now refreshes every minute; while new data loads the charts stay, faded.
   function activity(accessories, bridges) {
     const params = new URLSearchParams(location.search);
-    const range = rangeFilter(params, { changed: () => load() });
+    const range = HomeswiftCommon.rangeControl(params, { presets: [["1h", t("1 hour")], ["6h", t("6 hours")], ["24h", t("24 hours")], ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("7 days")]],
+      fallback: "1h", changed: () => load() });
     const sources = sourceFilter(accessories, bridges, initialSource(accessories, bridges, params.get("accessory"), params.get("bridge")), {
       label: t("Whose requests"), everything: t("All servers"), changed: () => load() });
     const byID = new Map(accessories.map((accessory) => [accessory.id, accessory]));
@@ -754,7 +755,8 @@
     table.addEventListener("toggle", () => { if (table.open) fillTable(); });
     const section = el("section", { class: "activity" },
       el("h2", { text: t("Activity") }),
-      el("div", { class: "filter-bar" }, range.picker, sources.picker, HomeswiftCommon.clearFilters([[range.picker, "1h"], [sources.picker, ""]]), range.customRow),
+      el("div", { class: "filter-bar" }, range.control, sources.picker,
+        HomeswiftCommon.clearFilters([[sources.picker, ""]], { active: () => range.chosen(), reset: () => range.reset(), events: [[range.control, "change"]] })),
       el("div", { class: "chart-grid" }, charts.map((chart) => chart.card)),
       table);
     let shown = null;   // the last history loaded, for the table
@@ -849,7 +851,8 @@
   /// (`energy` in the address, the last 24 hours by default); a range that ends now refreshes every minute.
   function energy() {
     const params = new URLSearchParams(location.search);
-    const range = energyRange(params.get("energy"), () => load());
+    const range = HomeswiftCommon.rangeControl(params, { presets: [["24h", t("24 hours")], ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("7 days")]],
+      fallback: "24h", names: { since: "energy", from: "energy-from", to: "energy-to" }, changed: () => load() });
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     // A colour per entity, the same in every chart: solar yellow, the home blue, the batteries aqua, the grid violet
     // (the palette's slots, validated for colour blindness in both modes). The lines' devices take the slots in order.
@@ -1040,33 +1043,6 @@
 
     load();
     return section;
-  }
-  /// The Energy section's range, a segmented control as the page's other choices are: the last 24 hours (the default),
-  /// today, yesterday or the last 7 days. `span()` is `[from, to]`, `to` null when it ends now; `address` keeps a
-  /// choice other than the default as `energy`.
-  function energyRange(initial, changed) {
-    const choices = [["24h", t("24 hours")], ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("7 days")]];
-    let value = choices.some(([one]) => one === initial) ? initial : "24h";
-    const buttons = choices.map(([one, text]) => el("button", { type: "button", role: "radio", text, onclick: () => {
-      if (one === value) return;
-      value = one;
-      mark();
-      changed();
-    } }));
-    const mark = () => buttons.forEach((button, index) => {
-      const on = choices[index][0] === value;
-      button.classList.toggle("on", on);
-      button.setAttribute("aria-checked", String(on));
-    });
-    mark();
-    return {
-      control: el("div", { class: "group", role: "radiogroup", "aria-label": t("Time range") }, buttons),
-      span() {
-        const now = new Date(), midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        return { "24h": [new Date(now - 86400000), null], today: [midnight, null], yesterday: [new Date(midnight - 86400000), midnight], "7d": [new Date(now - 7 * 86400000), null] }[value];
-      },
-      address(query) { if (value !== "24h") query.set("energy", value); },
-    };
   }
   const dayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", month: "short" });
   const shortDay = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
@@ -3280,55 +3256,6 @@
   let logState = null;
 
   // The Logs and Status pages' filters, in one row above what they scope.
-  const rangeChoices = [["latest", t("Latest lines")], ["1h", t("Last hour")], ["6h", t("Last 6 hours")], ["24h", t("Last 24 hours")],
-    ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("Last 7 days")], ["custom", t("Custom range…")]];
-
-  /// A time range menu whose first choice is the default (`latest`, the Logs page's latest lines, only when asked
-  /// for), with the From and To of a custom range in `customRow`. `changed` runs on a choice.
-  function rangeFilter(params, { latest = false, changed }) {
-    const choices = rangeChoices.filter(([value]) => latest || value !== "latest");
-    const fallback = choices[0][0];
-    const since = choices.some(([value]) => value === params.get("since")) ? params.get("since") : fallback;
-    const picker = el("select", { class: `popup ${since === fallback ? "" : "chosen"}`, "aria-label": t("Time range") }, choices.map(([value, text]) => el("option", { value, text, selected: value === since })));
-    const localInput = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    const fromInput = el("input", { type: "datetime-local", "aria-label": t("From"), value: params.get("from") ?? localInput(new Date(Date.now() - 3600000)) });
-    const toInput = el("input", { type: "datetime-local", "aria-label": t("To"), value: params.get("to") ?? localInput(new Date()) });
-    const customRow = el("div", { class: `log-range ${since === "custom" ? "" : "hidden"}` },
-      el("label", {}, t("From"), fromInput), el("label", {}, t("To"), toInput),
-      el("button", { actionIcon: "eye", text: t("Show"), onclick: () => changed() }));
-    picker.addEventListener("change", () => {
-      customRow.classList.toggle("hidden", picker.value !== "custom");
-      picker.classList.toggle("chosen", picker.value !== fallback);
-      if (picker.value === "custom") fromInput.focus(); else changed();
-    });
-    return {
-      picker, customRow,
-      /// The span chosen, `[from, to]` with `to` null when it ends now; null for the latest lines.
-      span() {
-        const now = new Date();
-        const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        switch (picker.value) {
-        case "1h": return [new Date(now - 3600000), null];
-        case "6h": return [new Date(now - 6 * 3600000), null];
-        case "24h": return [new Date(now - 86400000), null];
-        case "today": return [midnight, null];
-        case "yesterday": return [new Date(midnight - 86400000), midnight];
-        case "7d": return [new Date(now - 7 * 86400000), null];
-        case "custom": {
-          const from = new Date(fromInput.value), to = new Date(toInput.value);
-          return isNaN(from) ? null : [from, isNaN(to) || to > now ? null : to];
-        }
-        default: return null;
-        }
-      },
-      /// Adds the choice to a page's address: `since`, and `from` and `to` for a custom range.
-      address(query) {
-        if (picker.value !== fallback) query.set("since", picker.value);
-        if (picker.value === "custom") { query.set("from", fromInput.value); if (toInput.value) query.set("to", toInput.value); }
-      },
-    };
-  }
-
   /// What the data is about, one menu: everything (`everything` names it); the bridges, every bridge's own lines
   /// (`allBridges`) or one's; or one accessory, grouped by plugin. Values: "", "bridge:all", "bridge:<device ID>",
   /// "accessory:<id>". `changed` runs on a choice; `source()` reads it as a kind and a value.
@@ -3445,9 +3372,10 @@
     filter.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => { render(); keepAddress(); }, 120); });
     follow.addEventListener("change", () => { if (follow.checked) output.scrollTop = output.scrollHeight; });
 
-    // A time range (rangeFilter): the latest lines from memory, or a span from the log the bridge keeps on disk
+    // A time range (HomeswiftCommon.rangeControl): the latest lines from memory, or a span from the log the bridge keeps on disk
     // (rotated, a week at most). A span that ends now keeps following; one in the past stays as it is.
-    const range = rangeFilter(params, { latest: true, changed: () => load() });
+    const range = HomeswiftCommon.rangeControl(params, { presets: [["latest", t("Latest lines")], ["1h", t("1 hour")], ["6h", t("6 hours")], ["24h", t("24 hours")],
+      ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("7 days")]], fallback: "latest", earliestDays: 7, changed: () => load() });
     /// The address of what is shown, in place: no new history entry per choice.
     function keepAddress() {
       const query = new URLSearchParams();
@@ -3554,10 +3482,11 @@
       pageHead(t("Logs"), t("This homeswift's log, live, and up to a week back.")),
       el("div", { class: "card log-card" },
         el("div", { class: "log-filter-panel" },
-          el("div", { class: "log-level-row" }, levels, filter, HomeswiftCommon.clearFilters([[filter, ""], [range.picker, "latest"], [sources.picker, ""]], {
-            active: () => logState.level !== "info", events: [[levels, "click"]],
+          el("div", { class: "log-level-row" }, levels, filter, HomeswiftCommon.clearFilters([[filter, ""], [sources.picker, ""]], {
+            active: () => logState.level !== "info" || range.chosen(), events: [[levels, "click"], [range.control, "change"]],
             reset: () => {
               clearTimeout(typing);
+              range.reset();
               logState.level = "info";
               for (const [index, button] of [...levels.children].entries()) {
                 const selected = levelChoices[index][0] === "info";
@@ -3565,10 +3494,10 @@
               }
             },
           })),
+          // A div, not a label: a label would press the control's first choice when its text is clicked.
           el("div", { class: "log-scope-row" },
-            el("label", {}, el("span", { text: t("Time range") }), range.picker),
-            el("label", {}, el("span", { text: t("What the lines are about") }), sources.picker)),
-          range.customRow),
+            el("div", { class: "log-time" }, el("span", { text: t("Time range") }), range.control),
+            el("label", {}, el("span", { text: t("What the lines are about") }), sources.picker))),
         el("div", { class: "editor-bar log-action-bar" }, count, el("span", { class: "spacer" }), doctor.button, copy,
           el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
           saveToggle, actions),

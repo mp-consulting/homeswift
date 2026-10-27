@@ -2104,7 +2104,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// Logs page's). A range that ends now refreshes every minute; while new data loads the charts stay, faded.
   function activity(accessories, bridges) {
     const params = new URLSearchParams(location.search);
-    const range = rangeFilter(params, { changed: () => load() });
+    const range = HomeswiftCommon.rangeControl(params, { presets: [["1h", t("1 hour")], ["6h", t("6 hours")], ["24h", t("24 hours")], ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("7 days")]],
+      fallback: "1h", changed: () => load() });
     const sources = sourceFilter(accessories, bridges, initialSource(accessories, bridges, params.get("accessory"), params.get("bridge")), {
       label: t("Whose requests"), everything: t("All servers"), changed: () => load() });
     const byID = new Map(accessories.map((accessory) => [accessory.id, accessory]));
@@ -2131,7 +2132,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     table.addEventListener("toggle", () => { if (table.open) fillTable(); });
     const section = el("section", { class: "activity" },
       el("h2", { text: t("Activity") }),
-      el("div", { class: "filter-bar" }, range.picker, sources.picker, HomeswiftCommon.clearFilters([[range.picker, "1h"], [sources.picker, ""]]), range.customRow),
+      el("div", { class: "filter-bar" }, range.control, sources.picker,
+        HomeswiftCommon.clearFilters([[sources.picker, ""]], { active: () => range.chosen(), reset: () => range.reset(), events: [[range.control, "change"]] })),
       el("div", { class: "chart-grid" }, charts.map((chart) => chart.card)),
       table);
     let shown = null;   // the last history loaded, for the table
@@ -2226,7 +2228,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// (`energy` in the address, the last 24 hours by default); a range that ends now refreshes every minute.
   function energy() {
     const params = new URLSearchParams(location.search);
-    const range = energyRange(params.get("energy"), () => load());
+    const range = HomeswiftCommon.rangeControl(params, { presets: [["24h", t("24 hours")], ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("7 days")]],
+      fallback: "24h", names: { since: "energy", from: "energy-from", to: "energy-to" }, changed: () => load() });
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     // A colour per entity, the same in every chart: solar yellow, the home blue, the batteries aqua, the grid violet
     // (the palette's slots, validated for colour blindness in both modes). The lines' devices take the slots in order.
@@ -2417,33 +2420,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     load();
     return section;
-  }
-  /// The Energy section's range, a segmented control as the page's other choices are: the last 24 hours (the default),
-  /// today, yesterday or the last 7 days. `span()` is `[from, to]`, `to` null when it ends now; `address` keeps a
-  /// choice other than the default as `energy`.
-  function energyRange(initial, changed) {
-    const choices = [["24h", t("24 hours")], ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("7 days")]];
-    let value = choices.some(([one]) => one === initial) ? initial : "24h";
-    const buttons = choices.map(([one, text]) => el("button", { type: "button", role: "radio", text, onclick: () => {
-      if (one === value) return;
-      value = one;
-      mark();
-      changed();
-    } }));
-    const mark = () => buttons.forEach((button, index) => {
-      const on = choices[index][0] === value;
-      button.classList.toggle("on", on);
-      button.setAttribute("aria-checked", String(on));
-    });
-    mark();
-    return {
-      control: el("div", { class: "group", role: "radiogroup", "aria-label": t("Time range") }, buttons),
-      span() {
-        const now = new Date(), midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        return { "24h": [new Date(now - 86400000), null], today: [midnight, null], yesterday: [new Date(midnight - 86400000), midnight], "7d": [new Date(now - 7 * 86400000), null] }[value];
-      },
-      address(query) { if (value !== "24h") query.set("energy", value); },
-    };
   }
   const dayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", month: "short" });
   const shortDay = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
@@ -4657,55 +4633,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   let logState = null;
 
   // The Logs and Status pages' filters, in one row above what they scope.
-  const rangeChoices = [["latest", t("Latest lines")], ["1h", t("Last hour")], ["6h", t("Last 6 hours")], ["24h", t("Last 24 hours")],
-    ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("Last 7 days")], ["custom", t("Custom range…")]];
-
-  /// A time range menu whose first choice is the default (`latest`, the Logs page's latest lines, only when asked
-  /// for), with the From and To of a custom range in `customRow`. `changed` runs on a choice.
-  function rangeFilter(params, { latest = false, changed }) {
-    const choices = rangeChoices.filter(([value]) => latest || value !== "latest");
-    const fallback = choices[0][0];
-    const since = choices.some(([value]) => value === params.get("since")) ? params.get("since") : fallback;
-    const picker = el("select", { class: `popup ${since === fallback ? "" : "chosen"}`, "aria-label": t("Time range") }, choices.map(([value, text]) => el("option", { value, text, selected: value === since })));
-    const localInput = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    const fromInput = el("input", { type: "datetime-local", "aria-label": t("From"), value: params.get("from") ?? localInput(new Date(Date.now() - 3600000)) });
-    const toInput = el("input", { type: "datetime-local", "aria-label": t("To"), value: params.get("to") ?? localInput(new Date()) });
-    const customRow = el("div", { class: `log-range ${since === "custom" ? "" : "hidden"}` },
-      el("label", {}, t("From"), fromInput), el("label", {}, t("To"), toInput),
-      el("button", { actionIcon: "eye", text: t("Show"), onclick: () => changed() }));
-    picker.addEventListener("change", () => {
-      customRow.classList.toggle("hidden", picker.value !== "custom");
-      picker.classList.toggle("chosen", picker.value !== fallback);
-      if (picker.value === "custom") fromInput.focus(); else changed();
-    });
-    return {
-      picker, customRow,
-      /// The span chosen, `[from, to]` with `to` null when it ends now; null for the latest lines.
-      span() {
-        const now = new Date();
-        const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        switch (picker.value) {
-        case "1h": return [new Date(now - 3600000), null];
-        case "6h": return [new Date(now - 6 * 3600000), null];
-        case "24h": return [new Date(now - 86400000), null];
-        case "today": return [midnight, null];
-        case "yesterday": return [new Date(midnight - 86400000), midnight];
-        case "7d": return [new Date(now - 7 * 86400000), null];
-        case "custom": {
-          const from = new Date(fromInput.value), to = new Date(toInput.value);
-          return isNaN(from) ? null : [from, isNaN(to) || to > now ? null : to];
-        }
-        default: return null;
-        }
-      },
-      /// Adds the choice to a page's address: `since`, and `from` and `to` for a custom range.
-      address(query) {
-        if (picker.value !== fallback) query.set("since", picker.value);
-        if (picker.value === "custom") { query.set("from", fromInput.value); if (toInput.value) query.set("to", toInput.value); }
-      },
-    };
-  }
-
   /// What the data is about, one menu: everything (`everything` names it); the bridges, every bridge's own lines
   /// (`allBridges`) or one's; or one accessory, grouped by plugin. Values: "", "bridge:all", "bridge:<device ID>",
   /// "accessory:<id>". `changed` runs on a choice; `source()` reads it as a kind and a value.
@@ -4822,9 +4749,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     filter.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => { render(); keepAddress(); }, 120); });
     follow.addEventListener("change", () => { if (follow.checked) output.scrollTop = output.scrollHeight; });
 
-    // A time range (rangeFilter): the latest lines from memory, or a span from the log the bridge keeps on disk
+    // A time range (HomeswiftCommon.rangeControl): the latest lines from memory, or a span from the log the bridge keeps on disk
     // (rotated, a week at most). A span that ends now keeps following; one in the past stays as it is.
-    const range = rangeFilter(params, { latest: true, changed: () => load() });
+    const range = HomeswiftCommon.rangeControl(params, { presets: [["latest", t("Latest lines")], ["1h", t("1 hour")], ["6h", t("6 hours")], ["24h", t("24 hours")],
+      ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("7 days")]], fallback: "latest", earliestDays: 7, changed: () => load() });
     /// The address of what is shown, in place: no new history entry per choice.
     function keepAddress() {
       const query = new URLSearchParams();
@@ -4931,10 +4859,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       pageHead(t("Logs"), t("This homeswift's log, live, and up to a week back.")),
       el("div", { class: "card log-card" },
         el("div", { class: "log-filter-panel" },
-          el("div", { class: "log-level-row" }, levels, filter, HomeswiftCommon.clearFilters([[filter, ""], [range.picker, "latest"], [sources.picker, ""]], {
-            active: () => logState.level !== "info", events: [[levels, "click"]],
+          el("div", { class: "log-level-row" }, levels, filter, HomeswiftCommon.clearFilters([[filter, ""], [sources.picker, ""]], {
+            active: () => logState.level !== "info" || range.chosen(), events: [[levels, "click"], [range.control, "change"]],
             reset: () => {
               clearTimeout(typing);
+              range.reset();
               logState.level = "info";
               for (const [index, button] of [...levels.children].entries()) {
                 const selected = levelChoices[index][0] === "info";
@@ -4942,10 +4871,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
               }
             },
           })),
+          // A div, not a label: a label would press the control's first choice when its text is clicked.
           el("div", { class: "log-scope-row" },
-            el("label", {}, el("span", { text: t("Time range") }), range.picker),
-            el("label", {}, el("span", { text: t("What the lines are about") }), sources.picker)),
-          range.customRow),
+            el("div", { class: "log-time" }, el("span", { text: t("Time range") }), range.control),
+            el("label", {}, el("span", { text: t("What the lines are about") }), sources.picker))),
         el("div", { class: "editor-bar log-action-bar" }, count, el("span", { class: "spacer" }), doctor.button, copy,
           el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
           saveToggle, actions),
@@ -8043,6 +7972,180 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return button;
   }
 
+  /// A time range, the one control every page uses for it (the Status page's Activity and Energy, the Logs page): a
+  /// segmented control of `presets` (`[value, label]`: `latest`, `1h`, `6h`, `24h`, `today`, `yesterday`, `7d`), then
+  /// Custom…, which opens a pop-over anchored to it, in the app's own material: a month to pick the first and the last
+  /// day, and the From and To times (no browser calendar). Days more than `earliestDays` back, older than what is kept,
+  /// are not offered. `span()` is `[from, to]`, `to` null when it ends now, or null for `latest`; `address(query)` keeps
+  /// a choice other than `fallback` under `names` (`since`, `from`, `to`); `chosen()` says one is; `reset()` goes back to
+  /// `fallback` without `changed`. The control sends `change` when its choice changes, for Clear filters.
+  function rangeControl(params, { presets, fallback, names = { since: "since", from: "from", to: "to" }, earliestDays = 8, changed }) {
+    const parse = (text) => { const date = text ? new Date(text) : null; return date && !isNaN(date) ? date : null; };
+    const asked = params.get(names.since);
+    let value = presets.some(([one]) => one === asked) || (asked === "custom" && parse(params.get(names.from))) ? asked : fallback;
+    let custom = { from: parse(params.get(names.from)) ?? new Date(Date.now() - 3600000), to: parse(params.get(names.to)) };
+    const presetButtons = presets.map(([one, text]) => el("button", { type: "button", role: "radio", text, onclick: () => choose(one) }));
+    const customButton = el("button", { type: "button", role: "radio", class: "range-custom", "aria-haspopup": "dialog", "aria-expanded": "false", onclick: (event) => open(event.currentTarget) });
+    const control = el("div", { class: "group range-control", role: "radiogroup", "aria-label": t("Time range") }, presetButtons, customButton);
+    const shortTime = new Intl.DateTimeFormat(HomeswiftI18n.locale, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+    const describe = () => custom.to ? shortTime.formatRange(custom.from, custom.to) : t("Since {time}", { time: shortTime.format(custom.from) });
+
+    function mark() {
+      presetButtons.forEach((button, index) => {
+        const on = presets[index][0] === value;
+        button.classList.toggle("on", on);
+        button.setAttribute("aria-checked", String(on));
+      });
+      customButton.classList.toggle("on", value === "custom");
+      customButton.setAttribute("aria-checked", String(value === "custom"));
+      customButton.textContent = value === "custom" ? describe() : t("Custom…");
+      reveal();
+    }
+    // Where the choices outgrow the width (a phone), they scroll sideways: the edge with more fades out, and the chosen
+    // one is kept in view, without scrolling the page.
+    function edges() {
+      control.classList.toggle("more-before", control.scrollLeft > 2);
+      control.classList.toggle("more-after", control.scrollLeft + control.clientWidth < control.scrollWidth - 2);
+    }
+    function reveal() {
+      const on = control.querySelector(".on");
+      if (!on || control.scrollWidth <= control.clientWidth) return;
+      const start = on.offsetLeft - control.offsetLeft, end = start + on.offsetWidth;
+      if (start < control.scrollLeft) control.scrollLeft = start - 24;
+      else if (end > control.scrollLeft + control.clientWidth) control.scrollLeft = end - control.clientWidth + 24;
+    }
+    control.addEventListener("scroll", edges, { passive: true });
+    new ResizeObserver(() => { reveal(); edges(); }).observe(control);
+    function choose(one, quiet = false) {
+      if (one === value && one !== "custom") return;
+      value = one;
+      mark();
+      control.dispatchEvent(new Event("change"));
+      if (!quiet) changed();
+    }
+    mark();
+
+    let popover = null;
+    function close() {
+      if (!popover) return;
+      const node = popover;
+      popover = null;
+      customButton.setAttribute("aria-expanded", "false");
+      document.removeEventListener("pointerdown", outside, true);
+      node.classList.add("closing");
+      node.addEventListener("animationend", () => node.remove(), { once: true });
+      setTimeout(() => node.remove(), 200);
+    }
+    const outside = (event) => { if (popover && !popover.contains(event.target) && !customButton.contains(event.target)) close(); };
+
+    function open(anchor) {
+      if (popover) { close(); return; }
+      const midnight = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const today = midnight(new Date());
+      const earliest = new Date(today.getFullYear(), today.getMonth(), today.getDate() - earliestDays);
+      const pad = (n) => String(n).padStart(2, "0");
+      const clock = (date) => `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+      let start = midnight(custom.from), end = midnight(custom.to ?? new Date()), picking = false;
+      let month = new Date(end.getFullYear(), end.getMonth(), 1);
+      const fromTime = el("input", { type: "time", value: clock(custom.from), "aria-label": t("From") });
+      const toTime = el("input", { type: "time", value: clock(custom.to ?? new Date()), "aria-label": t("To"), disabled: !custom.to });
+      const untilNow = el("input", { type: "checkbox", checked: !custom.to });
+      untilNow.addEventListener("change", () => { toTime.disabled = untilNow.checked; });
+      const title = el("strong", { class: "range-month" });
+      const grid = el("div", { class: "range-days", role: "grid" });
+      const message = el("p", { class: "range-message muted", text: t("Pick the first day, then the last."), role: "status" });
+      const weekday = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "narrow" });
+      const monthName = new Intl.DateTimeFormat(HomeswiftI18n.locale, { month: "long", year: "numeric" });
+      const dayName = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "long", day: "numeric", month: "long" });
+      const step = (months) => { month = new Date(month.getFullYear(), month.getMonth() + months, 1); render(); };
+      const previous = el("button", { type: "button", class: "menu-button", "aria-label": t("Previous month"), onclick: () => step(-1) }, icon("back"));
+      const next = el("button", { type: "button", class: "menu-button", "aria-label": t("Next month"), onclick: () => step(1) }, icon("forward"));
+
+      function render() {
+        title.textContent = monthName.format(month);
+        previous.disabled = month <= new Date(earliest.getFullYear(), earliest.getMonth(), 1);
+        next.disabled = month >= new Date(today.getFullYear(), today.getMonth(), 1);
+        // Weeks start on Monday; the days of the months around fill the first and last weeks.
+        const first = new Date(month.getFullYear(), month.getMonth(), 1 - (month.getDay() + 6) % 7);
+        const heads = [...Array(7)].map((_, index) => el("span", { class: "range-weekday", "aria-hidden": "true", text: weekday.format(new Date(2024, 0, 1 + index)) }));
+        const days = [...Array(42)].map((_, index) => {
+          const date = new Date(first.getFullYear(), first.getMonth(), first.getDate() + index);
+          const time = date.getTime();
+          const classes = ["range-day",
+            date.getMonth() !== month.getMonth() ? "outside" : "",
+            time === today.getTime() ? "today" : "",
+            time >= start.getTime() && time <= end.getTime() ? "in" : "",
+            time === start.getTime() ? "start" : "", time === end.getTime() ? "end" : "",
+            index % 7 === 0 ? "row-start" : "", index % 7 === 6 ? "row-end" : ""].filter(Boolean).join(" ");
+          return el("button", { type: "button", class: classes, text: date.getDate(), disabled: date > today || date < earliest,
+            "aria-label": dayName.format(date), "aria-pressed": String(time >= start.getTime() && time <= end.getTime()),
+            onclick: () => pick(date) });
+        });
+        grid.replaceChildren(...heads, ...days);
+      }
+      function pick(date) {
+        if (!picking) { start = end = date; picking = true; message.textContent = t("Pick the first day, then the last."); }
+        else { if (date < start) [start, end] = [date, start]; else end = date; picking = false; }
+        render();
+      }
+      function apply() {
+        const at = (day, text) => { const [h, m] = text.split(":").map(Number); return new Date(day.getFullYear(), day.getMonth(), day.getDate(), h || 0, m || 0); };
+        const from = at(start, fromTime.value), to = untilNow.checked ? null : at(end, toTime.value);
+        if (from >= (to ?? new Date())) { message.textContent = t("The start must be before the end."); message.classList.add("error"); return; }
+        custom = { from, to };
+        close();
+        choose("custom");
+        customButton.focus();
+      }
+
+      popover = el("div", { class: "range-popover", role: "dialog", "aria-label": t("Custom range…") },
+        el("div", { class: "range-head" }, previous, title, next),
+        grid,
+        el("div", { class: "range-times" },
+          el("label", {}, el("span", { text: t("From") }), fromTime),
+          el("label", {}, el("span", { text: t("To") }), toTime),
+          el("label", { class: "range-now" }, untilNow, el("span", { text: t("Until now") }))),
+        message,
+        el("div", { class: "range-actions" },
+          el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => { close(); customButton.focus(); } }),
+          el("button", { type: "button", class: "primary", actionIcon: "eye", text: t("Show"), onclick: apply })));
+      popover.addEventListener("keydown", (event) => { if (event.key === "Escape") { event.stopPropagation(); close(); customButton.focus(); } });
+      render();
+      document.body.append(popover);
+      // Under the Custom segment, kept on screen, growing from it.
+      const box = anchor.getBoundingClientRect(), width = popover.offsetWidth, height = popover.offsetHeight;
+      const left = Math.min(Math.max(8, box.left + box.width / 2 - width / 2), innerWidth - width - 8);
+      const below = box.bottom + 8 + height <= innerHeight - 8;
+      popover.style.left = `${left}px`;
+      popover.style.top = `${below ? box.bottom + 8 : Math.max(8, box.top - 8 - height)}px`;
+      popover.style.transformOrigin = `${box.left + box.width / 2 - left}px ${below ? "0" : "100%"}`;
+      customButton.setAttribute("aria-expanded", "true");
+      document.addEventListener("pointerdown", outside, true);
+      (grid.querySelector(".range-day.end") ?? grid.querySelector(".range-day:not(:disabled)"))?.focus();
+    }
+
+    return {
+      control,
+      span() {
+        const now = new Date(), midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        if (value === "latest") return null;
+        if (value === "custom") return [custom.from, custom.to && custom.to < now ? custom.to : null];
+        return { "1h": [new Date(now - 3600000), null], "6h": [new Date(now - 6 * 3600000), null], "24h": [new Date(now - 86400000), null],
+          today: [midnight, null], yesterday: [new Date(midnight - 86400000), midnight], "7d": [new Date(now - 7 * 86400000), null] }[value];
+      },
+      address(query) {
+        if (value === fallback) return;
+        query.set(names.since, value);
+        if (value !== "custom") return;
+        const local = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+        query.set(names.from, local(custom.from));
+        if (custom.to) query.set(names.to, local(custom.to));
+      },
+      chosen: () => value !== fallback,
+      reset() { close(); choose(fallback, true); },
+    };
+  }
+
   // Native disabled buttons suppress click events. Pointer events still let a tap
   // explain the disabled state without enabling the control or running its action.
   let filterTip = null, filterTipTimer = null, filterTap = null;
@@ -8123,7 +8226,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   window.HomeswiftCommon = {
     busyButton, scaledCanvas, byteSize,
-    $, el, icon, subnav, tile, clearFilters, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
+    $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
 })();
@@ -11581,7 +11684,16 @@ HomeswiftI18n.add("es", {
   "Home used today": "Consumo de hoy",
   "As it was produced": "En el momento de producirse",
   "Grid import today": "Importación de la red hoy",
-  "{value} exported": "{value} exportados"
+  "{value} exported": "{value} exportados",
+  "1 hour": "1 hora",
+  "6 hours": "6 horas",
+  "Custom…": "Personalizado…",
+  "Previous month": "Mes anterior",
+  "Next month": "Mes siguiente",
+  "Until now": "Hasta ahora",
+  "Since {time}": "Desde {time}",
+  "Pick the first day, then the last.": "Elige el primer día y luego el último.",
+  "The start must be before the end.": "El inicio debe ser anterior al final."
 });
 
 """#),
@@ -13784,7 +13896,16 @@ HomeswiftI18n.add("fr", {
   "Home used today": "Consommation aujourd’hui",
   "As it was produced": "Au moment de la production",
   "Grid import today": "Import du réseau aujourd’hui",
-  "{value} exported": "{value} exportés"
+  "{value} exported": "{value} exportés",
+  "1 hour": "1 heure",
+  "6 hours": "6 heures",
+  "Custom…": "Personnalisé…",
+  "Previous month": "Mois précédent",
+  "Next month": "Mois suivant",
+  "Until now": "Jusqu’à maintenant",
+  "Since {time}": "Depuis {time}",
+  "Pick the first day, then the last.": "Choisissez le premier jour, puis le dernier.",
+  "The start must be before the end.": "Le début doit précéder la fin."
 });
 
 """#),
@@ -15987,7 +16108,16 @@ HomeswiftI18n.add("pt", {
   "Home used today": "Consumo de hoje",
   "As it was produced": "No momento da produção",
   "Grid import today": "Importação da rede hoje",
-  "{value} exported": "{value} exportados"
+  "{value} exported": "{value} exportados",
+  "1 hour": "1 hora",
+  "6 hours": "6 horas",
+  "Custom…": "Personalizado…",
+  "Previous month": "Mês anterior",
+  "Next month": "Mês seguinte",
+  "Until now": "Até agora",
+  "Since {time}": "Desde {time}",
+  "Pick the first day, then the last.": "Escolha o primeiro dia e depois o último.",
+  "The start must be before the end.": "O início tem de ser anterior ao fim."
 });
 
 """#),
@@ -18763,9 +18893,6 @@ textarea.short { min-height: 220px; }
 @media (prefers-reduced-motion: reduce) { .menu, .menu.closing, .menu.sheet-menu, .menu.sheet-menu.closing { animation-name: fade; } }
 @media (prefers-reduced-transparency: reduce) { .menu { background: var(--material-solid); -webkit-backdrop-filter: none; backdrop-filter: none; } }
 /* A custom time range: from and to, under the toolbar, as the material arriving. */
-.log-range { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%; animation: fade var(--normal) var(--ease-out); }
-.log-range label { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 0.8125rem; color: var(--muted); }
-.log-range input { width: auto; padding: 6px 12px; border-radius: 999px; font-variant-numeric: tabular-nums; }
 .editor-bar .count { font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
 .editor-card textarea { display: block; border: 0; border-radius: 0; box-shadow: none; background: transparent; min-height: 62vh; padding: 16px 18px; resize: vertical; tab-size: 2; line-height: 1.55; }
 .editor-card textarea:focus { box-shadow: none; }
@@ -18817,6 +18944,58 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .filter-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }
 .filter-bar .popup { max-width: 260px; }
 .chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 14px; transition: opacity var(--normal) var(--ease-out); }
+/* A Status section's time range (app.js's rangeControl): the segmented control, scrolling sideways when its choices
+   outgrow a phone, and Custom…'s pop-over in the menus' material, growing from the segment. A day range is one band,
+   rounded at its first and last day; today is ringed; days without history are dimmed. */
+.range-control { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.range-control::-webkit-scrollbar { display: none; }
+.range-control.more-after { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent); }
+.range-control.more-before { -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px); mask-image: linear-gradient(90deg, transparent, #000 32px); }
+.range-control.more-before.more-after { -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent); }
+.range-control .range-custom { font-variant-numeric: tabular-nums; }
+.range-popover {
+  position: fixed; z-index: 30; width: min(320px, calc(100vw - 16px)); padding: 14px; display: grid; gap: 12px; border-radius: 20px;
+  background-color: var(--material-thick); background-image: var(--sheen);
+  -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+  border: 1px solid var(--edge); box-shadow: 0 18px 44px rgba(25, 34, 56, 0.24), inset 0 1px 0 var(--edge-light);
+  animation: menu-in 180ms var(--ease-out);
+}
+.range-popover.closing { animation: menu-out 140ms var(--ease-out) forwards; pointer-events: none; }
+.range-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.range-month { font-size: 0.9375rem; text-transform: capitalize; }
+.range-head .menu-button svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.range-days { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 2px; }
+.range-weekday { text-align: center; font-size: 0.6875rem; font-weight: 600; color: var(--muted); padding-bottom: 4px; text-transform: uppercase; }
+.range-day {
+  height: 36px; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; color: var(--text);
+  font-size: 0.875rem; font-variant-numeric: tabular-nums; position: relative; z-index: 0;
+}
+.range-day::after { content: ""; position: absolute; inset: 2px; border-radius: 50%; z-index: -1; transition: background-color var(--fast) var(--ease-out); }
+.range-day:hover:not(:disabled)::after { background: var(--material-thin); }
+.range-day.outside { color: var(--muted); }
+.range-day:disabled { opacity: 0.35; }
+.range-day.today::after { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.range-day.in { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.range-day.start { border-radius: 18px 0 0 18px; }
+.range-day.end { border-radius: 0 18px 18px 0; }
+.range-day.start.end { border-radius: 18px; }
+.range-day.in.row-start { border-top-left-radius: 18px; border-bottom-left-radius: 18px; }
+.range-day.in.row-end { border-top-right-radius: 18px; border-bottom-right-radius: 18px; }
+.range-day.start::after, .range-day.end::after { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); }
+.range-day.start, .range-day.end { color: var(--accent-text); font-weight: 650; }
+.range-day:active:not(:disabled) { transform: none; }
+.range-day:active:not(:disabled)::after { transform: scale(0.92); }
+.range-times { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+.range-times label { display: grid; gap: 4px; margin: 0; font-size: 0.75rem; color: var(--muted); }
+.range-times input[type=time] { padding: 7px 12px; border-radius: 12px; font-variant-numeric: tabular-nums; }
+.range-times input[type=time]::-webkit-calendar-picker-indicator { display: none; }
+.range-times input:disabled { opacity: 0.45; }
+.range-times .range-now { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; font-size: 0.8125rem; color: var(--text); }
+.range-message { margin: 0; font-size: 0.75rem; min-height: 1.2em; }
+.range-message.error { color: var(--error); }
+.range-actions { display: flex; justify-content: flex-end; gap: 8px; }
+@media (prefers-reduced-motion: reduce) { .range-popover, .range-popover.closing { animation-duration: 1ms; } }
+
 /* The Energy section's days: one card the width of the row, its table under the head. */
 /* Today's figures above the charts: a small tile and the label on one row, the proportional figure the card's width
    under them, a note in muted ink. */
@@ -18841,8 +19020,8 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
   .energy .chart-head .tile { width: 32px; height: 32px; border-radius: 10px; }
   .energy .chart-head .tile svg { width: 18px; height: 18px; }
   .energy .chart-head .muted { font-size: 0.75rem; }
-  .energy .group { display: flex; width: 100%; }
-  .energy .group button { flex: 1; padding-inline: 6px; }
+  .energy .range-control { display: flex; width: 100%; }
+  .energy .range-control button { flex: 1 0 auto; padding-inline: 10px; }
 }
 .energy .chart-table { margin-top: 12px; }
 .chart-grid.energy-days { grid-template-columns: minmax(0, 1fr); margin-top: 14px; }
@@ -19407,7 +19586,6 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   .log-card .editor-bar > .count + * { margin-left: 0; }
   .log-card .editor-bar > label.toggle { margin: 0 0 0 auto; }
   .log-card .editor-bar > .save-payloads { display: none; }
-  .log-card .editor-bar > .log-range { flex: 1 1 100%; }
   .log-card .log { height: 60dvh; min-height: 260px; }
   /* Two figures a row, so a label such as "Home app controllers" reads on one or two lines, not three; a
      bridge's device ID, the longest fact, across. */
@@ -19425,7 +19603,6 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   /* The activity's two menus side by side, the custom range under them. */
   .filter-bar { gap: 8px; }
   .filter-bar > .popup { flex: 1 1 40%; min-width: 0; max-width: none; }
-  .filter-bar > .log-range { flex: 1 1 100%; }
   /* The config editor's bar on one line: the page says which file it is. */
   .editor-card .editor-bar { gap: 8px; padding: 10px 10px 10px 14px; }
   .editor-card .editor-bar > .file-name { display: none; }
@@ -19964,8 +20141,10 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
 .log-level-row .search { flex: 1; max-width: 440px; min-width: 180px; }
 .log-level-row > .group { max-width: 100%; }
 .log-scope-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 16px; }
-.log-scope-row label { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.log-scope-row label > span { font-size: .75rem; font-weight: 600; color: var(--muted); }
+.log-scope-row label, .log-scope-row .log-time { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
+.log-scope-row label { align-items: stretch; }
+.log-scope-row .log-time { grid-column: 1 / -1; }
+.log-scope-row label > span, .log-scope-row .log-time > span { font-size: .75rem; font-weight: 600; color: var(--muted); }
 .log-scope-row select.popup { width: 100%; max-width: none; min-width: 0; }
 .log-card .log-action-bar { border-top: 1px solid var(--line); padding: 12px 20px; gap: 14px; }
 .log-action-bar .count { font-variant-numeric: tabular-nums; font-size: .8125rem; }
@@ -19988,9 +20167,9 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
   .log-level-row .search { flex: 1 1 0; width: auto; max-width: none; min-width: 0; }
   .log-level-row .clear-filters { flex: none; width: 40px; height: 40px; margin: 0; padding: 0; gap: 0; font-size: 0; }
   .log-level-row .clear-filters:disabled { display: none; }
-  .log-scope-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+  .log-scope-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .log-scope-row label { gap: 0; margin: 0; }
-  .log-scope-row label > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .log-scope-row label > span, .log-scope-row .log-time > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .log-scope-row select.popup { margin: 0; padding-block: 8px; }
   /* The action bar on one row: the count, then Copy as an icon, Follow and the menu (which has Save payloads). */
   .log-card .log-action-bar { padding: 8px 12px; gap: 8px; }

@@ -21,6 +21,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Every time range is one control, `HomeswiftCommon.rangeControl` (the Status page's Activity and Energy, the Logs
+  page): presets in a segmented control, then **Custom…**, a pop-over in the app's material with a month to pick the
+  first and last day and the From and To times, in place of a menu and the browser's date picker. The design explorer
+  shows it under Foundations.
+
 - The JSON editors (Config, a plugin's JSON) fold a block that spans lines from a chevron beside it.
 - The JSON editors mark each key that holds a secret (the bridge's redaction rule) with a lock, in gold.
 - Config's **Secrets only** folds everything but the secrets and the way to them; a gold button and a strip say while it holds.

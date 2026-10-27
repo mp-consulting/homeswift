@@ -2196,5 +2196,14 @@ HomeswiftI18n.add("fr", {
   "Home used today": "Consommation aujourd’hui",
   "As it was produced": "Au moment de la production",
   "Grid import today": "Import du réseau aujourd’hui",
-  "{value} exported": "{value} exportés"
+  "{value} exported": "{value} exportés",
+  "1 hour": "1 heure",
+  "6 hours": "6 heures",
+  "Custom…": "Personnalisé…",
+  "Previous month": "Mois précédent",
+  "Next month": "Mois suivant",
+  "Until now": "Jusqu’à maintenant",
+  "Since {time}": "Depuis {time}",
+  "Pick the first day, then the last.": "Choisissez le premier jour, puis le dernier.",
+  "The start must be before the end.": "Le début doit précéder la fin."
 });

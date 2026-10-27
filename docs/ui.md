@@ -34,8 +34,9 @@ with a new code). More users are added on the **Users** page (see below).
   not paired yet, the setup code and its QR code for the Home app's camera; the Assistant's provider;
   version, uptime, machine; a **Restart homeswift** button. **Activity** charts the homeswift process's
   memory and CPU, how long the bridge takes to answer the Home app's reads and writes, and how long plugins
-  take to reach their devices (average and longest), over the Logs page's time ranges (from the last hour
-  to 7 days, or a custom range) and, for the durations, for every server, one bridge or one accessory. A
+  take to reach their devices (average and longest), over a time range (1 hour, 6 hours, 24 hours, today,
+  yesterday or 7 days in a segmented control, or **Custom…**, a pop-over with a month to pick the first and last
+  day and the From and To times; the Energy section has the same control) and, for the durations, for every server, one bridge or one accessory. A
   range that ends now refreshes every minute; a gap is a time homeswift was not running; **Show as a table**
   lists the values. The bridge samples memory and CPU every 10 seconds and keeps a record per minute under
   `metrics/` next to config.json (a file per day, 8 days), so the charts survive a restart. The view is
@@ -241,7 +242,7 @@ with a new code). More users are added on the **Users** page (see below).
   every line; the bridges' own lines (their servers' connections, pairings and controllers), every bridge's or
   one's; a plugin's own lines (its pairing, devices, clouds and errors: the lines it writes); or an accessory's
   (those of its own server and those that name it, its id or its address), the accessories grouped by plugin. The time: the latest lines, the last hour, 6 or 24 hours, today,
-  yesterday, the last 7 days, or a custom range. The bridge keeps its log on disk for that, under `logs/`
+  yesterday, the last 7 days, or **Custom…** (the same time range control as the Status page). The bridge keeps its log on disk for that, under `logs/`
   next to config.json: segments of 8 MB at most, a new one each day, the oldest removed past 64 MB or 7
   days, written in batches once a second so logging never waits for the disk. **Copy** puts the lines shown
   on the clipboard as text. **Diagnose** (Log Doctor, with the Assistant on) sends the lines shown, the latest
@@ -448,7 +449,8 @@ signed-in users only (anyone else gets the sign-in page, then this one); the pag
 relative files and a `<meta name="homeswift-plugin">` naming its platform and instance, which `plugin.js`
 reads. The page is a full document: link `/style.css` for the look of the rest of the UI, then `/common.js` and
 `/plugin.js` for the helpers. The content security policy allows scripts and styles from files only, no
-inline script.
+inline script. A page that asks for a time range uses `HomeswiftCommon.rangeControl(params, { presets, fallback,
+changed })`, the control the UI's own pages use (presets, then Custom…'s pop-over), never an `<input type=datetime-local>`.
 
 The page talks to its instance through `homeswift.request(path, { method, body })`, which sends
 `/api/plugins/<platform>/<name>/<path>` with the session cookie and parses the JSON answer; the plugin

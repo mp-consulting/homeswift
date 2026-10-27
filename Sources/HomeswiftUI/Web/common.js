@@ -1363,6 +1363,180 @@
     return button;
   }
 
+  /// A time range, the one control every page uses for it (the Status page's Activity and Energy, the Logs page): a
+  /// segmented control of `presets` (`[value, label]`: `latest`, `1h`, `6h`, `24h`, `today`, `yesterday`, `7d`), then
+  /// Custom…, which opens a pop-over anchored to it, in the app's own material: a month to pick the first and the last
+  /// day, and the From and To times (no browser calendar). Days more than `earliestDays` back, older than what is kept,
+  /// are not offered. `span()` is `[from, to]`, `to` null when it ends now, or null for `latest`; `address(query)` keeps
+  /// a choice other than `fallback` under `names` (`since`, `from`, `to`); `chosen()` says one is; `reset()` goes back to
+  /// `fallback` without `changed`. The control sends `change` when its choice changes, for Clear filters.
+  function rangeControl(params, { presets, fallback, names = { since: "since", from: "from", to: "to" }, earliestDays = 8, changed }) {
+    const parse = (text) => { const date = text ? new Date(text) : null; return date && !isNaN(date) ? date : null; };
+    const asked = params.get(names.since);
+    let value = presets.some(([one]) => one === asked) || (asked === "custom" && parse(params.get(names.from))) ? asked : fallback;
+    let custom = { from: parse(params.get(names.from)) ?? new Date(Date.now() - 3600000), to: parse(params.get(names.to)) };
+    const presetButtons = presets.map(([one, text]) => el("button", { type: "button", role: "radio", text, onclick: () => choose(one) }));
+    const customButton = el("button", { type: "button", role: "radio", class: "range-custom", "aria-haspopup": "dialog", "aria-expanded": "false", onclick: (event) => open(event.currentTarget) });
+    const control = el("div", { class: "group range-control", role: "radiogroup", "aria-label": t("Time range") }, presetButtons, customButton);
+    const shortTime = new Intl.DateTimeFormat(HomeswiftI18n.locale, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+    const describe = () => custom.to ? shortTime.formatRange(custom.from, custom.to) : t("Since {time}", { time: shortTime.format(custom.from) });
+
+    function mark() {
+      presetButtons.forEach((button, index) => {
+        const on = presets[index][0] === value;
+        button.classList.toggle("on", on);
+        button.setAttribute("aria-checked", String(on));
+      });
+      customButton.classList.toggle("on", value === "custom");
+      customButton.setAttribute("aria-checked", String(value === "custom"));
+      customButton.textContent = value === "custom" ? describe() : t("Custom…");
+      reveal();
+    }
+    // Where the choices outgrow the width (a phone), they scroll sideways: the edge with more fades out, and the chosen
+    // one is kept in view, without scrolling the page.
+    function edges() {
+      control.classList.toggle("more-before", control.scrollLeft > 2);
+      control.classList.toggle("more-after", control.scrollLeft + control.clientWidth < control.scrollWidth - 2);
+    }
+    function reveal() {
+      const on = control.querySelector(".on");
+      if (!on || control.scrollWidth <= control.clientWidth) return;
+      const start = on.offsetLeft - control.offsetLeft, end = start + on.offsetWidth;
+      if (start < control.scrollLeft) control.scrollLeft = start - 24;
+      else if (end > control.scrollLeft + control.clientWidth) control.scrollLeft = end - control.clientWidth + 24;
+    }
+    control.addEventListener("scroll", edges, { passive: true });
+    new ResizeObserver(() => { reveal(); edges(); }).observe(control);
+    function choose(one, quiet = false) {
+      if (one === value && one !== "custom") return;
+      value = one;
+      mark();
+      control.dispatchEvent(new Event("change"));
+      if (!quiet) changed();
+    }
+    mark();
+
+    let popover = null;
+    function close() {
+      if (!popover) return;
+      const node = popover;
+      popover = null;
+      customButton.setAttribute("aria-expanded", "false");
+      document.removeEventListener("pointerdown", outside, true);
+      node.classList.add("closing");
+      node.addEventListener("animationend", () => node.remove(), { once: true });
+      setTimeout(() => node.remove(), 200);
+    }
+    const outside = (event) => { if (popover && !popover.contains(event.target) && !customButton.contains(event.target)) close(); };
+
+    function open(anchor) {
+      if (popover) { close(); return; }
+      const midnight = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const today = midnight(new Date());
+      const earliest = new Date(today.getFullYear(), today.getMonth(), today.getDate() - earliestDays);
+      const pad = (n) => String(n).padStart(2, "0");
+      const clock = (date) => `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+      let start = midnight(custom.from), end = midnight(custom.to ?? new Date()), picking = false;
+      let month = new Date(end.getFullYear(), end.getMonth(), 1);
+      const fromTime = el("input", { type: "time", value: clock(custom.from), "aria-label": t("From") });
+      const toTime = el("input", { type: "time", value: clock(custom.to ?? new Date()), "aria-label": t("To"), disabled: !custom.to });
+      const untilNow = el("input", { type: "checkbox", checked: !custom.to });
+      untilNow.addEventListener("change", () => { toTime.disabled = untilNow.checked; });
+      const title = el("strong", { class: "range-month" });
+      const grid = el("div", { class: "range-days", role: "grid" });
+      const message = el("p", { class: "range-message muted", text: t("Pick the first day, then the last."), role: "status" });
+      const weekday = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "narrow" });
+      const monthName = new Intl.DateTimeFormat(HomeswiftI18n.locale, { month: "long", year: "numeric" });
+      const dayName = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "long", day: "numeric", month: "long" });
+      const step = (months) => { month = new Date(month.getFullYear(), month.getMonth() + months, 1); render(); };
+      const previous = el("button", { type: "button", class: "menu-button", "aria-label": t("Previous month"), onclick: () => step(-1) }, icon("back"));
+      const next = el("button", { type: "button", class: "menu-button", "aria-label": t("Next month"), onclick: () => step(1) }, icon("forward"));
+
+      function render() {
+        title.textContent = monthName.format(month);
+        previous.disabled = month <= new Date(earliest.getFullYear(), earliest.getMonth(), 1);
+        next.disabled = month >= new Date(today.getFullYear(), today.getMonth(), 1);
+        // Weeks start on Monday; the days of the months around fill the first and last weeks.
+        const first = new Date(month.getFullYear(), month.getMonth(), 1 - (month.getDay() + 6) % 7);
+        const heads = [...Array(7)].map((_, index) => el("span", { class: "range-weekday", "aria-hidden": "true", text: weekday.format(new Date(2024, 0, 1 + index)) }));
+        const days = [...Array(42)].map((_, index) => {
+          const date = new Date(first.getFullYear(), first.getMonth(), first.getDate() + index);
+          const time = date.getTime();
+          const classes = ["range-day",
+            date.getMonth() !== month.getMonth() ? "outside" : "",
+            time === today.getTime() ? "today" : "",
+            time >= start.getTime() && time <= end.getTime() ? "in" : "",
+            time === start.getTime() ? "start" : "", time === end.getTime() ? "end" : "",
+            index % 7 === 0 ? "row-start" : "", index % 7 === 6 ? "row-end" : ""].filter(Boolean).join(" ");
+          return el("button", { type: "button", class: classes, text: date.getDate(), disabled: date > today || date < earliest,
+            "aria-label": dayName.format(date), "aria-pressed": String(time >= start.getTime() && time <= end.getTime()),
+            onclick: () => pick(date) });
+        });
+        grid.replaceChildren(...heads, ...days);
+      }
+      function pick(date) {
+        if (!picking) { start = end = date; picking = true; message.textContent = t("Pick the first day, then the last."); }
+        else { if (date < start) [start, end] = [date, start]; else end = date; picking = false; }
+        render();
+      }
+      function apply() {
+        const at = (day, text) => { const [h, m] = text.split(":").map(Number); return new Date(day.getFullYear(), day.getMonth(), day.getDate(), h || 0, m || 0); };
+        const from = at(start, fromTime.value), to = untilNow.checked ? null : at(end, toTime.value);
+        if (from >= (to ?? new Date())) { message.textContent = t("The start must be before the end."); message.classList.add("error"); return; }
+        custom = { from, to };
+        close();
+        choose("custom");
+        customButton.focus();
+      }
+
+      popover = el("div", { class: "range-popover", role: "dialog", "aria-label": t("Custom range…") },
+        el("div", { class: "range-head" }, previous, title, next),
+        grid,
+        el("div", { class: "range-times" },
+          el("label", {}, el("span", { text: t("From") }), fromTime),
+          el("label", {}, el("span", { text: t("To") }), toTime),
+          el("label", { class: "range-now" }, untilNow, el("span", { text: t("Until now") }))),
+        message,
+        el("div", { class: "range-actions" },
+          el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => { close(); customButton.focus(); } }),
+          el("button", { type: "button", class: "primary", actionIcon: "eye", text: t("Show"), onclick: apply })));
+      popover.addEventListener("keydown", (event) => { if (event.key === "Escape") { event.stopPropagation(); close(); customButton.focus(); } });
+      render();
+      document.body.append(popover);
+      // Under the Custom segment, kept on screen, growing from it.
+      const box = anchor.getBoundingClientRect(), width = popover.offsetWidth, height = popover.offsetHeight;
+      const left = Math.min(Math.max(8, box.left + box.width / 2 - width / 2), innerWidth - width - 8);
+      const below = box.bottom + 8 + height <= innerHeight - 8;
+      popover.style.left = `${left}px`;
+      popover.style.top = `${below ? box.bottom + 8 : Math.max(8, box.top - 8 - height)}px`;
+      popover.style.transformOrigin = `${box.left + box.width / 2 - left}px ${below ? "0" : "100%"}`;
+      customButton.setAttribute("aria-expanded", "true");
+      document.addEventListener("pointerdown", outside, true);
+      (grid.querySelector(".range-day.end") ?? grid.querySelector(".range-day:not(:disabled)"))?.focus();
+    }
+
+    return {
+      control,
+      span() {
+        const now = new Date(), midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        if (value === "latest") return null;
+        if (value === "custom") return [custom.from, custom.to && custom.to < now ? custom.to : null];
+        return { "1h": [new Date(now - 3600000), null], "6h": [new Date(now - 6 * 3600000), null], "24h": [new Date(now - 86400000), null],
+          today: [midnight, null], yesterday: [new Date(midnight - 86400000), midnight], "7d": [new Date(now - 7 * 86400000), null] }[value];
+      },
+      address(query) {
+        if (value === fallback) return;
+        query.set(names.since, value);
+        if (value !== "custom") return;
+        const local = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+        query.set(names.from, local(custom.from));
+        if (custom.to) query.set(names.to, local(custom.to));
+      },
+      chosen: () => value !== fallback,
+      reset() { close(); choose(fallback, true); },
+    };
+  }
+
   // Native disabled buttons suppress click events. Pointer events still let a tap
   // explain the disabled state without enabling the control or running its action.
   let filterTip = null, filterTipTimer = null, filterTap = null;
@@ -1443,7 +1617,7 @@
 
   window.HomeswiftCommon = {
     busyButton, scaledCanvas, byteSize,
-    $, el, icon, subnav, tile, clearFilters, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
+    $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
 })();
