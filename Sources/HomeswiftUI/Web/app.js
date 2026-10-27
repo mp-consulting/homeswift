@@ -878,7 +878,11 @@
 
   // /accessories?group=room|plugin&hidden=1&from=<source>: sections per room (once there are rooms) or per plugin; hidden
   // accessories only with hidden=1; only another controller's (Apple Home's, through Wingman) with from=.
-  views.accessories = async (main) => {
+  /// The Accessories page's views, as tabs: the wall and the graph.
+  const accessoryTabs = (current) => HomeswiftCommon.subnav(t("Accessories views"), "/accessories", [["", t("Wall"), "wall"], ["graph", t("Graph"), "chart"]], current);
+
+  views.accessories = async (main, args = []) => {
+    if (args[0] === "graph") return HomeswiftAdmin.graph(main, accessoryTabs("graph"));
     const [list, saved, home] = await Promise.all([api("/api/accessories"), api("/api/layout").catch(() => null), api("/api/rooms").catch(() => ({ rooms: [] }))]);
     const all = withSlugs(list, "accessory");
     const params = new URLSearchParams(location.search);
@@ -1324,6 +1328,7 @@
         : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
         : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers }),
         el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more)),
+      accessoryTabs(""),
       note,
       accessories.length ? [content, none] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") })));
   };
@@ -1354,14 +1359,18 @@
       const [state, kind] = blockState(block, plugin, instance);
       // The name opens what the menu's first item opens: the plugin's page, else the form.
       const opens = plugin && plugin.hasPages && instance && !instance.paused ? pluginPage(block) : block.system ? settingsLink(block) : expertLink(block);
-      // Under the name, what it is when the name does not say it already: the plugin, else its platform.
-      const kindName = [plugin?.name, block.platform].find((name) => name && name !== block.name);
+      // Under the name, what it is when the name does not say it already ("Daikin Cloud" says DaikinCloud): the plugin,
+      // else its platform.
+      const bare = (name) => name.replace(/[\s_-]+/g, "").toLowerCase();
+      const kindName = [plugin?.name, block.platform].find((name) => name && bare(name) !== bare(block.name));
       return el("div", { class: "card server plugin-instance" },
         el("div", { class: "server-head" },
-          tile(block.system ? "gear" : block.platform === "Wingman" ? "wingman" : "plugin", block.system ? "grey" : "orange"),
+          tile(HomeswiftCommon.pluginIcon(block.platform, block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
           el("div", { class: "who" }, el("a", { class: "card-title", href: opens }, el("strong", { text: block.name })),
             el("div", { class: "muted", text: [kindName, block.childBridge ? t("child bridge") : null].filter(Boolean).join(" · ") })),
-          el("span", { class: `pill status ${kind}`, text: state })),
+          // In this dense list, running is the usual state: a quiet dot; the others (paused, no plugin, built in) say so
+          // in words, as the plugin's own page and the bridges do for every state.
+          kind === "on" ? el("span", { class: "status-dot", role: "img", "aria-label": state, title: state }) : el("span", { class: `pill status ${kind}`, text: state })),
         // Its accessories and the bridge they are on, a glyph each, on one line.
         instance ? el("div", { class: "meta" },
           el("span", { title: t("Accessories") }, HomeswiftCommon.icon("bulb"), tn("{n} accessory", "{n} accessories", instance.accessories)),
@@ -1389,10 +1398,11 @@
       ];
     }
 
-    const catalog = el("div", { class: "grid plugin-catalog" }, plugins.plugins.map((plugin) => {
+    // The plugins compiled in, each a card with what the search and the orders read.
+    const catalogEntries = plugins.plugins.map((plugin) => {
       const used = plugins.blocks.some((block) => block.platform === plugin.platform);
-      return el("div", { class: "card server catalog" },
-        el("div", { class: "server-head" }, tile(plugin.platform === "Wingman" ? "wingman" : "plugin", "orange"),
+      const card = el("div", { class: "card server catalog" },
+        el("div", { class: "server-head" }, tile(HomeswiftCommon.pluginIcon(plugin.platform), "orange"),
           el("div", { class: "who" }, el("strong", { text: plugin.name }), el("div", { class: "muted", text: plugin.platform })),
           used ? el("span", { class: "pill status standby", text: t("In use [used]") }) : null),
         el("div", { class: "actions" }, plugin.hasPages
@@ -1400,7 +1410,8 @@
           // custom UIs do: Add writes an empty block and opens the page.
           ? el("button", { class: used ? "" : "primary", actionIcon: "plus", text: used ? t("Add another") : t("Add"), onclick: (event) => addWithPage(plugin, event.currentTarget) })
           : el("a", { class: `button ${used ? "" : "primary"}`, actionIcon: "plus", href: `/plugins/add/${encodeURIComponent(plugin.platform)}`, text: used ? t("Add another") : t("Add") })));
-    }));
+      return { card, name: plugin.name, text: `${plugin.name} ${plugin.platform}`, used };
+    });
 
     async function addWithPage(plugin, button) {
       button.disabled = true;
@@ -1414,46 +1425,65 @@
       }
     }
 
-    // A search and the order on one row; while a search narrows the list, how many it keeps and the way back under it.
-    const catalogSearch = el("input", { type: "search", class: "search", placeholder: t("Search plugins"), "aria-label": t("Search plugins") });
-    const catalogStatus = el("div", { class: "finder-status", "aria-live": "polite" });
-    const noMatches = el("p", { class: "card empty", hidden: true, text: t("No plugin matches the search.") });
-    const catalogEntries = [...catalog.children].map((card, index) => ({ card, plugin: plugins.plugins[index], used: plugins.blocks.some((block) => block.platform === plugins.plugins[index].platform) }));
-    const sortOptions = [["name", t("Name A–Z")], ["used", t("In use first")], ["available", t("Available first")]];
-    const sort = el("select", { class: "popup", "aria-label": t("Sort plugins") }, sortOptions.map(([value, text]) => el("option", { value, text })));
-    const savedSort = new URLSearchParams(location.search).get("sort");
-    sort.value = sortOptions.some(([value]) => value === savedSort) ? savedSort : "name";
-    const arrange = () => {
-      const ordered = [...catalogEntries].sort((a, b) => {
-        const priority = sort.value === "used" ? Number(b.used) - Number(a.used) : sort.value === "available" ? Number(a.used) - Number(b.used) : 0;
-        return priority || a.plugin.name.localeCompare(b.plugin.name) || a.plugin.platform.localeCompare(b.plugin.platform);
+    /// A search and an order over a grid of cards, on one row; while a search narrows the grid, how many it keeps and
+    /// the way back under it. `entries` are { card, name, text } and more; `orders` are [value, label, compare] after
+    /// Name A–Z, ties by name; the order chosen stays in the address under `param`.
+    const finder = ({ grid, entries, orders: more, param, placeholder, sortLabel, empty }) => {
+      const orders = [["name", t("Name A–Z"), () => 0], ...more];
+      const search = el("input", { type: "search", class: "search", placeholder, "aria-label": placeholder });
+      const status = el("div", { class: "finder-status", "aria-live": "polite" });
+      const clear = HomeswiftCommon.clearFilters([[search, ""]]);
+      const none = el("p", { class: "card empty", hidden: true, text: empty });
+      const sort = el("select", { class: "popup", "aria-label": sortLabel }, orders.map(([value, text]) => el("option", { value, text })));
+      const saved = new URLSearchParams(location.search).get(param);
+      sort.value = orders.some(([value]) => value === saved) ? saved : orders[0][0];
+      const arrange = () => {
+        const compare = orders.find(([value]) => value === sort.value)[2];
+        grid.append(...[...entries].sort((a, b) => compare(a, b) || a.name.localeCompare(b.name) || a.text.localeCompare(b.text)).map(({ card }) => card));
+      };
+      sort.addEventListener("change", () => {
+        arrange();
+        const url = new URL(location.href); url.searchParams.set(param, sort.value);
+        history.replaceState(null, "", url.pathname + url.search);
       });
-      catalog.append(...ordered.map(({ card }) => card));
-    };
-    sort.addEventListener("change", () => {
+      search.addEventListener("input", () => {
+        const query = search.value.trim().toLocaleLowerCase();
+        let visible = 0;
+        for (const entry of entries) {
+          entry.card.hidden = !entry.text.toLocaleLowerCase().includes(query);
+          if (!entry.card.hidden) visible++;
+        }
+        status.replaceChildren(...(query ? [el("span", { text: t("{shown} of {total} plugins", { shown: visible, total: entries.length }) }), clear] : []));
+        none.hidden = visible > 0;
+      });
       arrange();
-      const url = new URL(location.href); url.searchParams.set("sort", sort.value);
-      history.replaceState(null, "", url.pathname + url.search);
+      return [el("div", { class: "catalog-toolbar" }, search, sort), status, grid, none];
+    };
+
+    // Your plugins: by name, those that need a look first (no plugin, not running, paused), or by their accessories.
+    const blocks = plugins.blocks.map((block) => {
+      const plugin = byPlatform.get(block.platform), instance = running(block);
+      const attention = { away: 0, paused: 1, on: 2, standby: 3 }[blockState(block, plugin, instance)[1]];
+      return { card: blockCard(block), name: block.name, attention, accessories: instance?.accessories ?? -1,
+        text: [block.name, block.platform, plugin?.name, instance?.bridge].filter(Boolean).join(" ") };
     });
-    arrange();
-    catalogSearch.addEventListener("input", () => {
-      const query = catalogSearch.value.trim().toLocaleLowerCase();
-      let visible = 0;
-      catalogEntries.forEach(({ card, plugin }) => {
-        card.hidden = !`${plugin.name} ${plugin.platform}`.toLocaleLowerCase().includes(query);
-        if (!card.hidden) visible++;
-      });
-      catalogStatus.replaceChildren(...(query ? [el("span", { text: t("{shown} of {total} plugins", { shown: visible, total: catalogEntries.length }) }),
-        el("button", { type: "button", class: "small", actionIcon: "restore", text: t("Clear filters"), onclick: () => { catalogSearch.value = ""; catalogSearch.dispatchEvent(new Event("input")); catalogSearch.focus(); } })] : []));
-      noMatches.hidden = visible > 0;
-    });
+    const installed = finder({ grid: el("div", { class: "grid plugin-instances" }), entries: blocks, param: "order",
+      orders: [["attention", t("Needs attention first"), (a, b) => a.attention - b.attention],
+        ["accessories", t("Most accessories"), (a, b) => b.accessories - a.accessories]],
+      placeholder: t("Search your plugins"), sortLabel: t("Sort your plugins"), empty: t("No plugin of yours matches the search.") });
+    const available = finder({ grid: el("div", { class: "grid plugin-catalog" }), param: "sort", entries: catalogEntries,
+      orders: [["used", t("In use first"), (a, b) => Number(b.used) - Number(a.used)],
+        ["available", t("Available first"), (a, b) => Number(a.used) - Number(b.used)]],
+      placeholder: t("Search plugins"), sortLabel: t("Sort plugins"), empty: t("No plugin matches the search.") });
     show(main,
       pageHead(t("Plugins"), t("The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.")),
-      plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: t("No plugin provides {platforms}: those blocks are ignored.", { platforms: plugins.unknownPlatforms.join(", ") }) })) : null,
-      plugins.blocks.some((block) => !block.system) ? el("div", { class: "grid plugin-instances" }, plugins.blocks.map(blockCard)) : window.HomeswiftImport.offer(),
+      // Blocks no plugin here runs, by the names the cards show (Homebridge's own blocks, from an imported config).
+      plugins.unknownPlatforms.length ? el("div", { class: "card notice" }, el("p", { text: t("{names}: no plugin compiled into this homeswift runs these blocks, so they are ignored.",
+        { names: plugins.blocks.filter((block) => plugins.unknownPlatforms.includes(block.platform)).map((block) => block.name).join(", ") }) })) : null,
+      plugins.blocks.some((block) => !block.system) ? [el("div", { class: "section-head" }, el("h2", { text: t("Your plugins") }),
+        el("span", { class: "muted", text: tn("{n} block in config.json", "{n} blocks in config.json", plugins.blocks.length) })), ...installed] : window.HomeswiftImport.offer(),
       el("div", { class: "section-head" }, el("h2", { text: t("Add a plugin") }), el("span", { class: "muted", text: t("compiled into this homeswift") })),
-      el("div", { class: "catalog-toolbar" }, catalogSearch, sort), catalogStatus,
-      catalog, noMatches);
+      ...available);
   };
 
   /// A block's state pill: its label and tone.
@@ -1704,7 +1734,7 @@
     show(main,
       breadcrumb([t("Plugins"), "/plugins"], [block.name, isNew ? "/plugins" : settingsLink(block)], [isNew ? t("Add") : hasPage ? t("Expert") : t("Settings")]),
       el("div", { class: "page-head settings-head" },
-        tile(block.system ? "gear" : block.platform === "Wingman" ? "wingman" : "plugin", block.system ? "grey" : "orange"),
+        tile(HomeswiftCommon.pluginIcon(block.platform, block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
         el("div", { class: "who" },
           el("h1", { text: isNew ? t("Add {name}", { name: plugin.name }) : block.name }),
           el("p", { class: "muted", text: [...new Set([plugin ? plugin.name : platform, platform])].filter((part) => part !== block.name).concat(

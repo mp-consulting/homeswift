@@ -115,3 +115,17 @@ notice in a binary.
 `Sources/HomeswiftUI/Web/apple-home.png` is the Home application icon from macOS
 (`/System/Applications/Home.app/Contents/Resources/AppIcon.icns`), used to identify the Apple Home accessory
 source. The icon belongs to Apple Inc. and is not covered by Homeswift's MIT license.
+
+## Brand logos
+
+The plugin logos in `Sources/HomeswiftUI/Web/common.js` (`logos`: Philips Hue, LG, Ubiquiti, Elgato and IKEA) are the
+SVG paths of [Simple Icons](https://simpleicons.org) 16.33.0, published under CC0 1.0 Universal. They are used to
+identify the brand each plugin works with; the marks belong to their owners (Signify, LG Electronics, Ubiquiti,
+Corsair and Inter IKEA Systems) and are not covered by Homeswift's MIT license.
+
+## Website photo
+
+`site/backyard.jpg`, the camera picture in homeswift.dev's graph section, is "Faerie Playhouse, New Orleans yard July
+2022" by the National Center for Preservation Technology and Training (NCPTT, U.S. National Park Service), a work in
+the public domain, from [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Faerie_Playhouse,_New_Orleans_yard_July_2022.jpg),
+reduced to 640 pixels wide.

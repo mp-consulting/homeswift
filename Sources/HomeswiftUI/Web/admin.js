@@ -10,20 +10,16 @@
   const app = () => window.HomeswiftApp;
   const api = (...args) => app().api(...args);
 
-  const pages = [["", t("Overview"), "chart"], ["bridge", t("Bridge"), "bridge"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
+  const pages = [["bridge", t("Bridge"), "bridge"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
 
   const dateTime = new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
   const fullDate = new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
   const when = (iso) => (iso ? dateTime.format(new Date(iso)) : "–");
   const size = (bytes) => HomeswiftCommon.byteSize(bytes);
 
-  /// The pages of Settings as a row of links, a glyph each, the current one lit (a phone puts the glyph over the name,
-  /// the five across).
-  function subnav(current) {
-    return el("nav", { class: "group subnav", "aria-label": t("Settings pages") }, pages.map(([path, text, glyph]) =>
-      el("a", { href: `/settings${path ? `/${path}` : ""}`, class: path === current ? "on" : "", "aria-current": path === current ? "page" : null },
-        glyph === "sparkle" ? HomeswiftCommon.sparkle() : HomeswiftCommon.icon(glyph), el("span", { text }))));
-  }
+  /// The pages of Settings as a row of links, the Assistant's with its coloured sparkle.
+  const subnav = (current) => HomeswiftCommon.subnav(t("Settings pages"), "/settings",
+    pages.map(([path, text, glyph]) => [path, text, glyph === "sparkle" ? HomeswiftCommon.sparkle() : glyph]), current);
 
   /// A modal question for what cannot be undone: `typed`, when given, must be typed before the button works.
   /// Resolves true when confirmed.
@@ -55,7 +51,9 @@
   const sectionHead = (title, note, ...tools) => el("div", { class: "section-head" }, el("h2", { text: title }), note ? el("span", { class: "muted", text: note }) : null, ...tools);
 
   async function view(main, [page = ""] = []) {
-    const draw = { "": overviewPage, bridge: bridgePage, "child-bridges": childBridgesPage, backups: backupsPage, audit: auditPage, assistant: (main) => app().assistantPage(main, subnav("assistant")) }[page];
+    // Settings opens on its first page, Bridge.
+    if (!page) { history.replaceState(null, "", "/settings/bridge"); page = "bridge"; }
+    const draw = { bridge: bridgePage, "child-bridges": childBridgesPage, backups: backupsPage, audit: auditPage, assistant: (main) => app().assistantPage(main, subnav("assistant")) }[page];
     if (!draw) { app().show(main, app().pageHead(t("Settings"), t("No such page.")), subnav(null)); return; }
     await draw(main);
   }
@@ -698,19 +696,32 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return node;
   }
 
-  // Radii in the 640-unit square: the bridges' ring, the plugins', and the accessories' outer ring.
-  const radial = { size: 880, centre: 440, top: 164, plugin: 245, group: 332, leaf: 396 };
+  // Each inner ring's radius as a share of the outer one: the bridges', the plugins' and the device types'.
+  const ringShares = { top: 0.42, plugin: 0.62, group: 0.84 };
   // An accessory's disc (its radius) and the gap kept between two discs on the outer ring.
   const disc = { radius: 11.5, gap: 14 };
-  // A branch (a bridge or a built-in block with its plugins) takes one of the reference palette's eight categorical slots,
-  // in fixed order; a ninth branch is grey (anti-patterns: never a generated hue).
+  // The radius of a node on each inner ring (a bridge, a plugin, a device type) and the gap kept between two of them.
+  const nodeRadius = { top: 17, plugin: 12, group: 13 }, nodeGap = 8;
+  // The room a node takes along its ring: its width and the gap after it.
+  const nodeRoom = (ring) => 2 * nodeRadius[ring] + nodeGap;
+  // A plugin's branch (the plugin, its device types and accessories) takes one of the reference palette's eight
+  // categorical slots in config.json's order, the ninth plugin the first slot again (never a generated hue); bridges are
+  // neutral, the trunks the plugins hang from.
   const branchColors = ["--viz-1", "--viz-2", "--viz-3", "--viz-4", "--viz-5", "--viz-6", "--viz-7", "--viz-8"];
-  const short = (text, max) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
-  const categoryName = (key) => ({ lightbulb: t("Lightbulb"), switch: t("Switch") })[key] ?? key;
-  /// The icon that stands for a device's category (common.js's icons): a bulb, a switch, a lock, and so on.
-  const deviceIcons = [[/bulb|light/, "bulb"], [/switch/, "switch"], [/outlet/, "outlet"], [/fan/, "fan"], [/speaker/, "speaker"], [/lock/, "lock"],
-    [/thermo/, "thermo"], [/door|garage/, "door"], [/camera|doorbell/, "camera"], [/blind|window|shade|curtain|covering/, "blind"], [/sensor/, "sensor"], [/bridge/, "bridge"]];
-  const deviceIcon = (category = "") => deviceIcons.find(([pattern]) => pattern.test(category.toLowerCase()))?.[1] ?? "accessory";
+  /// An accessory category's name (AccessoryCategory's cases), else its words spaced out.
+  const categoryNames = { other: t("Other"), bridge: t("Bridge"), fan: t("Fan"), garageDoorOpener: t("Garage door"), lightbulb: t("Lightbulb"),
+    doorLock: t("Lock"), outlet: t("Outlet"), switch: t("Switch"), thermostat: t("Thermostat"), sensor: t("Sensor"),
+    securitySystem: t("Security system"), door: t("Door"), window: t("Window"), windowCovering: t("Window covering"),
+    programmableSwitch: t("Programmable switch"), rangeExtender: t("Range extender"), ipCamera: t("Camera"), camera: t("Camera"),
+    videoDoorbell: t("Doorbell"), airPurifier: t("Air purifier"), heater: t("Heater"), airConditioner: t("Air conditioner"),
+    humidifier: t("Humidifier"), dehumidifier: t("Dehumidifier"), appleTV: "Apple TV", homePod: "HomePod", speaker: t("Speaker"),
+    airport: "AirPort", sprinkler: t("Sprinkler"), faucet: t("Faucet"), showerHead: t("Shower head"), television: t("Television"),
+    targetController: t("Remote"), wifiRouter: t("Wi-Fi router"), audioReceiver: t("Audio receiver"), tvSetTopBox: t("Set-top box"),
+    tvStreamingStick: t("Streaming stick") };
+  const categoryName = (key = "") => categoryNames[key] ?? key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (first) => first.toUpperCase());
+  /// The icon that stands for a device's category: its widget tile's (a doorbell's bell, to tell it from the cameras),
+  /// else a generic one.
+  const deviceIcon = (category) => (category === "videoDoorbell" ? "bell" : HomeswiftWidgets.categoryIcon(category) ?? "generic");
   /// A device's status for its tooltip: unavailable, else whether it is on, its brightness and its temperature when it reports them.
   function deviceStatus(accessory) {
     if (accessory.unavailable) return t("Unavailable");
@@ -722,12 +733,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (typeof value("CurrentTemperature") === "number") parts.push(`${Math.round(value("CurrentTemperature") * 10) / 10} °C`);
     return parts.length ? parts.join(" · ") : t("Available");
   }
-  const polar = (radius, angle) => [radial.centre + radius * Math.cos(angle), radial.centre + radius * Math.sin(angle)];
+  // Graph coordinates have homeswift at the origin.
+  const polar = (radius, angle) => [radius * Math.cos(angle), radius * Math.sin(angle)];
 
   /// What the graph and its table show, from /api/status (bridges), /api/plugins (blocks and their platforms) and
   /// /api/accessories. A plugin block sits under the bridge its platform entry names; a plugin's accessories are the
-  /// ones of its platform on that bridge, given to the first block that has them.
-  function overviewModel(status, plugins, accessories) {
+  /// ones of its platform on that bridge, given to the first block that has them. A `filter` (see `overviewFilter`)
+  /// keeps the accessories it matches, and only the plugins and bridges that still have some.
+  function overviewModel(status, plugins, accessories, filter = null) {
     const bridges = status.bridges ?? [];
     const main = bridges.find((bridge) => !bridge.childBridge) ?? bridges[0];
     const tops = bridges.map((bridge) => ({
@@ -736,23 +749,31 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const topByName = new Map(tops.map((top) => [top.name, top]));
     const entries = plugins?.platforms ?? [];
     const claimed = new Set();
-    let pluginCount = 0, pausedCount = 0;
+    let pluginCount = 0, pausedCount = 0, colorIndex = 0;
     for (const block of plugins?.blocks ?? []) {
       if (block.system) { tops.push({ kind: "system", name: block.name, children: [], sub: t("Built in") }); continue; }
       const entry = entries.find((one) => one.name === block.name);
       const bridgeName = entry?.bridge ?? main?.name;
       const parent = topByName.get(bridgeName);
       if (!parent) continue;
+      // Counted before the filter, so that a plugin keeps its colour however the graph is filtered.
+      const color = `var(${branchColors[colorIndex++ % branchColors.length]})`;
       const key = `${block.platform}|${bridgeName}`;
-      const leaves = claimed.has(key) ? [] : accessories.filter((accessory) => accessory.platform === block.platform && accessory.bridge === bridgeName);
+      let leaves = claimed.has(key) ? [] : accessories.filter((accessory) => accessory.platform === block.platform && accessory.bridge === bridgeName);
       claimed.add(key);
+      if (filter) {
+        leaves = leaves.filter(filter.keeps);
+        if (!leaves.length) continue;
+      }
       const paused = Boolean(entry?.paused);
       pluginCount += 1;
       pausedCount += paused ? 1 : 0;
       leaves.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
-      parent.children.push({ kind: "plugin", name: block.name, platform: block.platform, bridgeName, paused, leaves,
+      parent.children.push({ kind: "plugin", name: block.name, platform: block.platform, bridgeName, paused, leaves, color,
         sub: paused ? t("Paused") : leaves.length ? tn("{n} accessory", "{n} accessories", leaves.length, {}) : t("No accessories") });
     }
+    for (const top of tops) top.color = "var(--muted)";
+    if (filter) tops.splice(0, tops.length, ...tops.filter((top) => top.children.length));
     // A plugin's accessories grouped by device type: one group per run of the same category (the leaves are sorted by it).
     const groupsOf = (plugin) => {
       const groups = [];
@@ -788,106 +809,205 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       slot += 1;
     }
     const total = Math.max(slot, 1);
-    // The rings grow with the accessories, so that neighbouring discs on the outer ring keep their gap.
-    const placed = tops.reduce((count, top) => count + top.children.reduce((sum, plugin) => sum + plugin.leaves.length, 0), 0);
-    radial.leaf = Math.max(396, (placed * (2 * disc.radius + disc.gap)) / (2 * Math.PI));
-    radial.plugin = radial.leaf * 0.62;
-    radial.group = radial.leaf * 0.84;
-    radial.top = radial.leaf * 0.42;
-    radial.size = 2 * (radial.leaf + 32);
-    radial.centre = radial.size / 2;
-    const angleOf = (value) => -Math.PI / 2 + (value / total) * Math.PI * 2;
-    tops.forEach((top, index) => {
-      top.color = index < branchColors.length ? `var(${branchColors[index]})` : "var(--muted)";
+    // The rings grow with the slots, so that neighbouring discs on the outer ring keep their gap, and with the nodes of
+    // each inner ring, so that they fit around it side by side.
+    const branches = tops.flatMap((top) => top.children), groups = branches.flatMap((branch) => branch.groups);
+    const ringNodes = { top: tops, plugin: branches, group: groups };
+    const fits = (ring) => (ringNodes[ring].length * nodeRoom(ring)) / (2 * Math.PI * 0.9 * ringShares[ring]);
+    const leaf = Math.max(396, (total * (2 * disc.radius + disc.gap)) / (2 * Math.PI), fits("top"), fits("plugin"), fits("group"));
+    const rings = { leaf, top: leaf * ringShares.top, plugin: leaf * ringShares.plugin, group: leaf * ringShares.group };
+    // A filtered graph with few slots is a fan centred on the top, a slot as wide as on a graph of 24, not a whole circle.
+    const span = filter ? Math.max(total, 24) : total;
+    const angleOf = (value) => -Math.PI / 2 + ((value - (filter ? total / 2 : 0)) / span) * Math.PI * 2;
+    tops.forEach((top) => {
       top.angle = angleOf(top.slot);
-      top.radius = radial.top;
+      top.radius = rings.top;
       for (const plugin of top.children) {
-        plugin.color = top.color;
         plugin.angle = angleOf(plugin.slot);
-        plugin.radius = radial.plugin;
+        plugin.radius = rings.plugin;
         for (const group of plugin.groups) {
-          group.color = top.color;
+          group.color = plugin.color;
           group.angle = angleOf(group.slot);
-          group.radius = radial.group;
-          group.leaves.forEach((leaf, index) => { leaf.color = top.color; leaf.angle = angleOf(group.first + index + 0.5); leaf.radius = radial.leaf; });
+          group.radius = rings.group;
+          group.leaves.forEach((leaf, index) => { leaf.color = plugin.color; leaf.angle = angleOf(group.first + index + 0.5); leaf.radius = rings.leaf; });
         }
       }
     });
-    return { tops, status, rootSub: t("Version {version}", { version: status.version ?? "" }),
+    // Nodes of an inner ring closer than their size are pushed apart, in order, each as little as it can be.
+    for (const ring of Object.keys(ringNodes)) spread(ringNodes[ring], nodeRoom(ring) / rings[ring]);
+    return { tops, status, rings, view: viewOf(tops, filter ? null : leaf), rootSub: t("Version {version}", { version: status.version ?? "" }),
       counts: { bridges: bridges.length, accessories: accessories.length, unavailable: accessories.filter((one) => one.unavailable).length, plugins: pluginCount, paused: pausedCount } };
   }
 
-  async function overviewPage(main) {
-    const [status, plugins, accessories] = await Promise.all([api("/api/status"), api("/api/plugins").catch(() => null), api("/api/accessories").catch(() => [])]);
-    const model = overviewModel(status, plugins, accessories);
-    const { counts } = model;
-    const kpi = (value, label, tone = "") => el("div", { class: `card kpi ${tone}` }, el("b", { text: String(value) }), el("span", { class: "muted", text: label }));
-    app().show(main,
-      app().pageHead(t("Settings"), t("What homeswift runs: its bridges, their plugins and the accessories each one publishes.")),
-      subnav(""),
-      el("div", { class: "kpis" },
-        kpi(counts.bridges, t("Bridges")), kpi(counts.plugins, t("Plugins")), kpi(counts.accessories, t("Accessories")),
-        kpi(counts.unavailable, t("Unavailable"), counts.unavailable ? "warn" : ""), kpi(counts.paused, t("Paused"))),
-      overviewCard(model));
+  /// The square the graph is drawn in: the whole outer ring, or, for a filtered graph (`leaf` null), the box of its nodes
+  /// with a margin, no smaller than half the whole graph so that its icons are drawn at most twice as large.
+  function viewOf(tops, leaf) {
+    if (leaf) return { x: -(leaf + 32), y: -(leaf + 32), size: 2 * (leaf + 32) };
+    const points = [[0, 0, 40]];
+    for (const top of tops) {
+      points.push([...polar(top.radius, top.angle), nodeRadius.top]);
+      for (const plugin of top.children) {
+        points.push([...polar(plugin.radius, plugin.angle), nodeRadius.plugin]);
+        for (const group of plugin.groups) {
+          points.push([...polar(group.radius, group.angle), nodeRadius.group]);
+          for (const one of group.leaves) points.push([...polar(one.radius, one.angle), disc.radius]);
+        }
+      }
+    }
+    const margin = 36;
+    const left = Math.min(...points.map(([x, , r]) => x - r)) - margin, right = Math.max(...points.map(([x, , r]) => x + r)) + margin;
+    const top = Math.min(...points.map(([, y, r]) => y - r)) - margin, bottom = Math.max(...points.map(([, y, r]) => y + r)) + margin;
+    const size = Math.max(right - left, bottom - top, 428);
+    return { x: (left + right - size) / 2, y: (top + bottom - size) / 2, size };
   }
 
-  /// An accessory's detail: its icon, name and status, its facts and every reading it reports (its own characteristics).
-  const characteristicNames = { On: () => t("On"), Brightness: () => t("Brightness"), Hue: () => t("Hue"), Saturation: () => t("Saturation"),
-    ColorTemperature: () => t("Color Temperature"), CurrentTemperature: () => t("Current Temperature"), CurrentRelativeHumidity: () => t("Humidity"), BatteryLevel: () => t("Battery") };
-  // HomeKit names come spaced ("Configured Name") or not: compared without the spaces.
-  const bareType = (type) => String(type).replace(/\s+/g, "");
-  const characteristicName = (type) => characteristicNames[bareType(type)]?.() ?? type;
-  const units = { percentage: "%", celsius: "°C", arcdegrees: "°", lux: " lx" };
-  function characteristicValue(one) {
-    if (typeof one.value === "boolean") return one.value ? t("On") : t("Off");
-    return typeof one.value === "number" ? `${Math.round(one.value * 10) / 10}${units[one.unit] ?? ""}` : String(one.value);
-  }
-  /// What a detail card shows: a name and icon (or the app's icon), a status, facts, and readings.
-  function accessoryDetails(accessory) {
-    const facts = [[t("Manufacturer"), accessory.manufacturer], [t("Model"), accessory.model], [t("Platform"), accessory.platformName ?? accessory.platform],
-      [t("Bridge"), accessory.bridge], [t("Type"), categoryName(accessory.category)]];
-    const administrative = new Set(["Name", "Identify", "Manufacturer", "Model", "SerialNumber", "FirmwareRevision", "HardwareRevision", "ConfiguredName"]);
-    // A device with several services (a switch's scenes, say) names each reading after its service.
-    const services = accessory.services ?? [];
-    const readings = services.flatMap((service) => {
-      const characteristics = service.characteristics ?? [];
-      const serviceName = characteristics.find((one) => bareType(one.type) === "ConfiguredName")?.value;
-      return characteristics.filter((one) => !administrative.has(bareType(one.type)) && one.value !== undefined && one.value !== null && typeof one.value !== "object")
-        .map((one) => [services.length > 1 && serviceName ? `${serviceName} · ${characteristicName(one.type)}` : characteristicName(one.type), characteristicValue(one)]);
+  /// Spaces the nodes of a ring at least `step` radians apart, keeping their order and moving them as little as possible:
+  /// the circle is cut at its widest gap, then each run of nodes too close together is centred on where its nodes want to be.
+  function spread(nodes, step) {
+    if (nodes.length < 2) return;
+    const sorted = [...nodes].sort((a, b) => a.angle - b.angle);
+    let cut = 0, widest = -1;
+    sorted.forEach((node, index) => {
+      const gap = (sorted[index + 1]?.angle ?? sorted[0].angle + 2 * Math.PI) - node.angle;
+      if (gap > widest) { widest = gap; cut = index + 1; }
     });
-    return { name: accessory.name, icon: deviceIcon(accessory.category), status: deviceStatus(accessory), warn: Boolean(accessory.unavailable), facts, readings };
+    const order = [...sorted.slice(cut), ...sorted.slice(0, cut)];
+    const wanted = order.map((node, index) => node.angle + (index >= sorted.length - cut ? 2 * Math.PI : 0));
+    // A block: its first node's index, its size, and the sum of where its nodes would put its start.
+    const blocks = [];
+    wanted.forEach((angle, index) => {
+      let block = { first: index, count: 1, sum: angle };
+      while (blocks.length) {
+        const previous = blocks.at(-1);
+        if (previous.sum / previous.count + previous.count * step <= block.sum / block.count) break;
+        blocks.pop();
+        block = { first: previous.first, count: previous.count + block.count, sum: previous.sum + block.sum - previous.count * step * block.count };
+      }
+      blocks.push(block);
+    });
+    for (const block of blocks) for (let k = 0; k < block.count; k += 1) order[block.first + k].angle = block.sum / block.count + k * step;
   }
+
+  /// What the graph shows: the search's words (each in what the Accessories page searches, the accessory's type, maker,
+  /// platform or bridge) and the chosen bridges, device types and unavailable ones. Null when nothing narrows it.
+  function overviewFilter({ text = "", bridges = new Set(), categories = new Set(), unavailable = false }) {
+    const words = text.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length && !bridges.size && !categories.size && !unavailable) return null;
+    return {
+      keeps(leaf) {
+        if (bridges.size && !bridges.has(leaf.bridge)) return false;
+        if (categories.size && !categories.has(leaf.category)) return false;
+        if (unavailable && !leaf.unavailable) return false;
+        const haystack = [HomeswiftWidgets.searchText(leaf), leaf.category, categoryName(leaf.category), leaf.manufacturer, leaf.platform, leaf.bridge]
+          .filter(Boolean).join(" ").toLowerCase();
+        return words.every((word) => haystack.includes(word));
+      },
+    };
+  }
+
+  /// The model of what homeswift runs, with what it was built from (the graph builds filtered ones from it).
+  async function loadOverview() {
+    const [status, plugins, accessories] = await Promise.all([api("/api/status"), api("/api/plugins").catch(() => null), api("/api/accessories").catch(() => [])]);
+    const model = overviewModel(status, plugins, accessories);
+    model.source = { status, plugins, accessories };
+    return model;
+  }
+
+  /// Accessories › Graph: the radial graph of the bridges, their plugins and their accessories.
+  async function graphPage(main, tabs) {
+    const model = await loadOverview();
+    app().show(main, app().pageHead(t("Accessories"), t("What homeswift runs: its bridges, their plugins and the accessories each one publishes.")), tabs, overviewCard(model));
+  }
+
+  /// What a detail card shows: a name and icon (or the app's icon), a status, facts, and readings; an accessory's
+  /// readings are grouped by service, worded as on the Accessories page, each with a tooltip saying what it is.
+  function accessoryDetails(accessory) {
+    const facts = [factRow("manufacturer", accessory.manufacturer), factRow("model", accessory.model), factRow("plugin", accessory.platformName ?? accessory.platform),
+      factRow("bridge", accessory.bridge), factRow("category", categoryName(accessory.category))];
+    // A camera shows its picture first: live while the card is open, else snapshots, as on the Accessories page.
+    const camera = accessory.services?.some((service) => service.type === "CameraRTPStreamManagement");
+    return { name: accessory.name, icon: deviceIcon(accessory.category), status: deviceStatus(accessory), warn: Boolean(accessory.unavailable), facts,
+      media: camera ? () => HomeswiftWidgets.cameraView(accessory) : null, sections: HomeswiftWidgets.valueSections(accessory) };
+  }
+  /// A card's fact: its label, its value, and a tooltip saying what it is.
+  const factInfo = {
+    manufacturer: [t("Manufacturer"), t("Who made the device, as its plugin reports it.")],
+    model: [t("Model"), t("The device's model, as its plugin reports it.")],
+    plugin: [t("Plugin"), t("The plugin that publishes it to HomeKit.")],
+    platform: [t("Platform"), t("The platform name of this plugin's block in config.json.")],
+    bridge: [t("Bridge"), t("The HomeKit bridge it is published on.")],
+    category: [t("Type"), t("Its HomeKit category, which sets its icon in the Home app.")],
+    bridgeType: [t("Type"), t("A bridge, a child bridge (plugins on a HomeKit server of their own) or a block built into homeswift.")],
+    bridgeAccessories: [t("Accessories"), t("The accessories this bridge publishes to HomeKit.")],
+    port: [t("Port"), t("The TCP port of its HomeKit server.")],
+    deviceId: [t("Device ID"), t("The identifier HomeKit pairs with: a new one loses the pairing, rooms and automations.")],
+    platforms: [t("Platforms"), t("The config.json platforms this bridge runs.")],
+    state: [t("State"), t("Running, or paused: a paused plugin's accessories stay in HomeKit but do not respond.")],
+    unavailable: [t("Unavailable"), t("Accessories whose device does not answer right now.")],
+    categories: [t("Categories"), t("Its accessories by HomeKit category.")],
+    version: [t("Version"), t("The homeswift version running.")],
+    bridges: [t("Bridges"), t("The bridges homeswift runs, child bridges included.")],
+    plugins: [t("Plugins"), t("The plugin blocks in config.json.")],
+    accessories: [t("Accessories"), t("The accessories published to HomeKit, on every bridge.")],
+    paused: [t("Paused"), t("Plugins paused: their accessories do not respond.")],
+    host: [t("Host"), t("This machine's name on the network.")],
+    os: [t("Operating system"), t("The system homeswift runs on.")],
+    cpus: [t("Processors"), t("This machine's processor cores.")],
+    memory: [t("Memory"), t("This machine's memory.")],
+    update: [t("Update available"), t("Whether a newer homeswift release is out.")],
+  };
+  const factRow = (key, value) => { const [label, tip] = factInfo[key]; return [label, value, tip]; };
   function bridgeDetails(top) {
     const bridge = top.raw;
     const type = top.kind === "system" ? t("Built in") : t(top.kind === "child" ? "Child bridge" : "Bridge");
     return { name: top.name, icon: top.kind === "system" ? "system" : "bridge", warn: top.paired === false,
       status: top.kind === "system" ? t("Built in") : top.paired ? t("Paired · {count}", { count: bridge.controllers ?? 0 }) : t("Not paired"),
-      facts: [[t("Type"), type], [t("Accessories"), top.count], [t("Port"), bridge?.port], [t("Device ID"), bridge?.deviceId], [t("Platforms"), bridge?.platforms?.join(", ")]] };
+      facts: [factRow("bridgeType", type), factRow("bridgeAccessories", top.count), factRow("port", bridge?.port), factRow("deviceId", bridge?.deviceId),
+        factRow("platforms", bridge?.platforms?.join(", "))] };
   }
   function pluginDetails(plugin) {
     const categories = new Map();
     for (const leaf of plugin.leaves) categories.set(leaf.category, (categories.get(leaf.category) ?? 0) + 1);
-    return { name: plugin.name, icon: /wingman/i.test(plugin.name) ? "wingman" : "plugin", status: plugin.sub, warn: false,
-      facts: [[t("Platform"), plugin.platform], [t("Bridge"), plugin.bridgeName], [t("State"), plugin.paused ? t("Paused") : t("Running")],
-        [t("Accessories"), plugin.leaves.length], [t("Unavailable"), plugin.leaves.filter((one) => one.unavailable).length],
-        [t("Categories"), [...categories].map(([key, count]) => `${categoryName(key)} ${count}`).join(", ")]] };
+    const unavailable = plugin.leaves.filter((one) => one.unavailable).length;
+    return { name: plugin.name, icon: HomeswiftCommon.pluginIcon(plugin.platform), status: plugin.sub, warn: unavailable > 0,
+      facts: [factRow("platform", plugin.platform), factRow("bridge", plugin.bridgeName), factRow("state", plugin.paused ? t("Paused") : t("Running")),
+        factRow("unavailable", unavailable || null), factRow("categories", [...categories].map(([key, count]) => `${categoryName(key)} ${count}`).join(", "))],
+      items: accessoryItems(plugin.leaves) };
   }
   function homeswiftDetails(model) {
     const system = model.status.system ?? {};
     return { name: "Homeswift", image: "/icon.svg", warn: false, status: model.rootSub,
-      facts: [[t("Version"), model.status.version], [t("Bridges"), model.counts.bridges], [t("Plugins"), model.counts.plugins], [t("Accessories"), model.counts.accessories],
-        [t("Paused"), model.counts.paused], [t("Host"), system.hostname], [t("Operating system"), system.os], [t("Processors"), system.cpus],
-        [t("Memory"), system.memoryBytes ? `${Math.round(system.memoryBytes / 2 ** 30)} GB` : ""], [t("Update available"), model.status.update?.available ? t("Yes") : t("No")]] };
+      facts: [factRow("version", model.status.version), factRow("bridges", model.counts.bridges), factRow("plugins", model.counts.plugins),
+        factRow("accessories", model.counts.accessories), factRow("paused", model.counts.paused), factRow("host", system.hostname), factRow("os", system.os),
+        factRow("cpus", system.cpus), factRow("memory", system.memoryBytes ? `${Math.round(system.memoryBytes / 2 ** 30)} GB` : ""),
+        factRow("update", model.status.update?.available ? t("Yes") : t("No"))] };
   }
-  /// A detail card's content: the head with the icon and close, then its facts and readings.
-  function detailNodes(data, close) {
-    const glyph = data.image ? el("img", { src: data.image, alt: "", width: 28, height: 28 }) : HomeswiftCommon.icon(data.icon);
+  /// Accessories as a card's rows: each with its device icon, its name and status, and its own card a click away.
+  const accessoryItems = (leaves) => leaves.map((one) => ({ icon: deviceIcon(one.category), name: one.name, status: deviceStatus(one),
+    warn: Boolean(one.unavailable), details: () => accessoryDetails(one) }));
+  /// A detail card's content: the head with the icon (a back button when `back` is given) and close, then its facts,
+  /// its readings and its accessories, each of which `open` shows in the card's place.
+  function detailNodes(data, close, { back = null, open = null } = {}) {
+    const glyph = data.image ? el("img", { src: data.image, alt: "", width: 24, height: 24 }) : HomeswiftCommon.icon(data.icon);
     const shown = (facts) => facts.filter(([, value]) => value !== undefined && value !== null && value !== "");
+    // Rows of a label and a value, and a tooltip on the row when it has one.
+    const list = (rows) => (rows.length ? el("dl", { class: "detail-list" }, ...rows.map(([label, value, tip]) =>
+      el("div", { title: tip ?? null }, el("dt", { text: label }), el("dd", { text: String(value) })))) : null);
+    const items = data.items ?? [];
     return [
-      el("div", { class: "detail-head" }, el("span", { class: "detail-glyph" }, glyph),
+      el("div", { class: "detail-head" },
+        back ? el("button", { type: "button", class: "detail-back", actionIcon: "back", "aria-label": t("Back"), title: t("Back"), onclick: back }) : null,
+        el("span", { class: `detail-glyph${data.image ? " app" : ""}` }, glyph),
         el("div", { class: "who" }, el("strong", { text: data.name }), el("div", { class: `detail-status${data.warn ? " warn" : ""}`, text: data.status })), close),
-      el("dl", { class: "detail-facts" }, ...shown(data.facts).flatMap(([label, value]) => [el("dt", { text: label }), el("dd", { text: String(value) })])),
-      data.readings?.length ? el("dl", { class: "detail-readings" }, ...data.readings.flatMap(([label, value]) => [el("dt", { text: label }), el("dd", { text: value })])) : null,
+      data.media ? el("div", { class: "detail-media" }, data.media()) : null,
+      list(shown(data.facts)),
+      ...(data.sections ?? []).map((section) => el("section", { class: "detail-section" }, el("h3", { class: "service-name", text: section.name }), list(section.rows))),
+      items.length ? el("ul", { class: "detail-items", role: "list" }, ...items.map((item) =>
+        el("li", {}, el("button", { type: "button", class: `detail-item${item.warn ? " warn" : ""}`, title: t("Show this accessory's card"), onclick: () => open?.(item.details()) },
+          el("span", { class: "detail-item-glyph" }, HomeswiftCommon.icon(item.icon)),
+          el("span", { class: "detail-item-name", text: item.name }),
+          el("span", { class: "detail-item-status", text: item.status }),
+          HomeswiftCommon.icon("forward"))))) : null,
     ];
   }
 
@@ -895,25 +1015,37 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function groupDetails(group) {
     const unavailable = group.leaves.filter((one) => one.unavailable).length;
     return { name: group.name, icon: group.icon, status: group.sub, warn: unavailable > 0,
-      facts: [[t("Plugin"), group.plugin.name], [t("Bridge"), group.plugin.bridgeName], [t("Accessories"), group.leaves.length], [t("Unavailable"), unavailable]],
-      readings: group.leaves.map((one) => [one.name, deviceStatus(one)]) };
+      facts: [factRow("plugin", group.plugin.name), factRow("bridge", group.plugin.bridgeName), factRow("unavailable", unavailable || null)],
+      items: accessoryItems(group.leaves) };
   }
 
   /// The card: the radial graph with zoom (a click on a bridge or plugin, Ctrl-scroll or a trackpad pinch, a touch pinch,
   /// drag to pan, the buttons), a tooltip on hover and focus, the legend and a table of the same rows.
   function overviewCard(model) {
     if (!model.tops.length) return el("section", { class: "card overview-card" }, el("p", { class: "muted", text: t("Nothing runs here yet.") }));
-    const { svg, layer, targets, details } = drawGraph(model);
+    // The graph's square (its viewBox, set by `redraw`), the zoomable layer in it, and what each node zooms to and shows.
+    const svg = svgNode("svg", { class: "overview-graph", role: "group", "aria-label": t("Graph of the bridges, plugins and accessories") });
+    let view = model.view, rings = model.rings, layer = null, targets = new Map(), details = new Map();
     const tip = el("div", { class: "overview-tip", role: "tooltip", hidden: true });
     const detail = el("div", { class: "overview-detail", role: "dialog", hidden: true });
     const frame = el("div", { class: "overview-frame" }, svg, tip, detail);
     let openNode = null;
     const closeDetail = () => { detail.hidden = true; openNode = null; };
+    // A card's content; an accessory opened from a list keeps the way back to the list.
+    const render = (data, previous = null) => {
+      const close = el("button", { type: "button", class: "detail-close", actionIcon: "close", "aria-label": t("Close"), title: t("Close"), onclick: closeDetail });
+      detail.replaceChildren(...detailNodes(data, close, {
+        back: previous ? () => render(previous) : null,
+        open: (child) => render(child, data),
+      }).filter(Boolean));
+      detail.setAttribute("aria-label", data.name);
+      detail.scrollTop = 0;
+      (previous ? detail.querySelector(".detail-back") : close).focus({ preventScroll: true });
+      return close;
+    };
     const openDetail = (node, anchored = true) => {
       const data = details.get(node)();
-      const close = el("button", { type: "button", class: "detail-close", actionIcon: "close", "aria-label": t("Close"), title: t("Close"), onclick: closeDetail });
-      detail.replaceChildren(...detailNodes(data, close).filter(Boolean));
-      detail.setAttribute("aria-label", data.name);
+      render(data);
       detail.style.setProperty("--branch", node.style.getPropertyValue("--branch") || "var(--accent)");
       tip.hidden = true;
       detail.hidden = false;
@@ -933,16 +1065,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         detail.style.left = `${Math.max(0, left)}px`;
         detail.style.top = `${Math.max(0, Math.min(box.top - frameBox.top, frameBox.height - detail.offsetHeight))}px`;
       }
-      close.focus({ preventScroll: true });
     };
     detail.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeDetail(); svg.focus({ preventScroll: true }); } });
-    const zoom = { k: 1, x: 0, y: 0 };
+    const home = () => ({ k: 1, x: 0, y: 0 });
+    const zoom = home();
     const maxZoom = 6;
-    const clamp = () => {
-      zoom.k = Math.min(maxZoom, Math.max(1, zoom.k));
-      zoom.x = Math.min(0, Math.max(radial.size * (1 - zoom.k), zoom.x));
-      zoom.y = Math.min(0, Math.max(radial.size * (1 - zoom.k), zoom.y));
+    // A view kept inside the square: zoomed between 1 and the most, and panned no further than its edges.
+    const bounded = ({ k, x, y }) => {
+      const scale = Math.min(maxZoom, Math.max(1, k));
+      const pan = (value, start) => Math.min((1 - scale) * start, Math.max((1 - scale) * (start + view.size), value));
+      return { k: scale, x: pan(x, view.x), y: pan(y, view.y) };
     };
+    const clamp = () => Object.assign(zoom, bounded(zoom));
     const apply = () => {
       layer.setAttribute("transform", `translate(${zoom.x} ${zoom.y}) scale(${zoom.k})`);
       svg.classList.toggle("deep", zoom.k >= 1.6);
@@ -951,13 +1085,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const viewAt = (factor, at) => {
       const k = Math.min(maxZoom, Math.max(1, zoom.k * factor));
       const wx = (at.x - zoom.x) / zoom.k, wy = (at.y - zoom.y) / zoom.k;
-      const view = { k, x: at.x - k * wx, y: at.y - k * wy };
-      const clamped = { k: Math.min(maxZoom, Math.max(1, k)) };
-      clamped.x = Math.min(0, Math.max(radial.size * (1 - clamped.k), view.x));
-      clamped.y = Math.min(0, Math.max(radial.size * (1 - clamped.k), view.y));
-      return clamped;
+      return bounded({ k, x: at.x - k * wx, y: at.y - k * wy });
     };
-    const centre = { x: radial.size / 2, y: radial.size / 2 };
+    const centre = () => ({ x: view.x + view.size / 2, y: view.y + view.size / 2 });
     let animation = 0;
     const animateTo = (view, ms = 340) => {
       cancelAnimationFrame(animation);
@@ -976,10 +1106,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     let focused = null;
     const focusOn = (node) => {
       const target = targets.get(node);
-      if (focused === node) { focused = null; animateTo({ k: 1, x: 0, y: 0 }); return; }
+      if (focused === node) { focused = null; animateTo(home()); return; }
       focused = node;
-      const [wx, wy] = polar(target.radius, target.angle);
-      animateTo({ k: target.k, x: centre.x - target.k * wx, y: centre.y - target.k * wy });
+      const [wx, wy] = polar(target.radius, target.angle), { x, y } = centre();
+      // Zooms are given for the whole graph: a filtered one, drawn in a smaller square, needs less.
+      const k = Math.max(1.4, target.k * view.size / (2 * (rings.leaf + 32)));
+      animateTo({ k, x: x - k * wx, y: y - k * wy });
     };
     const screenToGraph = (clientX, clientY) => {
       const point = svg.createSVGPoint();
@@ -992,7 +1124,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (!event.ctrlKey && !event.metaKey && zoom.k === 1) return; // a plain scroll of the page at rest
       event.preventDefault();
       if (!event.ctrlKey && !event.metaKey) {
-        const scale = radial.size / svg.getBoundingClientRect().width;
+        const scale = view.size / svg.getBoundingClientRect().width;
         zoom.x -= event.deltaX * scale; zoom.y -= event.deltaY * scale;
         clamp(); apply();
         return;
@@ -1005,6 +1137,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // Pointers: one drags (a drag past a few pixels is no click), two pinch around their midpoint.
     const pointers = new Map();
     let drag = null, pinch = null, dragged = false;
+    // The window's listeners go with the graph: the first event after it left the page removes them (and what they hold).
+    const listening = new AbortController();
+    const gone = () => { if (svg.isConnected) return false; listening.abort(); return true; };
     svg.addEventListener("pointerdown", (event) => {
       pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
       dragged = false;
@@ -1018,7 +1153,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
     });
     window.addEventListener("pointermove", (event) => {
-      if (!pointers.has(event.pointerId)) return;
+      if (gone() || !pointers.has(event.pointerId)) return;
       pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
       if (pointers.size === 2 && pinch) {
         const [a, b] = [...pointers.values()];
@@ -1035,19 +1170,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         if (!dragged && Math.hypot(dx, dy) < 5) return;
         dragged = true;
         if (zoom.k > 1) {
-          const scale = radial.size / svg.getBoundingClientRect().width;
+          const scale = view.size / svg.getBoundingClientRect().width;
           zoom.x = drag.zoomX + dx * scale; zoom.y = drag.zoomY + dy * scale;
           clamp(); apply();
         }
       }
-    });
+    }, { signal: listening.signal });
     const release = (event) => {
+      if (gone()) return;
       pointers.delete(event.pointerId);
       if (pointers.size < 2) pinch = null;
       if (pointers.size === 0) drag = null;
     };
-    window.addEventListener("pointerup", release);
-    window.addEventListener("pointercancel", release);
+    window.addEventListener("pointerup", release, { signal: listening.signal });
+    window.addEventListener("pointercancel", release, { signal: listening.signal });
 
     svg.addEventListener("click", (event) => {
       if (dragged) return; // the end of a drag is not a click
@@ -1060,10 +1196,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       closeDetail();
       const target = event.target.closest?.("[data-focus]");
       if (target) { focusOn(target); return; }
-      if (zoom.k > 1 && !event.target.closest?.(".pill, .plugin-node, .root")) { focused = null; animateTo({ k: 1, x: 0, y: 0 }); }
+      if (zoom.k > 1 && !event.target.closest?.(".node, .root")) { focused = null; animateTo(home()); }
     });
     svg.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && zoom.k > 1) { focused = null; animateTo({ k: 1, x: 0, y: 0 }); return; }
+      if (event.key === "Escape" && zoom.k > 1) { focused = null; animateTo(home()); return; }
       if ((event.key === "Enter" || event.key === " ") && (event.target.dataset?.focus !== undefined || event.target.dataset?.detail !== undefined)) { event.preventDefault(); event.target.dispatchEvent(new MouseEvent("click", { bubbles: true })); }
     });
 
@@ -1080,114 +1216,135 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     svg.addEventListener("focusin", (event) => { if (event.target.dataset?.tip) show(event.target); });
     svg.addEventListener("focusout", hide);
 
+    // Search and filters, as on the Accessories page: the graph is drawn again from what they keep, faded across.
+    const { status, plugins, accessories: all } = model.source;
+    const chosen = { bridges: new Set(), categories: new Set(), unavailable: false };
+    const search = el("input", { type: "search", class: "search", placeholder: t("Search accessories"), "aria-label": t("Search accessories") });
+    const filters = el("button", { type: "button", "aria-haspopup": "menu" });
+    const count = el("span", { class: "overview-count muted", role: "status" });
+    const empty = el("div", { class: "overview-empty", hidden: true }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("search")),
+      el("p", { class: "muted", text: t("No accessories match the current search.") }));
+    frame.append(empty);
+    const table = el("div");
+    const active = () => chosen.bridges.size + chosen.categories.size + Number(chosen.unavailable);
+    const filterOf = (except = {}) => overviewFilter({ text: search.value, ...chosen, ...except });
+    // How many accessories a menu choice would show, with the search and the other choices as they are.
+    const matching = (except) => { const filter = filterOf(except); return filter ? all.filter(filter.keeps).length : all.length; };
+    const clear = HomeswiftCommon.clearFilters([[search, ""]], { active: () => active() > 0,
+      reset: () => { chosen.bridges.clear(); chosen.categories.clear(); chosen.unavailable = false; } });
+    // Every graph is built from the filter, the first too (a filtered build moves the accessories the builds share).
+    const redraw = () => {
+      const filter = filterOf();
+      const next = overviewModel(status, plugins, all, filter);
+      closeDetail();
+      tip.hidden = true;
+      cancelAnimationFrame(animation);
+      focused = null;
+      ({ view, rings } = next);
+      ({ layer, targets, details } = drawGraph(next));
+      svg.setAttribute("viewBox", `${view.x} ${view.y} ${view.size} ${view.size}`);
+      svg.replaceChildren(layer);
+      Object.assign(zoom, home());
+      apply();
+      svg.animate([{ opacity: 0, scale: 0.97 }, { opacity: 1, scale: 1 }], { duration: matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 260, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+      const shown = next.tops.reduce((sum, top) => sum + top.children.reduce((total, plugin) => total + plugin.leaves.length, 0), 0);
+      svg.hidden = !next.tops.length;
+      empty.hidden = Boolean(next.tops.length);
+      count.textContent = filter ? tn("{n} accessory", "{n} accessories", shown, {}) : "";
+      filters.classList.toggle("on", active() > 0);
+      filters.replaceChildren(...[HomeswiftCommon.icon("sliders"), el("span", { text: t("Filters") }), active() ? el("span", { class: "toolbar-count", text: active() }) : null].filter(Boolean));
+      search.dispatchEvent(new Event("change")); // the Clear filters button's state
+      table.replaceChildren(overviewTable(next));
+    };
+    let typing = 0;
+    search.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(redraw, 160); });
+    // A menu choice: a toggle in `set`, with what it would leave.
+    const choice = (set, value, label, icon) => ({ label, icon, count: matching({ [set]: new Set(chosen[set]).add(value) }), checked: chosen[set].has(value),
+      checkbox: true, toggle: true, onSelect: () => { if (!chosen[set].delete(value)) chosen[set].add(value); redraw(); } });
+    const bridgeNames = (status.bridges ?? []).map((bridge) => bridge.name);
+    const categories = [...new Set(all.map((one) => one.category))].sort((a, b) => categoryName(a).localeCompare(categoryName(b), locale));
+    filters.addEventListener("click", () => HomeswiftCommon.menu(filters, [
+      { label: t("Unavailable"), icon: "warning", tone: "error", count: matching({ unavailable: true }), checked: chosen.unavailable, checkbox: true, toggle: true,
+        onSelect: () => { chosen.unavailable = !chosen.unavailable; redraw(); } },
+      ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridges", name, name, "bridge"))] : []),
+      ...(categories.length > 1 ? [{ separator: true }, ...categories.map((category) => choice("categories", category, categoryName(category), deviceIcon(category)))] : []),
+      { separator: true },
+      { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: clear.disabled, onSelect: () => clear.click() },
+    ]));
+    const toolbar = el("div", { class: "accessories-toolbar overview-toolbar" }, search, filters, count, clear);
+    redraw();
+
     const controls = el("div", { class: "overview-zoom" },
-      el("button", { type: "button", actionIcon: "plus", text: t("Zoom in"), onclick: () => animateTo(viewAt(1.6, centre)) }),
-      el("button", { type: "button", actionIcon: "minus", text: t("Zoom out"), onclick: () => animateTo(viewAt(1 / 1.6, centre)) }),
-      el("button", { type: "button", actionIcon: "restore", text: t("Reset view"), onclick: () => animateTo({ k: 1, x: 0, y: 0 }) }));
+      el("button", { type: "button", actionIcon: "plus", text: t("Zoom in"), onclick: () => animateTo(viewAt(1.6, centre())) }),
+      el("button", { type: "button", actionIcon: "minus", text: t("Zoom out"), onclick: () => animateTo(viewAt(1 / 1.6, centre())) }),
+      el("button", { type: "button", actionIcon: "restore", text: t("Reset view"), onclick: () => animateTo(home()) }));
+    // Only what the drawing cannot say itself: a plugin is named by its icon, its tooltip and its card.
     const legend = el("ul", { class: "overview-legend" },
-      ...model.tops.map((top) => el("li", {}, el("i", { class: "legend-mark", style: `--mark: ${top.color}` }), el("span", { text: top.name }))),
       el("li", {}, el("i", { class: "legend-mark hollow" }), el("span", { text: t("Unavailable") })),
       el("li", {}, el("i", { class: "legend-mark status paused" }), el("span", { text: t("Paused") })),
       el("li", {}, el("i", { class: "legend-mark status warn" }), el("span", { text: t("Not paired") })));
     return el("section", { class: "card overview-card" },
       el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: t("Graph of the bridges, plugins and accessories") }),
         el("div", { class: "muted", text: t("Pinch or Ctrl-scroll to zoom. Click a bridge to see its plugins and accessories.") }))),
-      frame, controls, legend,
-      el("p", { class: "muted note", text: t("Each dot is an accessory; a hollow one is unavailable.") }),
-      el("details", { class: "overview-more" }, el("summary", {}, HomeswiftCommon.icon("grid"), el("span", { text: t("Show as a table") })), overviewTable(model)));
+      toolbar, frame, controls, legend,
+      el("details", { class: "overview-more" }, el("summary", {}, HomeswiftCommon.icon("grid"), el("span", { text: t("Show as a table") })), table));
   }
 
-  /// The radial graph: the root at the centre, each bridge a label pill on the first ring (a tangent to it), each plugin a
-  /// dot on the second with its label shown when zoomed in, each accessory a dot on the outer ring. Returns the SVG, the
-  /// layer that zooms, and the zoom target of each focusable element.
+  /// The radial graph: homeswift at the origin, each bridge an icon on the first ring, each plugin one on the second, each
+  /// device type one on the third and each accessory a dot on the outer ring; names are in the tooltips and the cards.
+  /// Returns the layer that zooms, the zoom target of each focusable node and what each node's card shows.
   function drawGraph(model) {
+    const { rings } = model;
     const root = { radius: 0, angle: 0 };
-    const edges = [], labels = [], dots = [], pills = [], plugins = [];
+    const edges = [], dots = [], nodes = [];
     const targets = new Map();
     const details = new Map();
     // A curve from the parent along its own angle to the child along the child's, bowing through the middle ring.
-    const link = (from, to, classes = "", color = "") => {
+    const link = (from, to, classes, color) => {
       const mid = (from.radius + to.radius) / 2;
       const [x1, y1] = polar(from.radius, from.angle), [x2, y2] = polar(to.radius, to.angle);
       const [c1x, c1y] = polar(mid, from.angle), [c2x, c2y] = polar(mid, to.angle);
-      return svgNode("path", { class: `edge ${classes}`, style: color ? `--branch: ${color}` : null, d: `M${x1} ${y1} C${c1x} ${c1y} ${c2x} ${c2y} ${x2} ${y2}` });
+      return svgNode("path", { class: `edge ${classes}`, style: `--branch: ${color}`, d: `M${x1} ${y1} C${c1x} ${c1y} ${c2x} ${c2y} ${x2} ${y2}` });
     };
-    const charWidth = 8, pillHeight = 34;
-    // A bridge's pill, upright wherever it sits on the ring: its icon, then its name.
-    const pill = (top, classes, tip) => {
-      const [x, y] = polar(top.radius, top.angle);
-      const width = Math.min(230, top.name.length * charWidth + 50);
-      const glyph = HomeswiftCommon.icon(top.kind === "system" ? "system" : "bridge");
-      for (const [key, value] of [["x", -width / 2 + 8], ["y", -11], ["width", 22], ["height", 22]]) glyph.setAttribute(key, value);
-      const group = svgNode("g", { class: `pill ${classes}`, transform: `translate(${x} ${y})`, style: `--branch: ${top.color}`, "data-tip": tip, "data-focus": "", "data-detail": "", tabindex: 0, "aria-label": tip },
-        svgNode("rect", { class: "pill-box", x: -width / 2, y: -pillHeight / 2, width, height: pillHeight, rx: pillHeight / 2 }),
-        glyph,
-        svgNode("text", { class: "pill-name", x: 10, y: 0, "dominant-baseline": "central", "text-anchor": "middle" }, short(top.name, 22)));
-      targets.set(group, { radius: (radial.top + radial.plugin) / 2, angle: top.angle, k: 1.8 });
-      details.set(group, () => bridgeDetails(top));
-      return group;
-    };
-    // A plugin's dot, with its icon: Wingman's own, else the plugin's.
-    const plugin = (node, classes, tip) => {
-      const [x, y] = polar(node.radius, node.angle);
-      const glyph = HomeswiftCommon.icon(/wingman/i.test(node.name) ? "wingman" : "plugin");
-      for (const [key, value] of [["x", -8], ["y", -8], ["width", 16], ["height", 16]]) glyph.setAttribute(key, value);
-      const group = svgNode("g", { class: `plugin-node ${classes}`, transform: `translate(${x} ${y})`, style: `--branch: ${node.color}`, "data-tip": tip, "data-focus": "", "data-detail": "", tabindex: 0, "aria-label": tip },
-        svgNode("circle", { class: "plugin-dot", r: 12 }), glyph);
-      targets.set(group, { radius: (radial.plugin + radial.leaf) / 2, angle: node.angle, k: 2.6 });
-      details.set(group, () => pluginDetails(node));
-      return group;
-    };
-    // A device-type node: its icon, its name and count in the tooltip; a click shows its accessories.
-    const groupNode = (group) => {
-      const [x, y] = polar(group.radius, group.angle);
-      const glyph = HomeswiftCommon.icon(group.icon);
-      for (const [key, value] of [["x", -8], ["y", -8], ["width", 16], ["height", 16]]) glyph.setAttribute(key, value);
-      const tip = `${group.name} · ${group.sub}`;
-      const element = svgNode("g", { class: "group-node", transform: `translate(${x} ${y})`, style: `--branch: ${group.color}`, "data-tip": tip, "data-detail": "", "data-focus": "", tabindex: 0, "aria-label": tip },
-        svgNode("circle", { class: "group-dot", r: 13 }), glyph);
-      targets.set(element, { radius: (radial.group + radial.leaf) / 2, angle: group.angle, k: 2.8 });
-      details.set(element, () => groupDetails(group));
+    // A node: a disc of `radius` with an icon `size` across, at its place on its ring, in its branch's colour; its name
+    // in the tooltip; a click shows `card` and, with `zoom`, zooms to its branch.
+    const node = (item, { classes, radius, icon, size = 16, tip, card, zoom = null }) => {
+      const [x, y] = polar(item.radius, item.angle);
+      const glyph = HomeswiftCommon.icon(icon);
+      for (const [key, value] of [["x", -size / 2], ["y", -size / 2], ["width", size], ["height", size]]) glyph.setAttribute(key, value);
+      const element = svgNode("g", { class: classes, transform: `translate(${x} ${y})`, style: `--branch: ${item.color}`, "data-tip": tip, "data-detail": "",
+        "data-focus": zoom ? "" : null, tabindex: 0, "aria-label": tip }, svgNode("circle", { class: "node-disc", r: radius }), glyph);
+      if (zoom) targets.set(element, { radius: zoom.radius, angle: item.angle, k: zoom.k });
+      details.set(element, card);
       return element;
     };
     for (const top of model.tops) {
       edges.push(link(root, top, "trunk", top.color));
-      pills.push(pill(top, `${top.kind === "system" ? "built-in" : "branch"}${top.paired === false ? " unpaired" : ""}`, `${top.name} · ${top.sub}`));
+      nodes.push(node(top, { classes: `node bridge-node${top.kind === "system" ? " built-in" : ""}${top.paired === false ? " unpaired" : ""}`,
+        radius: nodeRadius.top, icon: top.kind === "system" ? "system" : "bridge", size: 20, tip: `${top.name} · ${top.sub}`,
+        card: () => bridgeDetails(top), zoom: { radius: (rings.top + rings.plugin) / 2, k: 1.8 } }));
       for (const branch of top.children) {
-        edges.push(link(top, branch, `branch${branch.paused ? " paused" : ""}`, top.color));
-        plugins.push(plugin(branch, `${branch.paused ? "paused" : ""}`, `${branch.name} · ${branch.sub}`));
-        const [lx, ly] = polar(radial.plugin, branch.angle);
-        // Upright labels, inward from the dot: the groups and accessories are outside it.
-        const right = Math.cos(branch.angle) >= 0;
-        labels.push(svgNode("text", { class: "plugin-label", x: lx + (right ? -16 : 16), y: ly, "dominant-baseline": "central", "text-anchor": right ? "end" : "start" }, short(branch.name, 24)));
+        edges.push(link(top, branch, `branch${branch.paused ? " paused" : ""}`, branch.color));
+        nodes.push(node(branch, { classes: `node plugin-node${branch.paused ? " paused" : ""}`, radius: nodeRadius.plugin,
+          icon: HomeswiftCommon.pluginIcon(branch.platform), tip: `${branch.name} · ${branch.sub}`,
+          card: () => pluginDetails(branch), zoom: { radius: (rings.plugin + rings.leaf) / 2, k: 2.6 } }));
         for (const group of branch.groups) {
-          edges.push(link(branch, group, "branch", top.color));
-          plugins.push(groupNode(group));
-          const [gx, gy] = polar(radial.group, group.angle);
-          const groupRight = Math.cos(group.angle) >= 0;
-          labels.push(svgNode("text", { class: "group-label", x: gx + (groupRight ? -18 : 18), y: gy, "dominant-baseline": "central", "text-anchor": groupRight ? "end" : "start" }, short(group.name, 24)));
-        for (const accessory of group.leaves) {
-          edges.push(link(group, accessory, "leaf", top.color));
-          const [x, y] = polar(accessory.radius, accessory.angle);
-          const label = `${accessory.name} · ${categoryName(accessory.category)} · ${deviceStatus(accessory)}`;
-          const glyph = HomeswiftCommon.icon(deviceIcon(accessory.category));
-          for (const [key, value] of [["x", -8], ["y", -8], ["width", 16], ["height", 16]]) glyph.setAttribute(key, value);
-          const dot = svgNode("g", { class: `dot${accessory.unavailable ? " unavailable" : ""}`, transform: `translate(${x} ${y})`, style: `--branch: ${top.color}`, "data-tip": label, "data-detail": "", tabindex: 0, "aria-label": label },
-            svgNode("circle", { class: "dot-disc", r: 11.5 }), glyph);
-          details.set(dot, () => accessoryDetails(accessory));
-          dots.push(dot);
-        }
+          edges.push(link(branch, group, "branch", branch.color));
+          nodes.push(node(group, { classes: "node group-node", radius: nodeRadius.group, icon: group.icon, tip: `${group.name} · ${group.sub}`,
+            card: () => groupDetails(group), zoom: { radius: (rings.group + rings.leaf) / 2, k: 2.8 } }));
+          for (const accessory of group.leaves) {
+            edges.push(link(group, accessory, "leaf", branch.color));
+            dots.push(node(accessory, { classes: `dot${accessory.unavailable ? " unavailable" : ""}`, radius: disc.radius, icon: deviceIcon(accessory.category),
+              tip: `${accessory.name} · ${categoryName(accessory.category)} · ${deviceStatus(accessory)}`, card: () => accessoryDetails(accessory) }));
+          }
         }
       }
     }
-    const rx = radial.centre, ry = radial.centre;
     const centre = svgNode("g", { class: "root", "data-tip": `Homeswift · ${model.rootSub}`, "data-detail": "", tabindex: 0, "aria-label": `Homeswift · ${model.rootSub}` },
-      svgNode("image", { class: "root-icon", href: "/icon.svg", x: rx - 48, y: ry - 48, width: 96, height: 96 }),
-      svgNode("text", { class: "root-name", x: rx, y: ry + 66, "text-anchor": "middle" }, "Homeswift"));
+      svgNode("image", { class: "root-icon", href: "/icon.svg", x: -28, y: -28, width: 56, height: 56 }));
     details.set(centre, () => homeswiftDetails(model));
-    const layer = svgNode("g", { class: "zoom-layer" }, ...edges, ...dots, ...plugins, ...labels, ...pills, centre);
-    const svg = svgNode("svg", { class: "overview-graph", viewBox: `0 0 ${radial.size} ${radial.size}`, role: "group", "aria-label": t("Graph of the bridges, plugins and accessories") }, layer);
-    return { svg, layer, targets, details };
+    const layer = svgNode("g", { class: "zoom-layer" }, ...edges, ...dots, ...nodes, centre);
+    return { layer, targets, details };
   }
 
   /// The same rows as the graph, for a screen reader or a search: bridges, then their plugins.
@@ -1205,5 +1362,5 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("tbody", {}, rows)));
   }
 
-  window.HomeswiftAdmin = { view, history: showHistory, confirmAction };
+  window.HomeswiftAdmin = { view, graph: graphPage, history: showHistory, confirmAction };
 })();
