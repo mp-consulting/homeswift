@@ -366,11 +366,9 @@ public struct InstanceBackups: Sendable {
             let target = storage.appendingPathComponent(relative)
             do {
                 try manager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-                if manager.fileExists(atPath: target.path) {
-                    _ = try manager.replaceItemAt(target, withItemAt: url)
-                } else {
-                    try manager.moveItem(at: url, to: target)
-                }
+                // Remove, then move: replaceItemAt is not reliable on every platform (Linux drops the target without the move).
+                if manager.fileExists(atPath: target.path) { try manager.removeItem(at: target) }
+                try manager.moveItem(at: url, to: target)
                 // The bridge keeps its files owner-only, as OwnerOnlyFile.write makes them, whatever mode the archive gave.
                 try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: target.path)
                 restored += 1
