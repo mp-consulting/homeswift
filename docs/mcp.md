@@ -232,6 +232,8 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   the same way: the bridge reads the plugin's lights before it, follows their changes until they are quiet (4 seconds
   at most), and holds the lights that changed as a run named after the action, given in its answer and in
   `list_moods`, that `stop_mood` undoes for 12 hours.
+  What held lights were is kept in `held-moods.json` next to config.json (owner-only), so the undo survives a
+  restart for what is left of its 12 hours; a light the bridge no longer has is dropped.
 - **Notifications.** `send_test_notification` sends a test through the channels that are on (`channel` for one:
   `webhook`, `ntfy`, `pushover`, `telegram`, `browser`) and answers per channel, 5 a minute at most. The channels
   are set up on the web UI's Notifications page, in a file of their own that no tool reads.

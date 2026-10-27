@@ -335,7 +335,7 @@ struct MoodLight: Sendable {
 }
 
 /// A light's values before a mood changed it, to put back.
-struct MoodSnapshot: Sendable {
+struct MoodSnapshot: Sendable, Codable {
     var on: HAPValue
     var brightness: HAPValue?
     var hue: HAPValue?
@@ -348,6 +348,21 @@ struct MoodSnapshot: Sendable {
     func differs(from other: MoodSnapshot) -> Bool {
         on != other.on || brightness != other.brightness || hue != other.hue || saturation != other.saturation || colorTemperature != other.colorTemperature
     }
+}
+
+/// A run that can still be undone, as `held-moods.json` keeps it across restarts.
+struct SavedHeldMood: Codable, Sendable {
+    struct Light: Codable, Sendable {
+        var key: String
+        var snapshot: MoodSnapshot
+    }
+
+    var id: String
+    var mood: Mood
+    var startedAt: Date
+    var by: String
+    var room: String?
+    var lights: [Light]
 }
 
 /// A mood playing in the background, or one that set the lights and can still be undone (`isHeld`).
@@ -433,6 +448,46 @@ extension HomeswiftCatalog {
                                  hue: writable(.hue), saturation: writable(.saturation), colorTemperature: writable(.colorTemperature))
             }
         }
+    }
+
+    // MARK: Held moods on disk
+
+    /// Writes the runs that can still be undone to `held-moods.json`, with what their lights were, after every change:
+    /// a restart brings them back (`restoreHeldMoods`).
+    func saveHeldMoods() {
+        let runs = home.runningMoods.withLockedValue { Array($0.values) }.filter(\.isHeld).sorted { $0.startedAt < $1.startedAt }
+        let saved = runs.map { run in
+            let snapshots = run.snapshots.withLockedValue { $0 }
+            return SavedHeldMood(id: run.id, mood: run.mood, startedAt: run.startedAt, by: run.by, room: run.room,
+                                 lights: run.lights.compactMap { light in snapshots[light.key].map { SavedHeldMood.Light(key: light.key, snapshot: $0) } })
+        }.filter { !$0.lights.isEmpty }
+        do { try home.heldMoods.update { $0 = saved } } catch { logger.warning("Could not save the moods that can be undone: \(error)") }
+    }
+
+    /// Holds again the runs a restart interrupted, for what is left of their time, on those of their lights the bridge
+    /// still has; the file then keeps only those.
+    func restoreHeldMoods() {
+        let now = Date()
+        for saved in home.heldMoods.value where now.timeIntervalSince(saved.startedAt) < MoodRules.undoSeconds {
+            guard home.runningMoods.withLockedValue({ $0[saved.id] == nil }) else { continue }
+            var lights: [MoodLight] = []
+            var snapshots: [String: MoodSnapshot] = [:]
+            for entry in saved.lights {
+                guard let light = currentLight(key: entry.key) else { continue }
+                lights.append(light)
+                snapshots[light.key] = entry.snapshot
+            }
+            guard !lights.isEmpty else { continue }
+            _ = hold(saved.mood, on: lights, snapshots: snapshots, by: saved.by, room: saved.room, id: saved.id, startedAt: saved.startedAt)
+            logger.info("Mood \"\(saved.mood.name)\" can still be undone after the restart", metadata: ["run": "\(saved.id)"])
+        }
+        saveHeldMoods()
+    }
+
+    /// The light with this key (`<accessory id>#<its place among the accessory's lightbulbs>`), as the accessory is now.
+    func currentLight(key: String) -> MoodLight? {
+        guard let hash = key.lastIndex(of: "#"), let found = find(id: String(key[..<hash])) else { return nil }
+        return Self.lights(of: [found]).first { $0.key == key }
     }
 
     // MARK: Undoing a plugin's change
@@ -629,26 +684,33 @@ extension HomeswiftCatalog {
             task?.cancel()
             await task?.value
         }
+        // A held mood that gave up some lights keeps fewer to put back.
+        if runs.contains(where: \.isHeld) { saveHeldMoods() }
         return Dictionary(uniqueKeysWithValues: lights.map { ($0.key, inherited[$0.key] ?? before[$0.key] ?? $0.snapshot()) })
     }
 
     /// Keeps a mood that set the lights once, for `MoodRules.undoSeconds`: stopping it in that time puts the lights
     /// back; after it, the chance to undo ends and the lights stay.
-    private func hold(_ mood: Mood, on lights: [MoodLight], snapshots: [String: MoodSnapshot], by: String, room: String?) -> MoodRun {
-        let run = MoodRun(id: MoodRules.newID(), mood: mood, lights: lights, startedAt: Date(), endsAt: nil, by: by, room: room, snapshots: snapshots)
+    /// A run brought back after a restart keeps its id and start, so its chance to undo ends when it would have.
+    private func hold(_ mood: Mood, on lights: [MoodLight], snapshots: [String: MoodSnapshot], by: String, room: String?,
+                      id: String = MoodRules.newID(), startedAt: Date = Date()) -> MoodRun {
+        let run = MoodRun(id: id, mood: mood, lights: lights, startedAt: startedAt, endsAt: nil, by: by, room: room, snapshots: snapshots)
         let catalog = self
+        let left = max(0, MoodRules.undoSeconds - Date().timeIntervalSince(startedAt))
         home.runningMoods.withLockedValue { running in
             running[run.id] = run
             run.task.withLockedValue { task in
                 task = Task {
-                    let undone = (try? await Task.sleep(for: .seconds(MoodRules.undoSeconds))) == nil
+                    let undone = (try? await Task.sleep(for: .seconds(left))) == nil
                     if undone { await catalog.restoreAll(run) }
                     catalog.home.runningMoods.withLockedValue { running in
                         if running[run.id] === run { running[run.id] = nil }
                     }
+                    catalog.saveHeldMoods()
                 }
             }
         }
+        saveHeldMoods()
         return run
     }
 
@@ -658,7 +720,9 @@ extension HomeswiftCatalog {
         await withTaskGroup(of: Void.self) { group in
             for light in run.lights {
                 guard let snapshot = snapshots[light.key] else { continue }
-                group.addTask { await self.restore(light, snapshot) }
+                // The accessory as it is now: a plugin that added it again since has new characteristics.
+                let current = currentLight(key: light.key) ?? light
+                group.addTask { await self.restore(current, snapshot) }
             }
         }
     }

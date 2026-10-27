@@ -48,14 +48,16 @@ public final class JSONFileStore<Value: Codable & Sendable>: Sendable {
 }
 
 /// What the web UI and the MCP server keep about the home besides config.json: the accessory layout (rooms,
-/// hidden accessories, display names, Quick Controls), the scenes and their automations, and the notification
-/// settings. Each is its own owner-only file next to config.json; `HomeswiftCatalog.startHome` runs the
+/// hidden accessories, display names, Quick Controls), the scenes and their automations, the notification
+/// settings, and the moods that can still be undone. Each is its own owner-only file next to config.json; `HomeswiftCatalog.startHome` runs the
 /// automations and the notification sources.
 public final class HomeState: Sendable {
     public let naturalLighting: NaturalLighting
     public let layout: JSONFileStore<AccessoryLayout>
     public let scenes: JSONFileStore<SceneFile>
     public let notifications: JSONFileStore<NotificationSettings>
+    /// The moods and plugin scenes that set the lights and can still be undone, with what the lights were.
+    let heldMoods: JSONFileStore<[SavedHeldMood]>
     /// How notifications reach webhooks, ntfy, Pushover, Telegram and push services; tests put a fake here.
     let httpBox: NIOLockedValueBox<any HTTPSending>
     /// The automations' and the notification sources' work while they run.
@@ -74,6 +76,7 @@ public final class HomeState: Sendable {
         layout = JSONFileStore(url: directory.appendingPathComponent("accessory-layout.json")) { AccessoryLayout() }
         scenes = JSONFileStore(url: directory.appendingPathComponent("scenes.json")) { SceneFile() }
         notifications = JSONFileStore(url: directory.appendingPathComponent("notifications.json")) { NotificationSettings() }
+        heldMoods = JSONFileStore(url: directory.appendingPathComponent("held-moods.json")) { [] }
         httpBox = NIOLockedValueBox(HTTPClient())
     }
 

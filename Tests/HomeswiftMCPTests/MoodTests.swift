@@ -196,6 +196,31 @@ struct MoodTests {
         #expect(value(environment, "Devices:lamp", .brightness) == lampBefore)
     }
 
+    /// A held mood outlives a restart: its run and what the lights were come back from held-moods.json, and
+    /// stop_mood still puts the lights back.
+    @Test func aHeldMoodSurvivesARestart() async throws {
+        let (environment, client) = try await den()
+        defer { Task { await environment.stop() } }
+        let set = try await client.tool("start_mood", ["mood": "romantic", "room": "Den"])
+        let run = try #require(set["structuredContent"]?["run"]?["id"]?.stringValue)
+        let file = environment.directory.appendingPathComponent("held-moods.json")
+        #expect(try String(contentsOf: file, encoding: .utf8).contains(run))
+
+        // The process ends: what it held in memory is gone, the file stays.
+        environment.catalog.home.runningMoods.withLockedValue { $0 = [:] }
+        environment.catalog.restoreHeldMoods()
+        let held = try await client.tool("list_moods")["structuredContent"]?["running"]?.arrayValue ?? []
+        #expect(held.map { $0["id"]?.stringValue } == [run])
+        #expect(held.first?["held"] == true)
+
+        _ = try await client.tool("stop_mood", ["run": .string(run)])
+        for bulb in ["Devices:bulb1", "Devices:bulb2"] {
+            #expect(value(environment, bulb, .on) == .bool(false))
+            #expect(value(environment, bulb, .brightness) == .int(40))
+        }
+        #expect(await eventually { (try? String(contentsOf: file, encoding: .utf8))?.contains(run) == false })
+    }
+
     /// A scene the hub refuses changes nothing: no run is held, and the answer comes without waiting for the lights.
     @Test func aFailedPluginSceneHoldsNothing() async throws {
         let (environment, client) = try await den()

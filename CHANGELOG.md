@@ -17,6 +17,8 @@ All notable changes to this project are documented here. The format follows
   steps it took, the changes it asked for), to paste in a report; the tools' arguments and answers stay out.
 - A plugin action the Assistant or an MCP client runs that changes lights (a Hue or IKEA scene recalled on its own
   bridge) can be undone like a mood: the lights it changed are held, and `stop_mood` puts them back for 12 hours.
+- A mood or plugin scene that can still be undone survives a restart: what its lights were is kept in
+  `held-moods.json`, and `stop_mood` puts them back for what is left of the 12 hours.
 - The IKEA DIRIGERA page shows the hub's wake-up scenes, greyed and dashed with a Wake-up badge: they run on the
   hub's schedule, so they cannot be run there and stay out of HomeKit.
 
