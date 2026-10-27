@@ -51,8 +51,8 @@ with a new code). More users are added on the **Users** page (see below).
   Each entity keeps one colour in every chart (solar yellow, the home blue, the batteries aqua, the grid violet), from
   the charts' palette checked for colour blindness in both modes. **Show as a table** lists the points and the days (solar produced, home used, grid import and export, battery charged and
   discharged, the share of the home's use solar covered). Days are counted from each minute's average power, midnight
-  to midnight in the browser's time zone. Its own range (`?energy=7d`, the last 24 hours by
-  default); `/api/metrics/energy?from=…&to=…&timeZone=…` answers it in one request, for any signed-in user.
+  to midnight in the browser's time zone. Its own range, a segmented control (24 hours, the
+  default, today, yesterday or 7 days; `?energy=7d`); `/api/metrics/energy?from=…&to=…&timeZone=…` answers it in one request, for any signed-in user.
 
   ![The Energy section: power and battery charts over a day, and each day's energy](images/status/energy.png)
 

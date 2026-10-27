@@ -849,7 +849,7 @@
   /// (`energy` in the address, the last 24 hours by default); a range that ends now refreshes every minute.
   function energy() {
     const params = new URLSearchParams(location.search);
-    const range = rangeFilter(params, { key: "energy", fallback: "24h", changed: () => load() });
+    const range = energyRange(params.get("energy"), () => load());
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     // A colour per entity, the same in every chart: solar yellow, the home blue, the batteries aqua, the grid violet
     // (the palette's slots, validated for colour blindness in both modes). The lines' devices take the slots in order.
@@ -860,18 +860,18 @@
       { id: "grid", label: t("Grid"), tone: 7 },
     ];
     const levelTones = [1, 2, 3, 4, 5, 6];
-    const card = (title, note) => {
+    const card = (title, note, icon, tone) => {
       const figure = el("b", { class: "chart-figure" });
       const detail = el("div", { class: "muted chart-detail" });
       const body = el("div", { class: "chart-body" });
       const node = el("div", { class: "card chart-card" },
-        el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: title }), el("div", { class: "muted", text: note })), figure),
+        el("div", { class: "chart-head" }, tile(icon, tone), el("div", { class: "who" }, el("strong", { text: title }), el("div", { class: "muted", text: note })), figure),
         body, detail);
       return { title, node, figure, detail, body, view: null, key: "" };
     };
-    const power = card(t("Power [watts]"), t("Added up across devices: the grid above zero is imported, the battery above zero is charging"));
-    const levels = card(t("Battery level"), t("Each device's charge"));
-    const days = card(t("Energy by day"), t("Where the home's energy came from, above the line, and where the rest went, below it: today and the 7 days before"));
+    const power = card(t("Power [watts]"), t("Added up across devices: the grid above zero is imported, the battery above zero is charging"), "bolt", "orange");
+    const levels = card(t("Battery level"), t("Each device's charge"), "battery", "teal");
+    const days = card(t("Energy by day"), t("Where the home's energy came from, above the line, and where the rest went, below it: today and the 7 days before"), "chart", "grey");
     // Folded until asked for; it stays open across refreshes.
     const dayTable = el("details", { class: "more chart-table" }, el("summary", { text: t("Show as a table") }));
     const today = el("div", { class: "energy-today" });
@@ -881,7 +881,7 @@
     const section = el("section", { class: "activity energy", hidden: true },
       el("h2", { text: t("Energy") }),
       today,
-      el("div", { class: "filter-bar" }, range.picker, HomeswiftCommon.clearFilters([[range.picker, "24h"]]), range.customRow),
+      el("div", { class: "filter-bar" }, range.control),
       el("div", { class: "chart-grid" }, power.node, levels.node),
       pointTable,
       el("div", { class: "chart-grid energy-days" }, days.node));
@@ -1008,14 +1008,16 @@
     /// Today's figures, each with its label: solar produced, the home's use, the share solar covered, the grid's import.
     function fillToday(day, present) {
       const has = (role) => present.includes(role);
-      const tile = (label, value, note) => el("div", { class: "card" }, el("span", { text: label }), el("b", { text: value }), note ? el("small", { text: note }) : null);
+      // Each with its entity's icon and colour, as the charts draw it.
+      const figure = (icon, tone, label, value, note) => el("div", { class: "card" }, tile(icon, tone),
+        el("div", {}, el("span", { text: label }), el("b", { text: value }), note ? el("small", { text: note }) : null));
       const known = Boolean(day?.minutes);
       const kWh = (value) => known ? formatKWh(value) : "–";
       today.replaceChildren(...[
-        has("solar") ? tile(t("Solar today"), kWh(day?.solar)) : null,
-        has("home") ? tile(t("Home used today"), kWh(day?.home)) : null,
-        has("solar") && has("home") ? tile(t("Home from solar"), known && day.solarShare != null ? formatPercent(day.solarShare * 100) : "–", t("As it was produced")) : null,
-        has("grid") ? tile(t("Grid import today"), kWh(day?.gridImport), known ? t("{value} exported", { value: formatKWh(day.gridExport) }) : null) : null,
+        has("solar") ? figure("sun", "yellow", t("Solar today"), kWh(day?.solar)) : null,
+        has("home") ? figure("house", "blue", t("Home used today"), kWh(day?.home)) : null,
+        has("solar") && has("home") ? figure("leaf", "green", t("Home from solar"), known && day.solarShare != null ? formatPercent(day.solarShare * 100) : "–", t("As it was produced")) : null,
+        has("grid") ? figure("pylon", "violet", t("Grid import today"), kWh(day?.gridImport), known ? t("{value} exported", { value: formatKWh(day.gridExport) }) : null) : null,
       ].filter(Boolean));
     }
 
@@ -1038,6 +1040,33 @@
 
     load();
     return section;
+  }
+  /// The Energy section's range, a segmented control as the page's other choices are: the last 24 hours (the default),
+  /// today, yesterday or the last 7 days. `span()` is `[from, to]`, `to` null when it ends now; `address` keeps a
+  /// choice other than the default as `energy`.
+  function energyRange(initial, changed) {
+    const choices = [["24h", t("24 hours")], ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("7 days")]];
+    let value = choices.some(([one]) => one === initial) ? initial : "24h";
+    const buttons = choices.map(([one, text]) => el("button", { type: "button", role: "radio", text, onclick: () => {
+      if (one === value) return;
+      value = one;
+      mark();
+      changed();
+    } }));
+    const mark = () => buttons.forEach((button, index) => {
+      const on = choices[index][0] === value;
+      button.classList.toggle("on", on);
+      button.setAttribute("aria-checked", String(on));
+    });
+    mark();
+    return {
+      control: el("div", { class: "group", role: "radiogroup", "aria-label": t("Time range") }, buttons),
+      span() {
+        const now = new Date(), midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        return { "24h": [new Date(now - 86400000), null], today: [midnight, null], yesterday: [new Date(midnight - 86400000), midnight], "7d": [new Date(now - 7 * 86400000), null] }[value];
+      },
+      address(query) { if (value !== "24h") query.set("energy", value); },
+    };
   }
   const dayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", month: "short" });
   const shortDay = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
@@ -3255,18 +3284,15 @@
     ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("Last 7 days")], ["custom", t("Custom range…")]];
 
   /// A time range menu whose first choice is the default (`latest`, the Logs page's latest lines, only when asked
-  /// for) unless `fallback` names another, with the From and To of a custom range in `customRow`. `changed` runs on a
-  /// choice. The address keeps it as `since`, `from` and `to`, or `<key>`, `<key>-from` and `<key>-to` with a `key`
-  /// (a second range on a page).
-  function rangeFilter(params, { latest = false, changed, key = null, fallback: wanted = null }) {
+  /// for), with the From and To of a custom range in `customRow`. `changed` runs on a choice.
+  function rangeFilter(params, { latest = false, changed }) {
     const choices = rangeChoices.filter(([value]) => latest || value !== "latest");
-    const fallback = wanted ?? choices[0][0];
-    const names = key ? { since: key, from: `${key}-from`, to: `${key}-to` } : { since: "since", from: "from", to: "to" };
-    const since = choices.some(([value]) => value === params.get(names.since)) ? params.get(names.since) : fallback;
+    const fallback = choices[0][0];
+    const since = choices.some(([value]) => value === params.get("since")) ? params.get("since") : fallback;
     const picker = el("select", { class: `popup ${since === fallback ? "" : "chosen"}`, "aria-label": t("Time range") }, choices.map(([value, text]) => el("option", { value, text, selected: value === since })));
     const localInput = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    const fromInput = el("input", { type: "datetime-local", "aria-label": t("From"), value: params.get(names.from) ?? localInput(new Date(Date.now() - 3600000)) });
-    const toInput = el("input", { type: "datetime-local", "aria-label": t("To"), value: params.get(names.to) ?? localInput(new Date()) });
+    const fromInput = el("input", { type: "datetime-local", "aria-label": t("From"), value: params.get("from") ?? localInput(new Date(Date.now() - 3600000)) });
+    const toInput = el("input", { type: "datetime-local", "aria-label": t("To"), value: params.get("to") ?? localInput(new Date()) });
     const customRow = el("div", { class: `log-range ${since === "custom" ? "" : "hidden"}` },
       el("label", {}, t("From"), fromInput), el("label", {}, t("To"), toInput),
       el("button", { actionIcon: "eye", text: t("Show"), onclick: () => changed() }));
@@ -3297,8 +3323,8 @@
       },
       /// Adds the choice to a page's address: `since`, and `from` and `to` for a custom range.
       address(query) {
-        if (picker.value !== fallback) query.set(names.since, picker.value);
-        if (picker.value === "custom") { query.set(names.from, fromInput.value); if (toInput.value) query.set(names.to, toInput.value); }
+        if (picker.value !== fallback) query.set("since", picker.value);
+        if (picker.value === "custom") { query.set("from", fromInput.value); if (toInput.value) query.set("to", toInput.value); }
       },
     };
   }

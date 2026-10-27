@@ -1165,8 +1165,10 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 /* The Energy section's days: one card the width of the row, its table under the head. */
 /* Today's figures above the charts: a label in muted ink over a proportional figure. */
 .energy-today { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 14px; }
-.energy-today .card { margin: 0; padding: 14px 16px; display: grid; gap: 4px; align-content: start; }
+.energy-today .card { margin: 0; padding: 14px 16px; display: flex; gap: 12px; align-items: flex-start; }
+.energy-today .card > div { display: grid; gap: 4px; min-width: 0; }
 .energy-today span { font-size: 0.8125rem; color: var(--muted); }
+.energy .chart-head .who { flex: 1; min-width: 0; }
 .energy-today b { font-size: 1.75rem; line-height: 1.1; font-weight: 650; letter-spacing: -0.02em; }
 .energy-today small { font-size: 0.75rem; color: var(--muted); }
 .energy .chart-table { margin-top: 12px; }
