@@ -32,6 +32,9 @@
   let auth = null;
   // The server's secret-key rule (see the settings page): set with the plugin list, read by the JSON secret note.
   let secretRule = null;
+  /// The server's rule (Redaction): whether a key holds a secret.
+  const isSecretKey = (key) => Boolean(secretRule) && secretRule.keys.test(key) && !secretRule.except.test(key);
+  const readSecretRule = (plugins) => plugins.secretRule ? { keys: new RegExp(plugins.secretRule.keys, "i"), except: new RegExp(plugins.secretRule.except, "i"), placeholder: plugins.secretRule.placeholder } : null;
 
   async function loadAuth() {
     auth = await api("/api/auth/state");
@@ -1517,7 +1520,7 @@
     const isNew = first === "add";
     const [plugins, config] = await Promise.all([api("/api/plugins"), api("/api/config", { raw: true }).then(JSON.parse)]);
     // A bridge that does not send the rule (an older build) leaves the note off, rather than failing the page.
-    secretRule = plugins.secretRule ? { keys: new RegExp(plugins.secretRule.keys, "i"), except: new RegExp(plugins.secretRule.except, "i"), placeholder: plugins.secretRule.placeholder } : null;
+    secretRule = readSecretRule(plugins);
     const found = isNew ? null : plugins.blocks.find((b) => b.slug === first);
     if (!isNew && !found) {
       show(main, breadcrumb([t("Plugins"), "/plugins"], [t("Settings")]),
@@ -1559,12 +1562,11 @@
     let body;
     let useSuggestion = null;
     const textarea = el("textarea", { class: "short", value: JSON.stringify(current, null, 2), spellcheck: false, "aria-label": t("The block as JSON") });
-    const editor = jsonEditor(textarea);
+    const editor = jsonEditor(textarea, { secretKey: isSecretKey });
     const fromJSON = () => { const value = JSON.parse(textarea.value); delete value.platform; return value; };
     // The same key names the server seals (Redaction's rule). A secret typed in JSON is encrypted on save, so the note
     // says where it is easier to set one; it shows only while the JSON on screen holds a secret.
     // The server's rule (Redaction): the page reads it from /api/plugins, set when the settings page loads them.
-    const isSecretKey = (key) => Boolean(secretRule) && secretRule.keys.test(key) && !secretRule.except.test(key);
     const holdsSecret = (value, underSecret = false) => {
       if (typeof value === "string") return underSecret && value !== "" && value !== secretRule?.placeholder;
       if (Array.isArray(value)) return value.some((item) => holdsSecret(item, underSecret));
@@ -2936,7 +2938,9 @@
   const problemList = (items, editor) => el("ul", { class: "schema-problems" }, items.map((item) => el("li", {}, ...lineLink(item, editor), item.text)));
 
   views.config = async (main) => {
-    let saved = await api("/api/config", { raw: true });
+    let saved;
+    // The plugins' list for the secret rule only; an older bridge without it leaves the keys unmarked.
+    [saved, secretRule] = await Promise.all([api("/api/config", { raw: true }), api("/api/plugins").then(readSecretRule, () => null)]);
     const textarea = el("textarea", { value: saved, spellcheck: false, "aria-label": "config.json" });
     const check = el("span", { class: "muted" });
     const message = el("p", { class: "status-line muted" });
@@ -2990,14 +2994,28 @@
     save.addEventListener("click", () => doSave());
     force.addEventListener("click", () => { save.disabled = false; doSave(true); });
     revert.addEventListener("click", () => { textarea.value = saved; message.textContent = ""; force.classList.add("hidden"); editor.repaint(); update(); });
-    const editor = jsonEditor(textarea);
+    const editor = jsonEditor(textarea, { secretKey: isSecretKey });
+    // Secrets only: everything else folded, a second press (or Show all) opens it all again. The editor says when it
+    // holds, so opening a fold, Format or Revert turn the button off and the strip above the text goes.
+    const secretsOnly = el("button", { class: "settings-action secrets-only", "aria-pressed": "false", title: t("Fold everything that holds no secret"), hidden: !secretRule,
+      onclick: () => (secretsOnly.getAttribute("aria-pressed") === "true" ? editor.openAll() : editor.foldAllButSecrets()) },
+      HomeswiftCommon.icon("lock"), el("span", { text: t("Secrets only") }));
+    const secretsNote = el("span");
+    const secretsBanner = el("div", { class: "secrets-banner", role: "status", hidden: true }, HomeswiftCommon.icon("lock"), secretsNote,
+      el("button", { type: "button", actionIcon: "eye", text: t("Show all"), onclick: () => { editor.openAll(); textarea.focus({ preventScroll: true }); } }));
+    editor.addEventListener("folds", ({ detail }) => {
+      secretsOnly.setAttribute("aria-pressed", String(detail.secretsOnly));
+      secretsOnly.title = detail.secretsOnly ? t("Show all") : t("Fold everything that holds no secret");
+      secretsNote.textContent = detail.secrets ? tn("{n} secret shown, the rest folded", "{n} secrets shown, the rest folded", detail.secrets) : t("No secrets in this file");
+      secretsBanner.hidden = !detail.secretsOnly;
+    });
     format.addEventListener("click", () => { try { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); update(); } catch {} });
     update();
     show(main,
       pageHead(t("Configuration"), t("The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once.")),
       el("div", { class: "card editor-card" },
-        el("div", { class: "editor-bar" }, el("span", { class: "mono muted file-name", text: "config.json" }), check, el("span", { class: "spacer" }), format, revert, force, save),
-        editor, message));
+        el("div", { class: "editor-bar" }, el("span", { class: "mono muted file-name", text: "config.json" }), check, el("span", { class: "spacer" }), secretsOnly, format, revert, force, save),
+        secretsBanner, editor, message));
   };
 
   // ---- Logs ----------------------------------------------------------------

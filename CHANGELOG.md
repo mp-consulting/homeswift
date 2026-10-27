@@ -9,6 +9,8 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - The JSON editors (Config, a plugin's JSON) fold a block that spans lines from a chevron beside it.
+- The JSON editors mark each key that holds a secret (the bridge's redaction rule) with a lock, in gold.
+- Config's **Secrets only** folds everything but the secrets and the way to them; a gold button and a strip say while it holds.
 - A plugin declares its web UI icon in Swift (`HomeswiftPlugin.icon`, a name from common.js's icons such as
   `"logo-elgato"` or `"bulb"`), which `/api/plugins` reports for each plugin and each block; the web UI no longer lists
   them itself. A Homebridge block the import renames takes its new plugin's icon (AI Kit, the Assistant's sparkle).

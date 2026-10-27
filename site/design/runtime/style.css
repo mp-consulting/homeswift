@@ -1516,7 +1516,7 @@ dd { margin: 0; }
 
 /* JSON in colour (common.js): keys, strings, numbers, booleans and null each their own hue, punctuation quiet;
    a read-only block (.json) and an editor whose coloured layer sits under a transparent textarea. */
-:root { --json-key: #6f42c1; --json-string: #1a7f37; --json-number: #a8440a; --json-bool: #0a63c9; --json-null: #8a8f98; }
+:root { --json-key: #6f42c1; --json-string: #1a7f37; --json-number: #a8440a; --json-bool: #0a63c9; --json-null: #8a8f98; --json-secret: #9a6700; }
 @media (prefers-color-scheme: dark) {
   :root:not(:where([data-theme="light"])) { --json-key: #c8a2ff; --json-string: #8ddc8f; --json-number: #ffb06b; --json-bool: #79b8ff; --json-null: #8b949e; }
 }
@@ -1527,6 +1527,14 @@ dd { margin: 0; }
 .json-bool { color: var(--json-bool); }
 .json-null { color: var(--json-null); font-style: italic; }
 .json-punct { color: var(--muted); }
+/* A key that holds a secret (the server's Redaction rule): gold, a lock in the indentation before it, so nothing moves
+   and the caret stays on its character; its value sits on a faint gold pill, as a sealed field would. */
+.json-secret { position: relative; color: var(--json-secret); }
+.json-secret > svg {
+  position: absolute; right: calc(100% + 0.3ch); top: 50%; width: 0.9em; height: 0.9em; translate: 0 -55%;
+  fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
+}
+.json-secret-value { color: var(--json-secret); background: rgba(242, 193, 78, 0.12); border-radius: 4px; box-shadow: 0 0 0 1px rgba(242, 193, 78, 0.22); }
 pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5 var(--mono); background: var(--material-thin); border: 1px solid var(--line); overflow: auto; tab-size: 2; }
 .code-editor { display: grid; position: relative; }
 .code-editor > .code-layer, .code-editor > .code-input {
@@ -1584,6 +1592,7 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   --material-thin: rgba(255, 255, 255, 0.06); --field: rgba(255, 255, 255, 0.04);
   --warn: #e9a04a; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #ff8f3d;
   --json-key: #c8a2ff; --json-string: #8ddc8f; --json-number: #ffb06b; --json-bool: #79b8ff; --json-null: #8b949e;
+  --json-secret: #f2c14e;
 }
 .log-card .log, pre.json, pre.diff, .code-editor, .form-card .code-editor { background: var(--console); }
 .log pre.json { background: var(--material-thin); }
@@ -1651,6 +1660,9 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   /* Revert as an icon, so the status, Revert and Save fit on one row beside the menu button. */
   .settings-bar > .settings-action:not(.primary) { width: 40px; height: 40px; padding: 0; justify-content: center; }
   .settings-bar > .settings-action:not(.primary) > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  /* Config's Secrets only: its lock alone, the label kept for assistive technology, so the bar stays on one line. */
+  .editor-bar > .secrets-only { width: 40px; height: 40px; padding: 0; position: relative; }
+  .editor-bar > .secrets-only > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   /* Fields at 16px: smaller, and Safari zooms the page into them on focus. */
   input, select, textarea, .code-editor > .code-layer, .code-editor > .code-input, .code-editor > .code-gutter { font-size: 16px; }
   /* Comfortable targets, near Apple's 44pt: every button at least 40px tall, a text button too (its hit area
@@ -2653,6 +2665,26 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 .expert-links > .button > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 .settings-action { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+/* Secrets only: off, a plain button; on, filled with the gold the secret keys take, so the state reads at a glance and
+   on a phone, where only its lock shows. Pressing it gives way at once. */
+.secrets-only { transition: background-color var(--fast) var(--ease-out), color var(--fast) var(--ease-out), transform 100ms var(--ease-out); }
+.secrets-only:active { transform: scale(0.96); }
+.secrets-only[aria-pressed="true"] {
+  color: #3b2a00; background: linear-gradient(180deg, #f7d067, #e6ae2c); border-color: transparent;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 1px 2px rgba(120, 80, 0, 0.25);
+}
+.secrets-only[aria-pressed="true"] > svg { stroke-width: 2.2; }
+/* While it holds: a gold strip at the top of the text says so, with the way out. */
+.secrets-banner {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 16px; font-size: 0.8125rem; font-weight: 500;
+  color: #f2c14e; background: linear-gradient(rgba(242, 193, 78, 0.06), rgba(242, 193, 78, 0.06)), var(--console);
+  border-bottom: 1px solid rgba(242, 193, 78, 0.22); transition: opacity var(--normal) var(--ease-out);
+}
+@starting-style { .secrets-banner { opacity: 0; } }
+.secrets-banner > svg { flex: none; width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.secrets-banner > span { flex: 1; min-width: 0; }
+.secrets-banner > button { padding: 4px 10px; font-size: 0.8125rem; color: #f3f4f7; background: rgba(255, 255, 255, 0.1); border: 0; box-shadow: none; }
+.secrets-banner > button:hover { background: rgba(255, 255, 255, 0.16); }
 .settings-action > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 /* Decorative action icons survive loading/success label changes. */
