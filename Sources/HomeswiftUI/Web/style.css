@@ -1240,6 +1240,11 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 }
 .energy .chart-table { margin-top: 12px; }
 .chart-grid.energy-days { grid-template-columns: minmax(0, 1fr); margin-top: 14px; }
+/* The history's period: Week, Month or Year on the left, the period with its arrows on the right. */
+.energy-history-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.energy-period-nav { display: flex; align-items: center; gap: 6px; }
+.energy-period { min-width: 12ch; text-align: center; font-size: 0.9375rem; font-variant-numeric: tabular-nums; }
+.energy-period-nav .menu-button svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .energy-days .chart-table { margin-top: 0; }
 .energy-days .chart-table thead th.time { text-align: left; }
 .chart-card { margin: 0; display: grid; gap: 10px; align-content: start; min-width: 0; }
@@ -1279,6 +1284,8 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .chart .bar.tone-5 { fill: var(--series-5); }
 .chart .bar.tone-6 { fill: var(--series-6); }
 .chart .bar.tone-7 { fill: var(--series-7); }
+/* A part with no source (an imported hour's home use not split): neutral, never a series colour. */
+.chart .bar.tone-8 { fill: var(--muted); opacity: 0.45; }
 .chart .bar-hover { fill: var(--material-thin); }
 .chart-legend .key.bar, .chart-tooltip .key.bar { width: 10px; height: 10px; border-radius: 3px; }
 .chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.8125rem; color: var(--muted); }
@@ -1291,6 +1298,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .key.tone-5 { background: var(--series-5); }
 .key.tone-6 { background: var(--series-6); }
 .key.tone-7 { background: var(--series-7); }
+.key.tone-8 { background: var(--muted); opacity: 0.45; }
 .chart-tooltip {
   position: absolute; top: 4px; z-index: 2; pointer-events: none; padding: 8px 10px; border-radius: 12px; min-width: 132px;
   background: var(--material-solid); border: 1px solid var(--edge); box-shadow: var(--shadow-control); font-size: 0.8125rem;

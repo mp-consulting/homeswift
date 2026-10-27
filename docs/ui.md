@@ -46,14 +46,20 @@ with a new code). More users are added on the **Users** page (see below).
   writes it again; any user reads today's digest, an administrator writes it. **Energy**, once a plugin records
   readings with an energy role (`EnergyTag`, docs/plugins.md): today's solar, home use, share of it solar covered and grid import as figures;
   the power of solar, the home, the grid (importing above zero, exporting below)
-  and the batteries (charging above zero) added up across devices, each device's battery level, and each day's energy
-  in kWh, today and the 7 days before, as stacked bars: above the line where the home's energy came from (solar as it
-  was produced, the batteries, the grid), below it where the rest went (into the batteries, out to the grid).
+  and the batteries (charging above zero) added up across devices, each device's battery level, and the energy history
+  in kWh as stacked bars, a **Week**, **Month** (a bar per day) or **Year** (a bar per month) at a time, with the
+  periods before and after (`?energy-view=month&energy-date=2026-05-01`): above the line where the home's energy came
+  from (solar as it was produced, the batteries, the grid), below it where the rest went (into the batteries, out to
+  the grid), and the period's totals under it. The history is the bridge's long-term archive (`metrics/energy-hours.json`,
+  kept for years): each hour of what it recorded, and what plugins import, such as a device cloud's solar and home use
+  since a system was set up. An hour the bridge recorded most of keeps its own figures; an imported hour has no grid or
+  battery figures, so the rest of its home use shows as **Not split**, in grey.
   Each entity keeps one colour in every chart (solar yellow, the home blue, the batteries aqua, the grid violet), from
   the charts' palette checked for colour blindness in both modes. **Show as a table** lists the points and the days (solar produced, home used, grid import and export, battery charged and
   discharged, the share of the home's use solar covered). Days are counted from each minute's average power, midnight
   to midnight in the browser's time zone. Its own range, a segmented control (24 hours, the
-  default, today, yesterday or 7 days; `?energy=7d`); `/api/metrics/energy?from=…&to=…&timeZone=…` answers it in one request, for any signed-in user.
+  default, today, yesterday or 7 days; `?energy=7d`); `/api/metrics/energy?from=…&to=…&timeZone=…` answers it in one request, and
+  `/api/metrics/energy/history?period=week|month|year&date=…&timeZone=…` the history, for any signed-in user.
 
   ![The Energy section: power and battery charts over a day, and each day's energy](images/status/energy.png)
 

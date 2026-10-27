@@ -2183,8 +2183,6 @@ HomeswiftI18n.add("pt", {
   "Battery discharged": "Bateria descarregada",
   "Home from solar": "Casa coberta pelo solar",
   "Day": "Dia",
-  "A minute with nothing recorded counts as none.": "Um minuto sem registos conta como zero.",
-  "Where the home's energy came from, above the line, and where the rest went, below it: today and the 7 days before": "De onde veio a energia da casa, acima da linha, e para onde foi o resto, abaixo: hoje e os 7 dias anteriores",
   "Home from batteries": "Casa a partir das baterias",
   "Home from the grid": "Casa a partir da rede",
   "Other sources": "Outras fontes",
@@ -2205,5 +2203,17 @@ HomeswiftI18n.add("pt", {
   "Until now": "Até agora",
   "Since {time}": "Desde {time}",
   "Pick the first day, then the last.": "Escolha o primeiro dia e depois o último.",
-  "The start must be before the end.": "O início tem de ser anterior ao fim."
+  "The start must be before the end.": "O início tem de ser anterior ao fim.",
+  "Where the home's energy came from, above the line, and where the rest went, below it": "De onde veio a energia da casa, acima da linha, e para onde foi o resto, abaixo",
+  "Week": "Semana",
+  "Month": "Mês",
+  "Year": "Ano",
+  "Period": "Período",
+  "Previous period": "Período anterior",
+  "Next period": "Período seguinte",
+  "Home, not split by source": "Casa, sem divisão por fonte",
+  "Not split": "Sem divisão",
+  "Energy by month": "Energia por mês",
+  "Nothing recorded in this period": "Nada registado neste período",
+  "Imported hours have no grid or battery figures: the rest of their home use is not split by source.": "As horas importadas não têm valores de rede nem de bateria: o resto do seu consumo não é dividido por fonte."
 });

@@ -128,7 +128,11 @@ pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their byt
   the Status page's Energy section, whatever the plugin: its `EnergyRole` (`.solar` and `.home` in watts, `.grid`
   positive while importing, `.battery` positive while charging, `.batteryLevel` in percent) and the device's name.
   A figure several devices report alike (a system's home use, reported by each of its units) takes the same
-  `shared` name on each, so it counts once instead of adding up. `Metrics.energy(from:to:)` gives the same figures
+  `shared` name on each, so it counts once instead of adding up. `context.importEnergy(_:)` hands
+  the long-term archive (the Status page's month and year views) a history the bridge did not record, such as a cloud's
+  hours before the bridge ran: `EnergyHourImport`s of watt-hours (`EnergyFlows`, nil for what the history lacks). Each
+  import replaces what the plugin imported for those hours; an hour the bridge recorded itself keeps its own figures.
+  `Metrics.energy(from:to:)` and `Metrics.archive.periods(_:from:to:timeZone:)` give the same figures
   (charted power, levels, each day's kWh) to other code, such as the Assistant.
   ```swift
   context.recordValue(watts, series: "\(id):solar", energy: EnergyTag(role: .solar, device: name))

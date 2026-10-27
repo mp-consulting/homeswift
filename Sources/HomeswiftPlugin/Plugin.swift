@@ -280,6 +280,7 @@ public final class PluginContext: @unchecked Sendable {
     private let assistantBox: NIOLockedValueBox<AssistantService?>
     private let assistantBackground: String?
     private let recordSink: @Sendable (String, Double, EnergyTag?) -> Void
+    private let energyImportSink: @Sendable ([EnergyHourImport]) -> Void
 
     /// Records a reading for the Status page's history: a minute keeps the count, sum, lowest and highest of each
     /// series. The series is `plugin:<platform>:<series>`, so two plugins cannot collide. Cheap; call it per reading.
@@ -287,6 +288,13 @@ public final class PluginContext: @unchecked Sendable {
     /// level, in watts or percent, with the signs `EnergyRole` gives) and the device's name.
     public func recordValue(_ value: Double, series: String, energy: EnergyTag? = nil) {
         recordSink("plugin:\(platform):\(series)", value, energy)
+    }
+
+    /// Hands the long-term energy history (the Status page's month and year views) hours the bridge did not record: a
+    /// cloud's record of the days before it ran. Each hour replaces what this plugin imported for it before; an hour
+    /// the bridge recorded itself keeps its own figures. Watt-hours; leave out (nil) what the history does not have.
+    public func importEnergy(_ hours: [EnergyHourImport]) {
+        energyImportSink(hours)
     }
     // Mutable state is behind the lock; the class is otherwise immutable.
     private let list = NIOLockedValueBox<Entries>(Entries())
@@ -321,9 +329,11 @@ public final class PluginContext: @unchecked Sendable {
     init(
         platform: String, name: String, key: String, logger: Logger, bridge: PluginHost.Bridge, cache: AccessoryCache, storageURL: URL,
         assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories, assistantBackground: String? = nil,
-        recordSink: @escaping @Sendable (String, Double, EnergyTag?) -> Void = { _, _, _ in }
+        recordSink: @escaping @Sendable (String, Double, EnergyTag?) -> Void = { _, _, _ in },
+        energyImportSink: @escaping @Sendable ([EnergyHourImport]) -> Void = { _ in }
     ) {
         self.recordSink = recordSink
+        self.energyImportSink = energyImportSink
         self.assistantBackground = assistantBackground
         self.platform = platform
         self.name = name

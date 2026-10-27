@@ -586,6 +586,43 @@ struct MetricsAPITests {
         #expect(try await browser.get("/api/metrics/energy?from=2030-01-01T00:00:00Z&to=2029-01-01T00:00:00Z").status == 400)
     }
 
+    /// The long-term history: days or months of the archive, null where an import knows nothing.
+    @Test func servesTheEnergyHistory() async throws {
+        let metrics = Metrics(directory: nil)
+        let environment = try UITestEnvironment(auth: .none, metrics: metrics)
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        // 3 and 4 March 2026, 10:00 UTC: an imported hour each.
+        let march3 = Date(timeIntervalSince1970: 1_772_532_000)
+        metrics.archive.importHours([EnergyHourImport(start: march3, flows: EnergyFlows(solar: 1500, home: 1000)),
+                                     EnergyHourImport(start: march3.addingTimeInterval(86_400), flows: EnergyFlows(solar: 0, home: 2000))], source: "Test")
+        let browser = Browser(base: base)
+
+        let month = try #require(try await browser.get("/api/metrics/energy/history?period=month&date=2026-03-15&timeZone=UTC").json)
+        let bars = try #require(month["bars"]?.arrayValue)
+        #expect(bars.count == 31)
+        #expect(month["earliest"]?.stringValue == "2026-03-03")
+        let third = bars[2]
+        #expect(third["date"]?.stringValue == "2026-03-03")
+        #expect(third["solar"]?.doubleValue == 1.5)
+        #expect(third["homeFromSolar"]?.doubleValue == 1)
+        #expect(third["solarShare"]?.doubleValue == 1)
+        #expect(third["gridImport"] == .null)
+        #expect(bars[3]["homeNotSplit"]?.doubleValue == 2)
+        #expect(bars[3]["importedHours"]?.doubleValue == 1)
+        #expect(bars[0]["home"] == .null)
+
+        let year = try #require(try await browser.get("/api/metrics/energy/history?period=year&date=2026-03-15&timeZone=UTC").json)
+        #expect(year["bars"]?.arrayValue?.count == 12)
+        #expect(year["bars"]?.arrayValue?[2]["date"]?.stringValue == "2026-03")
+        #expect(year["bars"]?.arrayValue?[2]["home"]?.doubleValue == 3)
+        let week = try #require(try await browser.get("/api/metrics/energy/history?period=week&date=2026-03-04&timeZone=UTC").json)
+        #expect(week["bars"]?.arrayValue?.map { $0["date"]?.stringValue ?? "" }.last == "2026-03-04")
+        #expect(week["bars"]?.arrayValue?.count == 8)
+        #expect(try await browser.get("/api/metrics/energy/history?period=decade").status == 400)
+        #expect(try await browser.get("/api/metrics/energy/history?period=month&date=2026-13-01").status == 400)
+    }
+
     @Test func answersNotFoundWithoutARecorder() async throws {
         let environment = try UITestEnvironment(auth: .none)
         let base = try await environment.start()

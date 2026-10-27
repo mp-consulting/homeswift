@@ -308,6 +308,9 @@
             : `M${left},${top}V${bottom - r}Q${left},${bottom} ${left + r},${bottom}H${left + barWidth - r}Q${left + barWidth},${bottom} ${left + barWidth},${bottom - r}V${top}Z`;
           root.append(svg("path", { d, class: `bar tone-${part.one.tone}` }));
         }
+        // Bars too narrow for every label (a month's days on a phone) label one in `every`, the last always.
+        const every = slot < 24 ? Math.ceil(24 / slot) : 1;
+        if (index % every !== 0 && index !== bars.length - 1) return;
         const label = svg("text", { x: x(index), y: height - 6, class: "tick", "text-anchor": "middle" });
         label.textContent = slot < 64 && bar.narrow ? bar.narrow : bar.label;
         root.append(label);
