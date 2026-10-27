@@ -186,7 +186,9 @@ with a new code). More users are added on the **Users** page (see below).
   own page and **Pause** write without the check.
 - **Config**: the whole file in an editor. Saving validates it, checks each plugin block's changes against
   its schema as the Expert view does, keeps a backup under `backups/`, sorts the keys, and applies it. A
-  syntax error's line is marked as you type.
+  syntax error's line is marked as you type. A block that spans lines folds from the chevron beside its first line
+  (Option-click folds or opens every block at that indentation; ⌘⌥[ and ⌘⌥] at the caret), and a click on its ⋯
+  opens it; what is saved, copied or formatted is always the whole text. A plugin's JSON block folds the same way.
 - **Settings**, for administrators, after the Homebridge UI's settings, child bridges, config backups and
   restart pages:
   - **Bridge** (`/settings/bridge`, where `/settings` opens): config.json's `bridge` block as a form (name, port, setup code, manufacturer, model, firmware;
