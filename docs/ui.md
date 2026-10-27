@@ -42,8 +42,20 @@ with a new code). More users are added on the **Users** page (see below).
   `/status?since=24h&bridge=<bridge>&accessory=<accessory>`. With the Assistant on, a **Daily digest** says
   what needs attention today, from the day's warnings and errors and the accessories: **Write today's
   digest** streams it, the bridge keeps it for the day (`ai-digest.json`, owner-only), and the card's **⋯**
-  writes it again; any user reads today's digest, an administrator writes it. **Customise this page**, at the bottom, opens the same pop-up menu as accessory actions, with switches to show or hide each part (overview, digest,
-  activity, bridges, system) and drag handles on the left to reorder them. Changes apply immediately without a page reload; the layout is each user's own, on every browser.
+  writes it again; any user reads today's digest, an administrator writes it. **Energy**, once a plugin records
+  readings with an energy role (`EnergyTag`, docs/plugins.md): the power of solar, the home, the grid (importing above zero, exporting below)
+  and the batteries (charging above zero) added up across devices, each device's battery level, and each day's energy
+  in kWh, today and the 7 days before, as stacked bars: above the line where the home's energy came from (solar as it
+  was produced, the batteries, the grid), below it where the rest went (into the batteries, out to the grid).
+  **Show as a table** lists the days (solar produced, home used, grid import and export, battery charged and
+  discharged, the share of the home's use solar covered). Days are counted from each minute's average power, midnight
+  to midnight in the browser's time zone. Its own range (`?energy=7d`, the last 24 hours by
+  default); `/api/metrics/energy?from=…&to=…&timeZone=…` answers it in one request, for any signed-in user.
+
+  ![The Energy section: power and battery charts over a day, and each day's energy](images/status/energy.png)
+
+  **Customise this page**, at the bottom, opens the same pop-up menu as accessory actions, with switches to show or hide each part (overview, digest,
+  activity, energy, bridges, system) and drag handles on the left to reorder them. Changes apply immediately without a page reload; the layout is each user's own, on every browser.
   When GitHub has a newer release, a card under the summary says
   so, with its notes and how to upgrade this install: the `.spk` to download on a Synology NAS, the image tag
   to pull in Docker, `brew upgrade` or the tag to check out. The bridge asks GitHub's API a minute after it

@@ -14,7 +14,8 @@ import Darwin
 /// for each series, how many calls there were, their total and the longest. A series is `all` (every
 /// server), `bridge:<device ID>` (one server) or `accessory:<id>` (one accessory). Closed minutes go to a file
 /// per day under `directory` (`metrics-20261023.jsonl`, the day in UTC, a JSON object per line, owner-only),
-/// which is read back at start; minutes and files older than `days` go.
+/// which is read back at start; minutes and files older than `days` go. The roles plugins give their readings for
+/// the Energy section (`EnergyTag`) are kept in `energy-tags.json` beside them.
 public final class Metrics: @unchecked Sendable {
     /// The calls of one series in a span: how many, their total and the longest, in milliseconds.
     public struct Durations: Sendable, Equatable {
@@ -132,11 +133,14 @@ public final class Metrics: @unchecked Sendable {
         var latest: (memory: UInt64?, cpu: Double?) = (nil, nil)
         var observation: Observation?
         var sampler: Task<Void, Never>?
+        /// The Energy section's series, by series name.
+        var tags: [String: EnergyTag] = [:]
     }
 
     private let state = NIOLockedValueBox(State())
     private let queue = DispatchQueue(label: "homeswift.metrics")
-    private let now: @Sendable () -> Date
+    let now: @Sendable () -> Date
+    static let tagsName = "energy-tags.json"
 
     /// `directory` nil keeps the history in memory only. `now` is for tests.
     public init(directory: URL?, days: Int = 8, interval: Duration = .seconds(10), now: @escaping @Sendable () -> Date = { Date() }) {
@@ -145,13 +149,22 @@ public final class Metrics: @unchecked Sendable {
         self.interval = interval
         self.now = now
         let loaded = directory.map { Self.load(from: $0, since: now().addingTimeInterval(-Double(days) * 86_400)) } ?? []
-        state.withLockedValue { $0.minutes = loaded }
+        // Tags of series with nothing left in the history go with it.
+        let recorded = Set(loaded.flatMap(\.values.keys))
+        let tags = directory.map { Self.loadTags(from: $0) }?.filter { recorded.contains($0.key) } ?? [:]
+        state.withLockedValue {
+            $0.minutes = loaded
+            $0.tags = tags
+        }
     }
 
     /// Follows the host's servers and samples the process until `stop()`.
     public func start(following host: PluginHost) {
         let timings = host.observeTimings { [weak self] bridge, timing in self?.record(timing, server: bridge.server.deviceID) }
-        let readings = host.observeValues { [weak self] series, value in self?.record(value, series: series) }
+        let readings = host.observeReadings { [weak self] series, value, tag in
+            self?.record(value, series: series)
+            if let tag { self?.tag(series, tag) }
+        }
         let observation = Observation { timings.cancel(); readings.cancel() }
         let interval = interval
         // The first sample before returning, so the Status page has memory and CPU from the start.
@@ -236,6 +249,41 @@ public final class Metrics: @unchecked Sendable {
             return closed
         }
         if let closed { persist(closed) }
+    }
+
+    /// Gives `series` a role in the Energy section; kept on disk when it changes.
+    public func tag(_ series: String, _ tag: EnergyTag) {
+        let tags = state.withLockedValue { state -> [String: EnergyTag]? in
+            guard state.tags[series] != tag else { return nil }
+            state.tags[series] = tag
+            return state.tags
+        }
+        guard let tags, let directory else { return }
+        queue.async {
+            guard let data = try? JSONEncoder().encode(tags) else { return }
+            try? OwnerOnlyFile.write(data, to: directory.appendingPathComponent(Self.tagsName))
+        }
+    }
+
+    /// The Energy section's series and their roles, by series name.
+    public var energyTags: [String: EnergyTag] { state.withLockedValue { $0.tags } }
+
+    static func loadTags(from directory: URL) -> [String: EnergyTag] {
+        guard let data = try? Data(contentsOf: directory.appendingPathComponent(tagsName)) else { return [:] }
+        return (try? JSONDecoder().decode([String: EnergyTag].self, from: data)) ?? [:]
+    }
+
+    /// The readings of `series` in each minute from `from` to `to`, oldest first, the minute under way last
+    /// (`current`). Minutes with none of them are left out.
+    func valueMinutes(from: Date, to: Date, series: Set<String>) -> [(start: Date, values: [String: Values], current: Bool)] {
+        state.withLockedValue { state in
+            var minutes = state.minutes.filter { $0.start >= from && $0.start <= to }.map { ($0, false) }
+            if let current = state.current, current.start >= from, current.start <= to { minutes.append((current, true)) }
+            return minutes.compactMap { minute, current in
+                let values = minute.values.filter { series.contains($0.key) }
+                return values.isEmpty ? nil : (minute.start, values, current)
+            }
+        }
     }
 
     /// Adds a closed minute, as if recorded; for tests.

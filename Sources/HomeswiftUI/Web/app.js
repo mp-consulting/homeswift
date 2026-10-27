@@ -502,6 +502,7 @@
       quick: () => window.HomeswiftHome?.quickSection(accessories),
       digest: () => status.assistant ? digestWidget() : null,
       activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
+      energy: () => energy(),
       bridges: () => [el("h2", { text: status.bridges.length === 1 ? t("Bridge") : t("Bridges and accessories") }),
       el("div", { class: "servers" }, ...bridges)],
       system: () => [el("h2", { text: t("System") }),
@@ -587,7 +588,7 @@
   // Each user's own, kept on the server with their other preferences (/api/preferences, `dashboard`).
 
   const dashboardWidgets = [["overview", t("Overview"), t("Health, accessories, plugins, uptime")], ["quick", t("Quick controls"), t("Favourite accessories and scenes")], ["digest", t("Daily digest"), t("The Assistant's summary of the day")],
-    ["activity", t("Activity"), t("Memory, CPU and response times")], ["bridges", t("Bridges"), t("Pairing codes and what each bridge runs")], ["system", t("System"), t("The machine, and Restart")]];
+    ["activity", t("Activity"), t("Memory, CPU and response times")], ["energy", t("Energy"), t("Solar, home, grid and batteries")], ["bridges", t("Bridges"), t("Pairing codes and what each bridge runs")], ["system", t("System"), t("The machine, and Restart")]];
 
   /// The widgets in the user's order (new ones last), and those hidden.
   function dashboardLayout() {
@@ -760,7 +761,8 @@
     let refresh = null;
 
     function keepAddress() {
-      const query = new URLSearchParams();
+      // The Energy section's choices stay in the address.
+      const query = new URLSearchParams([...new URLSearchParams(location.search)].filter(([key]) => key.startsWith("energy")));
       range.address(query);
       const { kind, value } = sources.source();
       if (kind === "bridge") query.set("bridge", bridges.find((bridge) => bridge.deviceId === value)?.slug ?? value);
@@ -839,6 +841,176 @@
 
     load();
     return section;
+  }
+
+  /// The Status page's Energy section, from the readings plugins record with a role (`EnergyTag`): the power of solar,
+  /// the home, the grid (importing above zero) and the batteries (charging above zero), added up across devices; each
+  /// battery's level; and each day's energy in kWh. Hidden until some plugin records such readings. Its own range
+  /// (`energy` in the address, the last 24 hours by default); a range that ends now refreshes every minute.
+  function energy() {
+    const params = new URLSearchParams(location.search);
+    const range = rangeFilter(params, { key: "energy", fallback: "24h", changed: () => load() });
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const roles = [
+      { id: "solar", label: t("Solar"), tone: 5 },
+      { id: "home", label: t("Home [use]"), tone: 1 },
+      { id: "grid", label: t("Grid"), tone: 4 },
+      { id: "battery", label: t("Battery"), tone: 3 },
+    ];
+    const levelTones = [3, 1, 5, 4, 6, 2];
+    const card = (title, note) => {
+      const figure = el("b", { class: "chart-figure" });
+      const detail = el("div", { class: "muted chart-detail" });
+      const body = el("div", { class: "chart-body" });
+      const node = el("div", { class: "card chart-card" },
+        el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: title }), el("div", { class: "muted", text: note })), figure),
+        body, detail);
+      return { title, node, figure, detail, body, view: null, key: "" };
+    };
+    const power = card(t("Power [watts]"), t("Added up across devices: the grid above zero is imported, the battery above zero is charging"));
+    const levels = card(t("Battery level"), t("Each device's charge"));
+    const days = card(t("Energy by day"), t("Where the home's energy came from, above the line, and where the rest went, below it: today and the 7 days before"));
+    // Folded until asked for; it stays open across refreshes.
+    const dayTable = el("details", { class: "more chart-table" }, el("summary", { text: t("Show as a table") }));
+    const section = el("section", { class: "activity energy", hidden: true },
+      el("h2", { text: t("Energy") }),
+      el("div", { class: "filter-bar" }, range.picker, HomeswiftCommon.clearFilters([[range.picker, "24h"]]), range.customRow),
+      el("div", { class: "chart-grid" }, power.node, levels.node),
+      el("div", { class: "chart-grid energy-days" }, days.node));
+    let refresh = null;
+
+    function keepAddress() {
+      const query = new URLSearchParams([...new URLSearchParams(location.search)].filter(([key]) => !key.startsWith("energy")));
+      range.address(query);
+      const path = `${location.pathname}${query.size ? `?${query}` : ""}`;
+      if (path !== location.pathname + location.search) history.replaceState(null, "", path);
+    }
+    /// A chart drawn again with new points, made anew when its lines change (a device or a role appears).
+    function draw(chart, series, points, from, to, step, format) {
+      const key = series.map((one) => one.label).join("\n");
+      if (chart.view && chart.key === key) { chart.view.update(points, from, to, step); return; }
+      chart.body.replaceChildren();
+      chart.key = key;
+      chart.view = HomeswiftChart.lineChart(chart.body, { title: chart.title, series, format, unit: (max) => max >= 1000 ? 1000 : 1, points, from, to, step });
+    }
+    async function load() {
+      clearTimeout(refresh);
+      keepAddress();
+      const [from, end] = range.span() ?? [new Date(Date.now() - 86400000), null];
+      const to = end ?? new Date();
+      section.classList.add("loading");
+      let report;
+      try {
+        report = await api(`/api/metrics/energy?${new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), timeZone })}`);
+      } catch (e) {
+        if (e.status === 404) { section.remove(); return; }
+        power.detail.textContent = e.message;
+        section.classList.remove("loading");
+        return;
+      }
+      section.classList.remove("loading");
+      // No plugin records energy: the section stays hidden, and looks again with the next refresh.
+      section.hidden = !report.roles.length;
+      const step = report.step * 1000;
+      const shown = roles.filter((role) => report.roles.includes(role.id));
+      power.node.hidden = !shown.length;
+      if (shown.length) {
+        const points = report.power.map((point) => ({ ...point, time: point.t * 1000 }));
+        draw(power, shown.map((role) => ({ label: role.label, tone: role.tone, value: (point) => point[role.id] ?? null })), points, from.getTime(), to.getTime(), step, formatWatts);
+        const last = points.at(-1);
+        power.detail.textContent = last ? t("Latest: {values}", { values: shown.filter((role) => last[role.id] != null).map((role) => `${role.label} ${formatWatts(last[role.id])}`).join(" · ") }) : "";
+      }
+      levels.node.hidden = !report.levels.length;
+      if (report.levels.length) {
+        const byTime = new Map();
+        for (const level of report.levels) {
+          for (const [time, percent] of level.points) {
+            const point = byTime.get(time) ?? { time: time * 1000 };
+            point[level.series] = percent;
+            byTime.set(time, point);
+          }
+        }
+        const points = [...byTime.values()].sort((a, b) => a.time - b.time);
+        draw(levels, report.levels.map((level, index) => ({ label: level.device, tone: levelTones[index % levelTones.length], value: (point) => point[level.series] ?? null })),
+          points, from.getTime(), to.getTime(), step, formatPercent);
+        levels.detail.textContent = report.levels.filter((level) => level.points.length).map((level) => `${level.device} ${formatPercent(level.points.at(-1)[1])}`).join(" · ");
+      }
+      fillDays(report.days, report.roles);
+      if (!end) refresh = setTimeout(() => { if (section.isConnected && !document.hidden) load(); }, 60000);
+    }
+
+    /// Each day's energy as a bar, today last: above zero where the home's energy came from (solar as it was
+    /// produced, the batteries, the grid), below zero where the rest went (into the batteries, out to the grid); only
+    /// what some series records. The same figures as a table, folded until asked for, with solar produced and the
+    /// share of the home's use solar covered.
+    function fillDays(list, present) {
+      const has = (role) => present.includes(role);
+      const rest = (day) => Math.max(0, day.home - (has("solar") ? day.homeFromSolar : 0) - (has("grid") ? day.gridImport : 0));
+      const segments = [
+        has("home") && has("solar") ? { label: t("Home from solar"), tone: 5, value: (day) => day.homeFromSolar } : null,
+        has("home") && has("battery") ? { label: t("Home from batteries"), tone: 3, value: rest } : null,
+        has("home") && has("grid") ? { label: t("Home from the grid"), tone: 4, value: (day) => day.gridImport } : null,
+        has("home") && !has("battery") ? { label: has("solar") || has("grid") ? t("Other sources") : t("Home used"), tone: 1, value: rest } : null,
+        !has("home") && has("solar") ? { label: t("Solar produced"), tone: 5, value: (day) => day.solar } : null,
+        has("battery") ? { label: t("Into batteries"), tone: 1, value: (day) => -day.batteryCharge } : null,
+        has("grid") ? { label: t("Exported to the grid"), tone: 2, value: (day) => -day.gridExport } : null,
+      ].filter(Boolean);
+      const name = (date, index, format) => {
+        if (index === 0) return t("Today");
+        if (index === 1 && format === dayFormat) return t("Yesterday");
+        const [year, month, day] = date.split("-").map(Number);
+        return format.format(new Date(year, month - 1, day));
+      };
+      const bars = list.map((day, index) => ({ label: name(day.date, index, shortDay), narrow: String(Number(day.date.slice(8))), title: name(day.date, index, dayFormat), values: day.minutes ? day : null })).reverse();
+      const key = segments.map((one) => one.label).join("\n");
+      if (days.view && days.key === key) days.view.update(bars);
+      else {
+        days.body.replaceChildren();
+        days.key = key;
+        days.view = HomeswiftChart.stackedBars(days.body, { title: days.title, segments: segments.map((one) => ({ ...one, value: (values) => values ? one.value(values) : 0 })), bars, format: formatKWh, unit: () => 1 });
+        days.body.append(dayTable);
+      }
+      const today = list[0];
+      days.figure.textContent = today?.minutes && has("solar") ? formatKWh(today.solar) : "";
+      days.figure.title = today?.minutes && has("solar") ? t("Solar produced today") : "";
+      days.detail.textContent = t("A minute with nothing recorded counts as none.");
+
+      const columns = [
+        has("solar") ? [t("Solar produced"), (day) => day.solar, formatKWh] : null,
+        has("home") ? [t("Home used"), (day) => day.home, formatKWh] : null,
+        has("grid") ? [t("Grid import"), (day) => day.gridImport, formatKWh] : null,
+        has("grid") ? [t("Grid export"), (day) => day.gridExport, formatKWh] : null,
+        has("battery") ? [t("Battery charged"), (day) => day.batteryCharge, formatKWh] : null,
+        has("battery") ? [t("Battery discharged"), (day) => day.batteryDischarge, formatKWh] : null,
+        has("solar") && has("home") ? [t("Home from solar"), (day) => day.solarShare, (share) => formatPercent(share * 100)] : null,
+      ].filter(Boolean);
+      dayTable.replaceChildren(dayTable.firstChild, el("div", { class: "table-scroll" }, el("table", {},
+        el("thead", {}, el("tr", {}, el("th", { scope: "col", class: "time", text: t("Day") }), columns.map(([title]) => el("th", { scope: "col", text: title })))),
+        el("tbody", {}, list.map((day, index) => el("tr", {},
+          el("th", { scope: "row", class: "time", text: name(day.date, index, dayFormat) }),
+          columns.map(([, value, format]) => {
+            const one = day.minutes ? value(day) : null;
+            return el("td", { class: one == null ? "empty" : "", text: one == null ? "–" : format(one) });
+          })))))));
+    }
+
+    load();
+    return section;
+  }
+  const dayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", month: "short" });
+  const shortDay = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
+
+  /// Watts, as kW from 1 kW (or when `top`, the axis's highest, is); a minus sign below zero.
+  function formatWatts(watts, top = Math.abs(watts)) {
+    const kilo = Math.max(Math.abs(watts), top) >= 1000;
+    const value = kilo ? watts / 1000 : watts;
+    const digits = kilo && Math.abs(value) < 10 ? (Number.isInteger(value) ? 0 : 1) : 0;
+    return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${kilo ? "kW" : "W"}`;
+  }
+  /// Kilowatt-hours, two decimals under 10; an axis's tick (with `top`) a whole number when it is one.
+  function formatKWh(kWh, top) {
+    const digits = top != null && Number.isInteger(kWh) ? 0 : Math.abs(kWh) < 10 ? 2 : 1;
+    return `${kWh.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
   }
 
   /// Bytes as MB, or GB from 1 GB; `top`, the axis's highest, keeps a chart's ticks in one unit.
@@ -3041,15 +3213,18 @@
     ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("Last 7 days")], ["custom", t("Custom range…")]];
 
   /// A time range menu whose first choice is the default (`latest`, the Logs page's latest lines, only when asked
-  /// for), with the From and To of a custom range in `customRow`. `changed` runs on a choice.
-  function rangeFilter(params, { latest = false, changed }) {
+  /// for) unless `fallback` names another, with the From and To of a custom range in `customRow`. `changed` runs on a
+  /// choice. The address keeps it as `since`, `from` and `to`, or `<key>`, `<key>-from` and `<key>-to` with a `key`
+  /// (a second range on a page).
+  function rangeFilter(params, { latest = false, changed, key = null, fallback: wanted = null }) {
     const choices = rangeChoices.filter(([value]) => latest || value !== "latest");
-    const fallback = choices[0][0];
-    const since = choices.some(([value]) => value === params.get("since")) ? params.get("since") : fallback;
+    const fallback = wanted ?? choices[0][0];
+    const names = key ? { since: key, from: `${key}-from`, to: `${key}-to` } : { since: "since", from: "from", to: "to" };
+    const since = choices.some(([value]) => value === params.get(names.since)) ? params.get(names.since) : fallback;
     const picker = el("select", { class: `popup ${since === fallback ? "" : "chosen"}`, "aria-label": t("Time range") }, choices.map(([value, text]) => el("option", { value, text, selected: value === since })));
     const localInput = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    const fromInput = el("input", { type: "datetime-local", "aria-label": t("From"), value: params.get("from") ?? localInput(new Date(Date.now() - 3600000)) });
-    const toInput = el("input", { type: "datetime-local", "aria-label": t("To"), value: params.get("to") ?? localInput(new Date()) });
+    const fromInput = el("input", { type: "datetime-local", "aria-label": t("From"), value: params.get(names.from) ?? localInput(new Date(Date.now() - 3600000)) });
+    const toInput = el("input", { type: "datetime-local", "aria-label": t("To"), value: params.get(names.to) ?? localInput(new Date()) });
     const customRow = el("div", { class: `log-range ${since === "custom" ? "" : "hidden"}` },
       el("label", {}, t("From"), fromInput), el("label", {}, t("To"), toInput),
       el("button", { actionIcon: "eye", text: t("Show"), onclick: () => changed() }));
@@ -3080,8 +3255,8 @@
       },
       /// Adds the choice to a page's address: `since`, and `from` and `to` for a custom range.
       address(query) {
-        if (picker.value !== fallback) query.set("since", picker.value);
-        if (picker.value === "custom") { query.set("from", fromInput.value); if (toInput.value) query.set("to", toInput.value); }
+        if (picker.value !== fallback) query.set(names.since, picker.value);
+        if (picker.value === "custom") { query.set(names.from, fromInput.value); if (toInput.value) query.set(names.to, toInput.value); }
       },
     };
   }

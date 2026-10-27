@@ -23,6 +23,8 @@
   --accent-ink: #b0460a; --accent-fill-top: #c4500c; --accent-fill: #ab3f0a;
   /* Chart series, slots 1 and 2 of a palette checked for colour-blind separation and contrast, each mode its own step. */
   --series-1: #2a78d6; --series-2: #eb6834;
+  /* Slots 3 to 6 for the Energy section's roles and its battery lines: green, violet, amber, teal. */
+  --series-3: #2a9a58; --series-4: #8a5cd6; --series-5: #c98f00; --series-6: #18958b;
   /* Blue that carries small text (the Encrypted pill) at 4.5:1 on its tint; --series-1 stays for marks and bars. */
   --series-1-ink: #1d5fae;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -45,6 +47,7 @@
     --text: #f3f4f7; --muted: #a2a9b5; --line: rgba(255, 255, 255, 0.1);
     --warn: #e9a04a; --paused: #8e8cff; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #ff8f3d;
     --series-1: #3987e5; --series-2: #d95926; --series-1-ink: #6aa6ee;
+    --series-3: #3fb46c; --series-4: #a27fea; --series-5: #e3ae2a; --series-6: #34b5a9;
   }
 }
 /* A theme chosen in the web UI (/appearance) rather than the system's: common.js sets data-theme. */
@@ -64,6 +67,7 @@
   --text: #f3f4f7; --muted: #a2a9b5; --line: rgba(255, 255, 255, 0.1);
   --warn: #e9a04a; --paused: #8e8cff; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #ff8f3d;
   --series-1: #3987e5; --series-2: #d95926; --series-1-ink: #6aa6ee;
+  --series-3: #3fb46c; --series-4: #a27fea; --series-5: #e3ae2a; --series-6: #34b5a9;
 }
 * { box-sizing: border-box; }
 /* Hidden means hidden, whatever display a component's class gives it. */
@@ -1157,6 +1161,10 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .filter-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }
 .filter-bar .popup { max-width: 260px; }
 .chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 14px; transition: opacity var(--normal) var(--ease-out); }
+/* The Energy section's days: one card the width of the row, its table under the head. */
+.chart-grid.energy-days { grid-template-columns: minmax(0, 1fr); margin-top: 14px; }
+.energy-days .chart-table { margin-top: 0; }
+.energy-days .chart-table thead th.time { text-align: left; }
 .chart-card { margin: 0; display: grid; gap: 10px; align-content: start; min-width: 0; }
 .chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .chart-head .muted { font-size: 0.8125rem; }
@@ -1172,15 +1180,36 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .chart .area { stroke: none; opacity: 0.1; }
 .chart .dot { stroke: var(--material-solid); stroke-width: 2; }
 .chart .crosshair { stroke: var(--muted); stroke-width: 1; opacity: 0.6; }
+.chart .grid.zero { stroke: var(--muted); opacity: 0.5; }
 .chart .line.tone-1 { stroke: var(--series-1); }
 .chart .line.tone-2 { stroke: var(--series-2); }
+.chart .line.tone-3 { stroke: var(--series-3); }
+.chart .line.tone-4 { stroke: var(--series-4); }
+.chart .line.tone-5 { stroke: var(--series-5); }
+.chart .line.tone-6 { stroke: var(--series-6); }
 .chart .area.tone-1, .chart .dot.tone-1 { fill: var(--series-1); }
 .chart .area.tone-2, .chart .dot.tone-2 { fill: var(--series-2); }
-.chart-legend { display: flex; gap: 14px; font-size: 0.8125rem; color: var(--muted); }
-.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.chart .area.tone-3, .chart .dot.tone-3 { fill: var(--series-3); }
+.chart .area.tone-4, .chart .dot.tone-4 { fill: var(--series-4); }
+.chart .area.tone-5, .chart .dot.tone-5 { fill: var(--series-5); }
+.chart .area.tone-6, .chart .dot.tone-6 { fill: var(--series-6); }
+.chart .bar.tone-1 { fill: var(--series-1); }
+.chart .bar.tone-2 { fill: var(--series-2); }
+.chart .bar.tone-3 { fill: var(--series-3); }
+.chart .bar.tone-4 { fill: var(--series-4); }
+.chart .bar.tone-5 { fill: var(--series-5); }
+.chart .bar.tone-6 { fill: var(--series-6); }
+.chart .bar-hover { fill: var(--material-thin); }
+.chart-legend .key.bar, .chart-tooltip .key.bar { width: 10px; height: 10px; border-radius: 3px; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.8125rem; color: var(--muted); }
+.chart-legend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .chart-legend .key, .chart-tooltip .key { display: inline-block; width: 12px; height: 2px; border-radius: 1px; }
 .key.tone-1 { background: var(--series-1); }
 .key.tone-2 { background: var(--series-2); }
+.key.tone-3 { background: var(--series-3); }
+.key.tone-4 { background: var(--series-4); }
+.key.tone-5 { background: var(--series-5); }
+.key.tone-6 { background: var(--series-6); }
 .chart-tooltip {
   position: absolute; top: 4px; z-index: 2; pointer-events: none; padding: 8px 10px; border-radius: 12px; min-width: 132px;
   background: var(--material-solid); border: 1px solid var(--edge); box-shadow: var(--shadow-control); font-size: 0.8125rem;

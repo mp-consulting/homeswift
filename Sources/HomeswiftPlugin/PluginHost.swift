@@ -337,6 +337,11 @@ public final class PluginHost: @unchecked Sendable {
     /// Calls `observer` with each reading a plugin records (`series` is `plugin:<platform>:<series>`), until the
     /// observation is cancelled. The metrics store follows these to keep the Status page's history.
     public func observeValues(_ observer: @escaping @Sendable (String, Double) -> Void) -> Observation {
+        values.add { series, value, _ in observer(series, value) }
+    }
+
+    /// `observeValues` with the reading's role in the Energy section, when the plugin gave it one.
+    public func observeReadings(_ observer: @escaping @Sendable (String, Double, EnergyTag?) -> Void) -> Observation {
         values.add(observer)
     }
 
@@ -545,7 +550,7 @@ public final class PluginHost: @unchecked Sendable {
             cache: AccessoryCache(url: storageDirectory.appendingPathComponent("accessories").appendingPathComponent("\(key).json")),
             storageURL: storageDirectory.appendingPathComponent("plugins").appendingPathComponent(key),
             assistant: assistant, externals: externals, assistantBackground: assistantBackground,
-            recordSink: { series, value in values.publish(series, value) })
+            recordSink: { series, value, tag in values.publish(series, value, tag) })
     }
 
     func launch(_ instance: Instance, as verb: String = "Started") async {

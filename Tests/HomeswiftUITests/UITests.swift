@@ -546,6 +546,46 @@ struct MetricsAPITests {
         #expect(try await browser.get("/api/metrics?from=2030-01-01T00:00:00Z&to=2029-01-01T00:00:00Z").status == 400)
     }
 
+    /// The Energy section: the roles some series has, the power added up, a line of levels per device and the days.
+    @Test func servesTheEnergySection() async throws {
+        let minute = Date(timeIntervalSince1970: (Date().timeIntervalSince1970 / 60).rounded(.down) * 60)
+        let clock = NIOLockedValueBox(minute.addingTimeInterval(-120))
+        let metrics = Metrics(directory: nil, now: { clock.withLockedValue { $0 } })
+        let environment = try UITestEnvironment(auth: .none, metrics: metrics)
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let browser = Browser(base: base)
+        #expect(try await browser.get("/api/metrics/energy").json?["roles"]?.arrayValue == [])
+
+        metrics.tag("plugin:Test:a:solar", EnergyTag(role: .solar, device: "A"))
+        metrics.tag("plugin:Test:b:solar", EnergyTag(role: .solar, device: "B"))
+        metrics.tag("plugin:Test:a:grid", EnergyTag(role: .grid, device: "A"))
+        metrics.tag("plugin:Test:a:level", EnergyTag(role: .batteryLevel, device: "A"))
+        metrics.record(600, series: "plugin:Test:a:solar")
+        metrics.record(300, series: "plugin:Test:b:solar")
+        metrics.record(-480, series: "plugin:Test:a:grid")
+        metrics.record(64, series: "plugin:Test:a:level")
+        clock.withLockedValue { $0 = minute }
+        metrics.record(1, series: "plugin:Test:untagged")
+
+        let energy = try #require(try await browser.get("/api/metrics/energy?timeZone=UTC").json)
+        #expect(energy["roles"]?.arrayValue == [.string("solar"), .string("grid"), .string("batteryLevel")])
+        #expect(energy["step"]?.doubleValue == 60)
+        let point = try #require(energy["power"]?.arrayValue?.first)
+        #expect(point["solar"]?.doubleValue == 900)
+        #expect(point["grid"]?.doubleValue == -480)
+        #expect(energy["levels"]?.arrayValue?.first?["device"]?.stringValue == "A")
+        #expect(energy["levels"]?.arrayValue?.first?["points"]?.arrayValue?.first?.arrayValue?.last?.doubleValue == 64)
+        let days = try #require(energy["days"]?.arrayValue)
+        #expect(days.count == 8)
+        // The minute just closed counts in today's energy, unless it was yesterday's last.
+        let today = days.first { $0["minutes"]?.doubleValue == 1 }
+        #expect(today?["solar"]?.doubleValue == 0.015)
+        #expect(today?["gridExport"]?.doubleValue == 0.008)
+        #expect(today?["solarShare"] == .null)
+        #expect(try await browser.get("/api/metrics/energy?from=2030-01-01T00:00:00Z&to=2029-01-01T00:00:00Z").status == 400)
+    }
+
     @Test func answersNotFoundWithoutARecorder() async throws {
         let environment = try UITestEnvironment(auth: .none)
         let base = try await environment.start()

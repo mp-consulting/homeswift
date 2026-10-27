@@ -279,12 +279,14 @@ public final class PluginContext: @unchecked Sendable {
     private let storageURL: URL
     private let assistantBox: NIOLockedValueBox<AssistantService?>
     private let assistantBackground: String?
-    private let recordSink: @Sendable (String, Double) -> Void
+    private let recordSink: @Sendable (String, Double, EnergyTag?) -> Void
 
     /// Records a reading for the Status page's history: a minute keeps the count, sum, lowest and highest of each
     /// series. The series is `plugin:<platform>:<series>`, so two plugins cannot collide. Cheap; call it per reading.
-    public func recordValue(_ value: Double, series: String) {
-        recordSink("plugin:\(platform):\(series)", value)
+    /// `energy` puts the series in the Status page's Energy section: its role (solar, home, grid, battery power or
+    /// level, in watts or percent, with the signs `EnergyRole` gives) and the device's name.
+    public func recordValue(_ value: Double, series: String, energy: EnergyTag? = nil) {
+        recordSink("plugin:\(platform):\(series)", value, energy)
     }
     // Mutable state is behind the lock; the class is otherwise immutable.
     private let list = NIOLockedValueBox<Entries>(Entries())
@@ -319,7 +321,7 @@ public final class PluginContext: @unchecked Sendable {
     init(
         platform: String, name: String, key: String, logger: Logger, bridge: PluginHost.Bridge, cache: AccessoryCache, storageURL: URL,
         assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories, assistantBackground: String? = nil,
-        recordSink: @escaping @Sendable (String, Double) -> Void = { _, _ in }
+        recordSink: @escaping @Sendable (String, Double, EnergyTag?) -> Void = { _, _, _ in }
     ) {
         self.recordSink = recordSink
         self.assistantBackground = assistantBackground

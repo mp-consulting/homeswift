@@ -1879,6 +1879,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       quick: () => window.HomeswiftHome?.quickSection(accessories),
       digest: () => status.assistant ? digestWidget() : null,
       activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
+      energy: () => energy(),
       bridges: () => [el("h2", { text: status.bridges.length === 1 ? t("Bridge") : t("Bridges and accessories") }),
       el("div", { class: "servers" }, ...bridges)],
       system: () => [el("h2", { text: t("System") }),
@@ -1964,7 +1965,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // Each user's own, kept on the server with their other preferences (/api/preferences, `dashboard`).
 
   const dashboardWidgets = [["overview", t("Overview"), t("Health, accessories, plugins, uptime")], ["quick", t("Quick controls"), t("Favourite accessories and scenes")], ["digest", t("Daily digest"), t("The Assistant's summary of the day")],
-    ["activity", t("Activity"), t("Memory, CPU and response times")], ["bridges", t("Bridges"), t("Pairing codes and what each bridge runs")], ["system", t("System"), t("The machine, and Restart")]];
+    ["activity", t("Activity"), t("Memory, CPU and response times")], ["energy", t("Energy"), t("Solar, home, grid and batteries")], ["bridges", t("Bridges"), t("Pairing codes and what each bridge runs")], ["system", t("System"), t("The machine, and Restart")]];
 
   /// The widgets in the user's order (new ones last), and those hidden.
   function dashboardLayout() {
@@ -2137,7 +2138,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     let refresh = null;
 
     function keepAddress() {
-      const query = new URLSearchParams();
+      // The Energy section's choices stay in the address.
+      const query = new URLSearchParams([...new URLSearchParams(location.search)].filter(([key]) => key.startsWith("energy")));
       range.address(query);
       const { kind, value } = sources.source();
       if (kind === "bridge") query.set("bridge", bridges.find((bridge) => bridge.deviceId === value)?.slug ?? value);
@@ -2216,6 +2218,176 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     load();
     return section;
+  }
+
+  /// The Status page's Energy section, from the readings plugins record with a role (`EnergyTag`): the power of solar,
+  /// the home, the grid (importing above zero) and the batteries (charging above zero), added up across devices; each
+  /// battery's level; and each day's energy in kWh. Hidden until some plugin records such readings. Its own range
+  /// (`energy` in the address, the last 24 hours by default); a range that ends now refreshes every minute.
+  function energy() {
+    const params = new URLSearchParams(location.search);
+    const range = rangeFilter(params, { key: "energy", fallback: "24h", changed: () => load() });
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const roles = [
+      { id: "solar", label: t("Solar"), tone: 5 },
+      { id: "home", label: t("Home [use]"), tone: 1 },
+      { id: "grid", label: t("Grid"), tone: 4 },
+      { id: "battery", label: t("Battery"), tone: 3 },
+    ];
+    const levelTones = [3, 1, 5, 4, 6, 2];
+    const card = (title, note) => {
+      const figure = el("b", { class: "chart-figure" });
+      const detail = el("div", { class: "muted chart-detail" });
+      const body = el("div", { class: "chart-body" });
+      const node = el("div", { class: "card chart-card" },
+        el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: title }), el("div", { class: "muted", text: note })), figure),
+        body, detail);
+      return { title, node, figure, detail, body, view: null, key: "" };
+    };
+    const power = card(t("Power [watts]"), t("Added up across devices: the grid above zero is imported, the battery above zero is charging"));
+    const levels = card(t("Battery level"), t("Each device's charge"));
+    const days = card(t("Energy by day"), t("Where the home's energy came from, above the line, and where the rest went, below it: today and the 7 days before"));
+    // Folded until asked for; it stays open across refreshes.
+    const dayTable = el("details", { class: "more chart-table" }, el("summary", { text: t("Show as a table") }));
+    const section = el("section", { class: "activity energy", hidden: true },
+      el("h2", { text: t("Energy") }),
+      el("div", { class: "filter-bar" }, range.picker, HomeswiftCommon.clearFilters([[range.picker, "24h"]]), range.customRow),
+      el("div", { class: "chart-grid" }, power.node, levels.node),
+      el("div", { class: "chart-grid energy-days" }, days.node));
+    let refresh = null;
+
+    function keepAddress() {
+      const query = new URLSearchParams([...new URLSearchParams(location.search)].filter(([key]) => !key.startsWith("energy")));
+      range.address(query);
+      const path = `${location.pathname}${query.size ? `?${query}` : ""}`;
+      if (path !== location.pathname + location.search) history.replaceState(null, "", path);
+    }
+    /// A chart drawn again with new points, made anew when its lines change (a device or a role appears).
+    function draw(chart, series, points, from, to, step, format) {
+      const key = series.map((one) => one.label).join("\n");
+      if (chart.view && chart.key === key) { chart.view.update(points, from, to, step); return; }
+      chart.body.replaceChildren();
+      chart.key = key;
+      chart.view = HomeswiftChart.lineChart(chart.body, { title: chart.title, series, format, unit: (max) => max >= 1000 ? 1000 : 1, points, from, to, step });
+    }
+    async function load() {
+      clearTimeout(refresh);
+      keepAddress();
+      const [from, end] = range.span() ?? [new Date(Date.now() - 86400000), null];
+      const to = end ?? new Date();
+      section.classList.add("loading");
+      let report;
+      try {
+        report = await api(`/api/metrics/energy?${new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), timeZone })}`);
+      } catch (e) {
+        if (e.status === 404) { section.remove(); return; }
+        power.detail.textContent = e.message;
+        section.classList.remove("loading");
+        return;
+      }
+      section.classList.remove("loading");
+      // No plugin records energy: the section stays hidden, and looks again with the next refresh.
+      section.hidden = !report.roles.length;
+      const step = report.step * 1000;
+      const shown = roles.filter((role) => report.roles.includes(role.id));
+      power.node.hidden = !shown.length;
+      if (shown.length) {
+        const points = report.power.map((point) => ({ ...point, time: point.t * 1000 }));
+        draw(power, shown.map((role) => ({ label: role.label, tone: role.tone, value: (point) => point[role.id] ?? null })), points, from.getTime(), to.getTime(), step, formatWatts);
+        const last = points.at(-1);
+        power.detail.textContent = last ? t("Latest: {values}", { values: shown.filter((role) => last[role.id] != null).map((role) => `${role.label} ${formatWatts(last[role.id])}`).join(" · ") }) : "";
+      }
+      levels.node.hidden = !report.levels.length;
+      if (report.levels.length) {
+        const byTime = new Map();
+        for (const level of report.levels) {
+          for (const [time, percent] of level.points) {
+            const point = byTime.get(time) ?? { time: time * 1000 };
+            point[level.series] = percent;
+            byTime.set(time, point);
+          }
+        }
+        const points = [...byTime.values()].sort((a, b) => a.time - b.time);
+        draw(levels, report.levels.map((level, index) => ({ label: level.device, tone: levelTones[index % levelTones.length], value: (point) => point[level.series] ?? null })),
+          points, from.getTime(), to.getTime(), step, formatPercent);
+        levels.detail.textContent = report.levels.filter((level) => level.points.length).map((level) => `${level.device} ${formatPercent(level.points.at(-1)[1])}`).join(" · ");
+      }
+      fillDays(report.days, report.roles);
+      if (!end) refresh = setTimeout(() => { if (section.isConnected && !document.hidden) load(); }, 60000);
+    }
+
+    /// Each day's energy as a bar, today last: above zero where the home's energy came from (solar as it was
+    /// produced, the batteries, the grid), below zero where the rest went (into the batteries, out to the grid); only
+    /// what some series records. The same figures as a table, folded until asked for, with solar produced and the
+    /// share of the home's use solar covered.
+    function fillDays(list, present) {
+      const has = (role) => present.includes(role);
+      const rest = (day) => Math.max(0, day.home - (has("solar") ? day.homeFromSolar : 0) - (has("grid") ? day.gridImport : 0));
+      const segments = [
+        has("home") && has("solar") ? { label: t("Home from solar"), tone: 5, value: (day) => day.homeFromSolar } : null,
+        has("home") && has("battery") ? { label: t("Home from batteries"), tone: 3, value: rest } : null,
+        has("home") && has("grid") ? { label: t("Home from the grid"), tone: 4, value: (day) => day.gridImport } : null,
+        has("home") && !has("battery") ? { label: has("solar") || has("grid") ? t("Other sources") : t("Home used"), tone: 1, value: rest } : null,
+        !has("home") && has("solar") ? { label: t("Solar produced"), tone: 5, value: (day) => day.solar } : null,
+        has("battery") ? { label: t("Into batteries"), tone: 1, value: (day) => -day.batteryCharge } : null,
+        has("grid") ? { label: t("Exported to the grid"), tone: 2, value: (day) => -day.gridExport } : null,
+      ].filter(Boolean);
+      const name = (date, index, format) => {
+        if (index === 0) return t("Today");
+        if (index === 1 && format === dayFormat) return t("Yesterday");
+        const [year, month, day] = date.split("-").map(Number);
+        return format.format(new Date(year, month - 1, day));
+      };
+      const bars = list.map((day, index) => ({ label: name(day.date, index, shortDay), narrow: String(Number(day.date.slice(8))), title: name(day.date, index, dayFormat), values: day.minutes ? day : null })).reverse();
+      const key = segments.map((one) => one.label).join("\n");
+      if (days.view && days.key === key) days.view.update(bars);
+      else {
+        days.body.replaceChildren();
+        days.key = key;
+        days.view = HomeswiftChart.stackedBars(days.body, { title: days.title, segments: segments.map((one) => ({ ...one, value: (values) => values ? one.value(values) : 0 })), bars, format: formatKWh, unit: () => 1 });
+        days.body.append(dayTable);
+      }
+      const today = list[0];
+      days.figure.textContent = today?.minutes && has("solar") ? formatKWh(today.solar) : "";
+      days.figure.title = today?.minutes && has("solar") ? t("Solar produced today") : "";
+      days.detail.textContent = t("A minute with nothing recorded counts as none.");
+
+      const columns = [
+        has("solar") ? [t("Solar produced"), (day) => day.solar, formatKWh] : null,
+        has("home") ? [t("Home used"), (day) => day.home, formatKWh] : null,
+        has("grid") ? [t("Grid import"), (day) => day.gridImport, formatKWh] : null,
+        has("grid") ? [t("Grid export"), (day) => day.gridExport, formatKWh] : null,
+        has("battery") ? [t("Battery charged"), (day) => day.batteryCharge, formatKWh] : null,
+        has("battery") ? [t("Battery discharged"), (day) => day.batteryDischarge, formatKWh] : null,
+        has("solar") && has("home") ? [t("Home from solar"), (day) => day.solarShare, (share) => formatPercent(share * 100)] : null,
+      ].filter(Boolean);
+      dayTable.replaceChildren(dayTable.firstChild, el("div", { class: "table-scroll" }, el("table", {},
+        el("thead", {}, el("tr", {}, el("th", { scope: "col", class: "time", text: t("Day") }), columns.map(([title]) => el("th", { scope: "col", text: title })))),
+        el("tbody", {}, list.map((day, index) => el("tr", {},
+          el("th", { scope: "row", class: "time", text: name(day.date, index, dayFormat) }),
+          columns.map(([, value, format]) => {
+            const one = day.minutes ? value(day) : null;
+            return el("td", { class: one == null ? "empty" : "", text: one == null ? "–" : format(one) });
+          })))))));
+    }
+
+    load();
+    return section;
+  }
+  const dayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", month: "short" });
+  const shortDay = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
+
+  /// Watts, as kW from 1 kW (or when `top`, the axis's highest, is); a minus sign below zero.
+  function formatWatts(watts, top = Math.abs(watts)) {
+    const kilo = Math.max(Math.abs(watts), top) >= 1000;
+    const value = kilo ? watts / 1000 : watts;
+    const digits = kilo && Math.abs(value) < 10 ? (Number.isInteger(value) ? 0 : 1) : 0;
+    return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${kilo ? "kW" : "W"}`;
+  }
+  /// Kilowatt-hours, two decimals under 10; an axis's tick (with `top`) a whole number when it is one.
+  function formatKWh(kWh, top) {
+    const digits = top != null && Number.isInteger(kWh) ? 0 : Math.abs(kWh) < 10 ? 2 : 1;
+    return `${kWh.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
   }
 
   /// Bytes as MB, or GB from 1 GB; `top`, the axis's highest, keeps a chart's ticks in one unit.
@@ -4418,15 +4590,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("Last 7 days")], ["custom", t("Custom range…")]];
 
   /// A time range menu whose first choice is the default (`latest`, the Logs page's latest lines, only when asked
-  /// for), with the From and To of a custom range in `customRow`. `changed` runs on a choice.
-  function rangeFilter(params, { latest = false, changed }) {
+  /// for) unless `fallback` names another, with the From and To of a custom range in `customRow`. `changed` runs on a
+  /// choice. The address keeps it as `since`, `from` and `to`, or `<key>`, `<key>-from` and `<key>-to` with a `key`
+  /// (a second range on a page).
+  function rangeFilter(params, { latest = false, changed, key = null, fallback: wanted = null }) {
     const choices = rangeChoices.filter(([value]) => latest || value !== "latest");
-    const fallback = choices[0][0];
-    const since = choices.some(([value]) => value === params.get("since")) ? params.get("since") : fallback;
+    const fallback = wanted ?? choices[0][0];
+    const names = key ? { since: key, from: `${key}-from`, to: `${key}-to` } : { since: "since", from: "from", to: "to" };
+    const since = choices.some(([value]) => value === params.get(names.since)) ? params.get(names.since) : fallback;
     const picker = el("select", { class: `popup ${since === fallback ? "" : "chosen"}`, "aria-label": t("Time range") }, choices.map(([value, text]) => el("option", { value, text, selected: value === since })));
     const localInput = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    const fromInput = el("input", { type: "datetime-local", "aria-label": t("From"), value: params.get("from") ?? localInput(new Date(Date.now() - 3600000)) });
-    const toInput = el("input", { type: "datetime-local", "aria-label": t("To"), value: params.get("to") ?? localInput(new Date()) });
+    const fromInput = el("input", { type: "datetime-local", "aria-label": t("From"), value: params.get(names.from) ?? localInput(new Date(Date.now() - 3600000)) });
+    const toInput = el("input", { type: "datetime-local", "aria-label": t("To"), value: params.get(names.to) ?? localInput(new Date()) });
     const customRow = el("div", { class: `log-range ${since === "custom" ? "" : "hidden"}` },
       el("label", {}, t("From"), fromInput), el("label", {}, t("To"), toInput),
       el("button", { actionIcon: "eye", text: t("Show"), onclick: () => changed() }));
@@ -4457,8 +4632,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       },
       /// Adds the choice to a page's address: `since`, and `from` and `to` for a custom range.
       address(query) {
-        if (picker.value !== fallback) query.set("since", picker.value);
-        if (picker.value === "custom") { query.set("from", fromInput.value); if (toInput.value) query.set("to", toInput.value); }
+        if (picker.value !== fallback) query.set(names.since, picker.value);
+        if (picker.value === "custom") { query.set(names.from, fromInput.value); if (toInput.value) query.set(names.to, toInput.value); }
       },
     };
   }
@@ -5368,7 +5543,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
 """#),
         "charts.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
-// Line charts over time for the Status page: memory, CPU, request durations. One axis each, 2px lines, an area wash
+// Line charts over time (and stacked bars, a bar per day) for the Status page: memory, CPU, request durations, energy. One axis each (below zero too,
+// with a zero line, for a power that flows both ways), 2px lines, an area wash
 // under a single series, a legend once there are two, hairline grid. A crosshair snaps to the nearest point and a
 // tooltip lists every series there, on hover and with the arrow keys once the chart has focus. Points further apart
 // than a step and a half leave a gap: nothing was recorded (homeswift was not running); a point without a value for a
@@ -5402,6 +5578,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return step * 4 * unit;
   }
 
+  /// A round step at or above `raw`: 1, 2, 2.5 or 5 times a power of ten of `unit`.
+  function niceStep(raw, unit = 1) {
+    if (!(raw > 0)) return unit;
+    const power = 10 ** Math.floor(Math.log10(raw / unit));
+    return [1, 2, 2.5, 5, 10].map((m) => m * power).find((s) => s >= raw / unit) * unit;
+  }
+
   /// Times along the x axis: whole minutes, hours or days, about `count` of them.
   function timeTicks(from, to, count) {
     const span = to - from;
@@ -5429,7 +5612,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const dayName = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
   const fullTime = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
 
-  /// A chart in `container`: `series` are `{ label, value(point), tone }` (tone 1 or 2, the palette's slots),
+  /// A chart in `container`: `series` are `{ label, value(point), tone }` (tone 1 to 6, the palette's slots),
   /// `points` have `time` (a Date), `from` and `to` bound the x axis, `step` is the points' spacing in ms and
   /// `format` writes a value with its unit and `unit(max)` is the size of that unit, so ticks fall on round values
   /// of it. Returns `update(points, from, to, step)`.
@@ -5457,18 +5640,28 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const { points, from, to, step } = state;
       const plotWidth = width - pad.left - pad.right, plotHeight = height - pad.top - pad.bottom;
       const values = points.flatMap((point) => series.map((one) => one.value(point))).filter((v) => v != null);
-      const highest = Math.max(0, ...values);
-      const top = niceMax(highest, unit(highest));
+      const highest = Math.max(0, ...values), lowest = Math.min(0, ...values);
+      // From zero to four round steps up; with values below zero, round steps from below the lowest to above the highest.
+      let top = niceMax(highest, unit(highest)), bottom = 0, ticks = [0, 1, 2, 3, 4].map((i) => top / 4 * i);
+      if (lowest < 0) {
+        const size = Math.max(highest, -lowest);
+        const step = niceStep((highest - lowest) / 4, unit(size));
+        top = Math.max(step, Math.ceil(highest / step) * step);
+        bottom = Math.floor(lowest / step) * step;
+        ticks = [];
+        for (let value = bottom; value <= top + step / 2; value += step) ticks.push(value);
+      }
+      const scale = Math.max(top, -bottom);
       const x = (time) => pad.left + (time - from) / Math.max(to - from, 1) * plotWidth;
-      const y = (value) => pad.top + plotHeight - value / top * plotHeight;
+      const y = (value) => pad.top + plotHeight - (value - bottom) / (top - bottom) * plotHeight;
 
       const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": points.length ? t("{title}, drawn over time", { title }) : t("{title}, nothing recorded", { title }) });
       root.setAttribute("tabindex", "0");
-      for (let i = 0; i <= 4; i++) {
-        const value = top / 4 * i, at = y(value);
-        root.append(svg("line", { x1: pad.left, x2: width - pad.right, y1: at, y2: at, class: "grid" }));
+      for (const value of ticks) {
+        const at = y(value);
+        root.append(svg("line", { x1: pad.left, x2: width - pad.right, y1: at, y2: at, class: value === 0 && bottom < 0 ? "grid zero" : "grid" }));
         const label = svg("text", { x: pad.left - 8, y: at + 4, class: "tick", "text-anchor": "end" });
-        label.textContent = format(value, top);
+        label.textContent = format(value, scale);
         root.append(label);
       }
       for (const tick of timeTicks(from, to, Math.max(2, Math.floor(plotWidth / 90)))) {
@@ -5581,7 +5774,109 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
   }
 
-  window.HomeswiftChart = { lineChart };
+  /// Stacked bars in `container`, one per item of `bars` (`{ label, narrow, title, values }`, oldest first; `narrow` under a
+  /// bar too narrow for its label): `segments` are
+  /// `{ label, tone, value(values) }`, stacked up from zero for a positive value and down for a negative one, so a bar
+  /// can show what came in above the line and what went out below it. `format` writes a value with its unit and
+  /// `unit(max)` sizes the ticks, as for `lineChart`. A tooltip lists a bar's segments, on hover and with the arrow keys.
+  /// Returns `update(bars)`.
+  function stackedBars(container, { title, segments, bars, format, unit = () => 1 }) {
+    const frame = html("div", "chart-frame");
+    const tooltip = html("div", "chart-tooltip hidden");
+    tooltip.setAttribute("role", "status");
+    frame.append(tooltip);
+    container.append(frame);
+    const legend = html("div", "chart-legend");
+    for (const one of segments) {
+      const item = html("span", "", null);
+      item.append(html("i", `key bar tone-${one.tone}`), document.createTextNode(one.label));
+      legend.append(item);
+    }
+    container.append(legend);
+    let state = bars;
+    let chosen = null;
+    let drawn = null;
+
+    function draw() {
+      const width = Math.max(frame.clientWidth, 240);
+      const bars = state;
+      const plotWidth = width - pad.left - pad.right, plotHeight = height - pad.top - pad.bottom;
+      const sums = bars.map((bar) => segments.map((one) => one.value(bar.values) ?? 0));
+      const highest = Math.max(0, ...sums.map((list) => list.filter((v) => v > 0).reduce((a, b) => a + b, 0)));
+      const lowest = Math.min(0, ...sums.map((list) => list.filter((v) => v < 0).reduce((a, b) => a + b, 0)));
+      const size = Math.max(highest, -lowest);
+      const step = niceStep((highest - lowest) / 5 || 1, unit(size));
+      const top = Math.max(lowest < 0 ? 0 : step, Math.ceil(highest / step) * step), bottom = Math.floor(lowest / step) * step;
+      const y = (value) => pad.top + plotHeight - (value - bottom) / Math.max(top - bottom, 1e-9) * plotHeight;
+      const slot = plotWidth / Math.max(bars.length, 1), barWidth = Math.min(44, slot * 0.62);
+      const x = (index) => pad.left + slot * index + slot / 2;
+
+      const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": t("{title}, a bar per day", { title }) });
+      root.setAttribute("tabindex", "0");
+      for (let value = bottom; value <= top + step / 2; value += step) {
+        const at = y(value);
+        root.append(svg("line", { x1: pad.left, x2: width - pad.right, y1: at, y2: at, class: value === 0 && bottom < 0 ? "grid zero" : "grid" }));
+        const label = svg("text", { x: pad.left - 8, y: at + 4, class: "tick", "text-anchor": "end" });
+        label.textContent = format(value, size);
+        root.append(label);
+      }
+      const hover = svg("rect", { y: pad.top, height: plotHeight, width: slot, class: "bar-hover hidden", rx: 6 });
+      root.append(hover);
+      bars.forEach((bar, index) => {
+        let up = 0, down = 0;
+        segments.forEach((one, i) => {
+          const value = sums[index][i];
+          if (!value) return;
+          const from = value > 0 ? up : down, to = from + value;
+          if (value > 0) up = to; else down = to;
+          root.append(svg("rect", { x: x(index) - barWidth / 2, width: barWidth, y: Math.min(y(from), y(to)), height: Math.max(0.5, Math.abs(y(to) - y(from))), class: `bar tone-${one.tone}` }));
+        });
+        const label = svg("text", { x: x(index), y: height - 6, class: "tick", "text-anchor": "middle" });
+        label.textContent = slot < 64 && bar.narrow ? bar.narrow : bar.label;
+        root.append(label);
+      });
+      frame.querySelector("svg")?.remove();
+      frame.prepend(root);
+      drawn = { root };
+
+      const show = (index) => {
+        chosen = index;
+        if (index == null || !bars[index]) { hover.classList.add("hidden"); tooltip.classList.add("hidden"); return; }
+        hover.setAttribute("x", x(index) - slot / 2);
+        hover.classList.remove("hidden");
+        tooltip.replaceChildren(html("div", "chart-time", bars[index].title ?? bars[index].label));
+        segments.forEach((one, i) => {
+          const row = html("div", "chart-row");
+          row.append(html("i", `key bar tone-${one.tone}`), html("b", "", format(Math.abs(sums[index][i]))), html("span", "muted", one.label));
+          tooltip.append(row);
+        });
+        tooltip.classList.remove("hidden");
+        const px = x(index), left = px + slot / 2 + 8 + tooltip.offsetWidth > width ? px - slot / 2 - 8 - tooltip.offsetWidth : px + slot / 2 + 8;
+        tooltip.style.left = `${Math.max(0, left)}px`;
+      };
+      const nearest = (clientX) => bars.length ? Math.min(bars.length - 1, Math.max(0, Math.floor((clientX - root.getBoundingClientRect().left - pad.left) / slot))) : null;
+      root.addEventListener("pointermove", (event) => show(nearest(event.clientX)));
+      root.addEventListener("pointerleave", () => { if (document.activeElement !== root) show(null); });
+      root.addEventListener("blur", () => show(null));
+      root.addEventListener("focus", () => show(chosen ?? (bars.length ? bars.length - 1 : null)));
+      root.addEventListener("keydown", (event) => {
+        const moves = { ArrowLeft: -1, ArrowRight: 1, Home: -Infinity, End: Infinity };
+        if (!bars.length || !(event.key in moves)) return;
+        event.preventDefault();
+        show(Math.min(bars.length - 1, Math.max(0, (chosen ?? bars.length - 1) + moves[event.key])));
+      });
+    }
+
+    const resize = new ResizeObserver(() => {
+      if (!frame.isConnected) { resize.disconnect(); return; }
+      if (frame.clientWidth && Math.abs(frame.clientWidth - (drawn ? Number(drawn.root.getAttribute("width")) : 0)) > 1) draw();
+    });
+    resize.observe(frame);
+    draw();
+    return { update(bars) { state = bars; chosen = null; tooltip.classList.add("hidden"); draw(); } };
+  }
+
+  window.HomeswiftChart = { lineChart, stackedBars };
 })();
 
 """#),
@@ -11156,7 +11451,35 @@ HomeswiftI18n.add("es", {
   "Categories": "Categorías",
   "Yes": "Sí",
   "No": "No",
-  "Not in the Home app:": "No están en la app Casa:"
+  "Not in the Home app:": "No están en la app Casa:",
+
+  "Energy": "Energía",
+  "Solar, home, grid and batteries": "Solar, casa, red y baterías",
+  "Solar": "Solar",
+  "Home [use]": "Casa",
+  "Grid": "Red",
+  "Added up across devices: the grid above zero is imported, the battery above zero is charging": "Sumada entre todos los dispositivos: la red por encima de cero se importa, la batería por encima de cero se carga",
+  "Battery level": "Nivel de batería",
+  "Each device's charge": "La carga de cada dispositivo",
+  "Energy by day": "Energía por día",
+  "Latest: {values}": "Últimos valores: {values}",
+  "Solar produced": "Solar producida",
+  "Home used": "Consumo de la casa",
+  "Grid import": "Importación de la red",
+  "Grid export": "Exportación a la red",
+  "Battery charged": "Batería cargada",
+  "Battery discharged": "Batería descargada",
+  "Home from solar": "Casa cubierta por solar",
+  "Solar produced today": "Solar producida hoy",
+  "Day": "Día",
+  "A minute with nothing recorded counts as none.": "Un minuto sin datos cuenta como cero.",
+  "Where the home's energy came from, above the line, and where the rest went, below it: today and the 7 days before": "De dónde vino la energía de la casa, por encima de la línea, y adónde fue el resto, por debajo: hoy y los 7 días anteriores",
+  "Home from batteries": "Casa desde las baterías",
+  "Home from the grid": "Casa desde la red",
+  "Other sources": "Otras fuentes",
+  "Into batteries": "Hacia las baterías",
+  "Exported to the grid": "Exportado a la red",
+  "{title}, a bar per day": "{title}, una barra por día"
 });
 
 """#),
@@ -13326,7 +13649,35 @@ HomeswiftI18n.add("fr", {
   "Categories": "Catégories",
   "Yes": "Oui",
   "No": "Non",
-  "Not in the Home app:": "Absents de l'app Maison :"
+  "Not in the Home app:": "Absents de l'app Maison :",
+
+  "Energy": "Énergie",
+  "Solar, home, grid and batteries": "Solaire, maison, réseau et batteries",
+  "Solar": "Solaire",
+  "Home [use]": "Maison",
+  "Grid": "Réseau",
+  "Added up across devices: the grid above zero is imported, the battery above zero is charging": "Additionnée sur tous les appareils : le réseau au-dessus de zéro est importé, la batterie au-dessus de zéro se charge",
+  "Battery level": "Niveau de batterie",
+  "Each device's charge": "La charge de chaque appareil",
+  "Energy by day": "Énergie par jour",
+  "Latest: {values}": "Dernières valeurs : {values}",
+  "Solar produced": "Solaire produit",
+  "Home used": "Consommation de la maison",
+  "Grid import": "Import du réseau",
+  "Grid export": "Export vers le réseau",
+  "Battery charged": "Batterie chargée",
+  "Battery discharged": "Batterie déchargée",
+  "Home from solar": "Maison couverte par le solaire",
+  "Solar produced today": "Solaire produit aujourd’hui",
+  "Day": "Jour",
+  "A minute with nothing recorded counts as none.": "Une minute sans relevé compte pour zéro.",
+  "Where the home's energy came from, above the line, and where the rest went, below it: today and the 7 days before": "D’où venait l’énergie de la maison, au-dessus de la ligne, et où est allé le reste, en dessous : aujourd’hui et les 7 jours précédents",
+  "Home from batteries": "Maison depuis les batteries",
+  "Home from the grid": "Maison depuis le réseau",
+  "Other sources": "Autres sources",
+  "Into batteries": "Vers les batteries",
+  "Exported to the grid": "Exporté vers le réseau",
+  "{title}, a bar per day": "{title}, une barre par jour"
 });
 
 """#),
@@ -15496,7 +15847,35 @@ HomeswiftI18n.add("pt", {
   "Categories": "Categorias",
   "Yes": "Sim",
   "No": "Não",
-  "Not in the Home app:": "Fora da app Casa:"
+  "Not in the Home app:": "Fora da app Casa:",
+
+  "Energy": "Energia",
+  "Solar, home, grid and batteries": "Solar, casa, rede e baterias",
+  "Solar": "Solar",
+  "Home [use]": "Casa",
+  "Grid": "Rede",
+  "Added up across devices: the grid above zero is imported, the battery above zero is charging": "Somada em todos os dispositivos: a rede acima de zero é importada, a bateria acima de zero está a carregar",
+  "Battery level": "Nível da bateria",
+  "Each device's charge": "A carga de cada dispositivo",
+  "Energy by day": "Energia por dia",
+  "Latest: {values}": "Últimos valores: {values}",
+  "Solar produced": "Solar produzida",
+  "Home used": "Consumo da casa",
+  "Grid import": "Importação da rede",
+  "Grid export": "Exportação para a rede",
+  "Battery charged": "Bateria carregada",
+  "Battery discharged": "Bateria descarregada",
+  "Home from solar": "Casa coberta pelo solar",
+  "Solar produced today": "Solar produzida hoje",
+  "Day": "Dia",
+  "A minute with nothing recorded counts as none.": "Um minuto sem registos conta como zero.",
+  "Where the home's energy came from, above the line, and where the rest went, below it: today and the 7 days before": "De onde veio a energia da casa, acima da linha, e para onde foi o resto, abaixo: hoje e os 7 dias anteriores",
+  "Home from batteries": "Casa a partir das baterias",
+  "Home from the grid": "Casa a partir da rede",
+  "Other sources": "Outras fontes",
+  "Into batteries": "Para as baterias",
+  "Exported to the grid": "Exportado para a rede",
+  "{title}, a bar per day": "{title}, uma barra por dia"
 });
 
 """#),
@@ -17187,6 +17566,8 @@ HomeswiftI18n.add("pt", {
   --accent-ink: #b0460a; --accent-fill-top: #c4500c; --accent-fill: #ab3f0a;
   /* Chart series, slots 1 and 2 of a palette checked for colour-blind separation and contrast, each mode its own step. */
   --series-1: #2a78d6; --series-2: #eb6834;
+  /* Slots 3 to 6 for the Energy section's roles and its battery lines: green, violet, amber, teal. */
+  --series-3: #2a9a58; --series-4: #8a5cd6; --series-5: #c98f00; --series-6: #18958b;
   /* Blue that carries small text (the Encrypted pill) at 4.5:1 on its tint; --series-1 stays for marks and bars. */
   --series-1-ink: #1d5fae;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -17209,6 +17590,7 @@ HomeswiftI18n.add("pt", {
     --text: #f3f4f7; --muted: #a2a9b5; --line: rgba(255, 255, 255, 0.1);
     --warn: #e9a04a; --paused: #8e8cff; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #ff8f3d;
     --series-1: #3987e5; --series-2: #d95926; --series-1-ink: #6aa6ee;
+    --series-3: #3fb46c; --series-4: #a27fea; --series-5: #e3ae2a; --series-6: #34b5a9;
   }
 }
 /* A theme chosen in the web UI (/appearance) rather than the system's: common.js sets data-theme. */
@@ -17228,6 +17610,7 @@ HomeswiftI18n.add("pt", {
   --text: #f3f4f7; --muted: #a2a9b5; --line: rgba(255, 255, 255, 0.1);
   --warn: #e9a04a; --paused: #8e8cff; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #ff8f3d;
   --series-1: #3987e5; --series-2: #d95926; --series-1-ink: #6aa6ee;
+  --series-3: #3fb46c; --series-4: #a27fea; --series-5: #e3ae2a; --series-6: #34b5a9;
 }
 * { box-sizing: border-box; }
 /* Hidden means hidden, whatever display a component's class gives it. */
@@ -18321,6 +18704,10 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .filter-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }
 .filter-bar .popup { max-width: 260px; }
 .chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 14px; transition: opacity var(--normal) var(--ease-out); }
+/* The Energy section's days: one card the width of the row, its table under the head. */
+.chart-grid.energy-days { grid-template-columns: minmax(0, 1fr); margin-top: 14px; }
+.energy-days .chart-table { margin-top: 0; }
+.energy-days .chart-table thead th.time { text-align: left; }
 .chart-card { margin: 0; display: grid; gap: 10px; align-content: start; min-width: 0; }
 .chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .chart-head .muted { font-size: 0.8125rem; }
@@ -18336,15 +18723,36 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .chart .area { stroke: none; opacity: 0.1; }
 .chart .dot { stroke: var(--material-solid); stroke-width: 2; }
 .chart .crosshair { stroke: var(--muted); stroke-width: 1; opacity: 0.6; }
+.chart .grid.zero { stroke: var(--muted); opacity: 0.5; }
 .chart .line.tone-1 { stroke: var(--series-1); }
 .chart .line.tone-2 { stroke: var(--series-2); }
+.chart .line.tone-3 { stroke: var(--series-3); }
+.chart .line.tone-4 { stroke: var(--series-4); }
+.chart .line.tone-5 { stroke: var(--series-5); }
+.chart .line.tone-6 { stroke: var(--series-6); }
 .chart .area.tone-1, .chart .dot.tone-1 { fill: var(--series-1); }
 .chart .area.tone-2, .chart .dot.tone-2 { fill: var(--series-2); }
-.chart-legend { display: flex; gap: 14px; font-size: 0.8125rem; color: var(--muted); }
-.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.chart .area.tone-3, .chart .dot.tone-3 { fill: var(--series-3); }
+.chart .area.tone-4, .chart .dot.tone-4 { fill: var(--series-4); }
+.chart .area.tone-5, .chart .dot.tone-5 { fill: var(--series-5); }
+.chart .area.tone-6, .chart .dot.tone-6 { fill: var(--series-6); }
+.chart .bar.tone-1 { fill: var(--series-1); }
+.chart .bar.tone-2 { fill: var(--series-2); }
+.chart .bar.tone-3 { fill: var(--series-3); }
+.chart .bar.tone-4 { fill: var(--series-4); }
+.chart .bar.tone-5 { fill: var(--series-5); }
+.chart .bar.tone-6 { fill: var(--series-6); }
+.chart .bar-hover { fill: var(--material-thin); }
+.chart-legend .key.bar, .chart-tooltip .key.bar { width: 10px; height: 10px; border-radius: 3px; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.8125rem; color: var(--muted); }
+.chart-legend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .chart-legend .key, .chart-tooltip .key { display: inline-block; width: 12px; height: 2px; border-radius: 1px; }
 .key.tone-1 { background: var(--series-1); }
 .key.tone-2 { background: var(--series-2); }
+.key.tone-3 { background: var(--series-3); }
+.key.tone-4 { background: var(--series-4); }
+.key.tone-5 { background: var(--series-5); }
+.key.tone-6 { background: var(--series-6); }
 .chart-tooltip {
   position: absolute; top: 4px; z-index: 2; pointer-events: none; padding: 8px 10px; border-radius: 12px; min-width: 132px;
   background: var(--material-solid); border: 1px solid var(--edge); box-shadow: var(--shadow-control); font-size: 0.8125rem;
