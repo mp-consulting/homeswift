@@ -326,7 +326,9 @@ included (find TVs, pair one, check a light's address; `docs/plugins.md`).
   it from a phone or another computer. Safari sends the audio to Apple and Chrome to Google for recognition.
 - **Conversations are kept**, per user, in `ui-chats.json` (owner-only): the open one, which a reload, another
   browser or a restart finds, and the ten before it. **New chat** files the open one away; **Earlier chats**
-  (the clock) lists them and opens one again where it was, the Assistant remembering it, or forgets one. Each
+  (the clock) lists them and opens one again where it was, the Assistant remembering it, or forgets one. The copy
+  button puts the conversation on the clipboard as Markdown (the messages, the steps and the changes asked for, not
+  the tools' arguments or answers), to paste in a report when something went wrong. Each
   answer's cost shows under the field for priced models.
 - **Cmd+K** (Ctrl+K elsewhere) opens and closes the chat from any page.
 

@@ -9,7 +9,7 @@
 // and closes when a flick would carry it past half its height. Reduced motion cross-fades instead.
 (() => {
   "use strict";
-  const { $, el, icon, markdown, sparkle, api, jsonView } = HomeswiftCommon;
+  const { $, el, icon, markdown, sparkle, api, jsonView, copyText } = HomeswiftCommon;
   const { t, tn } = HomeswiftI18n;
 
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
@@ -95,17 +95,19 @@
     const close = el("button", { type: "button", class: "chat-icon", "aria-label": t("Close"), title: t("Close (Esc)"), text: "×", onclick: () => toggle(false) });
     const fresh = el("button", { type: "button", class: "chat-icon", "aria-label": t("New chat"), title: t("New chat"), onclick: reset });
     fresh.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h8M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
+    const copy = el("button", { type: "button", class: "chat-icon", title: t("Copy the conversation"), onclick: copyConversation });
     const earlier = el("button", { type: "button", class: "chat-icon", "aria-label": t("Earlier chats"), title: t("Earlier chats"), "aria-expanded": "false", onclick: () => showHistory() }, icon("history"));
     const head = el("div", { class: "chat-head" },
       el("span", { class: "chat-grabber", "aria-hidden": "true" }),
       sparkle(), el("strong", { id: "chat-title", text: t("Assistant") }), el("span", { class: "chat-model", text: info.model || "" }),
-      el("span", { class: "spacer" }), earlier, fresh, close);
+      el("span", { class: "spacer" }), copy, earlier, fresh, close);
     const sheet = el("section", { class: "chat", role: "dialog", "aria-labelledby": "chat-title", hidden: true },
       el("div", { class: "chat-glow", "aria-hidden": "true" }),
       el("div", { class: "chat-surface" }, head, log, form, voice, foot));
     const scrim = el("div", { class: "chat-scrim", hidden: true, onclick: () => toggle(false) });
     document.body.append(scrim, sheet);
-    panel = { sheet, scrim, log, input, mic, send, foot, head, languagePicker, earlier };
+    panel = { sheet, scrim, log, input, mic, send, foot, head, languagePicker, earlier, copy };
+    showCopied(false);
 
     input.addEventListener("input", grow);
     input.addEventListener("keydown", (event) => {
@@ -444,6 +446,54 @@
     default:
       return el("p", { class: "chat-error", role: "alert", text: HomeswiftI18n.message(item.text) });
     }
+  }
+
+  /// The conversation as Markdown, to paste in a report when something went wrong: the messages, the steps and
+  /// the changes asked for, without the tools' arguments or answers.
+  function transcript() {
+    const status = { running: t("(running)"), failed: t("(failed)"), declined: t("(not allowed)") };
+    const lines = [`# ${t("Assistant")}${info.model ? ` · ${info.model}` : ""} · ${new Date().toLocaleString(HomeswiftI18n.locale)}`, ""];
+    for (const item of items) {
+      switch (item.kind) {
+      case "user": lines.push(`**${t("You")}:** ${item.text}`, ""); break;
+      case "assistant": lines.push(`**${t("Assistant")}:** ${item.text}`, ""); break;
+      case "tool": lines.push(`- ${item.title}${item.summary ? ` · ${item.summary}` : ""} \`${item.name}\` ${status[item.state] ?? t("(done)")}`); break;
+      case "confirm": lines.push(`- ${describe(item)} ${item.state === "pending" ? "" : item.state === "allowed" ? t("Allowed") : t("Not allowed")}`.trimEnd()); break;
+      default: lines.push(`> ${HomeswiftI18n.message(item.text)}`, "");
+      }
+    }
+    return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
+  }
+
+  let copiedTimer = null;
+
+  /// The copy button as it is, or showing that it worked (a check, for two seconds).
+  function showCopied(copied) {
+    panel.copy.replaceChildren(icon(copied ? "check" : "copy"));
+    panel.copy.setAttribute("aria-label", copied ? t("Copied") : t("Copy the conversation"));
+  }
+
+  async function copyConversation() {
+    clearTimeout(copiedTimer);
+    let note;
+    if (!items.length) {
+      note = t("Nothing to copy yet.");
+    } else {
+      try {
+        await copyText(transcript());
+        showCopied(true);
+        note = t("Conversation copied: paste it where you report the problem.");
+      } catch (e) {
+        note = e.message;
+      }
+    }
+    voiceNote = note;
+    renderControls();
+    // Only this note goes: one the mic wrote since stays.
+    copiedTimer = setTimeout(() => {
+      showCopied(false);
+      if (voiceNote === note) { voiceNote = ""; renderControls(); }
+    }, 2000);
   }
 
   /// A change the Assistant wants to make: what it is in words, the details on demand, and the choice.
